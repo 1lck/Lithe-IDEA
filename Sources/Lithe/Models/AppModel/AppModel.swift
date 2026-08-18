@@ -40,6 +40,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
 final class AppModel: ObservableObject, Identifiable {
     let id = UUID()
     @Published private(set) var workspaceURL: URL?
+    @Published private(set) var standaloneFileURL: URL?
     @Published var selectedSidebar: SidebarDestination = .project {
         didSet {
             if selectedSidebar == .changes, oldValue != .changes {
@@ -600,10 +601,16 @@ final class AppModel: ObservableObject, Identifiable {
                 self?.withHistoryModule { $0.recordExternalChanges(paths) }
             },
             onDocumentCollectionChanged: { [weak self] in
-                self?.workspaceFeature.scheduleWorkspaceSessionPersistence()
+                guard let self, self.workspaceURL != nil else { return }
+                self.workspaceFeature.scheduleWorkspaceSessionPersistence()
             },
             onProjectCloseReady: { [weak self] in
-                self?.performCloseProject()
+                guard let self else { return }
+                if self.workspaceURL != nil {
+                    self.performCloseProject()
+                } else if self.standaloneFileURL != nil {
+                    self.performCloseStandaloneFile()
+                }
             }
         )
         documentFeatureObservation = documentFeature.objectWillChange.sink { [weak self] _ in
@@ -969,6 +976,7 @@ final class AppModel: ObservableObject, Identifiable {
         gitLogSearchQuery = ""
         projectHistoryFeatureIfActive?.reset()
         workspaceURL = normalizedURL
+        standaloneFileURL = nil
         let visibilityRules = settings.fileVisibilityRules
         workspaceFeature.beginWorkspace(at: normalizedURL, visibilityRules: visibilityRules)
         selectedSidebar = .project
@@ -997,6 +1005,14 @@ final class AppModel: ObservableObject, Identifiable {
         }
     }
 
+    func closeStandaloneFile() {
+        guard standaloneFileURL != nil else { return }
+        guard documentFeature.beginProjectClose() else {
+            performCloseStandaloneFile()
+            return
+        }
+    }
+
     private func performCloseProject() {
         Task { [weak self] in
             guard let self else { return }
@@ -1010,6 +1026,7 @@ final class AppModel: ObservableObject, Identifiable {
         }
         stopAccessingWorkspace()
         workspaceURL = nil
+        standaloneFileURL = nil
         reloadLanguageProviderCatalog(for: nil)
         selectedSidebar = .project
         workspaceFeature.reset()
@@ -1060,6 +1077,16 @@ final class AppModel: ObservableObject, Identifiable {
         didCloseProject?()
     }
 
+    private func performCloseStandaloneFile() {
+        standaloneFileURL = nil
+        documentFeature.reset()
+        isFindBarVisible = false
+        findBarQuery = ""
+        findMatchCount = 0
+        currentFindMatchIndex = 0
+        didCloseProject?()
+    }
+
     private func stopAccessingWorkspace() {
         guard let securityScopedWorkspaceURL else { return }
         platformUI.stopAccessingProject(securityScopedWorkspaceURL)
@@ -1094,6 +1121,16 @@ final class AppModel: ObservableObject, Identifiable {
         selectedChange = nil
         closeBranchComparison()
         documentFeature.openFile(url, isReadOnly: isReadOnly, displayPath: displayPath)
+    }
+
+    func openStandaloneFile(_ url: URL) {
+        let normalizedURL = url.standardizedFileURL
+        workspaceURL = nil
+        standaloneFileURL = normalizedURL
+        documentFeature.reset()
+        isFindBarVisible = false
+        findBarQuery = ""
+        documentFeature.openStandaloneFile(normalizedURL)
     }
 
     func javaIconKind(for url: URL) async -> LitheIconKind? {

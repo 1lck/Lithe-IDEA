@@ -118,7 +118,9 @@ struct RootView: View {
     @ViewBuilder
     private func projectContent(for session: AppModel) -> some View {
         Group {
-            if session.workspaceURL == nil {
+            if session.standaloneFileURL != nil {
+                StandaloneEditorView()
+            } else if session.workspaceURL == nil {
                 WelcomeView()
             } else {
                 WorkbenchView()
@@ -140,10 +142,15 @@ struct RootView: View {
     }
 
     private var windowLayout: LitheWindowLayout {
-        projectSessions.activeModel.workspaceURL == nil ? .welcome : .workspace
+        let activeModel = projectSessions.activeModel
+        if activeModel.standaloneFileURL != nil { return .standalone }
+        return activeModel.workspaceURL == nil ? .welcome : .workspace
     }
 
     private var windowTitle: String? {
+        if windowLayout == .standalone {
+            return projectSessions.activeModel.standaloneFileURL?.lastPathComponent ?? "Lithe"
+        }
         guard windowLayout == .welcome else { return nil }
         return String(
             localized: "Welcome to Lithe",
@@ -181,15 +188,20 @@ private struct WindowCloseGuard: NSViewRepresentable {
 enum LitheWindowLayout: Equatable {
     case welcome
     case workspace
+    case standalone
 
     static let welcomeContentSize = NSSize(width: 900, height: 620)
     static let workspaceContentSize = NSSize(width: 1440, height: 900)
+    static let standaloneContentSize = NSSize(width: 1200, height: 760)
+    static let standaloneMinimumContentSize = NSSize(width: 760, height: 480)
+    static let standaloneMaximumContentSize = NSSize(width: 1200, height: 820)
     static let screenMargin: CGFloat = 12
 
     var contentSize: NSSize {
         switch self {
         case .welcome: Self.welcomeContentSize
         case .workspace: Self.workspaceContentSize
+        case .standalone: Self.standaloneContentSize
         }
     }
 
@@ -197,9 +209,22 @@ enum LitheWindowLayout: Equatable {
         switch self {
         case .welcome: NSSize(width: 820, height: 560)
         case .workspace: NSSize(width: 980, height: 640)
+        case .standalone: Self.standaloneMinimumContentSize
         }
     }
 
+    static func standaloneContentSize(fitting visibleFrame: NSRect) -> NSSize {
+        NSSize(
+            width: min(
+                max(visibleFrame.width * 0.65, standaloneMinimumContentSize.width),
+                standaloneMaximumContentSize.width
+            ),
+            height: min(
+                max(visibleFrame.height * 0.72, standaloneMinimumContentSize.height),
+                standaloneMaximumContentSize.height
+            )
+        )
+    }
     static func frame(_ targetFrame: NSRect, fitting visibleFrame: NSRect) -> NSRect {
         let availableFrame = visibleFrame.insetBy(dx: screenMargin, dy: screenMargin)
         var fittedFrame = targetFrame
@@ -220,12 +245,18 @@ enum LitheWindowLayout: Equatable {
 @MainActor
 protocol ProjectWindowSessionHandling: AnyObject {
     var hasActiveProject: Bool { get }
+    var hasActiveStandaloneFile: Bool { get }
     func closeActiveProject()
+    func requestCloseActiveSession() -> Bool
 }
 
 extension ProjectSessionManager: ProjectWindowSessionHandling {
     var hasActiveProject: Bool {
         activeModel.workspaceURL != nil
+    }
+
+    var hasActiveStandaloneFile: Bool {
+        activeModel.standaloneFileURL != nil
     }
 }
 
@@ -273,9 +304,8 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        if projectSessions.hasActiveProject {
-            projectSessions.closeActiveProject()
-            return false
+        if projectSessions.hasActiveProject || projectSessions.hasActiveStandaloneFile {
+            return projectSessions.requestCloseActiveSession()
         }
         return true
     }
@@ -297,13 +327,20 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
         restoredWorkspaceFrame = nil
 
         let currentFrame = window.frame
-        let targetContentRect = NSRect(origin: .zero, size: layout.contentSize)
+        let visibleFrame = (window.screen ?? NSScreen.main)?.visibleFrame
+        let targetContentSize: NSSize
+        if layout == .standalone, let visibleFrame {
+            targetContentSize = LitheWindowLayout.standaloneContentSize(fitting: visibleFrame)
+        } else {
+            targetContentSize = layout.contentSize
+        }
+        let targetContentRect = NSRect(origin: .zero, size: targetContentSize)
         var targetFrame = window.frameRect(forContentRect: targetContentRect)
         targetFrame.origin = NSPoint(
             x: currentFrame.midX - targetFrame.width / 2,
             y: currentFrame.midY - targetFrame.height / 2
         )
-        if let visibleFrame = (window.screen ?? NSScreen.main)?.visibleFrame {
+        if let visibleFrame {
             targetFrame = LitheWindowLayout.frame(targetFrame, fitting: visibleFrame)
         }
         window.setFrame(targetFrame, display: true, animate: shouldAnimate)

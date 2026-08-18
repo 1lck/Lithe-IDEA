@@ -9,8 +9,21 @@ fileprivate struct CodeEditorPalette {
     static let dark = CodeEditorPalette(isDark: true, theme: .lithe)
 
     var background: NSColor { themeColor(.editor) }
-    var gutterBackground: NSColor { themeColor(.sidebar) }
-    var text: NSColor { themeColor(.primaryText) }
+    var gutterBackground: NSColor { themeColor(.editor) }
+    var divider: NSColor { themeColor(.divider) }
+    var gutterDivider: NSColor {
+        color(
+            light: (0.78, 0.79, 0.81, 1),
+            dark: (0.204, 0.212, 0.231, 1)
+        )
+    }
+    var text: NSColor {
+        guard theme == .lithe else { return themeColor(.primaryText) }
+        return color(
+            light: (0, 0, 0, 0.82),
+            dark: (0.737, 0.745, 0.769, 1)
+        )
+    }
     var caret: NSColor { themeColor(.primaryText) }
     var selection: NSColor { themeColor(.accent).withAlphaComponent(isDark ? 0.42 : 0.24) }
     var selectionText: NSColor { themeColor(.primaryText) }
@@ -53,6 +66,13 @@ fileprivate struct CodeEditorPalette {
             alpha: components.3
         )
     }
+}
+
+private enum EditorLayoutMetrics {
+    static let standardWidth: CGFloat = 45
+    static let editorLeadingInset: CGFloat = 0
+    static let editorLineFragmentPadding: CGFloat = 4
+    static let caretWidth: CGFloat = 2
 }
 
 struct CodeEditorView: NSViewRepresentable {
@@ -100,7 +120,7 @@ struct CodeEditorView: NSViewRepresentable {
             scrollView.topAnchor.constraint(equalTo: container.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
         ])
-        let gutterWidthConstraint = gutter.widthAnchor.constraint(equalToConstant: 52)
+        let gutterWidthConstraint = gutter.widthAnchor.constraint(equalToConstant: EditorLayoutMetrics.standardWidth)
         gutterWidthConstraint.isActive = true
 
         let textView = CodeTextView(frame: NSRect(x: 0, y: 0, width: 900, height: 700))
@@ -118,7 +138,8 @@ struct CodeEditorView: NSViewRepresentable {
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.containerSize = NSSize(width: scrollView.contentSize.width, height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.widthTracksTextView = true
-        textView.textContainerInset = NSSize(width: 12, height: 10)
+        textView.textContainerInset = NSSize(width: EditorLayoutMetrics.editorLeadingInset, height: 0)
+        textView.textContainer?.lineFragmentPadding = EditorLayoutMetrics.editorLineFragmentPadding
         textView.font = LitheTheme.editorFont(size: settings.editorFontSize)
         textView.defaultParagraphStyle = LitheTheme.editorParagraphStyle
         textView.indentationWidth = settings.tabWidth
@@ -189,6 +210,9 @@ struct CodeEditorView: NSViewRepresentable {
 
         context.coordinator.textView = textView
         context.coordinator.gutter = gutter
+        textView.onCaretPresentationChanged = { [weak gutter] in
+            gutter?.needsDisplay = true
+        }
         context.coordinator.container = container
         context.coordinator.attachMarkdownImagePasteMonitor(to: scrollView)
         context.coordinator.codeVisionOverlay = CodeVisionOverlayController(textView: textView)
@@ -492,9 +516,6 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
-            (textView as? CodeTextView)?.updateEditorDecorations()
-            textView?.needsDisplay = true
-            gutter?.needsDisplay = true
             updateCaret()
         }
 
@@ -592,7 +613,7 @@ struct CodeEditorView: NSViewRepresentable {
                 $0.fileURL.standardizedFileURL == url
             }.map(\.line)
             let debugBreakpointLines = Set(javaBreakpointLines + genericBreakpointLines)
-            container?.gutterWidthConstraint?.constant = isBlameVisible ? 224 : 52
+            container?.gutterWidthConstraint?.constant = isBlameVisible ? 224 : EditorLayoutMetrics.standardWidth
             gutter?.update(blameLines: blameLines, isVisible: isBlameVisible) { [weak model] blame in
                 Task { await model?.showGitCommit(blame.commitHash) }
             }
@@ -756,6 +777,7 @@ private struct TextLineIndex {
 }
 
 final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
+    var onCaretPresentationChanged: (() -> Void)?
     var indentationWidth = 4
     var isLanguageNavigationEnabled = false
     var isLanguageIntelligenceEnabled = false
@@ -802,6 +824,8 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     private var hoveredFoldID: String?
     private var lineIndex = TextLineIndex(source: "" as NSString)
     nonisolated(unsafe) private var windowResignObserver: NSObjectProtocol?
+    private var caretVisible = true
+    private var caretPresentationGeneration = 0
 
     fileprivate func applyAppearance(_ palette: CodeEditorPalette) {
         guard appliedDarkAppearance != palette.isDark
@@ -828,6 +852,54 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     override func paste(_ sender: Any?) {
         if onPasteImage?() == true { return }
         super.paste(sender)
+    }
+
+    override func setSelectedRange(_ charRange: NSRange) {
+        super.setSelectedRange(charRange)
+        synchronizeCaretPresentation()
+    }
+
+    override func setSelectedRange(
+        _ charRange: NSRange,
+        affinity: NSSelectionAffinity,
+        stillSelecting flag: Bool
+    ) {
+        super.setSelectedRange(charRange, affinity: affinity, stillSelecting: flag)
+        synchronizeCaretPresentation()
+    }
+
+    private func synchronizeCaretPresentation() {
+        updateEditorDecorations()
+        needsDisplay = true
+        onCaretPresentationChanged?()
+        updateInsertionPointStateAndRestartTimer(true)
+    }
+
+    override func updateInsertionPointStateAndRestartTimer(_ restartFlag: Bool) {
+        guard restartFlag else { return }
+        caretPresentationGeneration &+= 1
+        let generation = caretPresentationGeneration
+        caretVisible = true
+        needsDisplay = true
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(500)) { [weak self] in
+            self?.startCaretBlinking(for: generation)
+        }
+    }
+
+    private func startCaretBlinking(for generation: Int) {
+        guard generation == caretPresentationGeneration else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(500)) { [weak self] in
+            guard let self, generation == self.caretPresentationGeneration else { return }
+            self.caretVisible.toggle()
+            self.needsDisplay = true
+            self.startCaretBlinking(for: generation)
+        }
+    }
+
+    override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn _: Bool) {
+        // The editor paints the caret from draw(_:) so AppKit's independent
+        // insertion-point blink callbacks cannot overwrite its width or phase.
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -889,12 +961,6 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
         let source = string as NSString
         let caret = min(selectedRange().location, source.length)
-        let lineRange = source.lineRange(for: NSRange(location: caret, length: 0))
-        layoutManager.addTemporaryAttribute(
-            .backgroundColor,
-            value: currentLineColor,
-            forCharacterRange: lineRange
-        )
 
         for range in matchingBracketRanges(in: source, caret: caret) {
             layoutManager.addTemporaryAttribute(.backgroundColor, value: bracketColor, forCharacterRange: range)
@@ -1155,14 +1221,22 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         forGlyphRange glyphRange: NSRange
     ) -> Bool {
         let characterRange = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
-        guard collapsedFoldIDs.contains(where: { id in
+        let isCollapsedLine = collapsedFoldIDs.contains(where: { id in
             guard let region = foldRegions.first(where: { $0.id == id }) else { return false }
             return NSLocationInRange(characterRange.location, region.hiddenRange)
-        }) else { return false }
+        })
 
-        lineFragmentRect.pointee.size.height = 0
-        lineFragmentUsedRect.pointee.size.height = 0
-        baselineOffset.pointee = 0
+        guard !isCollapsedLine else {
+            lineFragmentRect.pointee.size.height = 0
+            lineFragmentUsedRect.pointee.size.height = 0
+            baselineOffset.pointee = 0
+            return true
+        }
+
+        baselineOffset.pointee = max(
+            0,
+            baselineOffset.pointee - LitheTheme.editorBaselineLift
+        )
         return true
     }
 
@@ -1311,7 +1385,35 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
+        drawCurrentLineBackground(in: rect)
         drawIndentGuides(in: rect)
+    }
+
+    private func drawCurrentLineBackground(in rect: NSRect) {
+        let source = string as NSString
+        let caret = min(selectedRange().location, source.length)
+        let lineRange = source.lineRange(for: NSRange(location: caret, length: 0))
+        guard let layoutManager,
+              layoutManager.numberOfGlyphs > 0 else { return }
+
+        let glyphRange = layoutManager.glyphRange(
+            forCharacterRange: lineRange,
+            actualCharacterRange: nil
+        )
+        guard glyphRange.location < layoutManager.numberOfGlyphs else { return }
+        let lineRect = layoutManager.lineFragmentRect(
+            forGlyphAt: glyphRange.location,
+            effectiveRange: nil
+        )
+        let currentLineRect = NSRect(
+            x: 0,
+            y: textContainerOrigin.y + lineRect.minY,
+            width: bounds.width,
+            height: lineRect.height
+        )
+        guard currentLineRect.intersects(rect) else { return }
+        currentLineColor.setFill()
+        currentLineRect.intersection(rect).fill()
     }
 
     private func lineFragmentRect(
@@ -1384,6 +1486,46 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
                 ]
             )
         }
+        drawCaret()
+    }
+
+    private func drawCaret() {
+        guard caretVisible,
+              window?.firstResponder === self,
+              let layoutManager,
+              let textContainer else { return }
+
+        let sourceLength = string.utf16.count
+        let location = min(selectedRange().location, sourceLength)
+        let caretRect: NSRect
+        if layoutManager.numberOfGlyphs == 0 {
+            let lineHeight = layoutManager.defaultLineHeight(for: font ?? .systemFont(ofSize: 13))
+            caretRect = NSRect(
+                x: textContainerOrigin.x,
+                y: textContainerOrigin.y,
+                width: EditorLayoutMetrics.caretWidth,
+                height: lineHeight
+            )
+        } else {
+            let isAtDocumentEnd = location == sourceLength
+            let glyphIndex = layoutManager.glyphIndexForCharacter(
+                at: min(location, sourceLength - 1)
+            )
+            let glyphRect = layoutManager.boundingRect(
+                forGlyphRange: NSRange(location: glyphIndex, length: 1),
+                in: textContainer
+            )
+            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+            caretRect = NSRect(
+                x: textContainerOrigin.x + (isAtDocumentEnd ? glyphRect.maxX : glyphRect.minX),
+                y: textContainerOrigin.y + lineRect.minY,
+                width: EditorLayoutMetrics.caretWidth,
+                height: lineRect.height
+            )
+        }
+
+        insertionPointColor.setFill()
+        caretRect.fill()
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -1481,6 +1623,14 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         updateFoldHover(at: nil)
         clearLinkHighlight()
         return super.resignFirstResponder()
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let becameFirstResponder = super.becomeFirstResponder()
+        if becameFirstResponder {
+            updateInsertionPointStateAndRestartTimer(true)
+        }
+        return becameFirstResponder
     }
 
     private func updateFoldHover(at point: NSPoint?) {
@@ -1858,7 +2008,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = true
-        scrollView.backgroundColor = NSColor(red: 0.105, green: 0.11, blue: 0.12, alpha: 1)
+        scrollView.backgroundColor = LitheTheme.nsColor(.editor, theme: .lithe, isDark: true)
         let controller = NSViewController()
         controller.view = scrollView
         controller.preferredContentSize = NSSize(width: 480, height: 220)
@@ -2217,7 +2367,9 @@ final class LineNumberGutterView: NSView {
             in: textContainer
         )
         guard layoutManager.numberOfGlyphs > 0 else {
-            drawLineNumber(1, y: textView.textContainerInset.height)
+            let lineHeight = max(18, textView.layoutManager?.defaultLineHeight(for: textView.font ?? .systemFont(ofSize: 13)) ?? 18)
+            drawLineNumber(1, y: textView.textContainerInset.height, height: lineHeight)
+            drawEditorDivider(in: dirtyRect)
             return
         }
 
@@ -2267,7 +2419,7 @@ final class LineNumberGutterView: NSView {
             if let marker = gitLineChangeMarkersByLine[lineNumber - 1] {
                 drawGitLineChange(marker, y: y, height: lineRect.height)
             }
-            drawLineNumber(lineNumber, y: y + 1)
+            drawLineNumber(lineNumber, y: y, height: lineRect.height)
 
             let nextGlyph = NSMaxRange(lineGlyphRange)
             glyphIndex = nextGlyph > glyphIndex ? nextGlyph : glyphIndex + 1
@@ -2280,6 +2432,20 @@ final class LineNumberGutterView: NSView {
             visibleRect: visibleRect,
             layoutManager: layoutManager
         )
+
+        drawEditorDivider(in: dirtyRect)
+    }
+
+    private func drawEditorDivider(in dirtyRect: NSRect) {
+        // Keep the gutter/editor boundary visible over the current-line fill,
+        // including when an empty document has no glyphs to lay out.
+        palette.gutterDivider.setFill()
+        NSRect(
+            x: bounds.width - 1,
+            y: dirtyRect.minY,
+            width: 1,
+            height: dirtyRect.height
+        ).fill()
     }
 
     private func drawFoldIndicators(
@@ -2309,14 +2475,18 @@ final class LineNumberGutterView: NSView {
         }
     }
 
-    private func drawLineNumber(_ number: Int, y: CGFloat) {
+    private func drawLineNumber(_ number: Int, y: CGFloat, height: CGFloat) {
         let label = String(number) as NSString
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .regular),
             .foregroundColor: palette.lineNumber
         ]
         let size = label.size(withAttributes: attributes)
-        label.draw(at: NSPoint(x: bounds.width - size.width - 9, y: y), withAttributes: attributes)
+        let centeredY = y + max(0, (height - size.height) / 2)
+        label.draw(
+            at: NSPoint(x: (bounds.width - size.width) / 2, y: centeredY),
+            withAttributes: attributes
+        )
     }
 
     private func drawFoldIndicator(_ region: JavaFoldRegion, y: CGFloat, height: CGFloat) {

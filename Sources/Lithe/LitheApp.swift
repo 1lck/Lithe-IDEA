@@ -5,12 +5,31 @@ private let litheProcessLaunchDate = Date()
 
 @MainActor
 final class LitheAppDelegate: NSObject, NSApplicationDelegate {
-    weak var projectSessions: ProjectSessionManager?
+    private var pendingFileURLs: [URL] = []
+    weak var projectSessions: ProjectSessionManager? {
+        didSet {
+            guard let projectSessions else { return }
+            let pendingURLs = pendingFileURLs
+            pendingFileURLs.removeAll()
+            pendingURLs.forEach { projectSessions.openStandaloneFile($0) }
+        }
+    }
     var recordCleanPluginShutdown: (() -> Void)?
     var authorizationCallbackRouter: MacExternalAuthorizationCallbackRouter?
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
+    }
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // SwiftUI normally forwards this event to the delegate methods below,
+        // but older Finder/AppKit launch paths can bypass that forwarding.
+        NSAppleEventManager.shared().setEventHandler(
+            self,
+            andSelector: #selector(handleOpenDocuments(_:withReplyEvent:)),
+            forEventClass: AEEventClass(kCoreEventClass),
+            andEventID: AEEventID(kAEOpenDocuments)
+        )
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -19,6 +38,10 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        NSAppleEventManager.shared().removeEventHandler(
+            forEventClass: AEEventClass(kCoreEventClass),
+            andEventID: AEEventID(kAEOpenDocuments)
+        )
         projectSessions?.stopAllSessions()
         recordCleanPluginShutdown?()
     }
@@ -29,7 +52,55 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        urls.forEach { authorizationCallbackRouter?.route($0) }
+        handleOpenedURLs(urls)
+    }
+
+    // Finder can deliver document-open Apple Events through these older
+    // delegate methods, depending on whether the app was already running.
+    func application(_ sender: NSApplication, openFile filename: String) -> Bool {
+        handleOpenedURLs([URL(fileURLWithPath: filename)])
+        return true
+    }
+
+    func application(_ sender: NSApplication, openFiles filenames: [String]) {
+        handleOpenedURLs(filenames.map(URL.init(fileURLWithPath:)))
+        sender.reply(toOpenOrPrint: .success)
+    }
+
+    @objc private func handleOpenDocuments(
+        _ event: NSAppleEventDescriptor,
+        withReplyEvent replyEvent: NSAppleEventDescriptor?
+    ) {
+        guard let fileList = event.paramDescriptor(forKeyword: keyDirectObject) else { return }
+
+        var urls: [URL] = []
+        guard fileList.numberOfItems > 0 else { return }
+        for index in 1...fileList.numberOfItems {
+            guard let aliasDescriptor = fileList.atIndex(index),
+                  let fileURLDescriptor = aliasDescriptor.coerce(toDescriptorType: typeFileURL),
+                  let url = URL(dataRepresentation: fileURLDescriptor.data, relativeTo: nil) else {
+                continue
+            }
+            urls.append(url)
+        }
+
+        handleOpenedURLs(urls)
+    }
+
+    private func handleOpenedURLs(_ urls: [URL]) {
+        for url in urls {
+            if url.scheme == "lithe" {
+                authorizationCallbackRouter?.route(url)
+            } else if url.isFileURL {
+                if let projectSessions {
+                    projectSessions.openStandaloneFile(url)
+                } else if !pendingFileURLs.contains(where: {
+                    $0.standardizedFileURL == url.standardizedFileURL
+                }) {
+                    pendingFileURLs.append(url.standardizedFileURL)
+                }
+            }
+        }
     }
 
     static func confirmUnsavedDocuments(for projectSessions: ProjectSessionManager) -> Bool {
@@ -159,6 +230,11 @@ struct LitheApp: App {
                 }
                 .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "close-project"))
                 .disabled(model.workspaceURL == nil)
+
+                Button("Close File") {
+                    model.closeStandaloneFile()
+                }
+                .disabled(model.standaloneFileURL == nil)
             }
 
             CommandGroup(replacing: .appSettings) {

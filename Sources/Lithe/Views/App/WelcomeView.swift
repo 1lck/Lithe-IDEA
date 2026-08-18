@@ -15,7 +15,7 @@ struct WelcomeView: View {
             Rectangle().fill(LitheTheme.divider.opacity(0.55)).frame(width: 1)
             projectsContent
         }
-        .background(LitheTheme.window)
+        .background(LitheTheme.editor)
         .background(WelcomeInitialFocusReset())
     }
 
@@ -208,7 +208,7 @@ struct WelcomeView: View {
                 }
             }
         }
-        .background(LitheTheme.window)
+        .background(LitheTheme.editor)
     }
 
     private var emptyProjectsState: some View {

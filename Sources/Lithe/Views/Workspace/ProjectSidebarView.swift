@@ -21,16 +21,29 @@ struct ProjectSidebarView: View {
             } else if let root = model.rootNode {
                 GeometryReader { geometry in
                     ScrollView([.vertical, .horizontal]) {
-                        LazyVStack(alignment: .leading, spacing: 1) {
-                            FileNodeRow(
-                                node: root,
-                                depth: 0,
-                                availableWidth: geometry.size.width,
-                                activeDocumentURL: model.activeDocument?.url,
-                                expandedDirectoryPaths: $expandedDirectoryPaths
-                            )
+                        ZStack(alignment: .topLeading) {
+                            Color.clear
+                                .frame(
+                                    minWidth: geometry.size.width,
+                                    minHeight: geometry.size.height
+                                )
+                                .contentShape(Rectangle())
+                                .litheContextMenu {
+                                    projectContextMenuItems(for: root)
+                                }
+
+                            LazyVStack(alignment: .leading, spacing: 1) {
+                                FileNodeRow(
+                                    node: root,
+                                    depth: 0,
+                                    availableWidth: geometry.size.width,
+                                    activeDocumentURL: model.activeDocument?.url,
+                                    expandedDirectoryPaths: $expandedDirectoryPaths
+                                )
+                            }
+                            .padding(.vertical, 5)
+                            .frame(minWidth: geometry.size.width, alignment: .topLeading)
                         }
-                        .padding(.vertical, 5)
                         .frame(
                             minWidth: geometry.size.width,
                             minHeight: geometry.size.height,
@@ -42,28 +55,6 @@ struct ProjectSidebarView: View {
                         expandedTreeRootPath = root.url.path
                         expandedDirectoryPaths = [root.url.path]
                         await model.refreshGit()
-                    }
-                    .contextMenu {
-                        Button("New File…") {
-                            model.requestCreateFile(in: root.url)
-                        }
-                        Button("New Directory…") {
-                            model.requestCreateDirectory(in: root.url)
-                        }
-                        Divider()
-                        Button("Show Project in Finder") {
-                            model.revealProjectItemInFinder(root.url)
-                        }
-                        Button("Show Project Local History…") {
-                            model.showProjectLocalHistory()
-                        }
-                        Button("Copy Project Path") {
-                            model.copyProjectItemPath(root.url, relative: false)
-                        }
-                        Divider()
-                        Button("Refresh") {
-                            Task { await model.refreshWorkspace() }
-                        }
                     }
                 }
             } else if let error = model.workspaceLoadErrorMessage {
@@ -146,6 +137,31 @@ struct ProjectSidebarView: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 39)
+    }
+
+    private func projectContextMenuItems(for root: FileNode) -> [LitheContextMenuItem] {
+        [
+            .action("New File…", systemImage: "doc.badge.plus") {
+                model.requestCreateFile(in: root.url)
+            },
+            .action("New Directory…", systemImage: "folder.badge.plus") {
+                model.requestCreateDirectory(in: root.url)
+            },
+            .separator,
+            .action("Show Project in Finder", systemImage: "folder") {
+                model.revealProjectItemInFinder(root.url)
+            },
+            .action("Show Project Local History…", systemImage: "clock.arrow.circlepath") {
+                model.showProjectLocalHistory()
+            },
+            .action("Copy Project Path", systemImage: "doc.on.doc") {
+                model.copyProjectItemPath(root.url, relative: false)
+            },
+            .separator,
+            .action("Refresh", systemImage: "arrow.clockwise") {
+                Task { await model.refreshWorkspace() }
+            }
+        ]
     }
 }
 
@@ -230,7 +246,7 @@ private struct FileNodeRow: View {
         .lithePointer()
         .padding(.vertical, 0.5)
         .padding(.horizontal, Self.horizontalInset)
-        .contextMenu { directoryContextMenu }
+        .litheContextMenu { directoryContextMenuItems }
     }
 
     private var fileRow: some View {
@@ -271,106 +287,107 @@ private struct FileNodeRow: View {
         .lithePointer()
         .padding(.vertical, 0.5)
         .padding(.horizontal, Self.horizontalInset)
-        .contextMenu { fileContextMenu }
+        .litheContextMenu { fileContextMenuItems }
         .task(id: node.url.standardizedFileURL.path) {
             guard node.url.pathExtension.lowercased() == "java" else { return }
             resolvedJavaIconKind = await model.javaIconKind(for: node.url)
         }
     }
 
-    @ViewBuilder
-    private var directoryContextMenu: some View {
+    private var directoryContextMenuItems: [LitheContextMenuItem] {
+        var items: [LitheContextMenuItem] = []
         if model.gitTreeStatus(for: node.url, isDirectory: true) != nil {
-            Button("Show Git Diff") {
+            items.append(.action("Show Git Diff", systemImage: "arrow.left.and.right") {
                 Task { await model.showGitDirectoryDiff(for: node.url) }
-            }
-            Divider()
+            })
+            items.append(.separator)
         }
 
-        Button("New File…") {
+        items.append(.action("New File…", systemImage: "doc.badge.plus") {
             model.requestCreateFile(in: node.url)
-        }
-        Button("New Directory…") {
+        })
+        items.append(.action("New Directory…", systemImage: "folder.badge.plus") {
             model.requestCreateDirectory(in: node.url)
-        }
+        })
 
-        Divider()
+        items.append(.separator)
 
-        Button("Show in Finder") {
+        items.append(.action("Show in Finder", systemImage: "folder") {
             model.revealProjectItemInFinder(node.url)
-        }
-        Button("Copy Path") {
+        })
+        items.append(.action("Copy Path", systemImage: "doc.on.doc") {
             model.copyProjectItemPath(node.url, relative: false)
-        }
-        Button("Copy Relative Path") {
+        })
+        items.append(.action("Copy Relative Path", systemImage: "point.topleft.down.to.point.bottomright.curvepath") {
             model.copyProjectItemPath(node.url, relative: true)
-        }
+        })
 
         if depth > 0 {
-            Divider()
+            items.append(.separator)
 
-            Button("Duplicate") {
+            items.append(.action("Duplicate", systemImage: "plus.square.on.square") {
                 Task { await model.duplicateProjectItem(at: node.url) }
-            }
-            Button("Rename…") {
+            })
+            items.append(.action("Rename…", systemImage: "pencil") {
                 model.requestRenameProjectItem(at: node.url)
-            }
-            Button("Move to Trash", role: .destructive) {
+            })
+            items.append(.action("Move to Trash", systemImage: "trash", role: .destructive) {
                 model.requestDeleteProjectItem(at: node.url, isDirectory: true)
-            }
+            })
         }
 
-        Divider()
+        items.append(.separator)
 
-        Button("Refresh") {
+        items.append(.action("Refresh", systemImage: "arrow.clockwise") {
             Task { await model.refreshWorkspace() }
-        }
+        })
+        return items
     }
 
-    @ViewBuilder
-    private var fileContextMenu: some View {
-        Group {
-            Button("Open") {
+    private var fileContextMenuItems: [LitheContextMenuItem] {
+        var items: [LitheContextMenuItem] = [
+            .action("Open", systemImage: "doc.text") {
                 model.openFile(node.url)
             }
+        ]
 
-            if let change = model.gitChange(for: node.url) {
-                Button("Show Git Diff") {
-                    model.selectChange(change)
-                }
-            }
+        if let change = model.gitChange(for: node.url) {
+            items.append(.action("Show Git Diff", systemImage: "arrow.left.and.right") {
+                model.selectChange(change)
+            })
         }
 
-        Divider()
+        items.append(.separator)
 
-        Group {
-            Button("Duplicate") {
+        items.append(contentsOf: [
+            .action("Duplicate", systemImage: "plus.square.on.square") {
                 Task { await model.duplicateProjectItem(at: node.url) }
-            }
-            Button("Rename…") {
+            },
+            .action("Rename…", systemImage: "pencil") {
                 model.requestRenameProjectItem(at: node.url)
-            }
-            Button("Local History…") {
+            },
+            .action("Local History…", systemImage: "clock.arrow.circlepath") {
                 model.showLocalHistory(for: node.url)
-            }
-            Button("Move to Trash", role: .destructive) {
+            },
+            .action("Move to Trash", systemImage: "trash", role: .destructive) {
                 model.requestDeleteProjectItem(at: node.url, isDirectory: false)
             }
-        }
+        ])
 
-        Divider()
+        items.append(.separator)
 
-        Group {
-            Button("Show in Finder") {
+        items.append(contentsOf: [
+            .action("Show in Finder", systemImage: "folder") {
                 model.revealProjectItemInFinder(node.url)
-            }
-            Button("Copy Path") {
+            },
+            .action("Copy Path", systemImage: "doc.on.doc") {
                 model.copyProjectItemPath(node.url, relative: false)
-            }
-            Button("Copy Relative Path") {
+            },
+            .action("Copy Relative Path", systemImage: "point.topleft.down.to.point.bottomright.curvepath") {
                 model.copyProjectItemPath(node.url, relative: true)
             }
-        }
+        ])
+        return items
     }
 
     private var gitStatusColor: Color? {

@@ -4,6 +4,7 @@ import LitheGitModule
 
 private enum ActivityBarMetrics {
     static let width: CGFloat = 38
+    static let rightWidth: CGFloat = 40
     static let buttonWidth: CGFloat = 30
     static let buttonHeight: CGFloat = 30
     static let spacing: CGFloat = 4
@@ -46,8 +47,10 @@ struct WorkbenchView: View {
 
             HStack(spacing: 0) {
                 activityBar
+                Rectangle()
+                    .fill(LitheTheme.divider)
+                    .frame(width: 1)
                 workspaceArea
-                Color.clear.frame(width: ActivityBarMetrics.width)
             }
             .frame(maxHeight: .infinity)
             .overlay(alignment: .trailing) {
@@ -611,7 +614,7 @@ struct WorkbenchView: View {
             Spacer()
         }
         .padding(.top, ActivityBarMetrics.edgeInset)
-        .frame(width: ActivityBarMetrics.width)
+        .frame(width: ActivityBarMetrics.rightWidth)
         .background(LitheTheme.titlebar)
     }
 
@@ -643,6 +646,9 @@ struct WorkbenchView: View {
                     }
                 }
             }
+            Rectangle()
+                .fill(LitheTheme.divider)
+                .frame(width: 1)
             pluginActivityBar
         }
         .fixedSize(horizontal: true, vertical: false)
@@ -1122,7 +1128,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
             let minimumEditorWidth: CGFloat = 400
             let maximumSidebarWidth = max(
                 minimumSidebarWidth,
-                min(520, availableTopWidth - SplitHandleView.thickness - minimumEditorWidth)
+                min(520, availableTopWidth - minimumEditorWidth)
             )
             let resolvedSidebarWidth = constrained(
                 liveSidebarWidth,
@@ -1146,7 +1152,9 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                 HStack(spacing: 0) {
                     sidebar
                         .frame(width: resolvedSidebarWidth)
-
+                    editor
+                }
+                .overlay(alignment: .topLeading) {
                     SplitHandleView(
                         axis: .horizontal,
                         onDragStarted: {
@@ -1164,12 +1172,11 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                             onSidebarWidthCommitted(resolvedSidebarWidth)
                         }
                     )
-
-                    editor
+                    .offset(x: resolvedSidebarWidth - SplitHandleView.thickness / 2)
                 }
-                .padding(.top, 6)
-                .padding(.horizontal, 6)
-                .padding(.bottom, isBottomToolVisible ? 0 : 6)
+                .padding(.top, 0)
+                .padding(.horizontal, 0)
+                .padding(.bottom, 0)
                 .frame(height: isBottomToolVisible ? resolvedTopPaneHeight : geometry.size.height)
 
                 if isBottomToolVisible {

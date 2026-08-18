@@ -28,6 +28,9 @@ extension AppModel {
     }
 
     var openDocuments: [EditorDocument] { documentFeature.openDocuments }
+    var standaloneFileLoadState: StandaloneFileLoadState {
+        documentFeature.standaloneFileLoadState
+    }
     var activeDocumentID: UUID? {
         get { documentFeature.activeDocumentID }
         set {
