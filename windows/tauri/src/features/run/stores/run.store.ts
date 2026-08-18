@@ -44,6 +44,7 @@ import {
   mergeLaunchEnvironment,
   recoveryActionForError,
   recoveryPathFromMessage,
+  selectedToolchainCandidates,
 } from "../utils/run-configuration";
 
 const MAXIMUM_OUTPUT_CHARACTERS = 500_000;
@@ -117,29 +118,29 @@ async function resolveConfigurations(root: string): Promise<{
   discoveredMaven: MavenRuntime[];
   globalToolchain: GlobalToolchain;
 }> {
-  const discovered = await discoverRunToolchains(root);
-  const toolchainCandidates = [
-    ...discovered.java.slice(0, 1).map((runtime) => ({
-      id: "project-jdk",
-      type: "java",
-      version: runtime.version,
-      vendor: runtime.vendor,
-    })),
-    ...discovered.maven.slice(0, 1).map((runtime) => ({
-      id: "project-maven",
-      type: "maven",
-      version: runtime.version,
-      vendor: "",
-    })),
-  ];
-  const resolved = await resolveRunConfiguration(root, toolchainCandidates);
+  const automatic = await discoverRunToolchains(root);
+  const preliminary = await resolveRunConfiguration(
+    root,
+    selectedToolchainCandidates(automatic, EMPTY_GLOBAL_TOOLCHAIN),
+  );
+  const globalToolchain = mapCoreToolchain(preliminary.toolchain);
+  const hasSelectedToolchain = Boolean(
+    globalToolchain.javaHomePath || globalToolchain.mavenExecutablePath,
+  );
+  const discovered = hasSelectedToolchain
+    ? await discoverRunToolchains(root, globalToolchain)
+    : automatic;
+  const candidates = selectedToolchainCandidates(discovered, globalToolchain);
+  const resolved = hasSelectedToolchain
+    ? await resolveRunConfiguration(root, candidates)
+    : preliminary;
   return {
     configurations: (resolved.configurations ?? []).map(mapCoreConfiguration),
     diagnostics: mapDiagnostics(resolved.diagnostics),
     defaultConfigurationId: resolved.defaultRunConfiguration ?? null,
     discoveredJava: discovered.java,
     discoveredMaven: discovered.maven,
-    globalToolchain: mapCoreToolchain(resolved.toolchain),
+    globalToolchain,
   };
 }
 
@@ -427,7 +428,12 @@ export const createRunStore = () =>
       },
 
       writeStdin: async (sessionId, input) => {
-        await writeRunStdin(sessionId, input).catch(() => undefined);
+        try {
+          await writeRunStdin(sessionId, input);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Could not write to process input.";
+          get().actions.appendOutput(sessionId, `${message}\n`);
+        }
       },
 
       appendOutput: (sessionId, chunk) => {

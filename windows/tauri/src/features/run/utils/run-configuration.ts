@@ -3,6 +3,8 @@ import {
   type CoreGlobalToolchain,
   type CoreResolvedConfiguration,
   type GlobalToolchain,
+  type JavaRuntime,
+  type MavenRuntime,
   type RunConfiguration,
   type RunDiagnostic,
   type RunExecution,
@@ -130,12 +132,12 @@ export function workspaceRelativePath(root: string, filePath: string): string | 
   return normalizedFile.slice(normalizedRoot.length + 1);
 }
 
-export function projectScopedPath(root: string, value: string): string {
+export function projectScopedPath(root: string, value: string): string | undefined {
   const trimmed = value.trim();
-  if (!trimmed) return "";
+  if (!trimmed) return ".";
   const relative = workspaceRelativePath(root, trimmed);
   if (relative !== undefined) return relative;
-  if (isAbsolutePath(trimmed)) return "";
+  if (isAbsolutePath(trimmed)) return undefined;
   return trimmed.replace(/\\/g, "/");
 }
 
@@ -145,6 +147,35 @@ function isAbsolutePath(value: string): boolean {
 
 export function configurationUsesMaven(configuration: { toolchains?: Record<string, string> }): boolean {
   return Boolean(configuration.toolchains?.maven);
+}
+
+export function selectedToolchainCandidates(
+  discovered: { java: JavaRuntime[]; maven: MavenRuntime[] },
+  selected: GlobalToolchain,
+): Array<{ id: string; type: string; version: string; vendor: string }> {
+  const java = selected.javaHomePath
+    ? discovered.java.find((runtime) => sameWindowsPath(runtime.homePath, selected.javaHomePath))
+    : discovered.java[0];
+  const maven = selected.mavenExecutablePath
+    ? discovered.maven.find((runtime) => sameWindowsPath(runtime.executablePath, selected.mavenExecutablePath))
+    : discovered.maven[0];
+  return [
+    ...(java ? [{ id: "project-jdk", type: "java", version: java.version, vendor: java.vendor }] : []),
+    ...(maven ? [{ id: "project-maven", type: "maven", version: maven.version, vendor: "" }] : []),
+  ];
+}
+
+function sameWindowsPath(left: string, right: string): boolean {
+  const normalize = (value: string) => value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  return normalize(left) === normalize(right);
+}
+
+export async function saveRunConfigurationChanges(
+  saveToolchain: () => Promise<boolean>,
+  saveOptions: () => Promise<boolean>,
+): Promise<boolean> {
+  if (!(await saveToolchain())) return false;
+  return saveOptions();
 }
 
 export function environmentText(environment: Record<string, string>): string {

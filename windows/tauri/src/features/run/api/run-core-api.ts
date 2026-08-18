@@ -72,10 +72,12 @@ export function updateRunOptions(
   scope: RunSaveScope,
   options: RunOptions,
 ) {
-  const workingDirectory =
-    scope === "project"
-      ? projectScopedPath(root, options.workingDirectoryPath) || "."
-      : options.workingDirectoryPath;
+  const workingDirectory = scope === "project"
+    ? projectScopedPath(root, options.workingDirectoryPath)
+    : options.workingDirectoryPath;
+  if (workingDirectory === undefined) {
+    throw new Error("Project working directory must stay inside the workspace.");
+  }
   return runCore<{ document: string }>("runConfig.updateOptions", {
     root,
     scope,

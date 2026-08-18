@@ -174,9 +174,17 @@ pub fn run_write_document(args: WriteDocumentArgs) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn run_discover_toolchains(root: PathBuf) -> Result<DiscoveredToolchains, String> {
+pub fn run_discover_toolchains(
+    root: PathBuf,
+    java_home_path: Option<String>,
+    maven_executable_path: Option<String>,
+) -> Result<DiscoveredToolchains, String> {
     let project_root = existing_directory(&root).ok();
-    Ok(discover_toolchains(project_root.as_deref()))
+    Ok(discover_toolchains_with_overrides(
+        project_root.as_deref(),
+        java_home_path.as_deref(),
+        maven_executable_path.as_deref(),
+    ))
 }
 
 #[tauri::command]
@@ -262,12 +270,16 @@ pub fn run_write_stdin(session_id: String, input: String) -> Result<(), String> 
     let mut current = sessions()
         .lock()
         .map_err(|_| "Run process state is unavailable".to_string())?;
-    if let Some(session) = current.get_mut(&session_id) {
-        if let Some(stdin) = session.stdin.as_mut() {
-            let _ = stdin.write_all(input.as_bytes());
-        }
-    }
-    Ok(())
+    let session = current
+        .get_mut(&session_id)
+        .ok_or_else(|| "The run process is no longer active.".to_string())?;
+    let stdin = session
+        .stdin
+        .as_mut()
+        .ok_or_else(|| "The run process does not accept input.".to_string())?;
+    stdin
+        .write_all(input.as_bytes())
+        .map_err(|error| format!("Could not write to process input: {error}"))
 }
 
 /// Removes the abandoned `run/` app-data directory written by an earlier
@@ -411,9 +423,21 @@ fn pretty_json(value: &Value) -> Result<String, String> {
 }
 
 pub(crate) fn discover_toolchains(project_root: Option<&Path>) -> DiscoveredToolchains {
+    discover_toolchains_with_overrides(project_root, None, None)
+}
+
+fn discover_toolchains_with_overrides(
+    project_root: Option<&Path>,
+    java_home_path: Option<&str>,
+    maven_executable_path: Option<&str>,
+) -> DiscoveredToolchains {
     let mut java = Vec::new();
     let mut seen_homes = std::collections::HashSet::new();
-    for home in java_home_candidates(project_root) {
+    let mut homes = java_home_candidates(project_root);
+    if let Some(path) = java_home_path.filter(|value| !value.trim().is_empty()) {
+        homes.insert(0, PathBuf::from(path));
+    }
+    for home in homes {
         if !seen_homes.insert(home.clone()) {
             continue;
         }
@@ -425,7 +449,11 @@ pub(crate) fn discover_toolchains(project_root: Option<&Path>) -> DiscoveredTool
 
     let mut maven = Vec::new();
     let mut seen_executables = std::collections::HashSet::new();
-    for executable in maven_executable_candidates(project_root) {
+    let mut executables = maven_executable_candidates(project_root);
+    if let Some(path) = maven_executable_path.filter(|value| !value.trim().is_empty()) {
+        executables.insert(0, PathBuf::from(path));
+    }
+    for executable in executables {
         if !seen_executables.insert(executable.clone()) {
             continue;
         }
@@ -1181,6 +1209,13 @@ mod tests {
         assert!(!looks_like_real_utf8(&gbk_xi_tong));
         assert!(looks_like_real_utf8("系统".as_bytes()));
         assert!(looks_like_real_utf8(b"[INFO] BUILD SUCCESS"));
+    }
+
+    #[test]
+    fn stdin_write_rejects_an_inactive_session() {
+        let session_id = format!("missing-{}", std::process::id());
+        let error = run_write_stdin(session_id, "input\n".to_string()).unwrap_err();
+        assert_eq!(error, "The run process is no longer active.");
     }
 
     #[cfg(windows)]

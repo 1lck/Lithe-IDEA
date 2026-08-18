@@ -15,7 +15,11 @@ import type {
   RunOptions,
   RunSaveScope,
 } from "../types/run.types";
-import { environmentFromText, environmentText } from "../utils/run-configuration";
+import {
+  environmentFromText,
+  environmentText,
+  saveRunConfigurationChanges,
+} from "../utils/run-configuration";
 
 interface RunConfigurationEditorProps {
   configuration: RunConfiguration;
@@ -136,16 +140,21 @@ export function RunConfigurationEditor({
     });
   };
 
-  const save = () => {
+  const save = async () => {
     setSaving(true);
     const runOptions = { ...draft, environment: environmentFromText(envText) };
-    void Promise.all([
-      onSaveToolchain(toolchainDraft),
-      onSave(runOptions, scope),
-    ]).then(([toolchainSaved, optionsSaved]) => {
+    try {
+      // Local options and the global toolchain share run/local.json. Save them
+      // in sequence so the option mutation reads the toolchain write instead
+      // of racing two complete-document replacements against each other.
+      const saved = await saveRunConfigurationChanges(
+        () => onSaveToolchain(toolchainDraft),
+        () => onSave(runOptions, scope),
+      );
+      if (saved) onClose();
+    } finally {
       setSaving(false);
-      if (toolchainSaved && optionsSaved) onClose();
-    });
+    }
   };
 
   return (
@@ -161,7 +170,7 @@ export function RunConfigurationEditor({
           <Button variant="ghost" onClick={onClose}>
             {t("run.cancel")}
           </Button>
-          <Button disabled={saving} onClick={save}>
+          <Button disabled={saving} onClick={() => void save()}>
             {t("run.done")}
           </Button>
         </>

@@ -68,6 +68,21 @@ describe("updateRunOptions", () => {
       }),
     );
   });
+
+  test("rejects a project working directory outside the workspace", () => {
+    expect(() =>
+      updateRunOptions("D:/fixture/project", "plain-java", "project", {
+        javaHomePath: "",
+        mavenExecutablePath: "",
+        mavenJavaHomePath: "",
+        workingDirectoryPath: "E:/outside",
+        vmArguments: "",
+        programArguments: "",
+        environment: {},
+      }),
+    ).toThrow("Project working directory must stay inside the workspace.");
+    expect(executeCore).not.toHaveBeenCalled();
+  });
 });
 
 describe("updateGlobalToolchain", () => {
