@@ -51,7 +51,7 @@ if ($RequireUpdaterArtifacts) {
         throw "Tauri updater signing is required but LITHE_UPDATER_ENDPOINT is not configured."
     }
 
-    $versionOverrides.bundle.createUpdaterArtifacts = true
+    $versionOverrides.bundle.createUpdaterArtifacts = $true
     $versionOverrides.plugins = @{
         updater = @{
             pubkey = $UpdaterPublicKey
