@@ -34,6 +34,7 @@ struct EditorAreaView: View {
     @State private var splitDocumentID: UUID?
     @State private var markdownViewModes: [UUID: MarkdownViewMode] = [:]
     @State private var markdownScrollPositions: [UUID: MarkdownScrollPosition] = [:]
+    @State private var editorViewportStore = EditorViewportStore()
     @State private var hoveredMarkdownMode: MarkdownViewMode?
 
     var body: some View {
@@ -78,6 +79,7 @@ struct EditorAreaView: View {
             }
             markdownViewModes = markdownViewModes.filter { ids.contains($0.key) }
             markdownScrollPositions = markdownScrollPositions.filter { ids.contains($0.key) }
+            editorViewportStore.retain(documentIDs: Set(ids))
             if let draggedDocumentID = tabDragState.draggedDocumentID,
                !ids.contains(draggedDocumentID) {
                 finishTabDrag()
@@ -517,7 +519,8 @@ struct EditorAreaView: View {
                 CodeEditorView(
                     document: document,
                     debugService: model.debugFeatureIfActive,
-                    shouldFocus: !showsHeader && document.id == model.activeDocumentID
+                    shouldFocus: !showsHeader && document.id == model.activeDocumentID,
+                    viewportStore: editorViewportStore
                 )
                     .id(document.id)
                     .clipped()
@@ -585,6 +588,12 @@ struct EditorAreaView: View {
             }
         }
 
+        if model.canRevealInProjectTree(document.url) {
+            Button("Reveal in Project Tree") {
+                model.activeDocumentID = document.id
+                model.revealInProjectTree(document.url)
+            }
+        }
         Button("Show in Finder") {
             model.revealProjectItemInFinder(document.url)
         }
@@ -649,7 +658,8 @@ struct EditorAreaView: View {
             document: document,
             debugService: model.debugFeatureIfActive,
             shouldFocus: true,
-            markdownScrollPosition: markdownScrollPosition
+            markdownScrollPosition: markdownScrollPosition,
+            viewportStore: editorViewportStore
         )
         .id(document.id)
         .clipped()

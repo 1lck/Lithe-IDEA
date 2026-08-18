@@ -52,3 +52,28 @@ extension Notification.Name {
     static let litheFindNavigate = Notification.Name("litheFindNavigate")
     static let litheFindDismiss = Notification.Name("litheFindDismiss")
 }
+
+struct ProjectTreeRevealRequest: Equatable {
+    let id = UUID()
+    let fileURL: URL
+}
+
+enum ProjectTreeLocator {
+    static func matchingURL(for url: URL, among projectFiles: [URL]) -> URL? {
+        let standardizedPath = url.standardizedFileURL.path
+        return projectFiles.first(where: {
+            $0.standardizedFileURL.path == standardizedPath
+        })
+    }
+
+    static func expandedDirectoryPaths(for fileURL: URL, rootURL: URL) -> Set<String> {
+        let root = rootURL.standardizedFileURL
+        var directory = fileURL.standardizedFileURL.deletingLastPathComponent()
+        var paths = Set([root.path])
+        while directory.path != root.path, directory.path.hasPrefix(root.path + "/") {
+            paths.insert(directory.path)
+            directory.deleteLastPathComponent()
+        }
+        return paths
+    }
+}

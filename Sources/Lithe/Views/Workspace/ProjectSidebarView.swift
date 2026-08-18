@@ -21,54 +21,84 @@ struct ProjectSidebarView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let root = model.rootNode {
                 GeometryReader { geometry in
-                    ScrollView([.vertical, .horizontal]) {
-                        LazyVStack(alignment: .leading, spacing: 1) {
-                            ProjectFileTreeContent(
-                                root: root,
-                                availableWidth: geometry.size.width,
-                                activeDocumentURL: model.activeDocument?.url,
-                                gitStatus: ProjectGitStatusSnapshot(
-                                    repositoryRoot: model.gitRepositoryRoot,
-                                    projection: model.gitTreeStatusProjection
-                                ),
-                                actions: ProjectTreeActions(model: model),
-                                expandedDirectoryPaths: $expandedDirectoryPaths
+                    ScrollViewReader { proxy in
+                        ScrollView([.vertical, .horizontal]) {
+                            LazyVStack(alignment: .leading, spacing: 1) {
+                                ProjectFileTreeContent(
+                                    root: root,
+                                    availableWidth: geometry.size.width,
+                                    activeDocumentURL: model.activeDocument?.url,
+                                    gitStatus: ProjectGitStatusSnapshot(
+                                        repositoryRoot: model.gitRepositoryRoot,
+                                        projection: model.gitTreeStatusProjection
+                                    ),
+                                    actions: ProjectTreeActions(model: model),
+                                    expandedDirectoryPathsSnapshot: expandedDirectoryPaths,
+                                    expandedDirectoryPaths: $expandedDirectoryPaths
+                                )
+                                .equatable()
+                            }
+                            .padding(.vertical, 5)
+                            .frame(
+                                minWidth: geometry.size.width,
+                                minHeight: geometry.size.height,
+                                alignment: .topLeading
                             )
-                            .equatable()
                         }
-                        .padding(.vertical, 5)
-                        .frame(
-                            minWidth: geometry.size.width,
-                            minHeight: geometry.size.height,
-                            alignment: .topLeading
-                        )
-                    }
-                    .task(id: root.url.path) {
-                        guard expandedTreeRootPath != root.url.path else { return }
-                        expandedTreeRootPath = root.url.path
-                        expandedDirectoryPaths = [root.url.path]
-                        await model.refreshGit()
-                    }
-                    .contextMenu {
-                        Button("New File…") {
-                            model.requestCreateFile(in: root.url)
+                        .task(
+                            id: ProjectTreeTaskID(
+                                rootPath: root.url.standardizedFileURL.path,
+                                revealRequestID: model.projectTreeRevealRequest?.id
+                            )
+                        ) {
+                            let rootPath = root.url.standardizedFileURL.path
+                            let revealRequest = model.projectTreeRevealRequest
+                            let shouldRefreshGit = expandedTreeRootPath != rootPath
+                            if shouldRefreshGit {
+                                expandedTreeRootPath = rootPath
+                                expandedDirectoryPaths = [rootPath]
+                            }
+                            if let request = revealRequest {
+                                expandedDirectoryPaths.formUnion(
+                                    ProjectTreeLocator.expandedDirectoryPaths(
+                                        for: request.fileURL,
+                                        rootURL: root.url
+                                    )
+                                )
+                                await Task.yield()
+                                proxy.scrollTo(
+                                    request.fileURL.standardizedFileURL.path,
+                                    anchor: .center
+                                )
+                            }
+                            if shouldRefreshGit {
+                                await model.refreshGit()
+                            }
+                            if let request = revealRequest {
+                                model.consumeProjectTreeRevealRequest(id: request.id)
+                            }
                         }
-                        Button("New Directory…") {
-                            model.requestCreateDirectory(in: root.url)
-                        }
-                        Divider()
-                        Button("Show Project in Finder") {
-                            model.revealProjectItemInFinder(root.url)
-                        }
-                        Button("Show Project Local History…") {
-                            model.showProjectLocalHistory()
-                        }
-                        Button("Copy Project Path") {
-                            model.copyProjectItemPath(root.url, relative: false)
-                        }
-                        Divider()
-                        Button("Refresh") {
-                            Task { await model.refreshWorkspace() }
+                        .contextMenu {
+                            Button("New File…") {
+                                model.requestCreateFile(in: root.url)
+                            }
+                            Button("New Directory…") {
+                                model.requestCreateDirectory(in: root.url)
+                            }
+                            Divider()
+                            Button("Show Project in Finder") {
+                                model.revealProjectItemInFinder(root.url)
+                            }
+                            Button("Show Project Local History…") {
+                                model.showProjectLocalHistory()
+                            }
+                            Button("Copy Project Path") {
+                                model.copyProjectItemPath(root.url, relative: false)
+                            }
+                            Divider()
+                            Button("Refresh") {
+                                Task { await model.refreshWorkspace() }
+                            }
                         }
                     }
                 }
@@ -155,6 +185,12 @@ struct ProjectSidebarView: View {
         .frame(height: 39)
     }
 }
+
+private struct ProjectTreeTaskID: Equatable {
+    let rootPath: String
+    let revealRequestID: UUID?
+}
+
 private struct ProjectGitStatusSnapshot: Equatable {
     let repositoryRoot: URL?
     let projection: GitTreeStatusProjection
@@ -237,6 +273,7 @@ private struct ProjectFileTreeContent: View, Equatable {
     let activeDocumentURL: URL?
     let gitStatus: ProjectGitStatusSnapshot
     let actions: ProjectTreeActions
+    let expandedDirectoryPathsSnapshot: Set<String>
     @Binding var expandedDirectoryPaths: Set<String>
 
     static func == (lhs: ProjectFileTreeContent, rhs: ProjectFileTreeContent) -> Bool {
@@ -244,6 +281,7 @@ private struct ProjectFileTreeContent: View, Equatable {
             && lhs.availableWidth == rhs.availableWidth
             && lhs.activeDocumentURL == rhs.activeDocumentURL
             && lhs.gitStatus == rhs.gitStatus
+            && lhs.expandedDirectoryPathsSnapshot == rhs.expandedDirectoryPathsSnapshot
     }
 
     var body: some View {
@@ -256,6 +294,7 @@ private struct ProjectFileTreeContent: View, Equatable {
             actions: actions,
             expandedDirectoryPaths: $expandedDirectoryPaths
         )
+        .id(root.url.standardizedFileURL.path)
     }
 }
 
@@ -296,6 +335,7 @@ private struct FileNodeRow: View {
                         actions: actions,
                         expandedDirectoryPaths: $expandedDirectoryPaths
                     )
+                    .id(child.url.standardizedFileURL.path)
                 }
             }
         } else {
@@ -374,7 +414,8 @@ private struct FileNodeRow: View {
             .frame(height: LitheTheme.Metrics.treeRowHeight)
             .contentShape(Rectangle())
             .litheRowHover(
-                isActive: activeDocumentURL == node.url,
+                isActive: activeDocumentURL?.standardizedFileURL.path
+                    == node.url.standardizedFileURL.path,
                 cornerRadius: 4,
                 activeBackground: LitheTheme.subtleSelection,
                 animation: nil

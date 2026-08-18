@@ -2,6 +2,7 @@ import SwiftUI
 
 struct StandaloneEditorView: View {
     @EnvironmentObject private var model: AppModel
+    @State private var editorViewportStore = EditorViewportStore()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -39,7 +40,11 @@ struct StandaloneEditorView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .loaded:
             if let document = model.activeDocument {
-                CodeEditorView(document: document, shouldFocus: true)
+                CodeEditorView(
+                    document: document,
+                    shouldFocus: true,
+                    viewportStore: editorViewportStore
+                )
                     .overlay(alignment: .top) {
                         if model.isFindBarVisible {
                             FindBarView()
