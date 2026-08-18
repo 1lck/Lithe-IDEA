@@ -56,6 +56,7 @@ final class GitHubFeatureModel: ObservableObject {
     private var authorizationTask: Task<Void, Never>?
     private var branchLoadTask: (id: UUID, task: Task<[GitHubBranch], Error>)?
     private var branchesLoadedAt: Date?
+    private var refreshGeneration = UUID()
 
     init(
         service: GitHubService,
@@ -147,14 +148,19 @@ final class GitHubFeatureModel: ObservableObject {
 
     func refresh(workspaceURL: URL?) async {
         guard case .connected = connectionState else { return }
+        let generation = UUID()
+        refreshGeneration = generation
         contentState = .loading
         do {
             let repository = try await service.resolveRepository(at: workspaceURL)
+            guard !Task.isCancelled, refreshGeneration == generation else { return }
             let branchDefaults = try await service.resolvePullRequestBranchDefaults(at: workspaceURL)
+            guard !Task.isCancelled, refreshGeneration == generation else { return }
             let pullRequests = try await service.listPullRequests(
                 repository: repository,
                 state: listState
             )
+            guard !Task.isCancelled, refreshGeneration == generation else { return }
             if self.repository != repository {
                 branches = []
                 branchContentState = .idle
@@ -173,6 +179,7 @@ final class GitHubFeatureModel: ObservableObject {
             }
             contentState = .ready
         } catch {
+            guard !Task.isCancelled, refreshGeneration == generation else { return }
             contentState = .failed(error.localizedDescription)
         }
     }

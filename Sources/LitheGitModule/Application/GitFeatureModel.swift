@@ -204,8 +204,9 @@ package final class GitFeatureModel: ObservableObject {
 
     package func refreshGit() async {
         guard let workspaceURLProvider else { return }
+        guard !Task.isCancelled else { return }
         if isRefreshingGit {
-            refreshRequestedWhileRunning = true
+            if !Task.isCancelled { refreshRequestedWhileRunning = true }
             return
         }
         guard let workspaceURL = workspaceURLProvider() else {
@@ -214,16 +215,19 @@ package final class GitFeatureModel: ObservableObject {
         }
 
         isRefreshingGit = true
+        defer { isRefreshingGit = false }
         repeat {
+            guard !Task.isCancelled else { return }
             refreshRequestedWhileRunning = false
             await refreshGitState(at: workspaceURL)
-        } while refreshRequestedWhileRunning && workspaceURLProvider() == workspaceURL
-        isRefreshingGit = false
+        } while !Task.isCancelled && refreshRequestedWhileRunning && workspaceURLProvider() == workspaceURL
     }
 
     private func refreshGitState(at workspaceURL: URL) async {
+        guard !Task.isCancelled else { return }
         var didChange = false
         if let snapshot = await snapshotProvider(workspaceURL) {
+            guard !Task.isCancelled else { return }
             let changesChanged = gitChanges != snapshot.changes
             if gitRepositoryRoot != snapshot.repositoryRoot {
                 gitRepositoryRoot = snapshot.repositoryRoot
@@ -246,16 +250,19 @@ package final class GitFeatureModel: ObservableObject {
                 didChange = didChange || previousFilter != gitConflictFilterPaths
             }
             let stashes = await stashesProvider(snapshot.repositoryRoot)
+            guard !Task.isCancelled else { return }
             if gitStashes != stashes {
                 gitStashes = stashes
                 didChange = true
             }
             let shelves = await shelveService?.entries(for: snapshot.repositoryRoot) ?? []
+            guard !Task.isCancelled else { return }
             if gitShelves != shelves {
                 gitShelves = shelves
                 didChange = true
             }
             let operationState = await operationStateProvider(snapshot.repositoryRoot)
+            guard !Task.isCancelled else { return }
             if gitOperationState != operationState {
                 gitOperationState = operationState
                 didChange = true
@@ -275,6 +282,7 @@ package final class GitFeatureModel: ObservableObject {
                     didChange = true
                 }
                 let document = await diffDocumentProvider(updated, gitDiffWhitespaceMode)
+                guard !Task.isCancelled else { return }
                 if selectedDiffPatch != document.patch {
                     selectedDiffPatch = document.patch
                     diffRows = document.rows
@@ -304,9 +312,11 @@ package final class GitFeatureModel: ObservableObject {
         }
 
         if didChange && isGitLogVisibleProvider?() == true {
+            guard !Task.isCancelled else { return }
             await refreshGitHistory()
         }
         if didChange {
+            guard !Task.isCancelled else { return }
             await onStateRefreshed?()
         }
     }
