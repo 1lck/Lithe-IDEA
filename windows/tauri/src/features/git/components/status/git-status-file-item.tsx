@@ -50,7 +50,7 @@ export const GitFileItem = ({
   return (
     <SidebarTreeRow
       depth={indentLevel}
-      className={cn("group overflow-hidden", className)}
+      className={cn("group overflow-clip", className)}
       onClick={onClick}
       onContextMenu={onContextMenu}
       reserveDisclosureSpace={reserveDisclosureSpace}
@@ -65,7 +65,7 @@ export const GitFileItem = ({
         hasDiffStats ? (
           <div
             className={cn(
-              "flex max-w-19 shrink-0 items-center justify-end overflow-hidden leading-row tabular-nums",
+              "flex max-w-19 shrink-0 items-center justify-end overflow-clip leading-row tabular-nums",
               compactGitStatusBadges ? "ui-text-sm gap-0.5" : "ui-text-sm gap-1",
             )}
           >

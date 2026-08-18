@@ -40,7 +40,7 @@
   width: 100% !important;
   min-width: 0 !important;
   height: 100%;
-  overflow: hidden;
+  overflow: clip;
   display: flex !important;
   justify-content: flex-start !important;
 }
@@ -73,13 +73,13 @@
   height: 100%;
   max-width: 100%;
   min-width: 0;
-  overflow: hidden;
+  overflow: clip;
 }
 
 .file-tree-container .file-tree-row > span:last-child {
   min-width: 0;
   flex: 1 1 auto;
-  overflow: hidden;
+  overflow: clip;
   text-overflow: ellipsis;
 }
 
