@@ -406,6 +406,9 @@ document transformations. They validate scope, paths, supported types, stable
 IDs, main classes, modules, and argument parsing, then return UTF-8 JSON in the
 `document` field. The platform adapter selects the target project or local
 file and performs the atomic write. These commands never write files.
+For project-scoped option updates, selected toolchain paths must resolve inside
+`root` and are persisted with `/`-separated project-relative paths. Local-scoped
+updates may carry host absolute paths.
 
 `runConfig.createLaunchPlan` accepts `root`, `configurationId`, optional
 `currentFile` and `classPath`, and optional `debugPort`. It returns a toolchain

@@ -604,6 +604,8 @@
 "Program arguments" = "程序参数";
 "Active Maven Profiles" = "启用的 Maven Profiles";
 "Reset" = "重置";
+"Project paths must stay inside the current project." = "项目路径必须位于当前项目内。";
+"Open a project before choosing project paths." = "请先打开项目，再选择项目路径。";
 "Local History" = "本地历史";
 "Project Local History" = "项目本地历史";
 "Restore" = "恢复";
