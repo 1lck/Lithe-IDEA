@@ -118,7 +118,7 @@ When an external AI tool changes a project, Lithe helps you locate the affected 
 
 ## Use Lithe
 
-Lithe requires macOS 13 or later. Java project features require a JDK; JDK 17 or JDK 21 is recommended. Maven projects need either a project `mvnw` or a system Maven installation. Lightweight completion does not start an external process; when a matching language server is installed, Lithe routes the capabilities it actually advertises through the shared Rust LSP Core. See the [language tooling and LSP architecture](./docs/architecture/language-tooling.md) for provider configuration and compatibility details.
+Lithe requires macOS 13 or later. Java project features require JDK 17 or newer; JDK 17 or JDK 21 is recommended. Release packages include Eclipse JDT Language Server for Java completion, navigation, references, and diagnostics, so JDTLS does not need to be installed separately. Maven projects need either a project `mvnw` or a system Maven installation. Lightweight completion does not start an external process; Lithe routes the capabilities a running language server actually advertises through the shared Rust LSP Core. See the [language tooling and LSP architecture](./docs/architecture/language-tooling.md) for provider configuration and compatibility details.
 
 Download the latest macOS `.dmg` from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest). If a release provides architecture-specific installers, choose `arm64` for Apple silicon or `x86_64` for an Intel Mac. Open the disk image, drag `Lithe.app` into `/Applications`, and launch it.
 

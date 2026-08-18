@@ -6,7 +6,6 @@
 use crate::run;
 use serde::Serialize;
 use std::ffi::OsStr;
-use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
@@ -49,8 +48,10 @@ pub fn lsp_resolve_java_launch(
 ) -> Result<JavaLspLaunch, String> {
     let workspace = PathBuf::from(&workspace_path);
     let project_root = workspace.is_dir().then_some(workspace.as_path());
+    let bundled_root = bundled_jdtls_root(&app);
     let resolution = resolve_java_lsp_launch(
         std::env::var_os("PATH").as_deref(),
+        bundled_root.as_deref(),
         &jdtls_search_roots(project_root),
         project_root,
         java_home_path.as_deref(),
@@ -76,13 +77,16 @@ pub fn lsp_resolve_java_launch(
 
 fn resolve_java_lsp_launch(
     path_env: Option<&OsStr>,
+    bundled_root: Option<&Path>,
     extra_roots: &[PathBuf],
     project_root: Option<&Path>,
     java_home_override: Option<&str>,
 ) -> Result<JavaLspResolution, String> {
-    let executable = find_jdtls_executable(path_env, extra_roots).ok_or_else(|| {
-        "Could not find jdtls. Install Eclipse JDT Language Server and add it to PATH.".to_string()
-    })?;
+    let executable =
+        find_jdtls_executable(path_env, bundled_root, extra_roots).ok_or_else(|| {
+            "Could not find jdtls. Install Eclipse JDT Language Server and add it to PATH."
+                .to_string()
+        })?;
     let java_home = resolve_java_home(project_root, java_home_override);
     Ok(JavaLspResolution {
         executable,
@@ -90,24 +94,39 @@ fn resolve_java_lsp_launch(
     })
 }
 
-fn find_jdtls_executable(path_env: Option<&OsStr>, extra_roots: &[PathBuf]) -> Option<PathBuf> {
-    jdtls_candidates(path_env, extra_roots)
+fn find_jdtls_executable(
+    path_env: Option<&OsStr>,
+    bundled_root: Option<&Path>,
+    extra_roots: &[PathBuf],
+) -> Option<PathBuf> {
+    jdtls_candidates(path_env, bundled_root, extra_roots)
         .into_iter()
         .find(|candidate| candidate.is_file())
 }
 
-fn jdtls_candidates(path_env: Option<&OsStr>, extra_roots: &[PathBuf]) -> Vec<PathBuf> {
+fn jdtls_candidates(
+    path_env: Option<&OsStr>,
+    bundled_root: Option<&Path>,
+    extra_roots: &[PathBuf],
+) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
+    if let Some(root) = bundled_root {
+        push_jdtls_root(&mut candidates, root);
+    }
     if let Some(path) = path_env {
         for directory in std::env::split_paths(path) {
             push_jdtls_names(&mut candidates, &directory);
         }
     }
     for root in extra_roots {
-        push_jdtls_names(&mut candidates, root);
-        push_jdtls_names(&mut candidates, &root.join("bin"));
+        push_jdtls_root(&mut candidates, root);
     }
     candidates
+}
+
+fn push_jdtls_root(candidates: &mut Vec<PathBuf>, root: &Path) {
+    push_jdtls_names(candidates, root);
+    push_jdtls_names(candidates, &root.join("bin"));
 }
 
 fn push_jdtls_names(candidates: &mut Vec<PathBuf>, directory: &Path) {
@@ -147,6 +166,13 @@ fn jdtls_search_roots(project_root: Option<&Path>) -> Vec<PathBuf> {
     roots
 }
 
+fn bundled_jdtls_root(app: &AppHandle) -> Option<PathBuf> {
+    app.path()
+        .resource_dir()
+        .ok()
+        .map(|directory| directory.join("LanguageServers").join("jdtls"))
+}
+
 fn resolve_java_home(
     project_root: Option<&Path>,
     java_home_override: Option<&str>,
@@ -181,6 +207,7 @@ fn normalize_path(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_dir() -> PathBuf {
@@ -201,7 +228,7 @@ mod tests {
         let executable = bin.join("jdtls.bat");
         fs::write(&executable, "@echo off\n").expect("jdtls");
 
-        let found = find_jdtls_executable(None, &[root.clone()]).expect("found");
+        let found = find_jdtls_executable(None, None, &[root.clone()]).expect("found");
         assert_eq!(found, executable);
         fs::remove_dir_all(root).ok();
     }
@@ -215,7 +242,7 @@ mod tests {
         fs::write(&path_executable, "@echo off\n").expect("path jdtls");
         fs::write(&extra_executable, "@echo off\n").expect("extra jdtls");
 
-        let found = find_jdtls_executable(Some(path_root.as_os_str()), &[extra_root.clone()])
+        let found = find_jdtls_executable(Some(path_root.as_os_str()), None, &[extra_root.clone()])
             .expect("found");
         assert_eq!(found, path_executable);
         fs::remove_dir_all(path_root).ok();
@@ -223,10 +250,36 @@ mod tests {
     }
 
     #[test]
+    fn prefers_bundled_jdtls_before_path_and_external_roots() {
+        let bundled_root = temp_dir();
+        let bundled_bin = bundled_root.join("bin");
+        let path_root = temp_dir();
+        let external_root = temp_dir();
+        fs::create_dir_all(&bundled_bin).expect("bundled bin");
+        let bundled_executable = bundled_bin.join("jdtls.bat");
+        fs::write(&bundled_executable, "@echo off\n").expect("bundled jdtls");
+        fs::write(path_root.join("jdtls.cmd"), "@echo off\n").expect("path jdtls");
+        fs::write(external_root.join("jdtls.exe"), []).expect("external jdtls");
+
+        let found = find_jdtls_executable(
+            Some(path_root.as_os_str()),
+            Some(&bundled_root),
+            &[external_root.clone()],
+        )
+        .expect("found");
+
+        assert_eq!(found, bundled_executable);
+        fs::remove_dir_all(bundled_root).ok();
+        fs::remove_dir_all(path_root).ok();
+        fs::remove_dir_all(external_root).ok();
+    }
+
+    #[test]
     fn reports_a_stable_error_when_jdtls_is_missing() {
         let missing = temp_dir().join("empty-jdtls-root");
         fs::create_dir_all(&missing).expect("missing root");
-        let error = resolve_java_lsp_launch(None, &[missing.clone()], None, None).unwrap_err();
+        let error =
+            resolve_java_lsp_launch(None, None, &[missing.clone()], None, None).unwrap_err();
         assert!(error.contains("jdtls"), "{error}");
         fs::remove_dir_all(missing).ok();
     }

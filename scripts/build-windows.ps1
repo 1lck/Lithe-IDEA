@@ -8,6 +8,7 @@ param(
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $windowsApp = Join-Path $root "windows/tauri"
+& (Join-Path $root "scripts/prepare-jdtls.ps1") | Out-Null
 Set-Location $windowsApp
 
 if ($null -eq (Get-Command bun -ErrorAction SilentlyContinue)) {

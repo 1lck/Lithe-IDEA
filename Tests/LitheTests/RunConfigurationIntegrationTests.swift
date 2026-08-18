@@ -348,6 +348,24 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func macToolDiscoveryPrefersBundledJDTLS() {
+        let resources = URL(fileURLWithPath: "/Applications/Lithe.app/Contents/Resources", isDirectory: true)
+        let root = URL(fileURLWithPath: "/tmp/mac-java-project", isDirectory: true)
+        let bundled = resources.appendingPathComponent("LanguageServers/jdtls/bin/jdtls")
+        let project = root.appendingPathComponent(".lithe/toolchains/bin/jdtls")
+        let discovery = MacRuntimeToolDiscovery(
+            homeDirectoryURL: URL(fileURLWithPath: "/tmp/home", isDirectory: true),
+            resourceDirectoryURL: resources,
+            isExecutable: { $0 == bundled || $0 == project }
+        )
+
+        let candidates = discovery.candidates(for: "jdtls", projectURL: root, environment: [:])
+
+        #expect(candidates.map(\.source) == [.bundled, .project])
+        #expect(candidates.first?.executableURL == bundled)
+    }
+
+    @Test
     func legacyJavaDoesNotAcceptGenericDAPBreakpointsWithoutAnAdapter() throws {
         let source = URL(fileURLWithPath: "/tmp/Main.java")
         #expect(throws: DebugProviderError.noProvider(fileExtension: "java")) {
