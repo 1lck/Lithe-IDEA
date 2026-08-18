@@ -16,8 +16,8 @@ final class MacApplicationLogWriter {
             withIntermediateDirectories: true
         )
         let logURL = directory.appendingPathComponent(Self.fileName, isDirectory: false)
-        let descriptor = logURL.withUnsafeFileSystemRepresentation { path in
-            guard let path else { return -1 }
+        let descriptor: Int32 = logURL.withUnsafeFileSystemRepresentation { path in
+            guard let path else { return Int32(-1) }
             return open(path, O_WRONLY | O_CREAT | O_APPEND, S_IRUSR | S_IWUSR)
         }
         guard descriptor >= 0 else {
