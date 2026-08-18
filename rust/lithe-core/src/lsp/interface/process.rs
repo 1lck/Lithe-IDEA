@@ -13,6 +13,9 @@ use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 /// Everything needed to start a language server, after provider adaptation has
 /// already rewritten the arguments.
 pub struct LspProcessSpec {
@@ -75,6 +78,7 @@ impl LspProcessLauncher for SystemProcessLauncher {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        apply_language_server_creation_flags(&mut command);
         let mut child = command.spawn().map_err(|error| {
             CoreError::new(
                 ErrorCode::ProcessStartFailed,
@@ -100,6 +104,20 @@ impl LspProcessLauncher for SystemProcessLauncher {
             errors: Box::new(stderr),
         })
     }
+}
+
+fn apply_language_server_creation_flags(command: &mut Command) {
+    #[cfg(target_os = "windows")]
+    command.creation_flags(language_server_process_creation_flags());
+
+    #[cfg(not(target_os = "windows"))]
+    let _ = command;
+}
+
+#[cfg(target_os = "windows")]
+fn language_server_process_creation_flags() -> u32 {
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    CREATE_NO_WINDOW
 }
 
 struct SystemProcess {
@@ -165,4 +183,12 @@ fn missing_stream(stream: &str) -> CoreError {
         "A language-server standard stream was unavailable.",
     )
     .with_details(stream)
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod tests {
+    #[test]
+    fn background_language_servers_do_not_create_windows_console() {
+        assert_eq!(super::language_server_process_creation_flags(), 0x0800_0000);
+    }
 }
