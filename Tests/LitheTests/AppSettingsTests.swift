@@ -28,6 +28,27 @@ struct AppSettingsTests {
         #expect(settings.autoSave)
         #expect(AppSettings(store: store).autoSave)
     }
+
+    @Test
+    func customLogDirectoryPersistsAndCanBeRestoredToDefault() {
+        let store = AppSettingsTestStore()
+        let settings = AppSettings(store: store)
+        let customDirectory = URL(fileURLWithPath: "/tmp/lithe-test-logs", isDirectory: true)
+
+        #expect(settings.customLogDirectory == nil)
+        #expect(settings.logDirectory == settings.defaultLogDirectory)
+
+        settings.setCustomLogDirectory(customDirectory)
+
+        let restored = AppSettings(store: store)
+        #expect(restored.customLogDirectory == customDirectory.standardizedFileURL)
+        #expect(restored.logDirectory == customDirectory.standardizedFileURL)
+
+        restored.restoreDefaults()
+
+        #expect(restored.customLogDirectory == nil)
+        #expect(AppSettings(store: store).logDirectory == restored.defaultLogDirectory)
+    }
 }
 
 private final class AppSettingsTestStore: KeyValueStore, @unchecked Sendable {

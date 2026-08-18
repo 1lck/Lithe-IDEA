@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 import LitheCoreContracts
 import LitheGitModule
@@ -168,7 +167,7 @@ struct SettingsView: View {
     private func searchTerms(for category: SettingsCategory) -> [String] {
         switch category {
         case .general:
-            ["General", "Appearance", "Color theme", "Appearance mode", "Language", "Projects", "Files", "Version control"]
+            ["General", "Appearance", "Color theme", "Appearance mode", "Language", "Projects", "Files", "Version control", "Logs", "Log directory"]
         case .editor:
             ["Editor", "Display", "Editor tabs", "Font size", "Indentation", "Tab width"]
         case .keymap:
@@ -366,6 +365,32 @@ struct SettingsView: View {
                     Spacer()
                     Button("Apply") { applyVisibilityDrafts() }
                         .buttonStyle(LithePrimaryButtonStyle())
+                }
+            }
+
+            group("Logs") {
+                logDirectoryRow("Default directory", url: settings.defaultLogDirectory)
+                logDirectoryRow("Selected directory", url: settings.logDirectory)
+
+                HStack(spacing: 8) {
+                    Button {
+                        guard let directory = model.platformUI.chooseDirectory(
+                            title: "Choose Log Directory",
+                            prompt: "Choose"
+                        ) else { return }
+                        settings.setCustomLogDirectory(directory)
+                    } label: {
+                        Label("Choose Directory", systemImage: "folder.badge.plus")
+                    }
+                    .buttonStyle(LitheSecondaryButtonStyle())
+
+                    Button {
+                        settings.setCustomLogDirectory(nil)
+                    } label: {
+                        Label("Restore Default", systemImage: "arrow.counterclockwise")
+                    }
+                    .buttonStyle(LitheSecondaryButtonStyle())
+                    .disabled(settings.customLogDirectory == nil)
                 }
             }
         }
@@ -1061,6 +1086,18 @@ struct SettingsView: View {
             content()
         }
         .frame(minHeight: 28)
+    }
+
+    private func logDirectoryRow(_ title: String, url: URL) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(LocalizedStringKey(title))
+                .foregroundStyle(LitheTheme.secondaryText)
+            Text(url.path)
+                .font(.system(size: 11, design: .monospaced))
+                .textSelection(.enabled)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private func syncAIProviderDraft() {
