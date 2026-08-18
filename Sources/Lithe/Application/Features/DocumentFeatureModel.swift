@@ -1,12 +1,53 @@
 import Combine
 import Foundation
 
+enum StandaloneFileOpenFailure: Error, Equatable {
+    case unavailable
+    case directory
+    case tooLarge
+    case notText
+    case readFailed
+
+    var title: String {
+        switch self {
+        case .unavailable: "File is not available"
+        case .directory: "Folders cannot be opened as text"
+        case .tooLarge: "File is too large to open"
+        case .notText: "This file cannot be displayed as text"
+        case .readFailed: "Could not read this file"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .unavailable:
+            "The file no longer exists or Lithe does not have access to it."
+        case .directory:
+            "Open a text file instead of a folder."
+        case .tooLarge:
+            "Standalone text files are limited to 32 MB."
+        case .notText:
+            "Only UTF-8 text files are supported in the standalone editor."
+        case .readFailed:
+            "The file could not be read. Check its permissions and try again."
+        }
+    }
+}
+
+enum StandaloneFileLoadState: Equatable {
+    case idle
+    case loading
+    case loaded
+    case failed(StandaloneFileOpenFailure)
+}
+
 /// Owns editor document lifecycle and persistence-facing state. Java services,
 /// local history, and UI notifications are supplied as callbacks by AppModel.
 @MainActor
 final class DocumentFeatureModel: ObservableObject {
     @Published private(set) var openDocuments: [EditorDocument] = []
     @Published var activeDocumentID: UUID?
+    @Published private(set) var standaloneFileLoadState: StandaloneFileLoadState = .idle
     @Published private(set) var pendingCloseDocument: EditorDocument?
     @Published private(set) var isPendingProjectClose = false
 
@@ -31,6 +72,8 @@ final class DocumentFeatureModel: ObservableObject {
     private var latestFileOpenRequestID: UUID?
     private var pendingCloseQueue: [EditorDocument] = []
     private var pendingClosePreferredDocumentID: UUID?
+    private var standaloneOpenRequestID: UUID?
+    private var standaloneOpenTask: Task<Void, Never>?
 
     init(
         operations: any WorkspaceOperations,
@@ -82,6 +125,9 @@ final class DocumentFeatureModel: ObservableObject {
     }
 
     func reset() {
+        standaloneOpenTask?.cancel()
+        standaloneOpenTask = nil
+        standaloneOpenRequestID = nil
         autoSaveTasks.values.forEach { $0.cancel() }
         autoSaveTasks.removeAll()
         pendingFileOpenRequests.removeAll()
@@ -92,6 +138,7 @@ final class DocumentFeatureModel: ObservableObject {
         isPendingProjectClose = false
         openDocuments = []
         activeDocumentID = nil
+        standaloneFileLoadState = .idle
     }
 
     func openFile(
@@ -118,6 +165,81 @@ final class DocumentFeatureModel: ObservableObject {
             displayPath: displayPath,
             activateWhenReady: true
         ) }
+    }
+
+    func openStandaloneFile(_ url: URL) {
+        let normalizedURL = url.standardizedFileURL
+        if let existing = openDocuments.first(where: { $0.url == normalizedURL }) {
+            activeDocumentID = existing.id
+            standaloneFileLoadState = .loaded
+            return
+        }
+
+        standaloneOpenTask?.cancel()
+        let requestID = UUID()
+        standaloneOpenRequestID = requestID
+        standaloneFileLoadState = .loading
+        openDocuments = []
+        activeDocumentID = nil
+        let fileStorage = self.fileStorage
+        standaloneOpenTask = Task { [weak self] in
+            guard let self else { return }
+            let result = await Task.detached(priority: .userInitiated) {
+                Self.readStandaloneFile(at: normalizedURL, using: fileStorage)
+            }.value
+
+            guard self.standaloneOpenRequestID == requestID else { return }
+            self.standaloneOpenTask = nil
+
+            guard case let .success(text) = result else {
+                if case let .failure(failure) = result {
+                    self.standaloneFileLoadState = .failed(failure)
+                }
+                return
+            }
+
+            let document = EditorDocument(
+                url: normalizedURL,
+                text: text,
+                modificationDate: EditorDocument.modificationDate(for: normalizedURL),
+                isReadOnly: false
+            )
+            self.openDocuments = [document]
+            self.activeDocumentID = document.id
+            self.standaloneFileLoadState = .loaded
+            self.onDocumentCollectionChanged?()
+            self.onDocumentOpened?(document)
+        }
+    }
+
+    nonisolated private static func readStandaloneFile(
+        at url: URL,
+        using fileStorage: any FileStorage
+    ) -> Result<String, StandaloneFileOpenFailure> {
+        guard let metadata = fileStorage.metadata(for: url) else {
+            return .failure(.unavailable)
+        }
+        guard !metadata.isDirectory else { return .failure(.directory) }
+        guard metadata.isRegularFile else { return .failure(.unavailable) }
+        if let byteCount = metadata.byteCount,
+           byteCount > WorkspaceTextFilePolicy.standaloneFileByteLimit {
+            return .failure(.tooLarge)
+        }
+
+        let data: Data
+        do {
+            data = try fileStorage.readData(from: url, options: [])
+        } catch {
+            return .failure(.readFailed)
+        }
+        guard data.count <= WorkspaceTextFilePolicy.standaloneFileByteLimit else {
+            return .failure(.tooLarge)
+        }
+        guard let text = String(data: data, encoding: .utf8),
+              WorkspaceTextFilePolicy.isPlainText(text) else {
+            return .failure(.notText)
+        }
+        return .success(text)
     }
 
     func openFileAsync(
