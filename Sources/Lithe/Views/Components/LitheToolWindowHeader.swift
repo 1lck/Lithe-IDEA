@@ -35,15 +35,15 @@ struct LitheToolWindowHeader<Actions: View>: View {
                     size: 13,
                     fallbackSystemImage: systemImage ?? "circle"
                 )
-                .foregroundStyle(LitheTheme.secondaryText)
+                .foregroundStyle(LitheTheme.toolWindowText)
             } else if let systemImage {
                 Image(systemName: systemImage)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(LitheTheme.secondaryText)
+                    .foregroundStyle(LitheTheme.toolWindowText)
             }
             Text(LocalizedStringKey(title))
                 .font(.system(size: 12.5, weight: .semibold))
-                .foregroundStyle(LitheTheme.primaryText)
+                .foregroundStyle(LitheTheme.toolWindowText)
             if let subtitle, !subtitle.isEmpty {
                 Text(LocalizedStringKey(subtitle))
                     .font(.system(size: 11.5, weight: .medium))
