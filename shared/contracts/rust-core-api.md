@@ -120,6 +120,11 @@ stable error code and a user-facing message:
 | `git.commitFiles` | Return files changed by one commit |
 | `git.comparison` | Return files changed between a reference and the working tree |
 | `git.stashes` | Return structured stash references and messages |
+| `git.checkoutPreflight` | Return local paths that would block switching to a reference |
+| `git.pullPreflight` | Report the configured upstream, ahead/behind counts, divergence, and tracked local changes without fetching |
+| `git.integrationPreflight` | Return local paths that block a merge, rebase, cherry-pick, or revert |
+| `git.conflictMarkers` | Return staged text files that still contain conflict markers |
+| `git.operationState` | Report an interrupted merge, rebase, cherry-pick, or revert and its conflicted paths |
 | `git.blame` | Return structured line blame metadata |
 | `github.parseRemote` | Parse a canonical GitHub HTTPS or SSH remote into owner/name |
 | `github.requestPlan` | Validate one GitHub operation and produce a trusted platform HTTP request plan |
@@ -185,9 +190,10 @@ standard error envelope.
 `stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `cherryPick`, `revert`,
 `reset`, `createBranch`, `publishBranch`, `renameBranch`, `deleteBranch`, `merge`, `rebase`,
 `fetch`, `pull`, `push`, `checkout`, `checkoutRevision`, `clone`, `stashPush`,
-`stashApply`, `stashPop`, and `stashDrop`. Optional fields are `paths`,
-`reference`, `referenceKind`, `revision`, `name`, `message`, `remote`,
-`destination`, `mode`, `includeUntracked`, `checkout`, and `amend`.
+`stashApply`, `stashPop`, `stashDrop`, `operationContinue`, `operationAbort`, and
+`operationSkip`. Optional fields are `paths`, `reference`, `referenceKind`,
+`revision`, `name`, `message`, `remote`, `destination`, `mode`,
+`includeUntracked`, `checkout`, and `amend`.
 
 The core validates pathspecs, revisions, branch names, references, reset modes,
 stash references, and operation-specific required fields before invoking Git.
@@ -199,6 +205,45 @@ even when Git exits non-zero. Invalid arguments use the standard
 and checks out that branch at a detached HEAD when needed, then pushes it with
 an upstream. If the push fails, the local branch is intentionally retained so
 the user can fix credentials or connectivity and retry without losing commits.
+
+`operationContinue`, `operationAbort`, and `operationSkip` inspect Git metadata
+to select the active merge, rebase, cherry-pick, or revert instead of accepting
+an operation kind from the caller. Continue is rejected while conflicted paths
+remain, and skip is supported only for a rebase. All three return the normal
+`{ "output": string, "exitCode": number }` process result when Git is invoked;
+an absent or unsupported operation state uses the `invalid_request` envelope.
+
+`git.checkoutPreflight` accepts `{ "root": string, "reference": string }` and
+returns `{ "blockingPaths": string[] }`. The sorted, de-duplicated result
+contains tracked paths that are both locally modified and different between
+HEAD and the target, plus untracked paths that the target reference tracks.
+
+`git.pullPreflight` accepts `{ "root": string }` and returns `upstream` as a
+string or `null`, numeric `ahead` and `behind` counts, `diverged`, and
+`hasLocalChanges`. It reads the existing tracking reference without fetching;
+`diverged` is true only when both counts are non-zero. `hasLocalChanges` checks
+tracked changes and excludes untracked files. A branch with no configured
+upstream returns `null`, zero counts, and false for both booleans.
+
+`git.integrationPreflight` accepts `{ "root": string, "reference": string,
+"operation": string }`, where `operation` is `merge`, `rebase`, `cherryPick`,
+or `revert`. It returns sorted, de-duplicated `blockingPaths` and
+`blocksEntirely`. Merge, cherry-pick, and revert report only dirty tracked paths
+that overlap files the operation would write. Rebase reports every dirty
+tracked path and sets `blocksEntirely` to true when that set is non-empty.
+
+`git.conflictMarkers` accepts `{ "root": string }` and returns
+`{ "paths": string[] }`. Paths are sorted and de-duplicated staged text files
+whose staged content has a line beginning with an opening, closing, or diff3
+conflict marker. A bare
+`=======` line is not treated as a conflict marker.
+
+`git.operationState` accepts `{ "root": string }` and returns `kind`,
+`reference`, `step`, `total`, and sorted, de-duplicated `conflictedPaths`.
+`kind` is an empty string when no operation is active; otherwise it is `merge`,
+`rebase`, `cherryPick`, or `revert`. `reference`, `step`, and `total` are
+nullable, and the progress counters are populated only for a rebase. State is
+read from Git's own metadata, so operations started outside Lithe are reported.
 
 `git.diff` accepts `root`, `pathspecs`, optional `reference` or `commit`,
 `staged`, `untracked`, `contextLines`, and `ignoreAllWhitespace`, and returns `{ "patch": string, "rows": [],
@@ -361,6 +406,9 @@ document transformations. They validate scope, paths, supported types, stable
 IDs, main classes, modules, and argument parsing, then return UTF-8 JSON in the
 `document` field. The platform adapter selects the target project or local
 file and performs the atomic write. These commands never write files.
+For project-scoped option updates, selected toolchain paths must resolve inside
+`root` and are persisted with `/`-separated project-relative paths. Local-scoped
+updates may carry host absolute paths.
 
 `runConfig.createLaunchPlan` accepts `root`, `configurationId`, optional
 `currentFile` and `classPath`, and optional `debugPort`. It returns a toolchain

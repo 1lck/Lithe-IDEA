@@ -33,8 +33,11 @@ platform contract and enabled in the UI only when the capability exists.
 ## Remaining product work
 
 1. Align each Git feature API with the stable `git.*` command DTOs.
-2. Route workspace search, Local History, LSP, Java/Maven, and run
-   configurations through the same dispatcher.
+2. Route workspace search, Local History, remaining non-Java LSP, Java/Maven,
+   and run configurations through the same dispatcher. Built-in Java LSP now
+   starts through the Windows host (`jdtls` + JDK discovery) and
+   `lsp.startServer` with `providerId: "java"`. Spring configuration, `@Value`,
+   and bean-injection navigation uses `spring.index` before falling back to LSP.
 3. Implement Windows-owned process, debug, update, and secure-storage flows in
    Rust where the current UI exposes them.
 4. Hide or capability-gate future feature surfaces until their shared backend

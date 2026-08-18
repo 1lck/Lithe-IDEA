@@ -33,6 +33,7 @@ const nativeCommands = new Set([
   "get_system_fonts",
   "get_system_theme",
   "list_shells",
+  "lsp_resolve_java_launch",
   "move_file",
   "open_file_external",
   "read_file_custom",

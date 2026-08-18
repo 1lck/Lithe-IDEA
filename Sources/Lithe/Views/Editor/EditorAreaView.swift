@@ -255,11 +255,7 @@ struct EditorAreaView: View {
                     size: 13
                 )
                 editorTabTitle(document)
-                if document.isDirty {
-                    Circle()
-                        .fill(LitheTheme.primaryText)
-                        .frame(width: 6, height: 6)
-                }
+                EditorTabDirtyIndicator(document: document)
             }
             .foregroundStyle(model.activeDocumentID == document.id ? LitheTheme.primaryText : LitheTheme.secondaryText)
             .padding(.leading, 11)
@@ -641,12 +637,7 @@ struct EditorAreaView: View {
     ) -> some View {
         codeEditor(document, markdownScrollPosition: markdownScrollPosition)
             .overlay(alignment: .top) {
-                if model.isFindBarVisible {
-                    FindBarView()
-                        .padding(.top, 10)
-                        .padding(.horizontal, 12)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
+                FindBarOverlay()
             }
     }
 
@@ -749,5 +740,30 @@ private struct EditorTabDropDelegate: DropDelegate {
             dragSessionID,
             dropTargetRevision
         )
+    }
+}
+
+private struct EditorTabDirtyIndicator: View {
+    @ObservedObject var document: EditorDocument
+
+    var body: some View {
+        if document.isDirty {
+            Circle()
+                .fill(LitheTheme.primaryText)
+                .frame(width: 6, height: 6)
+        }
+    }
+}
+
+private struct FindBarOverlay: View {
+    @EnvironmentObject private var chrome: EditorChromeModel
+
+    var body: some View {
+        if chrome.isFindBarVisible {
+            FindBarView()
+                .padding(.top, 10)
+                .padding(.horizontal, 12)
+                .transition(.move(edge: .top).combined(with: .opacity))
+        }
     }
 }

@@ -17,6 +17,7 @@ import {
   XIcon as X,
 } from "@/ui/icons";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "@/i18n/locale-provider";
 import { LspClient } from "@/features/editor/lsp/lsp-client";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import {
@@ -84,16 +85,16 @@ const DEFAULT_PREFERENCES: PanePreferences = {
   fileNavigatorViewMode: "flat",
 };
 
-const GROUP_OPTIONS: Array<{ value: GroupBy; label: string }> = [
-  { value: "file", label: "File" },
-  { value: "severity", label: "Severity" },
-  { value: "none", label: "None" },
+const GROUP_OPTIONS: Array<{ value: GroupBy; labelKey: string }> = [
+  { value: "file", labelKey: "diagnostics.groupByFile" },
+  { value: "severity", labelKey: "diagnostics.groupBySeverity" },
+  { value: "none", labelKey: "diagnostics.groupByNone" },
 ];
 
-const SORT_OPTIONS: Array<{ value: SortBy; label: string }> = [
-  { value: "severity", label: "Severity" },
-  { value: "file", label: "File" },
-  { value: "position", label: "Position" },
+const SORT_OPTIONS: Array<{ value: SortBy; labelKey: string }> = [
+  { value: "severity", labelKey: "diagnostics.sortBySeverity" },
+  { value: "file", labelKey: "diagnostics.sortByFile" },
+  { value: "position", labelKey: "diagnostics.sortByPosition" },
 ];
 
 const SEVERITY_ORDER: Record<Diagnostic["severity"], number> = {
@@ -102,10 +103,10 @@ const SEVERITY_ORDER: Record<Diagnostic["severity"], number> = {
   info: 2,
 };
 
-const SEVERITY_LABEL: Record<Diagnostic["severity"], string> = {
-  error: "Errors",
-  warning: "Warnings",
-  info: "Info",
+const SEVERITY_LABEL_KEY: Record<Diagnostic["severity"], string> = {
+  error: "diagnostics.errors",
+  warning: "diagnostics.warnings",
+  info: "diagnostics.info",
 };
 
 const SEVERITY_TEXT_CLASS: Record<Diagnostic["severity"], string> = {
@@ -216,6 +217,7 @@ const DiagnosticsPane = ({
   onFullScreen,
   isFullScreen = false,
 }: DiagnosticsPaneProps) => {
+  const { t } = useTranslation();
   const { showToast } = useToast();
   const lspClient = useMemo(() => LspClient.getInstance(), []);
   const widthMode = useTerminalStore((state) => state.widthMode);
@@ -371,7 +373,7 @@ const DiagnosticsPane = ({
       return [
         {
           id: "all",
-          label: "All Diagnostics",
+          label: t("diagnostics.all"),
           items: filteredDiagnostics,
         },
       ];
@@ -385,7 +387,7 @@ const DiagnosticsPane = ({
           );
           return {
             id: `severity-${severity}`,
-            label: SEVERITY_LABEL[severity as Diagnostic["severity"]],
+            label: t(SEVERITY_LABEL_KEY[severity as Diagnostic["severity"]]),
             items,
             severity: severity as Diagnostic["severity"],
           };
@@ -407,7 +409,7 @@ const DiagnosticsPane = ({
         label: filePath,
         items,
       }));
-  }, [filteredDiagnostics, preferences.groupBy]);
+  }, [filteredDiagnostics, preferences.groupBy, t]);
 
   const totalBySeverity = useMemo(() => {
     return diagnostics.reduce(
@@ -565,18 +567,18 @@ const DiagnosticsPane = ({
   const copyDiagnosticMessage = useCallback(
     async (diagnostic: Diagnostic) => {
       await copyToClipboard(diagnostic.message);
-      showToast({ message: "Diagnostic message copied", type: "success" });
+      showToast({ message: t("diagnostics.messageCopied"), type: "success" });
     },
-    [showToast],
+    [showToast, t],
   );
 
   const copyDiagnosticLocation = useCallback(
     async (diagnostic: Diagnostic) => {
       const text = `${diagnostic.filePath}:${diagnostic.line + 1}:${diagnostic.column + 1}`;
       await copyToClipboard(text);
-      showToast({ message: "Diagnostic location copied", type: "success" });
+      showToast({ message: t("diagnostics.locationCopied"), type: "success" });
     },
-    [showToast],
+    [showToast, t],
   );
 
   const copyDiagnosticDetails = useCallback(
@@ -592,9 +594,9 @@ const DiagnosticsPane = ({
         .join(" | ");
 
       await copyToClipboard(details);
-      showToast({ message: "Diagnostic details copied", type: "success" });
+      showToast({ message: t("diagnostics.detailsCopied"), type: "success" });
     },
-    [showToast],
+    [showToast, t],
   );
 
   const diagnosticContextMenuItems = useMemo<MenuItem[]>(() => {
@@ -610,7 +612,7 @@ const DiagnosticsPane = ({
     if (isLoading) {
       items.push({
         id: "loading-actions",
-        label: "Loading quick fixes...",
+        label: t("diagnostics.loadingFixes"),
         icon: <WandSparkles />,
         onClick: () => {},
         disabled: true,
@@ -633,7 +635,7 @@ const DiagnosticsPane = ({
     } else {
       items.push({
         id: "no-actions",
-        label: "No quick fixes available",
+        label: t("diagnostics.noFixes"),
         icon: <WandSparkles />,
         onClick: () => {},
         disabled: true,
@@ -645,12 +647,12 @@ const DiagnosticsPane = ({
     items.push(
       {
         id: "go-to-problem",
-        label: "Go to Problem",
+        label: t("diagnostics.goToProblem"),
         onClick: () => onDiagnosticClick?.(diagnostic),
       },
       {
         id: "copy-message",
-        label: "Copy Message",
+        label: t("diagnostics.copyMessage"),
         icon: <Copy />,
         onClick: () => {
           void copyDiagnosticMessage(diagnostic);
@@ -658,7 +660,7 @@ const DiagnosticsPane = ({
       },
       {
         id: "copy-location",
-        label: "Copy Location",
+        label: t("diagnostics.copyLocation"),
         icon: <Copy />,
         onClick: () => {
           void copyDiagnosticLocation(diagnostic);
@@ -666,7 +668,7 @@ const DiagnosticsPane = ({
       },
       {
         id: "copy-details",
-        label: "Copy Full Details",
+        label: t("diagnostics.copyDetails"),
         icon: <Copy />,
         onClick: () => {
           void copyDiagnosticDetails(diagnostic);
@@ -679,14 +681,14 @@ const DiagnosticsPane = ({
       if (sourceFilter?.toLowerCase() === source.toLowerCase()) {
         items.push({
           id: "clear-source-filter",
-          label: "Clear Source Filter",
+          label: t("diagnostics.clearSourceFilterSimple"),
           icon: <Filter />,
           onClick: () => setSourceFilter(null),
         });
       } else {
         items.push({
           id: "filter-by-source",
-          label: `Filter by Source: ${source}`,
+          label: t("diagnostics.filterBySource", { source }),
           icon: <Filter />,
           onClick: () => setSourceFilter(source),
         });
@@ -697,7 +699,9 @@ const DiagnosticsPane = ({
 
     items.push({
       id: "toggle-wrap",
-      label: preferences.wrapMessages ? "Disable Message Wrap" : "Enable Message Wrap",
+      label: preferences.wrapMessages
+        ? t("diagnostics.disableWrap")
+        : t("diagnostics.enableWrap"),
       onClick: () => togglePreference("wrapMessages"),
     });
 
@@ -714,6 +718,7 @@ const DiagnosticsPane = ({
     preferences.wrapMessages,
     sourceFilter,
     togglePreference,
+    t,
   ]);
 
   const hasNonDefaultPreferences =
@@ -742,7 +747,10 @@ const DiagnosticsPane = ({
   const hasSearch = Boolean(searchQuery.trim());
   const visibleProblemCount = filteredDiagnostics.length;
   const hasDiagnosticFiles = diagnosticFileItems.length > 0;
-  const problemSummary = `${visibleProblemCount} problem${visibleProblemCount === 1 ? "" : "s"}`;
+  const problemSummary =
+    visibleProblemCount === 1
+      ? t("diagnostics.problemCountOne", { count: visibleProblemCount })
+      : t("diagnostics.problemCount", { count: visibleProblemCount });
   const problemSummaryTone =
     visibleBySeverity.error > 0
       ? "text-destructive"
@@ -760,7 +768,7 @@ const DiagnosticsPane = ({
     items.push(
       ...GROUP_OPTIONS.map((option) => ({
         id: `group-${option.value}`,
-        label: `Group by: ${option.label}`,
+        label: t(option.labelKey),
         icon: preferences.groupBy === option.value ? <Check /> : undefined,
         onClick: () => {
           setPreferences((prev) => ({
@@ -776,7 +784,7 @@ const DiagnosticsPane = ({
     items.push(
       ...SORT_OPTIONS.map((option) => ({
         id: `sort-${option.value}`,
-        label: `Sort by: ${option.label}`,
+        label: t(option.labelKey),
         icon: preferences.sortBy === option.value ? <Check /> : undefined,
         onClick: () => {
           setPreferences((prev) => ({
@@ -792,7 +800,11 @@ const DiagnosticsPane = ({
     for (const severity of ["error", "warning", "info"] as Diagnostic["severity"][]) {
       items.push({
         id: `severity-${severity}`,
-        label: `${SEVERITY_LABEL[severity]} (${visibleBySeverity[severity]}/${totalBySeverity[severity]})`,
+        label: t("diagnostics.severityCount", {
+          label: t(SEVERITY_LABEL_KEY[severity]),
+          visible: visibleBySeverity[severity],
+          total: totalBySeverity[severity],
+        }),
         icon: severityFilter[severity] ? <Check /> : undefined,
         onClick: () => toggleSeverity(severity),
       });
@@ -801,7 +813,7 @@ const DiagnosticsPane = ({
     if (activeFilePath) {
       items.push({
         id: "only-current-file",
-        label: "Only Current File",
+        label: t("diagnostics.onlyCurrentFile"),
         icon: preferences.onlyCurrentFile ? <Check /> : undefined,
         onClick: () => togglePreference("onlyCurrentFile"),
       });
@@ -810,7 +822,7 @@ const DiagnosticsPane = ({
     if (sourceFilter) {
       items.push({
         id: "clear-source-filter",
-        label: `Clear Source Filter (${sourceFilter})`,
+        label: t("diagnostics.clearSourceFilter", { source: sourceFilter }),
         onClick: () => setSourceFilter(null),
       });
     }
@@ -819,7 +831,7 @@ const DiagnosticsPane = ({
       items.push({ id: "sep-reset", label: "", separator: true, onClick: () => {} });
       items.push({
         id: "reset-filters",
-        label: "Reset All Filters",
+        label: t("diagnostics.resetAllFilters"),
         onClick: resetFilters,
       });
     }
@@ -839,14 +851,15 @@ const DiagnosticsPane = ({
     toggleSeverity,
     totalBySeverity,
     visibleBySeverity,
+    t,
   ]);
 
   const headerContextMenuItems = useMemo<MenuItem[]>(() => {
     if (!headerContextMenu.data) return [];
 
     const widthModes: { value: TerminalWidthMode; label: string; icon: ReactNode }[] = [
-      { value: "full", label: "Full Width", icon: <Maximize /> },
-      { value: "editor", label: "Editor Width", icon: <AlignCenter /> },
+      { value: "full", label: t("diagnostics.fullWidth"), icon: <Maximize /> },
+      { value: "editor", label: t("diagnostics.editorWidth"), icon: <AlignCenter /> },
     ];
 
     const items: MenuItem[] = widthModes.map((mode) => ({
@@ -862,7 +875,7 @@ const DiagnosticsPane = ({
         { id: "sep-fullscreen", label: "", separator: true, onClick: () => {} },
         {
           id: "toggle-fullscreen",
-          label: isFullScreen ? "Exit Full Screen" : "Full Screen",
+          label: isFullScreen ? t("diagnostics.exitFullScreen") : t("diagnostics.fullScreen"),
           icon: isFullScreen ? <Minimize2 /> : <Maximize2 />,
           onClick: onFullScreen,
         },
@@ -870,7 +883,7 @@ const DiagnosticsPane = ({
     }
 
     return items;
-  }, [headerContextMenu.data, widthMode, setWidthMode, onFullScreen, isFullScreen]);
+  }, [headerContextMenu.data, widthMode, setWidthMode, onFullScreen, isFullScreen, t]);
 
   if (!isVisible) return null;
 
@@ -894,8 +907,12 @@ const DiagnosticsPane = ({
                 className={cn(
                   isFileNavigatorVisible && "border-border/70 bg-accent text-foreground",
                 )}
-                tooltip={isFileNavigatorVisible ? "Hide files" : "Show files"}
-                aria-label={isFileNavigatorVisible ? "Hide files" : "Show files"}
+                tooltip={
+                  isFileNavigatorVisible ? t("diagnostics.hideFiles") : t("diagnostics.showFiles")
+                }
+                aria-label={
+                  isFileNavigatorVisible ? t("diagnostics.hideFiles") : t("diagnostics.showFiles")
+                }
               >
                 <ListBullets />
               </PaneIconButton>
@@ -914,7 +931,7 @@ const DiagnosticsPane = ({
               className={cn(
                 (isSearchVisible || hasSearch) && "border-border/70 bg-accent text-foreground",
               )}
-              tooltip="Search problems"
+              tooltip={t("diagnostics.search")}
             >
               <Search />
             </PaneIconButton>
@@ -925,7 +942,7 @@ const DiagnosticsPane = ({
                 filterContextMenu.open(event, "filters");
               }}
               className={cn("relative", hasFilterSettings && "text-primary")}
-              tooltip="Filter problems"
+              tooltip={t("diagnostics.filter")}
             >
               <Filter />
               {activeFilterCount > 0 && (
@@ -943,16 +960,18 @@ const DiagnosticsPane = ({
               <PaneIconButton
                 type="button"
                 onClick={onFullScreen}
-                tooltip={isFullScreen ? "Exit Full Screen" : "Full Screen"}
+                tooltip={isFullScreen ? t("diagnostics.exitFullScreen") : t("diagnostics.fullScreen")}
                 tooltipSide="bottom"
-                aria-label={isFullScreen ? "Exit full screen" : "Full screen"}
+                aria-label={
+                  isFullScreen ? t("diagnostics.exitFullScreen") : t("diagnostics.fullScreen")
+                }
               >
                 {isFullScreen ? <Minimize2 /> : <Maximize2 />}
               </PaneIconButton>
             )}
 
             {!isEmbedded && (
-              <PaneIconButton type="button" onClick={onClose} tooltip="Close problems pane">
+              <PaneIconButton type="button" onClick={onClose} tooltip={t("diagnostics.closePane")}>
                 <X />
               </PaneIconButton>
             )}
@@ -979,7 +998,7 @@ const DiagnosticsPane = ({
                     }
                   }
                 }}
-                placeholder="Search problems"
+                placeholder={t("diagnostics.search")}
                 inputRef={searchInputRef}
                 extraActions={
                   <PaneIconButton
@@ -988,7 +1007,7 @@ const DiagnosticsPane = ({
                       filterContextMenu.open(event, "filters");
                     }}
                     className={cn("relative", hasFilterSettings && "text-primary")}
-                    tooltip="Filter problems"
+                    tooltip={t("diagnostics.filter")}
                   >
                     <Filter />
                     {activeFilterCount > 0 && (
@@ -1014,7 +1033,7 @@ const DiagnosticsPane = ({
             items={diagnosticFileItems}
             selectedKey={selectedFileNavigatorKey}
             onSelect={selectDiagnosticFile}
-            ariaLabel="Diagnostic files"
+            ariaLabel={t("diagnostics.filesAria")}
             viewMode={preferences.fileNavigatorViewMode}
             onViewModeChange={(fileNavigatorViewMode) =>
               setPreferences((prev) => ({
@@ -1027,11 +1046,15 @@ const DiagnosticsPane = ({
 
         <ScrollArea className="min-h-0 flex-1" contentClassName="px-1.5 py-1.5">
           {diagnostics.length === 0 ? (
-            <EmptyState message="No problems detected" />
+            <EmptyState message={t("diagnostics.empty")} />
           ) : filteredDiagnostics.length === 0 ? (
             <EmptyState
-              message="No problems match the current filters"
-              action={hasFilters ? { label: "Reset filters", onClick: resetFilters } : undefined}
+              message={t("diagnostics.noMatch")}
+              action={
+                hasFilters
+                  ? { label: t("diagnostics.resetFilters"), onClick: resetFilters }
+                  : undefined
+              }
             />
           ) : (
             <div className="space-y-1.5">

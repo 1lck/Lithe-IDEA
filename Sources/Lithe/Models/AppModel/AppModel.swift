@@ -69,14 +69,25 @@ final class AppModel: ObservableObject, Identifiable {
     /// Replace in Project 面板的搜索选项（Preserve Case、文件掩码等）。
     @Published var projectReplaceOptions = ProjectSearchOptions.default
     @Published var selectedProjectReplacementPaths: Set<String> = []
+    let editorChrome = EditorChromeModel()
+    let editorDiagnosticsStore = EditorDiagnosticsStore()
     /// 编辑器当前选中的单行文本，供 Find/Replace in Files 预填查询词。
-    @Published var editorSelectedText = ""
+    var editorSelectedText: String {
+        get { editorChrome.selectedText }
+        set { editorChrome.update(selectedText: newValue) }
+    }
     /// 递增令牌：搜索侧栏观察它来把焦点移回输入框。
     @Published var searchSidebarFocusRequest = 0
-    @Published var isFindBarVisible = false
-    @Published var findBarQuery = ""
-    @Published private(set) var findMatchCount = 0
-    @Published private(set) var currentFindMatchIndex = 0
+    var isFindBarVisible: Bool {
+        get { editorChrome.isFindBarVisible }
+        set { editorChrome.setFindBarVisible(newValue) }
+    }
+    var findBarQuery: String {
+        get { editorChrome.findBarQuery }
+        set { editorChrome.setFindBarQuery(newValue) }
+    }
+    var findMatchCount: Int { editorChrome.findMatchCount }
+    var currentFindMatchIndex: Int { editorChrome.currentFindMatchIndex }
     var projectItemEditRequest: ProjectItemEditRequest? {
         get { workspaceFeature.projectItemEditRequest }
         set { workspaceFeature.projectItemEditRequest = newValue }
@@ -109,7 +120,10 @@ final class AppModel: ObservableObject, Identifiable {
     @Published var languageNavigationLocations: [LanguageNavigationLocation] = []
     @Published var languageNavigationResultKind: LanguageNavigationResultKind = .definitions
     @Published var isLoadingLanguageNavigation = false
-    @Published var editorCaret: EditorCaret?
+    var editorCaret: EditorCaret? {
+        get { editorChrome.caret }
+        set { editorChrome.update(caret: newValue) }
+    }
     @Published var editorNavigationTarget: EditorNavigationTarget?
     let navigationHistoryFeature: NavigationHistoryFeatureModel
     var virtualDocumentProviderIDs: [URL: String] = [:]
@@ -245,8 +259,9 @@ final class AppModel: ObservableObject, Identifiable {
         return combined
     }
     var editorDiagnostics: [URL: [EditorDiagnostic]] {
-        EditorDiagnostic.fromLanguageServerDiagnostics(languageDiagnostics)
+        editorDiagnosticsStore.diagnosticsByURL
     }
+    var languageSessionChromeSignature: LanguageSessionChromeSignature?
     private var workspaceFeatureObservation: AnyCancellable?
     private var githubFeatureObservation: AnyCancellable?
     private var runtimeFeatureObservation: AnyCancellable?
@@ -630,6 +645,7 @@ final class AppModel: ObservableObject, Identifiable {
             self?.scheduleObjectWillChangeRelay()
         }
         springFeatureObservation = springFeature.objectWillChange.sink { [weak self] _ in
+            self?.refreshEditorDiagnosticsStore()
             self?.scheduleObjectWillChangeRelay()
         }
         fileVisibilityRulesObserverID = settings.addFileVisibilityRulesObserver { [weak self] in
@@ -966,7 +982,8 @@ final class AppModel: ObservableObject, Identifiable {
         isRunVisible = false
         isTestsVisible = false
         isDebugVisible = false
-        editorCaret = nil
+        editorChrome.reset()
+        editorDiagnosticsStore.reset()
         editorNavigationTarget = nil
         navigationHistoryFeature.reset()
         virtualDocumentProviderIDs.removeAll()
@@ -1039,10 +1056,8 @@ final class AppModel: ObservableObject, Identifiable {
         projectReplaceQuery = ""
         projectReplaceText = ""
         selectedProjectReplacementPaths = []
-        isFindBarVisible = false
-        findBarQuery = ""
-        findMatchCount = 0
-        currentFindMatchIndex = 0
+        editorChrome.resetFindBar()
+        editorDiagnosticsStore.reset()
         projectHistoryFeatureIfActive?.reset()
         workspaceFeature.reset()
         gitFeatureIfActive?.reset()
@@ -1065,7 +1080,7 @@ final class AppModel: ObservableObject, Identifiable {
         genericDebugFeatureIfActive?.reset()
         javaFeature.stop()
         springFeature.reset()
-        editorCaret = nil
+        editorChrome.reset()
         editorNavigationTarget = nil
         navigationHistoryFeature.reset()
         virtualDocumentProviderIDs.removeAll()
@@ -1080,10 +1095,7 @@ final class AppModel: ObservableObject, Identifiable {
     private func performCloseStandaloneFile() {
         standaloneFileURL = nil
         documentFeature.reset()
-        isFindBarVisible = false
-        findBarQuery = ""
-        findMatchCount = 0
-        currentFindMatchIndex = 0
+        editorChrome.resetFindBar()
         didCloseProject?()
     }
 
@@ -1173,8 +1185,8 @@ final class AppModel: ObservableObject, Identifiable {
         workspaceFeature.cancelProjectItemDeletion()
     }
 
-    func confirmProjectItemDeletion() async {
-        await workspaceFeature.confirmProjectItemDeletion()
+    func confirmProjectItemDeletion(_ request: ProjectItemDeletionRequest) async {
+        await workspaceFeature.confirmProjectItemDeletion(request)
     }
 
     func revealProjectItemInFinder(_ url: URL) {
@@ -1375,7 +1387,7 @@ final class AppModel: ObservableObject, Identifiable {
                     guard let capability = value as? LitheLanguageIntelligenceModule.LanguageIntelligenceCapability else { return }
                     self.cacheModuleCapability(capability, id: .languageIntelligence, moduleID: .languageIntelligence)
                     self.observeModuleFeature(.languageIntelligence, observation: capability.sessions.objectWillChange.sink { [weak self] _ in
-                        self?.scheduleObjectWillChangeRelay()
+                        self?.handleLanguageSessionChange()
                     })
                     capability.tools.onCandidatesChanged = { [weak self] providerID in
                         guard let self,
@@ -1428,14 +1440,11 @@ final class AppModel: ObservableObject, Identifiable {
 
     func showFindBar() {
         guard activeDocument != nil else { return }
-        isFindBarVisible = true
+        editorChrome.setFindBarVisible(true)
     }
 
     func hideFindBar() {
-        isFindBarVisible = false
-        findBarQuery = ""
-        findMatchCount = 0
-        currentFindMatchIndex = 0
+        editorChrome.resetFindBar()
         NotificationCenter.default.post(name: .litheFindDismiss, object: nil)
     }
 
@@ -1448,7 +1457,7 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     func setFindBarQuery(_ query: String) {
-        findBarQuery = query
+        editorChrome.setFindBarQuery(query)
         NotificationCenter.default.post(
             name: .litheFindQueryChanged,
             object: nil,
@@ -1465,9 +1474,7 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     func updateFindState(currentIndex: Int, count: Int) {
-        guard currentFindMatchIndex != currentIndex || findMatchCount != count else { return }
-        findMatchCount = count
-        currentFindMatchIndex = currentIndex
+        editorChrome.updateFindState(currentIndex: currentIndex, count: count)
     }
 
     func commitStagedChanges() async {

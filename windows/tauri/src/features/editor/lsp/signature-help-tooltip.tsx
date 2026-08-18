@@ -2,7 +2,7 @@ import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } fro
 import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
 import { useEditorLayout } from "@/features/editor/hooks/use-layout";
 import { useEditorStateStore } from "@/features/editor/stores/state.store";
-import { extensionRegistry } from "@/extensions/registry/extension-registry";
+import { isEditorLspSupported } from "./built-in-language-support";
 import type { EditorModelPositionResolver } from "../view-model/view-layout";
 import { LspClient } from "./lsp-client";
 
@@ -63,7 +63,7 @@ export const SignatureHelpTooltip = ({
   }, [editorRef, filePath]);
 
   const fetchSignatureHelp = useCallback(async () => {
-    if (!filePath || !extensionRegistry.isLspSupported(filePath)) {
+    if (!filePath || !isEditorLspSupported(filePath)) {
       setSignatureHelp(null);
       return;
     }

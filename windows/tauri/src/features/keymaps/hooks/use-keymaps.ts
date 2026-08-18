@@ -25,6 +25,11 @@ import { parseKeybinding } from "../utils/parser";
 import type { ParsedKey } from "../utils/parser";
 import { keymapRegistry } from "../utils/registry";
 import { isVimOwnedShortcut } from "../utils/vim-shortcuts";
+import {
+  DoubleShiftGestureRecognizer,
+  isShiftOnlyKey,
+  keyboardEventHasNonShiftModifiers,
+} from "../utils/double-shift-recognizer";
 
 const CHORD_TIMEOUT = 1000; // 1 second to complete chord
 const CLOSE_TAB_CLOSE_REQUEST_WINDOW_MS = 1000;
@@ -45,6 +50,7 @@ export function useKeymaps() {
   const [chordState, setChordState] = useState<ParsedKey[]>([]);
   const chordTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastCloseTabShortcutAtRef = useRef(0);
+  const doubleShiftRecognizerRef = useRef(new DoubleShiftGestureRecognizer());
 
   useEffect(() => {
     if (!IS_LINUX || typeof window === "undefined") return;
@@ -81,6 +87,52 @@ export function useKeymaps() {
       unlisten?.();
     };
   }, []);
+
+  useEffect(() => {
+    const recognizer = doubleShiftRecognizerRef.current;
+
+    const handleShiftKeyDown = (event: KeyboardEvent) => {
+      if (contexts.isRecordingKeybinding) {
+        recognizer.reset();
+        return;
+      }
+
+      if (isShiftOnlyKey(event)) {
+        if (!event.repeat) {
+          recognizer.handleFlagsChanged(
+            true,
+            keyboardEventHasNonShiftModifiers(event),
+            performance.now() / 1000,
+          );
+        }
+        return;
+      }
+
+      recognizer.handleKeyDown();
+    };
+
+    const handleShiftKeyUp = (event: KeyboardEvent) => {
+      if (contexts.isRecordingKeybinding || !isShiftOnlyKey(event)) return;
+
+      const shouldOpenSearch = recognizer.handleFlagsChanged(
+        false,
+        keyboardEventHasNonShiftModifiers(event),
+        performance.now() / 1000,
+      );
+      if (!shouldOpenSearch) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      keymapRegistry.executeCommand("workbench.searchEverywhere");
+    };
+
+    window.addEventListener("keydown", handleShiftKeyDown, true);
+    window.addEventListener("keyup", handleShiftKeyUp, true);
+    return () => {
+      window.removeEventListener("keydown", handleShiftKeyDown, true);
+      window.removeEventListener("keyup", handleShiftKeyUp, true);
+    };
+  }, [contexts.isRecordingKeybinding]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

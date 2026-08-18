@@ -14,6 +14,7 @@ import {
   AlertDialogTitle,
 } from "@/ui/alert-dialog";
 import { Button, type ButtonVariant } from "@/ui/button";
+import { Checkbox } from "@/ui/checkbox";
 import {
   InfoIcon as Info,
   type IconProps as AppIconProps,
@@ -321,6 +322,17 @@ type PrimitiveDialogRequest =
     }
   | {
       id: number;
+      type: "choice-with-checkbox";
+      title: string;
+      message: ReactNode;
+      choices: PrimitiveChoiceOption[];
+      checkboxLabel: string;
+      checkboxDefaultChecked: boolean;
+      cancelLabel: string;
+      resolve: (value: ChoiceWithCheckboxResult<string> | null) => void;
+    }
+  | {
+      id: number;
       type: "prompt";
       title: string;
       message: ReactNode;
@@ -349,6 +361,18 @@ interface PrimitiveChoiceOptions<T extends string> {
     label: string;
     variant?: ButtonVariant;
   }>;
+}
+
+interface PrimitiveChoiceWithCheckboxOptions<T extends string>
+  extends PrimitiveChoiceOptions<T> {
+  checkboxLabel: string;
+  checkboxDefaultChecked?: boolean;
+  cancelLabel?: string;
+}
+
+export interface ChoiceWithCheckboxResult<T extends string> {
+  value: T;
+  checked: boolean;
 }
 
 let nextDialogId = 1;
@@ -399,6 +423,25 @@ export function showChoiceDialog<T extends string>(
       message,
       choices: options.choices,
       resolve: (value) => resolve(value as T | null),
+    });
+  });
+}
+
+export function showChoiceDialogWithCheckbox<T extends string>(
+  message: ReactNode,
+  options: PrimitiveChoiceWithCheckboxOptions<T>,
+): Promise<ChoiceWithCheckboxResult<T> | null> {
+  return new Promise((resolve) => {
+    enqueue({
+      id: nextDialogId++,
+      type: "choice-with-checkbox",
+      title: options.title ?? "Choose",
+      message,
+      choices: options.choices,
+      checkboxLabel: options.checkboxLabel,
+      checkboxDefaultChecked: options.checkboxDefaultChecked ?? false,
+      cancelLabel: options.cancelLabel ?? "Cancel",
+      resolve: (value) => resolve(value as ChoiceWithCheckboxResult<T> | null),
     });
   });
 }
@@ -462,6 +505,9 @@ function PrimitiveDialogHost({
 }) {
   const [promptValue, setPromptValue] = useState(
     dialog.type === "prompt" ? dialog.defaultValue : "",
+  );
+  const [choiceChecked, setChoiceChecked] = useState(
+    dialog.type === "choice-with-checkbox" ? dialog.checkboxDefaultChecked : false,
   );
 
   if (dialog.type === "alert") {
@@ -540,6 +586,49 @@ function PrimitiveDialogHost({
                 key={choice.value}
                 variant={choice.variant ?? "default"}
                 onClick={() => onClose(() => dialog.resolve(choice.value))}
+              >
+                {choice.label}
+              </AlertDialogAction>
+            ))}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    );
+  }
+
+  if (dialog.type === "choice-with-checkbox") {
+    return (
+      <AlertDialog
+        open
+        onOpenChange={(open) => {
+          if (!open) onClose(() => dialog.resolve(null));
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogMedia>
+              <Question />
+            </AlertDialogMedia>
+            <AlertDialogTitle>{dialog.title}</AlertDialogTitle>
+            <AlertDialogDescription>{dialog.message}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <label className="flex cursor-pointer items-center gap-2 font-sans ui-text-sm text-foreground sm:pl-12">
+            <Checkbox
+              checked={choiceChecked}
+              onCheckedChange={(checked) => setChoiceChecked(checked === true)}
+            />
+            <span>{dialog.checkboxLabel}</span>
+          </label>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{dialog.cancelLabel}</AlertDialogCancel>
+            {dialog.choices.map((choice) => (
+              <AlertDialogAction
+                key={choice.value}
+                variant={choice.variant ?? "default"}
+                autoFocus={choice.variant === "accent"}
+                onClick={() =>
+                  onClose(() => dialog.resolve({ value: choice.value, checked: choiceChecked }))
+                }
               >
                 {choice.label}
               </AlertDialogAction>

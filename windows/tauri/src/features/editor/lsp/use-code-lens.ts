@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { extensionRegistry } from "@/extensions/registry/extension-registry";
+import { isEditorLspSupported } from "./built-in-language-support";
 import { LspClient } from "./lsp-client";
 import { useLspStore } from "./stores/lsp.store";
 
@@ -19,7 +19,7 @@ export const useCodeLens = (filePath: string | undefined, enabled: boolean) => {
   });
 
   const fetchLenses = useCallback(async () => {
-    if (!filePath || !enabled || !extensionRegistry.isLspSupported(filePath)) {
+    if (!filePath || !enabled || !isEditorLspSupported(filePath)) {
       setLenses([]);
       return;
     }

@@ -3,7 +3,7 @@ import { CaretLeftIcon as ChevronLeft } from "@/ui/icons";
 import { useRef, useState } from "react";
 import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
 import { logger } from "@/features/editor/utils/logger";
-import { extensionRegistry } from "@/extensions/registry/extension-registry";
+import { isEditorLspSupported } from "@/features/editor/lsp/built-in-language-support";
 import { ThemedFileIcon } from "@/extensions/icon-themes/components/themed-file-icon";
 import { readDirectory } from "@/features/file-system/controllers/platform";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
@@ -23,12 +23,14 @@ interface DirectoryEntry {
 interface FilePathBreadcrumbProps {
   filePath: string;
   interactive?: boolean;
+  menuSide?: "top" | "bottom";
   className?: string;
 }
 
 export function FilePathBreadcrumb({
   filePath,
   interactive = true,
+  menuSide = "bottom",
   className,
 }: FilePathBreadcrumbProps) {
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
@@ -131,7 +133,7 @@ export function FilePathBreadcrumb({
     event.stopPropagation();
 
     if (segmentIndex === segments.length - 1) {
-      if (!filePath.includes("://") && extensionRegistry.isLspSupported(filePath)) {
+      if (!filePath.includes("://") && isEditorLspSupported(filePath)) {
         openCommandPaletteView("outline");
         return;
       }
@@ -162,7 +164,7 @@ export function FilePathBreadcrumb({
       setDropdown({
         segmentIndex,
         x: rect.left,
-        y: rect.bottom + 2,
+        y: menuSide === "top" ? rect.top : rect.bottom + 2,
         items,
         currentPath: dirPath,
         navigationStack: [],
@@ -186,6 +188,13 @@ export function FilePathBreadcrumb({
                 buttonRefs.current[index] = element;
               }
             : undefined
+        }
+        lastSegmentLeading={
+          <ThemedFileIcon
+            fileName={segments[segments.length - 1] ?? ""}
+            isDir={false}
+            className="size-3.5 shrink-0 text-subtle-foreground"
+          />
         }
         className={className}
       />

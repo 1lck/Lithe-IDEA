@@ -15,10 +15,7 @@ import { FileExplorerPane } from "@/features/file-explorer/components/file-explo
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import GitView from "@/features/git/components/git-view";
 import { SidebarPaneSelector } from "@/features/layout/components/sidebar/sidebar-pane-selector";
-import {
-  SidebarProjectDots,
-  SidebarProjectSwitcher,
-} from "@/features/layout/components/sidebar/sidebar-projects";
+import { SidebarProjectDots } from "@/features/layout/components/sidebar/sidebar-projects";
 import { useSidebarPaneController } from "@/features/layout/hooks/use-sidebar-pane-controller";
 import {
   getAdjacentProjectIndex,
@@ -26,11 +23,17 @@ import {
   getProjectSnapDuration,
   getProjectSwipeBounds,
 } from "@/features/layout/utils/project-carousel";
-import { shouldShowProjectSwitcher } from "@/features/layout/utils/project-switcher";
 import type { SidebarView } from "@/features/layout/utils/sidebar-pane-utils";
 import { RunIcon } from "@/features/run/components/run-icon";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import {
+  openDiagnosticsBuffer,
+  toggleGitLogPane,
+  toggleRunPane,
+  toggleTerminalPane,
+} from "@/features/keymaps/commands/view-command-actions";
+import { useTranslation } from "@/i18n/locale-provider";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import {
@@ -61,7 +64,10 @@ import {
   FolderOpenIcon,
   GearIcon,
   GitBranchIcon,
+  GitGraphIcon,
   MagnifyingGlassIcon,
+  TerminalWindowIcon,
+  WarningIcon,
 } from "@/ui/icons";
 
 interface MainSidebarProps {
@@ -102,6 +108,7 @@ const waitForProjectCarouselPaint = () =>
   });
 
 export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRailProps) => {
+  const { t } = useTranslation();
   const { openSidebarView } = useSidebarPaneController();
   const isGitViewActive = useUIState((state) => state.isGitViewActive);
   const isSidebarVisible = useUIState((state) => state.isSidebarVisible);
@@ -110,21 +117,25 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
   const openSettingsDialog = useUIState((state) => state.openSettingsDialog);
   const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible);
   const bottomPaneActiveTab = useUIState((state) => state.bottomPaneActiveTab);
-  const setIsBottomPaneVisible = useUIState((state) => state.setIsBottomPaneVisible);
-  const setBottomPaneActiveTab = useUIState((state) => state.setBottomPaneActiveTab);
   const openGlobalSearchBuffer = useBufferStore.use.actions().openGlobalSearchBuffer;
+  const isDiagnosticsBufferActive = useBufferStore((state) => {
+    if (!state.activeBufferId) return false;
+    return state.buffers.some(
+      (buffer) => buffer.id === state.activeBufferId && buffer.type === "diagnostics",
+    );
+  });
   const configuredActivityRailWidth = useSettingsStore((state) => state.settings.activityRailWidth);
+  const askWhereToOpenProjects = useSettingsStore(
+    (state) => state.settings.askWhereToOpenProjects,
+  );
   const openFoldersInNewWindow = useSettingsStore((state) => state.settings.openFoldersInNewWindow);
   const hiddenSidebarActivityItems = useSettingsStore(
     (state) => state.settings.hiddenSidebarActivityItems,
   );
-  const showActivityRailProjectSwitcher = useSettingsStore(
-    (state) => state.settings.showActivityRailProjectSwitcher,
-  );
   const showActivityRailProjectIcons = useSettingsStore(
     (state) => state.settings.showActivityRailProjectIcons,
   );
-  const projectCarouselEnabled = !openFoldersInNewWindow;
+  const projectCarouselEnabled = askWhereToOpenProjects || !openFoldersInNewWindow;
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
   const [activityRailWidth, setActivityRailWidth] = useState(() =>
     clampActivityRailWidth(configuredActivityRailWidth || DEFAULT_ACTIVITY_RAIL_WIDTH),
@@ -160,10 +171,6 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
     projectCarouselDirection < 0 && carouselTargetProject ? carouselTargetProject : previousProject;
   const renderedNextProject =
     projectCarouselDirection > 0 && carouselTargetProject ? carouselTargetProject : nextProject;
-  const projectSwitcherVisible = shouldShowProjectSwitcher(
-    showActivityRailProjectSwitcher,
-    openFoldersInNewWindow,
-  );
   const switchToProject = useFileSystemStore((state) => state.switchToProject);
   const isSwitchingProject = useFileSystemStore((state) => state.isSwitchingProject);
   const handleSidebarViewChange = (view: typeof activeSidebarView) => {
@@ -174,14 +181,14 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
     () => [
       {
         id: "files",
-        label: "Project",
+        label: t("workbench.project"),
         icon: <FilesIcon />,
       },
       ...(coreFeatures.search
         ? [
             {
               id: "search",
-              label: "Search",
+              label: t("workbench.search"),
               icon: <MagnifyingGlassIcon />,
             },
           ]
@@ -190,28 +197,51 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
         ? [
             {
               id: "git",
-              label: "Changes",
+              label: t("workbench.changes"),
               icon: <GitBranchIcon />,
+            },
+            {
+              id: "gitLog",
+              label: t("workbench.gitLog"),
+              icon: <GitGraphIcon />,
             },
           ]
         : []),
       {
         id: "database",
-        label: "Database",
+        label: t("workbench.database"),
         icon: <DatabaseIcon />,
       },
+      ...(coreFeatures.terminal
+        ? [
+            {
+              id: "terminal",
+              label: t("workbench.terminal"),
+              icon: <TerminalWindowIcon />,
+            },
+          ]
+        : []),
+      ...(coreFeatures.diagnostics
+        ? [
+            {
+              id: "diagnostics",
+              label: t("workbench.diagnostics"),
+              icon: <WarningIcon />,
+            },
+          ]
+        : []),
       {
         id: "run",
-        label: "Run",
+        label: t("workbench.run"),
         icon: <RunIcon />,
       },
       {
         id: "settings",
-        label: "Settings",
+        label: t("workbench.settings"),
         icon: <GearIcon />,
       },
     ],
-    [coreFeatures.git, coreFeatures.search],
+    [coreFeatures.diagnostics, coreFeatures.git, coreFeatures.search, coreFeatures.terminal, t],
   );
 
   const setActivityRailItemVisible = useCallback(
@@ -227,13 +257,10 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
   );
 
   const hasHiddenActivityRailItems =
-    hiddenSidebarActivityItems.length > 0 ||
-    !showActivityRailProjectSwitcher ||
-    !showActivityRailProjectIcons;
+    hiddenSidebarActivityItems.length > 0 || !showActivityRailProjectIcons;
 
   const showAllActivityRailItems = useCallback(() => {
     void updateSetting("hiddenSidebarActivityItems", []);
-    void updateSetting("showActivityRailProjectSwitcher", true);
     void updateSetting("showActivityRailProjectIcons", true);
   }, [updateSetting]);
 
@@ -622,15 +649,6 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
       >
         {isBoundaryPanel ? null : (
           <>
-            {projectSwitcherVisible ? (
-              <SidebarProjectSwitcher
-                expanded={expanded}
-                project={project}
-                projects={projectTabs}
-                isSwitchingProject={isSwitchingProject}
-                onSelectProject={handleProjectSelect}
-              />
-            ) : null}
             {isLoadingProject ? (
               <div className="flex min-h-0 flex-1 self-stretch items-center justify-center">
                 <Spinner
@@ -648,15 +666,14 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
                   coreFeatures={coreFeatures}
                   onViewChange={handleSidebarViewChange}
                   onSearchClick={() => openGlobalSearchBuffer()}
+                  onGitLogClick={() => toggleGitLogPane()}
+                  isGitLogActive={isBottomPaneVisible && bottomPaneActiveTab === "gitLog"}
                   onSettingsClick={() => openSettingsDialog()}
-                  onRunClick={() => {
-                    if (isBottomPaneVisible && bottomPaneActiveTab === "run") {
-                      setIsBottomPaneVisible(false);
-                    } else {
-                      setBottomPaneActiveTab("run");
-                      setIsBottomPaneVisible(true);
-                    }
-                  }}
+                  onTerminalClick={() => toggleTerminalPane()}
+                  isTerminalActive={isBottomPaneVisible && bottomPaneActiveTab === "terminal"}
+                  onDiagnosticsClick={() => openDiagnosticsBuffer()}
+                  isDiagnosticsActive={isDiagnosticsBufferActive}
+                  onRunClick={() => toggleRunPane()}
                   isRunActive={isBottomPaneVisible && bottomPaneActiveTab === "run"}
                   compact={!expanded}
                   showLabels={expanded}
@@ -724,7 +741,7 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
           </ContextMenuItem>
           <ContextMenuItem onClick={() => openGlobalSearchBuffer()}>
             <MagnifyingGlassIcon />
-            Search
+            {t("workbench.search")}
           </ContextMenuItem>
         </ContextMenuGroup>
         <ContextMenuSeparator />
@@ -736,15 +753,6 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
           <ContextMenuSubContent className="min-w-56">
             <ContextMenuGroup>
               <ContextMenuLabel>Show in Activity Sidebar</ContextMenuLabel>
-              <ContextMenuCheckboxItem
-                checked={showActivityRailProjectSwitcher}
-                onCheckedChange={(checked) =>
-                  void updateSetting("showActivityRailProjectSwitcher", checked)
-                }
-              >
-                <FolderIcon />
-                Project Switcher
-              </ContextMenuCheckboxItem>
               {activityRailVisibilityItems.map((item) => (
                 <ContextMenuCheckboxItem
                   key={item.id}

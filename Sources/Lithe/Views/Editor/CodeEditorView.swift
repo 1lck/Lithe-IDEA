@@ -10,7 +10,6 @@ fileprivate struct CodeEditorPalette {
 
     var background: NSColor { themeColor(.editor) }
     var gutterBackground: NSColor { themeColor(.editor) }
-    var divider: NSColor { themeColor(.divider) }
     var gutterDivider: NSColor {
         color(
             light: (0.78, 0.79, 0.81, 1),
@@ -69,15 +68,17 @@ fileprivate struct CodeEditorPalette {
 }
 
 private enum EditorLayoutMetrics {
-    static let standardWidth: CGFloat = 45
-    static let editorLeadingInset: CGFloat = 0
-    static let editorLineFragmentPadding: CGFloat = 4
+    static let standardGutterWidth: CGFloat = 45
+    static let leadingInset: CGFloat = 0
+    static let lineFragmentPadding: CGFloat = 4
     static let caretWidth: CGFloat = 2
 }
 
 struct CodeEditorView: NSViewRepresentable {
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var chrome: EditorChromeModel
+    @EnvironmentObject private var diagnosticsStore: EditorDiagnosticsStore
     @EnvironmentObject private var settings: AppSettings
     @ObservedObject var document: EditorDocument
     var debugService: JavaDebugFeatureModel?
@@ -120,7 +121,9 @@ struct CodeEditorView: NSViewRepresentable {
             scrollView.topAnchor.constraint(equalTo: container.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
         ])
-        let gutterWidthConstraint = gutter.widthAnchor.constraint(equalToConstant: EditorLayoutMetrics.standardWidth)
+        let gutterWidthConstraint = gutter.widthAnchor.constraint(
+            equalToConstant: EditorLayoutMetrics.standardGutterWidth
+        )
         gutterWidthConstraint.isActive = true
 
         let textView = CodeTextView(frame: NSRect(x: 0, y: 0, width: 900, height: 700))
@@ -138,8 +141,8 @@ struct CodeEditorView: NSViewRepresentable {
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.containerSize = NSSize(width: scrollView.contentSize.width, height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.widthTracksTextView = true
-        textView.textContainerInset = NSSize(width: EditorLayoutMetrics.editorLeadingInset, height: 0)
-        textView.textContainer?.lineFragmentPadding = EditorLayoutMetrics.editorLineFragmentPadding
+        textView.textContainerInset = NSSize(width: EditorLayoutMetrics.leadingInset, height: 0)
+        textView.textContainer?.lineFragmentPadding = EditorLayoutMetrics.lineFragmentPadding
         textView.font = LitheTheme.editorFont(size: settings.editorFontSize)
         textView.defaultParagraphStyle = LitheTheme.editorParagraphStyle
         textView.indentationWidth = settings.tabWidth
@@ -245,31 +248,32 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.shouldFocus = shouldFocus
         context.coordinator.markdownScrollPosition = markdownScrollPosition
         if let scrollView = container.scrollView {
-            scrollView.backgroundColor = palette.background
+            if appearanceChanged {
+                scrollView.backgroundColor = palette.background
+            }
             context.coordinator.attachMarkdownScrollSync(to: scrollView)
             context.coordinator.attachMarkdownImagePasteMonitor(to: scrollView)
         }
         context.coordinator.isDarkAppearance = palette.isDark
         context.coordinator.colorTheme = settings.colorTheme
         context.coordinator.requestInitialFocusIfNeeded()
-        textView.font = LitheTheme.editorFont(size: settings.editorFontSize)
-        textView.defaultParagraphStyle = LitheTheme.editorParagraphStyle
-        if let codeTextView = textView as? CodeTextView {
-            codeTextView.applyAppearance(palette)
-            codeTextView.indentationWidth = settings.tabWidth
-            codeTextView.languageServerFeatures = model.languageToolingSessionsIfActive?.features(for: document.url) ?? []
-            codeTextView.isLanguageNavigationEnabled = !codeTextView.languageServerFeatures.intersection([
-                .definition, .references, .implementation
-            ]).isEmpty
-            codeTextView.isLanguageIntelligenceEnabled = !codeTextView.languageServerFeatures.intersection([
-                .hover, .completion, .rename, .formatting, .codeActions
-            ]).isEmpty
-        }
-        container.gutter?.applyAppearance(palette)
-        textView.isEditable = !document.isReadOnly
-        textView.isSelectable = true
+
+        let languageFeatures = model.languageToolingSessionsIfActive?.features(for: document.url) ?? []
+        let fontSize = settings.editorFontSize
+        let tabWidth = settings.tabWidth
+        let chromeChanged = context.coordinator.applyEditorChromeIfNeeded(
+            fontSize: fontSize,
+            tabWidth: tabWidth,
+            languageFeatures: languageFeatures,
+            isReadOnly: document.isReadOnly,
+            palette: palette,
+            textView: textView,
+            gutter: container.gutter
+        )
+
         // Keep IME marked text (for example, an active Chinese pinyin
         // composition) in the NSTextView until the input method commits it.
+        var textChanged = false
         if textView.string != document.text,
            !textView.hasMarkedText(),
            !context.coordinator.isApplyingEditorChange {
@@ -280,9 +284,12 @@ struct CodeEditorView: NSViewRepresentable {
             context.coordinator.highlight()
             (textView as? CodeTextView)?.updateEditorDecorations()
             container.gutter?.needsDisplay = true
+            textChanged = true
         }
         if appearanceChanged {
             context.coordinator.highlight()
+            (textView as? CodeTextView)?.updateEditorDecorations()
+        } else if chromeChanged, !textChanged {
             (textView as? CodeTextView)?.updateEditorDecorations()
         }
         context.coordinator.updateCodeVisionAndBlame()
@@ -290,7 +297,14 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.updateDiagnostics()
         context.coordinator.applyNavigationTargetIfNeeded()
         if let codeTextView = textView as? CodeTextView {
-            codeTextView.syncFindState(isVisible: model.isFindBarVisible, query: model.findBarQuery)
+            let findVisible = chrome.isFindBarVisible
+            let findQuery = chrome.findBarQuery
+            if context.coordinator.lastFindVisible != findVisible
+                || context.coordinator.lastFindQuery != findQuery {
+                context.coordinator.lastFindVisible = findVisible
+                context.coordinator.lastFindQuery = findQuery
+                codeTextView.syncFindState(isVisible: findVisible, query: findQuery)
+            }
         }
         context.coordinator.applySynchronizedMarkdownScrollIfNeeded(to: container.scrollView)
     }
@@ -314,6 +328,26 @@ struct CodeEditorView: NSViewRepresentable {
         var appliedNavigationTargetID: UUID?
         var foldRegions: [JavaFoldRegion] = []
         var collapsedFoldIDs: Set<String> = []
+        var lastFindVisible = false
+        var lastFindQuery = ""
+        private var pendingHighlightRange: NSRange?
+        private var pendingReplacedRange: NSRange?
+        private var pendingReplacement: String?
+        private var foldRefreshTask: Task<Void, Never>?
+        private var decorationRefreshTask: Task<Void, Never>?
+        private var documentChangeTask: Task<Void, Never>?
+        private var remainingHighlightTask: Task<Void, Never>?
+        private var appliedFontSize: CGFloat?
+        private var appliedTabWidth: Int?
+        private var appliedLanguageFeatures: LanguageServerFeatureSet?
+        private var appliedReadOnly: Bool?
+        private var appliedCodeVisionHints: [JavaCodeVisionHint]?
+        private var appliedInlayHints: [JavaInlayHint]?
+        private var appliedBlameVisible = false
+        private var appliedBlameLines: [GitBlameLine] = []
+        private var appliedDebugBreakpointLines = Set<Int>()
+        private var appliedGitMarkers: [GitLineChangeMarker]?
+        private var appliedDiagnostics: [EditorDiagnostic]?
         private var markdownImagePasteMonitor: Any?
         private weak var markdownScrollView: NSScrollView?
         private var markdownScrollObserver: NSObjectProtocol?
@@ -335,6 +369,10 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         deinit {
+            foldRefreshTask?.cancel()
+            decorationRefreshTask?.cancel()
+            documentChangeTask?.cancel()
+            remainingHighlightTask?.cancel()
             if let markdownImagePasteMonitor {
                 NSEvent.removeMonitor(markdownImagePasteMonitor)
             }
@@ -492,41 +530,194 @@ struct CodeEditorView: NSViewRepresentable {
             return true
         }
 
+        func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
+            let inserted = replacementString ?? ""
+            pendingReplacement = inserted
+            pendingReplacedRange = affectedCharRange
+            pendingHighlightRange = NSRange(location: affectedCharRange.location, length: (inserted as NSString).length)
+            return true
+        }
+
         func textDidChange(_ notification: Notification) {
             guard let textView else { return }
             guard document?.isReadOnly != true else { return }
-            (textView as? CodeTextView)?.rebuildLineIndex()
-            isApplyingEditorChange = true
-            document?.text = textView.string
-            if let document {
-                model?.documentDidChange(document)
-            }
-            highlight()
             let codeTextView = textView as? CodeTextView
-            if let codeTextView, let model, model.isFindBarVisible, !model.findBarQuery.isEmpty {
-                // 先按新文本重算匹配再统一刷新装饰，避免旧 range 越界
-                codeTextView.updateFindMatches(query: model.findBarQuery)
+            if let replacedRange = pendingReplacedRange, let replacement = pendingReplacement {
+                codeTextView?.applyLineIndexEdit(replacedRange: replacedRange, replacement: replacement)
             } else {
-                codeTextView?.updateEditorDecorations()
+                codeTextView?.rebuildLineIndex()
             }
-            refreshFoldRegions(useDefaultImportFold: false)
+            isApplyingEditorChange = true
+            document?.applyLiveEditorText(textView.string)
+            if let document {
+                scheduleDocumentChange(document)
+            }
+            highlight(in: pendingHighlightRange)
+            let findReplacedRange = pendingReplacedRange
+            let findInsertedLength = pendingHighlightRange?.length ?? 0
+            pendingHighlightRange = nil
+            pendingReplacedRange = nil
+            pendingReplacement = nil
+            if let codeTextView,
+               let findReplacedRange,
+               model?.editorChrome.isFindBarVisible == true,
+               let query = model?.editorChrome.findBarQuery,
+               !query.isEmpty {
+                codeTextView.applyFindEdit(
+                    replacedRange: findReplacedRange,
+                    insertedLength: findInsertedLength,
+                    query: query
+                )
+                codeTextView.updateCaretDecorations()
+            } else if model?.editorChrome.isFindBarVisible == true,
+                      !(model?.editorChrome.findBarQuery.isEmpty ?? true) {
+                scheduleDecorationRefresh()
+            } else {
+                codeTextView?.updateCaretDecorations()
+                scheduleDecorationRefresh()
+            }
+            scheduleFoldRefresh()
             gutter?.needsDisplay = true
             isApplyingEditorChange = false
             updateCaret()
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
+            // Typing already refreshed caret chrome in textDidChange. A second
+            // full pass here is what dropped the frame rate into the 30s.
+            guard !isApplyingEditorChange else { return }
+            (textView as? CodeTextView)?.updateCaretDecorations()
+            textView?.needsDisplay = true
+            gutter?.needsDisplay = true
             updateCaret()
         }
 
-        func highlight() {
+        fileprivate func applyEditorChromeIfNeeded(
+            fontSize: CGFloat,
+            tabWidth: Int,
+            languageFeatures: LanguageServerFeatureSet,
+            isReadOnly: Bool,
+            palette: CodeEditorPalette,
+            textView: NSTextView,
+            gutter: LineNumberGutterView?
+        ) -> Bool {
+            var changed = false
+            if appliedFontSize != fontSize {
+                textView.font = LitheTheme.editorFont(size: fontSize)
+                textView.defaultParagraphStyle = LitheTheme.editorParagraphStyle
+                appliedFontSize = fontSize
+                changed = true
+            }
+            if let codeTextView = textView as? CodeTextView {
+                codeTextView.applyAppearance(palette)
+                if appliedTabWidth != tabWidth {
+                    codeTextView.indentationWidth = tabWidth
+                    appliedTabWidth = tabWidth
+                    changed = true
+                }
+                if appliedLanguageFeatures != languageFeatures {
+                    codeTextView.languageServerFeatures = languageFeatures
+                    codeTextView.isLanguageNavigationEnabled = !languageFeatures.intersection([
+                        .definition, .references, .implementation
+                    ]).isEmpty
+                    codeTextView.isLanguageIntelligenceEnabled = !languageFeatures.intersection([
+                        .hover, .completion, .rename, .formatting, .codeActions
+                    ]).isEmpty
+                    appliedLanguageFeatures = languageFeatures
+                    changed = true
+                }
+            }
+            gutter?.applyAppearance(palette)
+            if appliedReadOnly != isReadOnly {
+                textView.isEditable = !isReadOnly
+                textView.isSelectable = true
+                appliedReadOnly = isReadOnly
+                changed = true
+            }
+            return changed
+        }
+
+        func highlight(in editedRange: NSRange? = nil) {
             guard let textView, let textStorage = textView.textStorage else { return }
+            if let editedRange {
+                SyntaxHighlighter.apply(
+                    to: textStorage,
+                    font: textView.font ?? LitheTheme.editorFont(size: 13),
+                    fileExtension: fileExtension,
+                    isDark: isDarkAppearance,
+                    range: editedRange
+                )
+                return
+            }
+            let visible = (textView as? CodeTextView)?.visibleCharacterRange()
+                ?? NSRange(location: 0, length: min(8_192, textStorage.length))
             SyntaxHighlighter.apply(
                 to: textStorage,
                 font: textView.font ?? LitheTheme.editorFont(size: 13),
                 fileExtension: fileExtension,
-                isDark: isDarkAppearance
+                isDark: isDarkAppearance,
+                range: visible
             )
+            scheduleRemainingHighlight(skipping: visible)
+        }
+
+        func scheduleRemainingHighlight(skipping alreadyColored: NSRange) {
+            remainingHighlightTask?.cancel()
+            remainingHighlightTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(16))
+                guard !Task.isCancelled, let self, let textView = self.textView,
+                      let storage = textView.textStorage else { return }
+                let font = textView.font ?? LitheTheme.editorFont(size: 13)
+                let chunk = 16_384
+                var location = 0
+                while location < storage.length {
+                    if Task.isCancelled { return }
+                    let length = min(chunk, storage.length - location)
+                    let range = NSRange(location: location, length: length)
+                    if NSIntersectionRange(range, alreadyColored) != range {
+                        SyntaxHighlighter.apply(
+                            to: storage,
+                            font: font,
+                            fileExtension: self.fileExtension,
+                            isDark: self.isDarkAppearance,
+                            range: range
+                        )
+                    }
+                    location += chunk
+                    await Task.yield()
+                }
+            }
+        }
+
+        func scheduleFoldRefresh() {
+            foldRefreshTask?.cancel()
+            foldRefreshTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(80))
+                guard !Task.isCancelled, let self else { return }
+                self.refreshFoldRegions(useDefaultImportFold: false)
+            }
+        }
+
+        func scheduleDecorationRefresh() {
+            decorationRefreshTask?.cancel()
+            decorationRefreshTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(80))
+                guard !Task.isCancelled, let self, let textView = self.textView as? CodeTextView else { return }
+                if let model = self.model, model.isFindBarVisible, !model.findBarQuery.isEmpty {
+                    textView.updateFindMatches(query: model.findBarQuery)
+                } else {
+                    textView.updateEditorDecorations()
+                }
+            }
+        }
+
+        func scheduleDocumentChange(_ document: EditorDocument) {
+            documentChangeTask?.cancel()
+            documentChangeTask = Task { @MainActor [weak self, weak document] in
+                try? await Task.sleep(for: .milliseconds(80))
+                guard !Task.isCancelled, let document else { return }
+                self?.model?.documentDidChange(document)
+            }
         }
 
         func refreshFoldRegions(useDefaultImportFold: Bool) {
@@ -590,19 +781,26 @@ struct CodeEditorView: NSViewRepresentable {
             guard let document, let model else { return }
             let url = document.url.standardizedFileURL
             let hints = model.settings.showCodeVision ? model.javaCodeVisionHints[url] ?? [] : []
-            codeVisionOverlay?.update(
-                hints: hints,
-                onUsages: { [weak model] hint in model?.findUsages(for: hint, in: url) },
-                onImplementations: { [weak model] hint in
-                    model?.findJavaImplementations(
-                        line: hint.line,
-                        utf16Column: hint.utf16Column,
-                        in: url
-                    )
-                },
-                onAuthor: { [weak model] in model?.showBlame(for: url) }
-            )
-            inlayHintOverlay?.update(hints: model.javaInlayHints[url] ?? [])
+            if appliedCodeVisionHints != hints {
+                appliedCodeVisionHints = hints
+                codeVisionOverlay?.update(
+                    hints: hints,
+                    onUsages: { [weak model] hint in model?.findUsages(for: hint, in: url) },
+                    onImplementations: { [weak model] hint in
+                        model?.findJavaImplementations(
+                            line: hint.line,
+                            utf16Column: hint.utf16Column,
+                            in: url
+                        )
+                    },
+                    onAuthor: { [weak model] in model?.showBlame(for: url) }
+                )
+            }
+            let inlayHints = model.javaInlayHints[url] ?? []
+            if appliedInlayHints != inlayHints {
+                appliedInlayHints = inlayHints
+                inlayHintOverlay?.update(hints: inlayHints)
+            }
 
             let isBlameVisible = model.blameVisibleURL == url
             let blameLines = model.gitBlameLines[url] ?? []
@@ -613,12 +811,21 @@ struct CodeEditorView: NSViewRepresentable {
                 $0.fileURL.standardizedFileURL == url
             }.map(\.line)
             let debugBreakpointLines = Set(javaBreakpointLines + genericBreakpointLines)
-            container?.gutterWidthConstraint?.constant = isBlameVisible ? 224 : EditorLayoutMetrics.standardWidth
-            gutter?.update(blameLines: blameLines, isVisible: isBlameVisible) { [weak model] blame in
-                Task { await model?.showGitCommit(blame.commitHash) }
-            }
-            gutter?.updateDebugBreakpointLines(debugBreakpointLines) { [weak model] line in
-                model?.toggleDebugBreakpoint(fileURL: url, line: line)
+            if appliedBlameVisible != isBlameVisible
+                || appliedBlameLines != blameLines
+                || appliedDebugBreakpointLines != debugBreakpointLines {
+                appliedBlameVisible = isBlameVisible
+                appliedBlameLines = blameLines
+                appliedDebugBreakpointLines = debugBreakpointLines
+                container?.gutterWidthConstraint?.constant = isBlameVisible
+                    ? 224
+                    : EditorLayoutMetrics.standardGutterWidth
+                gutter?.update(blameLines: blameLines, isVisible: isBlameVisible) { [weak model] blame in
+                    Task { await model?.showGitCommit(blame.commitHash) }
+                }
+                gutter?.updateDebugBreakpointLines(debugBreakpointLines) { [weak model] line in
+                    model?.toggleDebugBreakpoint(fileURL: url, line: line)
+                }
             }
         }
 
@@ -627,6 +834,8 @@ struct CodeEditorView: NSViewRepresentable {
             let url = document.url.standardizedFileURL
             if let markers = model.gitLineChangeMarkers(for: url) {
                 isLoadingGitLineChanges = false
+                guard appliedGitMarkers != markers else { return }
+                appliedGitMarkers = markers
                 let change = model.gitChange(for: url)
                 gutter.updateGitLineChanges(
                     markers,
@@ -648,7 +857,10 @@ struct CodeEditorView: NSViewRepresentable {
                 return
             }
 
-            gutter.updateGitLineChanges([], onShow: { _ in })
+            if appliedGitMarkers != [] {
+                appliedGitMarkers = []
+                gutter.updateGitLineChanges([], onShow: { _ in })
+            }
             guard !isLoadingGitLineChanges else { return }
             isLoadingGitLineChanges = true
             Task { @MainActor [weak self, weak model] in
@@ -658,11 +870,12 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         func updateDiagnostics() {
-            guard let document, let model,
+            guard let document,
                   let textView = textView as? CodeTextView else { return }
-            textView.updateDiagnostics(
-                model.editorDiagnostics[document.url.standardizedFileURL] ?? []
-            )
+            let diagnostics = model?.editorDiagnosticsStore.diagnostics(for: document.url) ?? []
+            guard appliedDiagnostics != diagnostics else { return }
+            appliedDiagnostics = diagnostics
+            textView.updateDiagnostics(diagnostics)
         }
 
         func applyNavigationTargetIfNeeded() {
@@ -692,12 +905,21 @@ struct CodeEditorView: NSViewRepresentable {
             let text = textView.string as NSString
             updateSelectedText(in: text, range: textView.selectedRange())
             let location = min(textView.selectedRange().location, text.length)
-            let prefix = text.substring(to: location) as NSString
-            var line = 0
-            var lineStart = 0
-            for index in 0..<prefix.length where prefix.character(at: index) == 10 {
-                line += 1
-                lineStart = index + 1
+            let line: Int
+            let lineStart: Int
+            if let codeTextView = textView as? CodeTextView {
+                line = codeTextView.lineNumber(at: location, in: text)
+                lineStart = codeTextView.characterOffset(forLine: line, in: text)
+            } else {
+                let prefix = text.substring(to: location) as NSString
+                var scannedLine = 0
+                var scannedStart = 0
+                for index in 0..<prefix.length where prefix.character(at: index) == 10 {
+                    scannedLine += 1
+                    scannedStart = index + 1
+                }
+                line = scannedLine
+                lineStart = scannedStart
             }
             model?.editorCaret = EditorCaret(
                 url: document.url.standardizedFileURL,
@@ -724,8 +946,8 @@ struct CodeEditorView: NSViewRepresentable {
 }
 
 private struct TextLineIndex {
-    let textLength: Int
-    let starts: [Int]
+    var textLength: Int
+    var starts: [Int]
 
     init(source: NSString) {
         textLength = source.length
@@ -742,6 +964,22 @@ private struct TextLineIndex {
             }
         }
         self.starts = starts
+    }
+
+    /// Shift line starts after a single-line insert/delete. Returns false when
+    /// the replaced range crossed a line break and the index must be rebuilt.
+    mutating func applySingleLineEdit(replacedRange: NSRange, insertedLength: Int) -> Bool {
+        let replacedEnd = NSMaxRange(replacedRange)
+        if starts.contains(where: { $0 > replacedRange.location && $0 <= replacedEnd }) {
+            return false
+        }
+        let delta = insertedLength - replacedRange.length
+        guard delta != 0 else { return true }
+        textLength = max(0, textLength + delta)
+        for index in starts.indices where starts[index] > replacedRange.location {
+            starts[index] += delta
+        }
+        return true
     }
 
     var lineCount: Int {
@@ -802,6 +1040,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     private var findMatchRanges: [NSRange] = []
     private var currentFindMatchIndex = 0
     private var lastReportedFindState: (index: Int, count: Int)?
+    private var lastCaretBackgroundRanges: [NSRange] = []
     private var completionItemsByID: [String: LanguageServerCompletionItem] = [:]
     private var languageHoverPopover: NSPopover?
 
@@ -869,7 +1108,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     }
 
     private func synchronizeCaretPresentation() {
-        updateEditorDecorations()
+        updateCaretDecorations()
         needsDisplay = true
         onCaretPresentationChanged?()
         updateInsertionPointStateAndRestartTimer(true)
@@ -928,6 +1167,88 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         lineIndex = TextLineIndex(source: string as NSString)
     }
 
+    func applyLineIndexEdit(replacedRange: NSRange, replacement: String) {
+        if replacement.contains("\n") || replacement.contains("\r")
+            || !lineIndex.applySingleLineEdit(replacedRange: replacedRange, insertedLength: (replacement as NSString).length) {
+            rebuildLineIndex()
+        }
+    }
+
+    func visibleCharacterRange() -> NSRange? {
+        guard let layoutManager,
+              let textContainer,
+              let scrollView = enclosingScrollView else { return nil }
+        let visibleRect = scrollView.documentVisibleRect
+        let textContainerVisibleRect = NSRect(
+            x: visibleRect.minX - textContainerOrigin.x,
+            y: visibleRect.minY - textContainerOrigin.y,
+            width: visibleRect.width,
+            height: visibleRect.height
+        )
+        let glyphRange = layoutManager.glyphRange(
+            forBoundingRect: textContainerVisibleRect,
+            in: textContainer
+        )
+        guard glyphRange.length > 0 else { return nil }
+        return layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
+    }
+
+    #if DEBUG
+    var currentFindMatchCountForTesting: Int { findMatchRanges.count }
+    var findMatchLocationsForTesting: [Int] { findMatchRanges.map(\.location) }
+    #endif
+
+    func applyFindEdit(replacedRange: NSRange, insertedLength: Int, query: String) {
+        guard !query.isEmpty else {
+            clearFindHighlights()
+            return
+        }
+        let source = string as NSString
+        let delta = insertedLength - replacedRange.length
+        let replacedEnd = NSMaxRange(replacedRange)
+        findMatchRanges = findMatchRanges.compactMap { range in
+            if NSMaxRange(range) <= replacedRange.location { return range }
+            if range.location >= replacedEnd {
+                return NSRange(location: range.location + delta, length: range.length)
+            }
+            return nil
+        }
+        let safeLocation = min(replacedRange.location, max(0, source.length - 1))
+        let lineRange = source.length == 0
+            ? NSRange(location: 0, length: 0)
+            : source.lineRange(for: NSRange(location: safeLocation, length: 0))
+        let searchEnd = min(source.length, max(NSMaxRange(lineRange), replacedRange.location + insertedLength))
+        let searchRange = NSRange(
+            location: lineRange.location,
+            length: max(0, searchEnd - lineRange.location)
+        )
+        findMatchRanges.removeAll { range in
+            NSIntersectionRange(range, searchRange).length > 0
+                || (range.location >= searchRange.location && range.location < NSMaxRange(searchRange))
+        }
+        if searchRange.length > 0, !query.isEmpty {
+            var cursor = searchRange
+            while cursor.length > 0 {
+                let found = source.range(
+                    of: query,
+                    options: [.caseInsensitive, .diacriticInsensitive],
+                    range: cursor
+                )
+                if found.location == NSNotFound { break }
+                findMatchRanges.append(found)
+                let nextLocation = NSMaxRange(found)
+                cursor = NSRange(location: nextLocation, length: NSMaxRange(searchRange) - nextLocation)
+            }
+            findMatchRanges.sort { $0.location < $1.location }
+        }
+        currentFindMatchIndex = min(currentFindMatchIndex, max(0, findMatchRanges.count - 1))
+        applyFindHighlights()
+        reportFindState(
+            index: findMatchRanges.isEmpty ? -1 : currentFindMatchIndex,
+            count: findMatchRanges.count
+        )
+    }
+
     func characterOffset(forLine targetLine: Int, in _: NSString) -> Int {
         lineIndex.characterOffset(forLine: targetLine)
     }
@@ -945,25 +1266,28 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         updateEditorDecorations()
     }
 
-    func updateEditorDecorations() {
+    func updateCaretDecorations() {
         guard let layoutManager else { return }
-        let fullRange = NSRange(location: 0, length: string.utf16.count)
-        layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: fullRange)
-        layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: fullRange)
-        layoutManager.removeTemporaryAttribute(.underlineStyle, forCharacterRange: fullRange)
-        layoutManager.removeTemporaryAttribute(.underlineColor, forCharacterRange: fullRange)
-        removeUnusedCodeFade()
-        fadedCodeRanges = []
-        guard fullRange.length > 0 else {
-            linkRange = nil
-            return
+        let fullLength = (string as NSString).length
+        for range in lastCaretBackgroundRanges where NSMaxRange(range) <= fullLength {
+            layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: range)
         }
+        lastCaretBackgroundRanges = []
+        guard fullLength > 0 else { return }
 
         let source = string as NSString
         let caret = min(selectedRange().location, source.length)
+        let lineRange = source.lineRange(for: NSRange(location: caret, length: 0))
+        layoutManager.addTemporaryAttribute(
+            .backgroundColor,
+            value: currentLineColor,
+            forCharacterRange: lineRange
+        )
+        lastCaretBackgroundRanges.append(lineRange)
 
         for range in matchingBracketRanges(in: source, caret: caret) {
             layoutManager.addTemporaryAttribute(.backgroundColor, value: bracketColor, forCharacterRange: range)
+            lastCaretBackgroundRanges.append(range)
         }
 
         if isLanguageNavigationEnabled,
@@ -978,6 +1302,60 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
                         value: self.symbolColor,
                         forCharacterRange: match.range
                     )
+                    self.lastCaretBackgroundRanges.append(match.range)
+                }
+            }
+        }
+
+        if !findMatchRanges.isEmpty {
+            applyFindHighlights()
+        }
+        applyLinkHighlight()
+    }
+
+    func updateEditorDecorations() {
+        guard let layoutManager else { return }
+        let fullRange = NSRange(location: 0, length: string.utf16.count)
+        layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: fullRange)
+        layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: fullRange)
+        layoutManager.removeTemporaryAttribute(.underlineStyle, forCharacterRange: fullRange)
+        layoutManager.removeTemporaryAttribute(.underlineColor, forCharacterRange: fullRange)
+        removeUnusedCodeFade()
+        fadedCodeRanges = []
+        guard fullRange.length > 0 else {
+            linkRange = nil
+            return
+        }
+
+        lastCaretBackgroundRanges = []
+        let source = string as NSString
+        let caret = min(selectedRange().location, source.length)
+        let lineRange = source.lineRange(for: NSRange(location: caret, length: 0))
+        layoutManager.addTemporaryAttribute(
+            .backgroundColor,
+            value: currentLineColor,
+            forCharacterRange: lineRange
+        )
+        lastCaretBackgroundRanges.append(lineRange)
+
+        for range in matchingBracketRanges(in: source, caret: caret) {
+            layoutManager.addTemporaryAttribute(.backgroundColor, value: bracketColor, forCharacterRange: range)
+            lastCaretBackgroundRanges.append(range)
+        }
+
+        if isLanguageNavigationEnabled,
+           let symbol = identifier(at: caret, in: source),
+           let scope = enclosingCodeScope(at: caret, in: source) {
+            let escaped = NSRegularExpression.escapedPattern(for: symbol.text)
+            if let expression = try? NSRegularExpression(pattern: "\\b\(escaped)\\b") {
+                expression.enumerateMatches(in: string, range: scope) { [weak layoutManager] match, _, _ in
+                    guard let match else { return }
+                    layoutManager?.addTemporaryAttribute(
+                        .backgroundColor,
+                        value: self.symbolColor,
+                        forCharacterRange: match.range
+                    )
+                    self.lastCaretBackgroundRanges.append(match.range)
                 }
             }
         }
@@ -1221,22 +1599,14 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         forGlyphRange glyphRange: NSRange
     ) -> Bool {
         let characterRange = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
-        let isCollapsedLine = collapsedFoldIDs.contains(where: { id in
+        guard collapsedFoldIDs.contains(where: { id in
             guard let region = foldRegions.first(where: { $0.id == id }) else { return false }
             return NSLocationInRange(characterRange.location, region.hiddenRange)
-        })
+        }) else { return false }
 
-        guard !isCollapsedLine else {
-            lineFragmentRect.pointee.size.height = 0
-            lineFragmentUsedRect.pointee.size.height = 0
-            baselineOffset.pointee = 0
-            return true
-        }
-
-        baselineOffset.pointee = max(
-            0,
-            baselineOffset.pointee - LitheTheme.editorBaselineLift
-        )
+        lineFragmentRect.pointee.size.height = 0
+        lineFragmentUsedRect.pointee.size.height = 0
+        baselineOffset.pointee = 0
         return true
     }
 
@@ -2008,7 +2378,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = true
-        scrollView.backgroundColor = LitheTheme.nsColor(.editor, theme: .lithe, isDark: true)
+        scrollView.backgroundColor = NSColor(red: 0.105, green: 0.11, blue: 0.12, alpha: 1)
         let controller = NSViewController()
         controller.view = scrollView
         controller.preferredContentSize = NSSize(width: 480, height: 220)
@@ -2367,7 +2737,10 @@ final class LineNumberGutterView: NSView {
             in: textContainer
         )
         guard layoutManager.numberOfGlyphs > 0 else {
-            let lineHeight = max(18, textView.layoutManager?.defaultLineHeight(for: textView.font ?? .systemFont(ofSize: 13)) ?? 18)
+            let lineHeight = max(
+                18,
+                layoutManager.defaultLineHeight(for: textView.font ?? .systemFont(ofSize: 13))
+            )
             drawLineNumber(1, y: textView.textContainerInset.height, height: lineHeight)
             drawEditorDivider(in: dirtyRect)
             return
@@ -2432,13 +2805,10 @@ final class LineNumberGutterView: NSView {
             visibleRect: visibleRect,
             layoutManager: layoutManager
         )
-
         drawEditorDivider(in: dirtyRect)
     }
 
     private func drawEditorDivider(in dirtyRect: NSRect) {
-        // Keep the gutter/editor boundary visible over the current-line fill,
-        // including when an empty document has no glyphs to lay out.
         palette.gutterDivider.setFill()
         NSRect(
             x: bounds.width - 1,
@@ -2976,9 +3346,37 @@ private final class ClosureButton: NSButton {
 
 @MainActor
 private enum SyntaxHighlighter {
-    static func apply(to storage: NSTextStorage, font: NSFont, fileExtension: String, isDark: Bool) {
+    private static let keywordExpression = try! NSRegularExpression(
+        pattern: #"\b(class|struct|enum|protocol|extension|func|let|var|if|else|guard|switch|case|for|while|return|throw|throws|try|catch|async|await|public|private|internal|protected|static|final|new|import|package|interface|implements|extends|void|boolean|int|long|const|function|def|in|from|as|true|false|null|nil|self|this)\b"#
+    )
+    private static let annotationExpression = try! NSRegularExpression(
+        pattern: #"@[A-Za-z_][A-Za-z0-9_]*"#
+    )
+    private static let typeExpression = try! NSRegularExpression(
+        pattern: #"\b[A-Z][A-Za-z0-9_]*\b"#
+    )
+    private static let numberExpression = try! NSRegularExpression(
+        pattern: #"\b\d+(?:\.\d+)?\b"#
+    )
+    private static let stringExpression = try! NSRegularExpression(
+        pattern: #"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'"#
+    )
+    private static let commentExpression = try! NSRegularExpression(
+        pattern: #"//.*$|#.*$|/\*[\s\S]*?\*/"#,
+        options: [.anchorsMatchLines]
+    )
+
+    static func apply(
+        to storage: NSTextStorage,
+        font: NSFont,
+        fileExtension: String,
+        isDark: Bool,
+        range: NSRange? = nil
+    ) {
         let fullRange = NSRange(location: 0, length: storage.length)
         guard fullRange.length > 0 else { return }
+        let target = expandedRange(range, in: storage.string as NSString, limit: fullRange)
+        guard target.length > 0 else { return }
         let palette = CodeEditorPalette(isDark: isDark, theme: LitheTheme.activeTheme)
 
         storage.beginEditing()
@@ -2987,28 +3385,51 @@ private enum SyntaxHighlighter {
             .paragraphStyle: LitheTheme.editorParagraphStyle,
             .ligature: 0,
             .foregroundColor: palette.text
-        ], range: fullRange)
+        ], range: target)
 
-        apply(pattern: #"\b(class|struct|enum|protocol|extension|func|let|var|if|else|guard|switch|case|for|while|return|throw|throws|try|catch|async|await|public|private|internal|protected|static|final|new|import|package|interface|implements|extends|void|boolean|int|long|const|function|def|in|from|as|true|false|null|nil|self|this)\b"#, color: palette.keyword, storage: storage)
-        apply(pattern: #"@[A-Za-z_][A-Za-z0-9_]*"#, color: palette.annotation, storage: storage)
-        apply(pattern: #"\b[A-Z][A-Za-z0-9_]*\b"#, color: palette.type, storage: storage)
-        apply(pattern: #"\b\d+(?:\.\d+)?\b"#, color: palette.number, storage: storage)
-        apply(pattern: #"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'"#, color: palette.string, storage: storage)
-        apply(pattern: #"//.*$|#.*$|/\*[\s\S]*?\*/"#, options: [.anchorsMatchLines], color: palette.comment, storage: storage)
+        apply(keywordExpression, color: palette.keyword, storage: storage, range: target)
+        apply(annotationExpression, color: palette.annotation, storage: storage, range: target)
+        apply(typeExpression, color: palette.type, storage: storage, range: target)
+        apply(numberExpression, color: palette.number, storage: storage, range: target)
+        apply(stringExpression, color: palette.string, storage: storage, range: target)
+        apply(commentExpression, color: palette.comment, storage: storage, range: target)
         storage.endEditing()
     }
 
     private static func apply(
-        pattern: String,
-        options: NSRegularExpression.Options = [],
+        _ expression: NSRegularExpression,
         color: NSColor,
-        storage: NSTextStorage
+        storage: NSTextStorage,
+        range: NSRange
     ) {
-        guard let expression = try? NSRegularExpression(pattern: pattern, options: options) else { return }
-        let range = NSRange(location: 0, length: storage.length)
         expression.enumerateMatches(in: storage.string, range: range) { match, _, _ in
             guard let match else { return }
             storage.addAttribute(.foregroundColor, value: color, range: match.range)
         }
+    }
+
+    /// Re-color the edited lines plus a small pad so a token that crosses the
+    /// caret, or a nearby block comment, is not left half-styled.
+    private static func expandedRange(_ range: NSRange?, in source: NSString, limit: NSRange) -> NSRange {
+        guard let range else { return limit }
+        let safe = NSIntersectionRange(range, limit)
+        guard source.length > 0 else { return safe }
+        let startLine = source.lineRange(for: NSRange(location: safe.location, length: 0))
+        let endIndex = max(safe.location, NSMaxRange(safe) > 0 ? NSMaxRange(safe) - 1 : 0)
+        let endLine = source.lineRange(for: NSRange(location: min(endIndex, source.length - 1), length: 0))
+        var combined = NSUnionRange(startLine, endLine)
+        if combined.location > 0 {
+            combined = NSUnionRange(
+                source.lineRange(for: NSRange(location: combined.location - 1, length: 0)),
+                combined
+            )
+        }
+        if NSMaxRange(combined) < source.length {
+            combined = NSUnionRange(
+                combined,
+                source.lineRange(for: NSRange(location: NSMaxRange(combined), length: 0))
+            )
+        }
+        return NSIntersectionRange(combined, limit)
     }
 }

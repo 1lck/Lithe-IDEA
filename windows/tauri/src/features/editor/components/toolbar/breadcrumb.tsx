@@ -11,6 +11,7 @@ import { useExtensionActions } from "@/extensions/ui/hooks/use-extension-actions
 import { ExtensionToolbarAction } from "@/extensions/ui/components/extension-toolbar-action";
 import { isMarkdownPreviewableFile } from "@/features/editor/markdown/previewable";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Button, type ButtonProps } from "@/ui/button";
 import { Dropdown, type MenuItem } from "@/ui/dropdown";
 import { cn } from "@/utils/cn";
@@ -26,6 +27,7 @@ export interface BreadcrumbProps {
   showDefaultActions?: boolean;
   interactive?: boolean;
   showPath?: boolean;
+  showFilePath?: boolean;
 }
 
 type BreadcrumbActionButtonProps = Omit<ButtonProps, "variant" | "size">;
@@ -50,7 +52,9 @@ export default function Breadcrumb({
   showDefaultActions = true,
   interactive = true,
   showPath = true,
+  showFilePath = true,
 }: BreadcrumbProps = {}) {
+  const { t } = useTranslation();
   const resolvedBufferId = useBufferStore((state) => bufferId ?? state.activeBufferId);
   const activeBuffer = useBufferStore(
     useShallow((state) => {
@@ -149,19 +153,19 @@ export default function Breadcrumb({
       ? [
           {
             id: "preview",
-            label: "Preview",
+            label: t("editor.preview"),
             onClick: handlePreviewClick,
           },
         ]
       : []),
     {
       id: "inline-edit",
-      label: "AI inline edit",
+      label: t("editor.aiInlineEdit"),
       onClick: handleInlineEditClick,
     },
     {
       id: "find",
-      label: "Find in file",
+      label: t("editor.findInFile"),
       onClick: onSearchClick,
     },
   ];
@@ -177,7 +181,7 @@ export default function Breadcrumb({
           ref={actionsButtonRef}
           onClick={() => setIsActionsMenuOpen((open) => !open)}
           active={isActionsMenuOpen}
-          tooltip="Editor actions"
+          tooltip={t("editor.actions")}
           tooltipSide="bottom"
         >
           <MoreHorizontal />
@@ -202,10 +206,12 @@ export default function Breadcrumb({
         <div className="font-sans flex min-w-0 items-center gap-2 text-subtle-foreground ui-text-sm">
           {showPath && showBreadcrumbPath ? (
             <>
-              <FilePathBreadcrumb
-                filePath={filePath}
-                interactive={interactive && !isLocalHistorySnapshot}
-              />
+              {showFilePath ? (
+                <FilePathBreadcrumb
+                  filePath={filePath}
+                  interactive={interactive && !isLocalHistorySnapshot}
+                />
+              ) : null}
               <SymbolBreadcrumb
                 bufferId={resolvedBufferId ?? undefined}
                 editorViewKey={editorViewKey}

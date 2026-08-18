@@ -38,6 +38,7 @@ import { Button } from "@/ui/button";
 import { Dropdown, type MenuItem } from "@/ui/dropdown";
 import Dialog from "@/ui/dialog";
 import { toast } from "sonner";
+import { useTranslation } from "@/i18n/locale-provider";
 import { getBaseName, getDirName, getRelativePath, joinPath } from "@/utils/path-helpers";
 
 interface UseFileExplorerContextMenuOptions {
@@ -77,9 +78,9 @@ interface PropertiesDialogState {
 
 const menuIconSpacer = <span aria-hidden="true" />;
 
-function formatFileSize(sizeHeader: string | null): string {
+function formatFileSize(sizeHeader: string | null, unknownLabel: string): string {
   const bytes = Number(sizeHeader);
-  if (!Number.isFinite(bytes) || bytes < 0) return "Unknown";
+  if (!Number.isFinite(bytes) || bytes < 0) return unknownLabel;
   if (bytes < 1024) return `${bytes} bytes`;
 
   const units = ["KB", "MB", "GB", "TB"];
@@ -112,6 +113,7 @@ export function useFileExplorerContextMenu({
   onStartInlineEditing,
   onOpenAllFilesInDirectory,
 }: UseFileExplorerContextMenuOptions) {
+  const { t } = useTranslation();
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [envOverwriteDialog, setEnvOverwriteDialog] = useState<EnvOverwriteDialogState | null>(
     null,
@@ -159,15 +161,15 @@ export function useFileExplorerContextMenu({
         }
 
         onRefreshDirectory?.(directoryPath, { force: true });
-        toast.success(`Created ${targetFileName}`);
+        toast.success(t("files.created", { name: targetFileName }));
       } catch (error) {
         console.error("Failed to create env template file:", error);
-        toast.error(`Failed to create ${targetFileName}`, {
+        toast.error(t("files.createFailed", { name: targetFileName }), {
           description: error instanceof Error ? error.message : undefined,
         });
       }
     },
-    [onCreateNewFileInDirectory, onRefreshDirectory],
+    [onCreateNewFileInDirectory, onRefreshDirectory, t],
   );
 
   const handleEnvOverwriteConfirm = useCallback(() => {
@@ -201,13 +203,13 @@ export function useFileExplorerContextMenu({
       items.push(
         {
           id: "new-file",
-          label: "New File",
+          label: t("files.newFile"),
           icon: <FilePlus />,
           onClick: () => onStartInlineEditing(contextMenu.path, false),
         },
         {
           id: "new-folder",
-          label: "New Folder",
+          label: t("files.newFolder"),
           icon: <FolderPlus />,
           onClick: () => {
             if (onCreateNewFolderInDirectory) onStartInlineEditing(contextMenu.path, true);
@@ -215,19 +217,19 @@ export function useFileExplorerContextMenu({
         },
         {
           id: "upload-files",
-          label: "Upload Files",
+          label: t("files.uploadFiles"),
           icon: <Upload />,
           onClick: () => onUploadFile?.(contextMenu.path),
         },
         {
           id: "refresh",
-          label: "Refresh",
+          label: t("files.refresh"),
           icon: <RefreshCw />,
           onClick: () => onRefreshDirectory?.(contextMenu.path, { force: true }),
         },
         {
           id: "add-folder-to-workspace",
-          label: "Add Folder to Workspace",
+          label: t("files.addFolderToWorkspace"),
           icon: <FolderPlus />,
           onClick: () => onAddFolderToWorkspace?.(),
         },
@@ -235,7 +237,7 @@ export function useFileExplorerContextMenu({
           ? [
               {
                 id: "remove-folder-from-workspace",
-                label: "Remove Folder from Workspace",
+                label: t("files.removeFolderFromWorkspace"),
                 icon: <X />,
                 onClick: () => onRemoveFolderFromWorkspace?.(contextMenu.path),
               },
@@ -243,19 +245,19 @@ export function useFileExplorerContextMenu({
           : []),
         {
           id: "open-all-files",
-          label: "Open All Files",
+          label: t("files.openAllFiles"),
           icon: <FolderOpen />,
           onClick: () => void onOpenAllFilesInDirectory(contextMenu.path),
         },
         {
           id: "collapse-all",
-          label: "Collapse All",
+          label: t("files.collapseAll"),
           icon: <CaretDoubleUp />,
           onClick: () => useFileTreeStore.getState().actions.collapsePath(contextMenu.path),
         },
         {
           id: "open-terminal",
-          label: "Open in Terminal",
+          label: t("files.openInTerminal"),
           icon: <Terminal />,
           onClick: () => {
             const folderName = getBaseName(contextMenu.path, "terminal");
@@ -268,7 +270,7 @@ export function useFileExplorerContextMenu({
         },
         {
           id: "find-in-folder",
-          label: "Find in Folder",
+          label: t("files.findInFolder"),
           icon: <Search />,
           onClick: () => {},
         },
@@ -277,7 +279,7 @@ export function useFileExplorerContextMenu({
       if (onGenerateImage) {
         items.push({
           id: "generate-image",
-          label: "Generate Image",
+          label: t("files.generateImage"),
           icon: <ImageIcon />,
           onClick: () => onGenerateImage(contextMenu.path),
         });
@@ -294,13 +296,13 @@ export function useFileExplorerContextMenu({
       items.push(
         {
           id: "open",
-          label: "Open",
+          label: t("files.open"),
           icon: <FolderOpen />,
           onClick: () => onFileSelect(contextMenu.path, false),
         },
         {
           id: "copy-content",
-          label: "Copy Content",
+          label: t("files.copyContent"),
           icon: <Copy />,
           onClick: async () => {
             try {
@@ -312,13 +314,13 @@ export function useFileExplorerContextMenu({
         },
         {
           id: "duplicate-file",
-          label: "Duplicate",
+          label: t("files.duplicate"),
           icon: <FileText />,
           onClick: () => onDuplicatePath?.(contextMenu.path),
         },
         {
           id: "local-history",
-          label: "Local History",
+          label: t("files.localHistory"),
           icon: <ClockCounterClockwise />,
           onClick: () => openLocalHistoryForPath(contextMenu.path),
         },
@@ -335,23 +337,23 @@ export function useFileExplorerContextMenu({
           : []),
         {
           id: "properties",
-          label: "Properties",
+          label: t("files.properties"),
           icon: <Info />,
           onClick: async () => {
             const fileName = getBaseName(contextMenu.path, "");
             const extension = fileName.includes(".") ? fileName.split(".").pop() : undefined;
-            let size = "Unknown";
+            let size = t("files.sizeUnknown");
 
             try {
               const stats = await fetch(`file://${contextMenu.path}`, { method: "HEAD" });
-              size = formatFileSize(stats.headers.get("content-length"));
+              size = formatFileSize(stats.headers.get("content-length"), t("files.sizeUnknown"));
             } catch {}
 
             setPropertiesDialog({
               fileName,
               path: contextMenu.path,
               size,
-              type: extension || "No extension",
+              type: extension || t("files.noExtension"),
             });
           },
         },
@@ -365,7 +367,7 @@ export function useFileExplorerContextMenu({
     items.push(
       {
         id: "copy-path",
-        label: "Copy Path",
+        label: t("files.copyPath"),
         icon: <Link />,
         onClick: async () => {
           try {
@@ -375,7 +377,7 @@ export function useFileExplorerContextMenu({
       },
       {
         id: "copy-relative-path",
-        label: "Copy Relative Path",
+        label: t("files.copyRelativePath"),
         icon: <FileText />,
         onClick: async () => {
           try {
@@ -386,14 +388,14 @@ export function useFileExplorerContextMenu({
       },
       {
         id: "copy",
-        label: "Copy",
+        label: t("files.copy"),
         icon: <Copy />,
         onClick: () =>
           clipboardActions.copy([{ path: contextMenu.path, is_dir: contextMenu.isDir }]),
       },
       {
         id: "cut",
-        label: "Cut",
+        label: t("files.cut"),
         icon: <Scissors />,
         onClick: () =>
           clipboardActions.cut([{ path: contextMenu.path, is_dir: contextMenu.isDir }]),
@@ -403,7 +405,7 @@ export function useFileExplorerContextMenu({
     if (clipboard && contextMenu.isDir) {
       items.push({
         id: "paste",
-        label: "Paste",
+        label: t("files.paste"),
         icon: <Clipboard />,
         onClick: () => {
           clipboardActions.paste(contextMenu.path).then(() => {
@@ -417,13 +419,13 @@ export function useFileExplorerContextMenu({
       items.push(
         {
           id: "rename",
-          label: "Rename",
+          label: t("files.rename"),
           icon: <Edit />,
           onClick: () => onRenamePath?.(contextMenu.path),
         },
         {
           id: "reveal",
-          label: "Reveal in Finder",
+          label: t("files.reveal"),
           icon: <Eye />,
           onClick: () => {
             if (onRevealInFinder) onRevealInFinder(contextMenu.path);
@@ -437,7 +439,7 @@ export function useFileExplorerContextMenu({
         { id: "sep-end", label: "", separator: true, onClick: () => {} },
         {
           id: "delete",
-          label: "Delete",
+          label: t("files.delete"),
           icon: <Trash />,
           className: "text-destructive",
           onClick: () => onDeleteRequested({ path: contextMenu.path, isDir: contextMenu.isDir }),
@@ -446,7 +448,7 @@ export function useFileExplorerContextMenu({
     } else {
       items.push({
         id: "reveal",
-        label: "Reveal in Finder",
+        label: t("files.reveal"),
         icon: <Eye />,
         onClick: () => onRevealInFinder?.(contextMenu.path),
       });
@@ -475,6 +477,7 @@ export function useFileExplorerContextMenu({
     onUploadFile,
     isWorkspaceRootPath,
     rootFolderPath,
+    t,
   ]);
 
   const hasDialog = Boolean(envOverwriteDialog || propertiesDialog);
@@ -492,7 +495,7 @@ export function useFileExplorerContextMenu({
 
         {envOverwriteDialog && (
           <Dialog
-            title="Overwrite Env File"
+            title={t("files.overwriteEnvTitle")}
             icon={Warning}
             onClose={() => setEnvOverwriteDialog(null)}
             footer={
@@ -502,7 +505,7 @@ export function useFileExplorerContextMenu({
                   onClick={() => setEnvOverwriteDialog(null)}
                   className="ui-text-base"
                 >
-                  Cancel
+                  {t("files.cancel")}
                 </Button>
                 <Button
                   variant="danger"
@@ -510,29 +513,29 @@ export function useFileExplorerContextMenu({
                   size="xs"
                   className="ui-text-base"
                 >
-                  Overwrite
+                  {t("files.overwrite")}
                 </Button>
               </>
             }
           >
             <p className="font-sans ui-text-base text-foreground">
-              {envOverwriteDialog.targetFileName} already exists. Overwrite it?
+              {t("files.overwriteEnvMessage", { name: envOverwriteDialog.targetFileName })}
             </p>
           </Dialog>
         )}
 
         {propertiesDialog && (
-          <Dialog title="Properties" icon={Info} onClose={() => setPropertiesDialog(null)}>
+          <Dialog title={t("files.properties")} icon={Info} onClose={() => setPropertiesDialog(null)}>
             <dl className="grid grid-cols-[72px_1fr] gap-x-3 gap-y-2 font-sans ui-text-base">
-              <dt className="text-subtle-foreground">File</dt>
+              <dt className="text-subtle-foreground">{t("files.propertiesFile")}</dt>
               <dd className="min-w-0 wrap-break-word text-foreground">
                 {propertiesDialog.fileName}
               </dd>
-              <dt className="text-subtle-foreground">Path</dt>
+              <dt className="text-subtle-foreground">{t("files.propertiesPath")}</dt>
               <dd className="min-w-0 wrap-break-word text-foreground">{propertiesDialog.path}</dd>
-              <dt className="text-subtle-foreground">Size</dt>
+              <dt className="text-subtle-foreground">{t("files.propertiesSize")}</dt>
               <dd className="text-foreground">{propertiesDialog.size}</dd>
-              <dt className="text-subtle-foreground">Type</dt>
+              <dt className="text-subtle-foreground">{t("files.propertiesType")}</dt>
               <dd className="text-foreground">{propertiesDialog.type}</dd>
             </dl>
           </Dialog>

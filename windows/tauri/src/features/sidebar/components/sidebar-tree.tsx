@@ -254,7 +254,7 @@ export const SidebarTreeRow = forwardRef<HTMLButtonElement, SidebarTreeRowProps>
           ) : null}
           {leading ? <SidebarTreeIcon icon={leading} /> : null}
           {label !== undefined ? (
-            <span className="relative z-1 flex min-w-0 flex-1 items-baseline gap-1.5 overflow-hidden">
+            <span className="relative z-1 flex min-w-0 flex-1 items-baseline gap-1.5 overflow-clip">
               <span className="min-w-0 truncate">{label}</span>
               {description ? (
                 <span className="min-w-0 flex-1 truncate text-subtle-foreground/80">
@@ -266,7 +266,7 @@ export const SidebarTreeRow = forwardRef<HTMLButtonElement, SidebarTreeRowProps>
             children
           )}
           {trailing ? (
-            <span className="relative z-1 ml-auto flex min-w-0 shrink items-center overflow-hidden">
+            <span className="relative z-1 ml-auto flex min-w-0 shrink items-center overflow-clip">
               {trailing}
             </span>
           ) : null}

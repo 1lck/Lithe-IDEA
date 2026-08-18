@@ -3,11 +3,12 @@ import SwiftUI
 /// 编辑器内的单文件查找栏：实时高亮、上/下一个、Esc 关闭。
 struct FindBarView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var chrome: EditorChromeModel
     @FocusState private var focused: Bool
 
     private var queryBinding: Binding<String> {
         Binding(
-            get: { model.findBarQuery },
+            get: { chrome.findBarQuery },
             set: { model.setFindBarQuery($0) }
         )
     }
@@ -43,7 +44,7 @@ struct FindBarView: View {
             }
             .litheIconButton()
             .foregroundStyle(LitheTheme.secondaryText)
-            .disabled(model.findMatchCount == 0)
+            .disabled(chrome.findMatchCount == 0)
             .help("Previous match (Shift+Return)")
 
             Button {
@@ -53,7 +54,7 @@ struct FindBarView: View {
             }
             .litheIconButton()
             .foregroundStyle(LitheTheme.secondaryText)
-            .disabled(model.findMatchCount == 0)
+            .disabled(chrome.findMatchCount == 0)
             .help("Next match (Return)")
 
             Button {
@@ -76,8 +77,8 @@ struct FindBarView: View {
     }
 
     private var matchLabel: String {
-        guard model.findMatchCount > 0 else { return "" }
-        let current = max(0, model.currentFindMatchIndex + 1)
-        return "\(current)/\(model.findMatchCount)"
+        guard chrome.findMatchCount > 0 else { return "" }
+        let current = max(0, chrome.currentFindMatchIndex + 1)
+        return "\(current)/\(chrome.findMatchCount)"
     }
 }

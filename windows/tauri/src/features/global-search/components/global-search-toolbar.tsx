@@ -3,6 +3,7 @@ import { MagnifyingGlassIcon as MagnifyingGlass, XIcon as X } from "@/ui/icons";
 import Badge from "@/ui/badge";
 import { Button } from "@/ui/button";
 import { CommandInput } from "@/ui/command";
+import { useTranslation } from "@/i18n/locale-provider";
 import { SEARCH_TOGGLE_ICONS, SearchReplaceRow, SearchReplaceToggle } from "@/ui/search";
 import { ToggleGroup, type ToggleGroupOption } from "@/ui/toggle-group";
 import type { ContentSearchOptions } from "../types/global-search.types";
@@ -64,20 +65,22 @@ export const GlobalSearchToolbar = memo(function GlobalSearchToolbar({
   excludeQuery,
   onExcludeQueryChange,
 }: GlobalSearchToolbarProps) {
+  const { t } = useTranslation();
+  const searchInFilesLabel = t("workbench.searchInFiles");
   const searchOptionButtons: ToggleGroupOption<SearchOptionValue>[] = [
     {
       value: "case-sensitive",
-      label: "Match case",
+      label: t("search.matchCase"),
       icon: SEARCH_TOGGLE_ICONS.caseSensitive,
     },
     {
       value: "whole-word",
-      label: "Match whole word",
+      label: t("search.matchWholeWord"),
       icon: SEARCH_TOGGLE_ICONS.wholeWord,
     },
     {
       value: "regex",
-      label: "Use regular expression",
+      label: t("search.useRegex"),
       icon: SEARCH_TOGGLE_ICONS.regex,
     },
   ];
@@ -89,8 +92,8 @@ export const GlobalSearchToolbar = memo(function GlobalSearchToolbar({
         <SearchReplaceToggle
           isExpanded={detailsVisible}
           onToggle={() => onDetailsVisibleChange(!detailsVisible)}
-          expandedLabel="Hide details"
-          collapsedLabel="Show details"
+          expandedLabel={t("search.hideDetails")}
+          collapsedLabel={t("search.showDetails")}
         />
         <div className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-lg border border-border/70 bg-background/65 px-2">
           <MagnifyingGlass className="size-4 shrink-0 text-subtle-foreground" weight="duotone" />
@@ -99,9 +102,9 @@ export const GlobalSearchToolbar = memo(function GlobalSearchToolbar({
             value={query}
             onChange={onQueryChange}
             onKeyDown={onSearchKeyDown}
-            placeholder="Search in files..."
+            placeholder={searchInFilesLabel}
             className="font-sans min-w-0"
-            aria-label="Search in files"
+            aria-label={searchInFilesLabel}
             autoComplete="off"
             spellCheck={false}
           />
@@ -114,7 +117,7 @@ export const GlobalSearchToolbar = memo(function GlobalSearchToolbar({
                 onQueryChange("");
                 inputRef.current?.focus();
               }}
-              aria-label="Clear search"
+              aria-label={t("search.clear")}
               className="shrink-0 text-subtle-foreground"
             >
               <X />
@@ -131,7 +134,7 @@ export const GlobalSearchToolbar = memo(function GlobalSearchToolbar({
             setSearchOption("wholeWord", next.wholeWord);
             setSearchOption("useRegex", next.useRegex);
           }}
-          ariaLabel="Search options"
+          ariaLabel={t("search.options")}
           variant="segmented"
           size="xs"
           wrap={false}
@@ -176,18 +179,18 @@ export const GlobalSearchToolbar = memo(function GlobalSearchToolbar({
             <CommandInput
               value={includeQuery}
               onChange={onIncludeQueryChange}
-              placeholder="Files to include"
+              placeholder={t("search.filesToInclude")}
               className="font-sans h-7 rounded-md border border-border/70 bg-background/65 px-2"
-              aria-label="Files to include"
+              aria-label={t("search.filesToInclude")}
               autoComplete="off"
               spellCheck={false}
             />
             <CommandInput
               value={excludeQuery}
               onChange={onExcludeQueryChange}
-              placeholder="Files to exclude"
+              placeholder={t("search.filesToExclude")}
               className="font-sans h-7 rounded-md border border-border/70 bg-background/65 px-2"
-              aria-label="Files to exclude"
+              aria-label={t("search.filesToExclude")}
               autoComplete="off"
               spellCheck={false}
             />

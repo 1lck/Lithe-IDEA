@@ -17,12 +17,8 @@ import { Dropdown, type MenuItem } from "@/ui/dropdown";
 import { Spinner } from "@/ui/spinner";
 import { showConfirmDialog } from "@/ui/dialog";
 import { toast } from "sonner";
-import {
-  fetchChanges,
-  pullChanges,
-  pushChanges,
-  type GitRemoteActionResult,
-} from "../api/git-remotes-api";
+import { useTranslation } from "@/i18n/locale-provider";
+import { fetchChanges, pushChanges, type GitRemoteActionResult } from "../api/git-remotes-api";
 import { discardAllChanges, initRepository } from "../api/git-status-api";
 import { useGitStore } from "../stores/git.store";
 import { type GitActionsMenuAnchorRect } from "../utils/git-actions-menu-position";
@@ -34,6 +30,8 @@ interface GitActionsMenuProps {
   hasGitRepo: boolean;
   repoPath?: string;
   onRefresh?: () => void;
+  onPull?: () => Promise<unknown> | void;
+  isPulling?: boolean;
   onOpenBranchManager?: () => void;
   onShowBranchDiff?: () => void;
   onOpenRemoteManager?: () => void;
@@ -52,6 +50,8 @@ const GitActionsMenu = ({
   hasGitRepo,
   repoPath,
   onRefresh,
+  onPull,
+  isPulling = false,
   onOpenBranchManager,
   onShowBranchDiff,
   onOpenRemoteManager,
@@ -62,6 +62,7 @@ const GitActionsMenu = ({
   onInitializeRepository,
   isInitializingRepository,
 }: GitActionsMenuProps) => {
+  const { t } = useTranslation();
   const [isLoading, setIsLoading] = useState(false);
   const isRefreshing = useGitStore((state) => state.isRefreshing);
   const confirmBeforeDiscard = useSettingsStore((state) => state.settings.confirmBeforeDiscard);
@@ -120,11 +121,8 @@ const GitActionsMenu = ({
   };
 
   const handlePull = () => {
-    handleAction(() => pullChanges(repoPath!), "Pull", {
-      loading: "Pulling changes...",
-      success: "Changes pulled successfully.",
-      error: "Failed to pull changes.",
-    });
+    void onPull?.();
+    onClose();
   };
 
   const handleFetch = () => {
@@ -201,7 +199,7 @@ const GitActionsMenu = ({
     ? [
         {
           id: "select-repository",
-          label: isSelectingRepository ? "Selecting..." : "Select Repository",
+          label: isSelectingRepository ? t("git.selecting") : t("git.selectRepository"),
           icon: <FolderOpen />,
           disabled: isSelectingRepository,
           onClick: () => void handleSelectRepository(),
@@ -209,70 +207,70 @@ const GitActionsMenu = ({
         { id: "sep-1", label: "", separator: true, onClick: () => {} },
         {
           id: "manage-branches",
-          label: "Manage Branches",
+          label: t("git.manageBranches"),
           icon: <GitBranch />,
           onClick: handleBranchManager,
         },
         {
           id: "show-branch-diff",
-          label: "Show Branch Diff",
+          label: t("git.showBranchDiff"),
           icon: <GitPullRequest />,
           onClick: handleShowBranchDiff,
         },
         { id: "sep-branches", label: "", separator: true, onClick: () => {} },
         {
           id: "push",
-          label: "Push Changes",
+          label: t("git.pushChanges"),
           icon: <Upload />,
-          disabled: isLoading,
+          disabled: isLoading || isPulling,
           onClick: handlePush,
         },
         { id: "sep-2", label: "", separator: true, onClick: () => {} },
         {
           id: "pull",
-          label: "Pull Changes",
+          label: t("git.pullChanges"),
           icon: <Download weight="fill" />,
-          disabled: isLoading,
+          disabled: isLoading || isPulling,
           onClick: handlePull,
         },
         {
           id: "fetch",
-          label: "Fetch",
+          label: t("git.fetch"),
           icon: <GitPullRequest />,
-          disabled: isLoading,
+          disabled: isLoading || isPulling,
           onClick: handleFetch,
         },
         { id: "sep-3", label: "", separator: true, onClick: () => {} },
         {
           id: "manage-remotes",
-          label: "Manage Remotes",
+          label: t("git.manageRemotes"),
           icon: <Server />,
           onClick: handleRemoteManager,
         },
         {
           id: "manage-tags",
-          label: "Manage Tags",
+          label: t("git.manageTags"),
           icon: <Tag />,
           onClick: handleTagManager,
         },
         {
           id: "view-stashes",
-          label: "View Stashes",
+          label: t("git.viewStashes"),
           icon: <Archive />,
           onClick: handleViewStashes,
         },
         { id: "sep-4", label: "", separator: true, onClick: () => {} },
         {
           id: "refresh",
-          label: "Refresh Status",
-          icon: isRefreshing ? <Spinner label="Refreshing status" compact /> : <RefreshCw />,
+          label: t("git.refreshStatus"),
+          icon: isRefreshing ? <Spinner label={t("git.refreshStatus")} compact /> : <RefreshCw />,
           disabled: isRefreshing,
           onClick: () => void handleRefresh(),
         },
         { id: "sep-5", label: "", separator: true, onClick: () => {} },
         {
           id: "discard-all",
-          label: "Discard All Changes",
+          label: t("git.discardAllChanges"),
           icon: <RotateCcw />,
           disabled: isLoading,
           className: "text-destructive",
@@ -290,8 +288,8 @@ const GitActionsMenu = ({
         { id: "sep-1", label: "", separator: true, onClick: () => {} },
         {
           id: "refresh",
-          label: "Refresh Status",
-          icon: isRefreshing ? <Spinner label="Refreshing status" compact /> : <RefreshCw />,
+          label: t("git.refreshStatus"),
+          icon: isRefreshing ? <Spinner label={t("git.refreshStatus")} compact /> : <RefreshCw />,
           disabled: isRefreshing,
           onClick: () => void handleRefresh(),
         },

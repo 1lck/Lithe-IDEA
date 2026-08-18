@@ -633,6 +633,12 @@ const viewCommands: Command[] = [
     execute: openGlobalSearchBuffer,
   },
   {
+    id: "workbench.searchEverywhere",
+    title: "Search Everywhere",
+    category: "View",
+    execute: openQuickOpen,
+  },
+  {
     id: "workbench.showProjectSearch",
     title: "Project Search",
     category: "View",
@@ -889,7 +895,7 @@ const navigationCommands: Command[] = [
     id: "editor.goToReferences",
     title: "Go to References",
     category: "Navigation",
-    keybinding: "shift+F12",
+    keybinding: "cmd+b",
     execute: goToReferences,
   },
   {

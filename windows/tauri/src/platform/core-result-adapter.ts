@@ -229,8 +229,11 @@ export function adaptCoreResult<T>(
         : [];
       return { blocked: blockingPaths.length > 0, blockingPaths } as T;
     }
-    case "git_checkout_tag":
-      return { success: true, hasChanges: false, message: "" } as T;
+    case "git_checkout_tag": {
+      const exitCode = typeof data.exitCode === "number" ? data.exitCode : 0;
+      const output = typeof data.output === "string" ? data.output.trim() : "";
+      return { success: exitCode === 0, hasChanges: false, message: output } as T;
+    }
     case "git_operation_state": {
       const kind = typeof data.kind === "string" ? data.kind : "";
       if (!kind) {

@@ -7,12 +7,14 @@ import { Button } from "@/ui/button";
 import { BellIcon } from "@/ui/icons";
 import Tooltip from "@/ui/tooltip";
 import { cn } from "@/utils/cn";
+import { useTranslation } from "@/i18n/locale-provider";
 
 interface NotificationsTriggerProps {
   className?: string;
 }
 
 export const NotificationsTrigger = ({ className }: NotificationsTriggerProps) => {
+  const { t } = useTranslation();
   const notifications = useNotificationsStore.use.notifications();
   const [isCommandVisible, setIsCommandVisible] = useState(false);
   const shortcut = useCommandShortcut("workbench.showNotifications");
@@ -34,7 +36,7 @@ export const NotificationsTrigger = ({ className }: NotificationsTriggerProps) =
 
   return (
     <>
-      <Tooltip content="Notifications" shortcut={shortcut} side="top">
+      <Tooltip content={t("notifications.title")} shortcut={shortcut} side="top">
         <Button
           onClick={() => {
             window.dispatchEvent(new CustomEvent(OPEN_NOTIFICATIONS_COMMAND_EVENT));
@@ -44,7 +46,7 @@ export const NotificationsTrigger = ({ className }: NotificationsTriggerProps) =
           size="xs"
           active={isCommandVisible}
           className={cn(className, unreadCount > 0 && "w-auto gap-1.5")}
-          aria-label="Notifications"
+          aria-label={t("notifications.title")}
         >
           <BellIcon />
           {unreadCount > 0 && (
