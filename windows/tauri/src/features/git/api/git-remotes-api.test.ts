@@ -1,22 +1,15 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import * as gitEvents from "../events/git-events";
 import type { GitPullPreflight } from "../types/git.types";
 
 const invoke = mock(async (_command: string, _args?: unknown): Promise<unknown> => null);
-const emitGitChanged = mock((_change: unknown) => {});
-const resolveRepositoryPath = mock(async (repoPath: string) => repoPath);
-const resolveRepositoryPathOrThrow = mock(async (repoPath: string) => repoPath);
+const emitGitChanged = spyOn(gitEvents, "emitGitChanged");
 const getOperationState = mock(async () => null);
 const getBranches = mock(async () => []);
 const getGitHistory = mock(async () => null);
 const getGitStatus = mock(async () => null);
 
 mock.module("@/platform/tauri-core", () => ({ invoke }));
-mock.module("../events/git-events", () => ({ emitGitChanged }));
-mock.module("./git-repo-api", () => ({
-  isNotGitRepositoryError: () => false,
-  resolveRepositoryPath,
-  resolveRepositoryPathOrThrow,
-}));
 mock.module("./git-integration-api", () => ({ getOperationState }));
 mock.module("./git-branches-api", () => ({ getBranches }));
 mock.module("./git-commits-api", () => ({ getGitHistory }));
@@ -27,14 +20,10 @@ const { executePullChanges, fetchChanges, getGitPullWorkflow, getPullPreflight, 
 
 beforeEach(() => {
   invoke.mockReset();
-  emitGitChanged.mockReset();
-  resolveRepositoryPath.mockReset();
-  resolveRepositoryPathOrThrow.mockReset();
+  emitGitChanged.mockClear();
   getBranches.mockClear();
   getGitHistory.mockClear();
   getGitStatus.mockClear();
-  resolveRepositoryPath.mockImplementation(async (repoPath: string) => repoPath);
-  resolveRepositoryPathOrThrow.mockImplementation(async (repoPath: string) => repoPath);
 });
 
 describe("Git remote Pull API", () => {
@@ -51,14 +40,18 @@ describe("Git remote Pull API", () => {
       diverged: true,
       hasLocalChanges: false,
     };
-    invoke.mockResolvedValue(preflight);
+    invoke.mockImplementation(async (command: string) =>
+      command === "git_discover_repo" ? "C:/repo" : preflight,
+    );
 
     await expect(getPullPreflight("C:/repo")).resolves.toEqual(preflight);
     expect(invoke).toHaveBeenCalledWith("git.pullPreflight", { repoPath: "C:/repo" });
   });
 
   test("executes Pull with only the selected Core mode", async () => {
-    invoke.mockResolvedValue(null);
+    invoke.mockImplementation(async (command: string) =>
+      command === "git_discover_repo" ? "C:/repo" : null,
+    );
 
     await expect(executePullChanges("C:/repo", "rebase")).resolves.toEqual({ success: true });
     expect(invoke).toHaveBeenCalledWith("git_pull", {
@@ -68,7 +61,9 @@ describe("Git remote Pull API", () => {
   });
 
   test("fetches the repository without an ignored remote parameter", async () => {
-    invoke.mockResolvedValue(null);
+    invoke.mockImplementation(async (command: string) =>
+      command === "git_discover_repo" ? "C:/repo" : null,
+    );
 
     await expect(fetchChanges("C:/repo")).resolves.toEqual({ success: true });
     expect(invoke).toHaveBeenCalledWith("git_fetch", { repoPath: "C:/repo" });
@@ -76,6 +71,7 @@ describe("Git remote Pull API", () => {
 
   test("keeps a headless divergent Pull on the safe Cancel default", async () => {
     invoke.mockImplementation(async (command: string) => {
+      if (command === "git_discover_repo") return "C:/repo";
       if (command === "git.pullPreflight") {
         return {
           upstream: "origin/main",
