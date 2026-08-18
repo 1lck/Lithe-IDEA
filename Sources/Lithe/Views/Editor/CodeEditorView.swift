@@ -74,6 +74,39 @@ private enum EditorLayoutMetrics {
     static let caretWidth: CGFloat = 2
 }
 
+struct EditorViewportState: Equatable {
+    var selectionLocation = 0
+    var selectionLength = 0
+    var verticalScrollOffset: CGFloat = 0
+}
+
+@MainActor
+final class EditorViewportStore {
+    private var states: [UUID: EditorViewportState] = [:]
+
+    func state(for documentID: UUID) -> EditorViewportState {
+        states[documentID] ?? EditorViewportState()
+    }
+
+    func updateSelection(_ selection: NSRange, for documentID: UUID) {
+        guard selection.location != NSNotFound else { return }
+        var state = state(for: documentID)
+        state.selectionLocation = selection.location
+        state.selectionLength = selection.length
+        states[documentID] = state
+    }
+
+    func updateScrollOffset(_ offset: CGFloat, for documentID: UUID) {
+        var state = state(for: documentID)
+        state.verticalScrollOffset = offset
+        states[documentID] = state
+    }
+
+    func retain(documentIDs: Set<UUID>) {
+        states = states.filter { documentIDs.contains($0.key) }
+    }
+}
+
 struct CodeEditorView: NSViewRepresentable {
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var model: AppModel
@@ -84,14 +117,20 @@ struct CodeEditorView: NSViewRepresentable {
     var debugService: JavaDebugFeatureModel?
     var shouldFocus = true
     var markdownScrollPosition: Binding<MarkdownScrollPosition>? = nil
+    let viewportStore: EditorViewportStore
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
             document: document,
             model: model,
             debugService: debugService,
-            markdownScrollPosition: markdownScrollPosition
+            markdownScrollPosition: markdownScrollPosition,
+            viewportStore: viewportStore
         )
+    }
+
+    static func dismantleNSView(_ nsView: EditorContainerView, coordinator: Coordinator) {
+        coordinator.persistViewport()
     }
 
     func makeNSView(context: Context) -> EditorContainerView {
@@ -210,6 +249,7 @@ struct CodeEditorView: NSViewRepresentable {
         gutter.attach(textView: textView, scrollView: scrollView)
         gutter.applyAppearance(palette)
         context.coordinator.attachMarkdownScrollSync(to: scrollView)
+        context.coordinator.attachViewportTracking(to: scrollView)
 
         context.coordinator.textView = textView
         context.coordinator.gutter = gutter
@@ -234,6 +274,7 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.updateDiagnostics()
         context.coordinator.shouldFocus = shouldFocus
         context.coordinator.requestInitialFocusIfNeeded()
+        context.coordinator.restoreViewportWhenReady()
         return container
     }
 
@@ -351,20 +392,25 @@ struct CodeEditorView: NSViewRepresentable {
         private var markdownImagePasteMonitor: Any?
         private weak var markdownScrollView: NSScrollView?
         private var markdownScrollObserver: NSObjectProtocol?
+        private var viewportScrollObserver: NSObjectProtocol?
         private var isApplyingSynchronizedMarkdownScroll = false
+        private var isRestoringViewport = true
         private var lastObservedMarkdownScrollRevision: UInt64?
         private var isLoadingGitLineChanges = false
+        private let viewportStore: EditorViewportStore
 
         init(
             document: EditorDocument,
             model: AppModel,
             debugService: JavaDebugFeatureModel?,
-            markdownScrollPosition: Binding<MarkdownScrollPosition>?
+            markdownScrollPosition: Binding<MarkdownScrollPosition>?,
+            viewportStore: EditorViewportStore
         ) {
             self.document = document
             self.model = model
             self.debugService = debugService
             self.markdownScrollPosition = markdownScrollPosition
+            self.viewportStore = viewportStore
             fileExtension = document.url.pathExtension
         }
 
@@ -378,6 +424,72 @@ struct CodeEditorView: NSViewRepresentable {
             }
             if let markdownScrollObserver {
                 NotificationCenter.default.removeObserver(markdownScrollObserver)
+            }
+            if let viewportScrollObserver {
+                NotificationCenter.default.removeObserver(viewportScrollObserver)
+            }
+        }
+
+        func attachViewportTracking(to scrollView: NSScrollView) {
+            guard viewportScrollObserver == nil else { return }
+            scrollView.contentView.postsBoundsChangedNotifications = true
+            viewportScrollObserver = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification,
+                object: scrollView.contentView,
+                queue: .main
+            ) { [weak self, weak scrollView] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let scrollView, !self.isRestoringViewport,
+                          let document = self.document else { return }
+                    self.viewportStore.updateScrollOffset(
+                        scrollView.contentView.bounds.minY,
+                        for: document.id
+                    )
+                }
+            }
+        }
+
+        func restoreViewportWhenReady() {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let document, let textView,
+                      let scrollView = textView.enclosingScrollView else { return }
+                if let target = self.model?.editorNavigationTarget,
+                   target.url.standardizedFileURL == document.url.standardizedFileURL,
+                   self.appliedNavigationTargetID == target.id {
+                    self.isRestoringViewport = false
+                    self.persistViewport()
+                    return
+                }
+                let state = self.viewportStore.state(for: document.id)
+                let textLength = (textView.string as NSString).length
+                let location = min(state.selectionLocation, textLength)
+                let length = min(state.selectionLength, textLength - location)
+                textView.setSelectedRange(NSRange(location: location, length: length))
+                let maximumOffset = max(
+                    0,
+                    (scrollView.documentView?.frame.height ?? 0)
+                        - scrollView.contentView.bounds.height
+                )
+                scrollView.contentView.scroll(
+                    to: NSPoint(
+                        x: scrollView.contentView.bounds.minX,
+                        y: min(max(0, state.verticalScrollOffset), maximumOffset)
+                    )
+                )
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+                self.isRestoringViewport = false
+                self.updateCaret()
+            }
+        }
+
+        func persistViewport() {
+            guard let document, let textView else { return }
+            viewportStore.updateSelection(textView.selectedRange(), for: document.id)
+            if let scrollView = textView.enclosingScrollView {
+                viewportStore.updateScrollOffset(
+                    scrollView.contentView.bounds.minY,
+                    for: document.id
+                )
             }
         }
 
@@ -586,6 +698,12 @@ struct CodeEditorView: NSViewRepresentable {
             // Typing already refreshed caret chrome in textDidChange. A second
             // full pass here is what dropped the frame rate into the 30s.
             guard !isApplyingEditorChange else { return }
+            if !isRestoringViewport, let document, let textView {
+                viewportStore.updateSelection(
+                    textView.selectedRange(),
+                    for: document.id
+                )
+            }
             (textView as? CodeTextView)?.updateCaretDecorations()
             textView?.needsDisplay = true
             gutter?.needsDisplay = true
