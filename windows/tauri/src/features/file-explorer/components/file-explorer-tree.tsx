@@ -108,7 +108,7 @@ interface FileExplorerTreeProps {
   activePath?: string;
   updateActivePath?: (path: string) => void;
   rootFolderPath?: string;
-  onFileSelect: (path: string, isDir: boolean) => void | Promise<void>;
+  onFileSelect: (path: string, isDir: boolean) => void | string | Promise<void | string>;
   onFileOpen?: (path: string, isDir: boolean) => void | Promise<void>;
   onCreateNewFileInDirectory: (
     directoryPath: string,
@@ -958,7 +958,8 @@ function FileExplorerTreeComponent({
 
   const toggleDirectory = useCallback(
     async (path: string) => {
-      await Promise.resolve(onFileSelect(path, true));
+      const resolvedPath = await Promise.resolve(onFileSelect(path, true));
+      return resolvedPath ?? path;
     },
     [onFileSelect],
   );
@@ -980,9 +981,12 @@ function FileExplorerTreeComponent({
         fileOpenBenchmark.mark(t.path, "explorer-click");
       }
       if (t.isDir) {
-        void toggleDirectory(t.path);
         setFocusedPath(t.path);
         updateActivePath?.(t.path);
+        void toggleDirectory(t.path).then((resolvedPath) => {
+          setFocusedPath(resolvedPath);
+          updateActivePath?.(resolvedPath);
+        });
       } else {
         setFocusedPath(t.path);
         void Promise.resolve(onFileSelect(t.path, false));
@@ -1201,7 +1205,7 @@ function FileExplorerTreeComponent({
             if (isDir) {
               const expanded = useFileTreeStore.getState().actions.isExpanded(current.path);
               if (!expanded) {
-                void toggleDirectory(current.path);
+                void toggleDirectory(current.path).then(setFocusedPath);
               } else {
                 const child = visibleRows[curIndex + 1];
                 if (child && child.depth === visibleRows[curIndex].depth + 1) {
@@ -1232,7 +1236,7 @@ function FileExplorerTreeComponent({
             if (!current) break;
             e.preventDefault();
             if (isDir) {
-              void toggleDirectory(current.path);
+              void toggleDirectory(current.path).then(setFocusedPath);
             } else {
               void Promise.resolve(onFileOpen?.(current.path, false));
             }

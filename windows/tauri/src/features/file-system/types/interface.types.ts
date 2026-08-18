@@ -45,9 +45,9 @@ export interface FsActions {
     column?: number,
     codeEditorRef?: React.RefObject<CodeEditorRef | null>,
     isPreview?: boolean,
-  ) => Promise<void>;
+  ) => Promise<string | undefined>;
   handleFileOpen: (path: string, isDir: boolean) => Promise<void>;
-  toggleFolder: (path: string) => Promise<void>;
+  toggleFolder: (path: string) => Promise<string | undefined>;
   revealPathInTree: (targetPath: string) => Promise<void>;
   handleCreateNewFile: () => Promise<void>;
   handleCreateNewFileInDirectory: (

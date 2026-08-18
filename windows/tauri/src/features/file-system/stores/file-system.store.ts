@@ -83,6 +83,7 @@ import {
 import {
   addFileToTree,
   findFileInTree,
+  loadFolderExpansion,
   removeFileFromTree,
   sortFileEntries,
   updateFileInTree,
@@ -1482,8 +1483,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         isPreview = false,
       ) => {
         if (isDir) {
-          await get().toggleFolder(path);
-          return;
+          return get().toggleFolder(path);
         }
 
         const selectedWslInfo = parseWslPath(path);
@@ -1919,31 +1919,42 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         const isCurrentlyExpanded = uiActions.isExpanded(path);
 
         if (!isCurrentlyExpanded) {
-          // Expand: load children if not present
-          if (!folder.children || folder.children.length === 0) {
-            const childEntries = await readProviderDirectoryEntries(
-              folder.path,
-              get().rootFolderPath ?? folder.path,
-            );
+          const expansion = await loadFolderExpansion(
+            get().files,
+            path,
+            useSettingsStore.getState().settings.compactFoldersInFileTree,
+            (directoryPath) =>
+              readProviderDirectoryEntries(directoryPath, get().rootFolderPath ?? directoryPath),
+          );
 
-            const updatedFiles = updateFileInTree(get().files, path, (item) => ({
-              ...item,
-              children: childEntries,
-            }));
-
+          if (expansion.loadedChildren.size > 0) {
             set((state) => {
-              state.files = updatedFiles;
-              state.filesVersion++;
+              let updatedFiles = state.files;
+              for (const [directoryPath, children] of expansion.loadedChildren) {
+                updatedFiles = updateFileInTree(updatedFiles, directoryPath, (item) => ({
+                  ...item,
+                  children,
+                }));
+              }
+              if (updatedFiles !== state.files) {
+                state.files = updatedFiles;
+                state.filesVersion++;
+              }
             });
           }
-          uiActions.toggleFolder(path);
+
+          const expandedPaths = new Set(uiActions.getExpandedPaths());
+          expansion.expandedPaths.forEach((expandedPath) => expandedPaths.add(expandedPath));
+          uiActions.setExpandedPaths(expandedPaths);
           // Preload deeper children in background for snappier navigation
           get()
-            .preloadSubtree(path, 2, 80)
+            .preloadSubtree(expansion.finalPath, 2, 80)
             .catch(() => {});
+          return expansion.finalPath;
         } else {
           // Collapse: only toggle UI state; keep children cached
           uiActions.toggleFolder(path);
+          return path;
         }
       },
 
