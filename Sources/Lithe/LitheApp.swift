@@ -153,7 +153,9 @@ struct LitheApp: App {
             settings?.setCustomLogDirectory(nil)
         }
         self.applicationLogWriter = applicationLogWriter
-        MacBundledFontRegistry.registerFonts()
+        MacBundledFontRegistry.registerFonts { message in
+            Self.appendApplicationLog(applicationLogWriter, message: message)
+        }
         let processRegistry = ManagedProcessRegistry()
         let moduleStore = MacModuleConfigurationStore(store: store)
         let pluginRuntimeRecovery = MacPluginRuntimeRecoveryCoordinator()
@@ -187,8 +189,7 @@ struct LitheApp: App {
         _memoryUsageMonitor = StateObject(wrappedValue: MemoryUsageMonitor(
             startedAt: litheProcessLaunchDate,
             baselineReporter: { marker in
-                guard let data = (marker + "\n").data(using: .utf8) else { return }
-                FileHandle.standardError.write(data)
+                Self.appendApplicationLog(applicationLogWriter, message: marker + "\n")
             },
             logsPerformanceBaseline: ProcessInfo.processInfo.environment["LITHE_PERFORMANCE_BASELINE"] == "1",
             processRegistry: processRegistry,
@@ -214,6 +215,20 @@ struct LitheApp: App {
                 FileHandle.standardError.write(data)
             }
             return false
+        }
+    }
+
+    private static func appendApplicationLog(
+        _ writer: MacApplicationLogWriter,
+        message: String
+    ) {
+        do {
+            try writer.append(message)
+        } catch {
+            let fallback = "Could not write Lithe log: \(error.localizedDescription)\n"
+            if let data = fallback.data(using: .utf8) {
+                FileHandle.standardError.write(data)
+            }
         }
     }
 
