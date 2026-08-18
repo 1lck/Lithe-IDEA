@@ -369,10 +369,19 @@ struct SettingsView: View {
             }
 
             group("Logs") {
-                logDirectoryRow("Default directory", url: settings.defaultLogDirectory)
-                logDirectoryRow("Selected directory", url: settings.logDirectory)
+                Text("Log directory")
+                    .font(.system(size: 11.5, weight: .medium))
 
-                HStack(spacing: 8) {
+                HStack(spacing: 10) {
+                    Text(settings.logDirectory.path)
+                        .font(.system(size: 13, weight: .medium))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                        .help(settings.logDirectory.path)
+
+                    Spacer(minLength: 8)
+
                     Button {
                         guard let directory = model.platformUI.chooseDirectory(
                             title: "Choose Log Directory",
@@ -380,18 +389,49 @@ struct SettingsView: View {
                         ) else { return }
                         settings.setCustomLogDirectory(directory)
                     } label: {
-                        Label("Choose Directory", systemImage: "folder.badge.plus")
+                        Image(systemName: "folder")
+                            .font(.system(size: 16, weight: .regular))
+                            .frame(width: 26, height: 26)
                     }
-                    .buttonStyle(LitheSecondaryButtonStyle())
-
-                    Button {
-                        settings.setCustomLogDirectory(nil)
-                    } label: {
-                        Label("Restore Default", systemImage: "arrow.counterclockwise")
-                    }
-                    .buttonStyle(LitheSecondaryButtonStyle())
-                    .disabled(settings.customLogDirectory == nil)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .contentShape(Rectangle())
+                    .lithePointer()
+                    .help("Choose Directory")
                 }
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, minHeight: 46, maxHeight: 46)
+                .background(LitheTheme.inputBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(LitheTheme.inputBorder, lineWidth: 1)
+                }
+
+                HStack(spacing: 6) {
+                    Text("Default directory")
+                        .foregroundStyle(LitheTheme.secondaryText)
+                    Text(settings.defaultLogDirectory.path)
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                        .help(settings.defaultLogDirectory.path)
+
+                    Spacer(minLength: 8)
+
+                    if settings.customLogDirectory != nil {
+                        Button {
+                            settings.setCustomLogDirectory(nil)
+                        } label: {
+                            Text("Restore Default")
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(LitheTheme.accent)
+                        .lithePointer()
+                    }
+                }
+                .font(LitheTheme.smallFont)
             }
         }
     }
@@ -1086,18 +1126,6 @@ struct SettingsView: View {
             content()
         }
         .frame(minHeight: 28)
-    }
-
-    private func logDirectoryRow(_ title: String, url: URL) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(LocalizedStringKey(title))
-                .foregroundStyle(LitheTheme.secondaryText)
-            Text(url.path)
-                .font(.system(size: 11, design: .monospaced))
-                .textSelection(.enabled)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-        }
     }
 
     private func syncAIProviderDraft() {
