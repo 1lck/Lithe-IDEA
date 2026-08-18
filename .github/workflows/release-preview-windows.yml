@@ -1,30 +1,50 @@
-name: Release Windows
+name: Release Windows Preview
 
 on:
-  push:
-    tags:
-      - "v*.*.*"
+  schedule:
+    # Offset from the macOS preview so the shared rolling tag usually exists first.
+    - cron: "27 3 * * *"
   workflow_dispatch:
     inputs:
-      version:
-        description: "Semantic version to release, for example 0.1.0"
+      source_branch:
+        description: "Preview branch to build"
         required: true
+        default: "preview/0.3.0"
         type: string
 
 permissions:
   contents: read
 
+concurrency:
+  group: release-preview-windows
+  cancel-in-progress: false
+
+env:
+  PREVIEW_BRANCH: preview/0.3.0
+  PREVIEW_VERSION: 0.3.0
+  PREVIEW_TAG: preview-0.3.0
+
 jobs:
   release:
-    name: Build and publish Lithe for Windows
-    if: github.actor == github.repository_owner
+    name: Build and publish Windows preview
+    if: github.actor == github.repository_owner || github.event_name == 'schedule'
     runs-on: windows-latest
+    timeout-minutes: 60
     permissions:
       contents: write
 
     steps:
-      - name: Check out source
+      - name: Check out preview source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_branch || env.PREVIEW_BRANCH }}
+
+      - name: Record source revision
+        id: source
+        shell: pwsh
+        run: |
+          $sha = (git rev-parse HEAD).Trim()
+          "sha=$sha" >> $env:GITHUB_OUTPUT
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -35,24 +55,6 @@ jobs:
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.12"
-
-      - name: Resolve release version
-        id: version
-        shell: pwsh
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          MANUAL_VERSION: ${{ inputs.version }}
-        run: |
-          $version = if ($env:EVENT_NAME -eq "workflow_dispatch") {
-            $env:MANUAL_VERSION
-          } else {
-            $env:GITHUB_REF_NAME.Substring(1)
-          }
-          if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
-            throw "Release version must use the form MAJOR.MINOR.PATCH: $version"
-          }
-          "version=$version" >> $env:GITHUB_OUTPUT
-          "tag=v$version" >> $env:GITHUB_OUTPUT
 
       - name: Build Windows Tauri application
         shell: pwsh
@@ -66,7 +68,7 @@ jobs:
           WINDOWS_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_CERTIFICATE_BASE64)) {
-            Write-Output "No Authenticode certificate is configured; the Windows installer will be unsigned."
+            Write-Output "No Authenticode certificate is configured; the Windows preview installer will be unsigned."
             "signed=false" >> $env:GITHUB_OUTPUT
             exit 0
           }
@@ -84,7 +86,7 @@ jobs:
       - name: Package Windows installer
         shell: pwsh
         env:
-          LITHE_VERSION: ${{ steps.version.outputs.version }}
+          LITHE_VERSION: ${{ env.PREVIEW_VERSION }}
           LITHE_WINDOWS_TIMESTAMP_SERVER: ${{ secrets.WINDOWS_TIMESTAMP_SERVER }}
           WINDOWS_RELEASE_SIGNED: ${{ steps.signing.outputs.signed }}
         run: |
@@ -95,40 +97,38 @@ jobs:
           if ($env:WINDOWS_RELEASE_SIGNED -eq "true") {
             $packageArgs.RequireAuthenticodeSignature = $true
           } else {
-            Write-Output "Packaging an unsigned Windows installer."
+            Write-Output "Packaging an unsigned Windows preview installer."
           }
           ./scripts/package-windows.ps1 @packageArgs
 
       - name: Verify installer checksum
         shell: pwsh
         run: |
-          $installer = "dist/Lithe-${{ steps.version.outputs.version }}-windows-x64.exe"
+          $installer = "dist/Lithe-${{ env.PREVIEW_VERSION }}-windows-x64.exe"
           $expected = ((Get-Content "$installer.sha256" -Raw) -split '\s+')[0]
           $actual = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLowerInvariant()
           if ($expected -ne $actual) { throw "Installer checksum mismatch" }
 
-      - name: Create or update GitHub Release
+      - name: Create or update rolling preview Release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.version.outputs.tag }}
-          LITHE_VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_TAG: ${{ env.PREVIEW_TAG }}
+          LITHE_VERSION: ${{ env.PREVIEW_VERSION }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
         shell: pwsh
         run: |
-          $notes = "docs/releases/v$env:LITHE_VERSION.md"
-          $createArgs = @(
-            $env:RELEASE_TAG,
-            "--repo", $env:GITHUB_REPOSITORY,
-            "--target", $env:GITHUB_SHA,
-            "--title", "Lithe $env:RELEASE_TAG"
-          )
+          $notes = "Rolling Preview build from $env:SOURCE_SHA. This release is replaced by the next scheduled build. The Windows installer may be unsigned until an Authenticode certificate is configured."
           $existing = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY 2>$null
           if ($LASTEXITCODE -ne 0) {
-            if (Test-Path -LiteralPath $notes) { $createArgs += @("--notes-file", $notes) }
-            else { $createArgs += "--generate-notes" }
-            gh release create @createArgs
+            gh release create $env:RELEASE_TAG `
+              --repo $env:GITHUB_REPOSITORY `
+              --target $env:SOURCE_SHA `
+              --title "Lithe $env:LITHE_VERSION Preview" `
+              --notes $notes `
+              --prerelease
             if ($LASTEXITCODE -ne 0) {
               $existing = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY 2>$null
-              if ($LASTEXITCODE -ne 0) { throw "Could not create or find release $env:RELEASE_TAG" }
+              if ($LASTEXITCODE -ne 0) { throw "Could not create or find preview release $env:RELEASE_TAG" }
             }
           }
           gh release upload $env:RELEASE_TAG `
