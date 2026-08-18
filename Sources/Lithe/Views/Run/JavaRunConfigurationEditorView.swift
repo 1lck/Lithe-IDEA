@@ -1,4 +1,5 @@
-import AppKit
+import Foundation
+import UniformTypeIdentifiers
 import SwiftUI
 
 struct RunConfigurationEditorView: View {
@@ -10,6 +11,8 @@ struct RunConfigurationEditorView: View {
     @State private var environmentText: String
     @State private var saveScope: RunConfigurationSaveScope = .local
     @State private var saveError: String?
+    @State private var activePathPicker: PathPicker?
+    @State private var isPathPickerPresented = false
 
     init(feature: RunFeatureModel, configuration: RunConfiguration) {
         self.feature = feature
@@ -59,7 +62,8 @@ struct RunConfigurationEditorView: View {
                 }
                 Button("Done") {
                     options.environment = Self.environment(from: environmentText)
-                    if feature.updateOptions(options, for: configuration, scope: saveScope) {
+                    guard let scopedOptions = scopedOptionsForSave() else { return }
+                    if feature.updateOptions(scopedOptions, for: configuration, scope: saveScope) {
                         dismiss()
                     } else {
                         saveError = feature.configurationSaveError
@@ -75,6 +79,12 @@ struct RunConfigurationEditorView: View {
         .frame(width: 520, height: 470)
         .background(LitheTheme.window)
         .preferredColorScheme(.dark)
+        .fileImporter(
+            isPresented: $isPathPickerPresented,
+            allowedContentTypes: activePathPicker?.allowedContentTypes ?? [.folder]
+        ) { result in
+            selectPath(result)
+        }
     }
 
     private var effectiveCapabilities: RunConfigurationCapabilities {
@@ -161,23 +171,21 @@ struct RunConfigurationEditorView: View {
                     text: stringBinding(\.javaHomePath),
                     chooseDirectory: { chooseDirectory(for: \.javaHomePath) }
                 )
-                .disabled(saveScope == .project)
             }
             if configuration.kind.isMavenBacked {
                 pathRow(
                     title: "Maven executable",
                     placeholder: "Use mvnw or detected Maven",
                     text: stringBinding(\.mavenExecutablePath),
-                    chooseDirectory: { chooseFileOrDirectory(for: \.mavenExecutablePath) }
+                    chooseDirectory: { chooseFileOrDirectory(for: \.mavenExecutablePath) },
+                    chooseHelp: "Choose Maven executable or home"
                 )
-                .disabled(saveScope == .project)
                 pathRow(
                     title: "Maven JDK Home",
                     placeholder: "Use service JDK",
                     text: stringBinding(\.mavenJavaHomePath),
                     chooseDirectory: { chooseDirectory(for: \.mavenJavaHomePath) }
                 )
-                .disabled(saveScope == .project)
             }
             pathRow(
                 title: "Working directory",
@@ -274,7 +282,8 @@ struct RunConfigurationEditorView: View {
         title: String,
         placeholder: String,
         text: Binding<String>,
-        chooseDirectory: @escaping () -> Void
+        chooseDirectory: @escaping () -> Void,
+        chooseHelp: String = "Choose directory"
     ) -> some View {
         HStack(spacing: 8) {
             Text(LocalizedStringKey(title))
@@ -286,7 +295,7 @@ struct RunConfigurationEditorView: View {
                 LitheSystemIcon(systemImage: "folder")
             }
             .litheIconButton()
-            .help("Choose directory")
+            .help(chooseHelp)
         }
         .font(.system(size: 12))
     }
@@ -326,26 +335,91 @@ struct RunConfigurationEditorView: View {
     }
 
     private func chooseDirectory(for keyPath: WritableKeyPath<RunOptions, String>) {
-        let panel = NSOpenPanel()
-        panel.title = "Choose Directory"
-        panel.prompt = "Choose"
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        if panel.runModal() == .OK, let url = panel.url {
-            options[keyPath: keyPath] = url.path
-        }
+        presentPathPicker(.directory(keyPath))
     }
 
     private func chooseFileOrDirectory(for keyPath: WritableKeyPath<RunOptions, String>) {
-        let panel = NSOpenPanel()
-        panel.title = "Choose Maven Executable or Home"
-        panel.prompt = "Choose"
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        if panel.runModal() == .OK, let url = panel.url {
-            options[keyPath: keyPath] = url.path
+        presentPathPicker(.fileOrDirectory(keyPath))
+    }
+
+    private func presentPathPicker(_ picker: PathPicker) {
+        activePathPicker = picker
+        isPathPickerPresented = true
+    }
+
+    private func selectPath(_ result: Result<URL, Error>) {
+        defer { activePathPicker = nil }
+        switch result {
+        case .success(let url):
+            guard let activePathPicker else { return }
+            if saveScope == .project {
+                guard let projectURL = model.workspaceURL,
+                      let path = projectRelativePath(url.path, root: projectURL) else {
+                    saveError = String(localized: "Project paths must stay inside the current project.")
+                    return
+                }
+                options[keyPath: activePathPicker.keyPath] = path
+            } else {
+                options[keyPath: activePathPicker.keyPath] = url.path
+            }
+            saveError = nil
+        case .failure(let error):
+            let cocoaError = error as NSError
+            guard !(cocoaError.domain == NSCocoaErrorDomain && cocoaError.code == NSUserCancelledError) else { return }
+            saveError = error.localizedDescription
+        }
+    }
+
+    private func scopedOptionsForSave() -> RunOptions? {
+        guard saveScope == .project else { return options }
+        guard let projectURL = model.workspaceURL else {
+            saveError = String(localized: "Open a project before choosing project paths.")
+            return nil
+        }
+        var scopedOptions = options
+        for keyPath in [
+            \.javaHomePath,
+            \.mavenExecutablePath,
+            \.mavenJavaHomePath,
+            \.workingDirectoryPath
+        ] as [WritableKeyPath<RunOptions, String>] {
+            let value = scopedOptions[keyPath: keyPath].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else { continue }
+            guard let relativePath = projectRelativePath(value, root: projectURL) else {
+                saveError = String(localized: "Project paths must stay inside the current project.")
+                return nil
+            }
+            scopedOptions[keyPath: keyPath] = relativePath
+        }
+        return scopedOptions
+    }
+
+    private func projectRelativePath(_ path: String, root: URL) -> String? {
+        let expandedPath = (path as NSString).expandingTildeInPath
+        guard (expandedPath as NSString).isAbsolutePath else { return path }
+        let rootPath = root.standardizedFileURL.path
+        let selectedPath = URL(fileURLWithPath: expandedPath).standardizedFileURL.path
+        if selectedPath == rootPath { return "." }
+        let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+        guard selectedPath.hasPrefix(prefix) else { return nil }
+        return String(selectedPath.dropFirst(prefix.count))
+    }
+
+    private enum PathPicker {
+        case directory(WritableKeyPath<RunOptions, String>)
+        case fileOrDirectory(WritableKeyPath<RunOptions, String>)
+
+        var keyPath: WritableKeyPath<RunOptions, String> {
+            switch self {
+            case .directory(let keyPath), .fileOrDirectory(let keyPath): keyPath
+            }
+        }
+
+        var allowedContentTypes: [UTType] {
+            switch self {
+            case .directory: [.folder]
+            case .fileOrDirectory: [.item]
+            }
         }
     }
 

@@ -558,6 +558,66 @@ fn run_configuration_mutations_are_shared_and_validated() {
 }
 
 #[test]
+fn project_scoped_toolchain_paths_are_relative_and_stay_inside_the_project() {
+    let root = temporary_root("run-config-project-toolchains");
+    let outside = temporary_root("run-config-outside-toolchain");
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::create_dir_all(root.join("toolchains/jdk")).unwrap();
+    fs::create_dir_all(root.join("toolchains/maven/bin")).unwrap();
+    fs::create_dir_all(root.join("toolchains/maven-jdk")).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    fs::write(root.join("toolchains/maven/bin/mvn"), "#!/bin/sh\n").unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        r#"{"version":2,"configurations":[{"id":"spring","name":"Spring","provider":"spring-boot.maven","execution":"service","toolchains":{"java":"project-jdk","maven":"project-maven"},"extensions":{"maven":{"module":"."}}}]}"#,
+    )
+    .unwrap();
+
+    let updated: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "project-toolchains",
+            "command": "runConfig.updateOptions",
+            "payload": {
+                "root": root,
+                "scope": "project",
+                "configurationId": "spring",
+                "javaHomePath": root.join("toolchains/jdk"),
+                "mavenExecutablePath": root.join("toolchains/maven/bin/mvn"),
+                "mavenJavaHomePath": root.join("toolchains/maven-jdk")
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(updated["ok"], true, "{updated}");
+    let document: Value =
+        serde_json::from_str(updated["data"]["document"].as_str().unwrap()).unwrap();
+    let java = &document["configurations"][0]["extensions"]["java"];
+    assert_eq!(java["homePath"], "toolchains/jdk");
+    assert_eq!(java["mavenExecutablePath"], "toolchains/maven/bin/mvn");
+    assert_eq!(java["mavenJavaHomePath"], "toolchains/maven-jdk");
+
+    let rejected: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "outside-project-toolchain",
+            "command": "runConfig.updateOptions",
+            "payload": {
+                "root": root,
+                "scope": "project",
+                "configurationId": "spring",
+                "javaHomePath": outside
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(rejected["ok"], false, "{rejected}");
+
+    fs::remove_dir_all(root).unwrap();
+    fs::remove_dir_all(outside).unwrap();
+}
+
+#[test]
 fn run_configuration_generation_detects_declared_toolchain_versions() {
     let root = temporary_root("run-config-toolchains");
     fs::create_dir_all(root.join(".mvn/wrapper")).unwrap();
