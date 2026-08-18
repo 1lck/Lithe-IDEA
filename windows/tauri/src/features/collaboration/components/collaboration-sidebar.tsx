@@ -1105,7 +1105,7 @@ export function CollaborationSidebarView() {
                           size="xs"
                           disabled={!newChannelName.trim() || isSending}
                         >
-                          Create
+                          {t("collaboration.create")}
                         </Button>
                       }
                     >
@@ -1142,7 +1142,10 @@ export function CollaborationSidebarView() {
                       </span>
                     }
                     trailing={
-                      <Tooltip content={`${channel.memberCount} members`} side="top">
+                      <Tooltip
+                        content={t("collaboration.memberCount", { count: channel.memberCount })}
+                        side="top"
+                      >
                         <span className="ui-text-sm">{channel.memberCount}</span>
                       </Tooltip>
                     }
@@ -1160,7 +1163,7 @@ export function CollaborationSidebarView() {
                 count={filteredPrivateChatParticipants.length}
                 onToggle={() => setIsPrivateChatsSectionCollapsed((collapsed) => !collapsed)}
               >
-                Private chats
+                {t("collaboration.privateChats")}
               </SidebarSectionHeader>
             ) : null}
             {channelFilter === "all" &&
@@ -1417,7 +1420,7 @@ export function CollaborationSidebarView() {
                         void openParticipantFile(participant.activeFilePath!);
                       }}
                     >
-                      Open
+                      {t("ui.open")}
                     </Button>
                   ) : null}
                 </span>

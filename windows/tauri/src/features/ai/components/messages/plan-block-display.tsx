@@ -1,6 +1,7 @@
 import { ListChecksIcon as ListChecks, PlayIcon as Play } from "@/ui/icons";
 import { memo, useCallback, useState } from "react";
 import type { ParsedPlan, PlanStep } from "@/features/ai/lib/plan-parser";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import { cn } from "@/utils/cn";
 import MarkdownRenderer from "./markdown-renderer";
@@ -17,6 +18,7 @@ export const PlanBlockDisplay = memo(function PlanBlockDisplay({
   isStreaming,
   onExecuteStep,
 }: PlanBlockDisplayProps) {
+  const { t } = useTranslation();
   const [executingStepIndex, setExecutingStepIndex] = useState(-1);
 
   const handleExecutePlan = useCallback(() => {
@@ -43,7 +45,10 @@ export const PlanBlockDisplay = memo(function PlanBlockDisplay({
         <div className="flex items-center gap-1.5 border-primary/20 border-b px-3 py-2">
           <ListChecks className="text-primary" />
           <span className="font-medium text-primary ui-text-sm">
-            Plan ({plan.steps.length} {plan.steps.length === 1 ? "step" : "steps"})
+            {t("ai.planSummary", {
+              count: plan.steps.length,
+              label: t(plan.steps.length === 1 ? "ai.step" : "ai.steps"),
+            })}
           </span>
         </div>
 
@@ -66,7 +71,7 @@ export const PlanBlockDisplay = memo(function PlanBlockDisplay({
               size="xs"
             >
               <Play />
-              Execute Plan
+              {t("ai.executePlan")}
             </Button>
           </div>
         )}
