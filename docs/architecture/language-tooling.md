@@ -127,6 +127,8 @@ macOS discovery 的查找顺序包括项目 `.lithe` 工具目录、`LITHE_<TOOL
 
 正式 macOS 与 Windows 安装包包含 JDTLS。发布构建根据 `third_party/jdtls/manifest.json` 下载固定版本，同时校验归档与 EPL-2.0 许可证的 SHA-256，再将产物放入应用资源目录的 `LanguageServers/jdtls`。平台 adapter 优先使用这个包内启动器；开发环境仍保留项目工具目录、显式覆盖和 `PATH` 等外部候选作为回退。下载只发生在构建阶段，应用运行时不会联网安装 JDTLS；Java 语义功能仍要求系统提供 JDK 17 或更高版本。
 
+JDTLS 使用独立于项目运行/调试配置的全局 JDK 偏好。空路径表示自动模式：平台探测本机 JDK，并只选择主版本 17 或更高的候选。用户也可以在语言服务器设置中选择单独的 JDK Home；平台会在保存时探测 `java -version`，并在每次启动 JDTLS 前再次校验路径和版本。这个偏好不会读取、覆盖或写回项目的 Java/Maven JDK 设置。
+
 LSP 控制中心标题栏的工具设置会在用户偏好中保存每个 provider 的可执行文件覆盖路径。session 创建时先验证并使用该路径，路径失效时继续使用 catalog 候选进行自动探测。Homebrew formula 和官方兜底地址都来自 `languageServerInstallation`，Swift 不维护 provider ID 映射。安装仍由平台层以参数数组直接执行 `brew install`，不经过 shell；没有 Homebrew/formula 时只打开对应项目的 HTTPS 官方发布或安装页面，避免用一套不安全的通用解压逻辑处理不同项目的签名和包结构。
 
 项目配置是可执行工具配置，只有打开受信任项目时才应启用。JSON 可以声明 executable name 和参数，但不能声明 shell、任意安装命令或关闭路径/URL 校验；进程创建、超时、可执行文件验证、Homebrew 调用方式和 HTTPS 限制仍属于平台安全边界。

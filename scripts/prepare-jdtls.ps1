@@ -22,8 +22,51 @@ if (-not $usesExistingRoot -and
     throw "JDTLS output must be inside the repository .artifacts directory: $output"
 }
 $cache = Join-Path $root ".artifacts/jdtls-downloads"
-$archive = if ([string]::IsNullOrWhiteSpace($env:LITHE_JDTLS_ARCHIVE)) { Join-Path $cache "jdtls.tar.gz" } else { $env:LITHE_JDTLS_ARCHIVE }
-$license = Join-Path $cache "EPL-2.0.txt"
+$archiveUsesOverride = -not [string]::IsNullOrWhiteSpace($env:LITHE_JDTLS_ARCHIVE)
+$archiveHash = $manifest.archiveSHA256.ToLowerInvariant()
+$licenseHash = $manifest.licenseSHA256.ToLowerInvariant()
+$safeVersion = ([string]$manifest.version) -replace '[^A-Za-z0-9._-]', '_'
+$archive = if ($archiveUsesOverride) {
+    $env:LITHE_JDTLS_ARCHIVE
+} else {
+    Join-Path $cache "jdtls-$safeVersion-$archiveHash.tar.gz"
+}
+$license = Join-Path $cache "EPL-2.0-$licenseHash.txt"
+
+function Get-FileSHA256 {
+    param([Parameter(Mandatory)][string]$Path)
+
+    (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+}
+
+function Get-VerifiedDownload {
+    param(
+        [Parameter(Mandatory)][string]$Uri,
+        [Parameter(Mandatory)][string]$ExpectedSHA256,
+        [Parameter(Mandatory)][string]$Destination,
+        [Parameter(Mandatory)][string]$Description
+    )
+
+    if (Test-Path -LiteralPath $Destination -PathType Leaf) {
+        $actualHash = Get-FileSHA256 -Path $Destination
+        if ($actualHash -eq $ExpectedSHA256) { return }
+        Write-Warning "$Description cache checksum mismatch; removing it before retrying the download"
+        Remove-Item -Force -LiteralPath $Destination
+    }
+
+    $temporaryPath = "$Destination.download-$PID"
+    try {
+        if (Test-Path -LiteralPath $temporaryPath) { Remove-Item -Force -LiteralPath $temporaryPath }
+        Invoke-WebRequest -Uri $Uri -OutFile $temporaryPath
+        $actualHash = Get-FileSHA256 -Path $temporaryPath
+        if ($actualHash -ne $ExpectedSHA256) {
+            throw "$Description checksum mismatch: expected $ExpectedSHA256, got $actualHash"
+        }
+        Move-Item -Force -LiteralPath $temporaryPath -Destination $Destination
+    } finally {
+        if (Test-Path -LiteralPath $temporaryPath) { Remove-Item -Force -LiteralPath $temporaryPath }
+    }
+}
 
 function Assert-JdtlsOutput {
     if (-not (Test-Path -LiteralPath (Join-Path $output "plugins") -PathType Container)) { throw "JDTLS plugins directory is missing: $output" }
@@ -39,12 +82,14 @@ if ($usesExistingRoot) {
 }
 
 New-Item -ItemType Directory -Force -Path $cache | Out-Null
-if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) { Invoke-WebRequest -Uri $manifest.archiveURL -OutFile $archive }
-$actualArchiveHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
-if ($actualArchiveHash -ne $manifest.archiveSHA256.ToLowerInvariant()) { throw "JDTLS archive checksum mismatch: expected $($manifest.archiveSHA256), got $actualArchiveHash" }
-if (-not (Test-Path -LiteralPath $license -PathType Leaf)) { Invoke-WebRequest -Uri $manifest.licenseURL -OutFile $license }
-$actualLicenseHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $license).Hash.ToLowerInvariant()
-if ($actualLicenseHash -ne $manifest.licenseSHA256.ToLowerInvariant()) { throw "JDTLS license checksum mismatch: expected $($manifest.licenseSHA256), got $actualLicenseHash" }
+if ($archiveUsesOverride) {
+    if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) { throw "JDTLS archive was not found: $archive" }
+    $actualArchiveHash = Get-FileSHA256 -Path $archive
+    if ($actualArchiveHash -ne $archiveHash) { throw "JDTLS archive checksum mismatch: expected $archiveHash, got $actualArchiveHash" }
+} else {
+    Get-VerifiedDownload -Uri $manifest.archiveURL -ExpectedSHA256 $archiveHash -Destination $archive -Description "JDTLS archive"
+}
+Get-VerifiedDownload -Uri $manifest.licenseURL -ExpectedSHA256 $licenseHash -Destination $license -Description "EPL-2.0 license"
 
 if (Test-Path -LiteralPath $output) { Remove-Item -Recurse -Force -LiteralPath $output }
 New-Item -ItemType Directory -Force -Path $output | Out-Null

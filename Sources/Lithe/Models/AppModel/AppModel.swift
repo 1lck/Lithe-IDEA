@@ -314,7 +314,7 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     var detectedJavaLanguageServerJDKs: [JavaRuntimeCandidate] {
-        runtimeFeature.javaRuntimes
+        runtimeFeature.javaLanguageServerRuntimes
     }
 
     func selectJavaLanguageServerJDK(_ runtime: JavaRuntimeCandidate) {
@@ -325,15 +325,27 @@ final class AppModel: ObservableObject, Identifiable {
         await runtimeFeature.refreshAvailableRuntimes()
     }
 
+    func useAutomaticJavaLanguageServerJDK() {
+        applyJavaLanguageServerJDKPath("")
+    }
+
     func chooseJavaLanguageServerJDK() {
         guard let url = platformUI.chooseDirectory(
             title: settings.language == .simplifiedChinese ? "选择 LSP 运行 JDK" : "Choose LSP Runtime JDK",
             prompt: settings.language == .simplifiedChinese ? "选择" : "Choose"
         ) else { return }
-        guard services.projectRuntimeService.configuredJavaExecutableURL(overridePath: url.path) != nil else {
+        guard let runtime = services.projectRuntimeService.inspectJavaLanguageServerRuntime(
+            atPath: url.path
+        ) else {
             showNotification(settings.language == .simplifiedChinese
                 ? "所选目录不是有效的 JDK Home"
                 : "The selected directory is not a valid JDK Home")
+            return
+        }
+        guard runtime.supportsJDTLS else {
+            showNotification(settings.language == .simplifiedChinese
+                ? "JDTLS 需要 JDK 17 或更高版本；所选版本为 \(runtime.version)"
+                : "JDTLS requires JDK 17 or newer; the selected version is \(runtime.version)")
             return
         }
         applyJavaLanguageServerJDKPath(url.standardizedFileURL.path)

@@ -127,6 +127,7 @@ export const defaultSettings: Settings = {
   lintOnSave: false,
   autoCompletion: true,
   parameterHints: true,
+  jdtlsJavaHomePath: "",
   // External Editor
   externalEditor: "none",
   customEditorCommand: "",

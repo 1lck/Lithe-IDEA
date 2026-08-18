@@ -1156,6 +1156,35 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func languageToolingRejectsUnavailableRequiredRuntime() {
+        let descriptor = LanguageProviderDescriptor(
+            id: "java",
+            displayName: "Java",
+            fileExtensions: ["java"],
+            capabilities: [.languageServer],
+            activationPolicy: .onDemand,
+            languageIdentifier: "java",
+            languageServerLaunch: LanguageServerLaunchDescriptor(executableNames: ["jdtls"])
+        )
+        let runtimeService = ProjectRuntimeService(
+            runtimeLocator: RunTestRuntimeLocator(),
+            store: RunTestKeyValueStore()
+        )
+        let message = "JDTLS requires JDK 17 or newer."
+        let runtime = StdioLanguageProviderRuntime(
+            descriptor: descriptor,
+            runtimeService: runtimeService,
+            languageServerLaunch: descriptor.languageServerLaunch,
+            languageServerCore: TestLanguageServerRuntimeCore(providerID: "java"),
+            languageServerExecutableResolver: { _ in URL(fileURLWithPath: "/usr/bin/jdtls") },
+            languageServerRuntimeResolver: { _ in .unavailable(message) }
+        )
+
+        #expect(runtime.makeLanguageServerSession() == nil)
+        #expect(runtime.unavailableToolingMessage == message)
+    }
+
+    @Test
     func languageServerFailureClearsActiveSessionState() async throws {
         let descriptor = LanguageProviderDescriptor(
             id: "swift",

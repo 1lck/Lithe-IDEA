@@ -484,7 +484,7 @@ fn maven_executable_candidates(project_root: Option<&Path>) -> Vec<PathBuf> {
     executables
 }
 
-fn probe_java_home(home: &Path) -> Option<JavaRuntime> {
+pub(crate) fn probe_java_home(home: &Path) -> Option<JavaRuntime> {
     let java = java_executable(home)?;
     let output = command_output(&java, &["-version"]);
     let version = java_version(&output)?;

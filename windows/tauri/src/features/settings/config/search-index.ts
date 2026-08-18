@@ -865,6 +865,14 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     description: "Use language server semantic highlighting",
     keywords: ["semantic", "tokens", "highlighting", "lsp"],
   },
+  {
+    id: "language-jdtls-jdk",
+    tab: "editor",
+    section: "Java Language Server",
+    label: "JDTLS Runtime JDK",
+    description: "Choose automatic JDK 17+ discovery or a separate JDK home for JDTLS",
+    keywords: ["java", "jdtls", "jdk", "language", "server", "runtime", "automatic"],
+  },
 
   // Features Settings
   {

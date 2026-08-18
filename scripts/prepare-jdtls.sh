@@ -15,8 +15,44 @@ archive_url="$(manifest_value archiveURL)"
 archive_sha256="$(manifest_value archiveSHA256)"
 license_url="$(manifest_value licenseURL)"
 license_sha256="$(manifest_value licenseSHA256)"
-archive_path="${LITHE_JDTLS_ARCHIVE:-$CACHE_DIR/jdtls.tar.gz}"
-license_path="$CACHE_DIR/EPL-2.0.txt"
+jdtls_version="$(manifest_value version)"
+archive_path="${LITHE_JDTLS_ARCHIVE:-$CACHE_DIR/jdtls-$jdtls_version-$archive_sha256.tar.gz}"
+license_path="$CACHE_DIR/EPL-2.0-$license_sha256.txt"
+
+file_sha256() {
+    shasum -a 256 "$1" | awk '{print tolower($1)}'
+}
+
+download_verified_file() {
+    local url="$1"
+    local expected_sha256="$2"
+    local destination="$3"
+    local description="$4"
+    local actual_sha256
+    local temporary_path="$destination.download.$$"
+
+    if [[ -f "$destination" ]]; then
+        actual_sha256="$(file_sha256 "$destination")"
+        if [[ "$actual_sha256" == "$expected_sha256" ]]; then
+            return 0
+        fi
+        print -u2 -- "$description cache checksum mismatch; removing it before retrying the download"
+        rm -f -- "$destination"
+    fi
+
+    rm -f -- "$temporary_path"
+    if ! curl --fail --location --retry 3 --output "$temporary_path" "$url"; then
+        rm -f -- "$temporary_path"
+        return 1
+    fi
+    actual_sha256="$(file_sha256 "$temporary_path")"
+    if [[ "$actual_sha256" != "$expected_sha256" ]]; then
+        print -u2 -- "$description checksum mismatch: expected $expected_sha256, got $actual_sha256"
+        rm -f -- "$temporary_path"
+        return 1
+    fi
+    mv -f -- "$temporary_path" "$destination"
+}
 
 validate_output() {
     [[ -d "$OUTPUT_DIR/plugins" ]] || { print -u2 -- "JDTLS plugins directory is missing: $OUTPUT_DIR"; exit 1; }
@@ -33,23 +69,17 @@ if [[ -n "${LITHE_JDTLS_ROOT:-}" ]]; then
 fi
 
 mkdir -p "$CACHE_DIR"
-if [[ ! -f "$archive_path" ]]; then
-    curl --fail --location --retry 3 --output "$archive_path" "$archive_url"
+if [[ -n "${LITHE_JDTLS_ARCHIVE:-}" ]]; then
+    [[ -f "$archive_path" ]] || { print -u2 -- "JDTLS archive was not found: $archive_path"; exit 1; }
+    actual_archive_sha256="$(file_sha256 "$archive_path")"
+    if [[ "$actual_archive_sha256" != "$archive_sha256" ]]; then
+        print -u2 -- "JDTLS archive checksum mismatch: expected $archive_sha256, got $actual_archive_sha256"
+        exit 1
+    fi
+else
+    download_verified_file "$archive_url" "$archive_sha256" "$archive_path" "JDTLS archive"
 fi
-actual_archive_sha256="$(shasum -a 256 "$archive_path" | awk '{print tolower($1)}')"
-if [[ "$actual_archive_sha256" != "$archive_sha256" ]]; then
-    print -u2 -- "JDTLS archive checksum mismatch: expected $archive_sha256, got $actual_archive_sha256"
-    exit 1
-fi
-
-if [[ ! -f "$license_path" ]]; then
-    curl --fail --location --retry 3 --output "$license_path" "$license_url"
-fi
-actual_license_sha256="$(shasum -a 256 "$license_path" | awk '{print tolower($1)}')"
-if [[ "$actual_license_sha256" != "$license_sha256" ]]; then
-    print -u2 -- "JDTLS license checksum mismatch: expected $license_sha256, got $actual_license_sha256"
-    exit 1
-fi
+download_verified_file "$license_url" "$license_sha256" "$license_path" "EPL-2.0 license"
 
 rm -rf "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR"

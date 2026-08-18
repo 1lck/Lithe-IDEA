@@ -30,6 +30,9 @@ struct LSPControlCenterView: View {
             .background(LitheTheme.settingsSurface)
         }
         .background(LitheTheme.settingsSurface)
+        .task {
+            await model.refreshJavaLanguageServerJDKs()
+        }
     }
 
     private var header: some View {
@@ -111,8 +114,18 @@ struct LSPControlCenterView: View {
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(LitheTheme.secondaryText)
                     Menu {
+                        Button {
+                            model.useAutomaticJavaLanguageServerJDK()
+                        } label: {
+                            if model.javaLanguageServerJDKPath.isEmpty {
+                                Label(usesChinese ? "自动检测" : "Automatic", systemImage: "checkmark")
+                            } else {
+                                Text(usesChinese ? "自动检测" : "Automatic")
+                            }
+                        }
+                        Divider()
                         if model.detectedJavaLanguageServerJDKs.isEmpty {
-                            Text(usesChinese ? "未检测到 JDK" : "No JDKs detected")
+                            Text(usesChinese ? "未检测到 JDK 17+" : "No JDK 17+ detected")
                         } else {
                             ForEach(model.detectedJavaLanguageServerJDKs) { runtime in
                                 Button {
@@ -169,8 +182,8 @@ struct LSPControlCenterView: View {
                     .menuIndicator(.hidden)
                     .lithePointer()
                     Text(usesChinese
-                        ? "仅用于启动 Java 语言服务器，不影响项目使用的 JDK。"
-                        : "Used only to start the Java language server; it does not affect the project JDK.")
+                        ? "自动检测 JDK 17+，或选择仅用于 Java 语言服务器的 JDK；不影响项目 JDK。"
+                        : "Automatically detects JDK 17+, or uses a JDK only for the Java language server; project JDK settings are unchanged.")
                         .font(.system(size: 10.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
@@ -225,7 +238,10 @@ struct LSPControlCenterView: View {
     private var javaJDKDisplayPath: String {
         let path = model.javaLanguageServerJDKPath.trimmingCharacters(in: .whitespacesAndNewlines)
         if !path.isEmpty { return path }
-        return usesChinese ? "未配置" : "Not configured"
+        if let runtime = model.detectedJavaLanguageServerJDKs.first {
+            return (usesChinese ? "自动：" : "Automatic: ") + javaRuntimeTitle(runtime)
+        }
+        return usesChinese ? "自动检测" : "Automatic"
     }
 
     private var selectedJavaRuntime: JavaRuntimeCandidate? {

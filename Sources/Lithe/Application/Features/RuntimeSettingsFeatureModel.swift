@@ -12,6 +12,10 @@ final class RuntimeSettingsFeatureModel: ObservableObject {
     @Published private(set) var javaEnvironmentReport: JavaEnvironmentReport?
     @Published private(set) var isDiscovering: Bool
 
+    var javaLanguageServerRuntimes: [JavaRuntimeCandidate] {
+        service.javaLanguageServerRuntimes
+    }
+
     init(service: ProjectRuntimeService) {
         self.service = service
         _javaRuntimes = Published(initialValue: service.javaRuntimes)

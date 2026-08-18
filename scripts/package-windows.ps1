@@ -24,6 +24,7 @@ if ($LASTEXITCODE -ne 0) { throw "Windows frontend dependency installation faile
 $tauriArgs = @(
     "tauri", "build",
     "--config", "src-tauri/tauri.windows.conf.json",
+    "--config", "src-tauri/tauri.jdtls.conf.json",
     "--config", $versionConfig,
     "--bundles", "nsis"
 )

@@ -210,11 +210,15 @@ final class MacServiceContainer {
                         languageServerCore: rustCore,
                         languageServerExecutableResolver: { tools.executableURL(for: $0) },
                         languageServerRuntimeResolver: { descriptor in
-                            descriptor.id == "java"
-                                ? runtimeService.configuredJavaExecutableURL(
-                                    overridePath: settings.javaLanguageServerJDKPath
+                            guard descriptor.id == "java" else { return .notRequired }
+                            guard let executableURL = runtimeService.javaLanguageServerExecutableURL(
+                                overridePath: settings.javaLanguageServerJDKPath
+                            ) else {
+                                return .unavailable(
+                                    "JDTLS requires JDK 17 or newer. Configure a compatible JDK in Language Server settings."
                                 )
-                                : nil
+                            }
+                            return .available(executableURL)
                         },
                         languageServerCacheDirectory: fileStorage.cacheDirectory()
                             .appendingPathComponent("Lithe/language-servers", isDirectory: true),

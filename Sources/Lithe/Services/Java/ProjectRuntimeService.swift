@@ -153,6 +153,34 @@ final class ProjectRuntimeService: ObservableObject {
         return nil
     }
 
+    var javaLanguageServerRuntimes: [JavaRuntimeCandidate] {
+        javaRuntimes.filter(\.supportsJDTLS)
+    }
+
+    func inspectJavaLanguageServerRuntime(atPath path: String) -> JavaRuntimeCandidate? {
+        let normalized = normalizedPath(path.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard !normalized.isEmpty,
+              (normalized as NSString).isAbsolutePath,
+              let home = runtimeLocator.validJavaHome(path: normalized) else { return nil }
+        return runtimeLocator.javaRuntime(at: home)
+    }
+
+    func javaLanguageServerExecutableURL(overridePath: String? = nil) -> URL? {
+        let configured = overridePath?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let runtime: JavaRuntimeCandidate?
+        if configured.isEmpty {
+            runtime = runtimeLocator.discover().javaRuntimes.first(where: \.supportsJDTLS)
+        } else {
+            runtime = inspectJavaLanguageServerRuntime(atPath: configured)
+        }
+
+        guard let runtime,
+              runtime.supportsJDTLS,
+              let home = runtimeLocator.validJavaHome(path: runtime.homePath) else { return nil }
+        return home.appendingPathComponent("bin/java")
+    }
+
     func jdbExecutableURL(
         overridePath: String? = nil,
         for processKind: ProjectRuntimeProcessKind = .java

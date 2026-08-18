@@ -8,7 +8,9 @@ param(
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $windowsApp = Join-Path $root "windows/tauri"
-& (Join-Path $root "scripts/prepare-jdtls.ps1") | Out-Null
+if ($Configuration -eq "Release") {
+    & (Join-Path $root "scripts/prepare-jdtls.ps1") | Out-Null
+}
 Set-Location $windowsApp
 
 if ($null -eq (Get-Command bun -ErrorAction SilentlyContinue)) {
@@ -30,7 +32,11 @@ $tauriArgs = @(
     "--config", "src-tauri/tauri.windows.conf.json",
     "--target", $RustTarget
 )
-if ($Configuration -eq "Debug") { $tauriArgs += "--debug" }
+if ($Configuration -eq "Debug") {
+    $tauriArgs += "--debug"
+} else {
+    $tauriArgs += @("--config", "src-tauri/tauri.jdtls.conf.json")
+}
 & bunx @tauriArgs
 if ($LASTEXITCODE -ne 0) { throw "Windows Tauri build failed" }
 
