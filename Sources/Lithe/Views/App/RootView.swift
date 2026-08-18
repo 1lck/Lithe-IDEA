@@ -6,8 +6,6 @@ enum LitheWindowID {
 }
 
 struct RootView: View {
-    @Environment(\.openWindow) private var openWindow
-    @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var projectSessions: ProjectSessionManager
     @EnvironmentObject private var updateChecker: UpdateChecker
     @State private var didStartAutomaticUpdateCheck = false
@@ -15,33 +13,18 @@ struct RootView: View {
     var body: some View {
         ZStack {
             ForEach(projectSessions.sessions) { session in
-                projectContent(for: session)
-                    .opacity(session.id == projectSessions.activeSessionID ? 1 : 0)
-                    .allowsHitTesting(session.id == projectSessions.activeSessionID)
-                    .accessibilityHidden(session.id != projectSessions.activeSessionID)
-                    .zIndex(session.id == projectSessions.activeSessionID ? 1 : 0)
+                ProjectSessionContent(
+                    session: session,
+                    isActive: session.id == projectSessions.activeSessionID
+                )
             }
+            ActiveSessionChrome()
         }
         .frame(
             minWidth: windowLayout.minimumContentSize.width,
             minHeight: windowLayout.minimumContentSize.height
         )
         .background(LitheTheme.window)
-        .background(
-            WindowCloseGuard(
-                projectSessions: projectSessions,
-                layout: windowLayout,
-                title: windowTitle
-            )
-        )
-        .onReceive(model.$isSettingsPresented) { isPresented in
-            guard isPresented else { return }
-            openWindow(id: LitheWindowID.settings)
-        }
-        .sheet(isPresented: $model.isCloneRepositoryPresented) {
-            CloneRepositoryView()
-                .environmentObject(model)
-        }
         .sheet(item: $projectSessions.pendingProjectOpen) { request in
             OpenProjectLocationDialog(request: request) { placement, doNotAskAgain in
                 projectSessions.resolvePendingOpen(
@@ -50,14 +33,6 @@ struct RootView: View {
                     doNotAskAgain: doNotAskAgain
                 )
             }
-        }
-        .sheet(item: $model.localHistoryRequest) { request in
-            LocalHistoryView(request: request)
-                .environmentObject(model)
-        }
-        .sheet(item: $model.projectLocalHistoryRequest) { request in
-            ProjectLocalHistoryView(request: request)
-                .environmentObject(model)
         }
         .alert(item: $updateChecker.notice) { notice in
             switch notice.action {
@@ -115,17 +90,8 @@ struct RootView: View {
         }
     }
 
-    @ViewBuilder
-    private func projectContent(for session: AppModel) -> some View {
-        Group {
-            if session.workspaceURL == nil {
-                WelcomeView()
-            } else {
-                WorkbenchView()
-                    .ignoresSafeArea(.container, edges: .top)
-            }
-        }
-        .environmentObject(session)
+    private var windowLayout: LitheWindowLayout {
+        projectSessions.activeModel.workspaceURL == nil ? .welcome : .workspace
     }
 
     private var updatePromptPresented: Binding<Bool> {
@@ -138,9 +104,68 @@ struct RootView: View {
             }
         )
     }
+}
+
+private struct ProjectSessionContent: View {
+    @ObservedObject var session: AppModel
+    let isActive: Bool
+
+    var body: some View {
+        Group {
+            if session.workspaceURL == nil {
+                WelcomeView()
+            } else {
+                WorkbenchView()
+                    .ignoresSafeArea(.container, edges: .top)
+            }
+        }
+        .environmentObject(session)
+        .environmentObject(session.editorChrome)
+        .environmentObject(session.editorDiagnosticsStore)
+        .opacity(isActive ? 1 : 0)
+        .allowsHitTesting(isActive)
+        .accessibilityHidden(!isActive)
+        .zIndex(isActive ? 1 : 0)
+    }
+}
+
+private struct ActiveSessionChrome: View {
+    @Environment(\.openWindow) private var openWindow
+    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var projectSessions: ProjectSessionManager
+
+    var body: some View {
+        Color.clear
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .background(
+                WindowCloseGuard(
+                    projectSessions: projectSessions,
+                    layout: windowLayout,
+                    title: windowTitle
+                )
+            )
+            .onReceive(model.$isSettingsPresented) { isPresented in
+                guard isPresented else { return }
+                openWindow(id: LitheWindowID.settings)
+            }
+            .sheet(isPresented: $model.isCloneRepositoryPresented) {
+                CloneRepositoryView()
+                    .environmentObject(model)
+            }
+            .sheet(item: $model.localHistoryRequest) { request in
+                LocalHistoryView(request: request)
+                    .environmentObject(model)
+            }
+            .sheet(item: $model.projectLocalHistoryRequest) { request in
+                ProjectLocalHistoryView(request: request)
+                    .environmentObject(model)
+            }
+    }
 
     private var windowLayout: LitheWindowLayout {
-        projectSessions.activeModel.workspaceURL == nil ? .welcome : .workspace
+        model.workspaceURL == nil ? .welcome : .workspace
     }
 
     private var windowTitle: String? {

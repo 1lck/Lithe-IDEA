@@ -17,7 +17,11 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
     private(set) var url: URL
     let isReadOnly: Bool
     let displayPath: String?
-    @Published var text: String
+    private var storedText: String
+    var text: String {
+        get { storedText }
+        set { replaceText(newValue, publish: true) }
+    }
     @Published private(set) var savedText: String
     @Published var hasExternalConflict = false
     private(set) var lastKnownModificationDate: Date?
@@ -32,7 +36,7 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
         self.url = url
         self.isReadOnly = isReadOnly
         self.displayPath = displayPath
-        self.text = text
+        self.storedText = text
         self.savedText = text
         self.lastKnownModificationDate = modificationDate
     }
@@ -41,7 +45,22 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
         displayPath?.split(separator: "/").last.map(String.init) ?? url.lastPathComponent
     }
 
-    var isDirty: Bool { text != savedText }
+    var isDirty: Bool { storedText != savedText }
+
+    /// Keep the live NSTextView buffer in sync without waking SwiftUI on every
+    /// already-dirty keystroke. The first edit still publishes so the tab dirty
+    /// mark can appear.
+    func applyLiveEditorText(_ newText: String) {
+        replaceText(newText, publish: isDirty != (newText != savedText))
+    }
+
+    private func replaceText(_ newText: String, publish: Bool) {
+        guard storedText != newText else { return }
+        if publish {
+            objectWillChange.send()
+        }
+        storedText = newText
+    }
 
     func save() throws {
         guard !isReadOnly else { throw DocumentError.readOnly }
