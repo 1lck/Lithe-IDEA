@@ -298,7 +298,9 @@ pub async fn create_app_window(app: AppHandle, request: Option<Value>) -> Result
 
 #[cfg(test)]
 mod tests {
-    use super::{cli_payloads, copy_path, create_app_window, unique_destination};
+    use super::{
+        cli_payloads, copy_path, create_app_window, unique_destination, WINDOW_TASKBAR_ICON,
+    };
     use std::fs;
     use std::future::Future;
     use std::path::PathBuf;
@@ -370,6 +372,35 @@ mod tests {
         assert!(widths.contains(&16), "{widths:?}");
         assert!(widths.contains(&32), "{widths:?}");
         assert!(widths.contains(&256), "{widths:?}");
+    }
+
+    #[test]
+    fn taskbar_icon_fills_available_canvas() {
+        let width = WINDOW_TASKBAR_ICON.width();
+        let height = WINDOW_TASKBAR_ICON.height();
+        assert_eq!((width, height), (32, 32));
+
+        let mut min_x = width;
+        let mut min_y = height;
+        let mut max_x = 0;
+        let mut max_y = 0;
+        for (index, pixel) in WINDOW_TASKBAR_ICON.rgba().chunks_exact(4).enumerate() {
+            if pixel[3] < 128 {
+                continue;
+            }
+
+            let x = index as u32 % width;
+            let y = index as u32 / width;
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+        }
+
+        let visible_width = max_x.saturating_sub(min_x) + 1;
+        let visible_height = max_y.saturating_sub(min_y) + 1;
+        assert!(visible_width >= 26, "visible width: {visible_width}");
+        assert!(visible_height >= 26, "visible height: {visible_height}");
     }
 
     #[cfg(target_os = "windows")]
