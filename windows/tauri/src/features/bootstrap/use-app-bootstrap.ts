@@ -11,6 +11,7 @@ import {
 } from "@/features/file-system/services/file-watcher-listener";
 import { useOnboardingStore } from "@/features/onboarding/stores/onboarding.store";
 import { useLspInitialization } from "@/features/editor/hooks/use-lsp-initialization";
+import { useSpringIndex } from "@/features/spring/hooks/use-spring-index";
 import { useKeymapContext } from "@/features/keymaps/hooks/use-keymap-context";
 import { useKeymaps } from "@/features/keymaps/hooks/use-keymaps";
 import { useWhatsNewStore } from "@/features/settings/stores/whats-new.store";
@@ -42,6 +43,7 @@ export function useAppBootstrap() {
   useKeymaps();
   useContextMenuPrevention();
   useLspInitialization();
+  useSpringIndex();
 
   useEffect(() => {
     let timer: number | null = null;

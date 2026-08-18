@@ -27,6 +27,13 @@ import type { SidebarView } from "@/features/layout/utils/sidebar-pane-utils";
 import { RunIcon } from "@/features/run/components/run-icon";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import {
+  openDiagnosticsBuffer,
+  toggleGitLogPane,
+  toggleRunPane,
+  toggleTerminalPane,
+} from "@/features/keymaps/commands/view-command-actions";
+import { useTranslation } from "@/i18n/locale-provider";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import {
@@ -57,7 +64,10 @@ import {
   FolderOpenIcon,
   GearIcon,
   GitBranchIcon,
+  GitGraphIcon,
   MagnifyingGlassIcon,
+  TerminalWindowIcon,
+  WarningIcon,
 } from "@/ui/icons";
 
 interface MainSidebarProps {
@@ -98,6 +108,7 @@ const waitForProjectCarouselPaint = () =>
   });
 
 export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRailProps) => {
+  const { t } = useTranslation();
   const { openSidebarView } = useSidebarPaneController();
   const isGitViewActive = useUIState((state) => state.isGitViewActive);
   const isSidebarVisible = useUIState((state) => state.isSidebarVisible);
@@ -106,9 +117,13 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
   const openSettingsDialog = useUIState((state) => state.openSettingsDialog);
   const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible);
   const bottomPaneActiveTab = useUIState((state) => state.bottomPaneActiveTab);
-  const setIsBottomPaneVisible = useUIState((state) => state.setIsBottomPaneVisible);
-  const setBottomPaneActiveTab = useUIState((state) => state.setBottomPaneActiveTab);
   const openGlobalSearchBuffer = useBufferStore.use.actions().openGlobalSearchBuffer;
+  const isDiagnosticsBufferActive = useBufferStore((state) => {
+    if (!state.activeBufferId) return false;
+    return state.buffers.some(
+      (buffer) => buffer.id === state.activeBufferId && buffer.type === "diagnostics",
+    );
+  });
   const configuredActivityRailWidth = useSettingsStore((state) => state.settings.activityRailWidth);
   const askWhereToOpenProjects = useSettingsStore(
     (state) => state.settings.askWhereToOpenProjects,
@@ -166,14 +181,14 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
     () => [
       {
         id: "files",
-        label: "Project",
+        label: t("workbench.project"),
         icon: <FilesIcon />,
       },
       ...(coreFeatures.search
         ? [
             {
               id: "search",
-              label: "Search",
+              label: t("workbench.search"),
               icon: <MagnifyingGlassIcon />,
             },
           ]
@@ -182,28 +197,51 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
         ? [
             {
               id: "git",
-              label: "Changes",
+              label: t("workbench.changes"),
               icon: <GitBranchIcon />,
+            },
+            {
+              id: "gitLog",
+              label: t("workbench.gitLog"),
+              icon: <GitGraphIcon />,
             },
           ]
         : []),
       {
         id: "database",
-        label: "Database",
+        label: t("workbench.database"),
         icon: <DatabaseIcon />,
       },
+      ...(coreFeatures.terminal
+        ? [
+            {
+              id: "terminal",
+              label: t("workbench.terminal"),
+              icon: <TerminalWindowIcon />,
+            },
+          ]
+        : []),
+      ...(coreFeatures.diagnostics
+        ? [
+            {
+              id: "diagnostics",
+              label: t("workbench.diagnostics"),
+              icon: <WarningIcon />,
+            },
+          ]
+        : []),
       {
         id: "run",
-        label: "Run",
+        label: t("workbench.run"),
         icon: <RunIcon />,
       },
       {
         id: "settings",
-        label: "Settings",
+        label: t("workbench.settings"),
         icon: <GearIcon />,
       },
     ],
-    [coreFeatures.git, coreFeatures.search],
+    [coreFeatures.diagnostics, coreFeatures.git, coreFeatures.search, coreFeatures.terminal, t],
   );
 
   const setActivityRailItemVisible = useCallback(
@@ -628,15 +666,14 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
                   coreFeatures={coreFeatures}
                   onViewChange={handleSidebarViewChange}
                   onSearchClick={() => openGlobalSearchBuffer()}
+                  onGitLogClick={() => toggleGitLogPane()}
+                  isGitLogActive={isBottomPaneVisible && bottomPaneActiveTab === "gitLog"}
                   onSettingsClick={() => openSettingsDialog()}
-                  onRunClick={() => {
-                    if (isBottomPaneVisible && bottomPaneActiveTab === "run") {
-                      setIsBottomPaneVisible(false);
-                    } else {
-                      setBottomPaneActiveTab("run");
-                      setIsBottomPaneVisible(true);
-                    }
-                  }}
+                  onTerminalClick={() => toggleTerminalPane()}
+                  isTerminalActive={isBottomPaneVisible && bottomPaneActiveTab === "terminal"}
+                  onDiagnosticsClick={() => openDiagnosticsBuffer()}
+                  isDiagnosticsActive={isDiagnosticsBufferActive}
+                  onRunClick={() => toggleRunPane()}
                   isRunActive={isBottomPaneVisible && bottomPaneActiveTab === "run"}
                   compact={!expanded}
                   showLabels={expanded}
@@ -704,7 +741,7 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
           </ContextMenuItem>
           <ContextMenuItem onClick={() => openGlobalSearchBuffer()}>
             <MagnifyingGlassIcon />
-            Search
+            {t("workbench.search")}
           </ContextMenuItem>
         </ContextMenuGroup>
         <ContextMenuSeparator />

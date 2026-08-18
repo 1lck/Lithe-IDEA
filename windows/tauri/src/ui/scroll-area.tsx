@@ -1,5 +1,10 @@
 import { ScrollArea as ScrollAreaPrimitive } from "@base-ui/react/scroll-area";
+import { useLayoutEffect, useState } from "react";
 import type * as React from "react";
+import {
+  bindOverlayWheelToScrollContainer,
+  bindScrollContainerWheel,
+} from "@/ui/scroll-container-wheel";
 import { cn } from "@/utils/cn";
 
 type ScrollAreaOrientation = "vertical" | "horizontal" | "both";
@@ -28,15 +33,37 @@ function ScrollArea({
   ...props
 }: ScrollAreaProps) {
   const { ref: viewportRef, style: viewportStyle, ...resolvedViewportProps } = viewportProps ?? {};
+  const [rootNode, setRootNode] = useState<HTMLDivElement | null>(null);
+  const [viewportNode, setViewportNode] = useState<HTMLDivElement | null>(null);
+
+  useLayoutEffect(() => {
+    if (!viewportNode) return;
+    return bindScrollContainerWheel(viewportNode);
+  }, [viewportNode]);
+
+  useLayoutEffect(() => {
+    if (!rootNode) return;
+    return bindOverlayWheelToScrollContainer(rootNode, () => viewportNode);
+  }, [rootNode, viewportNode]);
+
+  const setViewportRef = (node: HTMLDivElement | null) => {
+    setViewportNode(node);
+    if (typeof viewportRef === "function") {
+      viewportRef(node);
+    } else if (viewportRef) {
+      viewportRef.current = node;
+    }
+  };
 
   return (
     <ScrollAreaPrimitive.Root
+      {...props}
+      ref={setRootNode}
       data-slot="scroll-area"
       className={cn("group/scroll-area relative min-h-0 overflow-hidden", className)}
-      {...props}
     >
       <ScrollAreaPrimitive.Viewport
-        ref={viewportRef}
+        ref={setViewportRef}
         data-slot="scroll-area-viewport"
         className={cn(
           "size-full min-h-0 rounded-[inherit] outline-none focus-visible:ring-2 focus-visible:ring-primary/20",

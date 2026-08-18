@@ -42,6 +42,7 @@ import {
   type NewProjectSource,
   type ProjectPackageManager,
 } from "../lib/new-project-model";
+import { useTranslation } from "@/i18n/locale-provider";
 
 interface NewProjectContentProps {
   onBack: () => void;
@@ -58,58 +59,18 @@ interface ProjectSourceOption {
   keywords: string[];
 }
 
-const projectSourceOptions: ProjectSourceOption[] = [
-  {
-    id: "empty",
-    label: "Empty Project",
-    description: "Create a clean folder and start from scratch.",
-    badge: "Built-in",
-    icon: FolderPlus,
-    keywords: ["blank", "folder", "local"],
-  },
-  {
-    id: "nextjs",
-    label: "Next.js",
-    description: "App Router, TypeScript, Tailwind CSS, ESLint, and a src directory.",
-    badge: "Web app",
-    icon: RocketLaunch,
-    keywords: ["react", "typescript", "tailwind", "frontend"],
-  },
-  {
-    id: "vite-react",
-    label: "Vite + React",
-    description: "A lightweight React and TypeScript starter.",
-    badge: "Web app",
-    icon: Code,
-    keywords: ["react", "typescript", "frontend"],
-  },
-  {
-    id: "clone",
-    label: "Clone Repository",
-    description: "Clone an existing Git repository into a new local project.",
-    badge: "Git",
-    icon: GitBranch,
-    keywords: ["github", "gitlab", "remote", "repository"],
-  },
-];
-
 const packageManagerOptions = [
   { value: "npm", label: "npm" },
   { value: "pnpm", label: "pnpm" },
   { value: "bun", label: "Bun" },
 ];
 
-function getCreationLabel(source: NewProjectSource) {
-  if (source === "clone") return "Clone Repository";
-  if (source === "empty") return "Create Project";
-  return "Create & Install";
-}
-
 export default function NewProjectContent({
   onBack,
   onClose,
   initialSource,
 }: NewProjectContentProps) {
+  const { t } = useTranslation();
   const nameInputRef = useRef<HTMLInputElement>(null);
   const repositoryInputRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<"source" | "details" | "creating">(
@@ -125,6 +86,49 @@ export default function NewProjectContent({
   const [nameWasEdited, setNameWasEdited] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const handleOpenFolderByPath = useFileSystemStore((state) => state.handleOpenFolderByPath);
+  const projectSourceOptions = useMemo<ProjectSourceOption[]>(
+    () => [
+      {
+        id: "empty",
+        label: t("welcome.emptyProject"),
+        description: t("welcome.emptyProjectDescription"),
+        badge: t("welcome.builtIn"),
+        icon: FolderPlus,
+        keywords: ["blank", "folder", "local", "empty"],
+      },
+      {
+        id: "nextjs",
+        label: "Next.js",
+        description: t("welcome.nextjsDescription"),
+        badge: t("welcome.webApp"),
+        icon: RocketLaunch,
+        keywords: ["react", "typescript", "tailwind", "frontend"],
+      },
+      {
+        id: "vite-react",
+        label: "Vite + React",
+        description: t("welcome.viteReactDescription"),
+        badge: t("welcome.webApp"),
+        icon: Code,
+        keywords: ["react", "typescript", "frontend"],
+      },
+      {
+        id: "clone",
+        label: t("welcome.cloneRepository"),
+        description: t("welcome.cloneRepositoryDescription"),
+        badge: t("welcome.gitBadge"),
+        icon: GitBranch,
+        keywords: ["github", "gitlab", "remote", "repository", "clone"],
+      },
+    ],
+    [t],
+  );
+
+  const getCreationLabel = (nextSource: NewProjectSource) => {
+    if (nextSource === "clone") return t("welcome.cloneRepository");
+    if (nextSource === "empty") return t("welcome.emptyProject");
+    return t("welcome.newProject");
+  };
 
   useEffect(() => {
     void homeDir()
@@ -152,7 +156,7 @@ export default function NewProjectContent({
         value.toLowerCase().includes(normalizedQuery),
       ),
     );
-  }, [query]);
+  }, [projectSourceOptions, query]);
 
   useEffect(() => {
     setSelectedIndex(0);
@@ -276,20 +280,20 @@ export default function NewProjectContent({
     return (
       <>
         <CommandHeader onClose={onClose}>
-          <CommandHeaderAction type="button" aria-label="Back to projects" onClick={onBack}>
+          <CommandHeaderAction type="button" aria-label={t("welcome.backToProjects")} onClick={onBack}>
             <ArrowLeft />
           </CommandHeaderAction>
           <CommandInput
             value={query}
             onChange={setQuery}
             onKeyDown={handleSourceKeyDown}
-            placeholder="Choose how to start..."
+            placeholder={t("welcome.chooseHowToStart")}
           />
         </CommandHeader>
 
         <CommandList>
           {filteredSourceOptions.length === 0 ? (
-            <CommandEmpty>No project starters match "{query}".</CommandEmpty>
+            <CommandEmpty>{t("welcome.noStarters", { query })}</CommandEmpty>
           ) : (
             filteredSourceOptions.map((option, index) => {
               const SourceIcon = option.icon;

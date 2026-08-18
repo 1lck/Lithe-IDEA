@@ -402,6 +402,12 @@ mod tests {
         assert!(visible_width >= 26, "visible width: {visible_width}");
         assert!(visible_height >= 26, "visible height: {visible_height}");
     }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn background_font_queries_do_not_create_windows_console() {
+        assert_eq!(super::font_query_process_creation_flags(), 0x0800_0000);
+    }
 }
 
 #[tauri::command]
@@ -462,13 +468,17 @@ pub fn validate_font(font_family: String) -> bool {
 
 #[cfg(target_os = "windows")]
 fn platform_fonts() -> Vec<FontInfo> {
+    use std::os::windows::process::CommandExt;
     use std::process::Command;
-    let output = Command::new("reg.exe")
+
+    let mut command = Command::new("reg.exe");
+    command
         .args([
             "query",
             r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts",
         ])
-        .output();
+        .creation_flags(font_query_process_creation_flags());
+    let output = command.output();
     let text = output
         .ok()
         .filter(|value| value.status.success())
@@ -497,6 +507,12 @@ fn platform_fonts() -> Vec<FontInfo> {
             style: "Regular".into(),
         })
         .collect()
+}
+
+#[cfg(target_os = "windows")]
+fn font_query_process_creation_flags() -> u32 {
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    CREATE_NO_WINDOW
 }
 
 #[cfg(not(target_os = "windows"))]

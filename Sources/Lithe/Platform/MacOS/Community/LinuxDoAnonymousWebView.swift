@@ -28,9 +28,10 @@ final class LinuxDoAnonymousWebSession: ObservableObject {
         releaseTask = nil
     }
 
-    func releaseAfterInactivity() {
+    @discardableResult
+    func releaseAfterInactivity() -> Task<Void, Never> {
         releaseTask?.cancel()
-        releaseTask = Task { @MainActor [weak self] in
+        let task = Task { @MainActor [weak self] in
             guard let self else { return }
             try? await Task.sleep(nanoseconds: idleLifetimeNanoseconds)
             guard !Task.isCancelled else { return }
@@ -40,6 +41,8 @@ final class LinuxDoAnonymousWebSession: ObservableObject {
             webView = nil
             releaseTask = nil
         }
+        releaseTask = task
+        return task
     }
 
     deinit {

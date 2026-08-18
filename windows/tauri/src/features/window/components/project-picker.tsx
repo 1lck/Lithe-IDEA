@@ -19,6 +19,7 @@ import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.s
 import { memo, type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRecentFoldersStore } from "@/features/file-system/stores/recent-folders.store";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import type { RecentFolder } from "@/features/file-system/types/recent-folders.types";
 import { showPromptDialog } from "@/ui/dialog";
 import ConnectionForm from "@/features/remote/components/connection-form";
@@ -76,6 +77,7 @@ const createRemoteConnectionFormData = (): RemoteConnectionFormData => ({
 
 const ProjectPicker = memo(
   ({ isOpen, onClose, initialMode = "picker" }: ProjectPickerProps) => {
+  const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const remoteNameInputRef = useRef<HTMLInputElement>(null);
   const [connections, setConnections] = useState<RemoteConnection[]>([]);
@@ -432,12 +434,12 @@ const ProjectPicker = memo(
         onClose={onClose}
         title={
           commandStep === "addRemote"
-            ? "New Remote Connection"
+            ? t("welcome.newRemoteConnection")
             : commandStep === "newProject"
               ? initialMode === "clone-repository"
-                ? "Clone Repository"
-                : "New Project"
-              : "Open Project"
+                ? t("welcome.cloneRepository")
+                : t("welcome.newProject")
+              : t("welcome.openProject")
         }
         autoFocus={commandStep === "picker"}
       >
@@ -455,18 +457,18 @@ const ProjectPicker = memo(
               value={query}
               onChange={setQuery}
               onKeyDown={handleCommandKeyDown}
-              placeholder="Open project or remote connection"
+              placeholder={t("welcome.openProjectOrRemote")}
             />
           </CommandHeader>
         ) : (
           <CommandHeader onClose={onClose}>
-            <CommandHeaderAction aria-label="Back to projects" onClick={handleBackToPicker}>
+            <CommandHeaderAction aria-label={t("welcome.backToProjects")} onClick={handleBackToPicker}>
               <ArrowLeft />
             </CommandHeaderAction>
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <Server className="shrink-0 text-subtle-foreground" />
               <span className="min-w-0 truncate font-sans ui-text-base font-medium text-foreground">
-                New Remote Connection
+                {t("welcome.newRemoteConnection")}
               </span>
             </div>
           </CommandHeader>
@@ -518,8 +520,8 @@ const ProjectPicker = memo(
                             event.stopPropagation();
                             handleRemoveRecentFolder(folder);
                           }}
-                          tooltip="Remove from recent projects"
-                          aria-label={`Remove ${folder.name} from recent projects`}
+                          tooltip={t("welcome.removeRecent", { name: folder.name })}
+                          aria-label={t("welcome.removeRecent", { name: folder.name })}
                         >
                           <X />
                         </CommandItemAction>
@@ -615,7 +617,7 @@ const ProjectPicker = memo(
             filteredConnections.length === 0 &&
             filteredWslDistributions.length === 0 ? (
               <CommandEmpty>
-                {normalizedQuery ? `No projects match "${query}".` : "No recent projects"}
+                {normalizedQuery ? `No projects match "${query}".` : t("welcome.noRecentProjects")}
               </CommandEmpty>
             ) : null}
           </CommandList>
@@ -644,21 +646,23 @@ const ProjectPicker = memo(
           <CommandFooter>
             <CommandFooterAction onClick={() => void handleOpenFolderClick()}>
               <FolderOpen />
-              Open Folder
+              {t("welcome.openFolder")}
             </CommandFooterAction>
             <CommandFooterAction onClick={handleNewProjectClick}>
               <Plus />
-              New Project
+              {t("welcome.newProject")}
             </CommandFooterAction>
             <CommandFooterAction
               onClick={handleAddRemoteConnectionClick}
               disabled={!isBackendCapabilityAvailable("remote")}
               tooltip={
-                isBackendCapabilityAvailable("remote") ? "Add Remote" : BACKEND_UNAVAILABLE_TOOLTIP
+                isBackendCapabilityAvailable("remote")
+                  ? t("welcome.addRemote")
+                  : BACKEND_UNAVAILABLE_TOOLTIP
               }
             >
               <Plus />
-              Add Remote
+              {t("welcome.addRemote")}
             </CommandFooterAction>
             {missingRecentFolderCount > 0 ? (
               <CommandFooterAction onClick={handleRemoveMissingRecentFolders}>

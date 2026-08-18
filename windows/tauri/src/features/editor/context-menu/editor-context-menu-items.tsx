@@ -53,6 +53,7 @@ export interface EditorContextMenuItemOptions extends EditorContextMenuHandlers 
   hasSelection: boolean;
   modifierKey: string;
   altKey: string;
+  t: (key: string) => string;
 }
 
 const noop = () => {};
@@ -69,6 +70,7 @@ export function buildEditorContextMenuItems({
   hasSelection,
   modifierKey,
   altKey,
+  t,
   onCopy,
   onCut,
   onPaste,
@@ -99,7 +101,7 @@ export function buildEditorContextMenuItems({
   return [
     {
       id: "copy",
-      label: "Copy",
+      label: t("files.copy"),
       icon: <Copy />,
       keybinding: <Keybinding keys={[modifierKey, "C"]} className="opacity-60" />,
       disabled: isDisabled(onCopy, !hasSelection),
@@ -107,7 +109,7 @@ export function buildEditorContextMenuItems({
     },
     {
       id: "cut",
-      label: "Cut",
+      label: t("files.cut"),
       icon: <Scissors />,
       keybinding: <Keybinding keys={[modifierKey, "X"]} className="opacity-60" />,
       disabled: isDisabled(onCut, !hasSelection),
@@ -115,7 +117,7 @@ export function buildEditorContextMenuItems({
     },
     {
       id: "paste",
-      label: "Paste",
+      label: t("files.paste"),
       icon: <ClipboardPaste />,
       keybinding: <Keybinding keys={[modifierKey, "V"]} className="opacity-60" />,
       disabled: isDisabled(onPaste),
@@ -123,7 +125,7 @@ export function buildEditorContextMenuItems({
     },
     {
       id: "delete",
-      label: "Delete",
+      label: t("files.delete"),
       icon: <Trash2 />,
       keybinding: <Keybinding keys={["Del"]} className="opacity-60" />,
       disabled: isDisabled(onDelete, !hasSelection),
@@ -132,7 +134,7 @@ export function buildEditorContextMenuItems({
     separator("sep-1"),
     {
       id: "select-all",
-      label: "Select All",
+      label: t("editor.selectAll"),
       icon: <Type />,
       keybinding: <Keybinding keys={[modifierKey, "A"]} className="opacity-60" />,
       disabled: isDisabled(onSelectAll),
@@ -140,14 +142,14 @@ export function buildEditorContextMenuItems({
     },
     {
       id: "duplicate",
-      label: "Duplicate Line",
+      label: t("editor.duplicateLine"),
       icon: <FileText />,
       disabled: isDisabled(onDuplicate),
       onClick: onDuplicate ?? noop,
     },
     {
       id: "select-next-occurrence",
-      label: "Add Selection to Next Match",
+      label: t("editor.addSelectionToNextMatch"),
       icon: <Search />,
       keybinding: <Keybinding keys={[modifierKey, "D"]} className="opacity-60" />,
       disabled: isDisabled(onSelectNextOccurrence),
@@ -155,7 +157,7 @@ export function buildEditorContextMenuItems({
     },
     {
       id: "select-all-occurrences",
-      label: "Select All Occurrences",
+      label: t("editor.selectAllOccurrences"),
       icon: <Search />,
       keybinding: <Keybinding keys={[modifierKey, "Shift", "L"]} className="opacity-60" />,
       disabled: isDisabled(onSelectAllOccurrences),
@@ -164,7 +166,7 @@ export function buildEditorContextMenuItems({
     separator("sep-2"),
     {
       id: "toggle-comment",
-      label: "Toggle Comment",
+      label: t("editor.toggleComment"),
       icon: <Code />,
       keybinding: <Keybinding keys={[modifierKey, "/"]} className="opacity-60" />,
       disabled: isDisabled(onToggleComment),
@@ -172,7 +174,7 @@ export function buildEditorContextMenuItems({
     },
     {
       id: "indent",
-      label: "Indent",
+      label: t("editor.indent"),
       icon: <Indent />,
       keybinding: <Keybinding keys={["Tab"]} className="opacity-60" />,
       disabled: isDisabled(onIndent),
@@ -180,7 +182,7 @@ export function buildEditorContextMenuItems({
     },
     {
       id: "outdent",
-      label: "Outdent",
+      label: t("editor.outdent"),
       icon: <Outdent />,
       keybinding: <Keybinding keys={["Shift", "Tab"]} className="opacity-60" />,
       disabled: isDisabled(onOutdent),
@@ -188,7 +190,7 @@ export function buildEditorContextMenuItems({
     },
     {
       id: "format",
-      label: "Format Document",
+      label: t("editor.formatDocument"),
       icon: <AlignLeft />,
       keybinding: <Keybinding keys={["Shift", altKey, "F"]} className="opacity-60" />,
       disabled: isDisabled(onFormat),
@@ -196,7 +198,7 @@ export function buildEditorContextMenuItems({
     },
     {
       id: "format-selection",
-      label: "Format Selection",
+      label: t("editor.formatSelection"),
       icon: <AlignLeft />,
       keybinding: <Keybinding keys={[modifierKey, "K", modifierKey, "F"]} className="opacity-60" />,
       disabled: isDisabled(onFormatSelection, !hasSelection),
@@ -205,7 +207,7 @@ export function buildEditorContextMenuItems({
     separator("sep-3"),
     {
       id: "move-up",
-      label: "Move Line Up",
+      label: t("editor.moveLineUp"),
       icon: <ChevronUp />,
       keybinding: <Keybinding keys={[altKey, "Up"]} className="opacity-60" />,
       disabled: isDisabled(onMoveLineUp),
@@ -213,7 +215,7 @@ export function buildEditorContextMenuItems({
     },
     {
       id: "move-down",
-      label: "Move Line Down",
+      label: t("editor.moveLineDown"),
       icon: <ChevronDown />,
       keybinding: <Keybinding keys={[altKey, "Down"]} className="opacity-60" />,
       disabled: isDisabled(onMoveLineDown),
@@ -221,7 +223,7 @@ export function buildEditorContextMenuItems({
     },
     {
       id: "toggle-case",
-      label: "Toggle Case",
+      label: t("editor.toggleCase"),
       icon: <CaseSensitive />,
       disabled: isDisabled(onToggleCase, !hasSelection),
       onClick: onToggleCase ?? noop,
@@ -229,7 +231,7 @@ export function buildEditorContextMenuItems({
     separator("sep-4"),
     {
       id: "go-to-definition",
-      label: "Go to Definition",
+      label: t("editor.goToDefinition"),
       icon: <Code />,
       keybinding: <Keybinding keys={["F12"]} className="opacity-60" />,
       disabled: isDisabled(onGoToDefinition),
@@ -237,22 +239,22 @@ export function buildEditorContextMenuItems({
     },
     {
       id: "find-references",
-      label: "Find All References",
+      label: t("editor.findAllReferences"),
       icon: <Search />,
-      keybinding: <Keybinding keys={["Shift", "F12"]} className="opacity-60" />,
+      keybinding: <Keybinding binding="cmd+b" className="opacity-60" />,
       disabled: isDisabled(onFindReferences),
       onClick: onFindReferences ?? noop,
     },
     {
       id: "go-to-type-definition",
-      label: "Go to Type Definition",
+      label: t("editor.goToTypeDefinition"),
       icon: <Code />,
       disabled: isDisabled(onGoToTypeDefinition),
       onClick: onGoToTypeDefinition ?? noop,
     },
     {
       id: "rename-symbol",
-      label: "Rename Symbol",
+      label: t("editor.renameSymbol"),
       icon: <PenLine />,
       keybinding: <Keybinding keys={["F2"]} className="opacity-60" />,
       disabled: isDisabled(onRenameSymbol),
@@ -260,7 +262,7 @@ export function buildEditorContextMenuItems({
     },
     {
       id: "quick-fix",
-      label: "Quick Fix...",
+      label: t("editor.quickFix"),
       icon: <PenLine />,
       keybinding: <Keybinding keys={[modifierKey, "."]} className="opacity-60" />,
       disabled: isDisabled(onQuickFix),
@@ -268,7 +270,7 @@ export function buildEditorContextMenuItems({
     },
     {
       id: "show-hover",
-      label: "Show Hover",
+      label: t("editor.showHover"),
       icon: <Code />,
       keybinding: <Keybinding keys={[modifierKey, "K", modifierKey, "I"]} className="opacity-60" />,
       disabled: isDisabled(onShowHover),
@@ -276,7 +278,7 @@ export function buildEditorContextMenuItems({
     },
     {
       id: "trigger-suggest",
-      label: "Trigger Suggest",
+      label: t("editor.triggerSuggest"),
       icon: <Code />,
       keybinding: <Keybinding keys={["Ctrl", "Space"]} className="opacity-60" />,
       disabled: isDisabled(onTriggerSuggest),
@@ -285,7 +287,7 @@ export function buildEditorContextMenuItems({
     separator("sep-5"),
     {
       id: "find",
-      label: "Find",
+      label: t("editor.find"),
       icon: <Search />,
       keybinding: <Keybinding keys={[modifierKey, "F"]} className="opacity-60" />,
       disabled: isDisabled(onFind),
@@ -293,7 +295,7 @@ export function buildEditorContextMenuItems({
     },
     {
       id: "go-to-line",
-      label: "Go to Line",
+      label: t("editor.goToLine"),
       icon: <RotateCcw />,
       keybinding: <Keybinding keys={[modifierKey, "G"]} className="opacity-60" />,
       disabled: isDisabled(onGoToLine),
@@ -301,7 +303,7 @@ export function buildEditorContextMenuItems({
     },
     {
       id: "bookmark",
-      label: "Toggle Bookmark",
+      label: t("editor.toggleBookmark"),
       icon: <Bookmark />,
       keybinding: <Keybinding keys={[modifierKey, "K", modifierKey, "K"]} className="opacity-60" />,
       disabled: isDisabled(onToggleBookmark),

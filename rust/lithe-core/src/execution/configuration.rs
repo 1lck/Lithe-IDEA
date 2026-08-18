@@ -877,6 +877,12 @@ pub fn update_options(request: UpdateOptionsRequest) -> Result<Value, CoreError>
             CoreError::new(ErrorCode::InvalidRequest, "Run configuration was not found")
         })?;
     let uses_maven_capability = is_maven_backed(provider);
+    let java_home_path =
+        normalize_scoped_toolchain_path(&root, &request.scope, &request.java_home_path)?;
+    let maven_executable_path =
+        normalize_scoped_toolchain_path(&root, &request.scope, &request.maven_executable_path)?;
+    let maven_java_home_path =
+        normalize_scoped_toolchain_path(&root, &request.scope, &request.maven_java_home_path)?;
     let working_directory = normalize_project_directory(
         &root,
         if request.working_directory.trim().is_empty() {
@@ -905,14 +911,14 @@ pub fn update_options(request: UpdateOptionsRequest) -> Result<Value, CoreError>
                 "profiles": request.maven_profiles.into_iter().collect::<BTreeSet<_>>()
             },
             "java": {
-                "homePath": request.java_home_path,
-                "mavenExecutablePath": request.maven_executable_path,
-                "mavenJavaHomePath": request.maven_java_home_path
+                "homePath": java_home_path,
+                "mavenExecutablePath": maven_executable_path,
+                "mavenJavaHomePath": maven_java_home_path
             }
         });
-    } else if !request.java_home_path.is_empty() {
+    } else if !java_home_path.is_empty() {
         patch["extensions"] = json!({
-            "java": { "homePath": request.java_home_path }
+            "java": { "homePath": java_home_path }
         });
     } else {
         patch["args"] = json!(split_arguments(&request.arguments));
@@ -1609,6 +1615,22 @@ fn scope_document(scope: &str) -> Result<&'static str, CoreError> {
             ErrorCode::InvalidRequest,
             "Run configuration scope must be local or project",
         )),
+    }
+}
+
+fn normalize_scoped_toolchain_path(
+    root: &Path,
+    scope: &str,
+    value: &str,
+) -> Result<String, CoreError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(String::new());
+    }
+    if scope == "project" {
+        normalize_project_directory(root, value, true)
+    } else {
+        Ok(value.to_string())
     }
 }
 

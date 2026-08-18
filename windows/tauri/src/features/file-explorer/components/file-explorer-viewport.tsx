@@ -16,6 +16,7 @@ import {
   getFileTreeVirtualRange,
   type FileTreeScrollAlignment,
 } from "@/features/file-explorer/lib/file-tree-viewport";
+import { bindScrollContainerWheel } from "@/ui/scroll-container-wheel";
 import { cn } from "@/utils/cn";
 
 export interface FileExplorerViewportHandle {
@@ -83,11 +84,13 @@ export const FileExplorerViewport = forwardRef<
     const resizeObserver = new ResizeObserver(updateLayout);
     resizeObserver.observe(element);
     element.addEventListener("scroll", scheduleLayoutUpdate, { passive: true });
+    const unbindWheel = bindScrollContainerWheel(element);
     updateLayout();
 
     return () => {
       resizeObserver.disconnect();
       element.removeEventListener("scroll", scheduleLayoutUpdate);
+      unbindWheel();
       if (frameRef.current !== null) {
         cancelAnimationFrame(frameRef.current);
         frameRef.current = null;
@@ -166,6 +169,7 @@ export const FileExplorerViewport = forwardRef<
   return (
     <div
       ref={scrollRef}
+      data-scroll-container=""
       className={cn("file-tree-container", className)}
       style={
         {
