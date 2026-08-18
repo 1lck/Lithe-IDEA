@@ -1,6 +1,8 @@
 import Foundation
 
 enum WorkspaceTextFilePolicy {
+    static let standaloneFileByteLimit = 32 * 1024 * 1024
+
     private static let extensions: Set<String> = [
         "c", "cc", "cpp", "css", "go", "h", "hpp", "html", "java", "js", "json",
         "jsx", "kt", "kts", "md", "m", "mm", "php", "plist", "properties", "py", "rb",

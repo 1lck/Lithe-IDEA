@@ -155,7 +155,6 @@ struct ProjectSidebarView: View {
         .frame(height: 39)
     }
 }
-
 private struct ProjectGitStatusSnapshot: Equatable {
     let repositoryRoot: URL?
     let projection: GitTreeStatusProjection
