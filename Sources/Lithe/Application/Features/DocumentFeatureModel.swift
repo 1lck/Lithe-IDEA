@@ -50,6 +50,7 @@ final class DocumentFeatureModel: ObservableObject {
     @Published private(set) var standaloneFileLoadState: StandaloneFileLoadState = .idle
     @Published private(set) var pendingCloseDocument: EditorDocument?
     @Published private(set) var isPendingProjectClose = false
+    @Published private(set) var projectTreeRevealRequest: ProjectTreeRevealRequest?
 
     private let operations: any WorkspaceOperations
     private let fileOperations: any WorkspaceFileOperations
@@ -133,6 +134,7 @@ final class DocumentFeatureModel: ObservableObject {
         pendingFileOpenRequests.removeAll()
         latestFileOpenRequestID = nil
         pendingCloseDocument = nil
+        projectTreeRevealRequest = nil
         pendingCloseQueue = []
         pendingClosePreferredDocumentID = nil
         isPendingProjectClose = false
@@ -147,10 +149,13 @@ final class DocumentFeatureModel: ObservableObject {
         displayPath: String? = nil
     ) {
         let normalizedURL = url.standardizedFileURL
+        let filePath = normalizedURL.path
 
         // Switching to an already-open document does not require file I/O.
         // Apply that state change synchronously so repeated tree clicks feel immediate.
-        if let existing = openDocuments.first(where: { $0.url == normalizedURL }) {
+        if let existing = openDocuments.first(where: {
+            $0.url.standardizedFileURL.path == filePath
+        }) {
             latestFileOpenRequestID = UUID()
             activeDocumentID = existing.id
             if !isReadOnly {
@@ -243,12 +248,17 @@ final class DocumentFeatureModel: ObservableObject {
     }
 
     func openFileAsync(
-        _ normalizedURL: URL,
+        _ url: URL,
         isReadOnly: Bool,
         displayPath: String?,
         activateWhenReady: Bool
     ) async {
-        if let existing = openDocuments.first(where: { $0.url == normalizedURL }) {
+        let normalizedURL = url.standardizedFileURL
+        let filePath = normalizedURL.path
+
+        if let existing = openDocuments.first(where: {
+            $0.url.standardizedFileURL.path == filePath
+        }) {
             if activateWhenReady {
                 let requestID = UUID()
                 latestFileOpenRequestID = requestID
@@ -261,14 +271,19 @@ final class DocumentFeatureModel: ObservableObject {
         }
 
         let requestID = UUID()
-        guard pendingFileOpenRequests[normalizedURL.path] == nil else { return }
-        pendingFileOpenRequests[normalizedURL.path] = requestID
+        if let pendingRequestID = pendingFileOpenRequests[filePath] {
+            if activateWhenReady {
+                latestFileOpenRequestID = pendingRequestID
+            }
+            return
+        }
+        pendingFileOpenRequests[filePath] = requestID
         if activateWhenReady {
             latestFileOpenRequestID = requestID
         }
         defer {
-            if pendingFileOpenRequests[normalizedURL.path] == requestID {
-                pendingFileOpenRequests[normalizedURL.path] = nil
+            if pendingFileOpenRequests[filePath] == requestID {
+                pendingFileOpenRequests[filePath] = nil
             }
         }
 
@@ -314,13 +329,24 @@ final class DocumentFeatureModel: ObservableObject {
             isReadOnly: isReadOnly,
             displayPath: displayPath
         )
-        guard !openDocuments.contains(where: { $0.url == normalizedURL }) else { return }
+        guard !openDocuments.contains(where: {
+            $0.url.standardizedFileURL.path == filePath
+        }) else { return }
         openDocuments.append(document)
-        if activateWhenReady, latestFileOpenRequestID == requestID {
+        if latestFileOpenRequestID == requestID {
             activeDocumentID = document.id
         }
         onDocumentCollectionChanged?()
         onDocumentOpened?(document)
+    }
+
+    func requestProjectTreeReveal(for fileURL: URL) {
+        projectTreeRevealRequest = ProjectTreeRevealRequest(fileURL: fileURL)
+    }
+
+    func consumeProjectTreeRevealRequest(id: UUID) {
+        guard projectTreeRevealRequest?.id == id else { return }
+        projectTreeRevealRequest = nil
     }
 
     func openVirtualDocument(

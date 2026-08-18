@@ -43,7 +43,7 @@ import { getBaseName, getDirName, getRelativePath, joinPath } from "@/utils/path
 
 interface UseFileExplorerContextMenuOptions {
   rootFolderPath?: string;
-  onFileSelect: (path: string, isDir: boolean) => void | Promise<void>;
+  onFileSelect: (path: string, isDir: boolean) => void | string | Promise<void | string>;
   onCreateNewFileInDirectory?: (
     directoryPath: string,
     fileName: string,

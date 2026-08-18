@@ -393,13 +393,19 @@ never writes files. `runConfig.generate` accepts `root`, relative Java `paths`,
 and relative `modulePaths`; it returns generated configuration and toolchain
 requirement documents for the platform adapter to write atomically.
 
-`runConfig.resolve` accepts `root` and optional local `toolchainCandidates`.
-It merges configurations by stable ID using this precedence:
+`runConfig.resolve` accepts `root`, optional local `toolchainCandidates`, and
+optional `localDocument`. When `localDocument` is present, Core uses that JSON
+object as the local layer instead of reading `.lithe/run/local.json`. It merges
+configurations by stable ID using this precedence:
 `local.json > configurations.json > generated.json`. Scalars and arrays are
 replaced by the higher layer, while toolchain maps merge by key. It returns
-effective configurations, their source, the team default, and structured
+effective configurations, their source, the team default, structured
 diagnostics for stale, orphaned, missing, disabled, and toolchain mismatch
-states.
+states, and the effective global `toolchain`. A document-level `toolchain`
+object in the local layer (e.g.
+`{ "java": { "homePath": ... }, "maven": { "executablePath": ..., "javaHomePath": ... } }`)
+is applied to every configuration's `extensions.java.*` and is authoritative
+over per-configuration toolchain paths.
 
 `runConfig.updateOptions` and `runConfig.createUserConfiguration` are pure
 document transformations. They validate scope, paths, supported types, stable
@@ -408,14 +414,22 @@ IDs, main classes, modules, and argument parsing, then return UTF-8 JSON in the
 file and performs the atomic write. These commands never write files.
 For project-scoped option updates, selected toolchain paths must resolve inside
 `root` and are persisted with `/`-separated project-relative paths. Local-scoped
-updates may carry host absolute paths.
+updates may carry host absolute paths. `runConfig.updateOptions` and
+`runConfig.inspect` accept the same optional `localDocument` override.
+When `updateOptions` carries a `toolchain` object (`javaHomePath`,
+`mavenExecutablePath`, `mavenJavaHomePath`), it writes the document-level
+global toolchain into the local layer instead of patching a configuration;
+project scope rejects this payload because toolchain paths are machine-local.
 
 `runConfig.createLaunchPlan` accepts `root`, `configurationId`, optional
-`currentFile` and `classPath`, and optional `debugPort`. It returns a toolchain
+`currentFile` and `classPath`, optional `debugPort`, and optional
+`localDocument`. It returns a toolchain
 reference, argument array, project-relative working directory, and structured
 environment references. It does not return a shell command or platform
 executable path. All project paths use `/`, reject absolute paths and `..`
-traversal, and remain relative to `root`.
+traversal, and remain relative to `root`. A `java.main` configuration without a
+Maven toolchain launches through `project-jdk` and the configuration's Java
+source path.
 
 `java.codeVision` accepts a workspace root, a target Java path, and Java source
 paths. It returns declaration locations and usage counts; Git blame attribution

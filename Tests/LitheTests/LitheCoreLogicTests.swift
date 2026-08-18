@@ -3595,6 +3595,157 @@ struct EditorDocumentTests {
         await pendingA.value
         #expect(model.activeDocumentID == documentB.id)
     }
+
+    @Test
+    @MainActor
+    func foregroundRequestActivatesAnEquivalentPendingBackgroundOpen() async {
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-equivalent-pending-open-tests")
+        let fileA = workspace.appendingPathComponent("A.swift")
+        let operations = BlockingWorkspaceOperations()
+        let model = DocumentFeatureModel(
+            operations: operations,
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            binaryFileViewerRegistry: BinaryFileViewerRegistry()
+        )
+        model.configure(
+            workspaceURLProvider: { workspace },
+            autoSaveEnabledProvider: { false },
+            autoSaveDelayProvider: { 0 },
+            notify: { _ in },
+            onDocumentOpened: { _ in },
+            onDocumentChanged: { _ in },
+            onDocumentClosed: { _ in },
+            onRecordSave: { _, _ in },
+            onRecordDiscard: { _ in },
+            onRecordExternalChanges: { _ in },
+            onDocumentCollectionChanged: {},
+            onProjectCloseReady: {}
+        )
+
+        let pendingA = Task { @MainActor in
+            await model.openFileAsync(
+                fileA,
+                isReadOnly: false,
+                displayPath: nil,
+                activateWhenReady: false
+            )
+        }
+        for _ in 0..<100 where !operations.didStartReadingA {
+            await Task.yield()
+        }
+        #expect(operations.didStartReadingA)
+
+        await model.openFileAsync(
+            workspace.appendingPathComponent("nested/../A.swift"),
+            isReadOnly: false,
+            displayPath: nil,
+            activateWhenReady: true
+        )
+        operations.releaseA()
+        await pendingA.value
+
+        #expect(model.openDocuments.count == 1)
+        #expect(model.activeDocumentID == model.openDocuments.first?.id)
+    }
+
+    @Test
+    @MainActor
+    func standardizedFilePathsReuseTheExistingDirtyDocument() async throws {
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-standardized-path-tests")
+        let featureDirectory = workspace.appendingPathComponent("Sources/Feature")
+        let fileURL = featureDirectory.appendingPathComponent("Example.swift")
+
+        let model = DocumentFeatureModel(
+            operations: EmptyWorkspaceOperations(readFileValue: "original"),
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            binaryFileViewerRegistry: BinaryFileViewerRegistry()
+        )
+        model.configure(
+            workspaceURLProvider: { workspace },
+            autoSaveEnabledProvider: { false },
+            autoSaveDelayProvider: { 0 },
+            notify: { _ in },
+            onDocumentOpened: { _ in },
+            onDocumentChanged: { _ in },
+            onDocumentClosed: { _ in },
+            onRecordSave: { _, _ in },
+            onRecordDiscard: { _ in },
+            onRecordExternalChanges: { _ in },
+            onDocumentCollectionChanged: {},
+            onProjectCloseReady: {}
+        )
+
+        await model.openFileAsync(
+            fileURL,
+            isReadOnly: false,
+            displayPath: nil,
+            activateWhenReady: true
+        )
+        let originalDocument = try #require(model.openDocuments.first)
+        originalDocument.text = "unsaved change"
+
+        await model.openFileAsync(
+            workspace.appendingPathComponent("Sources/Nested/../Feature/Example.swift"),
+            isReadOnly: false,
+            displayPath: nil,
+            activateWhenReady: true
+        )
+
+        #expect(model.openDocuments.count == 1)
+        #expect(model.openDocuments.first === originalDocument)
+        #expect(originalDocument.text == "unsaved change")
+        #expect(originalDocument.isDirty)
+    }
+
+    @Test
+    func projectTreeLocatorMatchesStandardizedPathsAndExpandsParents() {
+        let root = URL(fileURLWithPath: "/tmp/lithe-tree-locator-tests")
+        let featureDirectory = root.appendingPathComponent("Sources/Feature")
+        let fileURL = featureDirectory.appendingPathComponent("Example.swift")
+
+        let equivalentFile = root.appendingPathComponent("Sources/Nested/../Feature/Example.swift")
+        #expect(ProjectTreeLocator.matchingURL(for: equivalentFile, among: [fileURL]) == fileURL)
+        #expect(
+            ProjectTreeLocator.expandedDirectoryPaths(for: fileURL, rootURL: root)
+                == Set([
+                    root.standardizedFileURL.path,
+                    root.appendingPathComponent("Sources").standardizedFileURL.path,
+                    featureDirectory.standardizedFileURL.path
+                ])
+        )
+        #expect(
+            ProjectTreeLocator.matchingURL(
+                for: root.deletingLastPathComponent().appendingPathComponent("Outside.swift"),
+                among: [fileURL]
+            ) == nil
+        )
+    }
+
+    @Test
+    @MainActor
+    func editorViewportStoreRetainsStateForOpenDocuments() {
+        let retainedID = UUID()
+        let closedID = UUID()
+        let store = EditorViewportStore()
+        store.updateSelection(NSRange(location: 18, length: 4), for: retainedID)
+        store.updateScrollOffset(240, for: retainedID)
+        store.updateSelection(NSRange(location: 7, length: 0), for: closedID)
+
+        #expect(
+            store.state(for: retainedID)
+                == EditorViewportState(
+                    selectionLocation: 18,
+                    selectionLength: 4,
+                    verticalScrollOffset: 240
+                )
+        )
+
+        store.retain(documentIDs: [retainedID])
+        #expect(store.state(for: retainedID).selectionLocation == 18)
+        #expect(store.state(for: closedID) == EditorViewportState())
+    }
 }
 
 @MainActor

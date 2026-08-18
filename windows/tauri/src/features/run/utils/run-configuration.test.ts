@@ -5,6 +5,9 @@ import {
   isBlockingToolchainDiagnostic,
   mapCoreConfiguration,
   mergeLaunchEnvironment,
+  projectScopedPath,
+  saveRunConfigurationChanges,
+  selectedToolchainCandidates,
   workspaceRelativePath,
 } from "./run-configuration";
 
@@ -75,6 +78,48 @@ describe("run configuration mapping", () => {
     expect(
       workspaceRelativePath("D:\\work\\demo", "D:\\work\\demo\\src\\main\\java\\App.java"),
     ).toBe("src/main/java/App.java");
+    expect(projectScopedPath("D:/work/demo", "D:/other/output")).toBeUndefined();
+  });
+
+  test("selects a probed custom toolchain instead of an unrelated automatic runtime", () => {
+    const candidates = selectedToolchainCandidates(
+      {
+        java: [
+          { homePath: "C:/Java/automatic", version: "17", vendor: "Auto" },
+          { homePath: "D:\\SDKs\\custom", version: "21", vendor: "Custom" },
+        ],
+        maven: [],
+      },
+      {
+        javaHomePath: "d:/sdks/custom/",
+        mavenExecutablePath: "",
+        mavenJavaHomePath: "",
+      },
+    );
+
+    expect(candidates).toEqual([
+      { id: "project-jdk", type: "java", version: "21", vendor: "Custom" },
+    ]);
+  });
+
+  test("serializes toolchain and option saves that share the local document", async () => {
+    const calls: string[] = [];
+    let toolchainWritten = false;
+    const saved = await saveRunConfigurationChanges(
+      async () => {
+        calls.push("toolchain");
+        toolchainWritten = true;
+        return true;
+      },
+      async () => {
+        calls.push("options");
+        expect(toolchainWritten).toBe(true);
+        return true;
+      },
+    );
+
+    expect(saved).toBe(true);
+    expect(calls).toEqual(["toolchain", "options"]);
   });
 
   test("merges user env with toolchain-derived launch environment", () => {

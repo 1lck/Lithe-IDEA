@@ -77,7 +77,7 @@ const createRemoteConnectionFormData = (): RemoteConnectionFormData => ({
 
 const ProjectPicker = memo(
   ({ isOpen, onClose, initialMode = "picker" }: ProjectPickerProps) => {
-    const { t } = useTranslation();
+  const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const remoteNameInputRef = useRef<HTMLInputElement>(null);
   const [connections, setConnections] = useState<RemoteConnection[]>([]);

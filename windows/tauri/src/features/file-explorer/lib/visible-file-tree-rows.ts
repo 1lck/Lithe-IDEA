@@ -1,4 +1,5 @@
 import type { FileEntry } from "@/features/file-system/types/app.types";
+import { getCompactFolderChild } from "@/features/file-system/controllers/file-tree-utils";
 import type { FileTreeSortOrder } from "@/features/settings/types/settings.types";
 import { getBaseName, getRelativePath, joinPath, pathStartsWithRoot } from "@/utils/path-helpers";
 
@@ -114,23 +115,6 @@ export function collectFileTreeSearchHits(
 
   walk(files);
   return hits;
-}
-
-function getCompactFolderChild(item: FileEntry): FileEntry | null {
-  if (!item.isDir || item.isEditing || item.isRenaming || item.isNewItem || !item.children) {
-    return null;
-  }
-
-  if (item.children.length !== 1) {
-    return null;
-  }
-
-  const child = item.children[0];
-  if (!child.isDir || child.isEditing || child.isRenaming || child.isNewItem) {
-    return null;
-  }
-
-  return child;
 }
 
 function sortFileTreeEntriesForDisplay(
