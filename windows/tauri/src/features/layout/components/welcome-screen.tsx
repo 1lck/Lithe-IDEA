@@ -71,27 +71,27 @@ export function WelcomeScreen() {
   return (
     <main className="flex min-h-0 flex-1 overflow-hidden bg-background">
       <aside className="flex w-60 shrink-0 flex-col border-border border-r bg-surface px-3 pb-3">
-        <div className="flex items-center gap-3 px-2 pt-7 pb-8">
-          <img src="/logo.png" alt="" className="size-12 rounded-xl" />
+        <div className="flex items-center gap-[11px] px-2 pt-7 pb-[30px]">
+          <img src="/logo.png" alt="" className="size-[42px] rounded-xl" />
           <div className="min-w-0">
-            <div className="truncate text-[20px] leading-tight font-semibold text-foreground">
+            <div className="truncate text-[18px] leading-tight font-semibold text-foreground">
               Lithe
             </div>
-            <div className="mt-1 ui-text-sm text-subtle-foreground">
+            <div className="mt-0.5 ui-text-caption text-subtle-foreground">
               {appVersion ? `${appVersion} · Windows` : "Windows"}
             </div>
             <button
               type="button"
-              className="mt-1 inline-flex items-center gap-1.5 ui-text-sm text-subtle-foreground hover:text-foreground"
+              className="mt-0.5 inline-flex items-center gap-1.5 whitespace-nowrap ui-text-caption font-medium text-subtle-foreground hover:text-foreground"
               onClick={() => openSettingsDialog("general")}
             >
-              <ArrowClockwiseIcon className="size-3.5" />
+              <ArrowClockwiseIcon className="size-3" />
               {t("welcome.checkUpdates")}
             </button>
           </div>
         </div>
 
-        <div className="flex h-9 items-center gap-2 rounded-md bg-primary/55 px-3 font-medium text-white">
+        <div className="mx-0.5 flex h-9 items-center gap-[9px] rounded-md bg-primary/55 px-3.5 font-medium text-white">
           <FolderIcon className="size-4" />
           <span>{t("welcome.projects")}</span>
         </div>
@@ -100,7 +100,7 @@ export function WelcomeScreen() {
           <Button
             type="button"
             variant="ghost"
-            className="h-9 w-full justify-start gap-2 px-3 text-subtle-foreground"
+            className="mx-0.5 mb-0.5 h-9 w-auto self-stretch justify-start gap-[9px] px-3.5 text-subtle-foreground"
             onClick={() => openSettingsDialog("general")}
           >
             <GearIcon className="size-4" />
