@@ -34,7 +34,7 @@ export function GitGraphRow({ row, showDecorations }: { row: GraphRow; showDecor
         aria-hidden="true"
         width={width}
         height={ROW_HEIGHT}
-        className="shrink-0 overflow-visible"
+        className="pointer-events-none shrink-0 overflow-visible"
       >
         {row.incomingLaneColors.map((colorIndex, lane) => {
           if (colorIndex === null) return null;
@@ -78,13 +78,13 @@ export function GitGraphRow({ row, showDecorations }: { row: GraphRow; showDecor
         />
       </svg>
 
-      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-clip">
         {showDecorations &&
           row.labels.map((label, index) => (
             <span
               key={`${label.kind}:${label.title}:${index}`}
               className={cn(
-                "max-w-28 shrink-0 truncate rounded border px-1.5 py-0.5 font-medium text-[10px] leading-none",
+                "max-w-28 shrink-0 overflow-clip text-ellipsis whitespace-nowrap rounded border px-1.5 py-0.5 font-medium text-[10px] leading-none",
                 gitGraphLabelClassName(label),
               )}
               title={label.title}
@@ -92,7 +92,10 @@ export function GitGraphRow({ row, showDecorations }: { row: GraphRow; showDecor
               {label.title}
             </span>
           ))}
-        <span className="min-w-0 flex-1 truncate text-foreground" title={row.commit.message}>
+        <span
+          className="min-w-0 flex-1 overflow-clip text-ellipsis whitespace-nowrap text-foreground"
+          title={row.commit.message}
+        >
           {row.commit.message}
         </span>
       </div>
