@@ -1,13 +1,11 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import * as gitEvents from "../events/git-events";
 import type { GitOperationState } from "../types/git.types";
 
 const invoke = mock(async (_command: string, _args?: unknown): Promise<unknown> => null);
-const emitGitChanged = mock((_change: unknown) => {});
-const resolveRepositoryPathOrThrow = mock(async (repoPath: string) => repoPath);
+const emitGitChanged = spyOn(gitEvents, "emitGitChanged");
 
 mock.module("@/platform/tauri-core", () => ({ invoke }));
-mock.module("../events/git-events", () => ({ emitGitChanged }));
-mock.module("./git-repo-api", () => ({ resolveRepositoryPathOrThrow }));
 
 const { getConflictMarkerPaths, getOperationState, mergeBranch, rebaseOntoBranch } = await import(
   "./git-integration-api"
@@ -26,14 +24,13 @@ const operationState = (
 
 beforeEach(() => {
   invoke.mockReset();
-  emitGitChanged.mockReset();
-  resolveRepositoryPathOrThrow.mockReset();
-  resolveRepositoryPathOrThrow.mockImplementation(async (repoPath: string) => repoPath);
+  emitGitChanged.mockClear();
 });
 
 describe("Git integration state", () => {
   test("reports a stopped rebase even when no conflicted paths remain", async () => {
     invoke.mockImplementation(async (command: string) => {
+      if (command === "git_discover_repo") return "C:/repo";
       if (command === "git_integration_preflight") {
         return { blockingPaths: [], blocksEntirely: false };
       }
@@ -52,6 +49,7 @@ describe("Git integration state", () => {
 
   test("reports conflicted paths when a merge stops on conflicts", async () => {
     invoke.mockImplementation(async (command: string) => {
+      if (command === "git_discover_repo") return "C:/repo";
       if (command === "git_integration_preflight") {
         return { blockingPaths: [], blocksEntirely: false };
       }
@@ -69,13 +67,19 @@ describe("Git integration state", () => {
   });
 
   test("propagates operation state query failures", async () => {
-    invoke.mockRejectedValue(new Error("Core unavailable"));
+    invoke.mockImplementation(async (command: string) => {
+      if (command === "git_discover_repo") return "C:/repo";
+      throw new Error("Core unavailable");
+    });
 
     await expect(getOperationState("C:/repo")).rejects.toThrow("Core unavailable");
   });
 
   test("propagates conflict marker query failures so commits fail closed", async () => {
-    invoke.mockRejectedValue(new Error("Core unavailable"));
+    invoke.mockImplementation(async (command: string) => {
+      if (command === "git_discover_repo") return "C:/repo";
+      throw new Error("Core unavailable");
+    });
 
     await expect(getConflictMarkerPaths("C:/repo")).rejects.toThrow("Core unavailable");
   });
