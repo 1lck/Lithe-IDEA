@@ -75,26 +75,29 @@ export function ProjectTabBar() {
                   />
                 ) : null}
               </button>
-              <Button
-                type="button"
-                size="icon-xs"
-                variant="ghost"
-                aria-label={closeLabel}
-                tooltip={closeLabel}
-                disabled={isProjectActionPending}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  void handleCloseProject(project.id);
-                }}
+              <div
                 className={cn(
-                  "absolute top-1/2 right-1 z-10 -translate-y-1/2 transition-opacity",
+                  "absolute inset-y-0 right-1 z-10 flex items-center transition-opacity",
                   project.isActive
                     ? "opacity-100"
                     : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100",
                 )}
               >
-                <X className="pointer-events-none select-none" aria-hidden="true" />
-              </Button>
+                <Button
+                  type="button"
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-label={closeLabel}
+                  tooltip={closeLabel}
+                  disabled={isProjectActionPending}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void handleCloseProject(project.id);
+                  }}
+                >
+                  <X className="pointer-events-none select-none" aria-hidden="true" />
+                </Button>
+              </div>
             </div>
           );
         })}

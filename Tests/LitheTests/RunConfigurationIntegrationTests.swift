@@ -2988,6 +2988,47 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func projectToolchainSelectionsPersistAsProjectRelativePaths() throws {
+        let core = RustCoreBridge()
+        guard core.isAvailable else { return }
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-project-toolchains-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        for path in [".lithe/run", "toolchains/jdk", "toolchains/maven/bin", "toolchains/maven-jdk"] {
+            try FileManager.default.createDirectory(
+                at: root.appendingPathComponent(path, isDirectory: true),
+                withIntermediateDirectories: true
+            )
+        }
+        try Data("#!/bin/sh\n".utf8)
+            .write(to: root.appendingPathComponent("toolchains/maven/bin/mvn"))
+        try Data(#"{"version":2,"configurations":[{"id":"spring","name":"Spring","provider":"spring-boot.maven","execution":"service","toolchains":{"java":"project-jdk","maven":"project-maven"},"extensions":{"maven":{"module":"."}}}]}"#.utf8)
+            .write(to: root.appendingPathComponent(".lithe/run/generated.json"))
+        let store = MacRunConfigurationStore(
+            core: core,
+            storage: MacFileStorage(),
+            preferences: RunTestKeyValueStore()
+        )
+
+        try store.saveOptions(
+            RunOptions(
+                javaHomePath: root.appendingPathComponent("toolchains/jdk").path,
+                mavenExecutablePath: root.appendingPathComponent("toolchains/maven/bin/mvn").path,
+                mavenJavaHomePath: root.appendingPathComponent("toolchains/maven-jdk").path
+            ),
+            configurationID: "spring",
+            scope: .project,
+            at: root
+        )
+
+        let resolved = try store.resolve(at: root, toolchainCandidates: [])
+        let options = try #require(resolved.configurations.first { $0.configuration.id == "spring" }?.options)
+        #expect(options.javaHomePath == "toolchains/jdk")
+        #expect(options.mavenExecutablePath == "toolchains/maven/bin/mvn")
+        #expect(options.mavenJavaHomePath == "toolchains/maven-jdk")
+    }
+
+    @Test
     func goRuntimeToolchainFlowsFromSharedJSONIntoProcessRequest() async throws {
         let core = RustCoreBridge()
         guard core.isAvailable else { return }
@@ -3392,6 +3433,39 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func projectOptionUpdateForwardsSelectedToolchainPaths() async {
+        let configuration = JavaRunConfiguration(
+            id: "spring",
+            name: "Spring",
+            kind: .springBoot,
+            modulePath: ".",
+            mainClass: nil
+        )
+        let fixture = makeFixture(
+            status: .ready,
+            effective: [EffectiveRunConfiguration(
+                configuration: configuration,
+                options: RunOptions(),
+                source: .generated
+            )]
+        )
+        await fixture.service.loadProject(
+            at: fixture.root,
+            files: [],
+            mavenProject: fixture.mavenProject
+        )
+        let options = RunOptions(
+            javaHomePath: "toolchains/jdk",
+            mavenExecutablePath: "toolchains/maven/bin/mvn",
+            mavenJavaHomePath: "toolchains/maven-jdk"
+        )
+
+        #expect(fixture.service.updateOptions(options, for: configuration, scope: .project))
+        #expect(fixture.operations.savedOptions == [options])
+        #expect(fixture.operations.savedScopes == [.project])
+    }
+
+    @Test
     func appOwnedFileEventSuppressionIsOneShotAndExpires() {
         let first = URL(fileURLWithPath: "/tmp/lithe-self-write-one.json")
         let second = URL(fileURLWithPath: "/tmp/lithe-self-write-two.json")
@@ -3570,6 +3644,8 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
     private(set) var debugPorts: [Int?] = []
     private(set) var createdDrafts: [RunConfigurationDraft] = []
     private(set) var lastToolchainCandidates: [ProjectToolchainCandidate] = []
+    private(set) var savedOptions: [RunOptions] = []
+    private(set) var savedScopes: [RunConfigurationSaveScope] = []
 
     init(
         status: ProjectRunConfigurationStatus,
@@ -3622,7 +3698,10 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
         configurationID: String,
         scope: RunConfigurationSaveScope,
         at projectURL: URL
-    ) throws {}
+    ) throws {
+        savedOptions.append(options)
+        savedScopes.append(scope)
+    }
     func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String {
         createdDrafts.append(draft)
         let slug = draft.name.lowercased().replacingOccurrences(of: " ", with: "-")

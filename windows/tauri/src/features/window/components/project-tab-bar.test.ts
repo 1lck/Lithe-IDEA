@@ -17,4 +17,8 @@ test("project tab bar exposes accessible switchable and closable project tabs", 
   expect(source).toContain('t("titleProject.closeProject", { name: project.name })');
   expect(source).toContain("group-hover:opacity-100");
   expect(source).toContain("group-focus-within:opacity-100");
+  expect(source).toContain(
+    "absolute inset-y-0 right-1 z-10 flex items-center transition-opacity",
+  );
+  expect(source).not.toContain("-translate-y-1/2");
 });

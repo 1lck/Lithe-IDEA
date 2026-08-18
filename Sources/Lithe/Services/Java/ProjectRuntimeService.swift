@@ -114,9 +114,11 @@ final class ProjectRuntimeService: ObservableObject {
     }
 
     func javaHomeURL(overridePath: String? = nil) -> URL? {
-        if let overridePath,
-           !normalizedPath(overridePath).isEmpty {
-            return runtimeLocator.validJavaHome(path: normalizedPath(overridePath))
+        if let overridePath {
+            let normalizedPath = normalizedOverridePath(overridePath)
+            if !normalizedPath.isEmpty {
+                return runtimeLocator.validJavaHome(path: normalizedPath)
+            }
         }
         let paths = [runtimeLocator.environment()["JAVA_HOME"]]
         for path in paths.compactMap({ $0 }).map(normalizedPath).filter({ !$0.isEmpty }) {
@@ -137,8 +139,9 @@ final class ProjectRuntimeService: ObservableObject {
     /// probes `java -version`, so capability checks can remain inert.
     func configuredJavaExecutableURL(overridePath: String? = nil) -> URL? {
         let paths: [String?]
-        if let overridePath, !normalizedPath(overridePath).isEmpty {
-            paths = [overridePath]
+        if let overridePath {
+            let normalizedPath = normalizedOverridePath(overridePath)
+            paths = normalizedPath.isEmpty ? [runtimeLocator.environment()["JAVA_HOME"]] : [normalizedPath]
         } else {
             paths = [runtimeLocator.environment()["JAVA_HOME"]]
         }
@@ -167,9 +170,11 @@ final class ProjectRuntimeService: ObservableObject {
     }
 
     func mavenJavaHomeURL(overridePath: String? = nil) -> URL? {
-        if let overridePath,
-           !normalizedPath(overridePath).isEmpty {
-            return runtimeLocator.validJavaHome(path: normalizedPath(overridePath))
+        if let overridePath {
+            let normalizedPath = normalizedOverridePath(overridePath)
+            if !normalizedPath.isEmpty {
+                return runtimeLocator.validJavaHome(path: normalizedPath)
+            }
         }
         let paths = [runtimeLocator.environment()["JAVA_HOME"]]
         for path in paths.compactMap({ $0 }).map(normalizedPath).filter({ !$0.isEmpty }) {
@@ -385,6 +390,15 @@ final class ProjectRuntimeService: ObservableObject {
             ))
         }
         return result
+    }
+
+    private func normalizedOverridePath(_ path: String) -> String {
+        let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPath.isEmpty else { return "" }
+        let normalized = normalizedPath(trimmedPath)
+        guard !(normalized as NSString).isAbsolutePath,
+              let projectURL else { return normalized }
+        return projectURL.appendingPathComponent(normalized).standardizedFileURL.path
     }
 
     private func normalizedPath(_ path: String) -> String {
