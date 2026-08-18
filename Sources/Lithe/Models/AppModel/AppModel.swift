@@ -1132,6 +1132,7 @@ final class AppModel: ObservableObject, Identifiable {
     ) {
         selectedChange = nil
         closeBranchComparison()
+        editorNavigationTarget = nil
         documentFeature.openFile(url, isReadOnly: isReadOnly, displayPath: displayPath)
     }
 
