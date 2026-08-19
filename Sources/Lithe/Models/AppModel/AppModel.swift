@@ -813,8 +813,8 @@ final class AppModel: ObservableObject, Identifiable {
         showNotification(settings.language == .simplifiedChinese ? "语言服务器诊断已清空" : "Language server diagnostics cleared")
     }
 
-    func javaStructure(source: String, declarationSources: [String] = []) -> JavaStructureResult? {
-        javaFeature.structure(source: source, declarationSources: declarationSources)
+    func javaStructure(source: String, declarationSources: [String] = []) async -> JavaStructureResult? {
+        await javaFeature.structure(source: source, declarationSources: declarationSources)
     }
 
     var activeDocument: EditorDocument? {
