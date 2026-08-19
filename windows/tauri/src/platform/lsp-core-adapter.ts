@@ -1,7 +1,12 @@
 import { emit } from "@tauri-apps/api/event";
 import { executeCore, type CoreResponse } from "@/core/lithe-core-client";
+import { frontendTrace } from "@/utils/frontend-trace";
 
 type JsonRecord = Record<string, any>;
+
+const INITIALIZE_TIMEOUT_MS = 30_000;
+const SESSION_CLEANUP_TIMEOUT_MS = 5_000;
+const POLL_INTERVAL_MS = 20;
 
 interface Session {
   id: string;
@@ -16,15 +21,32 @@ interface Session {
   completed: Map<string, RuntimeEvent>;
 }
 
+interface RuntimeError {
+  code?: string;
+  providerId?: string;
+  sessionId?: string;
+  stage?: string;
+  method?: string;
+  documentUri?: string;
+  message?: string;
+  underlyingMessage?: string;
+  processExitCode?: number;
+}
+
 interface RuntimeEvent {
   type: string;
+  providerId?: string;
+  sessionId?: string;
   state?: string;
   operationId?: string;
   uri?: string;
   version?: number;
   diagnostics?: unknown[];
   result?: unknown;
-  error?: { code?: string; message?: string };
+  error?: RuntimeError;
+  level?: string;
+  message?: string;
+  detail?: string;
 }
 
 const sessions = new Map<string, Session>();
@@ -65,6 +87,14 @@ function normalizeCoreValue(value: unknown): unknown {
 }
 
 async function dispatchRuntimeEvent(event: RuntimeEvent): Promise<void> {
+  if (event.type === "log") {
+    const level = event.level === "error" ? "error" : event.level === "warning" ? "warn" : "info";
+    frontendTrace(level, "lsp.runtime", event.message ?? "Language-server log", {
+      detail: event.detail ?? null,
+      providerId: event.providerId,
+      sessionId: event.sessionId,
+    });
+  }
   if (event.type === "diagnostics" && event.uri) {
     await emit("lsp://diagnostics", {
       uri: event.uri,
@@ -118,22 +148,71 @@ async function runEventPump(session: Session): Promise<void> {
       await emit("lsp://server-crashed", {});
       return;
     }
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   }
 }
 
 async function waitUntilReady(session: Session): Promise<void> {
-  const deadline = Date.now() + 12_000;
+  const deadline = Date.now() + INITIALIZE_TIMEOUT_MS;
   while (Date.now() < deadline) {
     const events = await poll(session);
     const state = [...events].reverse().find((event) => event.type === "stateChanged")?.state;
     if (state === "ready") return;
     if (state === "failed" || state === "stopped") {
-      throw new Error(`Language server entered ${state} state`);
+      const failure = [...events]
+        .reverse()
+        .find((event) => event.type === "stateChanged" && event.error)?.error;
+      const detail = [
+        failure?.underlyingMessage,
+        failure?.processExitCode != null ? `exit code ${failure.processExitCode}` : null,
+      ]
+        .filter(Boolean)
+        .join("; ");
+      const error = new Error(
+        [failure?.message ?? `Language server entered ${state} state`, detail]
+          .filter(Boolean)
+          .join(" "),
+      ) as Error & { code?: string; details?: string };
+      error.code = failure?.code;
+      error.details = detail || failure?.stage;
+      throw error;
     }
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   }
-  throw new Error("Language server initialization timed out");
+  const error = new Error("Language server initialization timed out") as Error & { code?: string };
+  error.code = "timed_out";
+  throw error;
+}
+
+async function stopAndDestroySession(session: Session): Promise<void> {
+  session.running = false;
+  await core("lsp.stopServer", { sessionId: session.id });
+
+  const deadline = Date.now() + SESSION_CLEANUP_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    try {
+      await core("lsp.destroyServer", { sessionId: session.id });
+      return;
+    } catch {
+      // A graceful stop is asynchronous; keep draining events until Core is terminal.
+    }
+    await poll(session);
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+  }
+
+  await core("lsp.destroyServer", { sessionId: session.id });
+}
+
+async function cleanupFailedStart(key: string, session: Session): Promise<void> {
+  try {
+    await stopAndDestroySession(session);
+  } catch (reason) {
+    frontendTrace("warn", "lsp.runtime", "Language-server cleanup failed", {
+      sessionId: session.id,
+      error: reason instanceof Error ? reason.message : String(reason),
+    });
+  }
+  sessions.delete(key);
 }
 
 function sessionForFile(filePath: string): Session {
@@ -163,6 +242,7 @@ async function start(args: JsonRecord): Promise<void> {
       initializationOptions: args.initializationOptions ?? null,
       runtimeExecutablePath: args.runtimeExecutablePath ?? null,
       cacheDirectory: args.cacheDirectory ?? null,
+      initializeTimeoutMilliseconds: INITIALIZE_TIMEOUT_MS,
     });
     session = {
       id: started.sessionId,
@@ -174,7 +254,12 @@ async function start(args: JsonRecord): Promise<void> {
       completed: new Map(),
     };
     sessions.set(key, session);
-    await waitUntilReady(session);
+    try {
+      await waitUntilReady(session);
+    } catch (error) {
+      await cleanupFailedStart(key, session);
+      throw error;
+    }
     session.running = true;
     void runEventPump(session);
   }
@@ -185,9 +270,7 @@ async function start(args: JsonRecord): Promise<void> {
 }
 
 async function stopSession(session: Session): Promise<void> {
-  session.running = false;
-  await core("lsp.stopServer", { sessionId: session.id });
-  await core("lsp.destroyServer", { sessionId: session.id });
+  await stopAndDestroySession(session);
   sessions.delete(`${session.workspacePath}:${session.languageId}`);
   for (const file of session.files) fileSessions.delete(file);
 }

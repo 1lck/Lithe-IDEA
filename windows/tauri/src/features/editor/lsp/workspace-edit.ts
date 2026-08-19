@@ -67,14 +67,28 @@ export function isWorkspaceEdit(value: unknown): value is WorkspaceEdit {
   return hasChanges || hasDocumentChanges;
 }
 
+function decodeUriPath(path: string): string {
+  try {
+    return decodeURIComponent(path);
+  } catch {
+    return path;
+  }
+}
+
 export function filePathFromUri(uri: string): string {
   if (!uri.startsWith("file://")) return uri;
 
   try {
     const url = new URL(uri);
-    return decodeURIComponent(url.pathname);
+    const pathname = decodeUriPath(url.pathname);
+    // URL.pathname keeps the leading slash in `file:///C:/...`; remove it so
+    // Windows hosts receive a drive-qualified path instead of `/C:/...`.
+    if (/^\/[A-Za-z]:\//.test(pathname)) return pathname.slice(1);
+    if (url.hostname) return `//${url.hostname}${pathname}`;
+    return pathname;
   } catch {
-    return decodeURIComponent(uri.replace(/^file:\/\//, ""));
+    const path = decodeUriPath(uri.replace(/^file:\/\//, ""));
+    return path.replace(/^\/([A-Za-z]:[\\/])/, "$1");
   }
 }
 
