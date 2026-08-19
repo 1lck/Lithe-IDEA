@@ -16,7 +16,8 @@ struct SyntaxHighlightingConfigurationTests {
             "ini": "ini",
             "xml": "xml",
             "conf": "generic-config",
-            "config": "generic-config"
+            "config": "generic-config",
+            "env": "env"
         ]
 
         for (fileExtension, formatID) in expectedFormatsByExtension {
@@ -38,8 +39,42 @@ struct SyntaxHighlightingConfigurationTests {
         #expect(registry.format(fileExtension: ".JSON")?.id == "json")
         #expect(registry.format(fileName: ".ENV", fileExtension: "")?.id == "env")
         #expect(registry.format(fileName: ".env.LOCAL", fileExtension: "local")?.id == "env")
-        #expect(registry.adapter(fileName: ".env", fileExtension: "env") == .envFile)
-        #expect(registry.adapter(fileName: ".env.production", fileExtension: "production") == .envFile)
+        #expect(registry.adapter(fileName: ".env", fileExtension: "") == .envFile)
+        #expect(registry.adapter(fileName: "credentials.env", fileExtension: ".ENV") == .envFile)
+    }
+
+    @Test
+    func commonEnvironmentFileNamesUseEnvironmentAdapter() {
+        let registry = SyntaxHighlightingRegistry.bundled
+        let environmentFileNames = [
+            ".env",
+            ".env.local",
+            ".env.development",
+            ".env.development.local",
+            ".env.test",
+            ".env.test.local",
+            ".env.production",
+            ".env.production.local",
+            ".env.staging",
+            ".env.staging.local",
+            ".env.example",
+            ".env.sample",
+            ".env.template",
+            "credentials.env"
+        ]
+
+        for fileName in environmentFileNames {
+            let fileURL = URL(fileURLWithPath: fileName)
+            #expect(
+                registry.adapter(
+                    fileName: fileURL.lastPathComponent,
+                    fileExtension: fileURL.pathExtension
+                ) == .envFile
+            )
+        }
+
+        #expect(registry.adapter(fileName: ".environment", fileExtension: "") == .generic)
+        #expect(registry.adapter(fileName: "env.local", fileExtension: "local") == .generic)
     }
 
     @Test

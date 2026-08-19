@@ -46,6 +46,7 @@
     {
       "id": "env",
       "displayName": "ENV",
+      "fileExtensions": ["env"],
       "fileNames": [".env"],
       "fileNamePrefixes": [".env."],
       "adapter": "envFile"

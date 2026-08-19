@@ -316,8 +316,15 @@ struct EditorSyntaxHighlighterTests {
     func envSyntaxCorpusUsesExpectedTokenColors() throws {
         let source = try syntaxCorpus(named: "env-syntax-corpus", extension: "env")
         let storage = NSTextStorage(string: source)
+        let fileURL = URL(fileURLWithPath: ".env.local")
 
-        SyntaxHighlighter.apply(to: storage, font: .monospacedSystemFont(ofSize: 13, weight: .regular), fileName: ".env", fileExtension: "env", isDark: true)
+        SyntaxHighlighter.apply(
+            to: storage,
+            font: .monospacedSystemFont(ofSize: 13, weight: .regular),
+            fileName: fileURL.lastPathComponent,
+            fileExtension: fileURL.pathExtension,
+            isDark: true
+        )
 
         let text = source as NSString
         let keyColor = try color(in: storage, at: text.range(of: "APP_NAME").location)
