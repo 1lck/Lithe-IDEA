@@ -1,62 +1,880 @@
 {
   "description": "Lithe icon export name -> IntelliJ platform icon asset (relative to intellij-community platform/icons/src). Managed by scripts/generate-idea-icons.ts. Icons absent from this list keep their lucide fallback. colorPolicy defaults to 'fixed' (IDEA colors as-is); 'fallback' entries document why an IDEA asset was not used.",
   "icons": [
-    { "icon": "PlusIcon", "source": "expui/general/add.svg" },
-    { "icon": "XIcon", "source": "expui/general/close.svg" },
-    { "icon": "CheckIcon", "source": "expui/general/greenCheckmark.svg" },
-    { "icon": "CheckCircleIcon", "source": "expui/general/successDialog.svg" },
-    { "icon": "TrashIcon", "source": "expui/general/delete.svg" },
-    { "icon": "CaretDownIcon", "source": "expui/general/chevronDown.svg" },
-    { "icon": "ChevronDownIcon", "source": "expui/general/chevronDown.svg" },
-    { "icon": "CaretUpIcon", "source": "expui/general/chevronUp.svg" },
-    { "icon": "ChevronUpIcon", "source": "expui/general/chevronUp.svg" },
-    { "icon": "CaretLeftIcon", "source": "expui/general/chevronLeft.svg" },
-    { "icon": "ChevronLeftIcon", "source": "expui/general/chevronLeft.svg" },
-    { "icon": "CaretRightIcon", "source": "expui/general/chevronRight.svg" },
-    { "icon": "ChevronRightIcon", "source": "expui/general/chevronRight.svg" },
-    { "icon": "MagnifyingGlassIcon", "source": "expui/general/search.svg" },
-    { "icon": "GearIcon", "source": "expui/general/settings.svg" },
-    { "icon": "RefreshIcon", "source": "expui/general/refresh.svg" },
-    { "icon": "CopyIcon", "source": "expui/general/copy.svg" },
-    { "icon": "DownloadIcon", "source": "expui/general/download.svg" },
-    { "icon": "UploadIcon", "source": "expui/general/upload.svg" },
-    { "icon": "FloppyDiskIcon", "source": "expui/general/save.svg" },
-    { "icon": "ArrowCounterClockwiseIcon", "source": "expui/general/undo.svg" },
-    { "icon": "ArrowClockwiseIcon", "source": "expui/general/redo.svg" },
-    { "icon": "WarningIcon", "source": "expui/general/warningDialog.svg" },
-    { "icon": "WarningCircleIcon", "source": "expui/general/warningDialog.svg" },
-    { "icon": "InfoIcon", "source": "expui/general/informationDialog.svg" },
-    { "icon": "QuestionIcon", "source": "expui/general/questionDialog.svg" },
-    { "icon": "XCircleIcon", "source": "expui/general/errorDialog.svg" },
-    { "icon": "MinusIcon", "source": "expui/general/remove.svg" },
-    { "icon": "DotsThreeIcon", "source": "expui/general/moreHorizontal.svg" },
-    { "icon": "KeyboardIcon", "source": "expui/general/keyboard.svg" },
-    { "icon": "ClockCounterClockwiseIcon", "source": "expui/general/history.svg" },
-    { "icon": "FunnelIcon", "source": "expui/general/filter.svg" },
-    { "icon": "PencilIcon", "source": "expui/general/edit.svg" },
-    { "icon": "LockIcon", "source": "expui/general/locked.svg" },
-    { "icon": "LockOpenIcon", "source": "expui/general/unlocked.svg" },
-    { "icon": "UserIcon", "source": "expui/general/user.svg" },
-    { "icon": "PushPinIcon", "source": "expui/general/pin.svg" },
-    { "icon": "GitBranchIcon", "source": "vcs/branch.svg" },
-    { "icon": "GitCommitIcon", "source": "expui/vcs/commit.svg" },
-    { "icon": "GitMergeIcon", "source": "expui/vcs/merge.svg" },
-    { "icon": "GitDiffIcon", "source": "expui/vcs/diff.svg" },
-    { "icon": "PlayIcon", "source": "expui/run/run.svg" },
-    { "icon": "StopIcon", "source": "expui/run/stop.svg" },
-    { "icon": "PauseIcon", "source": "expui/run/pause.svg" },
-    { "icon": "BugIcon", "source": "expui/run/debug.svg" },
-    { "icon": "FolderIcon", "source": "expui/nodes/folder.svg" },
-    { "icon": "FolderPlusIcon", "source": "expui/actions/newFolder.svg" },
-    { "icon": "FilePlusIcon", "source": "expui/actions/addFile.svg" },
-    { "icon": "FileIcon", "source": "fileTypes/text.svg" },
-    { "icon": "FileTextIcon", "source": "fileTypes/text.svg" },
-    { "icon": "OpenExternalIcon", "source": "expui/ide/externalLink.svg" },
-    { "icon": "BellIcon", "source": "expui/toolwindows/notifications.svg" },
+    {
+      "icon": "AiLoadingIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "ArchiveIcon",
+      "source": "expui/fileTypes/archive.svg"
+    },
+    {
+      "icon": "ArrowBendDownLeftIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "ArrowClockwiseIcon",
+      "source": "expui/general/redo.svg"
+    },
+    {
+      "icon": "ArrowCounterClockwiseIcon",
+      "source": "expui/general/undo.svg"
+    },
+    {
+      "icon": "ArrowDownIcon",
+      "source": "expui/general/down.svg"
+    },
+    {
+      "icon": "ArrowFatLineDownIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "ArrowLeftIcon",
+      "source": "expui/general/left.svg"
+    },
+    {
+      "icon": "ArrowRightIcon",
+      "source": "expui/general/right.svg"
+    },
+    {
+      "icon": "ArrowSquareOutIcon",
+      "source": "expui/ide/externalLink.svg"
+    },
+    {
+      "icon": "ArrowUpIcon",
+      "source": "expui/general/up.svg"
+    },
+    {
+      "icon": "ArrowsClockwiseIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "ArrowsInIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "ArrowsInLineVerticalIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "ArrowsLeftRightIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "ArrowsOutIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "BellIcon",
+      "source": "expui/toolwindows/notifications.svg"
+    },
+    {
+      "icon": "BookOpenIcon",
+      "source": "expui/toolwindows/documentation.svg"
+    },
+    {
+      "icon": "BookmarkIcon",
+      "source": "expui/bookmarks/bookmark.svg"
+    },
+    {
+      "icon": "BracketsCurlyIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "BrainIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "BroomIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "BugBeetleIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "BugIcon",
+      "source": "expui/run/debug.svg"
+    },
+    {
+      "icon": "CalendarIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "CaretDoubleLeftIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "CaretDoubleRightIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "CaretDoubleUpIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "CaretDownIcon",
+      "source": "expui/general/chevronDown.svg"
+    },
+    {
+      "icon": "CaretLeftIcon",
+      "source": "expui/general/chevronLeft.svg"
+    },
+    {
+      "icon": "CaretRightIcon",
+      "source": "expui/general/chevronRight.svg"
+    },
+    {
+      "icon": "CaretUpIcon",
+      "source": "expui/general/chevronUp.svg"
+    },
+    {
+      "icon": "ChatCircleTextIcon",
+      "source": "expui/toolwindows/messages.svg"
+    },
+    {
+      "icon": "CheckCircleIcon",
+      "source": "expui/general/successDialog.svg"
+    },
+    {
+      "icon": "CheckIcon",
+      "source": "expui/general/greenCheckmark.svg"
+    },
+    {
+      "icon": "ChevronDownIcon",
+      "source": "expui/general/chevronDown.svg"
+    },
+    {
+      "icon": "ChevronLeftIcon",
+      "source": "expui/general/chevronLeft.svg"
+    },
+    {
+      "icon": "ChevronRightIcon",
+      "source": "expui/general/chevronRight.svg"
+    },
+    {
+      "icon": "ChevronUpIcon",
+      "source": "expui/general/chevronUp.svg"
+    },
+    {
+      "icon": "CircleIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "CirclesThreeIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "ClipboardIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "ClipboardTextIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "ClockCounterClockwiseIcon",
+      "source": "expui/general/history.svg"
+    },
+    {
+      "icon": "ClockIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "CloudArrowDownIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "CloudCheckIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "CloudIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "CloudSlashIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "CloudWarningIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "CodeBlockIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "CodeIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "ColumnsIcon",
+      "source": "expui/general/splitVertically.svg"
+    },
+    {
+      "icon": "CommandIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "CopyIcon",
+      "source": "expui/general/copy.svg"
+    },
+    {
+      "icon": "CopySimpleIcon",
+      "source": "expui/general/copy.svg"
+    },
+    {
+      "icon": "CornersInIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "CornersOutIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "CreditCardIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "CubeIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "CursorClickIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "DatabaseIcon",
+      "source": "expui/toolwindows/toolWindowDataView.svg"
+    },
+    {
+      "icon": "DotOutlineIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "DotsThreeIcon",
+      "source": "expui/general/moreHorizontal.svg"
+    },
+    {
+      "icon": "DownloadIcon",
+      "source": "expui/general/download.svg"
+    },
+    {
+      "icon": "DownloadSimpleIcon",
+      "source": "expui/general/download.svg"
+    },
+    {
+      "icon": "EyeIcon",
+      "source": "expui/general/show.svg"
+    },
+    {
+      "icon": "EyeSlashIcon",
+      "source": "expui/general/hide.svg"
+    },
+    {
+      "icon": "FadersHorizontalIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "FileCodeIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "FileIcon",
+      "source": "fileTypes/text.svg"
+    },
+    {
+      "icon": "FilePlusIcon",
+      "source": "expui/actions/addFile.svg"
+    },
+    {
+      "icon": "FileTextIcon",
+      "source": "fileTypes/text.svg"
+    },
+    {
+      "icon": "FilesIcon",
+      "source": "expui/general/listFiles.svg"
+    },
+    {
+      "icon": "FlipHorizontalIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "FlipVerticalIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "FloppyDiskIcon",
+      "source": "expui/general/save.svg"
+    },
+    {
+      "icon": "FolderIcon",
+      "source": "expui/nodes/folder.svg"
+    },
+    {
+      "icon": "FolderOpenIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "FolderPlusIcon",
+      "source": "expui/actions/newFolder.svg"
+    },
+    {
+      "icon": "FolderSimpleStarIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "FunctionIcon",
+      "source": "expui/nodes/function.svg"
+    },
+    {
+      "icon": "FunnelIcon",
+      "source": "expui/general/filter.svg"
+    },
+    {
+      "icon": "GearIcon",
+      "source": "expui/general/settings.svg"
+    },
+    {
+      "icon": "GearSixIcon",
+      "source": "expui/general/settings.svg"
+    },
+    {
+      "icon": "GitBranchIcon",
+      "source": "vcs/branch.svg"
+    },
+    {
+      "icon": "GitCommitIcon",
+      "source": "expui/vcs/commit.svg"
+    },
+    {
+      "icon": "GitDiffIcon",
+      "source": "expui/vcs/diff.svg"
+    },
+    {
+      "icon": "GitGraphIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "GitMergeIcon",
+      "source": "expui/vcs/merge.svg"
+    },
+    {
+      "icon": "GitPullRequestIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "GithubLogoIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "GlobeHemisphereWestIcon",
+      "source": "expui/toolwindows/web.svg"
+    },
+    {
+      "icon": "GlobeIcon",
+      "source": "expui/toolwindows/web.svg"
+    },
+    {
+      "icon": "HardDrivesIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "HashIcon",
+      "source": "expui/general/hashtag.svg"
+    },
+    {
+      "icon": "HouseIcon",
+      "source": "expui/javaee/home.svg"
+    },
+    {
+      "icon": "ImageIcon",
+      "source": "expui/fileTypes/image.svg"
+    },
+    {
+      "icon": "InfoIcon",
+      "source": "expui/general/informationDialog.svg"
+    },
+    {
+      "icon": "KeyIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "KeyboardIcon",
+      "source": "expui/general/keyboard.svg"
+    },
+    {
+      "icon": "LaptopIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "LightbulbIcon",
+      "source": "expui/actions/realIntentionBulb.svg"
+    },
+    {
+      "icon": "LightningIcon",
+      "source": "expui/actions/lightning.svg"
+    },
+    {
+      "icon": "LightningSlashIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "LinkIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "LinkSimpleIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "ListBulletsIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "ListChecksIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "ListIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "LockIcon",
+      "source": "expui/general/locked.svg"
+    },
+    {
+      "icon": "LockKeyIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "LockOpenIcon",
+      "source": "expui/general/unlocked.svg"
+    },
+    {
+      "icon": "MagicWandIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "MagnifyingGlassIcon",
+      "source": "expui/general/search.svg"
+    },
+    {
+      "icon": "MagnifyingGlassMinusIcon",
+      "source": "expui/image/zoomOut.svg"
+    },
+    {
+      "icon": "MagnifyingGlassPlusIcon",
+      "source": "expui/image/zoomIn.svg"
+    },
+    {
+      "icon": "MegaphoneIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "MicrophoneIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "MinusCircleIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "MinusIcon",
+      "source": "expui/general/remove.svg"
+    },
+    {
+      "icon": "MoneyIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "MonitorIcon",
+      "source": "expui/nodes/desktop.svg"
+    },
+    {
+      "icon": "MoonIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "NavigationArrowIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "NetworkIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "NodesIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "OpenExternalIcon",
+      "source": "expui/ide/externalLink.svg"
+    },
+    {
+      "icon": "PackageIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "PaintBrushIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "PaletteIcon",
+      "source": "expui/toolwindows/palette.svg"
+    },
+    {
+      "icon": "PaperPlaneTiltIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "PauseIcon",
+      "source": "expui/run/pause.svg"
+    },
+    {
+      "icon": "PenIcon",
+      "source": "expui/general/edit.svg"
+    },
+    {
+      "icon": "PencilIcon",
+      "source": "expui/general/edit.svg"
+    },
+    {
+      "icon": "PencilLineIcon",
+      "source": "expui/general/edit.svg"
+    },
+    {
+      "icon": "PencilSimpleIcon",
+      "source": "expui/general/edit.svg"
+    },
+    {
+      "icon": "PencilSimpleLineIcon",
+      "source": "expui/general/edit.svg"
+    },
+    {
+      "icon": "PlayCircleIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "PlayIcon",
+      "source": "expui/run/run.svg"
+    },
+    {
+      "icon": "PlugsConnectedIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "PlusCircleIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "PlusIcon",
+      "source": "expui/general/add.svg"
+    },
+    {
+      "icon": "PulseIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "PushPinIcon",
+      "source": "expui/general/pin.svg"
+    },
+    {
+      "icon": "PushPinSlashIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "PuzzlePieceIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "QuestionIcon",
+      "source": "expui/general/questionDialog.svg"
+    },
+    {
+      "icon": "RadioButtonIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "RefreshIcon",
+      "source": "expui/general/refresh.svg"
+    },
+    {
+      "icon": "RobotIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "RocketLaunchIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "RowsIcon",
+      "source": "expui/general/splitHorizontally.svg"
+    },
+    {
+      "icon": "RowsPlusTopIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "ScissorsIcon",
+      "source": "expui/general/cut.svg"
+    },
+    {
+      "icon": "ShieldCheckIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "ShieldIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "ShieldWarningIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "SidebarSimpleIcon",
+      "source": "expui/general/layout.svg"
+    },
+    {
+      "icon": "SignInIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "SignOutIcon",
+      "source": "expui/general/exit.svg"
+    },
+    {
+      "icon": "SlidersHorizontalIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "SlidersIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "SparkleIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "SquareIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "SquaresFourIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "StackIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "StopIcon",
+      "source": "expui/run/stop.svg"
+    },
+    {
+      "icon": "SunIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "TableIcon",
+      "source": "expui/nodes/dataTables.svg"
+    },
+    {
+      "icon": "TagIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
     {
       "icon": "TerminalIcon",
       "source": null,
       "note": "IDEA terminal tool window icon ships in the terminal plugin, not platform/icons; keep lucide fallback"
+    },
+    {
+      "icon": "TerminalWindowIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "TextAaIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "TextAlignCenterIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "TextAlignJustifyIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "TextAlignLeftIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "TextIndentIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "TextOutdentIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "TextTIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "TranslateIcon",
+      "source": "expui/general/language.svg"
+    },
+    {
+      "icon": "TrashIcon",
+      "source": "expui/general/delete.svg"
+    },
+    {
+      "icon": "TreeStructureIcon",
+      "source": "expui/general/tree.svg"
+    },
+    {
+      "icon": "UploadIcon",
+      "source": "expui/general/upload.svg"
+    },
+    {
+      "icon": "UploadSimpleIcon",
+      "source": "expui/general/upload.svg"
+    },
+    {
+      "icon": "UserCircleIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "UserIcon",
+      "source": "expui/general/user.svg"
+    },
+    {
+      "icon": "UsersThreeIcon",
+      "source": "expui/general/groups.svg"
+    },
+    {
+      "icon": "WarningCircleIcon",
+      "source": "expui/general/warningDialog.svg"
+    },
+    {
+      "icon": "WarningIcon",
+      "source": "expui/general/warningDialog.svg"
+    },
+    {
+      "icon": "WindowExpandIcon",
+      "source": null,
+      "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "WrenchIcon",
+      "source": "expui/general/externalTools.svg"
+    },
+    {
+      "icon": "XCircleIcon",
+      "source": "expui/general/errorDialog.svg"
+    },
+    {
+      "icon": "XIcon",
+      "source": "expui/general/close.svg"
     }
   ]
 }
