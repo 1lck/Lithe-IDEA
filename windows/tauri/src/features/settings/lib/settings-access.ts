@@ -28,7 +28,7 @@ export function resolveVisibleSettingsSection(
   tab: SettingsTab,
   access: SettingsAccess,
 ): SettingsSection {
-  if (tab === "language" || tab === "account" || tab === "ai") {
+  if (tab === "language" || tab === "account" || tab === "ai" || tab === "logs") {
     return "editor";
   }
 
