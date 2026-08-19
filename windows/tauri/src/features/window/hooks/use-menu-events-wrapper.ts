@@ -335,9 +335,11 @@ export function useMenuEventsWrapper() {
       await openUrl("https://github.com/1lck/Lithe-IDEA/issues/new?template=02-feature.yml");
     },
     onCheckForUpdates: async () => {
-      const hasUpdate = await checkForUpdates({ ignoreSuppression: true });
-      if (!hasUpdate) {
+      const result = await checkForUpdates({ ignoreSuppression: true });
+      if (result === "up-to-date") {
         showToast({ message: "You're on the latest version", type: "success" });
+      } else if (result === "failed") {
+        showToast({ message: "Failed to check for updates", type: "error" });
       }
     },
     onOpenSettings: () => {
