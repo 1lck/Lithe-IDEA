@@ -6,11 +6,13 @@
 }
 
 #root {
+  color: var(--foreground);
   background: transparent;
   overscroll-behavior: none;
 }
 
 html {
+  color: var(--foreground);
   scroll-behavior: smooth;
   overflow: hidden;
   overscroll-behavior: none !important;
@@ -20,6 +22,7 @@ html {
 body {
   margin: 0;
   padding: 0;
+  color: var(--foreground);
   font-size: var(--ui-text-base);
   overflow: hidden;
   overscroll-behavior: none !important;

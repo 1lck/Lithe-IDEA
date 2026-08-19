@@ -119,31 +119,29 @@
   padding: 0 1px;
 }
 
-@media (prefers-color-scheme: dark) {
-  .token.erb-tag {
-    background: rgba(139, 69, 19, 0.2);
-  }
+[data-theme-type="dark"] .token.erb-tag {
+  background: rgba(139, 69, 19, 0.2);
+}
 
-  .token.erb-delimiter {
-    color: #ff7b72;
-  }
+[data-theme-type="dark"] .token.erb-delimiter {
+  color: #ff7b72;
+}
 
-  .token.erb-output-delimiter {
-    color: #7ee787;
-  }
+[data-theme-type="dark"] .token.erb-output-delimiter {
+  color: #7ee787;
+}
 
-  .token.erb-comment-delimiter {
-    color: #8b949e;
-  }
+[data-theme-type="dark"] .token.erb-comment-delimiter {
+  color: #8b949e;
+}
 
-  .token.erb-scriptlet-delimiter {
-    color: #d2a8ff;
-  }
+[data-theme-type="dark"] .token.erb-scriptlet-delimiter {
+  color: #d2a8ff;
+}
 
-  .token.erb-output,
-  .token.erb-scriptlet {
-    background: rgba(139, 69, 19, 0.1);
-  }
+[data-theme-type="dark"] .token.erb-output,
+[data-theme-type="dark"] .token.erb-scriptlet {
+  background: rgba(139, 69, 19, 0.1);
 }
 
 .token.erb-output,
