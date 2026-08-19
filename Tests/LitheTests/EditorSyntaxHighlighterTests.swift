@@ -312,6 +312,88 @@ struct EditorSyntaxHighlighterTests {
         #expect(incrementalColor == expectedColor)
     }
 
+    @Test
+    func envSyntaxCorpusUsesExpectedTokenColors() throws {
+        let source = try syntaxCorpus(named: "env-syntax-corpus", extension: "env")
+        let storage = NSTextStorage(string: source)
+
+        SyntaxHighlighter.apply(to: storage, font: .monospacedSystemFont(ofSize: 13, weight: .regular), fileName: ".env", fileExtension: "env", isDark: true)
+
+        let text = source as NSString
+        let keyColor = try color(in: storage, at: text.range(of: "APP_NAME").location)
+        let stringColor = try color(in: storage, at: text.range(of: "Lithe").location)
+        let numberColor = try color(in: storage, at: text.range(of: "8443").location)
+        let booleanColor = try color(in: storage, at: text.range(of: "true").location)
+        let variableColor = try color(in: storage, at: text.range(of: "${HOME}").location)
+        let commentColor = try color(in: storage, at: text.range(of: "# root comment").location)
+        let quotedHashColor = try color(in: storage, at: text.range(of: "# remains a string").location)
+        let inlineCommentColor = try color(in: storage, at: text.range(of: "# inline comment").location)
+
+        #expect(keyColor == propertyColor)
+        #expect(stringColor != keyColor)
+        #expect(numberColor != stringColor)
+        #expect(booleanColor != stringColor)
+        #expect(variableColor != stringColor)
+        #expect(commentColor == inlineCommentColor)
+        #expect(quotedHashColor == stringColor)
+    }
+
+    @Test
+    func propertiesSyntaxCorpusUsesExpectedTokenColors() throws {
+        let source = try syntaxCorpus(named: "properties-syntax-corpus", extension: "properties")
+        let storage = NSTextStorage(string: source)
+
+        SyntaxHighlighter.apply(to: storage, font: .monospacedSystemFont(ofSize: 13, weight: .regular), fileExtension: "properties", isDark: true)
+
+        let text = source as NSString
+        let keyColor = try color(in: storage, at: text.range(of: "app.name").location)
+        let colonKeyColor = try color(in: storage, at: text.range(of: "server.port").location)
+        let stringColor = try color(in: storage, at: text.range(of: "Lithe").location)
+        let numberColor = try color(in: storage, at: text.range(of: "8443").location)
+        let booleanColor = try color(in: storage, at: text.range(of: "true").location)
+        let continuationColor = try color(in: storage, at: text.range(of: "second line").location)
+        let commentColor = try color(in: storage, at: text.range(of: "# root comment").location)
+        let legacyCommentColor = try color(in: storage, at: text.range(of: "! legacy comment").location)
+        let quotedHashColor = try color(in: storage, at: text.range(of: "# remains a string").location)
+
+        #expect(keyColor == propertyColor)
+        #expect(colonKeyColor == propertyColor)
+        #expect(stringColor != keyColor)
+        #expect(numberColor != stringColor)
+        #expect(booleanColor != stringColor)
+        #expect(continuationColor == stringColor)
+        #expect(commentColor == legacyCommentColor)
+        #expect(quotedHashColor == stringColor)
+    }
+
+    @Test
+    func configSyntaxCorpusUsesExpectedTokenColors() throws {
+        let source = try syntaxCorpus(named: "config-syntax-corpus", extension: "conf")
+        let storage = NSTextStorage(string: source)
+
+        SyntaxHighlighter.apply(to: storage, font: .monospacedSystemFont(ofSize: 13, weight: .regular), fileExtension: "conf", isDark: true)
+
+        let text = source as NSString
+        let sectionColor = try color(in: storage, at: text.range(of: "server.production").location)
+        let keyColor = try color(in: storage, at: text.range(of: "host").location)
+        let stringColor = try color(in: storage, at: text.range(of: "example.test").location)
+        let numberColor = try color(in: storage, at: text.range(of: "8443").location)
+        let booleanColor = try color(in: storage, at: text.range(of: "on").location)
+        let hexColor = try color(in: storage, at: text.range(of: "0xCAFE").location)
+        let quotedHashColor = try color(in: storage, at: text.range(of: "# remains a string").location)
+        let commentColor = try color(in: storage, at: text.range(of: "# root comment").location)
+        let semicolonCommentColor = try color(in: storage, at: text.range(of: "; port comment").location)
+
+        #expect(sectionColor != keyColor)
+        #expect(keyColor == propertyColor)
+        #expect(stringColor != keyColor)
+        #expect(numberColor != stringColor)
+        #expect(booleanColor != stringColor)
+        #expect(hexColor != stringColor)
+        #expect(quotedHashColor == stringColor)
+        #expect(commentColor == semicolonCommentColor)
+    }
+
     private func yamlSyntaxCorpus() throws -> String {
         try syntaxCorpus(named: "yaml-syntax-corpus", extension: "yaml")
     }
