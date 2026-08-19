@@ -22,6 +22,17 @@
   --color-selected: var(--selected);
   --color-selection: var(--selection);
 
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-muted: var(--muted);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary-foreground: var(--secondary-foreground);
+
   --color-tab-bar: var(--tab-bar-bg);
   --color-tab-active: var(--tab-active-bg);
   --color-tab-hover: var(--tab-hover-bg);
@@ -91,6 +102,7 @@
 
 @layer base {
   :root {
+    color-scheme: light;
     --app-font-family:
       "Geist Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
       "Helvetica Neue", Arial, sans-serif;
@@ -126,6 +138,16 @@
     --app-ease-in-out: cubic-bezier(0.66, 0, 0.34, 1);
     --app-press-scale: 1;
     --border-strong: color-mix(in srgb, var(--border) 72%, var(--foreground) 28%);
+    --popover: var(--surface);
+    --popover-foreground: var(--foreground);
+    --accent-foreground: var(--foreground);
+    --muted: var(--surface);
+    --input: var(--border);
+    --ring: var(--border-strong);
+    --card: var(--surface);
+    --card-foreground: var(--foreground);
+    --primary-foreground: var(--background);
+    --secondary-foreground: var(--foreground);
     --success: var(--primary);
     --warning: var(--muted-foreground);
     --tab-bar-bg: color-mix(in srgb, var(--surface) 72%, var(--background));
@@ -176,6 +198,7 @@
   }
 
   :root[data-theme-type="dark"] {
+    color-scheme: dark;
     --shadow-card:
       0 1px 2px rgb(0 0 0 / 0.24), 0 2px 4px rgb(0 0 0 / 0.18), 0 0 0 0.5px rgb(255 255 255 / 0.1);
     --shadow-popover:
