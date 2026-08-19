@@ -166,31 +166,43 @@ function createIconComponent(IconComponent: ComponentType<any>, displayName: str
       : style;
 
     // IntelliJ assets are fixed-color SVGs with light/dark variants; render
-    // both and let CSS pick the active one, so theme switches need no rerender.
-    // weight/strokeWidth have no effect on these (colorPolicy: fixed).
+    // both as <image> children of a real <svg> root and let CSS pick the
+    // active one, so theme switches need no rerender. The svg root keeps the
+    // same sizing contract as lucide icons (width/height attrs overridable by
+    // CSS like [&_svg]:size-*), and weight/strokeWidth are no-ops (fixed art).
     const asset = ideaIconAssets[displayName];
     if (asset) {
-      const { className, id, onClick } = iconProps;
+      const { className, ...svgProps } = iconProps;
       return createElement(
-        "span",
+        "svg",
         {
-          ref: ref as any,
+          ...svgProps,
+          ref,
           className: ["lithe-idea-icon", className].filter(Boolean).join(" "),
-          id,
-          onClick,
-          style: { width: size, height: size, ...nextStyle },
+          viewBox: "0 0 16 16",
+          width: size,
+          height: size,
+          fill: "none",
+          style: nextStyle,
+          role: title ?? alt ? "img" : undefined,
+          "aria-label": title ?? alt,
+          "aria-hidden": title ?? alt ? undefined : true,
         },
-        createElement("img", {
-          src: asset.light,
-          alt: title ?? alt ?? "",
+        createElement("image", {
+          href: asset.light,
           className: "lithe-idea-icon-light",
-          draggable: false,
+          x: 0,
+          y: 0,
+          width: 16,
+          height: 16,
         }),
-        createElement("img", {
-          src: asset.dark,
-          alt: "",
+        createElement("image", {
+          href: asset.dark,
           className: "lithe-idea-icon-dark",
-          draggable: false,
+          x: 0,
+          y: 0,
+          width: 16,
+          height: 16,
         }),
       );
     }

@@ -61,17 +61,18 @@ describe("application icon mappings", () => {
     ];
     for (const exportName of mapped) {
       const markup = renderIcon(AppIcons[exportName] as ElementType);
-      expect(markup).toContain("lithe-idea-icon");
-      expect(markup.match(/<img/g)?.length).toBe(2);
+      expect(markup).toContain("<svg");
+      expect(markup).toContain('viewBox="0 0 16 16"');
+      expect(markup.match(/<image/g)?.length).toBe(2);
       expect(markup).toContain("lithe-idea-icon-light");
       expect(markup).toContain("lithe-idea-icon-dark");
     }
   });
 
-  test("forwards title to the visible asset alt text", () => {
+  test("forwards title to the asset aria label", () => {
     const markup = renderToStaticMarkup(
       createElement(AppIcons.TrashIcon as ElementType, { title: "delete action" }),
     );
-    expect(markup).toContain('alt="delete action"');
+    expect(markup).toContain('aria-label="delete action"');
   });
 });

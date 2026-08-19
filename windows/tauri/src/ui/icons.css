@@ -1,22 +1,12 @@
 /*
- * IntelliJ icon assets are rendered as dual light/dark <img> instances. The
- * active variant follows the runtime `data-theme-type` attribute set by the
- * theme registry, so switching themes needs no React re-render.
+ * IntelliJ icon assets render as dual light/dark <image> children inside a
+ * real <svg> root. The active variant follows the runtime `data-theme-type`
+ * attribute set by the theme registry, so switching themes needs no React
+ * re-render. The svg root keeps the lucide sizing contract (width/height
+ * attributes, overridable by CSS selectors like [&_svg]:size-*).
  */
 .lithe-idea-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   flex: none;
-  line-height: 0;
-  vertical-align: middle;
-}
-
-.lithe-idea-icon img {
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  user-select: none;
 }
 
 .lithe-idea-icon .lithe-idea-icon-dark {
