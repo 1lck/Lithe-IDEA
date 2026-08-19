@@ -2699,6 +2699,8 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         window?.makeFirstResponder(self)
     }
 }
+
+@MainActor
 final class EditorContainerView: NSView {
     weak var scrollView: NSScrollView?
     weak var gutter: LineNumberGutterView?
