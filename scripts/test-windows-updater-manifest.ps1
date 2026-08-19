@@ -20,7 +20,7 @@ try {
     if ($manifest.version -ne $version) { throw "Manifest version is incorrect" }
     $platform = $manifest.platforms.'windows-x86_64'
     if ($platform.signature -ne "test-signature") { throw "Manifest signature is incorrect" }
-$expectedURL = "https://github.com/example/Lithe-IDEA/releases/download/v$version/Lithe-$version-windows-x64-updater.exe"
+    $expectedURL = "https://github.com/example/Lithe-IDEA/releases/download/v$version/Lithe-$version-windows-x64-updater.exe"
     if ($platform.url -ne $expectedURL) { throw "Manifest download URL is incorrect" }
 
     Write-Output "Windows updater manifest test passed."
