@@ -150,7 +150,9 @@
     --secondary-foreground: var(--foreground);
     --success: var(--primary);
     --warning: var(--muted-foreground);
-    --tab-bar-bg: color-mix(in srgb, var(--surface) 72%, var(--background));
+    /* IntelliJ editor tab strip: same base as the editor area, separated by a
+       1px rule below the strip instead of a tinted band. */
+    --tab-bar-bg: var(--background);
     --tab-active-bg: var(--background);
     --tab-hover-bg: color-mix(in srgb, var(--accent) 72%, transparent);
     --shadow-card:

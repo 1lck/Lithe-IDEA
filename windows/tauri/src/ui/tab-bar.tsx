@@ -201,14 +201,18 @@ const tabVariants = cva(
         className: "text-subtle-foreground/90 hover:bg-accent hover:text-foreground",
       },
       {
+        // IntelliJ editor tabs: selected tab is marked by a 4px accent
+        // underline on the top edge over the editor background, not a block
+        // highlight; unselected labels render at reduced alpha.
         variant: "connected",
         active: true,
-        className: "z-10 bg-accent/90 text-foreground shadow-none",
+        className:
+          "z-10 bg-transparent text-foreground shadow-none hover:bg-transparent before:absolute before:inset-x-1.5 before:top-0 before:h-[4px] before:rounded-full before:bg-primary before:content-['']",
       },
       {
         variant: "connected",
         active: false,
-        className: "text-subtle-foreground/85 hover:bg-tab-hover/60 hover:text-foreground",
+        className: "text-foreground/75 hover:bg-accent/50 hover:text-foreground",
       },
     ],
   },
@@ -242,7 +246,7 @@ const tabBarSurfaceVariants = cva("relative flex overflow-hidden", {
   variants: {
     orientation: {
       horizontal:
-        "h-(--lithe-tab-bar-height) min-h-(--lithe-tab-bar-height) shrink-0 items-center gap-(--lithe-chrome-gap) bg-tab-bar px-(--lithe-chrome-padding-inline)",
+        "h-(--lithe-tab-bar-height) min-h-(--lithe-tab-bar-height) shrink-0 items-center gap-(--lithe-chrome-gap) border-b border-border bg-tab-bar px-(--lithe-chrome-padding-inline)",
       vertical: "h-full min-h-0 flex-col bg-tab-bar py-(--lithe-chrome-gap)",
     },
   },
