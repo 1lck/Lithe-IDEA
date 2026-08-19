@@ -406,6 +406,11 @@ struct EditorSyntaxHighlighterTests {
         let commentColor = try color(in: storage, at: text.range(of: "# root comment").location)
         let legacyCommentColor = try color(in: storage, at: text.range(of: "! legacy comment").location)
         let quotedHashColor = try color(in: storage, at: text.range(of: "# remains a string").location)
+        let spacedSeparatorRange = text.range(of: "spaced.value = 8081")
+        let spacedSeparatorColor = try color(
+            in: storage,
+            at: spacedSeparatorRange.location + "spaced.value ".utf16.count
+        )
 
         #expect(keyColor == propertyColor)
         #expect(colonKeyColor == propertyColor)
@@ -415,6 +420,8 @@ struct EditorSyntaxHighlighterTests {
         #expect(continuationColor == stringColor)
         #expect(commentColor == legacyCommentColor)
         #expect(quotedHashColor == stringColor)
+        #expect(spacedSeparatorColor != stringColor)
+        #expect(spacedSeparatorColor != keyColor)
     }
 
     @Test
@@ -434,6 +441,8 @@ struct EditorSyntaxHighlighterTests {
         let quotedHashColor = try color(in: storage, at: text.range(of: "# remains a string").location)
         let commentColor = try color(in: storage, at: text.range(of: "# root comment").location)
         let semicolonCommentColor = try color(in: storage, at: text.range(of: "; port comment").location)
+        let separatorRange = text.range(of: #"host = "example.test""#)
+        let separatorColor = try color(in: storage, at: separatorRange.location + "host ".utf16.count)
 
         #expect(sectionColor != keyColor)
         #expect(keyColor == propertyColor)
@@ -443,6 +452,8 @@ struct EditorSyntaxHighlighterTests {
         #expect(hexColor != stringColor)
         #expect(quotedHashColor == stringColor)
         #expect(commentColor == semicolonCommentColor)
+        #expect(separatorColor != stringColor)
+        #expect(separatorColor != keyColor)
     }
 
     private func yamlSyntaxCorpus() throws -> String {

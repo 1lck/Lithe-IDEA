@@ -28,7 +28,8 @@
     {
       "id": "ini",
       "displayName": "INI",
-      "fileExtensions": ["ini"],
+      "fileExtensions": ["ini", "cfg", "cnf"],
+      "fileNames": [".gitconfig", ".editorconfig"],
       "adapter": "ini"
     },
     {

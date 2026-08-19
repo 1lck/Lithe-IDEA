@@ -14,6 +14,8 @@ struct SyntaxHighlightingConfigurationTests {
             "json": "json",
             "toml": "toml",
             "ini": "ini",
+            "cfg": "ini",
+            "cnf": "ini",
             "xml": "xml",
             "conf": "generic-config",
             "config": "generic-config",
@@ -76,6 +78,14 @@ struct SyntaxHighlightingConfigurationTests {
 
         #expect(registry.adapter(fileName: ".environment", fileExtension: "") == .generic)
         #expect(registry.adapter(fileName: "env.local", fileExtension: "local") == .generic)
+    }
+
+    @Test
+    func commonExtensionlessConfigurationFilesUseINIAdapter() {
+        let registry = SyntaxHighlightingRegistry.bundled
+
+        #expect(registry.adapter(fileName: ".gitconfig", fileExtension: "") == .ini)
+        #expect(registry.adapter(fileName: ".editorconfig", fileExtension: "") == .ini)
     }
 
     @Test

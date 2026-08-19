@@ -26,7 +26,7 @@ enum ConfigSyntaxHighlightingAdapter {
                 addColor(palette.type, to: storage, range: sectionRange, limitedTo: target)
             } else if let separator = separatorLocation(in: source, range: trimmedBody) {
                 let keyRange = trimmedRange(in: source, range: NSRange(location: trimmedBody.location, length: separator - trimmedBody.location))
-                let valueStart = skipSeparators(in: source, from: separator + 1, limit: NSMaxRange(trimmedBody))
+                let valueStart = valueStart(in: source, after: separator, limit: NSMaxRange(trimmedBody))
                 let valueRange = NSRange(location: valueStart, length: NSMaxRange(trimmedBody) - valueStart)
                 addColor(palette.property, to: storage, range: keyRange, limitedTo: target)
                 addColor(palette.string, to: storage, range: valueRange, limitedTo: target)
@@ -83,8 +83,15 @@ enum ConfigSyntaxHighlightingAdapter {
         return nil
     }
 
-    private static func skipSeparators(in source: NSString, from start: Int, limit: Int) -> Int {
-        var cursor = start
+    private static func valueStart(in source: NSString, after separator: Int, limit: Int) -> Int {
+        var cursor = separator
+        if cursor < limit, source.character(at: cursor) == 61 || source.character(at: cursor) == 58 {
+            cursor += 1
+        }
+        while cursor < limit, isWhitespace(source.character(at: cursor)) { cursor += 1 }
+        if cursor < limit, source.character(at: cursor) == 61 || source.character(at: cursor) == 58 {
+            cursor += 1
+        }
         while cursor < limit, isWhitespace(source.character(at: cursor)) { cursor += 1 }
         return cursor
     }
