@@ -70,6 +70,7 @@ const settingsTabLabels: Record<SettingsTab, string> = {
   ai: "AI",
   keyboard: "Keybindings",
   language: "Editor",
+  logs: "Logs",
   collaboration: "Collaboration",
   enterprise: "Enterprise",
   advanced: "Advanced",

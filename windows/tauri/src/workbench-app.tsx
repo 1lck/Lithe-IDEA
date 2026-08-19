@@ -20,6 +20,7 @@ import { Toaster } from "./ui/sonner";
 import { TooltipProvider } from "./ui/tooltip";
 import { WindowResizeBorder } from "./features/window/components/window-resize-border";
 import { DialogServiceProvider } from "@/ui/dialog";
+import { LogFallbackNotification } from "@/features/logging/log-fallback-notification";
 
 function WorkbenchApp() {
   useAppBootstrap();
@@ -78,6 +79,7 @@ function WorkbenchApp() {
               <MainLayout />
             </div>
             <ZoomIndicator />
+            <LogFallbackNotification />
             <Toaster />
             <NotificationRecorder />
           </div>

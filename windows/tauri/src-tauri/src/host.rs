@@ -411,19 +411,6 @@ mod tests {
 }
 
 #[tauri::command]
-pub fn frontend_trace(level: String, scope: String, message: String, payload: Option<Value>) {
-    eprintln!(
-        "[frontend][{level}][{scope}] {message} {}",
-        payload.unwrap_or(Value::Null)
-    );
-}
-
-#[tauri::command]
-pub fn record_startup_milestone(milestone: String) {
-    eprintln!("[startup] {milestone}");
-}
-
-#[tauri::command]
 pub fn get_system_theme(window: WebviewWindow) -> String {
     match window.theme() {
         Ok(Theme::Light) => "light".into(),

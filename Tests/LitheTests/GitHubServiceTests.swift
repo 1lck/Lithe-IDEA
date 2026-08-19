@@ -30,6 +30,17 @@ private struct GitHubCoreStub: GitHubCorePlanning {
                 requiresAuthentication: true
             )
         }
+        if ["getPullRequest", "listPullRequestFiles", "listPullRequestComments"]
+            .contains(request.operation), let pullNumber = request.pullNumber {
+            return GitHubRequestPlan(
+                host: .api,
+                method: "GET",
+                path: "/test/\(request.operation)/\(pullNumber)",
+                query: [:],
+                body: nil,
+                requiresAuthentication: true
+            )
+        }
         return GitHubRequestPlan(
             host: .api,
             method: "GET",
@@ -46,6 +57,22 @@ private struct GitHubCoreStub: GitHubCorePlanning {
         body: String
     ) throws -> GitHubNormalizedResponse {
         #expect(status == 200)
+        if operation == "getPullRequest" {
+            return .pullRequest(try Self.pullRequest(number: Self.pullNumber(from: body)))
+        }
+        if operation == "listPullRequestFiles" {
+            let number = Self.pullNumber(from: body)
+            return .files([GitHubPullRequestFile(
+                path: "pull-request-\(number).swift",
+                status: "modified",
+                additions: number,
+                deletions: 0,
+                patch: nil
+            )])
+        }
+        if operation == "listPullRequestComments" {
+            return .comments([try Self.comment(number: Self.pullNumber(from: body))])
+        }
         #expect(body == "user-response")
         if operation == "listBranches" {
             return .branches([
@@ -74,15 +101,67 @@ private struct GitHubCoreStub: GitHubCorePlanning {
             avatarURL: nil
         ))
     }
+
+    private static func pullNumber(from body: String) -> UInt64 {
+        UInt64(body.split(separator: "/").last ?? "") ?? 0
+    }
+
+    private static func pullRequest(number: UInt64) throws -> GitHubPullRequest {
+        let data = Data("""
+        {
+          "number": \(number),
+          "title": "Pull request \(number)",
+          "body": "",
+          "state": "open",
+          "isDraft": false,
+          "url": "https://github.com/openai/codex/pull/\(number)",
+          "author": { "login": "octocat", "url": "https://github.com/octocat", "avatarUrl": null },
+          "headRef": "feature/\(number)",
+          "headRepository": "openai/codex",
+          "baseRef": "main",
+          "baseRepository": "openai/codex",
+          "createdAt": "2026-08-19T00:00:00Z",
+          "updatedAt": "2026-08-19T00:00:00Z",
+          "isMerged": false,
+          "isMergeable": true,
+          "additions": 1,
+          "deletions": 0,
+          "changedFiles": 1,
+          "commentsCount": 1,
+          "labels": [],
+          "assignees": []
+        }
+        """.utf8)
+        return try JSONDecoder().decode(GitHubPullRequest.self, from: data)
+    }
+
+    private static func comment(number: UInt64) throws -> GitHubComment {
+        let data = Data("""
+        {
+          "id": \(number),
+          "author": { "login": "octocat", "url": "https://github.com/octocat", "avatarUrl": null },
+          "body": "Comment \(number)",
+          "createdAt": "2026-08-19T00:00:00Z",
+          "updatedAt": "2026-08-19T00:00:00Z",
+          "url": "https://github.com/openai/codex/pull/\(number)#comment"
+        }
+        """.utf8)
+        return try JSONDecoder().decode(GitHubComment.self, from: data)
+    }
 }
 
 private actor GitHubTransportStub: GitHubHTTPTransport {
     private(set) var receivedToken: String?
     private(set) var branchRequestCount = 0
     private let branchRequestDelay: Duration?
+    private let pullRequestDelays: [UInt64: Duration]
 
-    init(branchRequestDelay: Duration? = nil) {
+    init(
+        branchRequestDelay: Duration? = nil,
+        pullRequestDelays: [UInt64: Duration] = [:]
+    ) {
         self.branchRequestDelay = branchRequestDelay
+        self.pullRequestDelays = pullRequestDelays
     }
 
     func execute(plan: GitHubRequestPlan, token: String?) async throws -> GitHubHTTPResponse {
@@ -92,6 +171,13 @@ private actor GitHubTransportStub: GitHubHTTPTransport {
             if let branchRequestDelay {
                 try await Task.sleep(for: branchRequestDelay)
             }
+        }
+        if let pullNumber = UInt64(plan.path.split(separator: "/").last ?? ""),
+           let delay = pullRequestDelays[pullNumber] {
+            try await Task.sleep(for: delay)
+        }
+        if plan.path.hasPrefix("/test/") {
+            return GitHubHTTPResponse(status: 200, body: plan.path)
         }
         return GitHubHTTPResponse(status: 200, body: "user-response")
     }
@@ -223,6 +309,34 @@ struct GitHubServiceTests {
         _ = await (first, second)
 
         #expect(await transport.branchRequestCount == 1)
+    }
+
+    @Test("A stale pull request selection cannot overwrite a newer selection")
+    @MainActor
+    func stalePullRequestSelectionIsDiscarded() async throws {
+        let transport = GitHubTransportStub(pullRequestDelays: [1: .milliseconds(100)])
+        let service = GitHubService(
+            core: GitHubCoreStub(),
+            transport: transport,
+            configuration: GitHubConfigurationStub(),
+            secureStore: GitHubSecureStoreStub(),
+            git: GitHubGitStub()
+        )
+        let model = GitHubFeatureModel(service: service)
+        await model.connect(
+            personalAccessToken: "fake-test-token",
+            workspaceURL: URL(fileURLWithPath: "/tmp/lithe-github-fixture")
+        )
+
+        let staleSelection = Task { @MainActor in await model.selectPullRequest(number: 1) }
+        try await Task.sleep(for: .milliseconds(10))
+        let currentSelection = Task { @MainActor in await model.selectPullRequest(number: 2) }
+        _ = await (staleSelection.value, currentSelection.value)
+
+        #expect(model.selectedPullRequest?.number == 2)
+        #expect(model.files.map(\.path) == ["pull-request-2.swift"])
+        #expect(model.comments.map(\.body) == ["Comment 2"])
+        #expect(model.contentState == .ready)
     }
 
     @Test("Creating a pull request uses the GitHub workspace instead of a modal")

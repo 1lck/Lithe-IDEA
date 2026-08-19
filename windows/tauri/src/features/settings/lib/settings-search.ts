@@ -8,6 +8,7 @@ export const SETTINGS_SEARCH_TAB_LABELS: Record<SettingsTab, string> = {
   appearance: "Appearance",
   editor: "Editor",
   language: "Language",
+  logs: "Logs",
   "file-explorer": "Files",
   git: "Git",
   terminal: "Terminal",
