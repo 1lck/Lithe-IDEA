@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useToast } from "@/features/layout/contexts/toast-context";
+import { useTranslation } from "@/i18n/locale-provider";
 import { useExtensionStore } from "../registry/extension-store";
 
 interface ExtensionInstallNeededEvent {
@@ -13,6 +14,7 @@ interface ExtensionInstallNeededEvent {
 const activePrompts = new Map<string, string>();
 
 export const useExtensionInstallPrompt = () => {
+  const { t } = useTranslation();
   const { showToast, dismissToast, updateToast, hasToast } = useToast();
   const { installExtension } = useExtensionStore.use.actions();
   const dismissedExtensions = useRef<Set<string>>(new Set());
@@ -40,16 +42,16 @@ export const useExtensionInstallPrompt = () => {
       }
 
       const toastId = showToast({
-        message: `${extensionName} extension not installed. Install it to enable language support?`,
+        message: t("extensions.installPrompt", { name: extensionName }),
         type: "info",
         duration: 0, // Don't auto-dismiss
         action: {
-          label: "Install",
+          label: t("extensions.install"),
           onClick: async () => {
             try {
               // Update toast to show installing status
               updateToast(toastId, {
-                message: `Installing ${extensionName}...`,
+                message: t("extensions.installing", { name: extensionName }),
                 action: undefined, // Remove action button while installing
               });
 
@@ -58,7 +60,7 @@ export const useExtensionInstallPrompt = () => {
 
               // Show success
               updateToast(toastId, {
-                message: `${extensionName} installed successfully!`,
+                message: t("extensions.installSuccess", { name: extensionName }),
                 type: "success",
               });
 
@@ -81,14 +83,18 @@ export const useExtensionInstallPrompt = () => {
               }, 3000);
             } catch (error) {
               // Show error
-              const errorMessage = error instanceof Error ? error.message : "Installation failed";
+              const errorMessage =
+                error instanceof Error ? error.message : t("extensions.installFailedGeneric");
               console.error(`Failed to install ${extensionName}:`, error);
 
               updateToast(toastId, {
-                message: `Failed to install ${extensionName}: ${errorMessage}`,
+                message: t("extensions.installFailedWithMessage", {
+                  name: extensionName,
+                  message: errorMessage,
+                }),
                 type: "error",
                 action: {
-                  label: "Retry",
+                  label: t("ui.retry"),
                   onClick: () => {
                     // Retry installation
                     dismissToast(toastId);
@@ -131,5 +137,5 @@ export const useExtensionInstallPrompt = () => {
       window.removeEventListener("extension-install-needed", handleInstallNeeded);
       window.removeEventListener("toast-dismissed", handleToastDismiss);
     };
-  }, [showToast, dismissToast, updateToast, installExtension, hasToast]);
+  }, [t, showToast, dismissToast, updateToast, installExtension, hasToast]);
 };

@@ -8,12 +8,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const SKIPPED_DIRECTORIES: &[&str] = &[
@@ -41,6 +41,7 @@ pub struct RunProcessManager;
 
 struct RunningSession {
     pid: u32,
+    stdin: Option<ChildStdin>,
 }
 
 impl Default for RunProcessManager {
@@ -173,9 +174,17 @@ pub fn run_write_document(args: WriteDocumentArgs) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn run_discover_toolchains(root: PathBuf) -> Result<DiscoveredToolchains, String> {
+pub fn run_discover_toolchains(
+    root: PathBuf,
+    java_home_path: Option<String>,
+    maven_executable_path: Option<String>,
+) -> Result<DiscoveredToolchains, String> {
     let project_root = existing_directory(&root).ok();
-    Ok(discover_toolchains(project_root.as_deref()))
+    Ok(discover_toolchains_with_overrides(
+        project_root.as_deref(),
+        java_home_path.as_deref(),
+        maven_executable_path.as_deref(),
+    ))
 }
 
 #[tauri::command]
@@ -225,7 +234,7 @@ pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), S
     command
         .current_dir(&args.working_directory)
         .envs(&args.environment)
-        .stdin(Stdio::null())
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     apply_creation_flags(&mut command);
@@ -233,12 +242,16 @@ pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), S
         .spawn()
         .map_err(|error| format!("Unable to start process: {error}"))?;
     let pid = child.id();
+    let stdin = child.stdin.take();
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
     sessions()
         .lock()
         .map_err(|_| "Run process state is unavailable".to_string())?
-        .insert(args.session_id.clone(), RunningSession { pid });
+        .insert(
+            args.session_id.clone(),
+            RunningSession { pid, stdin },
+        );
 
     let stdout_reader = spawn_output_reader(app.clone(), args.session_id.clone(), stdout);
     let stderr_reader = spawn_output_reader(app.clone(), args.session_id.clone(), stderr);
@@ -250,6 +263,35 @@ pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), S
 pub fn run_stop_process(session_id: String) -> Result<(), String> {
     stop_session(&session_id);
     Ok(())
+}
+
+#[tauri::command]
+pub fn run_write_stdin(session_id: String, input: String) -> Result<(), String> {
+    let mut current = sessions()
+        .lock()
+        .map_err(|_| "Run process state is unavailable".to_string())?;
+    let session = current
+        .get_mut(&session_id)
+        .ok_or_else(|| "The run process is no longer active.".to_string())?;
+    let stdin = session
+        .stdin
+        .as_mut()
+        .ok_or_else(|| "The run process does not accept input.".to_string())?;
+    stdin
+        .write_all(input.as_bytes())
+        .map_err(|error| format!("Could not write to process input: {error}"))
+}
+
+/// Removes the abandoned `run/` app-data directory written by an earlier
+/// implementation. Other app-data content (window state, settings) is kept.
+pub fn cleanup_legacy_appdata(app: &AppHandle) {
+    let Ok(app_dir) = app.path().app_data_dir() else {
+        return;
+    };
+    let run_dir = app_dir.join("run");
+    if run_dir.is_dir() {
+        let _ = fs::remove_dir_all(&run_dir);
+    }
 }
 
 fn write_generated_documents(
@@ -381,9 +423,21 @@ fn pretty_json(value: &Value) -> Result<String, String> {
 }
 
 pub(crate) fn discover_toolchains(project_root: Option<&Path>) -> DiscoveredToolchains {
+    discover_toolchains_with_overrides(project_root, None, None)
+}
+
+fn discover_toolchains_with_overrides(
+    project_root: Option<&Path>,
+    java_home_path: Option<&str>,
+    maven_executable_path: Option<&str>,
+) -> DiscoveredToolchains {
     let mut java = Vec::new();
     let mut seen_homes = std::collections::HashSet::new();
-    for home in java_home_candidates(project_root) {
+    let mut homes = java_home_candidates(project_root);
+    if let Some(path) = java_home_path.filter(|value| !value.trim().is_empty()) {
+        homes.insert(0, PathBuf::from(path));
+    }
+    for home in homes {
         if !seen_homes.insert(home.clone()) {
             continue;
         }
@@ -395,7 +449,11 @@ pub(crate) fn discover_toolchains(project_root: Option<&Path>) -> DiscoveredTool
 
     let mut maven = Vec::new();
     let mut seen_executables = std::collections::HashSet::new();
-    for executable in maven_executable_candidates(project_root) {
+    let mut executables = maven_executable_candidates(project_root);
+    if let Some(path) = maven_executable_path.filter(|value| !value.trim().is_empty()) {
+        executables.insert(0, PathBuf::from(path));
+    }
+    for executable in executables {
         if !seen_executables.insert(executable.clone()) {
             continue;
         }
@@ -484,7 +542,7 @@ fn maven_executable_candidates(project_root: Option<&Path>) -> Vec<PathBuf> {
     executables
 }
 
-fn probe_java_home(home: &Path) -> Option<JavaRuntime> {
+pub(crate) fn probe_java_home(home: &Path) -> Option<JavaRuntime> {
     let java = java_executable(home)?;
     let output = command_output(&java, &["-version"]);
     let version = java_version(&output)?;
@@ -1151,6 +1209,13 @@ mod tests {
         assert!(!looks_like_real_utf8(&gbk_xi_tong));
         assert!(looks_like_real_utf8("系统".as_bytes()));
         assert!(looks_like_real_utf8(b"[INFO] BUILD SUCCESS"));
+    }
+
+    #[test]
+    fn stdin_write_rejects_an_inactive_session() {
+        let session_id = format!("missing-{}", std::process::id());
+        let error = run_write_stdin(session_id, "input\n".to_string()).unwrap_err();
+        assert_eq!(error, "The run process is no longer active.");
     }
 
     #[cfg(windows)]

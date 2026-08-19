@@ -26,6 +26,7 @@ import {
 import { fuzzyScore } from "@/features/global-search/utils/fuzzy-search";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useSettingsSyncStore } from "@/features/settings/stores/settings-sync.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import type { AIChatSkill, MarketplaceSkill } from "@/features/ai/types/skills.types";
 import { Button } from "@/ui/button";
 import Command, {
@@ -59,11 +60,11 @@ function createSkillId() {
   return `skill-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function getSyncLabel(enabled: boolean, status: string) {
-  if (!enabled) return "Not synced";
-  if (status === "syncing") return "Syncing";
-  if (status === "error") return "Sync paused";
-  return "Synced";
+function getSyncLabel(enabled: boolean, status: string, t: (key: string) => string) {
+  if (!enabled) return t("ai.notSynced");
+  if (status === "syncing") return t("ai.syncing");
+  if (status === "error") return t("ai.syncPaused");
+  return t("ai.synced");
 }
 
 function getSyncIcon(enabled: boolean, status: string) {
@@ -79,6 +80,7 @@ export function SkillsCommand({
   onSelectSkill,
   initialView = "list",
 }: SkillsCommandProps) {
+  const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
@@ -352,39 +354,39 @@ export function SkillsCommand({
             ref={inputRef}
             value={query}
             onChange={setQuery}
-            placeholder={view === "browse" ? "Search available skills..." : "Search skills..."}
+            placeholder={view === "browse" ? t("ai.searchAvailableSkills") : t("ai.searchSkills")}
           />
           {view === "list" ? (
             <CommandHeaderAction type="button" onClick={openNewSkill}>
               <Plus />
-              <span>New</span>
+              <span>{t("ai.new")}</span>
             </CommandHeaderAction>
           ) : (
             <CommandHeaderAction type="button" onClick={() => setView("list")}>
-              <span>My skills</span>
+              <span>{t("ai.mySkills")}</span>
             </CommandHeaderAction>
           )}
           <CommandHeaderAction type="button" onClick={openBrowseSkills} active={view === "browse"}>
             <CloudArrowDown weight="fill" />
-            <span>Browse</span>
+            <span>{t("ai.browse")}</span>
           </CommandHeaderAction>
         </CommandHeader>
 
         <CommandList ref={resultsRef} contentClassName={isComposerAttached ? "p-1.5" : undefined}>
           {view === "browse" ? (
             isLoadingMarketplace ? (
-              <CommandEmpty>Loading available skills...</CommandEmpty>
+              <CommandEmpty>{t("ai.loadingAvailableSkills")}</CommandEmpty>
             ) : marketplaceSkills.length === 0 ? (
               <CommandEmpty>
                 <div className="flex flex-col items-center gap-2 px-4 py-5">
-                  <div>No published skills yet</div>
+                  <div>{t("ai.noPublishedSkillsYet")}</div>
                   <div className="max-w-70 text-subtle-foreground">
-                    Published skills will appear here once the Lithe skills registry is available.
+                    {t("ai.publishedSkillsWillAppear")}
                   </div>
                 </div>
               </CommandEmpty>
             ) : filteredMarketplaceSkills.length === 0 ? (
-              <CommandEmpty>No available skills match "{query}"</CommandEmpty>
+              <CommandEmpty>{t("ai.noAvailableSkillsMatch", { query })}</CommandEmpty>
             ) : (
               filteredMarketplaceSkills.map((skill, index) => {
                 const isSelected = selectedIndex === index;
@@ -432,7 +434,7 @@ export function SkillsCommand({
                           }
                         }}
                       >
-                        {isInstalled ? "Added" : "Add"}
+                        {isInstalled ? t("ai.added") : t("ai.add")}
                       </Button>
                     }
                   />
@@ -440,9 +442,9 @@ export function SkillsCommand({
               })
             )
           ) : skills.length === 0 ? (
-            <CommandEmpty>No skills yet</CommandEmpty>
+            <CommandEmpty>{t("ai.noSkillsYet")}</CommandEmpty>
           ) : filteredSkills.length === 0 ? (
-            <CommandEmpty>No skills match "{query}"</CommandEmpty>
+            <CommandEmpty>{t("ai.noSkillsMatch", { query })}</CommandEmpty>
           ) : (
             filteredSkills.map((skill, index) => {
               const isSelected = selectedIndex === index;
@@ -464,10 +466,10 @@ export function SkillsCommand({
                   accessory={
                     <>
                       {skill.source === "marketplace" ? (
-                        <CommandItemBadge>Marketplace</CommandItemBadge>
+                        <CommandItemBadge>{t("ai.marketplace")}</CommandItemBadge>
                       ) : null}
                       {hasLocalOverride ? (
-                        <CommandItemBadge>Local override</CommandItemBadge>
+                        <CommandItemBadge>{t("ai.localOverride")}</CommandItemBadge>
                       ) : null}
                     </>
                   }
@@ -481,8 +483,8 @@ export function SkillsCommand({
                           openSkillEditor(skill);
                         }}
                         className="opacity-0 focus:opacity-100 group-hover:opacity-100"
-                        tooltip="Edit skill"
-                        aria-label={`Edit ${skill.title}`}
+                        tooltip={t("ai.editSkill")}
+                        aria-label={t("ai.editNamedSkill", { title: skill.title })}
                         size={isComposerAttached ? "icon-xs" : "icon"}
                       >
                         <PencilSimple size={13} />
@@ -495,8 +497,8 @@ export function SkillsCommand({
                           void handleDelete(skill.id);
                         }}
                         className="opacity-0 hover:bg-destructive/10 hover:text-destructive focus:opacity-100 group-hover:opacity-100"
-                        tooltip="Delete skill"
-                        aria-label={`Delete ${skill.title}`}
+                        tooltip={t("ai.deleteSkill")}
+                        aria-label={t("ai.deleteNamedSkill", { title: skill.title })}
                         size={isComposerAttached ? "icon-xs" : "icon"}
                       >
                         <Trash size={13} />
@@ -512,7 +514,7 @@ export function SkillsCommand({
         <CommandFooter>
           <CommandFooterAction type="button" onClick={openAccountSyncSettings}>
             <SyncIcon />
-            <span className="truncate">{getSyncLabel(syncEnabled, syncStatus)}</span>
+            <span className="truncate">{getSyncLabel(syncEnabled, syncStatus, t)}</span>
           </CommandFooterAction>
         </CommandFooter>
       </>
@@ -521,7 +523,7 @@ export function SkillsCommand({
         <CommandHeader onClose={handleClose}>
           <div className="min-w-0 flex-1">
             <div className="font-sans ui-text-base truncate text-foreground">
-              {editingSkillId ? "Edit skill" : "New skill"}
+              {editingSkillId ? t("ai.editSkill") : t("ai.newSkill")}
             </div>
             {(() => {
               const editingSkill = skills.find((skill) => skill.id === editingSkillId);
@@ -529,8 +531,9 @@ export function SkillsCommand({
 
               return (
                 <div className="ui-text-base mt-0.5 text-subtle-foreground">
-                  Marketplace skill
-                  {hasSkillLocalOverride(editingSkill) ? " with local override" : ""}
+                  {hasSkillLocalOverride(editingSkill)
+                    ? t("ai.marketplaceSkillWithLocalOverride")
+                    : t("ai.marketplaceSkill")}
                 </div>
               );
             })()}
@@ -543,14 +546,14 @@ export function SkillsCommand({
               className="font-sans ui-text-base text-subtle-foreground"
               htmlFor="ai-skill-title"
             >
-              Title
+              {t("ai.title")}
             </label>
             <Input
               id="ai-skill-title"
               ref={titleInputRef}
               value={title}
               onChange={(event) => setTitle(event.target.value)}
-              placeholder="Code review checklist"
+              placeholder={t("ai.skillTitlePlaceholder")}
               maxLength={120}
               size="sm"
             />
@@ -561,13 +564,13 @@ export function SkillsCommand({
               className="font-sans ui-text-base text-subtle-foreground"
               htmlFor="ai-skill-content"
             >
-              Markdown
+              {t("ai.markdown")}
             </label>
             <Textarea
               id="ai-skill-content"
               value={content}
               onChange={(event) => setContent(event.target.value)}
-              placeholder="Write the instructions or reusable context for this skill..."
+              placeholder={t("ai.skillContentPlaceholder")}
               className="min-h-36 resize-none"
               size="sm"
             />
@@ -576,10 +579,10 @@ export function SkillsCommand({
 
         <CommandFooter>
           <CommandFooterAction type="button" onClick={closeEditor}>
-            Cancel
+            {t("ai.cancel")}
           </CommandFooterAction>
           <CommandFooterAction type="button" onClick={() => void handleSave()} disabled={!canSave}>
-            Save
+            {t("ai.save")}
           </CommandFooterAction>
         </CommandFooter>
       </>
@@ -591,7 +594,7 @@ export function SkillsCommand({
         open={isOpen}
         anchorRef={anchorRef}
         onClose={handleClose}
-        ariaLabel="Skills"
+        ariaLabel={t("ai.skills")}
         maxHeight={view === "editor" ? 440 : 320}
       >
         {panelContent}
@@ -600,7 +603,7 @@ export function SkillsCommand({
   }
 
   return (
-    <Command isVisible={isOpen} onClose={handleClose} title="Skills">
+    <Command isVisible={isOpen} onClose={handleClose} title={t("ai.skills")}>
       {panelContent}
     </Command>
   );

@@ -12,6 +12,7 @@ import type { Message as AIMessage } from "@/features/ai/types/ai-chat.types";
 import { formatTime } from "@/features/ai/lib/formatting";
 import { writeClipboardText } from "@/utils/clipboard";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 import { GenerativeUIRenderer } from "@/extensions/ui/components/generative-ui-renderer";
 import {
   Attachment,
@@ -81,6 +82,7 @@ export const ChatMessage = memo(function ChatMessage({
   chatId,
   onExecutePlanStep,
 }: ChatMessageProps) {
+  const { t } = useTranslation();
   const [isEditing, setIsEditing] = useState(false);
   const [draftContent, setDraftContent] = useState(message.content);
   const isToolOnlyMessage =
@@ -92,10 +94,14 @@ export const ChatMessage = memo(function ChatMessage({
   const handleExecuteStep = useCallback(
     (step: PlanStep, stepIndex: number) => {
       void onExecutePlanStep?.(
-        `Execute step ${stepIndex + 1} of the plan: ${step.title}\n\n${step.description}`,
+        t("ai.executePlanStepPrompt", {
+          number: stepIndex + 1,
+          title: step.title,
+          description: step.description,
+        }),
       );
     },
-    [onExecutePlanStep],
+    [onExecutePlanStep, t],
   );
 
   if (message.role === "user") {
@@ -143,11 +149,11 @@ export const ChatMessage = memo(function ChatMessage({
                     }}
                     variant="ghost"
                     className="min-h-16 resize-y p-0"
-                    aria-label="Edit prompt"
+                    aria-label={t("ai.editPrompt")}
                   />
                   <div className="flex justify-end gap-1">
                     <Button type="button" variant="ghost" size="xs" onClick={cancelEditing}>
-                      Cancel
+                      {t("ai.cancel")}
                     </Button>
                     <Button
                       type="submit"
@@ -155,7 +161,7 @@ export const ChatMessage = memo(function ChatMessage({
                       size="xs"
                       disabled={!draftContent.trim()}
                     >
-                      Send
+                      {t("ai.send")}
                     </Button>
                   </div>
                 </form>
@@ -171,7 +177,7 @@ export const ChatMessage = memo(function ChatMessage({
               <span>{messageTime}</span>
               <MessageAction
                 onClick={() => void copyText(message.content)}
-                label="Copy prompt"
+                label={t("ai.copyPrompt")}
                 className="hover:bg-transparent hover:text-subtle-foreground"
               >
                 <CopySimple className="size-3.5" />
@@ -179,7 +185,7 @@ export const ChatMessage = memo(function ChatMessage({
               {canEditUserMessage && onEditUserMessage ? (
                 <MessageAction
                   onClick={startEditing}
-                  label="Edit prompt"
+                  label={t("ai.editPrompt")}
                   className="hover:bg-transparent hover:text-subtle-foreground"
                 >
                   <PencilSimple className="size-3.5" />
@@ -206,7 +212,7 @@ export const ChatMessage = memo(function ChatMessage({
     (!message.content || message.content.trim().length === 0) &&
     (!message.toolCalls || message.toolCalls.length === 0)
   ) {
-    return <ChatLoadingIndicator label="Thinking…" state="breathing" compact />;
+    return <ChatLoadingIndicator label={t("ai.thinking")} state="breathing" compact />;
   }
 
   return (
@@ -221,11 +227,11 @@ export const ChatMessage = memo(function ChatMessage({
                     <AttachmentMedia variant="image">
                       <img
                         src={`data:${image.mediaType};base64,${image.data}`}
-                        alt={`AI generated content ${index + 1}`}
+                        alt={t("ai.generatedContentNumber", { number: index + 1 })}
                       />
                     </AttachmentMedia>
                     <AttachmentContent>
-                      <AttachmentTitle>Generated image {index + 1}</AttachmentTitle>
+                      <AttachmentTitle>{t("ai.generatedImageNumber", { number: index + 1 })}</AttachmentTitle>
                       <AttachmentDescription>{image.mediaType}</AttachmentDescription>
                     </AttachmentContent>
                   </Attachment>
@@ -248,7 +254,7 @@ export const ChatMessage = memo(function ChatMessage({
                             href={resource.uri}
                             target="_blank"
                             rel="noopener noreferrer"
-                            aria-label={`Open ${resourceName}`}
+                            aria-label={t("ai.openResource", { name: resourceName })}
                           />
                         }
                       />
@@ -298,7 +304,7 @@ export const ChatMessage = memo(function ChatMessage({
           <MessageFooter className="opacity-100 transition-opacity md:opacity-0 md:group-hover/message:opacity-100 md:group-focus-within/message:opacity-100">
             <MessageAction
               onClick={() => void copyText(message.content)}
-              label="Copy response"
+              label={t("ai.copyResponse")}
               className="hover:bg-transparent hover:text-subtle-foreground"
             >
               <CopySimple className="size-3.5" />

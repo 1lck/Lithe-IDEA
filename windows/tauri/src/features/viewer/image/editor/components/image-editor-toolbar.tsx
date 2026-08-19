@@ -10,6 +10,7 @@ import {
 } from "@/ui/icons";
 import { useState } from "react";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
 import type { ImageFormat } from "../types/image-operation.types";
 import { ImageFormatDialog } from "./image-format-dialog";
@@ -47,6 +48,7 @@ export function ImageEditorToolbar({
   currentImageSrc,
   currentFileName,
 }: ImageEditorToolbarProps) {
+  const { t } = useTranslation();
   const menuItemClass = cn(
     "font-sans h-auto w-full justify-start gap-2 rounded-lg px-3 py-2 text-left text-foreground ui-text-sm",
   );
@@ -82,9 +84,9 @@ export function ImageEditorToolbar({
           variant="ghost"
           size="xs"
           disabled={isProcessing}
-          tooltip="Edit operations"
+          tooltip={t("image.editOperations")}
         >
-          <span className="ui-text-sm">Edit</span>
+          <span className="ui-text-sm">{t("image.edit")}</span>
           <ChevronDown className="ml-1" />
         </Button>
 
@@ -110,7 +112,7 @@ export function ImageEditorToolbar({
                   className={menuItemClass}
                 >
                   <Image />
-                  <span>Resize...</span>
+                  <span>{t("image.resizeEllipsis")}</span>
                 </Button>
                 <div className="my-1 h-px bg-border" />
                 <Button
@@ -121,7 +123,7 @@ export function ImageEditorToolbar({
                   className={menuItemClass}
                 >
                   <RotateCw />
-                  <span>Rotate 90° CW</span>
+                  <span>{t("image.rotateCw")}</span>
                 </Button>
                 <Button
                   type="button"
@@ -131,7 +133,7 @@ export function ImageEditorToolbar({
                   className={menuItemClass}
                 >
                   <RotateCcw />
-                  <span>Rotate 90° CCW</span>
+                  <span>{t("image.rotateCcw")}</span>
                 </Button>
                 <Button
                   type="button"
@@ -141,7 +143,7 @@ export function ImageEditorToolbar({
                   className={menuItemClass}
                 >
                   <RotateCw />
-                  <span>Rotate 180°</span>
+                  <span>{t("image.rotate180")}</span>
                 </Button>
                 <div className="my-1 h-px bg-border" />
                 <Button
@@ -152,7 +154,7 @@ export function ImageEditorToolbar({
                   className={menuItemClass}
                 >
                   <FlipHorizontal />
-                  <span>Flip Horizontal</span>
+                  <span>{t("image.flipHorizontal")}</span>
                 </Button>
                 <Button
                   type="button"
@@ -162,7 +164,7 @@ export function ImageEditorToolbar({
                   className={menuItemClass}
                 >
                   <FlipVertical />
-                  <span>Flip Vertical</span>
+                  <span>{t("image.flipVertical")}</span>
                 </Button>
               </div>
             </div>
@@ -177,9 +179,9 @@ export function ImageEditorToolbar({
           variant="ghost"
           size="xs"
           disabled={isProcessing}
-          tooltip="Convert format"
+          tooltip={t("image.convertFormat")}
         >
-          <span className="ui-text-sm">Convert</span>
+          <span className="ui-text-sm">{t("image.convertMenu")}</span>
           <ChevronDown className="ml-1" />
         </Button>
 
@@ -251,7 +253,7 @@ export function ImageEditorToolbar({
         onClick={onUndo}
         variant="ghost"
         disabled={!canUndo || isProcessing}
-        tooltip="Undo last operation"
+        tooltip={t("image.undoLastOperation")}
         size="icon-xs"
       >
         <Undo2 />
@@ -263,7 +265,7 @@ export function ImageEditorToolbar({
           onClick={onSave}
           variant="ghost"
           disabled={isProcessing}
-          tooltip="Save changes"
+          tooltip={t("image.saveChanges")}
           className="text-primary"
           size="icon-xs"
         >

@@ -11,6 +11,7 @@ import { openCommitDiffBuffer } from "@/features/git/utils/open-commit-diff-buff
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import Badge from "@/ui/badge";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Dropdown } from "@/ui/dropdown";
 import {
   BellIcon as Bell,
@@ -49,6 +50,7 @@ function NotificationIcon({ subjectType }: { subjectType: string }) {
 }
 
 export function GitHubNotificationsMenu() {
+  const { t } = useTranslation();
   const isGitHubAvailable = isBackendCapabilityAvailable("github");
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.();
   const activeRepoPath = useRepositoryStore.use.activeRepoPath();
@@ -205,12 +207,12 @@ export function GitHubNotificationsMenu() {
           toast.error(
             nextError instanceof Error
               ? nextError.message
-              : "Failed to resolve the GitHub Actions run",
+              : t("github.failedResolveActionsRun"),
           );
           return;
         }
 
-        toast.error("Could not match this notification to a GitHub Actions run.");
+        toast.error(t("github.couldNotMatchNotificationActionsRun"));
         return;
       }
 
@@ -223,14 +225,15 @@ export function GitHubNotificationsMenu() {
       openPRBuffer,
       openWebViewerBuffer,
       repoPath,
+      t,
     ],
   );
 
   const notificationCount = notifications.length;
   const tooltipLabel = isGitHubAvailable
     ? notificationCount
-      ? `Notifications (${notificationCount})`
-      : "Notifications"
+      ? t("github.notificationsCount", { count: notificationCount })
+      : t("github.notifications")
     : BACKEND_UNAVAILABLE_TOOLTIP;
 
   return (
@@ -263,7 +266,7 @@ export function GitHubNotificationsMenu() {
         className="w-95 overflow-hidden rounded-xl p-0"
       >
         <div className="flex items-center gap-2 border-border/70 border-b px-3 py-2">
-          <div className="font-medium text-foreground ui-text-base">Notifications</div>
+          <div className="font-medium text-foreground ui-text-base">{t("github.notifications")}</div>
           <Badge variant="accent" size="compact" className="h-5 min-w-5 tabular-nums">
             {notificationCount}
           </Badge>
@@ -276,7 +279,7 @@ export function GitHubNotificationsMenu() {
             <div className="flex items-start gap-2 text-destructive">
               <AlertCircle className="mt-0.5 size-4 shrink-0" />
               <div className="min-w-0">
-                <div className="font-medium ui-text-sm">Could not load notifications</div>
+                <div className="font-medium ui-text-sm">{t("github.couldNotLoadNotifications")}</div>
                 <div className="mt-1 wrap-break-word text-subtle-foreground ui-text-sm">
                   {error}
                 </div>
@@ -287,18 +290,18 @@ export function GitHubNotificationsMenu() {
                   className="mt-2 h-auto px-0 text-primary hover:bg-transparent"
                   onClick={() => void fetchNotifications(true)}
                 >
-                  Try again
+                  {t("github.tryAgain")}
                 </Button>
               </div>
             </div>
           </div>
         ) : isLoading && notifications.length === 0 ? (
           <div className="flex items-center justify-center p-6">
-            <Spinner label="Loading notifications" showLabel compact />
+            <Spinner label={t("github.loadingNotifications")} showLabel compact />
           </div>
         ) : notifications.length === 0 ? (
           <div className="p-6 text-center text-subtle-foreground ui-text-sm">
-            No unread notifications.
+            {t("github.noUnreadNotifications")}
           </div>
         ) : (
           <div className="max-h-90 overflow-y-auto p-1">

@@ -18,6 +18,7 @@ import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { readFileContent } from "@/features/file-system/controllers/file-operations";
 import { getFileDiff } from "@/features/git/api/git-diff-api";
 import { useProjectStore } from "@/features/window/stores/project.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import { getBaseName, joinPath } from "@/utils/path-helpers";
 import { ChatActivityLine } from "../chat/chat-activity-line";
@@ -33,6 +34,8 @@ interface ToolCallDisplayProps {
   locations?: AcpToolCallLocation[];
 }
 
+type Translator = (key: string, values?: Record<string, string | number>) => string;
+
 function getStatus(
   isStreaming?: boolean,
   error?: string,
@@ -46,11 +49,15 @@ function getStatus(
   return "success";
 }
 
-function getStatusLabel(status: ReturnType<typeof getStatus>, protocolStatus?: AcpToolCallStatus) {
-  if (status === "error") return "failed";
-  if (protocolStatus === "pending") return "pending";
-  if (status === "running") return "running";
-  return "completed";
+function getStatusLabel(
+  status: ReturnType<typeof getStatus>,
+  protocolStatus: AcpToolCallStatus | undefined,
+  t: Translator,
+) {
+  if (status === "error") return t("ai.toolStatusFailed");
+  if (protocolStatus === "pending") return t("ai.toolStatusPending");
+  if (status === "running") return t("ai.toolStatusRunning");
+  return t("ai.toolStatusCompleted");
 }
 
 function formatValue(value: unknown): string {
@@ -180,16 +187,20 @@ function formatAcpDiffText(item: ReturnType<typeof getAcpDiffOutputs>[number]): 
     .join("\n");
 }
 
-function getOutputSummary(output: unknown): string | null {
+function getOutputSummary(output: unknown, t: Translator): string | null {
   const diffItems = getDiffItems(output);
   if (diffItems.length > 0) {
     const file = getBaseName(diffItems[0].path);
-    return diffItems.length === 1 ? `changed ${file}` : `changed ${diffItems.length} files`;
+    return diffItems.length === 1
+      ? t("ai.toolChangedFile", { file })
+      : t("ai.toolChangedFiles", { count: diffItems.length });
   }
 
   const terminalItems = getTerminalItems(output);
   if (terminalItems.length > 0) {
-    return terminalItems.length === 1 ? "terminal output" : `${terminalItems.length} terminals`;
+    return terminalItems.length === 1
+      ? t("ai.toolTerminalOutput")
+      : t("ai.toolTerminals", { count: terminalItems.length });
   }
 
   return null;
@@ -218,15 +229,17 @@ function getToolCallDetail(
   output: unknown,
   state: ReturnType<typeof getStatus>,
   protocolStatus?: AcpToolCallStatus,
+  t?: Translator,
 ) {
-  const statusLabel = getStatusLabel(state, protocolStatus);
+  const translate = t ?? ((key) => key);
+  const statusLabel = getStatusLabel(state, protocolStatus, translate);
   const inputSummary = getInputSummary(toolName, input);
-  const outputSummary = getOutputSummary(output);
+  const outputSummary = getOutputSummary(output, translate);
   const summary = outputSummary ?? inputSummary;
-  return summary ? `${statusLabel} - ${summary}` : statusLabel;
+  return summary ? translate("ai.toolDetailWithSummary", { status: statusLabel, summary }) : statusLabel;
 }
 
-function getLatestToolSummary(toolCall: ToolCall, isStreaming?: boolean) {
+function getLatestToolSummary(toolCall: ToolCall, isStreaming: boolean | undefined, t: Translator) {
   const state = getStatus(isStreaming && !toolCall.isComplete, toolCall.error, toolCall.status);
   return `${toolCall.name}: ${getToolCallDetail(
     toolCall.name,
@@ -234,6 +247,7 @@ function getLatestToolSummary(toolCall: ToolCall, isStreaming?: boolean) {
     toolCall.output,
     state,
     toolCall.status,
+    t,
   )}`;
 }
 
@@ -244,11 +258,14 @@ export function ToolCallGroupDisplay({
   toolCalls: ToolCall[];
   isStreaming?: boolean;
 }) {
+  const { t } = useTranslation();
+
   if (toolCalls.length === 0) return null;
 
   const latestToolCall = toolCalls[toolCalls.length - 1];
-  const title = toolCalls.length === 1 ? "Tool call" : `${toolCalls.length} tool calls`;
-  const detail = getLatestToolSummary(latestToolCall, isStreaming);
+  const title =
+    toolCalls.length === 1 ? t("ai.toolCall") : t("ai.toolCalls", { count: toolCalls.length });
+  const detail = getLatestToolSummary(latestToolCall, isStreaming, t);
 
   return (
     <ChatActivityLine title={title} detail={detail}>
@@ -281,8 +298,9 @@ function ToolCallDisplay({
   status: protocolStatus,
   locations,
 }: ToolCallDisplayProps) {
+  const { t } = useTranslation();
   const state = getStatus(isStreaming, error, protocolStatus);
-  const detail = getToolCallDetail(toolName, input, output, state, protocolStatus);
+  const detail = getToolCallDetail(toolName, input, output, state, protocolStatus, t);
   const hasDetails =
     Boolean(input) ||
     Boolean(output) ||
@@ -302,7 +320,7 @@ function ToolCallDisplay({
           type="button"
           variant="ghost"
           size="icon-xs"
-          tooltip="Open diff"
+          tooltip={t("ai.openDiff")}
           onClick={(event) => {
             event.stopPropagation();
             void openToolDiff(toolPath, output);
@@ -316,7 +334,7 @@ function ToolCallDisplay({
           type="button"
           variant="ghost"
           size="icon-xs"
-          tooltip="Open file"
+          tooltip={t("ai.openFile")}
           onClick={(event) => {
             event.stopPropagation();
             void openToolPath(toolPath);
@@ -330,7 +348,7 @@ function ToolCallDisplay({
           type="button"
           variant="ghost"
           size="icon-xs"
-          tooltip="Open terminal"
+          tooltip={t("ai.openTerminal")}
           onClick={(event) => {
             event.stopPropagation();
             openAcpTerminalOutput(output);

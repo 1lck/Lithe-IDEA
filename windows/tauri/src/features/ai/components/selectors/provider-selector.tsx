@@ -3,6 +3,7 @@ import {
   useAvailableProviders,
   useProviderById,
 } from "@/features/ai/hooks/use-available-providers";
+import { useTranslation } from "@/i18n/locale-provider";
 import Select from "@/ui/select";
 import { cn } from "@/utils/cn";
 
@@ -29,6 +30,7 @@ export function ProviderSelector({
   onOpenChange,
   tooltip,
 }: ProviderSelectorProps) {
+  const { t } = useTranslation();
   const providers = useAvailableProviders();
   const currentProvider = useProviderById(providerId);
   const isComposer = appearance === "composer";
@@ -49,8 +51,8 @@ export function ProviderSelector({
           />
         ),
       }))}
-      placeholder={currentProvider?.name || providerId || "Select provider"}
-      aria-label="Select AI provider"
+      placeholder={currentProvider?.name || providerId || t("ai.selectProvider")}
+      aria-label={t("ai.selectAiProvider")}
       searchable
       searchableTrigger={isComposer ? "input" : "menu"}
       hideChevron={isComposer}

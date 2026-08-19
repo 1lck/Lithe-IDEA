@@ -4,6 +4,7 @@ import Dialog from "@/ui/dialog";
 import { Field, FieldDescription, FieldLabel } from "@/ui/field";
 import Input from "@/ui/input";
 import { TerminalIcon } from "@/ui/icons";
+import { useTranslation } from "@/i18n/locale-provider";
 import type { RunActionDraft } from "../types/run-action.types";
 
 interface RunActionDialogProps {
@@ -21,6 +22,7 @@ export default function RunActionDialog({
   onClose,
   onSave,
 }: RunActionDialogProps) {
+  const { t } = useTranslation();
   const nameInputRef = useRef<HTMLInputElement>(null);
   const canSave = Boolean(draft.name.trim() && draft.command.trim());
 
@@ -31,41 +33,41 @@ export default function RunActionDialog({
 
   return (
     <Dialog
-      title={draft.id ? "Edit run action" : "New run action"}
+      title={draft.id ? t("runActions.editRunAction") : t("runActions.newRunAction")}
       icon={TerminalIcon}
       onClose={onClose}
       size="sm"
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
-            Cancel
+            {t("ui.cancel")}
           </Button>
           <Button onClick={onSave} disabled={!canSave} size="xs">
-            {draft.id ? "Save changes" : "Add action"}
+            {draft.id ? t("runActions.saveChanges") : t("runActions.addAction")}
           </Button>
         </>
       }
     >
       <div className="space-y-4">
         <div className="rounded-lg bg-surface/60 px-3 py-2 text-subtle-foreground ui-text-sm">
-          This action is saved for{" "}
-          <span className="font-medium text-foreground">{workspaceLabel}</span> and runs in a new
-          terminal.
+          {t("runActions.savedForPrefix")}{" "}
+          <span className="font-medium text-foreground">{workspaceLabel}</span>{" "}
+          {t("runActions.savedForSuffix")}
         </div>
 
         <Field>
-          <FieldLabel htmlFor="run-action-name">Name</FieldLabel>
+          <FieldLabel htmlFor="run-action-name">{t("runActions.name")}</FieldLabel>
           <Input
             id="run-action-name"
             ref={nameInputRef}
             value={draft.name}
             onChange={(event) => onChange({ ...draft, name: event.target.value })}
-            placeholder="Start development server"
+            placeholder={t("runActions.namePlaceholder")}
           />
         </Field>
 
         <Field>
-          <FieldLabel htmlFor="run-action-command">Command</FieldLabel>
+          <FieldLabel htmlFor="run-action-command">{t("run.command")}</FieldLabel>
           <Input
             id="run-action-command"
             value={draft.command}
@@ -82,7 +84,7 @@ export default function RunActionDialog({
         </Field>
 
         <Field>
-          <FieldLabel htmlFor="run-action-directory">Working directory</FieldLabel>
+          <FieldLabel htmlFor="run-action-directory">{t("run.workingDirectory")}</FieldLabel>
           <Input
             id="run-action-directory"
             value={draft.workingDirectory}
@@ -91,7 +93,7 @@ export default function RunActionDialog({
             className="font-mono"
           />
           <FieldDescription>
-            Leave empty for the project root, or enter a relative path such as{" "}
+            {t("runActions.workingDirectoryDescription")}{" "}
             <code className="font-mono text-muted-foreground">apps/web</code>.
           </FieldDescription>
         </Field>

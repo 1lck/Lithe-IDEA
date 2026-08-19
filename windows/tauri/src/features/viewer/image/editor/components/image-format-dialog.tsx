@@ -2,6 +2,7 @@ import { ImageIcon as Image } from "@/ui/icons";
 import { useEffect, useState } from "react";
 import { Button } from "@/ui/button";
 import Dialog from "@/ui/dialog";
+import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
 import type { ImageFormat } from "../types/image-operation.types";
 import { convertImageFormat } from "../utils/image-conversion";
@@ -19,53 +20,53 @@ interface ImageFormatDialogProps {
 
 interface FormatConfig {
   name: string;
-  description: string;
+  descriptionKey: string;
   recommended: number;
-  options: { label: string; quality: number }[];
+  options: { labelKey: string; quality: number }[];
   supportsQuality: boolean;
 }
 
 const FORMAT_CONFIGS: Record<ImageFormat, FormatConfig> = {
   png: {
     name: "PNG",
-    description: "Lossless compression, supports transparency",
+    descriptionKey: "image.losslessTransparency",
     recommended: 1,
     options: [],
     supportsQuality: false,
   },
   jpeg: {
     name: "JPEG",
-    description: "Lossy compression, smaller file sizes",
+    descriptionKey: "image.lossySmaller",
     recommended: 0.85,
     options: [
-      { label: "High Quality", quality: 0.9 },
-      { label: "Recommended", quality: 0.85 },
-      { label: "Balanced", quality: 0.75 },
-      { label: "Small Size", quality: 0.6 },
+      { labelKey: "image.highQuality", quality: 0.9 },
+      { labelKey: "image.recommended", quality: 0.85 },
+      { labelKey: "image.balanced", quality: 0.75 },
+      { labelKey: "image.smallSize", quality: 0.6 },
     ],
     supportsQuality: true,
   },
   webp: {
     name: "WebP",
-    description: "Modern format, best compression",
+    descriptionKey: "image.modernBestCompression",
     recommended: 0.85,
     options: [
-      { label: "High Quality", quality: 0.9 },
-      { label: "Recommended", quality: 0.85 },
-      { label: "Balanced", quality: 0.75 },
-      { label: "Small Size", quality: 0.6 },
+      { labelKey: "image.highQuality", quality: 0.9 },
+      { labelKey: "image.recommended", quality: 0.85 },
+      { labelKey: "image.balanced", quality: 0.75 },
+      { labelKey: "image.smallSize", quality: 0.6 },
     ],
     supportsQuality: true,
   },
   avif: {
     name: "AVIF",
-    description: "Next-gen format, excellent compression",
+    descriptionKey: "image.nextGenCompression",
     recommended: 0.85,
     options: [
-      { label: "High Quality", quality: 0.9 },
-      { label: "Recommended", quality: 0.85 },
-      { label: "Balanced", quality: 0.75 },
-      { label: "Small Size", quality: 0.6 },
+      { labelKey: "image.highQuality", quality: 0.9 },
+      { labelKey: "image.recommended", quality: 0.85 },
+      { labelKey: "image.balanced", quality: 0.75 },
+      { labelKey: "image.smallSize", quality: 0.6 },
     ],
     supportsQuality: true,
   },
@@ -79,6 +80,7 @@ export function ImageFormatDialog({
   currentImageSrc,
   currentFileName,
 }: ImageFormatDialogProps) {
+  const { t } = useTranslation();
   const config = FORMAT_CONFIGS[format];
   const [selectedQuality, setSelectedQuality] = useState(config.recommended);
   const [estimatedSize, setEstimatedSize] = useState<number | null>(null);
@@ -125,7 +127,7 @@ export function ImageFormatDialog({
 
   return (
     <Dialog
-      title={`Convert to ${config.name}`}
+      title={t("image.convertToFormat", { format: config.name })}
       icon={Image}
       onClose={onClose}
       size="md"
@@ -133,25 +135,27 @@ export function ImageFormatDialog({
       footer={
         <>
           <Button onClick={onClose} variant="default" size="xs">
-            Cancel
+            {t("ui.cancel")}
           </Button>
           <Button onClick={handleConvert} disabled={isEstimating} variant="accent" size="xs">
-            Convert
+            {t("image.convert")}
           </Button>
         </>
       }
     >
       <div className="flex flex-col gap-1">
-        <p className="text-foreground ui-text-sm">{config.description}</p>
+        <p className="text-foreground ui-text-sm">{t(config.descriptionKey)}</p>
         <p className="text-subtle-foreground ui-text-sm">
-          Current: <span className="font-sans">{currentFileName}</span> •{" "}
+          {t("image.currentFile")}: <span className="font-sans">{currentFileName}</span> •{" "}
           {formatFileSize(currentSize)}
         </p>
       </div>
 
       {config.supportsQuality && (
         <div className="flex flex-col gap-2">
-          <div className="font-semibold text-foreground ui-text-sm">Quality Setting</div>
+          <div className="font-semibold text-foreground ui-text-sm">
+            {t("image.qualitySetting")}
+          </div>
           <div className="flex flex-col gap-1">
             {config.options.map((option) => (
               <Button
@@ -168,9 +172,11 @@ export function ImageFormatDialog({
                 )}
               >
                 <span>
-                  {option.label}
+                  {t(option.labelKey)}
                   {option.quality === config.recommended && (
-                    <span className="ml-2 ui-text-sm text-primary">★ RECOMMENDED</span>
+                    <span className="ml-2 ui-text-sm text-primary">
+                      ★ {t("image.recommendedBadge")}
+                    </span>
                   )}
                 </span>
                 <span className="text-subtle-foreground">{Math.round(option.quality * 100)}%</span>
@@ -182,10 +188,10 @@ export function ImageFormatDialog({
 
       <div className="rounded border border-border bg-surface p-3">
         <div className="flex items-center justify-between">
-          <span className="text-foreground ui-text-sm">Estimated Size:</span>
+          <span className="text-foreground ui-text-sm">{t("image.estimatedSize")}</span>
           <div className="flex items-center gap-2">
             {isEstimating ? (
-              <span className="text-subtle-foreground ui-text-sm">Calculating...</span>
+              <span className="text-subtle-foreground ui-text-sm">{t("image.calculating")}</span>
             ) : estimatedSize ? (
               <>
                 <span className="font-sans text-foreground ui-text-sm">

@@ -6,6 +6,7 @@ import { InlineRenameInput } from "@/ui/input";
 import { SidebarTreeDisclosure, SidebarTreeRow } from "@/features/sidebar/components/sidebar-tree";
 import { cn } from "@/utils/cn";
 import { ThemedFileIcon } from "@/extensions/icon-themes/components/themed-file-icon";
+import { useTranslation } from "@/i18n/locale-provider";
 
 const FILE_TREE_BASE_INDENT = 10;
 
@@ -104,6 +105,7 @@ function FileExplorerTreeItemComponent({
   searchQuery,
   rowId,
 }: FileExplorerTreeItemProps) {
+  const { t } = useTranslation();
   const paddingLeft = FILE_TREE_BASE_INDENT + depth * indentSize;
   const gitStatusDecoration = getGitStatusDecoration(file);
   const guideLevels = Array.from({ length: depth }, (_, level) => level);
@@ -176,9 +178,13 @@ function FileExplorerTreeItemComponent({
             onSubmit={(value) => onSubmit(value, file)}
             onCancel={() => onCancel(file)}
             className="relative z-1 flex-1"
-            placeholder={file.isDir ? "folder name" : "file name"}
+            placeholder={
+              file.isDir ? t("files.folderNamePlaceholder") : t("files.fileNamePlaceholder")
+            }
             aria-label={
-              file.isRenaming ? `Rename ${file.name}` : `Name new ${file.isDir ? "folder" : "file"}`
+              file.isRenaming
+                ? t("files.renameItem", { name: file.name })
+                : t(file.isDir ? "files.nameNewFolder" : "files.nameNewFile")
             }
           />
         </div>
@@ -202,7 +208,11 @@ function FileExplorerTreeItemComponent({
       data-file-path={file.path}
       data-is-dir={file.isDir}
       data-path={file.path}
-      title={file.isSymlink && file.symlinkTarget ? `Symlink to: ${file.symlinkTarget}` : undefined}
+      title={
+        file.isSymlink && file.symlinkTarget
+          ? t("files.symlinkTo", { target: file.symlinkTarget })
+          : undefined
+      }
       className={cn(
         "min-w-max",
         isDragOver && "border-2! border-dashed! border-primary! bg-primary! bg-opacity-20!",

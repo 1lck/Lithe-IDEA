@@ -6,6 +6,7 @@ import {
   XIcon as X,
 } from "@/ui/icons";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 import { formatSqlHistoryPreview } from "../lib/sql-history";
 import { writeDatabaseClipboardText } from "../utils/clipboard";
 import { cn } from "@/utils/cn";
@@ -23,20 +24,22 @@ interface SqlHistoryListProps {
 
 export default function SqlHistoryList({
   queries,
-  title = "Recent",
+  title,
   compact = false,
   onSelect,
   onRun,
   onRemove,
   onClear,
 }: SqlHistoryListProps) {
+  const { t } = useTranslation();
   if (queries.length === 0) return null;
+  const displayTitle = title ?? t("database.recent");
 
   return (
     <div className={cn(databaseCardClassName(), compact && "mx-2 mb-2")}>
       <div className="flex items-center justify-between p-2">
         <div className="px-2 py-1 font-sans ui-text-sm text-subtle-foreground uppercase">
-          {title} ({queries.length})
+          {displayTitle} ({queries.length})
         </div>
         <Button
           type="button"
@@ -44,8 +47,8 @@ export default function SqlHistoryList({
           variant="ghost"
           size="icon-xs"
           className="text-subtle-foreground hover:text-foreground"
-          aria-label="Clear recent queries"
-          tooltip="Clear recent queries"
+          aria-label={t("database.clearRecentQueries")}
+          tooltip={t("database.clearRecentQueries")}
         >
           <Trash />
         </Button>
@@ -68,7 +71,7 @@ export default function SqlHistoryList({
                   "ui-text-sm",
                 )}
                 tooltip={query}
-                aria-label={`Open query: ${preview}`}
+                aria-label={t("database.openQuery", { preview })}
               >
                 <Code className="mr-1.5 shrink-0" />
                 <span className="truncate">{preview}</span>
@@ -83,8 +86,8 @@ export default function SqlHistoryList({
                   variant="ghost"
                   size="icon-xs"
                   className="shrink-0 text-subtle-foreground opacity-0 hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
-                  aria-label={`Run query from history: ${preview}`}
-                  tooltip="Run query"
+                  aria-label={t("database.runQueryFromHistory", { preview })}
+                  tooltip={t("database.runQuery")}
                 >
                   <Play />
                 </Button>
@@ -98,8 +101,8 @@ export default function SqlHistoryList({
                 variant="ghost"
                 size="icon-xs"
                 className="shrink-0 text-subtle-foreground opacity-0 hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
-                aria-label={`Copy query from history: ${preview}`}
-                tooltip="Copy query"
+                aria-label={t("database.copyQueryFromHistory", { preview })}
+                tooltip={t("database.copyQuery")}
               >
                 <ClipboardText />
               </Button>
@@ -112,8 +115,8 @@ export default function SqlHistoryList({
                 variant="ghost"
                 size="icon-xs"
                 className="shrink-0 text-subtle-foreground opacity-0 hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
-                aria-label={`Remove query from history: ${preview}`}
-                tooltip="Remove from history"
+                aria-label={t("database.removeQueryFromHistory", { preview })}
+                tooltip={t("database.removeFromHistory")}
               >
                 <X />
               </Button>

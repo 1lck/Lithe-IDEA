@@ -8,6 +8,7 @@ import {
 import { isTerminalAgent, TERMINAL_AGENT_OPTIONS } from "@/features/ai/lib/terminal-agents";
 import type { AgentConfig } from "@/features/ai/types/acp.types";
 import type { AgentType } from "@/features/ai/types/ai-chat.types";
+import { useTranslation } from "@/i18n/locale-provider";
 import { toast } from "sonner";
 
 const LITHE_AGENT_OPTION = {
@@ -27,6 +28,7 @@ export interface AgentOption {
 }
 
 export function useAgentOptions(currentAgentId: AgentType) {
+  const { t } = useTranslation();
   const [installedAgents, setInstalledAgents] = useState<Set<string>>(new Set(["custom"]));
   const [agentConfigs, setAgentConfigs] = useState<Map<string, AgentConfig>>(new Map());
   const [installingAgentId, setInstallingAgentId] = useState<string | null>(null);
@@ -93,17 +95,17 @@ export function useAgentOptions(currentAgentId: AgentType) {
         const installedAgent = await invoke<AgentConfig>("install_acp_agent", { agentId });
         setAgentConfigs((current) => new Map(current).set(installedAgent.id, installedAgent));
         setInstalledAgents((current) => new Set(current).add(installedAgent.id));
-        toast.success(`${agentName} installed`);
+        toast.success(t("ai.agentInstalled", { name: agentName }));
       } catch (error) {
-        toast.error(`Failed to install ${agentName}`, {
-          description: error instanceof Error ? error.message : "Unknown error",
+        toast.error(t("ai.agentInstallFailed", { name: agentName }), {
+          description: error instanceof Error ? error.message : t("ai.unknownError"),
         });
       } finally {
         setInstallingAgentId(null);
         void loadInstalledAgents();
       }
     },
-    [installingAgentId, loadInstalledAgents],
+    [installingAgentId, loadInstalledAgents, t],
   );
 
   return { options, installAgent };

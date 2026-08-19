@@ -11,6 +11,13 @@ enum MacBundledFontRegistry {
     ]
 
     static func registerFonts(bundle: Bundle = .main) {
+        registerFonts(bundle: bundle, reporter: report)
+    }
+
+    static func registerFonts(
+        bundle: Bundle = .main,
+        reporter: (String) -> Void
+    ) {
         guard bundle.url(forResource: "JetBrainsMono-Regular", withExtension: "ttf", subdirectory: "Fonts") != nil else {
             return
         }
@@ -21,7 +28,7 @@ enum MacBundledFontRegistry {
                 withExtension: "ttf",
                 subdirectory: "Fonts"
             ) else {
-                report("Missing bundled font: \(font.resource).ttf")
+                reporter("Lithe font registration: Missing bundled font: \(font.resource).ttf\n")
                 continue
             }
 
@@ -29,14 +36,14 @@ enum MacBundledFontRegistry {
             guard CTFontManagerRegisterFontsForURL(url as CFURL, .process, &registrationError) else {
                 let detail = registrationError?.takeRetainedValue().localizedDescription
                     ?? "Unknown CoreText error"
-                report("Could not register \(font.resource).ttf: \(detail)")
+                reporter("Lithe font registration: Could not register \(font.resource).ttf: \(detail)\n")
                 continue
             }
         }
     }
 
     private static func report(_ message: String) {
-        guard let data = ("Lithe font registration: \(message)\n").data(using: .utf8) else { return }
+        guard let data = message.data(using: .utf8) else { return }
         FileHandle.standardError.write(data)
     }
 }

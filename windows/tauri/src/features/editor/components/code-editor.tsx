@@ -23,6 +23,7 @@ import { resolveGoToLineTarget } from "@/features/editor/utils/go-to-line";
 import type { EditorModelPositionResolver } from "@/features/editor/view-model/view-layout";
 import { hasTextContent } from "@/features/panes/types/pane-content.types";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { toast } from "sonner";
 import { useEditorAppStore } from "@/features/editor/stores/editor-app.store";
 import { useZoomStore } from "@/features/window/stores/zoom.store";
@@ -140,6 +141,7 @@ const CodeEditor = ({
   lineNumberMap,
   onContentChange,
 }: CodeEditorProps) => {
+  const { t } = useTranslation();
   const editorRef = useRef<HTMLDivElement>(null);
   const codeLensRef = useRef<HTMLDivElement>(null);
   const renameInputRef = useRef<HTMLDivElement>(null);
@@ -310,11 +312,11 @@ const CodeEditor = ({
     () =>
       pythonScriptCells.map((cell) => ({
         line: cell.markerLine,
-        title: "Run cell",
+        title: t("run.runCell"),
         command: PYTHON_SCRIPT_CELL_COMMAND,
         arguments: [cell.index],
       })),
-    [pythonScriptCells],
+    [pythonScriptCells, t],
   );
   const rMarkdownChunks = useMemo(
     () => (enableInteractiveServices && isRMarkdownFile(filePath) ? getRMarkdownChunks(value) : []),
@@ -324,11 +326,11 @@ const CodeEditor = ({
     () =>
       rMarkdownChunks.map((chunk) => ({
         line: chunk.markerLine,
-        title: "Run chunk",
+        title: t("run.runChunk"),
         command: R_MARKDOWN_CHUNK_COMMAND,
         arguments: [chunk.index],
       })),
-    [rMarkdownChunks],
+    [rMarkdownChunks, t],
   );
   const inlineCodeLenses = useMemo(
     () => (codeLensEnabled ? [...pythonScriptCellLenses, ...rMarkdownChunkLenses] : []),
@@ -351,7 +353,7 @@ const CodeEditor = ({
         })
           .then((result) => {
             if (result.timedOut) {
-              toast.error("Python cell timed out.");
+              toast.error(t("notebook.pythonCellTimedOut"));
               return;
             }
             if (result.status !== 0 || result.stderr.trim()) {
@@ -362,17 +364,19 @@ const CodeEditor = ({
             }
             const stdout = truncateCellOutput(result.stdout);
             if (stdout) {
-              toast.success(`Python cell output: ${stdout}`);
+              toast.success(t("notebook.pythonCellOutput", { output: stdout }));
               return;
             }
             if (result.displayData?.length) {
-              toast.success(`Python cell produced ${result.displayData.length} display output(s).`);
+              toast.success(
+                t("notebook.pythonDisplayOutputs", { count: result.displayData.length }),
+              );
               return;
             }
-            toast.success("Python cell ran.");
+            toast.success(t("notebook.pythonCellRan"));
           })
           .catch((error) => {
-            toast.error(error instanceof Error ? error.message : "Failed to run Python cell");
+            toast.error(error instanceof Error ? error.message : t("notebook.pythonCellRunFailed"));
           });
         return;
       }
@@ -384,7 +388,7 @@ const CodeEditor = ({
 
         if (!rMarkdownChunkShouldEvaluate(chunk)) {
           onChange(clearRMarkdownChunkOutput(valueRef.current, chunk));
-          toast.success("R chunk skipped because eval=FALSE.");
+          toast.success(t("notebook.rChunkSkippedEvalFalse"));
           return;
         }
 
@@ -410,7 +414,7 @@ const CodeEditor = ({
             }
 
             if (result.timedOut) {
-              toast.error("R chunk timed out.");
+              toast.error(t("notebook.rChunkTimedOut"));
               return;
             }
             const allowCapturedError = currentChunk.options.error === true;
@@ -427,13 +431,13 @@ const CodeEditor = ({
             }
             const stdout = truncateCellOutput(semanticResult.stdout);
             if (allowCapturedError && semanticResult.stderr.trim()) {
-              toast.success("R chunk completed with captured error output.");
+              toast.success(t("notebook.rChunkCapturedErrorOutput"));
               return;
             }
-            toast.success(stdout ? `R chunk output: ${stdout}` : "R chunk ran.");
+            toast.success(stdout ? t("notebook.rChunkOutput", { output: stdout }) : t("notebook.rChunkRan"));
           })
           .catch((error) => {
-            toast.error(error instanceof Error ? error.message : "Failed to run R chunk");
+            toast.error(error instanceof Error ? error.message : t("notebook.rChunkRunFailed"));
           });
         return;
       }

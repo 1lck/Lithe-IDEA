@@ -2,10 +2,13 @@ import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
 import type { ComponentProps } from "react";
 import { CaretRightIcon as ChevronRight, DotsThreeIcon as MoreHorizontal } from "@/ui/icons";
+import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
 
 function Breadcrumb({ className, ...props }: ComponentProps<"nav">) {
-  return <nav aria-label="breadcrumb" data-slot="breadcrumb" className={className} {...props} />;
+  const { t } = useTranslation();
+
+  return <nav aria-label={t("ui.breadcrumb")} data-slot="breadcrumb" className={className} {...props} />;
 }
 
 function BreadcrumbList({ className, ...props }: ComponentProps<"ol">) {
@@ -78,6 +81,8 @@ function BreadcrumbSeparator({ children, className, ...props }: ComponentProps<"
 }
 
 function BreadcrumbEllipsis({ className, ...props }: ComponentProps<"span">) {
+  const { t } = useTranslation();
+
   return (
     <span
       data-slot="breadcrumb-ellipsis"
@@ -87,7 +92,7 @@ function BreadcrumbEllipsis({ className, ...props }: ComponentProps<"span">) {
       {...props}
     >
       <MoreHorizontal className="size-4" />
-      <span className="sr-only">More</span>
+      <span className="sr-only">{t("ui.more")}</span>
     </span>
   );
 }

@@ -19,6 +19,28 @@
       },
       "additionalProperties": false
     },
+    "toolchain": {
+      "type": "object",
+      "description": "Machine-local global toolchain applied to every configuration. Stored only in the local layer.",
+      "properties": {
+        "java": {
+          "type": "object",
+          "properties": {
+            "homePath": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "maven": {
+          "type": "object",
+          "properties": {
+            "executablePath": { "type": "string" },
+            "javaHomePath": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "configurations": {
       "type": "array",
       "items": { "$ref": "#/$defs/configuration" }

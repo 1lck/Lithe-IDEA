@@ -9,8 +9,20 @@ fileprivate struct CodeEditorPalette {
     static let dark = CodeEditorPalette(isDark: true, theme: .lithe)
 
     var background: NSColor { themeColor(.editor) }
-    var gutterBackground: NSColor { themeColor(.sidebar) }
-    var text: NSColor { themeColor(.primaryText) }
+    var gutterBackground: NSColor { themeColor(.editor) }
+    var gutterDivider: NSColor {
+        color(
+            light: (0.78, 0.79, 0.81, 1),
+            dark: (0.204, 0.212, 0.231, 1)
+        )
+    }
+    var text: NSColor {
+        guard theme == .lithe else { return themeColor(.primaryText) }
+        return color(
+            light: (0, 0, 0, 0.82),
+            dark: (0.737, 0.745, 0.769, 1)
+        )
+    }
     var caret: NSColor { themeColor(.primaryText) }
     var selection: NSColor { themeColor(.accent).withAlphaComponent(isDark ? 0.42 : 0.24) }
     var selectionText: NSColor { themeColor(.primaryText) }
@@ -55,6 +67,46 @@ fileprivate struct CodeEditorPalette {
     }
 }
 
+private enum EditorLayoutMetrics {
+    static let standardGutterWidth: CGFloat = 45
+    static let leadingInset: CGFloat = 0
+    static let lineFragmentPadding: CGFloat = 4
+    static let caretWidth: CGFloat = 2
+}
+
+struct EditorViewportState: Equatable {
+    var selectionLocation = 0
+    var selectionLength = 0
+    var verticalScrollOffset: CGFloat = 0
+}
+
+@MainActor
+final class EditorViewportStore {
+    private var states: [UUID: EditorViewportState] = [:]
+
+    func state(for documentID: UUID) -> EditorViewportState {
+        states[documentID] ?? EditorViewportState()
+    }
+
+    func updateSelection(_ selection: NSRange, for documentID: UUID) {
+        guard selection.location != NSNotFound else { return }
+        var state = state(for: documentID)
+        state.selectionLocation = selection.location
+        state.selectionLength = selection.length
+        states[documentID] = state
+    }
+
+    func updateScrollOffset(_ offset: CGFloat, for documentID: UUID) {
+        var state = state(for: documentID)
+        state.verticalScrollOffset = offset
+        states[documentID] = state
+    }
+
+    func retain(documentIDs: Set<UUID>) {
+        states = states.filter { documentIDs.contains($0.key) }
+    }
+}
+
 struct CodeEditorView: NSViewRepresentable {
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var model: AppModel
@@ -65,14 +117,20 @@ struct CodeEditorView: NSViewRepresentable {
     var debugService: JavaDebugFeatureModel?
     var shouldFocus = true
     var markdownScrollPosition: Binding<MarkdownScrollPosition>? = nil
+    let viewportStore: EditorViewportStore
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
             document: document,
             model: model,
             debugService: debugService,
-            markdownScrollPosition: markdownScrollPosition
+            markdownScrollPosition: markdownScrollPosition,
+            viewportStore: viewportStore
         )
+    }
+
+    static func dismantleNSView(_ nsView: EditorContainerView, coordinator: Coordinator) {
+        coordinator.persistViewport()
     }
 
     func makeNSView(context: Context) -> EditorContainerView {
@@ -102,7 +160,9 @@ struct CodeEditorView: NSViewRepresentable {
             scrollView.topAnchor.constraint(equalTo: container.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
         ])
-        let gutterWidthConstraint = gutter.widthAnchor.constraint(equalToConstant: 52)
+        let gutterWidthConstraint = gutter.widthAnchor.constraint(
+            equalToConstant: EditorLayoutMetrics.standardGutterWidth
+        )
         gutterWidthConstraint.isActive = true
 
         let textView = CodeTextView(frame: NSRect(x: 0, y: 0, width: 900, height: 700))
@@ -120,7 +180,8 @@ struct CodeEditorView: NSViewRepresentable {
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.containerSize = NSSize(width: scrollView.contentSize.width, height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.widthTracksTextView = true
-        textView.textContainerInset = NSSize(width: 12, height: 10)
+        textView.textContainerInset = NSSize(width: EditorLayoutMetrics.leadingInset, height: 0)
+        textView.textContainer?.lineFragmentPadding = EditorLayoutMetrics.lineFragmentPadding
         textView.font = LitheTheme.editorFont(size: settings.editorFontSize)
         textView.defaultParagraphStyle = LitheTheme.editorParagraphStyle
         textView.indentationWidth = settings.tabWidth
@@ -188,11 +249,14 @@ struct CodeEditorView: NSViewRepresentable {
         gutter.attach(textView: textView, scrollView: scrollView)
         gutter.applyAppearance(palette)
         context.coordinator.attachMarkdownScrollSync(to: scrollView)
+        context.coordinator.attachViewportTracking(to: scrollView)
 
         context.coordinator.textView = textView
         context.coordinator.gutter = gutter
+        textView.onCaretPresentationChanged = { [weak gutter] in
+            gutter?.needsDisplay = true
+        }
         context.coordinator.container = container
-        context.coordinator.attachVisibleRangeHighlighting(to: scrollView)
         context.coordinator.attachMarkdownImagePasteMonitor(to: scrollView)
         context.coordinator.codeVisionOverlay = CodeVisionOverlayController(textView: textView)
         context.coordinator.inlayHintOverlay = JavaInlayHintOverlayController(textView: textView)
@@ -210,6 +274,7 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.updateDiagnostics()
         context.coordinator.shouldFocus = shouldFocus
         context.coordinator.requestInitialFocusIfNeeded()
+        context.coordinator.restoreViewportWhenReady()
         return container
     }
 
@@ -229,7 +294,7 @@ struct CodeEditorView: NSViewRepresentable {
             }
             context.coordinator.attachMarkdownScrollSync(to: scrollView)
             context.coordinator.attachMarkdownImagePasteMonitor(to: scrollView)
-            context.coordinator.attachVisibleRangeHighlighting(to: scrollView)
+            context.coordinator.attachViewportTracking(to: scrollView)
         }
         context.coordinator.isDarkAppearance = palette.isDark
         context.coordinator.colorTheme = settings.colorTheme
@@ -333,22 +398,26 @@ struct CodeEditorView: NSViewRepresentable {
         private var markdownImagePasteMonitor: Any?
         private weak var markdownScrollView: NSScrollView?
         private var markdownScrollObserver: NSObjectProtocol?
-        private var highlightScrollObserver: NSObjectProtocol?
         private var visibleHighlightTask: Task<Void, Never>?
+        private var viewportScrollObserver: NSObjectProtocol?
         private var isApplyingSynchronizedMarkdownScroll = false
+        private var isRestoringViewport = true
         private var lastObservedMarkdownScrollRevision: UInt64?
         private var isLoadingGitLineChanges = false
+        private let viewportStore: EditorViewportStore
 
         init(
             document: EditorDocument,
             model: AppModel,
             debugService: JavaDebugFeatureModel?,
-            markdownScrollPosition: Binding<MarkdownScrollPosition>?
+            markdownScrollPosition: Binding<MarkdownScrollPosition>?,
+            viewportStore: EditorViewportStore
         ) {
             self.document = document
             self.model = model
             self.debugService = debugService
             self.markdownScrollPosition = markdownScrollPosition
+            self.viewportStore = viewportStore
             fileExtension = document.url.pathExtension
         }
 
@@ -365,21 +434,28 @@ struct CodeEditorView: NSViewRepresentable {
             if let markdownScrollObserver {
                 NotificationCenter.default.removeObserver(markdownScrollObserver)
             }
-            if let highlightScrollObserver {
-                NotificationCenter.default.removeObserver(highlightScrollObserver)
+            if let viewportScrollObserver {
+                NotificationCenter.default.removeObserver(viewportScrollObserver)
             }
         }
 
-        func attachVisibleRangeHighlighting(to scrollView: NSScrollView) {
-            guard highlightScrollObserver == nil else { return }
+        func attachViewportTracking(to scrollView: NSScrollView) {
+            guard viewportScrollObserver == nil else { return }
             scrollView.contentView.postsBoundsChangedNotifications = true
-            highlightScrollObserver = NotificationCenter.default.addObserver(
+            viewportScrollObserver = NotificationCenter.default.addObserver(
                 forName: NSView.boundsDidChangeNotification,
                 object: scrollView.contentView,
                 queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.scheduleVisibleRangeHighlight()
+            ) { [weak self, weak scrollView] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.scheduleVisibleRangeHighlight()
+                    guard let scrollView, !self.isRestoringViewport,
+                          let document = self.document else { return }
+                    self.viewportStore.updateScrollOffset(
+                        scrollView.contentView.bounds.minY,
+                        for: document.id
+                    )
                 }
             }
         }
@@ -390,6 +466,51 @@ struct CodeEditorView: NSViewRepresentable {
                 try? await Task.sleep(for: .milliseconds(24))
                 guard !Task.isCancelled else { return }
                 self?.highlight()
+            }
+        }
+
+        func restoreViewportWhenReady() {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let document, let textView,
+                      let scrollView = textView.enclosingScrollView else { return }
+                if let target = self.model?.editorNavigationTarget,
+                   target.url.standardizedFileURL == document.url.standardizedFileURL,
+                   self.appliedNavigationTargetID == target.id {
+                    self.isRestoringViewport = false
+                    self.persistViewport()
+                    return
+                }
+                let state = self.viewportStore.state(for: document.id)
+                let textLength = (textView.string as NSString).length
+                let location = min(state.selectionLocation, textLength)
+                let length = min(state.selectionLength, textLength - location)
+                textView.setSelectedRange(NSRange(location: location, length: length))
+                let maximumOffset = max(
+                    0,
+                    (scrollView.documentView?.frame.height ?? 0)
+                        - scrollView.contentView.bounds.height
+                )
+                scrollView.contentView.scroll(
+                    to: NSPoint(
+                        x: scrollView.contentView.bounds.minX,
+                        y: min(max(0, state.verticalScrollOffset), maximumOffset)
+                    )
+                )
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+                self.isRestoringViewport = false
+                self.scheduleVisibleRangeHighlight()
+                self.scheduleCaretUpdate()
+            }
+        }
+
+        func persistViewport() {
+            guard let document, let textView else { return }
+            viewportStore.updateSelection(textView.selectedRange(), for: document.id)
+            if let scrollView = textView.enclosingScrollView {
+                viewportStore.updateScrollOffset(
+                    scrollView.contentView.bounds.minY,
+                    for: document.id
+                )
             }
         }
 
@@ -598,6 +719,12 @@ struct CodeEditorView: NSViewRepresentable {
             // Typing already refreshed caret chrome in textDidChange. A second
             // full pass here is what dropped the frame rate into the 30s.
             guard !isApplyingEditorChange else { return }
+            if !isRestoringViewport, let document, let textView {
+                viewportStore.updateSelection(
+                    textView.selectedRange(),
+                    for: document.id
+                )
+            }
             (textView as? CodeTextView)?.updateCaretDecorations()
             textView?.needsDisplay = true
             gutter?.needsDisplay = true
@@ -837,7 +964,9 @@ struct CodeEditorView: NSViewRepresentable {
                 appliedBlameVisible = isBlameVisible
                 appliedBlameLines = blameLines
                 appliedDebugBreakpointLines = debugBreakpointLines
-                container?.gutterWidthConstraint?.constant = isBlameVisible ? 224 : 52
+                container?.gutterWidthConstraint?.constant = isBlameVisible
+                    ? 224
+                    : EditorLayoutMetrics.standardGutterWidth
                 gutter?.update(blameLines: blameLines, isVisible: isBlameVisible) { [weak model] blame in
                     Task { await model?.showGitCommit(blame.commitHash) }
                 }
@@ -1061,6 +1190,7 @@ private struct TextLineIndex {
 }
 
 final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
+    var onCaretPresentationChanged: (() -> Void)?
     var indentationWidth = 4
     var isLanguageNavigationEnabled = false
     var isLanguageIntelligenceEnabled = false
@@ -1108,6 +1238,8 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     private var hoveredFoldID: String?
     private var lineIndex = TextLineIndex(source: "" as NSString)
     nonisolated(unsafe) private var windowResignObserver: NSObjectProtocol?
+    private var caretVisible = true
+    private var caretPresentationGeneration = 0
 
     fileprivate func applyAppearance(_ palette: CodeEditorPalette) {
         guard appliedDarkAppearance != palette.isDark
@@ -1134,6 +1266,54 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     override func paste(_ sender: Any?) {
         if onPasteImage?() == true { return }
         super.paste(sender)
+    }
+
+    override func setSelectedRange(_ charRange: NSRange) {
+        super.setSelectedRange(charRange)
+        synchronizeCaretPresentation()
+    }
+
+    override func setSelectedRange(
+        _ charRange: NSRange,
+        affinity: NSSelectionAffinity,
+        stillSelecting flag: Bool
+    ) {
+        super.setSelectedRange(charRange, affinity: affinity, stillSelecting: flag)
+        synchronizeCaretPresentation()
+    }
+
+    private func synchronizeCaretPresentation() {
+        updateCaretDecorations()
+        needsDisplay = true
+        onCaretPresentationChanged?()
+        updateInsertionPointStateAndRestartTimer(true)
+    }
+
+    override func updateInsertionPointStateAndRestartTimer(_ restartFlag: Bool) {
+        guard restartFlag else { return }
+        caretPresentationGeneration &+= 1
+        let generation = caretPresentationGeneration
+        caretVisible = true
+        needsDisplay = true
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(500)) { [weak self] in
+            self?.startCaretBlinking(for: generation)
+        }
+    }
+
+    private func startCaretBlinking(for generation: Int) {
+        guard generation == caretPresentationGeneration else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(500)) { [weak self] in
+            guard let self, generation == self.caretPresentationGeneration else { return }
+            self.caretVisible.toggle()
+            self.needsDisplay = true
+            self.startCaretBlinking(for: generation)
+        }
+    }
+
+    override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn _: Bool) {
+        // The editor paints the caret from draw(_:) so AppKit's independent
+        // insertion-point blink callbacks cannot overwrite its width or phase.
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -1750,7 +1930,35 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
+        drawCurrentLineBackground(in: rect)
         drawIndentGuides(in: rect)
+    }
+
+    private func drawCurrentLineBackground(in rect: NSRect) {
+        let source = string as NSString
+        let caret = min(selectedRange().location, source.length)
+        let lineRange = source.lineRange(for: NSRange(location: caret, length: 0))
+        guard let layoutManager,
+              layoutManager.numberOfGlyphs > 0 else { return }
+
+        let glyphRange = layoutManager.glyphRange(
+            forCharacterRange: lineRange,
+            actualCharacterRange: nil
+        )
+        guard glyphRange.location < layoutManager.numberOfGlyphs else { return }
+        let lineRect = layoutManager.lineFragmentRect(
+            forGlyphAt: glyphRange.location,
+            effectiveRange: nil
+        )
+        let currentLineRect = NSRect(
+            x: 0,
+            y: textContainerOrigin.y + lineRect.minY,
+            width: bounds.width,
+            height: lineRect.height
+        )
+        guard currentLineRect.intersects(rect) else { return }
+        currentLineColor.setFill()
+        currentLineRect.intersection(rect).fill()
     }
 
     private func lineFragmentRect(
@@ -1823,6 +2031,46 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
                 ]
             )
         }
+        drawCaret()
+    }
+
+    private func drawCaret() {
+        guard caretVisible,
+              window?.firstResponder === self,
+              let layoutManager,
+              let textContainer else { return }
+
+        let sourceLength = string.utf16.count
+        let location = min(selectedRange().location, sourceLength)
+        let caretRect: NSRect
+        if layoutManager.numberOfGlyphs == 0 {
+            let lineHeight = layoutManager.defaultLineHeight(for: font ?? .systemFont(ofSize: 13))
+            caretRect = NSRect(
+                x: textContainerOrigin.x,
+                y: textContainerOrigin.y,
+                width: EditorLayoutMetrics.caretWidth,
+                height: lineHeight
+            )
+        } else {
+            let isAtDocumentEnd = location == sourceLength
+            let glyphIndex = layoutManager.glyphIndexForCharacter(
+                at: min(location, sourceLength - 1)
+            )
+            let glyphRect = layoutManager.boundingRect(
+                forGlyphRange: NSRange(location: glyphIndex, length: 1),
+                in: textContainer
+            )
+            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+            caretRect = NSRect(
+                x: textContainerOrigin.x + (isAtDocumentEnd ? glyphRect.maxX : glyphRect.minX),
+                y: textContainerOrigin.y + lineRect.minY,
+                width: EditorLayoutMetrics.caretWidth,
+                height: lineRect.height
+            )
+        }
+
+        insertionPointColor.setFill()
+        caretRect.fill()
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -1920,6 +2168,14 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         updateFoldHover(at: nil)
         clearLinkHighlight()
         return super.resignFirstResponder()
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let becameFirstResponder = super.becomeFirstResponder()
+        if becameFirstResponder {
+            updateInsertionPointStateAndRestartTimer(true)
+        }
+        return becameFirstResponder
     }
 
     private func updateFoldHover(at point: NSPoint?) {
@@ -2656,7 +2912,12 @@ final class LineNumberGutterView: NSView {
             in: textContainer
         )
         guard layoutManager.numberOfGlyphs > 0 else {
-            drawLineNumber(1, y: textView.textContainerInset.height)
+            let lineHeight = max(
+                18,
+                layoutManager.defaultLineHeight(for: textView.font ?? .systemFont(ofSize: 13))
+            )
+            drawLineNumber(1, y: textView.textContainerInset.height, height: lineHeight)
+            drawEditorDivider(in: dirtyRect)
             return
         }
 
@@ -2706,7 +2967,7 @@ final class LineNumberGutterView: NSView {
             if let marker = gitLineChangeMarkersByLine[lineNumber - 1] {
                 drawGitLineChange(marker, y: y, height: lineRect.height)
             }
-            drawLineNumber(lineNumber, y: y + 1)
+            drawLineNumber(lineNumber, y: y, height: lineRect.height)
 
             let nextGlyph = NSMaxRange(lineGlyphRange)
             glyphIndex = nextGlyph > glyphIndex ? nextGlyph : glyphIndex + 1
@@ -2719,6 +2980,17 @@ final class LineNumberGutterView: NSView {
             visibleRect: visibleRect,
             layoutManager: layoutManager
         )
+        drawEditorDivider(in: dirtyRect)
+    }
+
+    private func drawEditorDivider(in dirtyRect: NSRect) {
+        palette.gutterDivider.setFill()
+        NSRect(
+            x: bounds.width - 1,
+            y: dirtyRect.minY,
+            width: 1,
+            height: dirtyRect.height
+        ).fill()
     }
 
     private func drawFoldIndicators(
@@ -2748,14 +3020,18 @@ final class LineNumberGutterView: NSView {
         }
     }
 
-    private func drawLineNumber(_ number: Int, y: CGFloat) {
+    private func drawLineNumber(_ number: Int, y: CGFloat, height: CGFloat) {
         let label = String(number) as NSString
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .regular),
             .foregroundColor: palette.lineNumber
         ]
         let size = label.size(withAttributes: attributes)
-        label.draw(at: NSPoint(x: bounds.width - size.width - 9, y: y), withAttributes: attributes)
+        let centeredY = y + max(0, (height - size.height) / 2)
+        label.draw(
+            at: NSPoint(x: (bounds.width - size.width) / 2, y: centeredY),
+            withAttributes: attributes
+        )
     }
 
     private func drawFoldIndicator(_ region: JavaFoldRegion, y: CGFloat, height: CGFloat) {

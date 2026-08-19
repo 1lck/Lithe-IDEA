@@ -4,6 +4,7 @@ import { persist } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import { createSelectors } from "@/utils/zustand-selectors";
 import { createSafeJSONStorage } from "@/utils/zustand-storage";
+import { setFrontendLogWorkspaceRoots } from "@/features/logging/frontend-log-runtime";
 import { removeProjectTabItems } from "../utils/project-tab-close";
 import { reorderProjectTabItems } from "../utils/project-tab-order";
 import { renameRemoteProjectTabs } from "../utils/project-tab-remote";
@@ -181,3 +182,8 @@ const useWorkspaceTabsStoreBase = create<WorkspaceTabsStore>()(
 );
 
 export const useWorkspaceTabsStore = createSelectors(useWorkspaceTabsStoreBase);
+
+setFrontendLogWorkspaceRoots(useWorkspaceTabsStoreBase.getState().projectTabs.map((tab) => tab.path));
+useWorkspaceTabsStoreBase.subscribe((state) => {
+  setFrontendLogWorkspaceRoots(state.projectTabs.map((tab) => tab.path));
+});

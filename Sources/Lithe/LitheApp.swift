@@ -5,12 +5,31 @@ private let litheProcessLaunchDate = Date()
 
 @MainActor
 final class LitheAppDelegate: NSObject, NSApplicationDelegate {
-    weak var projectSessions: ProjectSessionManager?
+    private var pendingFileURLs: [URL] = []
+    weak var projectSessions: ProjectSessionManager? {
+        didSet {
+            guard let projectSessions else { return }
+            let pendingURLs = pendingFileURLs
+            pendingFileURLs.removeAll()
+            pendingURLs.forEach { projectSessions.openStandaloneFile($0) }
+        }
+    }
     var recordCleanPluginShutdown: (() -> Void)?
     var authorizationCallbackRouter: MacExternalAuthorizationCallbackRouter?
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
+    }
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // SwiftUI normally forwards this event to the delegate methods below,
+        // but older Finder/AppKit launch paths can bypass that forwarding.
+        NSAppleEventManager.shared().setEventHandler(
+            self,
+            andSelector: #selector(handleOpenDocuments(_:withReplyEvent:)),
+            forEventClass: AEEventClass(kCoreEventClass),
+            andEventID: AEEventID(kAEOpenDocuments)
+        )
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -19,6 +38,10 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        NSAppleEventManager.shared().removeEventHandler(
+            forEventClass: AEEventClass(kCoreEventClass),
+            andEventID: AEEventID(kAEOpenDocuments)
+        )
         projectSessions?.stopAllSessions()
         recordCleanPluginShutdown?()
     }
@@ -29,7 +52,55 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        urls.forEach { authorizationCallbackRouter?.route($0) }
+        handleOpenedURLs(urls)
+    }
+
+    // Finder can deliver document-open Apple Events through these older
+    // delegate methods, depending on whether the app was already running.
+    func application(_ sender: NSApplication, openFile filename: String) -> Bool {
+        handleOpenedURLs([URL(fileURLWithPath: filename)])
+        return true
+    }
+
+    func application(_ sender: NSApplication, openFiles filenames: [String]) {
+        handleOpenedURLs(filenames.map(URL.init(fileURLWithPath:)))
+        sender.reply(toOpenOrPrint: .success)
+    }
+
+    @objc private func handleOpenDocuments(
+        _ event: NSAppleEventDescriptor,
+        withReplyEvent replyEvent: NSAppleEventDescriptor?
+    ) {
+        guard let fileList = event.paramDescriptor(forKeyword: keyDirectObject) else { return }
+
+        var urls: [URL] = []
+        guard fileList.numberOfItems > 0 else { return }
+        for index in 1...fileList.numberOfItems {
+            guard let aliasDescriptor = fileList.atIndex(index),
+                  let fileURLDescriptor = aliasDescriptor.coerce(toDescriptorType: typeFileURL),
+                  let url = URL(dataRepresentation: fileURLDescriptor.data, relativeTo: nil) else {
+                continue
+            }
+            urls.append(url)
+        }
+
+        handleOpenedURLs(urls)
+    }
+
+    private func handleOpenedURLs(_ urls: [URL]) {
+        for url in urls {
+            if url.scheme == "lithe" {
+                authorizationCallbackRouter?.route(url)
+            } else if url.isFileURL {
+                if let projectSessions {
+                    projectSessions.openStandaloneFile(url)
+                } else if !pendingFileURLs.contains(where: {
+                    $0.standardizedFileURL == url.standardizedFileURL
+                }) {
+                    pendingFileURLs.append(url.standardizedFileURL)
+                }
+            }
+        }
     }
 
     static func confirmUnsavedDocuments(for projectSessions: ProjectSessionManager) -> Bool {
@@ -62,11 +133,29 @@ struct LitheApp: App {
     @StateObject private var memoryUsageMonitor: MemoryUsageMonitor
     @StateObject private var frameRateMonitor = FrameRateMonitor()
     @StateObject private var updateChecker = UpdateChecker()
+    private let applicationLogWriter: MacApplicationLogWriter
 
     init() {
-        MacBundledFontRegistry.registerFonts()
         let store = MacUserDefaultsStore()
-        let settings = AppSettings(store: store)
+        let settings = AppSettings(
+            store: store,
+            logDirectoryProvider: MacServiceContainer.makeLogDirectoryProvider()
+        )
+        let applicationLogWriter = MacServiceContainer.makeApplicationLogWriter()
+        if !Self.redirectApplicationLogs(applicationLogWriter, to: settings.logDirectory),
+           settings.customLogDirectory != nil {
+            settings.setCustomLogDirectory(nil)
+            _ = Self.redirectApplicationLogs(applicationLogWriter, to: settings.defaultLogDirectory)
+        }
+        settings.addLogDirectoryObserver { [weak settings] directory in
+            guard !Self.redirectApplicationLogs(applicationLogWriter, to: directory),
+                  settings?.customLogDirectory != nil else { return }
+            settings?.setCustomLogDirectory(nil)
+        }
+        self.applicationLogWriter = applicationLogWriter
+        MacBundledFontRegistry.registerFonts { message in
+            Self.appendApplicationLog(applicationLogWriter, message: message)
+        }
         let processRegistry = ManagedProcessRegistry()
         let moduleStore = MacModuleConfigurationStore(store: store)
         let pluginRuntimeRecovery = MacPluginRuntimeRecoveryCoordinator()
@@ -100,8 +189,7 @@ struct LitheApp: App {
         _memoryUsageMonitor = StateObject(wrappedValue: MemoryUsageMonitor(
             startedAt: litheProcessLaunchDate,
             baselineReporter: { marker in
-                guard let data = (marker + "\n").data(using: .utf8) else { return }
-                FileHandle.standardError.write(data)
+                Self.appendApplicationLog(applicationLogWriter, message: marker + "\n")
             },
             logsPerformanceBaseline: ProcessInfo.processInfo.environment["LITHE_PERFORMANCE_BASELINE"] == "1",
             processRegistry: processRegistry,
@@ -111,6 +199,36 @@ struct LitheApp: App {
         appDelegate.authorizationCallbackRouter = authorizationCallbackRouter
         appDelegate.recordCleanPluginShutdown = {
             pluginRuntimeRecovery.recordCleanShutdown(using: moduleStore)
+        }
+    }
+
+    private static func redirectApplicationLogs(
+        _ writer: MacApplicationLogWriter,
+        to directory: URL
+    ) -> Bool {
+        do {
+            try writer.redirect(to: directory)
+            return true
+        } catch {
+            let message = "Could not redirect Lithe logs to \(directory.path): \(error.localizedDescription)\n"
+            if let data = message.data(using: .utf8) {
+                FileHandle.standardError.write(data)
+            }
+            return false
+        }
+    }
+
+    private static func appendApplicationLog(
+        _ writer: MacApplicationLogWriter,
+        message: String
+    ) {
+        do {
+            try writer.append(message)
+        } catch {
+            let fallback = "Could not write Lithe log: \(error.localizedDescription)\n"
+            if let data = fallback.data(using: .utf8) {
+                FileHandle.standardError.write(data)
+            }
         }
     }
 
@@ -162,6 +280,11 @@ struct LitheApp: App {
                 }
                 .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "close-project"))
                 .disabled(model.workspaceURL == nil)
+
+                Button("Close File") {
+                    model.closeStandaloneFile()
+                }
+                .disabled(model.standaloneFileURL == nil)
             }
 
             CommandGroup(replacing: .appSettings) {

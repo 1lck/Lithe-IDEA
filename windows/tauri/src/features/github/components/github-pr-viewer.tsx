@@ -4,6 +4,7 @@ import { useFileSystemStore } from "@/features/file-system/stores/file-system.st
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useRepositoryStore } from "@/features/git/stores/git-repository.store";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 import { showConfirmDialog } from "@/ui/dialog";
 import { toast } from "sonner";
 import type { Label, PullRequestDetails } from "../types/github.types";
@@ -53,6 +54,7 @@ interface GitHubPRViewerProps {
 }
 
 const GitHubPRViewer = memo(({ prNumber, bufferId }: GitHubPRViewerProps) => {
+  const { t } = useTranslation();
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.();
   const selectedRepoPath = useRepositoryStore.use.activeRepoPath();
   const handleFileSelect = useFileSystemStore((state) => state.handleFileSelect);
@@ -350,13 +352,13 @@ const GitHubPRViewer = memo(({ prNumber, bufferId }: GitHubPRViewerProps) => {
     if (repoPath) {
       try {
         await checkoutPR(repoPath, prNumber);
-        toast.success(`Checked out PR #${prNumber}`);
+        toast.success(t("github.checkedOutPr", { number: prNumber }));
       } catch (err) {
         console.error("Failed to checkout PR:", err);
-        toast.error(err instanceof Error ? err.message : `Failed to checkout PR #${prNumber}`);
+        toast.error(err instanceof Error ? err.message : t("github.failedCheckoutPr", { number: prNumber }));
       }
     }
-  }, [repoPath, prNumber, checkoutPR]);
+  }, [repoPath, prNumber, checkoutPR, t]);
 
   const handleRefresh = useCallback(() => {
     if (repoPath) {
@@ -399,16 +401,16 @@ const GitHubPRViewer = memo(({ prNumber, bufferId }: GitHubPRViewerProps) => {
           assignees: next.assignees.map((assignee) => assignee.login),
         });
         await refreshPR("comments");
-        toast.success("Pull request updated");
+        toast.success(t("github.pullRequestUpdated"));
         return true;
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Failed to update pull request");
+        toast.error(error instanceof Error ? error.message : t("github.failedUpdatePullRequest"));
         return false;
       } finally {
         setMutationKey(null);
       }
     },
-    [mutationKey, prNumber, refreshPR, repoPath, selectedPRDetails],
+    [mutationKey, prNumber, refreshPR, repoPath, selectedPRDetails, t],
   );
 
   const openInlineAction = useCallback(
@@ -448,27 +450,27 @@ const GitHubPRViewer = memo(({ prNumber, bufferId }: GitHubPRViewerProps) => {
         setInlineAction(null);
         toast.success(
           completedAction === "comment"
-            ? "Comment added"
+            ? t("github.commentAdded")
             : completedAction === "approve"
-              ? "Pull request approved"
+              ? t("github.pullRequestApproved")
               : completedAction === "request-changes"
-                ? "Changes requested"
-                : "Pull request merged",
+                ? t("github.changesRequested")
+                : t("github.pullRequestMerged"),
         );
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Pull request action failed");
+        toast.error(error instanceof Error ? error.message : t("github.pullRequestActionFailed"));
       } finally {
         setMutationKey(null);
       }
     },
-    [inlineAction, mutationKey, prNumber, refreshPR, repoPath],
+    [inlineAction, mutationKey, prNumber, refreshPR, repoPath, t],
   );
 
   const closePullRequest = useCallback(async () => {
     if (!repoPath || mutationKey) return;
-    const confirmed = await showConfirmDialog("Close this pull request without merging it?", {
-      title: "Close pull request",
-      confirmLabel: "Close PR",
+    const confirmed = await showConfirmDialog(t("github.closePullRequestConfirm"), {
+      title: t("github.closePullRequest"),
+      confirmLabel: t("github.closePr"),
     });
     if (!confirmed) return;
 
@@ -476,29 +478,29 @@ const GitHubPRViewer = memo(({ prNumber, bufferId }: GitHubPRViewerProps) => {
     try {
       await invoke("github_close_pull_request", { repoPath, prNumber });
       await refreshPR("full");
-      toast.success("Pull request closed");
+      toast.success(t("github.pullRequestClosed"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to close pull request");
+      toast.error(error instanceof Error ? error.message : t("github.failedClosePullRequest"));
     } finally {
       setMutationKey(null);
     }
-  }, [mutationKey, prNumber, refreshPR, repoPath]);
+  }, [mutationKey, prNumber, refreshPR, repoPath, t]);
 
   const handleCopyPRLink = useCallback(() => {
     if (!selectedPRDetails?.url) {
-      toast.error("PR link is not available.");
+      toast.error(t("github.prLinkUnavailable"));
       return;
     }
-    void copyToClipboard(selectedPRDetails.url, "PR link copied");
-  }, [selectedPRDetails?.url]);
+    void copyToClipboard(selectedPRDetails.url, t("github.prLinkCopied"));
+  }, [selectedPRDetails?.url, t]);
 
   const handleCopyBranchName = useCallback(() => {
     if (!selectedPRDetails?.headRef) {
-      toast.error("Branch name is not available.");
+      toast.error(t("github.branchNameUnavailable"));
       return;
     }
-    void copyToClipboard(selectedPRDetails.headRef, "Branch name copied");
-  }, [selectedPRDetails?.headRef]);
+    void copyToClipboard(selectedPRDetails.headRef, t("github.branchNameCopied"));
+  }, [selectedPRDetails?.headRef, t]);
 
   const handleToggleFilesView = useCallback(() => {
     const nextTab = activeTab === "files" ? "activity" : "files";
@@ -514,19 +516,19 @@ const GitHubPRViewer = memo(({ prNumber, bufferId }: GitHubPRViewerProps) => {
   const handleOpenChangedFile = useCallback(
     (relativePath: string) => {
       if (!repoPath) {
-        toast.error("No repository selected.");
+        toast.error(t("github.noRepositorySelected"));
         return;
       }
 
       const fullPath = resolveSafeRepoFilePath(repoPath, relativePath);
       if (!fullPath) {
-        toast.error("Invalid file path in diff.");
+        toast.error(t("github.invalidDiffFilePath"));
         return;
       }
 
       void handleFileSelect(fullPath, false);
     },
-    [repoPath, handleFileSelect],
+    [repoPath, handleFileSelect, t],
   );
 
   if (!selectedPRDetails) {
@@ -535,7 +537,7 @@ const GitHubPRViewer = memo(({ prNumber, bufferId }: GitHubPRViewerProps) => {
         header={
           <GitHubViewerHeader
             title={prBuffer?.name || `PR #${prNumber}`}
-            meta={detailsError && !isLoadingDetails ? detailsError : `Pull request #${prNumber}`}
+            meta={detailsError && !isLoadingDetails ? detailsError : t("github.pullRequestNumber", { number: prNumber })}
             leading={
               prBuffer?.authorAvatarUrl ? (
                 <GitHubAvatar
@@ -553,7 +555,7 @@ const GitHubPRViewer = memo(({ prNumber, bufferId }: GitHubPRViewerProps) => {
                   className="text-subtle-foreground"
                   size="xs"
                 >
-                  Retry
+                  {t("github.retry")}
                 </Button>
               ) : null
             }
@@ -561,7 +563,7 @@ const GitHubPRViewer = memo(({ prNumber, bufferId }: GitHubPRViewerProps) => {
         }
       >
         {detailsError && !isLoadingDetails ? null : (
-          <GitHubViewerLoadingState label={`Loading PR #${prNumber}`} />
+          <GitHubViewerLoadingState label={t("github.loadingPr", { number: prNumber })} />
         )}
       </GitHubViewerShell>
     );
@@ -572,15 +574,20 @@ const GitHubPRViewer = memo(({ prNumber, bufferId }: GitHubPRViewerProps) => {
   const changedFilesCount = pr.changedFiles || selectedPRFiles.length || 0;
   const checksSummary =
     pr.statusChecks?.length > 0
-      ? `${passedChecksCount} checks passed${pr.mergeable === "CONFLICTING" ? " · has conflicts" : ""}`
+      ? t(
+          pr.mergeable === "CONFLICTING"
+            ? "github.checksPassedWithConflicts"
+            : "github.checksPassed",
+          { count: passedChecksCount },
+        )
       : pr.mergeable === "CONFLICTING"
-        ? "Has conflicts"
-        : "No checks reported";
+        ? t("github.hasConflicts")
+        : t("github.noChecksReported");
   const reviewSummary =
     pr.reviewDecision === "CHANGES_REQUESTED"
-      ? "changes requested"
+      ? t("github.changesRequestedLower")
       : pr.reviewDecision === "REVIEW_REQUIRED"
-        ? "review required"
+        ? t("github.reviewRequired")
         : null;
   const repositoryUrl = pr.url.replace(/\/pull\/\d+$/, "");
   return (
@@ -619,7 +626,7 @@ const GitHubPRViewer = memo(({ prNumber, bufferId }: GitHubPRViewerProps) => {
             className="shrink-0 border border-destructive/40 text-destructive/90 hover:bg-destructive/10"
             size="xs"
           >
-            Retry
+            {t("github.retry")}
           </Button>
         </div>
       )}

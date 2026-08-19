@@ -16,6 +16,7 @@ import {
 } from "@mdxeditor/editor";
 import "@mdxeditor/editor/style.css";
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "@/i18n/locale-provider";
 import { githubMarkdownEditorPlugin } from "../plugins/github-markdown-editor-plugin";
 import { MarkdownFloatingToolbar } from "./github-markdown-editor-controls";
 import "../styles/github-markdown-editor.css";
@@ -37,6 +38,7 @@ export function GitHubMarkdownEditor({
   minHeight = 224,
   disabled = false,
 }: GitHubMarkdownEditorProps) {
+  const { t } = useTranslation();
   const editorRef = useRef<MDXEditorMethods>(null);
   const currentValueRef = useRef(value);
   const [editorError, setEditorError] = useState<string | null>(null);
@@ -94,12 +96,12 @@ export function GitHubMarkdownEditor({
           "--github-markdown-editor-min-height": `${minHeight}px`,
         } as CSSProperties
       }
-      aria-label="Markdown editor"
+      aria-label={t("github.markdownEditor")}
       aria-disabled={disabled}
     >
       {editorError ? (
         <div className="github-markdown-composer-error" role="alert">
-          This Markdown needs a small fix before rich text can render it: {editorError}
+          {t("github.markdownRenderNeedsFix", { error: editorError })}
         </div>
       ) : null}
 

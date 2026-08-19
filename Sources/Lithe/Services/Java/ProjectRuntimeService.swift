@@ -30,6 +30,11 @@ extension ProjectRuntimeService: MavenRuntimePort {
 
 @MainActor
 final class ProjectRuntimeService: ObservableObject {
+    private struct JavaLanguageServerRuntimePreparation {
+        let configuration: String
+        let runtime: JavaRuntimeCandidate?
+    }
+
     @Published private(set) var projectURL: URL?
     @Published private(set) var javaRuntimes: [JavaRuntimeCandidate] = []
     @Published private(set) var mavenRuntimes: [MavenRuntimeCandidate] = []
@@ -41,6 +46,7 @@ final class ProjectRuntimeService: ObservableObject {
     private let toolDiscovery: any RuntimeToolDiscovery
     private var discoveryTask: Task<Void, Never>?
     private var activeDiscoveryID: UUID?
+    private var javaLanguageServerRuntimePreparation: JavaLanguageServerRuntimePreparation?
 
     init(
         runtimeLocator: any RuntimeLocator,
@@ -151,6 +157,67 @@ final class ProjectRuntimeService: ObservableObject {
             }
         }
         return nil
+    }
+
+    var javaLanguageServerRuntimes: [JavaRuntimeCandidate] {
+        javaRuntimes.filter(\.supportsJDTLS)
+    }
+
+    func inspectJavaLanguageServerRuntime(atPath path: String) async -> JavaRuntimeCandidate? {
+        let normalized = normalizedPath(path.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard !normalized.isEmpty, (normalized as NSString).isAbsolutePath else { return nil }
+        let runtimeLocator = runtimeLocator
+        return await Task.detached(priority: .utility) {
+            guard let home = runtimeLocator.validJavaHome(path: normalized) else { return nil }
+            return runtimeLocator.javaRuntime(at: home)
+        }.value
+    }
+
+    func isJavaLanguageServerRuntimePrepared(overridePath: String? = nil) -> Bool {
+        javaLanguageServerRuntimePreparation?.configuration
+            == normalizedJavaLanguageServerConfiguration(overridePath)
+    }
+
+    // Session creation reads only this cache. Process-backed discovery and
+    // version probing must finish off the main actor before AppModel retries it.
+    func prepareJavaLanguageServerRuntime(overridePath: String? = nil) async {
+        let configuration = normalizedJavaLanguageServerConfiguration(overridePath)
+        guard javaLanguageServerRuntimePreparation?.configuration != configuration else { return }
+
+        let runtime: JavaRuntimeCandidate?
+        if configuration.isEmpty {
+            if let cached = javaLanguageServerRuntimes.first {
+                runtime = cached
+            } else {
+                let runtimeLocator = runtimeLocator
+                runtime = await Task.detached(priority: .utility) {
+                    runtimeLocator.discover().javaRuntimes.first(where: \.supportsJDTLS)
+                }.value
+            }
+        } else {
+            runtime = await inspectJavaLanguageServerRuntime(atPath: configuration)
+        }
+
+        guard !Task.isCancelled else { return }
+        javaLanguageServerRuntimePreparation = JavaLanguageServerRuntimePreparation(
+            configuration: configuration,
+            runtime: runtime
+        )
+    }
+
+    func javaLanguageServerExecutableURL(overridePath: String? = nil) -> URL? {
+        let configuration = normalizedJavaLanguageServerConfiguration(overridePath)
+        guard let preparation = javaLanguageServerRuntimePreparation,
+              preparation.configuration == configuration,
+              let runtime = preparation.runtime,
+              runtime.supportsJDTLS,
+              let home = runtimeLocator.validJavaHome(path: runtime.homePath) else { return nil }
+        return home.appendingPathComponent("bin/java")
+    }
+
+    private func normalizedJavaLanguageServerConfiguration(_ overridePath: String?) -> String {
+        let configuration = overridePath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return configuration.isEmpty ? "" : normalizedPath(configuration)
     }
 
     func jdbExecutableURL(

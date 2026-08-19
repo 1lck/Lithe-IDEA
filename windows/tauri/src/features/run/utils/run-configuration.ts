@@ -1,6 +1,10 @@
 import {
   CURRENT_FILE_ID,
+  type CoreGlobalToolchain,
   type CoreResolvedConfiguration,
+  type GlobalToolchain,
+  type JavaRuntime,
+  type MavenRuntime,
   type RunConfiguration,
   type RunDiagnostic,
   type RunExecution,
@@ -26,6 +30,7 @@ export function mapCoreConfiguration(value: CoreResolvedConfiguration): RunConfi
     provider: value.provider,
     kindTitle: configurationTitle(value.provider),
     execution: normalizeExecution(value.execution, value.provider),
+    toolchains: value.toolchains ?? {},
     modulePath: maven?.module && maven.module !== "." ? maven.module : undefined,
     mainClass: maven?.mainClass,
     cwd: value.cwd && value.cwd !== "." ? value.cwd : "",
@@ -55,6 +60,14 @@ export function normalizeExecution(execution: string | undefined, provider: stri
   if (provider.endsWith(".maven") && provider !== "maven.module") return "service";
   if (provider === "maven.module") return "task";
   return "application";
+}
+
+export function mapCoreToolchain(toolchain: CoreGlobalToolchain | null | undefined): GlobalToolchain {
+  return {
+    javaHomePath: toolchain?.java?.homePath ?? "",
+    mavenExecutablePath: toolchain?.maven?.executablePath ?? "",
+    mavenJavaHomePath: toolchain?.maven?.javaHomePath ?? "",
+  };
 }
 
 export function runnableConfigurations(configurations: RunConfiguration[]): RunConfiguration[] {
@@ -110,10 +123,59 @@ export function defaultGeneratedConfigurationId(generated: unknown): string | un
 export function workspaceRelativePath(root: string, filePath: string): string | undefined {
   const normalizedRoot = root.replace(/[\\/]+$/, "").replace(/\\/g, "/");
   const normalizedFile = filePath.replace(/\\/g, "/");
+  if (normalizedFile.toLowerCase() === normalizedRoot.toLowerCase()) {
+    return ".";
+  }
   if (!normalizedFile.toLowerCase().startsWith(normalizedRoot.toLowerCase() + "/")) {
     return undefined;
   }
   return normalizedFile.slice(normalizedRoot.length + 1);
+}
+
+export function projectScopedPath(root: string, value: string): string | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return ".";
+  const relative = workspaceRelativePath(root, trimmed);
+  if (relative !== undefined) return relative;
+  if (isAbsolutePath(trimmed)) return undefined;
+  return trimmed.replace(/\\/g, "/");
+}
+
+function isAbsolutePath(value: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("/") || value.startsWith("\\\\");
+}
+
+export function configurationUsesMaven(configuration: { toolchains?: Record<string, string> }): boolean {
+  return Boolean(configuration.toolchains?.maven);
+}
+
+export function selectedToolchainCandidates(
+  discovered: { java: JavaRuntime[]; maven: MavenRuntime[] },
+  selected: GlobalToolchain,
+): Array<{ id: string; type: string; version: string; vendor: string }> {
+  const java = selected.javaHomePath
+    ? discovered.java.find((runtime) => sameWindowsPath(runtime.homePath, selected.javaHomePath))
+    : discovered.java[0];
+  const maven = selected.mavenExecutablePath
+    ? discovered.maven.find((runtime) => sameWindowsPath(runtime.executablePath, selected.mavenExecutablePath))
+    : discovered.maven[0];
+  return [
+    ...(java ? [{ id: "project-jdk", type: "java", version: java.version, vendor: java.vendor }] : []),
+    ...(maven ? [{ id: "project-maven", type: "maven", version: maven.version, vendor: "" }] : []),
+  ];
+}
+
+function sameWindowsPath(left: string, right: string): boolean {
+  const normalize = (value: string) => value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  return normalize(left) === normalize(right);
+}
+
+export async function saveRunConfigurationChanges(
+  saveToolchain: () => Promise<boolean>,
+  saveOptions: () => Promise<boolean>,
+): Promise<boolean> {
+  if (!(await saveToolchain())) return false;
+  return saveOptions();
 }
 
 export function environmentText(environment: Record<string, string>): string {

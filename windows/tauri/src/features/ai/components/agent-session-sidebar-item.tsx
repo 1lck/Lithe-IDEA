@@ -1,6 +1,7 @@
 import { ProviderIcon } from "@/features/ai/components/icons/provider-icons";
 import type { ReactNode } from "react";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/ui/hover-card";
 import {
   ArchiveIcon,
@@ -58,6 +59,7 @@ export function AgentSessionSidebarItem({
   title,
   workspacePath,
 }: AgentSessionSidebarItemProps) {
+  const { t } = useTranslation();
   const formattedDate = agentSessionDateFormatter.format(createdAt);
 
   return (
@@ -97,7 +99,7 @@ export function AgentSessionSidebarItem({
             active={pinned}
             className="size-5"
             aria-pressed={pinned}
-            tooltip={pinned ? "Unpin session" : "Pin session"}
+            tooltip={pinned ? t("ai.unpinSession") : t("ai.pinSession")}
             tooltipSide="top"
             onClick={(event) => {
               event.stopPropagation();
@@ -111,7 +113,7 @@ export function AgentSessionSidebarItem({
             variant="ghost"
             size="icon-xs"
             className="size-5 hover:text-destructive"
-            tooltip="Archive session"
+            tooltip={t("ai.archiveSession")}
             tooltipSide="top"
             onClick={(event) => {
               event.stopPropagation();
@@ -145,19 +147,19 @@ export function AgentSessionSidebarItem({
         <dl className="space-y-2 p-3 ui-text-sm">
           <MetadataRow
             icon={<SparkleIcon className="size-3.5" />}
-            label="Agent"
+            label={t("ai.agent")}
             value={agentLabel}
           />
-          <MetadataRow icon={<CubeIcon className="size-3.5" />} label="Model" value={modelLabel} />
+          <MetadataRow icon={<CubeIcon className="size-3.5" />} label={t("ai.model")} value={modelLabel} />
           <MetadataRow
             icon={<FolderIcon className="size-3.5" />}
-            label="Project"
+            label={t("ai.project")}
             value={projectName}
           />
           {branch ? (
             <MetadataRow
               icon={<GitBranchIcon className="size-3.5" />}
-              label="Branch"
+              label={t("ai.branch")}
               value={branch}
             />
           ) : null}

@@ -164,7 +164,7 @@ export default function NewProjectContent({
 
   const selectedSourceOption =
     projectSourceOptions.find((option) => option.id === source) ?? projectSourceOptions[0];
-  const projectNameError = getProjectNameError(projectName);
+  const projectNameError = getProjectNameError(projectName, t);
   const destinationPath =
     locationPath.trim() && !projectNameError
       ? getNewProjectPath(locationPath, projectName)
@@ -244,7 +244,7 @@ export default function NewProjectContent({
 
     try {
       if (await exists(destinationPath)) {
-        throw new Error(`A file or folder already exists at ${destinationPath}.`);
+        throw new Error(t("newProject.errorDestinationExists", { path: destinationPath }));
       }
 
       if (source === "clone") {
@@ -258,7 +258,7 @@ export default function NewProjectContent({
 
       const opened = await handleOpenFolderByPath(destinationPath);
       if (!opened) {
-        throw new Error("The project was created but Lithe could not open it.");
+        throw new Error(t("newProject.errorCreatedButCouldNotOpen"));
       }
 
       onClose();
@@ -325,14 +325,20 @@ export default function NewProjectContent({
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <SourceIcon className="shrink-0 text-primary" />
             <span className="truncate font-sans ui-text-base font-medium text-foreground">
-              {source === "clone" ? "Cloning Repository" : "Creating Project"}
+              {source === "clone"
+                ? t("newProject.cloningRepository")
+                : t("newProject.creatingProject")}
             </span>
           </div>
         </CommandHeader>
         <Empty className="min-h-56 rounded-none px-6" role="status" aria-live="polite">
           <EmptyDescription>
             <Spinner
-              label={source === "clone" ? "Cloning repository" : "Preparing project"}
+              label={
+                source === "clone"
+                  ? t("newProject.cloningRepositoryStatus")
+                  : t("newProject.preparingProject")
+              }
               showLabel
               role={undefined}
             />
@@ -350,7 +356,7 @@ export default function NewProjectContent({
       <CommandHeader onClose={onClose}>
         <CommandHeaderAction
           type="button"
-          aria-label="Back to project starters"
+          aria-label={t("newProject.backToStarters")}
           onClick={returnToSource}
         >
           <ArrowLeft />
@@ -374,7 +380,9 @@ export default function NewProjectContent({
         >
           {source === "clone" ? (
             <Field>
-              <FieldLabel htmlFor="new-project-repository">Repository URL</FieldLabel>
+              <FieldLabel htmlFor="new-project-repository">
+                {t("newProject.repositoryUrl")}
+              </FieldLabel>
               <Input
                 ref={repositoryInputRef}
                 id="new-project-repository"
@@ -383,12 +391,12 @@ export default function NewProjectContent({
                 placeholder="https://github.com/owner/repository.git"
                 size="md"
               />
-              <FieldDescription>HTTPS and SSH repository URLs are supported.</FieldDescription>
+              <FieldDescription>{t("newProject.repositoryUrlDescription")}</FieldDescription>
             </Field>
           ) : null}
 
           <Field data-invalid={Boolean(projectName && projectNameError)}>
-            <FieldLabel htmlFor="new-project-name">Project Name</FieldLabel>
+            <FieldLabel htmlFor="new-project-name">{t("newProject.projectName")}</FieldLabel>
             <Input
               ref={nameInputRef}
               id="new-project-name"
@@ -402,7 +410,7 @@ export default function NewProjectContent({
           </Field>
 
           <Field>
-            <FieldLabel htmlFor="new-project-location">Location</FieldLabel>
+            <FieldLabel htmlFor="new-project-location">{t("newProject.location")}</FieldLabel>
             <InputGroup>
               <InputGroupInput
                 id="new-project-location"
@@ -411,7 +419,7 @@ export default function NewProjectContent({
                   setLocationPath(event.target.value);
                   setErrorMessage("");
                 }}
-                placeholder="Choose a parent folder"
+                placeholder={t("newProject.chooseParentFolder")}
                 size="md"
                 className="font-mono"
               />
@@ -419,10 +427,10 @@ export default function NewProjectContent({
                 <InputGroupButton
                   size="sm"
                   onClick={() => void handleChooseLocation()}
-                  aria-label="Choose project location"
+                  aria-label={t("newProject.chooseProjectLocation")}
                 >
                   <FolderOpen />
-                  Browse
+                  {t("ui.browse")}
                 </InputGroupButton>
               </InputGroupAddon>
             </InputGroup>
@@ -430,7 +438,9 @@ export default function NewProjectContent({
 
           {source === "nextjs" || source === "vite-react" ? (
             <Field>
-              <FieldLabel htmlFor="new-project-package-manager">Package Manager</FieldLabel>
+              <FieldLabel htmlFor="new-project-package-manager">
+                {t("newProject.packageManager")}
+              </FieldLabel>
               <Select
                 id="new-project-package-manager"
                 value={packageManager}
@@ -439,7 +449,7 @@ export default function NewProjectContent({
                 size="md"
               />
               <FieldDescription>
-                Setup runs in the integrated terminal so you can follow its output.
+                {t("newProject.packageManagerDescription")}
               </FieldDescription>
             </Field>
           ) : null}
@@ -447,7 +457,7 @@ export default function NewProjectContent({
           {destinationPath ? (
             <Card variant="muted" size="sm">
               <CardHeader>
-                <CardTitle>Project location</CardTitle>
+                <CardTitle>{t("newProject.projectLocation")}</CardTitle>
                 <CardDescription className="break-all font-mono">{destinationPath}</CardDescription>
               </CardHeader>
             </Card>
@@ -460,7 +470,7 @@ export default function NewProjectContent({
       <CommandFooter>
         <Button type="button" variant="ghost" size="xs" onClick={returnToSource}>
           <ArrowLeft />
-          Starters
+          {t("newProject.starters")}
         </Button>
         <div className="ml-auto">
           <Button

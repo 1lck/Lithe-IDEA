@@ -17,8 +17,8 @@ export const StashMessageModal = ({
   isOpen,
   onClose,
   onConfirm,
-  title = "Create Stash",
-  placeholder = "Stash message...",
+  title,
+  placeholder,
 }: StashMessageModalProps) => {
   if (!isOpen) return null;
 
@@ -48,6 +48,8 @@ const StashMessageModalContent = ({
   const { t } = useTranslation();
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const resolvedTitle = title ?? t("git.createStash");
+  const resolvedPlaceholder = placeholder ?? t("git.stashMessage");
 
   const handleConfirm = async () => {
     setIsLoading(true);
@@ -69,7 +71,7 @@ const StashMessageModalContent = ({
       className="max-w-80 p-0"
     >
       <DialogHeader className="px-4 pt-4">
-        <DialogTitle>{title}</DialogTitle>
+        <DialogTitle>{resolvedTitle}</DialogTitle>
       </DialogHeader>
       <div className="px-4 py-3">
         <Input
@@ -77,7 +79,7 @@ const StashMessageModalContent = ({
           type="text"
           value={message}
           onChange={(event) => setMessage(event.target.value)}
-          placeholder={placeholder}
+          placeholder={resolvedPlaceholder}
           className={cn("w-full bg-background ui-text-sm")}
           onKeyDown={(event) => {
             if (event.key === "Enter") void handleConfirm();

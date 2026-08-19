@@ -2,6 +2,7 @@ import Badge from "@/ui/badge";
 import { Button } from "@/ui/button";
 import { CodeIcon, MagicWandIcon, PenIcon, PlayIcon, TerminalIcon, TrashIcon } from "@/ui/icons";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/ui/item";
+import { useTranslation } from "@/i18n/locale-provider";
 import type { RunActionItem } from "../types/run-action.types";
 
 interface RunActionRowProps {
@@ -18,6 +19,7 @@ function SourceIcon({ source }: { source: RunActionItem["source"] }) {
 }
 
 export default function RunActionRow({ action, onRun, onEdit, onDelete }: RunActionRowProps) {
+  const { t } = useTranslation();
   const detail = action.command ?? action.description;
 
   return (
@@ -55,7 +57,7 @@ export default function RunActionRow({ action, onRun, onEdit, onDelete }: RunAct
               variant="ghost"
               size="icon-xs"
               className="text-subtle-foreground"
-              aria-label={`Edit ${action.name}`}
+              aria-label={t("runActions.editNamedAction", { name: action.name })}
             >
               <PenIcon />
             </Button>
@@ -67,7 +69,7 @@ export default function RunActionRow({ action, onRun, onEdit, onDelete }: RunAct
               variant="ghost"
               size="icon-xs"
               className="text-subtle-foreground hover:text-destructive"
-              aria-label={`Delete ${action.name}`}
+              aria-label={t("runActions.deleteNamedAction", { name: action.name })}
             >
               <TrashIcon />
             </Button>

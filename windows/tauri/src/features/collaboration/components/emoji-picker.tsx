@@ -2,6 +2,7 @@ import { MagnifyingGlassIcon as Search } from "@/ui/icons";
 import { useMemo, useState } from "react";
 import { Button } from "@/ui/button";
 import { Empty, EmptyDescription } from "@/ui/empty";
+import { useTranslation } from "@/i18n/locale-provider";
 import Input from "@/ui/input";
 import { Toggle } from "@/ui/toggle";
 import Tooltip from "@/ui/tooltip";
@@ -45,39 +46,39 @@ const defaultEmojiPickerOptions = [
   "🧹",
 ];
 
-const emojiLabels: Record<string, { label: string; keywords: string[] }> = {
-  "💬": { label: "Message", keywords: ["chat", "comment", "thread"] },
-  "🛠️": { label: "Tools", keywords: ["fix", "build", "work"] },
-  "🚀": { label: "Launch", keywords: ["ship", "release", "deploy"] },
-  "🧪": { label: "Test", keywords: ["lab", "qa", "experiment"] },
-  "📣": { label: "Announcement", keywords: ["news", "broadcast"] },
-  "🔒": { label: "Private", keywords: ["lock", "secure"] },
-  "📌": { label: "Pinned", keywords: ["pin", "important"] },
-  "⚡": { label: "Fast", keywords: ["bolt", "performance"] },
-  "✅": { label: "Done", keywords: ["check", "complete"] },
-  "🔥": { label: "Hot", keywords: ["fire", "urgent"] },
-  "🎯": { label: "Goal", keywords: ["target", "focus"] },
-  "🧠": { label: "Ideas", keywords: ["brain", "think"] },
-  "👀": { label: "Review", keywords: ["eyes", "look"] },
-  "🙌": { label: "Celebrate", keywords: ["hands", "thanks"] },
-  "🙏": { label: "Request", keywords: ["please", "pray"] },
-  "❤️": { label: "Love", keywords: ["heart", "like"] },
-  "✨": { label: "Polish", keywords: ["sparkles", "clean"] },
-  "⭐": { label: "Star", keywords: ["favorite", "important"] },
-  "💡": { label: "Idea", keywords: ["light", "bulb"] },
-  "📎": { label: "Attachment", keywords: ["clip", "file"] },
-  "📁": { label: "Files", keywords: ["folder", "project"] },
-  "📝": { label: "Notes", keywords: ["memo", "write"] },
-  "🐛": { label: "Bug", keywords: ["issue", "debug"] },
-  "🚨": { label: "Alert", keywords: ["warning", "incident"] },
-  "⏳": { label: "Waiting", keywords: ["hourglass", "pending"] },
-  "🔍": { label: "Search", keywords: ["find", "inspect"] },
-  "🎨": { label: "Design", keywords: ["paint", "style"] },
-  "⚙️": { label: "Settings", keywords: ["gear", "config"] },
-  "🧩": { label: "Integration", keywords: ["plugin", "piece"] },
-  "🧵": { label: "Thread", keywords: ["conversation", "topic"] },
-  "📦": { label: "Package", keywords: ["box", "bundle"] },
-  "🧹": { label: "Cleanup", keywords: ["sweep", "refactor"] },
+const emojiLabels: Record<string, { labelKey: string; keywords: string[] }> = {
+  "💬": { labelKey: "collaboration.message", keywords: ["chat", "comment", "thread"] },
+  "🛠️": { labelKey: "collaboration.tools", keywords: ["fix", "build", "work"] },
+  "🚀": { labelKey: "collaboration.launch", keywords: ["ship", "release", "deploy"] },
+  "🧪": { labelKey: "collaboration.test", keywords: ["lab", "qa", "experiment"] },
+  "📣": { labelKey: "collaboration.announcement", keywords: ["news", "broadcast"] },
+  "🔒": { labelKey: "collaboration.private", keywords: ["lock", "secure"] },
+  "📌": { labelKey: "collaboration.pinned", keywords: ["pin", "important"] },
+  "⚡": { labelKey: "collaboration.fast", keywords: ["bolt", "performance"] },
+  "✅": { labelKey: "collaboration.done", keywords: ["check", "complete"] },
+  "🔥": { labelKey: "collaboration.hot", keywords: ["fire", "urgent"] },
+  "🎯": { labelKey: "collaboration.goal", keywords: ["target", "focus"] },
+  "🧠": { labelKey: "collaboration.ideas", keywords: ["brain", "think"] },
+  "👀": { labelKey: "collaboration.review", keywords: ["eyes", "look"] },
+  "🙌": { labelKey: "collaboration.celebrate", keywords: ["hands", "thanks"] },
+  "🙏": { labelKey: "collaboration.request", keywords: ["please", "pray"] },
+  "❤️": { labelKey: "collaboration.love", keywords: ["heart", "like"] },
+  "✨": { labelKey: "collaboration.polish", keywords: ["sparkles", "clean"] },
+  "⭐": { labelKey: "collaboration.star", keywords: ["favorite", "important"] },
+  "💡": { labelKey: "collaboration.idea", keywords: ["light", "bulb"] },
+  "📎": { labelKey: "collaboration.attachment", keywords: ["clip", "file"] },
+  "📁": { labelKey: "collaboration.files", keywords: ["folder", "project"] },
+  "📝": { labelKey: "collaboration.notes", keywords: ["memo", "write"] },
+  "🐛": { labelKey: "collaboration.bug", keywords: ["issue", "debug"] },
+  "🚨": { labelKey: "collaboration.alert", keywords: ["warning", "incident"] },
+  "⏳": { labelKey: "collaboration.waiting", keywords: ["hourglass", "pending"] },
+  "🔍": { labelKey: "collaboration.search", keywords: ["find", "inspect"] },
+  "🎨": { labelKey: "collaboration.design", keywords: ["paint", "style"] },
+  "⚙️": { labelKey: "collaboration.settings", keywords: ["gear", "config"] },
+  "🧩": { labelKey: "collaboration.integration", keywords: ["plugin", "piece"] },
+  "🧵": { labelKey: "collaboration.thread", keywords: ["conversation", "topic"] },
+  "📦": { labelKey: "collaboration.package", keywords: ["box", "bundle"] },
+  "🧹": { labelKey: "collaboration.cleanup", keywords: ["sweep", "refactor"] },
 };
 
 interface EmojiPickerProps {
@@ -90,8 +91,9 @@ interface EmojiPickerProps {
   className?: string;
 }
 
-function getEmojiLabel(emoji: string) {
-  return emojiLabels[emoji]?.label ?? emoji;
+function getEmojiLabel(emoji: string, t: (key: string) => string) {
+  const labelKey = emojiLabels[emoji]?.labelKey;
+  return labelKey ? t(labelKey) : emoji;
 }
 
 function getRecentEmojis(options: string[]) {
@@ -125,6 +127,7 @@ export function EmojiPicker({
   clearLabel = "Reset to default",
   className,
 }: EmojiPickerProps) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [recentEmojis, setRecentEmojis] = useState(() => getRecentEmojis(options));
 
@@ -134,13 +137,17 @@ export function EmojiPicker({
 
     return options.filter((emoji) => {
       const metadata = emojiLabels[emoji];
-      const haystack = [emoji, metadata?.label, ...(metadata?.keywords ?? [])]
+      const haystack = [
+        emoji,
+        metadata?.labelKey ? t(metadata.labelKey) : undefined,
+        ...(metadata?.keywords ?? []),
+      ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
       return haystack.includes(normalizedQuery);
     });
-  }, [normalizedQuery, options]);
+  }, [normalizedQuery, options, t]);
 
   const visibleRecentEmojis = useMemo(() => {
     if (normalizedQuery) return [];
@@ -159,13 +166,13 @@ export function EmojiPicker({
   };
 
   const renderEmojiButton = (emoji: string) => (
-    <Tooltip key={emoji} content={getEmojiLabel(emoji)} side="top">
+    <Tooltip key={emoji} content={getEmojiLabel(emoji, t)} side="top">
       <Toggle
         type="button"
         size="md"
         pressed={selected === emoji}
         onPressedChange={(pressed) => pressed && handleSelect(emoji)}
-        aria-label={`Select ${getEmojiLabel(emoji)}`}
+        aria-label={t("collaboration.selectEmoji", { label: getEmojiLabel(emoji, t) })}
       >
         {emoji}
       </Toggle>
@@ -177,15 +184,17 @@ export function EmojiPicker({
       <Input
         value={query}
         onChange={(event) => setQuery(event.target.value)}
-        placeholder="Search emoji..."
-        aria-label="Search emoji"
+        placeholder={t("collaboration.searchEmoji")}
+        aria-label={t("collaboration.searchEmoji")}
         size="xs"
         leftIcon={Search}
       />
 
       {visibleRecentEmojis.length > 0 ? (
         <div className="mt-2">
-          <div className="mb-1 px-1 ui-text-sm text-subtle-foreground uppercase">Recent</div>
+          <div className="mb-1 px-1 ui-text-sm text-subtle-foreground uppercase">
+            {t("collaboration.recent")}
+          </div>
           <div
             className="grid gap-1"
             style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
@@ -204,7 +213,7 @@ export function EmojiPicker({
 
       {filteredOptions.length === 0 ? (
         <Empty className="mt-2">
-          <EmptyDescription>No matching emoji</EmptyDescription>
+          <EmptyDescription>{t("collaboration.noMatchingEmoji")}</EmptyDescription>
         </Empty>
       ) : null}
 

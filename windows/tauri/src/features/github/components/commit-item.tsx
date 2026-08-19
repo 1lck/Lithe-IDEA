@@ -4,6 +4,7 @@ import type { KeyboardEvent, MouseEvent } from "react";
 import { memo } from "react";
 import { openCommitDiffBuffer } from "@/features/git/utils/open-commit-diff-buffer";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 import { toast } from "sonner";
 import Tooltip from "@/ui/tooltip";
 import { cn } from "@/utils/cn";
@@ -17,9 +18,10 @@ interface CommitItemProps {
 }
 
 export const CommitItem = memo(({ commit, repoPath }: CommitItemProps) => {
+  const { t } = useTranslation();
   const author = commit.authors[0];
   const shortSha = commit.oid.slice(0, 7);
-  const authorName = author?.login || author?.name || "Unknown";
+  const authorName = author?.login || author?.name || t("github.unknown");
   const avatarLogin = (author?.login || "").trim();
   const canOpenCommit = Boolean(repoPath && commit.oid);
   const bodyPreview = commit.messageBody.replace(/\s+/g, " ").trim();
@@ -32,7 +34,7 @@ export const CommitItem = memo(({ commit, repoPath }: CommitItemProps) => {
 
   const openCommit = async () => {
     if (!repoPath || !commit.oid) {
-      toast.error("Commit diff is not available.");
+      toast.error(t("github.commitDiffUnavailable"));
       return;
     }
 
@@ -49,7 +51,7 @@ export const CommitItem = memo(({ commit, repoPath }: CommitItemProps) => {
       return;
     }
 
-    toast.error("Commit diff is not available.");
+    toast.error(t("github.commitDiffUnavailable"));
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -73,7 +75,7 @@ export const CommitItem = memo(({ commit, repoPath }: CommitItemProps) => {
         canOpenCommit &&
           "cursor-pointer hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20",
       )}
-      aria-label={canOpenCommit ? `Open commit ${shortSha}` : undefined}
+      aria-label={canOpenCommit ? t("github.openCommitSha", { sha: shortSha }) : undefined}
     >
       <GitHubAvatar login={avatarLogin} name={authorName} size={32} className="size-6" />
       <div className="min-w-0 flex-1">
@@ -93,22 +95,22 @@ export const CommitItem = memo(({ commit, repoPath }: CommitItemProps) => {
         <span>&middot;</span>
         <code className="font-mono text-subtle-foreground">{shortSha}</code>
         <span className="ml-0.5 flex items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-          <Tooltip content="Copy full commit SHA" side="top">
+          <Tooltip content={t("github.copyFullCommitSha")} side="top">
             <Button
               onClick={(event) => {
                 stopActionClick(event);
-                void copyToClipboard(commit.oid, "Commit SHA copied");
+                void copyToClipboard(commit.oid, t("github.commitShaCopied"));
               }}
               variant="ghost"
               size="icon-xs"
               className="text-subtle-foreground"
-              aria-label="Copy commit SHA"
+              aria-label={t("github.copyCommitSha")}
             >
               <Copy />
             </Button>
           </Tooltip>
           {commit.url && (
-            <Tooltip content="Open commit on GitHub" side="top">
+            <Tooltip content={t("github.openCommitOnGitHub")} side="top">
               <Button
                 onClick={(event) => {
                   stopActionClick(event);
@@ -117,7 +119,7 @@ export const CommitItem = memo(({ commit, repoPath }: CommitItemProps) => {
                 variant="ghost"
                 size="icon-xs"
                 className="text-subtle-foreground"
-                aria-label="Open commit in browser"
+                aria-label={t("github.openCommitInBrowser")}
               >
                 <GithubLogo />
               </Button>

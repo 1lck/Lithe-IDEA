@@ -8,6 +8,7 @@ import { getProviderById } from "@/features/ai/types/providers.types";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useAuthStore } from "@/features/window/stores/auth.store";
 import { useInlineEditToolbarStore } from "@/features/editor/stores/inline-edit-toolbar.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { toast } from "sonner";
 import {
   InlineEditError,
@@ -91,6 +92,7 @@ export function useInlineEdit({
   setSelection,
   updateBufferContent,
 }: UseInlineEditOptions) {
+  const { t } = useTranslation();
   const inlineEditRequested = useInlineEditToolbarStore.use.isVisible();
   const inlineEditTargetViewKey = useInlineEditToolbarStore.use.targetViewKey();
   const inlineEditRequestId = useInlineEditToolbarStore.use.requestId();
@@ -339,14 +341,14 @@ export function useInlineEdit({
     }
 
     if (!buffer) {
-      toast.warning("Inline edit requires an open buffer.");
+      toast.warning(t("inlineEdit.requiresOpenBuffer"));
       inlineEditToolbarActions.hide();
       return;
     }
 
     const targetRange = resolveInlineEditRange();
     if (!targetRange) {
-      toast.warning("Could not determine an inline edit target.");
+      toast.warning(t("inlineEdit.targetUnavailable"));
       inlineEditToolbarActions.hide();
       return;
     }
@@ -358,7 +360,7 @@ export function useInlineEdit({
     const provider = getProviderById(aiProviderId);
 
     if (!aiModelId.trim()) {
-      toast.error("Please select an inline edit model.");
+      toast.error(t("inlineEdit.selectModel"));
       return;
     }
 
@@ -379,7 +381,9 @@ export function useInlineEdit({
       const hasProviderKeyAfterRefresh =
         useAIChatStore.getState().providerApiKeys.get(aiProviderId) || false;
       if (!hasProviderKeyAfterRefresh) {
-        toast.error(`${provider?.name ?? aiProviderId} API key is required for inline edit.`);
+        toast.error(
+          t("inlineEdit.apiKeyRequired", { provider: provider?.name ?? aiProviderId }),
+        );
         return;
       }
     }
@@ -388,17 +392,17 @@ export function useInlineEdit({
     const useHosted = !hasProviderKey && canUseHostedProvider(aiProviderId, subscription);
 
     if (useHosted && !isAuthenticated) {
-      toast.error("Please sign in to use hosted inline edit.");
+      toast.error(t("inlineEdit.signInRequired"));
       return;
     }
 
     if (useHosted && managedPolicy && !managedPolicy.aiCompletionEnabled) {
-      toast.error("Inline edit is disabled by your organization policy.");
+      toast.error(t("inlineEdit.disabledByPolicy"));
       return;
     }
 
     if (!useHosted && managedPolicy && !managedPolicy.allowByok) {
-      toast.error("BYOK is disabled by your organization policy.");
+      toast.error(t("inlineEdit.byokDisabledByPolicy"));
       return;
     }
 
@@ -424,7 +428,7 @@ export function useInlineEdit({
       );
 
       if (!editedText.trim()) {
-        toast.warning("Inline edit returned an empty result.");
+        toast.warning(t("inlineEdit.emptyResult"));
         return;
       }
 
@@ -455,15 +459,15 @@ export function useInlineEdit({
         inputRef.current.selectionEnd = newCursorOffset;
       }
 
-      toast.success("Inline edit applied.");
+      toast.success(t("inlineEdit.applied"));
     } catch (error) {
       const errorMessage =
-        error instanceof InlineEditError ? error.message : "Inline edit failed. Please try again.";
+        error instanceof InlineEditError ? error.message : t("inlineEdit.failedTryAgain");
       setInlineEditError(errorMessage);
       if (error instanceof InlineEditError) {
         toast.error(error.message);
       } else {
-        toast.error("Inline edit failed. Please try again.");
+        toast.error(t("inlineEdit.failedTryAgain"));
       }
     } finally {
       setIsInlineEditRunning(false);
@@ -485,6 +489,7 @@ export function useInlineEdit({
     inlineEditToolbarActions,
     inputRef,
     enabled,
+    t,
   ]);
 
   const popoverPosition = (() => {

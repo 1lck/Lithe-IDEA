@@ -16,6 +16,7 @@ import { buttonVariants } from "@/ui/button";
 import Input from "@/ui/input";
 import { quickTransition } from "@/utils/motion";
 import { FloatingPopoverContent } from "@/ui/popover";
+import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
 import { matchesSearchQuery } from "@/utils/search-match";
 import { CaretRightIcon, CheckIcon, MagnifyingGlassIcon as Search } from "@/ui/icons";
@@ -313,6 +314,7 @@ function getViewportBounds() {
 }
 
 export function Dropdown(props: DropdownProps) {
+  const { t } = useTranslation();
   const {
     isOpen,
     onClose,
@@ -660,7 +662,7 @@ export function Dropdown(props: DropdownProps) {
             <Input
               ref={searchRef}
               type="text"
-              placeholder={searchPlaceholder ?? "Search..."}
+              placeholder={searchPlaceholder ?? t("ui.searchPlaceholder")}
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value);

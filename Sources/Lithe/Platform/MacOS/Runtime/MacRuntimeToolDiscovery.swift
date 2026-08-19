@@ -5,15 +5,18 @@ import Foundation
 /// package manager or installs anything on the user's behalf.
 struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
     private let homeDirectoryURL: URL
+    private let resourceDirectoryURL: URL?
     private let isExecutable: @Sendable (URL) -> Bool
 
     init(
         homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
+        resourceDirectoryURL: URL? = Bundle.main.resourceURL,
         isExecutable: @escaping @Sendable (URL) -> Bool = {
             FileManager.default.isExecutableFile(atPath: $0.path)
         }
     ) {
         self.homeDirectoryURL = homeDirectoryURL.standardizedFileURL
+        self.resourceDirectoryURL = resourceDirectoryURL?.standardizedFileURL
         self.isExecutable = isExecutable
     }
 
@@ -36,6 +39,14 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
                 source: source,
                 detail: detail
             ))
+        }
+
+        if command == "jdtls", let resourceDirectoryURL {
+            add(
+                resourceDirectoryURL.appendingPathComponent("LanguageServers/jdtls/bin/jdtls"),
+                source: .bundled,
+                detail: "Bundled with Lithe"
+            )
         }
 
         // Project-local toolchains are preferred because they are reproducible

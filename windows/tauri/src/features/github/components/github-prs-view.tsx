@@ -28,6 +28,7 @@ import { useRepositoryStore } from "@/features/git/stores/git-repository.store";
 import { writeSidebarResourceDragData } from "@/features/sidebar/utils/sidebar-resource-drag";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import {
   Dropdown,
@@ -82,25 +83,6 @@ import {
   githubIssueListCache,
 } from "../utils/github-data-cache";
 
-const filterLabels: Record<PRFilter, string> = {
-  all: "Open PRs",
-  "my-prs": "My PRs",
-  "review-requests": "Review Requests",
-};
-
-const issueFilterLabels: Record<IssueFilter, string> = {
-  open: "Open Issues",
-  closed: "Closed Issues",
-  all: "All Issues",
-};
-
-const actionFilterLabels: Record<WorkflowRunFilter, string> = {
-  all: "All Runs",
-  "in-progress": "In Progress",
-  successful: "Successful",
-  failed: "Failed",
-};
-
 type GitHubSidebarSection = "pull-requests" | "issues" | "actions";
 type GitHubPaletteAction =
   | { type: "show-section"; section: GitHubSidebarSection }
@@ -126,15 +108,16 @@ const PRListItem = memo(
     onContextMenu,
     repoPath,
   }: PRListItemProps) => {
+    const { t } = useTranslation();
     const updatedLabel = getTimeAgo(pr.updatedAt);
     const stateLabel = pr.isDraft
-      ? "Draft"
+      ? t("github.draft")
       : pr.reviewDecision
         ? pr.reviewDecision.replace(/_/g, " ").toLowerCase()
         : pr.state.toLowerCase();
     const branchLabel = pr.baseRef && pr.headRef ? `${pr.baseRef} <- ${pr.headRef}` : undefined;
     const badges: GitHubSidebarPreviewBadge[] = [
-      { label: pr.isDraft ? "Draft" : pr.state, tone: pr.isDraft ? "muted" : "accent" },
+      { label: pr.isDraft ? t("github.draft") : pr.state, tone: pr.isDraft ? "muted" : "accent" },
       ...(pr.reviewDecision
         ? [
             {
@@ -196,19 +179,19 @@ const PRListItem = memo(
         }
         preview={{
           title: pr.title,
-          subtitle: `#${pr.number} by ${pr.author.login}`,
+          subtitle: t("github.itemByAuthor", { number: pr.number, author: pr.author.login }),
           icon: authorAvatar,
           badges,
           details: [
-            { label: "Updated", value: updatedLabel },
-            { label: "Created", value: getTimeAgo(pr.createdAt) },
-            { label: "Branches", value: branchLabel, mono: true },
+            { label: t("github.updated"), value: updatedLabel },
+            { label: t("github.created"), value: getTimeAgo(pr.createdAt) },
+            { label: t("github.branches"), value: branchLabel, mono: true },
             {
-              label: "Changes",
+              label: t("workbench.changes"),
               value: `+${pr.additions} / -${pr.deletions}`,
               mono: true,
               onClick: onSelectChanges,
-              actionLabel: `Open changed files for pull request #${pr.number}`,
+              actionLabel: t("github.openChangedFilesForPr", { number: pr.number }),
             },
           ],
         }}
@@ -257,6 +240,23 @@ const GitHubPRsView = memo(() => {
   const [currentBranch, setCurrentBranch] = useState("");
   const prContextMenu = useDropdownMenu<PullRequest>();
   const sectionContextMenu = useDropdownMenu<null>();
+  const { t } = useTranslation();
+  const filterLabels: Record<PRFilter, string> = {
+    all: t("github.openPrs"),
+    "my-prs": t("github.myPrs"),
+    "review-requests": t("github.reviewRequests"),
+  };
+  const issueFilterLabels: Record<IssueFilter, string> = {
+    open: t("github.openIssues"),
+    closed: t("github.closedIssues"),
+    all: t("github.allIssues"),
+  };
+  const actionFilterLabels: Record<WorkflowRunFilter, string> = {
+    all: t("github.allRuns"),
+    "in-progress": t("github.inProgress"),
+    successful: t("github.successful"),
+    failed: t("github.failed"),
+  };
 
   const isRepoError = !!error && isNotGitRepositoryError(error);
   const activePRNumber = useBufferStore((state) => {
@@ -465,7 +465,7 @@ const GitHubPRsView = memo(() => {
 
       const resolvedRepoPath = await resolveRepositoryPath(selected);
       if (!resolvedRepoPath) {
-        setRepoSelectionError("Selected folder is not inside a Git repository.");
+        setRepoSelectionError(t("github.selectedFolderNotGitRepo"));
         return;
       }
 
@@ -537,7 +537,7 @@ const GitHubPRsView = memo(() => {
     ? [
         {
           id: "open-pr",
-          label: "Open PR",
+          label: t("github.openPr"),
           icon: <GitPullRequest />,
           onClick: () => {
             handleSelectPR(selectedPR);
@@ -545,7 +545,7 @@ const GitHubPRsView = memo(() => {
         },
         {
           id: "open-on-github",
-          label: "Open on GitHub",
+          label: t("github.openOnGitHub"),
           icon: <GithubLogo />,
           onClick: () => {
             if (effectiveRepoPath) {
@@ -555,7 +555,7 @@ const GitHubPRsView = memo(() => {
         },
         {
           id: "checkout-branch",
-          label: "Checkout Branch",
+          label: t("github.checkoutBranch"),
           icon: <GitBranch />,
           onClick: () => {
             if (effectiveRepoPath) {
@@ -565,7 +565,7 @@ const GitHubPRsView = memo(() => {
         },
         {
           id: "copy-title",
-          label: "Copy Title",
+          label: t("github.copyTitle"),
           icon: <Copy />,
           onClick: () => {
             void writeClipboardText(selectedPR.title);
@@ -578,17 +578,17 @@ const GitHubPRsView = memo(() => {
       id: "refresh",
       label:
         activeSection === "pull-requests"
-          ? "Refresh Pull Requests"
+          ? t("github.refreshPullRequests")
           : activeSection === "issues"
-            ? "Refresh Issues"
-            : "Refresh Workflow Runs",
+            ? t("github.refreshIssues")
+            : t("github.refreshWorkflowRuns"),
       icon: <RefreshCw />,
       disabled: isLoading || !effectiveRepoPath,
       onClick: handleRefreshActiveSection,
     },
     {
       id: "select-repository",
-      label: "Browse Repository",
+      label: t("github.browseRepository"),
       icon: <GitBranch />,
       disabled: isSelectingRepo,
       onClick: () => void handleSelectRepository(),
@@ -599,15 +599,15 @@ const GitHubPRsView = memo(() => {
     const tabMap: Record<GitHubSidebarSection, { id: GitHubSidebarSection; label: string }> = {
       "pull-requests": {
         id: "pull-requests",
-        label: "Pull Requests",
+        label: t("github.pullRequests"),
       },
       issues: {
         id: "issues",
-        label: "Issues",
+        label: t("github.issues"),
       },
       actions: {
         id: "actions",
-        label: "Actions",
+        label: t("github.actions"),
       },
     };
 
@@ -725,7 +725,7 @@ const GitHubPRsView = memo(() => {
         }}
       >
         {availableSections.length === 0 ? (
-          <EmptyState message="Enable GitHub sidebar sections in Settings -> Appearance." />
+          <EmptyState message={t("github.enableSidebarSections")} />
         ) : (
           <>
             <SidebarTitleBar
@@ -734,16 +734,16 @@ const GitHubPRsView = memo(() => {
               <SidebarSearchPopover
                 value={searchQuery}
                 onChange={setSearchQuery}
-                aria-label="Search GitHub"
+                aria-label={t("github.searchGitHub")}
               />
               <SidebarHeaderIconButton
                 disabled={!effectiveRepoPath}
                 tooltip={
                   activeSection === "pull-requests"
-                    ? "New Pull Request"
+                    ? t("github.newPullRequest")
                     : activeSection === "issues"
-                      ? "New Issue"
-                      : "Run Workflow"
+                      ? t("github.newIssue")
+                      : t("github.runWorkflow")
                 }
                 tooltipSide="bottom"
                 onClick={() => {
@@ -769,9 +769,9 @@ const GitHubPRsView = memo(() => {
                   render={
                     <SidebarHeaderIconButton
                       active={!isActiveFilterDefault}
-                      tooltip={`Filter: ${activeFilterLabel}`}
+                      tooltip={t("github.filterLabel", { label: activeFilterLabel })}
                       tooltipSide="bottom"
-                      aria-label={`Filter GitHub ${activeSection}`}
+                      aria-label={t("github.filterSection", { section: activeSection })}
                     />
                   }
                 >
@@ -803,9 +803,11 @@ const GitHubPRsView = memo(() => {
                         <ScrollArea className="min-h-0 flex-1" contentClassName="px-2 py-2">
                           {!effectiveRepoPath ? (
                             <EmptyState
-                              message="No repository selected"
+                              message={t("github.noRepositorySelected")}
                               action={{
-                                label: isSelectingRepo ? "Selecting..." : "Browse Repository",
+                                label: isSelectingRepo
+                                  ? t("github.selecting")
+                                  : t("github.browseRepository"),
                                 onClick: () => void handleSelectRepository(),
                                 disabled: isSelectingRepo,
                               }}
@@ -814,12 +816,12 @@ const GitHubPRsView = memo(() => {
                             <Empty tone="error" role="alert">
                               <EmptyHeader>
                                 <EmptyTitle>
-                                  {isRepoError ? "Repository is not a Git repository" : error}
+                                  {isRepoError ? t("github.repositoryNotGitRepo") : error}
                                 </EmptyTitle>
                                 {isRepoError || repoSelectionError ? (
                                   <EmptyDescription>
                                     {isRepoError
-                                      ? "Select another folder that contains a `.git` repository."
+                                      ? t("github.selectGitRepositoryFolder")
                                       : repoSelectionError}
                                   </EmptyDescription>
                                 ) : null}
@@ -838,20 +840,20 @@ const GitHubPRsView = memo(() => {
                                 >
                                   {isRepoError
                                     ? isSelectingRepo
-                                      ? "Selecting..."
-                                      : "Browse Repository"
-                                    : "Try again"}
+                                      ? t("github.selecting")
+                                      : t("github.browseRepository")
+                                    : t("search.retry")}
                                 </Button>
                               </EmptyContent>
                             </Empty>
                           ) : isLoading && deferredPrs.length === 0 ? (
                             <div className="flex items-center justify-center py-8">
-                              <Spinner label="Loading pull requests" showLabel compact />
+                              <Spinner label={t("github.loadingPullRequests")} showLabel compact />
                             </div>
                           ) : deferredPrs.length === 0 ? (
-                            <EmptyState message="No pull requests" />
+                            <EmptyState message={t("github.noPullRequests")} />
                           ) : filteredPrs.length === 0 ? (
-                            <EmptyState message="No matching pull requests" />
+                            <EmptyState message={t("github.noMatchingPullRequests")} />
                           ) : (
                             <div className="space-y-1 overflow-x-hidden">
                               {groupedPrs.map((group) => (

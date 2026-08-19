@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { useAutoUpdate } from "@/features/settings/hooks/use-auto-update";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import { ButtonGroup, ButtonGroupSeparator } from "@/ui/button-group";
 import {
@@ -34,6 +35,7 @@ export function AppUpdateControl() {
     onSkipVersion,
     onViewReleaseNotes,
   } = useAutoUpdate();
+  const { t } = useTranslation();
   const [isUpdateMenuOpen, setIsUpdateMenuOpen] = useState(false);
   const updateMenuRef = useRef<HTMLDivElement>(null);
   const updateBusy = downloading || installing;
@@ -42,28 +44,28 @@ export function AppUpdateControl() {
     () => [
       {
         id: "release-notes",
-        label: "View Release Notes",
+        label: t("update.viewReleaseNotes"),
         icon: <FileTextIcon />,
         onClick: onViewReleaseNotes,
         disabled: updateBusy,
       },
       {
         id: "download-later",
-        label: "Download Later",
+        label: t("update.downloadLater"),
         icon: <ClockIcon />,
         onClick: dismissUpdate,
         disabled: updateBusy,
       },
       {
         id: "remind-later",
-        label: "Remind Me Tomorrow",
+        label: t("update.remindTomorrow"),
         icon: <CalendarIcon />,
         onClick: onRemindLater,
         disabled: updateBusy,
       },
       {
         id: "skip-version",
-        label: `Skip ${updateInfo?.version ?? "Version"}`,
+        label: t("update.skipVersion", { version: updateInfo?.version ?? t("update.version") }),
         icon: <XCircleIcon />,
         onClick: onSkipVersion,
         disabled: updateBusy,
@@ -76,6 +78,7 @@ export function AppUpdateControl() {
       onViewReleaseNotes,
       updateBusy,
       updateInfo?.version,
+      t,
     ],
   );
 
@@ -84,17 +87,17 @@ export function AppUpdateControl() {
   const updateLabel = downloading
     ? `${downloadProgress?.percentage ?? 0}%`
     : installing
-      ? "Installing"
+      ? t("update.installing")
       : updateError
-        ? "Update failed"
-        : "Update available";
+        ? t("update.failed")
+        : t("update.available");
   const updateTooltip = updateError
     ? updateError
     : downloading
-      ? `Updating Lithe ${downloadProgress?.percentage ?? 0}%`
+      ? t("update.updatingProgress", { percentage: downloadProgress?.percentage ?? 0 })
       : installing
-        ? "Installing update..."
-        : `Update available: ${updateInfo.version}`;
+        ? t("update.installingTooltip")
+        : t("update.availableVersion", { version: updateInfo.version });
 
   return (
     <div className="ml-3 flex items-center">
@@ -135,7 +138,10 @@ export function AppUpdateControl() {
               )}
             >
               {updateBusy ? (
-                <Spinner label={downloading ? "Downloading" : "Installing"} compact />
+                <Spinner
+                  label={downloading ? t("update.downloading") : t("update.installing")}
+                  compact
+                />
               ) : (
                 <DownloadIcon />
               )}
@@ -147,7 +153,7 @@ export function AppUpdateControl() {
               variant="ghost"
               size="icon-xs"
               active={isUpdateMenuOpen}
-              tooltip="Update Options"
+              tooltip={t("update.options")}
               tooltipSide="bottom"
               onClick={() => setIsUpdateMenuOpen((open) => !open)}
               className={
@@ -155,7 +161,7 @@ export function AppUpdateControl() {
                   ? "text-destructive hover:bg-destructive/10 hover:text-destructive"
                   : undefined
               }
-              aria-label="Update options"
+              aria-label={t("update.options")}
               aria-haspopup="menu"
               aria-expanded={isUpdateMenuOpen}
             >

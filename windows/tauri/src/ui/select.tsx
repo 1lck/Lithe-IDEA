@@ -18,6 +18,7 @@ import {
   type Icon as AppIcon,
 } from "@/ui/icons";
 import Tooltip from "@/ui/tooltip";
+import { useTranslation } from "@/i18n/locale-provider";
 import { controlIconSizes } from "@/utils/control-variants";
 import { cn } from "@/utils/cn";
 import { matchesSearchQuery } from "@/utils/search-match";
@@ -323,6 +324,7 @@ function SearchableSelect({
   onOpenChange: (open: boolean) => void;
   ariaLabel: string;
 }) {
+  const { t } = useTranslation();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const resolvedOptions = useMemo(() => {
@@ -459,8 +461,8 @@ function SearchableSelect({
               leftIcon={Search}
               size={size}
               variant="ghost"
-              placeholder="Search..."
-              aria-label="Search options"
+              placeholder={t("ui.searchPlaceholder")}
+              aria-label={t("search.options")}
               showTrigger={false}
               className="border-0"
             />
@@ -476,7 +478,7 @@ function SearchableSelect({
 }
 
 export default function Select({
-  placeholder = "Select...",
+  placeholder,
   className = "",
   triggerClassName = "",
   menuClassName = "",
@@ -490,7 +492,7 @@ export default function Select({
   searchableTrigger = "menu",
   allowCustomValue = false,
   customValueLabel,
-  emptyLabel = "No matching options",
+  emptyLabel,
   openDirection = "down",
   hideChevron = false,
   iconOnly = false,
@@ -499,7 +501,12 @@ export default function Select({
   "aria-label": ariaLabel,
   ...props
 }: SelectProps) {
+  const { t } = useTranslation();
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const resolvedPlaceholder = placeholder ?? t("ui.selectPlaceholder");
+  const resolvedEmptyLabel = emptyLabel ?? t("ui.noMatchingOptions");
+  const resolvedCustomValueLabel =
+    customValueLabel ?? ((customValue: string) => t("ui.useCustomValue", { value: customValue }));
   const canOpen =
     props.options.length > 0 || Boolean(menuHeader) || (searchable && allowCustomValue);
   const open = (openProp ?? uncontrolledOpen) && canOpen;
@@ -510,7 +517,7 @@ export default function Select({
   };
   const sharedProps = {
     ...props,
-    placeholder,
+    placeholder: resolvedPlaceholder,
     className,
     triggerClassName,
     menuClassName,
@@ -522,14 +529,14 @@ export default function Select({
     variant,
     searchableTrigger,
     allowCustomValue,
-    customValueLabel,
-    emptyLabel,
+    customValueLabel: resolvedCustomValueLabel,
+    emptyLabel: resolvedEmptyLabel,
     openDirection,
     hideChevron,
     iconOnly,
     open,
     onOpenChange: handleOpenChange,
-    ariaLabel: ariaLabel ?? placeholder,
+    ariaLabel: ariaLabel ?? resolvedPlaceholder,
   };
 
   return searchable ? <SearchableSelect {...sharedProps} /> : <PlainSelect {...sharedProps} />;

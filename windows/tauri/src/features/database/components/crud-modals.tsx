@@ -5,6 +5,7 @@ import { Checkbox } from "@/ui/checkbox";
 import Dialog from "@/ui/dialog";
 import Input from "@/ui/input";
 import Select from "@/ui/select";
+import { useTranslation } from "@/i18n/locale-provider";
 import type { ColumnInfo, DatabaseRow } from "../types/common.types";
 import {
   getInitialCreateTableColumn,
@@ -29,6 +30,7 @@ export const CreateRowModal = ({
   onSubmit,
 }: CreateRowModalProps) => {
   const [values, setValues] = useState<Record<string, string>>({});
+  const { t } = useTranslation();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,7 +47,12 @@ export const CreateRowModal = ({
   if (!isOpen) return null;
 
   return (
-    <Dialog onClose={handleClose} title={`Add Row to ${tableName}`} icon={PlusIcon} size="md">
+    <Dialog
+      onClose={handleClose}
+      title={t("database.addRowToTable", { table: tableName })}
+      icon={PlusIcon}
+      size="md"
+    >
       <form onSubmit={handleSubmit} className="space-y-4">
         {columns
           .filter((col) => col.name.toLowerCase() !== "rowid")
@@ -70,7 +77,7 @@ export const CreateRowModal = ({
                     setValues((prev) => ({ ...prev, [column.name]: e.target.value }))
                   }
                   className="w-full"
-                  placeholder={column.notnull ? "Required" : "Optional"}
+                  placeholder={column.notnull ? t("database.required") : t("database.optional")}
                 />
               </div>
             );
@@ -78,11 +85,11 @@ export const CreateRowModal = ({
 
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="ghost" onClick={handleClose} size="xs">
-            Cancel
+            {t("ui.cancel")}
           </Button>
           <Button type="submit" className="gap-1" size="xs">
             <PlusIcon size="14" />
-            Add Row
+            {t("database.addRow")}
           </Button>
         </div>
       </form>
@@ -110,6 +117,7 @@ export const EditRowModal = ({
   const [values, setValues] = useState<Record<string, string>>(() =>
     databaseRowToFormValues(initialData),
   );
+  const { t } = useTranslation();
 
   useEffect(() => {
     if (isOpen) {
@@ -131,7 +139,7 @@ export const EditRowModal = ({
   if (!isOpen) return null;
 
   return (
-    <Dialog onClose={handleClose} title={`Edit Row in ${tableName}`} size="md">
+    <Dialog onClose={handleClose} title={t("database.editRowInTable", { table: tableName })} size="md">
       <form onSubmit={handleSubmit} className="space-y-4">
         {columns
           .filter((col) => col.name.toLowerCase() !== "rowid")
@@ -156,7 +164,7 @@ export const EditRowModal = ({
                     setValues((prev) => ({ ...prev, [column.name]: e.target.value }))
                   }
                   className="w-full"
-                  placeholder={column.notnull ? "Required" : "Optional"}
+                  placeholder={column.notnull ? t("database.required") : t("database.optional")}
                 />
               </div>
             );
@@ -164,10 +172,10 @@ export const EditRowModal = ({
 
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="ghost" onClick={handleClose} size="xs">
-            Cancel
+            {t("ui.cancel")}
           </Button>
           <Button type="submit" size="xs">
-            Save Changes
+            {t("database.saveChanges")}
           </Button>
         </div>
       </form>
@@ -186,6 +194,7 @@ export const CreateTableModal = ({ isOpen, onClose, onSubmit }: CreateTableModal
   const [columns, setColumns] = useState<CreateTableColumnDraft[]>([getInitialCreateTableColumn()]);
   const normalizedColumns = normalizeCreateTableColumns(columns);
   const canSubmit = tableName.trim().length > 0 && normalizedColumns.length > 0;
+  const { t } = useTranslation();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -222,23 +231,25 @@ export const CreateTableModal = ({ isOpen, onClose, onSubmit }: CreateTableModal
   if (!isOpen) return null;
 
   return (
-    <Dialog onClose={handleClose} title="Create New Table" icon={PlusIcon} size="lg">
+    <Dialog onClose={handleClose} title={t("database.createNewTable")} icon={PlusIcon} size="lg">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-1">
           <label htmlFor="table-name" className="font-sans block ui-text-sm text-foreground">
-            Table Name
+            {t("database.tableName")}
           </label>
           <Input
             id="table-name"
             value={tableName}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTableName(e.target.value)}
-            placeholder="Enter table name"
+            placeholder={t("database.enterTableName")}
             required
           />
         </div>
 
         <div className="space-y-2">
-          <div className="font-sans block ui-text-sm text-foreground">Columns</div>
+          <div className="font-sans block ui-text-sm text-foreground">
+            {t("database.columns")}
+          </div>
           {columns.map((column, index) => (
             <div key={index} className="flex items-center gap-2">
               <Input
@@ -246,7 +257,7 @@ export const CreateTableModal = ({ isOpen, onClose, onSubmit }: CreateTableModal
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                   updateColumn(index, "name", e.target.value)
                 }
-                placeholder="Column name"
+                placeholder={t("database.columnName")}
                 className="flex-1"
                 required
               />
@@ -270,7 +281,9 @@ export const CreateTableModal = ({ isOpen, onClose, onSubmit }: CreateTableModal
                   id={`column-not-null-${index}`}
                   checked={column.notnull}
                   onCheckedChange={(checked) => updateColumn(index, "notnull", checked)}
-                  aria-label={`Set ${column.name || `column ${index + 1}`} as not null`}
+                  aria-label={t("database.setColumnNotNull", {
+                    column: column.name || t("database.columnNumber", { number: index + 1 }),
+                  })}
                 />
                 NOT NULL
               </label>
@@ -280,7 +293,9 @@ export const CreateTableModal = ({ isOpen, onClose, onSubmit }: CreateTableModal
                   onClick={() => removeColumn(index)}
                   variant="danger"
                   size="icon-xs"
-                  aria-label={`Remove ${column.name || `column ${index + 1}`}`}
+                  aria-label={t("database.removeColumn", {
+                    column: column.name || t("database.columnNumber", { number: index + 1 }),
+                  })}
                 >
                   <XIcon size="14" />
                 </Button>
@@ -289,16 +304,16 @@ export const CreateTableModal = ({ isOpen, onClose, onSubmit }: CreateTableModal
           ))}
           <Button type="button" onClick={addColumn} variant="ghost" size="xs">
             <PlusIcon size="12" />
-            Add Column
+            {t("database.addColumn")}
           </Button>
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="ghost" onClick={handleClose} size="xs">
-            Cancel
+            {t("ui.cancel")}
           </Button>
           <Button type="submit" disabled={!canSubmit}>
-            Create Table
+            {t("database.createTable")}
           </Button>
         </div>
       </form>

@@ -25,6 +25,7 @@ import {
 import { useKeymapStore } from "@/features/keymaps/stores/keymaps.store";
 import type { Keybinding } from "@/features/keymaps/types/keymaps.types";
 import { getEffectiveKeybindingForCommand } from "@/features/keymaps/utils/effective-keymaps";
+import { localizeKeymapCommand } from "@/features/keymaps/utils/command-localization";
 import {
   createKeybindingsExportPayload,
   getExportableUserKeybindings,
@@ -76,7 +77,11 @@ export const KeyboardSettings = () => {
   const userKeybindings = useKeymapStore.use.keybindings();
   const { resetToDefaults } = useKeymapStore.use.actions();
 
-  const commands = useMemo(() => keymapRegistry.getAllCommands(), []);
+  const registryCommands = useMemo(() => keymapRegistry.getAllCommands(), []);
+  const commands = useMemo(
+    () => registryCommands.map((command) => localizeKeymapCommand(command, t)),
+    [registryCommands, t],
+  );
   const registryKeybindings = useMemo(() => keymapRegistry.getAllKeybindings(), []);
 
   const getKeybindingForCommand = (commandId: string): Keybinding | undefined =>

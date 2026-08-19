@@ -9,6 +9,7 @@ import {
   CommandList,
 } from "@/ui/command";
 import { getBaseName } from "@/utils/path-helpers";
+import { useTranslation } from "@/i18n/locale-provider";
 import { useDocumentOutline } from "../hooks/use-document-outline";
 import { getVisibleOutlineSymbols, openOutlineSymbol } from "../utils/outline-symbols";
 import { OutlineSymbolRow } from "./outline-symbol-row";
@@ -20,6 +21,7 @@ interface OutlineCommandContentProps {
 }
 
 export function OutlineCommandContent({ isActive, onBack, onClose }: OutlineCommandContentProps) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set());
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -82,7 +84,7 @@ export function OutlineCommandContent({ isActive, onBack, onClose }: OutlineComm
   return (
     <>
       <CommandHeader onClose={onClose}>
-        <CommandHeaderAction onClick={onBack} aria-label="Back to commands">
+        <CommandHeaderAction onClick={onBack} aria-label={t("commandPalette.backToCommands")}>
           <ArrowLeft />
         </CommandHeaderAction>
         <CommandInput
@@ -90,18 +92,22 @@ export function OutlineCommandContent({ isActive, onBack, onClose }: OutlineComm
           value={query}
           onChange={setQuery}
           onKeyDown={handleKeyDown}
-          placeholder={filePath ? `Outline: ${getBaseName(filePath)}` : "Outline"}
+          placeholder={
+            filePath
+              ? t("outline.commandPlaceholderWithFile", { file: getBaseName(filePath) })
+              : t("outline.title")
+          }
         />
         <CommandHeaderBadge>{isLoading ? "..." : visibleSymbols.length}</CommandHeaderBadge>
       </CommandHeader>
 
       <CommandList ref={listRef}>
         {!isSupported ? (
-          <CommandEmpty>No outline for the active file</CommandEmpty>
+          <CommandEmpty>{t("outline.noOutlineForActiveFile")}</CommandEmpty>
         ) : isLoading ? (
-          <CommandEmpty>Loading outline...</CommandEmpty>
+          <CommandEmpty>{t("outline.loadingEllipsis")}</CommandEmpty>
         ) : visibleSymbols.length === 0 ? (
-          <CommandEmpty>No symbols found</CommandEmpty>
+          <CommandEmpty>{t("outline.noSymbolsFound")}</CommandEmpty>
         ) : (
           visibleSymbols.map((symbol, index) => (
             <OutlineSymbolRow

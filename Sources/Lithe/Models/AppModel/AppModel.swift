@@ -40,15 +40,24 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
 final class AppModel: ObservableObject, Identifiable {
     let id = UUID()
     @Published private(set) var workspaceURL: URL?
+    @Published private(set) var standaloneFileURL: URL?
     @Published var selectedSidebar: SidebarDestination = .project {
         didSet {
-            if selectedSidebar == .changes, oldValue != .changes {
-                Task { [weak self] in await self?.refreshGit() }
-            }
-            if selectedSidebar == .pullRequests, oldValue != .pullRequests {
-                Task { [weak self] in
-                    guard let self else { return }
+            guard oldValue != selectedSidebar else { return }
+            sidebarRefreshTask?.cancel()
+            sidebarRefreshTask = nil
+            // Sidebar changes can happen faster than Git or GitHub can respond.
+            // Keep only the refresh associated with the currently visible pane.
+            sidebarRefreshTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard !Task.isCancelled else { return }
+                switch self.selectedSidebar {
+                case .changes:
+                    await self.refreshGit()
+                case .pullRequests:
                     await self.githubFeature.refresh(workspaceURL: self.workspaceURL)
+                default:
+                    break
                 }
             }
         }
@@ -135,6 +144,7 @@ final class AppModel: ObservableObject, Identifiable {
     @Published var blameVisibleURL: URL?
     @Published var gitLogSearchQuery = ""
     private var shortcutDetector: (any ShortcutDetector)?
+    private var sidebarRefreshTask: Task<Void, Never>?
     private var shortcutSettingsObservation: AnyCancellable?
     private var shortcutRecordingObservation: AnyCancellable?
     private var isProjectSessionActive = true
@@ -279,79 +289,14 @@ final class AppModel: ObservableObject, Identifiable {
         isSettingsPresented = true
     }
 
-    func chooseLanguageServerExecutable(providerName: String) -> URL? {
-        platformUI.chooseFile(
-            title: settings.language == .simplifiedChinese
-                ? "选择 \(providerName) 语言服务器"
-                : "Choose \(providerName) language server",
-            prompt: settings.language == .simplifiedChinese ? "选择" : "Choose"
-        )
-    }
-
-    func openLanguageServerDownload(_ url: URL) {
-        platformUI.open(url)
-    }
-
-    func languageServerToolConfigurationDidChange(providerID: String) {
-        languageToolingFeature.toolConfigurationDidChange(providerID: providerID)
-    }
-
-    func isLanguageServerDisabledInCurrentWorkspace(providerID: String) -> Bool {
-        languageToolingFeature.isDisabled(providerID)
-    }
-
-    func setLanguageServerEnabled(_ enabled: Bool, providerID: String) {
-        if enabled {
-            languageToolingFeature.setEnabled(true, providerID: providerID)
-        } else {
-            languageToolingFeature.setEnabled(false, providerID: providerID)
-        }
-    }
-
-    var javaLanguageServerJDKPath: String {
-        settings.javaLanguageServerJDKPath
-    }
-
-    var detectedJavaLanguageServerJDKs: [JavaRuntimeCandidate] {
-        runtimeFeature.javaRuntimes
-    }
-
-    func selectJavaLanguageServerJDK(_ runtime: JavaRuntimeCandidate) {
-        applyJavaLanguageServerJDKPath(runtime.homePath)
-    }
-
-    func refreshJavaLanguageServerJDKs() async {
-        await runtimeFeature.refreshAvailableRuntimes()
-    }
-
-    func chooseJavaLanguageServerJDK() {
-        guard let url = platformUI.chooseDirectory(
-            title: settings.language == .simplifiedChinese ? "选择 LSP 运行 JDK" : "Choose LSP Runtime JDK",
-            prompt: settings.language == .simplifiedChinese ? "选择" : "Choose"
-        ) else { return }
-        guard services.projectRuntimeService.configuredJavaExecutableURL(overridePath: url.path) != nil else {
-            showNotification(settings.language == .simplifiedChinese
-                ? "所选目录不是有效的 JDK Home"
-                : "The selected directory is not a valid JDK Home")
-            return
-        }
-        applyJavaLanguageServerJDKPath(url.standardizedFileURL.path)
-    }
-
-    private func applyJavaLanguageServerJDKPath(_ path: String) {
-        languageToolingFeature.selectJavaJDK(path)
-    }
-
-    func disableLanguageServerForCurrentWorkspace(providerID: String) {
-        languageToolingFeature.setEnabled(false, providerID: providerID)
-    }
-
     private var documentFeatureObservation: AnyCancellable?
     private var javaFeatureObservation: AnyCancellable?
     private var springFeatureObservation: AnyCancellable?
     private var navigationHistoryFeatureObservation: AnyCancellable?
     private var isObjectWillChangeRelayScheduled = false
     private var languageToolingObservation: AnyCancellable?
+    var javaLanguageServerRuntimePreparationTask: Task<Void, Never>?
+    var javaLanguageServerRuntimePreparationPath: String?
     private var recentProjectsStore: RecentProjectsStore { services.recentProjectsStore }
     private var workbenchLayoutStore: WorkbenchLayoutStore { services.workbenchLayoutStore }
 
@@ -615,10 +560,16 @@ final class AppModel: ObservableObject, Identifiable {
                 self?.withHistoryModule { $0.recordExternalChanges(paths) }
             },
             onDocumentCollectionChanged: { [weak self] in
-                self?.workspaceFeature.scheduleWorkspaceSessionPersistence()
+                guard let self, self.workspaceURL != nil else { return }
+                self.workspaceFeature.scheduleWorkspaceSessionPersistence()
             },
             onProjectCloseReady: { [weak self] in
-                self?.performCloseProject()
+                guard let self else { return }
+                if self.workspaceURL != nil {
+                    self.performCloseProject()
+                } else if self.standaloneFileURL != nil {
+                    self.performCloseStandaloneFile()
+                }
             }
         )
         documentFeatureObservation = documentFeature.objectWillChange.sink { [weak self] _ in
@@ -728,6 +679,7 @@ final class AppModel: ObservableObject, Identifiable {
 
     deinit {
         shortcutDetector?.stop()
+        sidebarRefreshTask?.cancel()
     }
 
     func configureProjectSession(
@@ -986,6 +938,7 @@ final class AppModel: ObservableObject, Identifiable {
         gitLogSearchQuery = ""
         projectHistoryFeatureIfActive?.reset()
         workspaceURL = normalizedURL
+        standaloneFileURL = nil
         let visibilityRules = settings.fileVisibilityRules
         workspaceFeature.beginWorkspace(at: normalizedURL, visibilityRules: visibilityRules)
         selectedSidebar = .project
@@ -1014,6 +967,14 @@ final class AppModel: ObservableObject, Identifiable {
         }
     }
 
+    func closeStandaloneFile() {
+        guard standaloneFileURL != nil else { return }
+        guard documentFeature.beginProjectClose() else {
+            performCloseStandaloneFile()
+            return
+        }
+    }
+
     private func performCloseProject() {
         Task { [weak self] in
             guard let self else { return }
@@ -1027,6 +988,7 @@ final class AppModel: ObservableObject, Identifiable {
         }
         stopAccessingWorkspace()
         workspaceURL = nil
+        standaloneFileURL = nil
         reloadLanguageProviderCatalog(for: nil)
         selectedSidebar = .project
         workspaceFeature.reset()
@@ -1075,6 +1037,13 @@ final class AppModel: ObservableObject, Identifiable {
         didCloseProject?()
     }
 
+    private func performCloseStandaloneFile() {
+        standaloneFileURL = nil
+        documentFeature.reset()
+        editorChrome.resetFindBar()
+        didCloseProject?()
+    }
+
     private func stopAccessingWorkspace() {
         guard let securityScopedWorkspaceURL else { return }
         platformUI.stopAccessingProject(securityScopedWorkspaceURL)
@@ -1108,7 +1077,18 @@ final class AppModel: ObservableObject, Identifiable {
     ) {
         selectedChange = nil
         closeBranchComparison()
+        editorNavigationTarget = nil
         documentFeature.openFile(url, isReadOnly: isReadOnly, displayPath: displayPath)
+    }
+
+    func openStandaloneFile(_ url: URL) {
+        let normalizedURL = url.standardizedFileURL
+        workspaceURL = nil
+        standaloneFileURL = normalizedURL
+        documentFeature.reset()
+        isFindBarVisible = false
+        findBarQuery = ""
+        documentFeature.openStandaloneFile(normalizedURL)
     }
 
     func javaIconKind(for url: URL) async -> LitheIconKind? {
@@ -1306,9 +1286,12 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     @discardableResult
-    private func activateLanguageServerIfAvailable(for document: EditorDocument) -> Bool {
+    func activateLanguageServerIfAvailable(for document: EditorDocument) -> Bool {
         guard let workspaceURL,
               let descriptor = languageProviderCatalog.provider(for: document.url) else { return false }
+        if descriptor.id == "java", !prepareJavaLanguageServerRuntimeIfNeeded(for: document) {
+            return false
+        }
         if let ownership = services.pluginCatalog.languageSupport(for: document.url),
            ownership.declaration.languageServerModuleID != nil {
             let support = ownership.declaration

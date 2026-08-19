@@ -31,6 +31,7 @@ import { gitDiffCache } from "@/features/git/utils/git-diff-cache";
 import { connectionStore } from "@/features/remote/stores/remote-connection.store";
 import { buildRemoteRootPath, parseRemotePath } from "@/features/remote/utils/remote-path";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { createTranslator } from "@/i18n/locale";
 import { useSidebarStore } from "@/features/layout/stores/sidebar.store";
 import { useProjectStore } from "@/features/window/stores/project.store";
 import type { BufferSession } from "@/features/window/stores/session.store";
@@ -83,6 +84,7 @@ import {
 import {
   addFileToTree,
   findFileInTree,
+  loadFolderExpansion,
   removeFileFromTree,
   sortFileEntries,
   updateFileInTree,
@@ -129,6 +131,9 @@ import {
   selectRestoredWorkspaceFolders,
 } from "../controllers/workspace-session";
 import type { WorkspaceSessionBuffer } from "../controllers/workspace-session";
+
+const getCurrentTranslator = () =>
+  createTranslator(useSettingsStore.getState().settings.displayLanguage);
 
 const logWorkspaceOpenStep = (
   phase: "start" | "end" | "error",
@@ -287,7 +292,7 @@ const scheduleWorkspaceSessionWrite = (projectPath: string, write: () => void) =
 };
 
 const getErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : String(error || "Unknown error");
+  error instanceof Error ? error.message : String(error || getCurrentTranslator()("ai.unknownError"));
 
 const readPersistedAiWorkspaceSession = () =>
   useAIChatStore.getState().actions.getWorkspaceSessionSnapshot();
@@ -625,7 +630,7 @@ const openLocalWorkspace = async (
     });
     logWorkspaceOpenStep("error", traceLabel, path, openStartedAt);
     console.error(`Failed to open folder: ${path}`, error);
-    toast.error(`Failed to open folder: ${path}`);
+    toast.error(getCurrentTranslator()("fileSystem.openFolderFailed", { path }));
     return false;
   }
 
@@ -637,7 +642,7 @@ const openLocalWorkspace = async (
   } catch (error) {
     logWorkspaceOpenStep("error", "restoreSession", path);
     console.error("Failed to restore workspace session:", error);
-    toast.warning("Workspace opened, but saved tabs could not be restored.");
+    toast.warning(getCurrentTranslator()("fileSystem.workspaceSessionRestoreFailed"));
   }
 
   if (!prewarm) {
@@ -671,7 +676,7 @@ const initializeRemoteWorkspaceSession = async (
   } catch (error) {
     logWorkspaceOpenStep("error", "remoteWorkspace:restoreSession", remotePath);
     console.error("Failed to restore remote workspace session:", error);
-    toast.warning("Remote workspace opened, but saved tabs could not be restored.");
+    toast.warning(getCurrentTranslator()("fileSystem.remoteSessionRestoreFailed"));
     frontendTrace("warn", "workspace-open", "remoteWorkspace:restoreSession:error", {
       path: remotePath,
       error: getErrorMessage(error),
@@ -695,7 +700,7 @@ const initializeWslWorkspaceSession = async (
   } catch (error) {
     logWorkspaceOpenStep("error", "wslWorkspace:restoreSession", wslPath);
     console.error("Failed to restore WSL workspace session:", error);
-    toast.warning("WSL workspace opened, but saved tabs could not be restored.");
+    toast.warning(getCurrentTranslator()("fileSystem.wslSessionRestoreFailed"));
     frontendTrace("warn", "workspace-open", "wslWorkspace:restoreSession:error", {
       path: wslPath,
       error: getErrorMessage(error),
@@ -885,7 +890,11 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
                   };
                 } catch (error) {
                   console.warn("Failed to restore workspace folder:", folder.path, error);
-                  toast.warning(`Could not restore workspace folder "${folder.name}".`);
+                  toast.warning(
+                    getCurrentTranslator()("fileSystem.restoreWorkspaceFolderFailed", {
+                      name: folder.name,
+                    }),
+                  );
                   return null;
                 }
               }),
@@ -1222,13 +1231,13 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         }
 
         if (selectedPath.startsWith("remote://") || selectedPath.startsWith("wsl://")) {
-          toast.warning("Add Folder to Workspace is only available for local folders.");
+          toast.warning(getCurrentTranslator()("fileSystem.addFolderLocalOnly"));
           return false;
         }
 
         const workspaceFolders = normalizeWorkspaceFolders(rootFolderPath, get().workspaceFolders);
         if (isWorkspaceFolderPath(selectedPath, rootFolderPath, workspaceFolders)) {
-          toast.info("Folder is already in this workspace.");
+          toast.info(getCurrentTranslator()("fileSystem.folderAlreadyInWorkspace"));
           return true;
         }
 
@@ -1260,11 +1269,17 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
             missing: false,
           });
           get().persistActiveProjectSession();
-          toast.success(`Added "${rootEntry.name}" to workspace.`);
+          toast.success(
+            getCurrentTranslator()("fileSystem.folderAddedToWorkspace", { name: rootEntry.name }),
+          );
           return true;
         } catch (error) {
           console.error("Failed to add folder to workspace:", error);
-          toast.error(`Failed to add folder to workspace: ${selectedPath}`);
+          toast.error(
+            getCurrentTranslator()("fileSystem.addFolderToWorkspaceFailed", {
+              path: selectedPath,
+            }),
+          );
           set((state) => {
             state.isFileTreeLoading = false;
           });
@@ -1288,7 +1303,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         }
 
         if (folder.isPrimary || folder.path === rootFolderPath) {
-          toast.warning("Primary workspace folder cannot be removed.");
+          toast.warning(getCurrentTranslator()("fileSystem.primaryFolderCannotBeRemoved"));
           return false;
         }
 
@@ -1304,7 +1319,9 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
 
         useFileTreeStore.getStore(workspaceId).getState().actions.collapsePath(folder.path);
         get().persistActiveProjectSession();
-        toast.success(`Removed "${folder.name}" from workspace.`);
+        toast.success(
+          getCurrentTranslator()("fileSystem.folderRemovedFromWorkspace", { name: folder.name }),
+        );
         return true;
       },
 
@@ -1382,7 +1399,11 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           return true;
         } catch (error) {
           console.error("Failed to open remote project:", error);
-          toast.error(error instanceof Error ? error.message : "Failed to open remote project.");
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : getCurrentTranslator()("fileSystem.openRemoteProjectFailed"),
+          );
           set((state) => {
             state.isFileTreeLoading = false;
           });
@@ -1465,7 +1486,9 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           return true;
         } catch (error) {
           console.error("Failed to open WSL project:", error);
-          toast.error(error instanceof Error ? error.message : "Failed to open WSL project.");
+          toast.error(
+            error instanceof Error ? error.message : getCurrentTranslator()("projectPicker.openWslFailed"),
+          );
           set((state) => {
             state.isFileTreeLoading = false;
           });
@@ -1482,8 +1505,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         isPreview = false,
       ) => {
         if (isDir) {
-          await get().toggleFolder(path);
-          return;
+          return get().toggleFolder(path);
         }
 
         const selectedWslInfo = parseWslPath(path);
@@ -1919,31 +1941,42 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         const isCurrentlyExpanded = uiActions.isExpanded(path);
 
         if (!isCurrentlyExpanded) {
-          // Expand: load children if not present
-          if (!folder.children || folder.children.length === 0) {
-            const childEntries = await readProviderDirectoryEntries(
-              folder.path,
-              get().rootFolderPath ?? folder.path,
-            );
+          const expansion = await loadFolderExpansion(
+            get().files,
+            path,
+            useSettingsStore.getState().settings.compactFoldersInFileTree,
+            (directoryPath) =>
+              readProviderDirectoryEntries(directoryPath, get().rootFolderPath ?? directoryPath),
+          );
 
-            const updatedFiles = updateFileInTree(get().files, path, (item) => ({
-              ...item,
-              children: childEntries,
-            }));
-
+          if (expansion.loadedChildren.size > 0) {
             set((state) => {
-              state.files = updatedFiles;
-              state.filesVersion++;
+              let updatedFiles = state.files;
+              for (const [directoryPath, children] of expansion.loadedChildren) {
+                updatedFiles = updateFileInTree(updatedFiles, directoryPath, (item) => ({
+                  ...item,
+                  children,
+                }));
+              }
+              if (updatedFiles !== state.files) {
+                state.files = updatedFiles;
+                state.filesVersion++;
+              }
             });
           }
-          uiActions.toggleFolder(path);
+
+          const expandedPaths = new Set(uiActions.getExpandedPaths());
+          expansion.expandedPaths.forEach((expandedPath) => expandedPaths.add(expandedPath));
+          uiActions.setExpandedPaths(expandedPaths);
           // Preload deeper children in background for snappier navigation
           get()
-            .preloadSubtree(path, 2, 80)
+            .preloadSubtree(expansion.finalPath, 2, 80)
             .catch(() => {});
+          return expansion.finalPath;
         } else {
           // Collapse: only toggle UI state; keep children cached
           uiActions.toggleFolder(path);
+          return path;
         }
       },
 
@@ -2076,6 +2109,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
       },
 
       handleCreateNewFile: async () => {
+        const t = getCurrentTranslator();
         const { rootFolderPath } = get();
         const { activePath } = useSidebarStore.getStore(workspaceId).getState();
 
@@ -2083,7 +2117,10 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           const bufferStore = useBufferStore.getStore(workspaceId);
           const buffers = bufferStore.getState().buffers;
           const untitledCount = buffers.filter((b) => b.path.startsWith("untitled:")).length;
-          const name = untitledCount === 0 ? "Untitled" : `Untitled-${untitledCount + 1}`;
+          const name =
+            untitledCount === 0
+              ? t("files.untitled")
+              : t("files.untitledNumber", { number: untitledCount + 1 });
           const path = `untitled:${name}`;
           bufferStore.getState().actions.openBuffer(path, name, "", false, undefined, false, true);
           return;
@@ -2100,7 +2137,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         }
 
         if (!effectiveRootPath) {
-          await showAlertDialog("Unable to determine root folder path", "New File");
+          await showAlertDialog(t("files.unableToDetermineRootPath"), t("files.newFile"));
           return;
         }
 
@@ -2121,11 +2158,12 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
       },
 
       handleCreateNewFileInDirectory: async (dirPath: string, fileName?: string) => {
+        const t = getCurrentTranslator();
         if (!fileName) {
           fileName =
-            (await showPromptDialog("Enter the name for the new file:", {
-              title: "New File",
-              placeholder: "File name",
+            (await showPromptDialog(t("files.enterNewFileName"), {
+              title: t("files.newFile"),
+              placeholder: t("files.fileNamePlaceholder"),
             })) ?? undefined;
           if (!fileName) return;
         }
@@ -2133,7 +2171,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         const parts = fileName.split("/").filter(Boolean);
         // Validate input
         if (parts.length === 0) {
-          await showAlertDialog("Invalid file name", "New File");
+          await showAlertDialog(t("files.invalidFileName"), t("files.newFile"));
           return;
         }
 
@@ -2146,8 +2184,8 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         // Check all directory parts AND the final filename
         if (parts.some(hasIllegalCharacters) || hasIllegalCharacters(finalFileName)) {
           await showAlertDialog(
-            "Invalid file name: path traversal and special characters are not allowed",
-            "New File",
+            t("files.invalidFileNameCharacters"),
+            t("files.newFile"),
           );
           return;
         }
@@ -2173,19 +2211,22 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         } catch (error) {
           console.error("Failed to create nested file:", error);
           await showAlertDialog(
-            `Failed to create file: ${error instanceof Error ? error.message : "Unknown error"}`,
-            "New File",
+            t("files.createFileFailedMessage", {
+              error: error instanceof Error ? error.message : t("ai.unknownError"),
+            }),
+            t("files.newFile"),
           );
           return;
         }
       },
 
       handleCreateNewFolder: async () => {
+        const t = getCurrentTranslator();
         const { rootFolderPath } = get();
         const { activePath } = useSidebarStore.getStore(workspaceId).getState();
 
         if (!rootFolderPath) {
-          await showAlertDialog("Please open a folder first", "New Folder");
+          await showAlertDialog(t("files.openFolderFirst"), t("files.newFolder"));
           return;
         }
 
@@ -2200,7 +2241,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         }
 
         if (!effectiveRootPath) {
-          await showAlertDialog("Unable to determine root folder path", "New Folder");
+          await showAlertDialog(t("files.unableToDetermineRootPath"), t("files.newFolder"));
           return;
         }
 
@@ -2219,11 +2260,12 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
       },
 
       handleCreateNewFolderInDirectory: async (dirPath: string, folderName?: string) => {
+        const t = getCurrentTranslator();
         if (!folderName) {
           folderName =
-            (await showPromptDialog("Enter the name for the new folder:", {
-              title: "New Folder",
-              placeholder: "Folder name",
+            (await showPromptDialog(t("files.enterNewFolderName"), {
+              title: t("files.newFolder"),
+              placeholder: t("files.folderNamePlaceholder"),
             })) ?? undefined;
           if (!folderName) return;
         }
@@ -2600,7 +2642,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
 
       handleRevealInFolder: async (path: string) => {
         if (parseRemotePath(path)) {
-          toast.info("Reveal in folder is only available for local workspaces.");
+          toast.info(getCurrentTranslator()("fileSystem.revealLocalOnly"));
           return;
         }
 
@@ -2928,7 +2970,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           if (settingsStore.settings.theme !== previousTheme) {
             await settingsStore.actions.updateSetting("theme", previousTheme);
           }
-          toast.error("Failed to switch project.");
+          toast.error(getCurrentTranslator()("fileSystem.switchProjectFailed"));
           return switched;
         }
 
@@ -3003,7 +3045,10 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           showWelcome: async () => {
             await useFileWatcherStore.getStore(workspaceId).getState().actions.setProjectRoot("");
             useProjectStore.getStore(workspaceId).getState().actions.setRootFolderPath(undefined);
-            useProjectStore.getStore(workspaceId).getState().actions.setProjectName("Files");
+            useProjectStore
+              .getStore(workspaceId)
+              .getState()
+              .actions.setProjectName(getCurrentTranslator()("files.title"));
             restoreProjectUiState(undefined, workspaceId);
           },
         });

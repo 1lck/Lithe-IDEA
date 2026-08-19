@@ -1,11 +1,12 @@
 import { CaretRightIcon as CaretRight } from "@/ui/icons";
 import { useEffect, useState } from "react";
 import { Spinner } from "@/ui/spinner";
+import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
 import { sendDebugAdapterRequest } from "../services/debug-adapter-service";
 import { useDebuggerStore } from "../stores/debugger.store";
 import type { DebugRequestContext, DebugScope, DebugVariable } from "../types/debugger.types";
-import { DebugEmptyState, EMPTY_DEBUG_SECTION_MESSAGES } from "./debugger-panels";
+import { DebugEmptyState } from "./debugger-panels";
 
 interface DebugVariablesPanelProps {
   activeSessionId?: string;
@@ -26,6 +27,7 @@ export function DebugVariablesPanel({
   const [expandedVariableReferences, setExpandedVariableReferences] = useState<Set<number>>(
     () => new Set(),
   );
+  const { t } = useTranslation();
 
   useEffect(() => {
     setExpandedVariableReferences(new Set());
@@ -101,7 +103,7 @@ export function DebugVariablesPanel({
             </button>
             <span className="truncate font-mono text-foreground">
               {isLoading ? (
-                <Spinner label="Loading variable" compact />
+                <Spinner label={t("debugger.loadingVariable")} compact />
               ) : (
                 variable.value || variable.type || ""
               )}
@@ -115,7 +117,7 @@ export function DebugVariablesPanel({
     });
 
   if (scopes.length === 0) {
-    return <DebugEmptyState>{EMPTY_DEBUG_SECTION_MESSAGES.variables}</DebugEmptyState>;
+    return <DebugEmptyState>{t("debugger.variablesEmpty")}</DebugEmptyState>;
   }
 
   return (
@@ -129,7 +131,9 @@ export function DebugVariablesPanel({
               <span className="ui-text-sm text-subtle-foreground">{variables.length}</span>
             </div>
             {variables.length === 0 ? (
-              <div className="px-6 pb-1.5 ui-text-sm text-subtle-foreground">Empty</div>
+              <div className="px-6 pb-1.5 ui-text-sm text-subtle-foreground">
+                {t("debugger.empty")}
+              </div>
             ) : (
               renderVariables(variables, scope.variablesReference)
             )}

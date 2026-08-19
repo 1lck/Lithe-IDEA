@@ -20,7 +20,7 @@ import Tooltip from "@/ui/tooltip";
 import { cn } from "@/utils/cn";
 import { ensureRunProcessListeners } from "../hooks/use-run-process-events";
 import { runOptionsFor, useRunStore } from "../stores/run.store";
-import type { RunConfiguration } from "../types/run.types";
+import { PRIMARY_SESSION_ID, type RunConfiguration } from "../types/run.types";
 import {
   configurationsForExecution,
   isBlockingToolchainDiagnostic,
@@ -53,6 +53,9 @@ export default function RunPane() {
   const invalidMessage = useRunStore((state) => state.invalidMessage);
   const saveError = useRunStore((state) => state.saveError);
   const generationNotice = useRunStore((state) => state.generationNotice);
+  const discoveredJava = useRunStore((state) => state.discoveredJava);
+  const discoveredMaven = useRunStore((state) => state.discoveredMaven);
+  const globalToolchain = useRunStore((state) => state.globalToolchain);
   const actions = useRunStore((state) => state.actions);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -231,6 +234,12 @@ export default function RunPane() {
                 {output || t("run.emptyOutput")}
               </pre>
             </div>
+            {isSelectedRunning ? (
+              <RunStdinInput
+                sessionId={selectedSessionId ?? PRIMARY_SESSION_ID}
+                onSend={(input) => void actions.writeStdin(selectedSessionId ?? PRIMARY_SESSION_ID, input)}
+              />
+            ) : null}
             {generationNotice?.startsWith("generated:") ? (
               <div className="border-border/70 border-t px-3 py-1.5 text-subtle-foreground ui-text-sm">
                 {t("run.generatedEntries", { count: generationNotice.slice("generated:".length) })}
@@ -245,10 +254,48 @@ export default function RunPane() {
           configuration={editingConfiguration}
           options={runOptionsFor(editingConfiguration)}
           saveError={saveError}
+          discoveredJava={discoveredJava}
+          discoveredMaven={discoveredMaven}
+          globalToolchain={globalToolchain}
           onClose={() => setEditingId(null)}
           onSave={(options, scope) => actions.saveOptions(editingConfiguration, options, scope)}
+          onSaveToolchain={(toolchain) => actions.saveToolchain(toolchain)}
         />
       ) : null}
+    </div>
+  );
+}
+
+function RunStdinInput({
+  sessionId,
+  onSend,
+}: {
+  sessionId: string;
+  onSend: (input: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [text, setText] = useState("");
+  const submit = () => {
+    const value = text.trim();
+    if (!value) return;
+    onSend(`${value}\n`);
+    setText("");
+  };
+  return (
+    <div className="flex items-center gap-1.5 border-border/70 border-t px-3 py-1.5">
+      <input
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") submit();
+        }}
+        placeholder={t("run.stdinPlaceholder")}
+        className="h-7 min-w-0 flex-1 rounded-md border border-input bg-transparent px-2 font-mono text-[12px] text-foreground outline-none focus-visible:border-ring"
+        aria-label={t("run.stdinPlaceholder")}
+      />
+      <Button size="xs" variant="accent" onClick={submit} disabled={!text.trim()}>
+        {t("run.stdinSend")}
+      </Button>
     </div>
   );
 }
@@ -270,6 +317,7 @@ function ConfigurationSection({
   onRun: (configuration: RunConfiguration) => void;
   onEdit: (id: string) => void;
 }) {
+  const { t } = useTranslation();
   if (configurations.length === 0) return null;
   return (
     <section className="px-1">
@@ -297,7 +345,7 @@ function ConfigurationSection({
               size="icon-xs"
               className="opacity-0 group-hover:opacity-100"
               onClick={() => onEdit(configuration.id)}
-              aria-label="Edit"
+              aria-label={t("ui.edit")}
             >
               <GearIcon />
             </Button>
@@ -305,7 +353,7 @@ function ConfigurationSection({
               variant="ghost"
               size="icon-xs"
               onClick={() => onRun(configuration)}
-              aria-label="Run"
+              aria-label={t("run.title")}
             >
               {running ? <StopIcon className="text-warning" /> : <PlayIcon className="text-success" />}
             </Button>

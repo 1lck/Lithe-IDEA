@@ -2,11 +2,13 @@ import { FilePathBreadcrumb } from "@/features/editor/components/toolbar/file-pa
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { getBufferById } from "@/features/editor/utils/buffer-index";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import type { FooterLeadingItemId } from "@/features/layout/config/item-order";
 import type { ChromeItem } from "@/features/layout/utils/chrome-items";
 import { useShallow } from "zustand/react/shallow";
 
 export function useFooterFilePathItem(): ChromeItem<FooterLeadingItemId> | null {
+  const { t } = useTranslation();
   const breadcrumbsEnabled = useSettingsStore((state) => state.settings.coreFeatures.breadcrumbs);
   const activeBuffer = useBufferStore(
     useShallow((state) => {
@@ -24,7 +26,7 @@ export function useFooterFilePathItem(): ChromeItem<FooterLeadingItemId> | null 
 
   return {
     id: "filePath",
-    label: "File path",
+    label: t("footer.filePath"),
     content: (
       <FilePathBreadcrumb
         filePath={activeBuffer.path}

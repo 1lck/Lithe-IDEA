@@ -88,6 +88,26 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    func standaloneWindowUsesScreenRatioWithinSizeLimits() {
+        let regularScreen = NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let compactScreen = NSRect(x: 0, y: 0, width: 900, height: 600)
+        let largeScreen = NSRect(x: 0, y: 0, width: 2560, height: 1600)
+
+        #expect(
+            LitheWindowLayout.standaloneContentSize(fitting: regularScreen)
+                == NSSize(width: 936, height: 648)
+        )
+        #expect(
+            LitheWindowLayout.standaloneContentSize(fitting: compactScreen)
+                == LitheWindowLayout.standaloneMinimumContentSize
+        )
+        #expect(
+            LitheWindowLayout.standaloneContentSize(fitting: largeScreen)
+                == LitheWindowLayout.standaloneMaximumContentSize
+        )
+    }
+
+    @Test
     @MainActor
     func workspaceTitleBarZoomsToTheVisibleScreenAndRestores() {
         let sessions = TestProjectWindowSessions(hasActiveProject: true)
@@ -1324,6 +1344,51 @@ struct LitheCoreLogicTests {
         #expect(!WorkspaceTextFilePolicy.isPlainText(Data([0x00, 0x01, 0x02])))
     }
 
+    @Test
+    @MainActor
+    func standaloneEditorLoadsUtf8TextAndLeavesBinaryFilesInFailedState() async {
+        let storage = InMemoryFileStorage()
+        let textURL = URL(fileURLWithPath: "/in-memory/notes.txt")
+        let binaryURL = URL(fileURLWithPath: "/in-memory/archive.bin")
+        storage.seed(Data("let answer = 42\n".utf8), at: textURL)
+        storage.seed(Data([0x00, 0x01, 0x02]), at: binaryURL)
+
+        let feature = DocumentFeatureModel(
+            operations: EmptyWorkspaceOperations(readFileValue: nil),
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: storage,
+            binaryFileViewerRegistry: BinaryFileViewerRegistry()
+        )
+        feature.configure(
+            workspaceURLProvider: { nil },
+            autoSaveEnabledProvider: { false },
+            autoSaveDelayProvider: { 0 },
+            notify: { _ in },
+            onDocumentOpened: { _ in },
+            onDocumentChanged: { _ in },
+            onDocumentClosed: { _ in },
+            onRecordSave: { _, _ in },
+            onRecordDiscard: { _ in },
+            onRecordExternalChanges: { _ in },
+            onDocumentCollectionChanged: {},
+            onProjectCloseReady: {}
+        )
+
+        feature.openStandaloneFile(textURL)
+        for _ in 0..<100 where feature.standaloneFileLoadState == .loading {
+            await Task.yield()
+        }
+        #expect(feature.standaloneFileLoadState == .loaded)
+        #expect(feature.activeDocument?.text == "let answer = 42\n")
+
+        feature.openStandaloneFile(binaryURL)
+        for _ in 0..<100 where feature.standaloneFileLoadState == .loading {
+            await Task.yield()
+        }
+        #expect(feature.standaloneFileLoadState == .failed(.notText))
+        #expect(feature.activeDocument == nil)
+    }
+
     @Test @MainActor
     func binaryFileViewerRegistryPrefersMagicAndDefaultsToDeny() async {
         let registry = BinaryFileViewerRegistry()
@@ -2544,6 +2609,7 @@ struct LitheCoreLogicTests {
 @MainActor
 private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
     var hasActiveProject: Bool
+    var hasActiveStandaloneFile = false
     private(set) var closeActiveProjectCallCount = 0
 
     init(hasActiveProject: Bool) {
@@ -2552,6 +2618,11 @@ private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
 
     func closeActiveProject() {
         closeActiveProjectCallCount += 1
+    }
+
+    func requestCloseActiveSession() -> Bool {
+        closeActiveProject()
+        return false
     }
 }
 
@@ -3546,6 +3617,157 @@ struct EditorDocumentTests {
         await pendingA.value
         #expect(model.activeDocumentID == documentB.id)
     }
+
+    @Test
+    @MainActor
+    func foregroundRequestActivatesAnEquivalentPendingBackgroundOpen() async {
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-equivalent-pending-open-tests")
+        let fileA = workspace.appendingPathComponent("A.swift")
+        let operations = BlockingWorkspaceOperations()
+        let model = DocumentFeatureModel(
+            operations: operations,
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            binaryFileViewerRegistry: BinaryFileViewerRegistry()
+        )
+        model.configure(
+            workspaceURLProvider: { workspace },
+            autoSaveEnabledProvider: { false },
+            autoSaveDelayProvider: { 0 },
+            notify: { _ in },
+            onDocumentOpened: { _ in },
+            onDocumentChanged: { _ in },
+            onDocumentClosed: { _ in },
+            onRecordSave: { _, _ in },
+            onRecordDiscard: { _ in },
+            onRecordExternalChanges: { _ in },
+            onDocumentCollectionChanged: {},
+            onProjectCloseReady: {}
+        )
+
+        let pendingA = Task { @MainActor in
+            await model.openFileAsync(
+                fileA,
+                isReadOnly: false,
+                displayPath: nil,
+                activateWhenReady: false
+            )
+        }
+        for _ in 0..<100 where !operations.didStartReadingA {
+            await Task.yield()
+        }
+        #expect(operations.didStartReadingA)
+
+        await model.openFileAsync(
+            workspace.appendingPathComponent("nested/../A.swift"),
+            isReadOnly: false,
+            displayPath: nil,
+            activateWhenReady: true
+        )
+        operations.releaseA()
+        await pendingA.value
+
+        #expect(model.openDocuments.count == 1)
+        #expect(model.activeDocumentID == model.openDocuments.first?.id)
+    }
+
+    @Test
+    @MainActor
+    func standardizedFilePathsReuseTheExistingDirtyDocument() async throws {
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-standardized-path-tests")
+        let featureDirectory = workspace.appendingPathComponent("Sources/Feature")
+        let fileURL = featureDirectory.appendingPathComponent("Example.swift")
+
+        let model = DocumentFeatureModel(
+            operations: EmptyWorkspaceOperations(readFileValue: "original"),
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            binaryFileViewerRegistry: BinaryFileViewerRegistry()
+        )
+        model.configure(
+            workspaceURLProvider: { workspace },
+            autoSaveEnabledProvider: { false },
+            autoSaveDelayProvider: { 0 },
+            notify: { _ in },
+            onDocumentOpened: { _ in },
+            onDocumentChanged: { _ in },
+            onDocumentClosed: { _ in },
+            onRecordSave: { _, _ in },
+            onRecordDiscard: { _ in },
+            onRecordExternalChanges: { _ in },
+            onDocumentCollectionChanged: {},
+            onProjectCloseReady: {}
+        )
+
+        await model.openFileAsync(
+            fileURL,
+            isReadOnly: false,
+            displayPath: nil,
+            activateWhenReady: true
+        )
+        let originalDocument = try #require(model.openDocuments.first)
+        originalDocument.text = "unsaved change"
+
+        await model.openFileAsync(
+            workspace.appendingPathComponent("Sources/Nested/../Feature/Example.swift"),
+            isReadOnly: false,
+            displayPath: nil,
+            activateWhenReady: true
+        )
+
+        #expect(model.openDocuments.count == 1)
+        #expect(model.openDocuments.first === originalDocument)
+        #expect(originalDocument.text == "unsaved change")
+        #expect(originalDocument.isDirty)
+    }
+
+    @Test
+    func projectTreeLocatorMatchesStandardizedPathsAndExpandsParents() {
+        let root = URL(fileURLWithPath: "/tmp/lithe-tree-locator-tests")
+        let featureDirectory = root.appendingPathComponent("Sources/Feature")
+        let fileURL = featureDirectory.appendingPathComponent("Example.swift")
+
+        let equivalentFile = root.appendingPathComponent("Sources/Nested/../Feature/Example.swift")
+        #expect(ProjectTreeLocator.matchingURL(for: equivalentFile, among: [fileURL]) == fileURL)
+        #expect(
+            ProjectTreeLocator.expandedDirectoryPaths(for: fileURL, rootURL: root)
+                == Set([
+                    root.standardizedFileURL.path,
+                    root.appendingPathComponent("Sources").standardizedFileURL.path,
+                    featureDirectory.standardizedFileURL.path
+                ])
+        )
+        #expect(
+            ProjectTreeLocator.matchingURL(
+                for: root.deletingLastPathComponent().appendingPathComponent("Outside.swift"),
+                among: [fileURL]
+            ) == nil
+        )
+    }
+
+    @Test
+    @MainActor
+    func editorViewportStoreRetainsStateForOpenDocuments() {
+        let retainedID = UUID()
+        let closedID = UUID()
+        let store = EditorViewportStore()
+        store.updateSelection(NSRange(location: 18, length: 4), for: retainedID)
+        store.updateScrollOffset(240, for: retainedID)
+        store.updateSelection(NSRange(location: 7, length: 0), for: closedID)
+
+        #expect(
+            store.state(for: retainedID)
+                == EditorViewportState(
+                    selectionLocation: 18,
+                    selectionLength: 4,
+                    verticalScrollOffset: 240
+                )
+        )
+
+        store.retain(documentIDs: [retainedID])
+        #expect(store.state(for: retainedID).selectionLocation == 18)
+        #expect(store.state(for: closedID) == EditorViewportState())
+    }
 }
 
 @MainActor
@@ -3666,7 +3888,33 @@ private final class InMemoryFileStorage: FileStorage, GitShelfStorage, DatabaseF
     func cacheDirectory() -> URL { support }
     func applicationSupportDirectory() -> URL { support }
     func temporaryDirectory() -> URL { support }
-    func metadata(for url: URL) -> FileMetadata? { nil }
+    func metadata(for url: URL) -> FileMetadata? {
+        lock.lock()
+        defer { lock.unlock() }
+        if let data = files[url.path] {
+            return FileMetadata(
+                byteCount: data.count,
+                modificationDate: nil,
+                isRegularFile: true,
+                isDirectory: false
+            )
+        }
+        if directories.contains(url.path) {
+            return FileMetadata(
+                byteCount: nil,
+                modificationDate: nil,
+                isRegularFile: false,
+                isDirectory: true
+            )
+        }
+        return nil
+    }
+
+    func seed(_ data: Data, at url: URL) {
+        lock.lock()
+        files[url.path] = data
+        lock.unlock()
+    }
 
     func fileExists(at url: URL) -> Bool {
         lock.lock()

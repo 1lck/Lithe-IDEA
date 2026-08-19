@@ -10,6 +10,7 @@ import {
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import Switch from "@/ui/switch";
+import { LogSettingsPanel } from "./log-settings-panel";
 
 export type MacSettingsCategory =
   | "general"
@@ -18,12 +19,13 @@ export type MacSettingsCategory =
   | "terminal"
   | "lsp"
   | "ai"
+  | "logs"
   | "updates";
 
 const controlClassName =
   "h-8 rounded-md border border-input bg-background px-2.5 text-foreground outline-none focus:border-primary";
 
-function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
+export function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="overflow-hidden rounded-md border border-border bg-surface/35">
       <h3 className="border-border border-b px-3 py-2 ui-text-sm font-medium text-subtle-foreground">
@@ -34,7 +36,7 @@ function SettingsGroup({ title, children }: { title: string; children: ReactNode
   );
 }
 
-function SettingsRow({
+export function SettingsRow({
   label,
   description,
   children,
@@ -173,7 +175,7 @@ function GeneralPanel() {
         </SettingsRow>
       </SettingsGroup>
 
-      <SettingsGroup title="Git">
+      <SettingsGroup title={t("settings.mac.git")}>
         <SettingsRow
           label={t("settings.mac.saveLocalChangesWith")}
           description={t("settings.mac.gitPolicyDescription")}
@@ -184,8 +186,8 @@ function GeneralPanel() {
             onChange={(event) => setGitPolicy(event.target.value)}
           >
             <option value="ask">{t("settings.mac.askEveryTime")}</option>
-            <option value="shelf">Shelf</option>
-            <option value="stash">Git stash</option>
+            <option value="shelf">{t("settings.mac.shelf")}</option>
+            <option value="stash">{t("settings.mac.gitStash")}</option>
           </select>
         </SettingsRow>
       </SettingsGroup>
@@ -290,10 +292,10 @@ function KeyboardPanel() {
               )
             }
           >
-            <option value="none">Lithe</option>
-            <option value="vscode">Visual Studio Code</option>
-            <option value="jetbrains">JetBrains</option>
-            <option value="xcode">Xcode</option>
+            <option value="none">{t("settings.mac.keymapLithe")}</option>
+            <option value="vscode">{t("settings.mac.keymapVisualStudioCode")}</option>
+            <option value="jetbrains">{t("settings.mac.keymapJetBrains")}</option>
+            <option value="xcode">{t("settings.mac.keymapXcode")}</option>
           </select>
         </SettingsRow>
       </SettingsGroup>
@@ -330,9 +332,9 @@ function TerminalPanel() {
           onChange={(event) => void updateSetting("terminalDefaultShellId", event.target.value)}
         >
           <option value="">{t("settings.mac.systemDefault")}</option>
-          <option value="powershell">PowerShell</option>
-          <option value="cmd">Command Prompt</option>
-          <option value="wsl">WSL</option>
+          <option value="powershell">{t("settings.mac.shellPowerShell")}</option>
+          <option value="cmd">{t("settings.mac.shellCommandPrompt")}</option>
+          <option value="wsl">{t("settings.mac.shellWsl")}</option>
         </select>
       </SettingsRow>
     </SettingsGroup>
@@ -475,7 +477,13 @@ function UpdatesPanel() {
   );
 }
 
-export function MacSettingsPanel({ category }: { category: MacSettingsCategory }) {
+export function MacSettingsPanel({
+  category,
+  onClose,
+}: {
+  category: MacSettingsCategory;
+  onClose: () => void;
+}) {
   switch (category) {
     case "general":
       return <GeneralPanel />;
@@ -489,6 +497,8 @@ export function MacSettingsPanel({ category }: { category: MacSettingsCategory }
       return <LspPanel />;
     case "ai":
       return <AiPanel />;
+    case "logs":
+      return <LogSettingsPanel onClose={onClose} />;
     case "updates":
       return <UpdatesPanel />;
   }
