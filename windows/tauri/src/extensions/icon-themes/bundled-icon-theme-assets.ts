@@ -1,5 +1,5 @@
 const BUNDLED_ICON_THEME_ASSETS = import.meta.glob(
-  "../bundled/icon-themes/{lithe,material,pierre,symbols}/**/*.svg",
+  "../bundled/icon-themes/{idea,lithe,material,pierre,symbols}/**/*.svg",
   {
     eager: true,
     import: "default",
@@ -9,6 +9,7 @@ const BUNDLED_ICON_THEME_ASSETS = import.meta.glob(
 
 const BUNDLED_ICON_THEME_DIRECTORIES: Record<string, string> = {
   "lithe.icon-theme.lithe-icons": "lithe",
+  "lithe.icon-theme.idea-icons": "idea",
   "lithe.icon-theme.material": "material",
   "lithe.icon-theme.pierre": "pierre",
   "lithe.icon-theme.symbols": "symbols",
