@@ -5,6 +5,7 @@ enum SyntaxHighlightingAdapterID: String, Decodable, Equatable {
     case generic
     case ini
     case json
+    case toml
     case yaml
 }
 

@@ -23,7 +23,7 @@
       "id": "toml",
       "displayName": "TOML",
       "fileExtensions": ["toml"],
-      "adapter": "generic"
+      "adapter": "toml"
     },
     {
       "id": "ini",

@@ -54,6 +54,8 @@ enum SyntaxHighlighter {
         case .json:
             GenericSyntaxHighlightingAdapter.apply(to: storage, palette: palette, range: target)
             JSONSyntaxHighlightingAdapter.apply(to: storage, palette: palette, range: target)
+        case .toml:
+            TOMLSyntaxHighlightingAdapter.apply(to: storage, palette: palette, range: target)
         case .yaml:
             YAMLSyntaxHighlightingAdapter.apply(to: storage, palette: palette, range: target)
         }

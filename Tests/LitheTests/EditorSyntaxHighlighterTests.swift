@@ -246,6 +246,72 @@ struct EditorSyntaxHighlighterTests {
         #expect(commentColor == rootCommentColor)
     }
 
+    @Test
+    func tomlSyntaxCorpusUsesExpectedTokenColors() throws {
+        let source = try syntaxCorpus(named: "toml-syntax-corpus", extension: "toml")
+        let storage = NSTextStorage(string: source)
+
+        SyntaxHighlighter.apply(
+            to: storage,
+            font: .monospacedSystemFont(ofSize: 13, weight: .regular),
+            fileExtension: "toml",
+            isDark: true
+        )
+
+        let text = source as NSString
+        let propertyColor = try color(in: storage, at: text.range(of: "title").location)
+        let quotedPropertyColor = try color(in: storage, at: text.range(of: #""quoted"."key""#).location)
+        let inlinePropertyColor = try color(in: storage, at: text.range(of: "owner").location)
+        let tableColor = try color(in: storage, at: text.range(of: "server.production").location)
+        let arrayTableColor = try color(in: storage, at: text.range(of: "products").location)
+        let stringColor = try color(in: storage, at: text.range(of: "Lithe # not a comment").location)
+        let multilineStringColor = try color(in: storage, at: text.range(of: "number 123 remains string text").location)
+        let numberColor = try color(in: storage, at: text.range(of: "8443").location)
+        let dateColor = try color(in: storage, at: text.range(of: "2026-08-19").location)
+        let booleanColor = try color(in: storage, at: text.range(of: "true").location)
+        let commentColor = try color(in: storage, at: text.range(of: "# inline comment").location)
+        let rootCommentColor = try color(in: storage, at: text.range(of: "# root comment").location)
+        let quotedHashColor = try color(in: storage, at: text.range(of: "# not a comment").location)
+
+        #expect(propertyColor == self.propertyColor)
+        #expect(quotedPropertyColor == propertyColor)
+        #expect(inlinePropertyColor == propertyColor)
+        #expect(tableColor != propertyColor)
+        #expect(arrayTableColor == tableColor)
+        #expect(stringColor == multilineStringColor)
+        #expect(numberColor == dateColor)
+        #expect(booleanColor != propertyColor)
+        #expect(commentColor == rootCommentColor)
+        #expect(quotedHashColor == stringColor)
+    }
+
+    @Test
+    func tomlMultilineStringKeepsItsColorDuringIncrementalHighlighting() throws {
+        let source = try syntaxCorpus(named: "toml-syntax-corpus", extension: "toml")
+        let fullStorage = NSTextStorage(string: source)
+        let incrementalStorage = NSTextStorage(string: source)
+        let text = source as NSString
+        let editedRange = text.range(of: "number 123 remains string text")
+
+        SyntaxHighlighter.apply(
+            to: fullStorage,
+            font: .monospacedSystemFont(ofSize: 13, weight: .regular),
+            fileExtension: "toml",
+            isDark: true
+        )
+        SyntaxHighlighter.apply(
+            to: incrementalStorage,
+            font: .monospacedSystemFont(ofSize: 13, weight: .regular),
+            fileExtension: "toml",
+            isDark: true,
+            range: editedRange
+        )
+
+        let expectedColor = try color(in: fullStorage, at: editedRange.location)
+        let incrementalColor = try color(in: incrementalStorage, at: editedRange.location)
+        #expect(incrementalColor == expectedColor)
+    }
+
     private func yamlSyntaxCorpus() throws -> String {
         try syntaxCorpus(named: "yaml-syntax-corpus", extension: "yaml")
     }
