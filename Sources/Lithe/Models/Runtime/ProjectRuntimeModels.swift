@@ -26,6 +26,8 @@ struct ProjectRuntimeSettings: Codable, Hashable, Sendable {
 }
 
 struct JavaRuntimeCandidate: Identifiable, Hashable, Sendable {
+    static let minimumJDTLSMajorVersion = 17
+
     let homePath: String
     let version: String
     let vendor: String
@@ -35,6 +37,24 @@ struct JavaRuntimeCandidate: Identifiable, Hashable, Sendable {
     var displayName: String {
         let vendor = vendor.isEmpty ? "JDK" : vendor
         return "\(vendor) \(version)"
+    }
+
+    var majorVersion: Int? {
+        let components = version
+            .split(whereSeparator: { !$0.isNumber })
+            .compactMap { Int($0) }
+        switch components.first {
+        case 1:
+            return components.count > 1 ? components[1] : nil
+        case let major?:
+            return major
+        case nil:
+            return nil
+        }
+    }
+
+    var supportsJDTLS: Bool {
+        majorVersion.map { $0 >= Self.minimumJDTLSMajorVersion } ?? false
     }
 }
 

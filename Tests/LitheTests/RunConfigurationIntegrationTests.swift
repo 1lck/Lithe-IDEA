@@ -348,6 +348,24 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func macToolDiscoveryPrefersBundledJDTLS() {
+        let resources = URL(fileURLWithPath: "/Applications/Lithe.app/Contents/Resources", isDirectory: true)
+        let root = URL(fileURLWithPath: "/tmp/mac-java-project", isDirectory: true)
+        let bundled = resources.appendingPathComponent("LanguageServers/jdtls/bin/jdtls")
+        let project = root.appendingPathComponent(".lithe/toolchains/bin/jdtls")
+        let discovery = MacRuntimeToolDiscovery(
+            homeDirectoryURL: URL(fileURLWithPath: "/tmp/home", isDirectory: true),
+            resourceDirectoryURL: resources,
+            isExecutable: { $0 == bundled || $0 == project }
+        )
+
+        let candidates = discovery.candidates(for: "jdtls", projectURL: root, environment: [:])
+
+        #expect(candidates.map(\.source) == [.bundled, .project])
+        #expect(candidates.first?.executableURL == bundled)
+    }
+
+    @Test
     func legacyJavaDoesNotAcceptGenericDAPBreakpointsWithoutAnAdapter() throws {
         let source = URL(fileURLWithPath: "/tmp/Main.java")
         #expect(throws: DebugProviderError.noProvider(fileExtension: "java")) {
@@ -1135,6 +1153,35 @@ struct RunConfigurationIntegrationTests {
             try manager.format(fileURL: source, text: "package main\n", rootURL: root) { _ in }
         }
         #expect(manager.activeLanguageServerIDs.isEmpty)
+    }
+
+    @Test
+    func languageToolingRejectsUnavailableRequiredRuntime() {
+        let descriptor = LanguageProviderDescriptor(
+            id: "java",
+            displayName: "Java",
+            fileExtensions: ["java"],
+            capabilities: [.languageServer],
+            activationPolicy: .onDemand,
+            languageIdentifier: "java",
+            languageServerLaunch: LanguageServerLaunchDescriptor(executableNames: ["jdtls"])
+        )
+        let runtimeService = ProjectRuntimeService(
+            runtimeLocator: RunTestRuntimeLocator(),
+            store: RunTestKeyValueStore()
+        )
+        let message = "JDTLS requires JDK 17 or newer."
+        let runtime = StdioLanguageProviderRuntime(
+            descriptor: descriptor,
+            runtimeService: runtimeService,
+            languageServerLaunch: descriptor.languageServerLaunch,
+            languageServerCore: TestLanguageServerRuntimeCore(providerID: "java"),
+            languageServerExecutableResolver: { _ in URL(fileURLWithPath: "/usr/bin/jdtls") },
+            languageServerRuntimeResolver: { _ in .unavailable(message) }
+        )
+
+        #expect(runtime.makeLanguageServerSession() == nil)
+        #expect(runtime.unavailableToolingMessage == message)
     }
 
     @Test

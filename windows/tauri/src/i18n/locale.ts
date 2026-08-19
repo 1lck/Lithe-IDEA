@@ -2051,6 +2051,19 @@ const catalogs = {
     "settings.editor.symbolBreadcrumb": "Show Symbol in Breadcrumb",
     "settings.editor.symbolBreadcrumbDescription":
       "Show the containing function/class for the cursor position in the breadcrumb bar",
+    "settings.editor.jdtlsSection": "Java Language Server",
+    "settings.editor.jdtlsSectionDescription":
+      "Configure the JDK used only to run the bundled Java language server.",
+    "settings.editor.jdtlsJdk": "JDTLS Runtime JDK",
+    "settings.editor.jdtlsJdkDescription":
+      "Automatically detect JDK 17 or newer, or select a separate JDK without changing project run settings.",
+    "settings.editor.jdtlsJdkMode": "JDTLS JDK selection mode",
+    "settings.editor.jdtlsJdkAutomatic": "Automatic",
+    "settings.editor.jdtlsJdkManual": "Manual",
+    "settings.editor.jdtlsJdkPath": "Selected JDTLS JDK home",
+    "settings.editor.jdtlsJdkChoose": "Choose JDTLS JDK home",
+    "settings.editor.jdtlsJdkSelected": "Using JDK {version} for JDTLS",
+    "settings.editor.jdtlsJdkInvalid": "Could not use this JDK for JDTLS: {error}",
     "settings.appearance.theme": "Theme",
     "settings.appearance.syncWithOs": "Sync With OS",
     "settings.appearance.syncWithOsDescription":
@@ -6024,6 +6037,18 @@ const catalogs = {
     "settings.editor.semanticTokensDescription": "使用语言服务器的语义高亮",
     "settings.editor.symbolBreadcrumb": "在面包屑中显示符号",
     "settings.editor.symbolBreadcrumbDescription": "在面包屑栏中显示光标位置所在的函数或类",
+    "settings.editor.jdtlsSection": "Java 语言服务器",
+    "settings.editor.jdtlsSectionDescription": "配置仅用于运行内置 Java 语言服务器的 JDK。",
+    "settings.editor.jdtlsJdk": "JDTLS 运行 JDK",
+    "settings.editor.jdtlsJdkDescription":
+      "自动检测 JDK 17 或更高版本，或选择独立 JDK；不会改变项目运行设置。",
+    "settings.editor.jdtlsJdkMode": "JDTLS JDK 选择模式",
+    "settings.editor.jdtlsJdkAutomatic": "自动",
+    "settings.editor.jdtlsJdkManual": "手动",
+    "settings.editor.jdtlsJdkPath": "已选择的 JDTLS JDK Home",
+    "settings.editor.jdtlsJdkChoose": "选择 JDTLS JDK Home",
+    "settings.editor.jdtlsJdkSelected": "JDTLS 将使用 JDK {version}",
+    "settings.editor.jdtlsJdkInvalid": "无法将此 JDK 用于 JDTLS：{error}",
     "settings.appearance.theme": "主题",
     "settings.appearance.syncWithOs": "与操作系统同步",
     "settings.appearance.syncWithOsDescription": "在偏好的浅色和深色主题之间自动切换",

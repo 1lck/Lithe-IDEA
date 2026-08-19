@@ -1,7 +1,14 @@
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import { useShallow } from "zustand/react/shallow";
 import { getAllLanguages } from "@/features/editor/utils/language-id";
+import { validateJavaLspJavaHome } from "@/features/editor/lsp/java-lsp-host-api";
 import { getDefaultSetting, useSettingsStore } from "@/features/settings/stores/settings.store";
+import { useToast } from "@/features/layout/contexts/toast-context";
+import { Button } from "@/ui/button";
+import { ButtonGroup } from "@/ui/button-group";
+import Input from "@/ui/input";
+import { FolderIcon } from "@/ui/icons";
 import NumberInput from "@/ui/number-input";
 import Section, { SETTINGS_CONTROL_WIDTHS, SettingsView, SettingRow } from "../settings-section";
 import Select from "@/ui/select";
@@ -11,6 +18,9 @@ import { useTranslation } from "@/i18n/locale-provider";
 
 export const EditorSettings = () => {
   const { t } = useTranslation();
+  const { showToast } = useToast();
+  const [isValidatingJdtlsJdk, setIsValidatingJdtlsJdk] = useState(false);
+  const jdtlsJdkRequest = useRef(0);
   const settings = useSettingsStore(
     useShallow((state) => ({
       autoCompletion: state.settings.autoCompletion,
@@ -34,6 +44,7 @@ export const EditorSettings = () => {
       horizontalTabScroll: state.settings.horizontalTabScroll,
       codeLens: state.settings.codeLens,
       inlayHints: state.settings.inlayHints,
+      jdtlsJavaHomePath: state.settings.jdtlsJavaHomePath,
       lineNumbers: state.settings.lineNumbers,
       lintOnSave: state.settings.lintOnSave,
       maxOpenTabs: state.settings.maxOpenTabs,
@@ -64,6 +75,60 @@ export const EditorSettings = () => {
     { value: "trailing", label: t("settings.editor.whitespaceTrailing") },
     { value: "all", label: t("settings.editor.whitespaceAll") },
   ];
+  const usesAutomaticJdtlsJdk = settings.jdtlsJavaHomePath.length === 0;
+
+  const applyJdtlsJavaHomePath = async (javaHomePath: string) => {
+    if (settings.jdtlsJavaHomePath === javaHomePath) return;
+
+    await updateSetting("jdtlsJavaHomePath", javaHomePath);
+    try {
+      const { LspClient } = await import("@/features/editor/lsp/lsp-client");
+      const client = LspClient.getInstance();
+      const javaServers = client
+        .getActiveServerEntries()
+        .filter((entry) => entry.languageId === "java");
+      await Promise.all(javaServers.map((entry) => client.restartTrackedServer(entry.key)));
+    } catch (error) {
+      console.error("Failed to restart Java language server after JDK change:", error);
+    }
+  };
+
+  const useAutomaticJdtlsJdk = () => {
+    jdtlsJdkRequest.current += 1;
+    setIsValidatingJdtlsJdk(false);
+    void applyJdtlsJavaHomePath("");
+  };
+
+  const chooseJdtlsJdk = async () => {
+    const request = ++jdtlsJdkRequest.current;
+    setIsValidatingJdtlsJdk(true);
+
+    try {
+      const selected = await open({ directory: true, multiple: false });
+      if (request !== jdtlsJdkRequest.current || typeof selected !== "string" || !selected) return;
+
+      const runtime = await validateJavaLspJavaHome(selected);
+      if (request !== jdtlsJdkRequest.current) return;
+
+      await applyJdtlsJavaHomePath(runtime.homePath);
+      if (request !== jdtlsJdkRequest.current) return;
+
+      showToast({
+        message: t("settings.editor.jdtlsJdkSelected", { version: runtime.version }),
+        type: "success",
+      });
+    } catch (error) {
+      if (request !== jdtlsJdkRequest.current) return;
+
+      showToast({
+        message: t("settings.editor.jdtlsJdkInvalid", { error: String(error) }),
+        type: "error",
+      });
+    } finally {
+      if (request === jdtlsJdkRequest.current) setIsValidatingJdtlsJdk(false);
+    }
+  };
+
   return (
     <SettingsView>
       <Section title={t("settings.editor.section")}>
@@ -563,6 +628,65 @@ export const EditorSettings = () => {
             onChange={(checked) => updateSetting("breadcrumbShowSymbols", checked)}
             size="sm"
           />
+        </SettingRow>
+      </Section>
+      <Section
+        title={t("settings.editor.jdtlsSection")}
+        description={t("settings.editor.jdtlsSectionDescription")}
+      >
+        <SettingRow
+          label={t("settings.editor.jdtlsJdk")}
+          description={t("settings.editor.jdtlsJdkDescription")}
+          onReset={useAutomaticJdtlsJdk}
+          canReset={!usesAutomaticJdtlsJdk}
+        >
+          <div className="w-56 max-w-full space-y-2">
+            <ButtonGroup className="w-full" aria-label={t("settings.editor.jdtlsJdkMode")}>
+              <Button
+                type="button"
+                size="sm"
+                variant={usesAutomaticJdtlsJdk ? "accent" : "ghost"}
+                active={usesAutomaticJdtlsJdk}
+                aria-pressed={usesAutomaticJdtlsJdk}
+                className="min-w-0 flex-1"
+                onClick={useAutomaticJdtlsJdk}
+              >
+                {t("settings.editor.jdtlsJdkAutomatic")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={usesAutomaticJdtlsJdk ? "ghost" : "accent"}
+                active={!usesAutomaticJdtlsJdk}
+                aria-pressed={!usesAutomaticJdtlsJdk}
+                className="min-w-0 flex-1"
+                disabled={isValidatingJdtlsJdk}
+                onClick={() => void chooseJdtlsJdk()}
+              >
+                {t("settings.editor.jdtlsJdkManual")}
+              </Button>
+            </ButtonGroup>
+            {!usesAutomaticJdtlsJdk ? (
+              <div className="flex min-w-0 gap-1.5">
+                <Input
+                  value={settings.jdtlsJavaHomePath}
+                  readOnly
+                  className="min-w-0 flex-1 font-mono"
+                  aria-label={t("settings.editor.jdtlsJdkPath")}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  tooltip={t("settings.editor.jdtlsJdkChoose")}
+                  disabled={isValidatingJdtlsJdk}
+                  onClick={() => void chooseJdtlsJdk()}
+                >
+                  <FolderIcon />
+                </Button>
+              </div>
+            ) : null}
+          </div>
         </SettingRow>
       </Section>
     </SettingsView>
