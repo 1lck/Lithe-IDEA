@@ -2,6 +2,7 @@ import { CaretLeftIcon as CaretLeft, PaletteIcon as Palette } from "@/ui/icons";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRegisteredIconThemes } from "@/extensions/icon-themes/use-registered-icon-themes";
+import { useTranslation } from "@/i18n/locale-provider";
 import {
   CommandEmpty,
   CommandHeader,
@@ -35,6 +36,7 @@ export const IconThemeSelectorContent = ({
   onThemeChange,
   currentTheme,
 }: IconThemeSelectorContentProps) => {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [initialTheme, setInitialTheme] = useState(currentTheme);
@@ -169,7 +171,7 @@ export const IconThemeSelectorContent = ({
   return (
     <>
       <CommandHeader onClose={handleClose}>
-        <CommandHeaderAction type="button" onClick={handleBack} aria-label="Back to commands">
+        <CommandHeaderAction type="button" onClick={handleBack} aria-label={t("commandPalette.backToCommands")}>
           <CaretLeft />
         </CommandHeaderAction>
         <CommandInput
@@ -177,13 +179,13 @@ export const IconThemeSelectorContent = ({
           value={query}
           onChange={setQuery}
           onKeyDown={handleKeyDown}
-          placeholder="Search icon themes..."
+          placeholder={t("commandPalette.searchIconThemes")}
         />
       </CommandHeader>
 
       <CommandList ref={resultsRef}>
         {filteredThemes.length === 0 ? (
-          <CommandEmpty>No icon themes found</CommandEmpty>
+          <CommandEmpty>{t("commandPalette.noIconThemes")}</CommandEmpty>
         ) : (
           filteredThemes.map((theme, index) => {
             const isSelected = index === selectedIndex;
@@ -217,7 +219,7 @@ export const IconThemeSelectorContent = ({
                 title={theme.name}
                 accessory={
                   isCurrent && !isPreviewing ? (
-                    <CommandItemBadge>current</CommandItemBadge>
+                    <CommandItemBadge>{t("commandPalette.current")}</CommandItemBadge>
                   ) : undefined
                 }
               />

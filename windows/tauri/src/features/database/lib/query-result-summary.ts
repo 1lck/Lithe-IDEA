@@ -3,6 +3,9 @@ interface QueryResultSummaryInput {
   rowCount: number;
   currentPage?: number;
   totalPages?: number;
+  formatVisibleRows?: (count: number) => string;
+  formatQueryRows?: (count: number) => string;
+  formatVisibleQueryRowsOnPage?: (count: number, currentPage: number, totalPages: number) => string;
 }
 
 function rowNoun(count: number): string {
@@ -23,18 +26,22 @@ export function formatQueryResultSummary({
   rowCount,
   currentPage,
   totalPages,
+  formatVisibleRows = (count) => `${count} visible ${rowNoun(count)}`,
+  formatQueryRows = (count) => `${count} query ${rowNoun(count)}`,
+  formatVisibleQueryRowsOnPage = (count, page, pages) =>
+    `${count} visible query ${rowNoun(count)} on page ${page} of ${pages}`,
 }: QueryResultSummaryInput): string {
   const safeRowCount = normalizeNonNegativeInteger(rowCount);
 
   if (!isCustomQuery) {
-    return `${safeRowCount} visible ${rowNoun(safeRowCount)}`;
+    return formatVisibleRows(safeRowCount);
   }
 
   const safeTotalPages = normalizePositiveInteger(totalPages, 1);
   if (safeTotalPages <= 1) {
-    return `${safeRowCount} query ${rowNoun(safeRowCount)}`;
+    return formatQueryRows(safeRowCount);
   }
 
   const safeCurrentPage = Math.min(normalizePositiveInteger(currentPage, 1), safeTotalPages);
-  return `${safeRowCount} visible query ${rowNoun(safeRowCount)} on page ${safeCurrentPage} of ${safeTotalPages}`;
+  return formatVisibleQueryRowsOnPage(safeRowCount, safeCurrentPage, safeTotalPages);
 }

@@ -2,6 +2,7 @@ import DOMPurify from "dompurify";
 import { cloneElement, isValidElement, useMemo, useSyncExternalStore } from "react";
 import { themeRegistry } from "@/extensions/themes/theme-registry";
 import { getDefaultSetting, useSettingsStore } from "@/features/settings/stores/settings.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
 import { iconThemeRegistry } from "../icon-theme-registry";
 
@@ -27,6 +28,7 @@ export function ThemedFileIcon({
   isSymlink = false,
   className = "text-subtle-foreground",
 }: ThemedFileIconProps) {
+  const { t } = useTranslation();
   const iconThemeId = useSettingsStore((state) => state.settings.iconTheme);
   useSyncExternalStore(
     (callback) => iconThemeRegistry.onRegistryChange(callback),
@@ -95,9 +97,9 @@ export function ThemedFileIcon({
           viewBox="0 0 16 16"
           className="-bottom-0.5 -right-0.5 themed-file-icon-badge absolute text-primary"
           role="img"
-          aria-label="Symlink"
+          aria-label={t("ui.symlink")}
         >
-          <title>Symlink</title>
+          <title>{t("ui.symlink")}</title>
           <path
             fill="currentColor"
             d="M6.879 9.934a.81.81 0 0 1-.575-.238 3.818 3.818 0 0 1 0-5.392l3-3C10.024.584 10.982.187 12 .187s1.976.397 2.696 1.117a3.818 3.818 0 0 1 0 5.392l-1.371 1.371a.813.813 0 0 1-1.149-1.149l1.371-1.371A2.19 2.19 0 0 0 12 1.812c-.584 0-1.134.228-1.547.641l-3 3a2.19 2.19 0 0 0 0 3.094.813.813 0 0 1-.575 1.387z"

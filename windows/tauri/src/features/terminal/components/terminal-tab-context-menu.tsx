@@ -10,6 +10,7 @@ import {
 import type { Terminal } from "@/features/terminal/types/terminal.types";
 import { Dropdown, type MenuItem } from "@/ui/dropdown";
 import Keybinding from "@/features/keymaps/components/keybinding";
+import { useTranslation } from "@/i18n/locale-provider";
 import { IS_MAC } from "@/utils/platform";
 
 interface TerminalTabContextMenuProps {
@@ -43,63 +44,64 @@ const TerminalTabContextMenu = ({
   onRename,
   onExport,
 }: TerminalTabContextMenuProps) => {
+  const { t } = useTranslation();
   const modKey = IS_MAC ? "Cmd" : "Ctrl";
 
   const items: MenuItem[] = terminal
     ? [
         {
           id: "pin",
-          label: terminal.isPinned ? "Unpin Terminal" : "Pin Terminal",
+          label: terminal.isPinned ? t("terminal.contextUnpin") : t("terminal.contextPin"),
           icon: terminal.isPinned ? <PinOff /> : <Pin />,
           onClick: () => onPin(terminal.id),
         },
         { id: "sep-1", label: "", separator: true, onClick: () => {} },
         {
           id: "duplicate",
-          label: "Duplicate Terminal",
+          label: t("terminal.contextDuplicate"),
           icon: <Copy />,
           onClick: () => onDuplicate(terminal.id),
         },
         {
           id: "clear",
-          label: "Clear Terminal",
+          label: t("terminal.contextClear"),
           icon: <RotateCcw />,
           onClick: () => onClear(terminal.id),
         },
         {
           id: "rename",
-          label: "Rename Terminal",
+          label: t("terminal.contextRename"),
           icon: <Edit />,
           keybinding: <Keybinding keys={["F2"]} />,
           onClick: () => onRename(terminal.id),
         },
         {
           id: "export",
-          label: "Export Output",
+          label: t("terminal.contextExport"),
           icon: <Download weight="fill" />,
           onClick: () => onExport(terminal.id),
         },
         { id: "sep-2", label: "", separator: true, onClick: () => {} },
         {
           id: "close",
-          label: "Close Terminal",
+          label: t("terminal.contextClose"),
           icon: <X />,
           keybinding: <Keybinding keys={[modKey, "W"]} />,
           onClick: () => onCloseTab(terminal.id),
         },
         {
           id: "close-others",
-          label: "Close Other Terminals",
+          label: t("terminal.contextCloseOthers"),
           onClick: () => onCloseOthers(terminal.id),
         },
         {
           id: "close-all",
-          label: "Close All Terminals",
+          label: t("terminal.contextCloseAll"),
           onClick: onCloseAll,
         },
         {
           id: "close-right",
-          label: "Close Terminals to Right",
+          label: t("terminal.contextCloseRight"),
           onClick: () => onCloseToRight(terminal.id),
         },
       ]

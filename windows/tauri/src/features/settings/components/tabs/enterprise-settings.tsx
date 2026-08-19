@@ -6,6 +6,7 @@ import Section, { SettingsView, SettingRow } from "../settings-section";
 import Switch from "@/ui/switch";
 import Textarea from "@/ui/textarea";
 import { updateEnterprisePolicy } from "@/features/window/services/auth-api";
+import { useTranslation } from "@/i18n/locale-provider";
 
 const parseAllowlistInput = (value: string): string[] =>
   Array.from(
@@ -18,6 +19,7 @@ const parseAllowlistInput = (value: string): string[] =>
   );
 
 export const EnterpriseSettings = () => {
+  const { t } = useTranslation();
   const subscription = useAuthStore((state) => state.subscription);
   const refreshSubscription = useAuthStore((state) => state.actions.refreshSubscription);
 
@@ -56,7 +58,7 @@ export const EnterpriseSettings = () => {
       await refreshSubscription();
       toast.success(successMessage);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to update policy.";
+      const message = error instanceof Error ? error.message : t("enterprise.updateFailed");
       toast.error(message);
     } finally {
       setIsSaving(false);
@@ -66,9 +68,9 @@ export const EnterpriseSettings = () => {
   if (!hasAccess) {
     return (
       <SettingsView>
-        <Section title="Enterprise Controls" description="Access restricted">
+        <Section title={t("enterprise.controls")} description={t("enterprise.accessRestricted")}>
           <div className="font-sans ui-text-base px-1 py-2 text-subtle-foreground">
-            Enterprise policy controls are available only for enterprise workspaces.
+            {t("enterprise.enterpriseOnly")}
           </div>
         </Section>
       </SettingsView>
@@ -78,9 +80,9 @@ export const EnterpriseSettings = () => {
   if (!policy) {
     return (
       <SettingsView>
-        <Section title="Enterprise Controls" description="Policy unavailable">
+        <Section title={t("enterprise.controls")} description={t("enterprise.policyUnavailable")}>
           <div className="font-sans ui-text-base px-1 py-2 text-subtle-foreground">
-            Enterprise policy could not be loaded. Try re-authenticating.
+            {t("enterprise.policyLoadFailed")}
           </div>
         </Section>
       </SettingsView>
@@ -90,17 +92,17 @@ export const EnterpriseSettings = () => {
   return (
     <SettingsView>
       <Section
-        title="Enterprise Controls"
-        description={isAdmin ? "Manage organization policy controls." : "Read-only policy view."}
+        title={t("enterprise.controls")}
+        description={isAdmin ? t("enterprise.manageControls") : t("enterprise.readOnlyView")}
       >
         <SettingRow
-          label="Managed Mode"
-          description="Enforce enterprise policy controls in the desktop app."
+          label={t("enterprise.managedMode")}
+          description={t("enterprise.managedModeDescription")}
         >
           <Switch
             checked={policy.managedMode}
             onChange={(checked) =>
-              savePolicyPatch({ managedMode: checked }, "Managed mode updated.")
+              savePolicyPatch({ managedMode: checked }, t("enterprise.managedModeUpdated"))
             }
             size="sm"
             disabled={!isAdmin || isSaving}
@@ -108,15 +110,15 @@ export const EnterpriseSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Require Extension Allowlist"
-          description="Only approved extension IDs can be installed or updated."
+          label={t("enterprise.requireExtensionAllowlist")}
+          description={t("enterprise.requireExtensionAllowlistDescription")}
         >
           <Switch
             checked={policy.requireExtensionAllowlist}
             onChange={(checked) =>
               savePolicyPatch(
                 { requireExtensionAllowlist: checked },
-                "Allowlist enforcement updated.",
+                t("enterprise.allowlistEnforcementUpdated"),
               )
             }
             size="sm"
@@ -125,36 +127,44 @@ export const EnterpriseSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Allow BYOK Autocomplete"
-          description="Allow user-provided OpenRouter keys for autocomplete."
+          label={t("enterprise.allowByokAutocomplete")}
+          description={t("enterprise.allowByokAutocompleteDescription")}
         >
           <Switch
             checked={policy.allowByok}
-            onChange={(checked) => savePolicyPatch({ allowByok: checked }, "BYOK policy updated.")}
-            size="sm"
-            disabled={!isAdmin || isSaving || !policy.managedMode}
-          />
-        </SettingRow>
-
-        <SettingRow
-          label="Enable AI Autocomplete"
-          description="Enable inline AI completion for enterprise users."
-        >
-          <Switch
-            checked={policy.aiCompletionEnabled}
             onChange={(checked) =>
-              savePolicyPatch({ aiCompletionEnabled: checked }, "AI autocomplete policy updated.")
+              savePolicyPatch({ allowByok: checked }, t("enterprise.byokPolicyUpdated"))
             }
             size="sm"
             disabled={!isAdmin || isSaving || !policy.managedMode}
           />
         </SettingRow>
 
-        <SettingRow label="Enable Agent" description="Enable Agent panel for enterprise users.">
+        <SettingRow
+          label={t("enterprise.enableAiAutocomplete")}
+          description={t("enterprise.enableAiAutocompleteDescription")}
+        >
+          <Switch
+            checked={policy.aiCompletionEnabled}
+            onChange={(checked) =>
+              savePolicyPatch(
+                { aiCompletionEnabled: checked },
+                t("enterprise.aiAutocompletePolicyUpdated"),
+              )
+            }
+            size="sm"
+            disabled={!isAdmin || isSaving || !policy.managedMode}
+          />
+        </SettingRow>
+
+        <SettingRow
+          label={t("enterprise.enableAgent")}
+          description={t("enterprise.enableAgentDescription")}
+        >
           <Switch
             checked={policy.aiChatEnabled}
             onChange={(checked) =>
-              savePolicyPatch({ aiChatEnabled: checked }, "Agent policy updated.")
+              savePolicyPatch({ aiChatEnabled: checked }, t("enterprise.agentPolicyUpdated"))
             }
             size="sm"
             disabled={!isAdmin || isSaving || !policy.managedMode}
@@ -163,8 +173,8 @@ export const EnterpriseSettings = () => {
       </Section>
 
       <Section
-        title="Extension Allowlist"
-        description="Approved extension IDs, one per line (or comma-separated)."
+        title={t("enterprise.extensionAllowlist")}
+        description={t("enterprise.extensionAllowlistDescription")}
       >
         <div className="space-y-3 px-1 py-1">
           <Textarea
@@ -178,7 +188,8 @@ export const EnterpriseSettings = () => {
           />
           <div className="flex items-center justify-between gap-2">
             <p className="font-sans ui-text-base text-subtle-foreground">
-              Parsed entries: <span className="text-foreground">{parsedAllowlist.length}</span>
+              {t("enterprise.parsedEntries")}{" "}
+              <span className="text-foreground">{parsedAllowlist.length}</span>
             </p>
             <div className="flex gap-2">
               <Button
@@ -187,19 +198,19 @@ export const EnterpriseSettings = () => {
                 disabled={!isAdmin || isSaving || !policy.managedMode}
                 size="sm"
               >
-                Clear
+                {t("ui.clear")}
               </Button>
               <Button
                 onClick={() =>
                   savePolicyPatch(
                     { allowedExtensionIds: parsedAllowlist },
-                    "Extension allowlist updated.",
+                    t("enterprise.extensionAllowlistUpdated"),
                   )
                 }
                 disabled={!isAdmin || isSaving || !policy.managedMode}
                 size="sm"
               >
-                {isSaving ? "Saving..." : "Apply allowlist"}
+                {isSaving ? t("ui.saving") : t("enterprise.applyAllowlist")}
               </Button>
             </div>
           </div>

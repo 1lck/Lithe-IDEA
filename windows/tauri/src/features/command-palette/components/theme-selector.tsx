@@ -13,6 +13,7 @@ import { themeRegistry } from "@/extensions/themes/theme-registry";
 import { useRegisteredThemes } from "@/extensions/themes/use-registered-themes";
 import { chooseThemeFile, uploadTheme } from "@/features/settings/utils/theme-upload";
 import { useUIState } from "@/features/window/stores/ui-state.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import {
   CommandEmpty,
   CommandHeader,
@@ -66,6 +67,7 @@ export const ThemeSelectorContent = ({
   onThemeChange,
   currentTheme,
 }: ThemeSelectorContentProps) => {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [initialTheme, setInitialTheme] = useState(currentTheme);
@@ -211,7 +213,7 @@ export const ThemeSelectorContent = ({
     chooseThemeFile((file) => {
       void uploadTheme(file).then((result) => {
         if (!result.success || !result.theme) {
-          toast.error(result.error ?? "Failed to import theme", {
+          toast.error(result.error ?? t("commandPalette.failedToImportTheme"), {
             description: result.details?.slice(0, 4).join("\n"),
           });
           return;
@@ -219,8 +221,8 @@ export const ThemeSelectorContent = ({
 
         toast.success(
           result.themes?.length === 1
-            ? `Imported ${result.theme.name}`
-            : `Imported ${result.themes?.length ?? 0} theme variants`,
+            ? t("commandPalette.importedTheme", { name: result.theme.name })
+            : t("commandPalette.importedThemeVariants", { count: result.themes?.length ?? 0 }),
         );
         didCommitRef.current = true;
         onThemeChange(result.theme.id);
@@ -232,7 +234,7 @@ export const ThemeSelectorContent = ({
   return (
     <>
       <CommandHeader onClose={handleClose}>
-        <CommandHeaderAction type="button" onClick={handleBack} aria-label="Back to commands">
+        <CommandHeaderAction type="button" onClick={handleBack} aria-label={t("commandPalette.backToCommands")}>
           <CaretLeft />
         </CommandHeaderAction>
         <CommandInput
@@ -240,9 +242,9 @@ export const ThemeSelectorContent = ({
           value={query}
           onChange={setQuery}
           onKeyDown={handleKeyDown}
-          placeholder="Search themes..."
+          placeholder={t("commandPalette.searchThemes")}
         />
-        <CommandHeaderAction onClick={handleUploadTheme} aria-label="Upload theme">
+        <CommandHeaderAction onClick={handleUploadTheme} aria-label={t("commandPalette.uploadTheme")}>
           <Upload />
         </CommandHeaderAction>
         <CommandHeaderAction
@@ -250,7 +252,7 @@ export const ThemeSelectorContent = ({
             onClose();
             useUIState.getState().openSettingsDialog("appearance");
           }}
-          aria-label="Open appearance settings"
+          aria-label={t("commandPalette.openAppearanceSettings")}
         >
           <Settings />
         </CommandHeaderAction>
@@ -258,7 +260,7 @@ export const ThemeSelectorContent = ({
 
       <CommandList ref={resultsRef}>
         {filteredThemes.length === 0 ? (
-          <CommandEmpty>No themes found</CommandEmpty>
+          <CommandEmpty>{t("commandPalette.noThemes")}</CommandEmpty>
         ) : (
           filteredThemes.map((theme, index) => {
             const isSelected = index === selectedIndex;
@@ -279,7 +281,7 @@ export const ThemeSelectorContent = ({
                 isSelected={isSelected}
                 icon={theme.icon || <Moon />}
                 title={theme.name}
-                accessory={isCurrent ? <CommandItemBadge>Current</CommandItemBadge> : undefined}
+                accessory={isCurrent ? <CommandItemBadge>{t("commandPalette.current")}</CommandItemBadge> : undefined}
               />
             );
           })

@@ -2,6 +2,7 @@ import type { MouseEvent } from "react";
 import { ThemedFileIcon } from "@/extensions/icon-themes/components/themed-file-icon";
 import { writeSidebarResourceDragData } from "@/features/sidebar/utils/sidebar-resource-drag";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Checkbox } from "@/ui/checkbox";
 import { SidebarTreeRow } from "@/features/sidebar/components/sidebar-tree";
 import { cn } from "@/utils/cn";
@@ -41,6 +42,7 @@ export const GitFileItem = ({
   className,
   repoPath,
 }: GitFileItemProps) => {
+  const { t } = useTranslation();
   const compactGitStatusBadges = useSettingsStore((state) => state.settings.compactGitStatusBadges);
   const pathParts = file.path.split("/");
   const fileName = pathParts.pop() || file.path;
@@ -89,7 +91,11 @@ export const GitFileItem = ({
             onUnstage?.();
           }}
           disabled={disabled}
-          aria-label={file.staged ? `Unstage ${fileName}` : `Stage ${fileName}`}
+          aria-label={
+            file.staged
+              ? t("git.unstageFileNamed", { name: fileName })
+              : t("git.stageFileNamed", { name: fileName })
+          }
         />
       }
       draggable={!!repoPath}

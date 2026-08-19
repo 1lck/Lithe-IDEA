@@ -37,16 +37,21 @@ import { Spinner } from "@/ui/spinner";
 import { Empty, EmptyDescription, EmptyState } from "@/ui/empty";
 import { ScrollArea } from "@/ui/scroll-area";
 import { cn } from "@/utils/cn";
+import { useTranslation } from "@/i18n/locale-provider";
 import { GitHubSidebarRow, type GitHubSidebarPreviewBadge } from "./github-sidebar-row";
 import { GitHubSidebarSection } from "./github-sidebar-section";
 
-const getWorkflowRunStatus = (status?: string | null, conclusion?: string | null) => {
+const getWorkflowRunStatus = (
+  status: string | null | undefined,
+  conclusion: string | null | undefined,
+  t: (key: string, values?: Record<string, string | number>) => string,
+) => {
   const normalizedStatus = status?.toLowerCase() ?? "";
   const normalizedConclusion = conclusion?.toLowerCase() ?? "";
 
   if (normalizedConclusion === "success") {
     return {
-      label: "Success",
+      label: t("github.success"),
       icon: CheckCircle2,
       className: "text-success",
       animate: false,
@@ -59,7 +64,7 @@ const getWorkflowRunStatus = (status?: string | null, conclusion?: string | null
     normalizedConclusion === "startup_failure"
   ) {
     return {
-      label: "Failed",
+      label: t("github.failed"),
       icon: XCircle,
       className: "text-destructive",
       animate: false,
@@ -68,7 +73,7 @@ const getWorkflowRunStatus = (status?: string | null, conclusion?: string | null
 
   if (normalizedConclusion === "cancelled" || normalizedConclusion === "skipped") {
     return {
-      label: normalizedConclusion === "skipped" ? "Skipped" : "Cancelled",
+      label: normalizedConclusion === "skipped" ? t("github.skipped") : t("github.cancelled"),
       icon: XCircle,
       className: "text-subtle-foreground",
       animate: false,
@@ -81,7 +86,7 @@ const getWorkflowRunStatus = (status?: string | null, conclusion?: string | null
     normalizedStatus === "requested"
   ) {
     return {
-      label: "Running",
+      label: t("github.running"),
       icon: null,
       className: "text-primary",
       animate: true,
@@ -90,7 +95,7 @@ const getWorkflowRunStatus = (status?: string | null, conclusion?: string | null
 
   if (normalizedStatus === "queued" || normalizedStatus === "pending") {
     return {
-      label: "Queued",
+      label: t("github.queued"),
       icon: Clock,
       className: "text-warning",
       animate: false,
@@ -98,7 +103,7 @@ const getWorkflowRunStatus = (status?: string | null, conclusion?: string | null
   }
 
   return {
-    label: normalizedConclusion || normalizedStatus || "Unknown",
+    label: normalizedConclusion || normalizedStatus || t("github.unknown"),
     icon: Activity,
     className: "text-subtle-foreground",
     animate: false,
@@ -112,7 +117,8 @@ function WorkflowRunStatusIcon({
   status?: string | null;
   conclusion?: string | null;
 }) {
-  const state = getWorkflowRunStatus(status, conclusion);
+  const { t } = useTranslation();
+  const state = getWorkflowRunStatus(status, conclusion, t);
   const Icon = state.icon;
 
   return (
@@ -166,8 +172,9 @@ function getWorkflowRunBadgeTone(
 
 const WorkflowRunRow = memo(
   ({ run, isActive, onSelect, onPrefetch, repoPath }: WorkflowRunRowProps) => {
+    const { t } = useTranslation();
     const title = run.displayTitle || run.name || run.workflowName || `Run #${run.databaseId}`;
-    const status = getWorkflowRunStatus(run.status, run.conclusion);
+    const status = getWorkflowRunStatus(run.status, run.conclusion, t);
     const updatedLabel = run.updatedAt ? getTimeAgo(run.updatedAt) : null;
     const shortSha = run.headSha ? run.headSha.slice(0, 7) : null;
     const statusIcon = <WorkflowRunStatusIcon status={run.status} conclusion={run.conclusion} />;
@@ -222,15 +229,15 @@ const WorkflowRunRow = memo(
         trailing={updatedLabel}
         preview={{
           title,
-          subtitle: run.workflowName || `Run #${run.databaseId}`,
+          subtitle: run.workflowName || t("github.runNumber", { number: run.databaseId }),
           icon: statusIcon,
           badges,
           details: [
-            { label: "Updated", value: updatedLabel },
-            { label: "Workflow", value: run.workflowName, mono: true },
-            { label: "Branch", value: run.headBranch, mono: true },
-            { label: "Commit", value: shortSha, mono: true },
-            { label: "Run", value: `#${run.databaseId}`, mono: true },
+            { label: t("github.updated"), value: updatedLabel },
+            { label: t("github.workflow"), value: run.workflowName, mono: true },
+            { label: t("git.branch"), value: run.headBranch, mono: true },
+            { label: t("github.commit"), value: shortSha, mono: true },
+            { label: t("github.run"), value: `#${run.databaseId}`, mono: true },
           ],
         }}
       />
@@ -263,6 +270,7 @@ const GitHubActionsView = memo(
     const [runs, setRuns] = useState<WorkflowRunListItem[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const { t } = useTranslation();
     const deferredRuns = useDeferredValue(runs);
     const deferredSearchQuery = useDeferredValue(searchQuery);
 
@@ -270,7 +278,7 @@ const GitHubActionsView = memo(
       async (force = false) => {
         if (!repoPath) {
           setRuns([]);
-          setError("No repository selected.");
+          setError(t("github.noRepositorySelected"));
           setIsLoading(false);
           return;
         }
@@ -442,12 +450,12 @@ const GitHubActionsView = memo(
             </Empty>
           ) : isLoading && deferredRuns.length === 0 ? (
             <div className="flex items-center justify-center py-8">
-              <Spinner label="Loading workflow runs" showLabel compact />
+              <Spinner label={t("github.loadingWorkflowRuns")} showLabel compact />
             </div>
           ) : deferredRuns.length === 0 ? (
-            <EmptyState message="No workflow runs" />
+            <EmptyState message={t("github.noWorkflowRuns")} />
           ) : filteredRuns.length === 0 ? (
-            <EmptyState message="No matching workflow runs" />
+            <EmptyState message={t("github.noMatchingWorkflowRuns")} />
           ) : (
             <div className="space-y-1 overflow-x-hidden">
               {groupedRuns.map((group) => (
@@ -474,7 +482,7 @@ const GitHubActionsView = memo(
                               run.displayTitle ||
                               run.name ||
                               run.workflowName ||
-                              `Run #${run.databaseId}`,
+                              t("github.runNumber", { number: run.databaseId }),
                             url: run.url,
                           });
                         })

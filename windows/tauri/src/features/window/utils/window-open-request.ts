@@ -1,5 +1,7 @@
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { createTranslator } from "@/i18n/locale";
 
 export interface WindowOpenRequest {
   type?: "path" | "remote" | "web" | "terminal" | "settings";
@@ -21,15 +23,19 @@ interface PathInfo {
   is_dir: boolean;
 }
 
+const getCurrentTranslator = () =>
+  createTranslator(useSettingsStore.getState().settings.displayLanguage);
+
 function shouldConfirmTerminalCommand(request: WindowOpenRequest) {
   return request.type === "terminal" && request.source === "deepLink" && !!request.command;
 }
 
 function getTerminalCommandConfirmationMessage(request: WindowOpenRequest) {
-  const lines = ["Open a terminal and run this command?", "", request.command ?? ""];
+  const t = getCurrentTranslator();
+  const lines = [t("windowOpen.runTerminalCommandPrompt"), "", request.command ?? ""];
 
   if (request.workingDirectory) {
-    lines.push("", `Working directory: ${request.workingDirectory}`);
+    lines.push("", t("windowOpen.workingDirectory", { path: request.workingDirectory }));
   }
 
   return lines.join("\n");
@@ -59,7 +65,6 @@ function resolveWindowOpenPathTarget(isDirectoryRequest: boolean | undefined, pa
   if (isDirectoryRequest && !pathInfo.is_dir) {
     return {
       type: "invalid" as const,
-      message: "Path is not a folder.",
     };
   }
 
@@ -133,9 +138,10 @@ async function handleWindowOpenRequest(request: WindowOpenRequest) {
   if (request.type === "terminal") {
     if (shouldConfirmTerminalCommand(request)) {
       const { showConfirmDialog } = await import("@/ui/dialog");
+      const t = getCurrentTranslator();
       const confirmed = await showConfirmDialog(getTerminalCommandConfirmationMessage(request), {
-        title: "Run Terminal Command",
-        confirmLabel: "Run Command",
+        title: t("windowOpen.runTerminalCommandTitle"),
+        confirmLabel: t("windowOpen.runCommand"),
       });
       if (!confirmed) {
         return;
@@ -152,7 +158,7 @@ async function handleWindowOpenRequest(request: WindowOpenRequest) {
   if (request.type === "remote" && request.remoteConnectionId) {
     await handleOpenRemoteProject(
       request.remoteConnectionId,
-      request.remoteConnectionName ?? "Remote",
+      request.remoteConnectionName ?? getCurrentTranslator()("projectPicker.remote"),
     );
     return;
   }
@@ -175,12 +181,12 @@ async function handleWindowOpenRequest(request: WindowOpenRequest) {
     );
   } catch (error) {
     console.error("Failed to validate open path:", request.path, error);
-    toast.error(`Cannot open "${request.path}". Check that it exists and is accessible.`);
+    toast.error(getCurrentTranslator()("windowOpen.cannotOpenPath", { path: request.path }));
     return;
   }
 
   if (pathTarget.type === "invalid") {
-    toast.error(`${pathTarget.message} ${request.path}`);
+    toast.error(getCurrentTranslator()("windowOpen.pathIsNotFolder", { path: request.path }));
     return;
   }
 

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/ui/button";
 import Dialog from "@/ui/dialog";
 import { Field, FieldError, FieldLabel } from "@/ui/field";
+import { useTranslation } from "@/i18n/locale-provider";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/ui/input-group";
 import type { RemoteConnection } from "../types/remote.types";
 
@@ -19,6 +20,7 @@ const PasswordPromptDialog = ({
   onClose,
   onConnect,
 }: PasswordPromptDialogProps) => {
+  const { t } = useTranslation();
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -37,7 +39,7 @@ const PasswordPromptDialog = ({
 
   const handleConnect = async () => {
     if (!password.trim()) {
-      setErrorMessage("Password is required");
+      setErrorMessage(t("remote.passwordRequired"));
       return;
     }
 
@@ -52,21 +54,20 @@ const PasswordPromptDialog = ({
       let friendlyError = rawError;
 
       if (rawError.includes("Authentication failed") || rawError.includes("username/password")) {
-        friendlyError = "Incorrect username or password. Please try again.";
+        friendlyError = t("remote.incorrectUsernameOrPassword");
       } else if (rawError.includes("Connection refused") || rawError.includes("unreachable")) {
-        friendlyError = "Cannot connect to server. Check the host address and port.";
+        friendlyError = t("remote.cannotConnectToServer");
       } else if (rawError.includes("timeout")) {
-        friendlyError = "Connection timed out. The server may be unavailable.";
+        friendlyError = t("remote.connectionTimedOut");
       } else if (rawError.includes("Host key verification failed")) {
-        friendlyError =
-          "Host key verification failed. The server's identity could not be verified.";
+        friendlyError = t("remote.hostKeyVerificationFailed");
       } else if (rawError.includes("Permission denied")) {
-        friendlyError = "Permission denied. Check your username and password.";
+        friendlyError = t("remote.permissionDenied");
       } else if (rawError.includes("No route to host")) {
-        friendlyError = "Cannot reach the server. Check your network connection.";
+        friendlyError = t("remote.noRouteToHost");
       }
 
-      setErrorMessage(friendlyError || "Connection failed");
+      setErrorMessage(friendlyError || t("remote.connectionFailed"));
     } finally {
       setIsConnecting(false);
     }
@@ -75,28 +76,32 @@ const PasswordPromptDialog = ({
   return (
     <Dialog
       onClose={onClose}
-      title="Enter Password"
+      title={t("remote.enterPassword")}
       size="sm"
       footer={
         <>
           <Button onClick={onClose} variant="ghost" size="xs">
-            Cancel
+            {t("ui.cancel")}
           </Button>
           <Button onClick={handleConnect} disabled={!password.trim() || isConnecting} size="xs">
-            {isConnecting ? "Connecting..." : "Connect"}
+            {isConnecting ? t("projectPicker.connecting") : t("database.connect")}
           </Button>
         </>
       }
     >
       <div className="space-y-4">
         <p className="ui-text-sm text-subtle-foreground">
-          Enter the password for{" "}
-          <span className="font-medium text-foreground">{connection.name}</span> (
-          {connection.username}@{connection.host}:{connection.port})
+          {t("remote.enterPasswordForPrefix")}{" "}
+          <span className="font-medium text-foreground">{connection.name}</span>{" "}
+          {t("remote.enterPasswordForSuffix", {
+            user: connection.username,
+            host: connection.host,
+            port: connection.port,
+          })}
         </p>
 
         <Field data-invalid={Boolean(errorMessage)}>
-          <FieldLabel htmlFor="password-prompt">Password</FieldLabel>
+          <FieldLabel htmlFor="password-prompt">{t("database.password")}</FieldLabel>
           <InputGroup>
             <InputGroupInput
               id="password-prompt"
@@ -112,7 +117,7 @@ const PasswordPromptDialog = ({
                   void handleConnect();
                 }
               }}
-              placeholder="Enter password"
+              placeholder={t("remote.enterPassword")}
               autoFocus
               disabled={isConnecting}
             />
@@ -121,7 +126,7 @@ const PasswordPromptDialog = ({
                 type="button"
                 variant="ghost"
                 onClick={() => setShowPassword(!showPassword)}
-                tooltip={showPassword ? "Hide password" : "Show password"}
+                tooltip={showPassword ? t("remote.hidePassword") : t("remote.showPassword")}
                 size="icon-sm"
               >
                 {showPassword ? <EyeOff /> : <Eye />}

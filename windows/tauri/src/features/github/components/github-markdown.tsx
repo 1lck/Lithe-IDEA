@@ -5,6 +5,7 @@ import { memo, startTransition, useCallback, useEffect, useMemo, useState } from
 import { highlightMarkdownCodeBlocks } from "@/features/editor/markdown/code-highlight";
 import { parseMarkdown } from "@/features/editor/markdown/parser";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { isGitHubEntityLinkForRepository, parseGitHubEntityLink } from "../utils/github-link-utils";
 import { normalizeGitHubMarkdown } from "../utils/github-markdown-content";
 
@@ -55,11 +56,12 @@ function stripRedundantBreaks(html: string): string {
 // GitHub-flavored markdown renderer for PR descriptions and comments
 const GitHubMarkdown = memo(
   ({ content, className, contentClassName, repositoryUrl, repoPath }: GitHubMarkdownProps) => {
+    const { t } = useTranslation();
     const { openPRBuffer, openGitHubIssueBuffer, openGitHubActionBuffer } =
       useBufferStore.use.actions();
     const normalizedContent = useMemo(
-      () => normalizeGitHubMarkdown(content, repositoryUrl),
-      [content, repositoryUrl],
+      () => normalizeGitHubMarkdown(content, repositoryUrl, t("github.openAttachment")),
+      [content, repositoryUrl, t],
     );
     const [renderedHtml, setRenderedHtml] = useState<string | null>(() =>
       getRenderedMarkdownSnapshot(normalizedContent),

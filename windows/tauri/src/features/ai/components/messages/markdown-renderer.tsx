@@ -27,6 +27,7 @@ import {
 } from "@/features/editor/markdown/code-highlight";
 import { normalizeCodeFenceLanguage } from "@/features/editor/markdown/language-map";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Marker, MarkerContent, MarkerIcon } from "@/ui/marker";
 import { writeClipboardText } from "@/utils/clipboard";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
@@ -126,6 +127,7 @@ function CodeBlock({
   languageHint: string;
   onApplyCode?: (code: string, language?: string) => void;
 }) {
+  const { t } = useTranslation();
   const explicitLanguage = languageHint ? normalizeCodeFenceLanguage(languageHint) : "";
   const inferredLanguage = explicitLanguage || inferCodeLanguage(code);
   const languageLabel = explicitLanguage || (inferredLanguage !== "clike" ? inferredLanguage : "");
@@ -166,7 +168,7 @@ function CodeBlock({
                 variant="ghost"
                 className="rounded"
                 onClick={() => void copyTextToClipboard(code)}
-                tooltip="Copy code"
+                tooltip={t("ai.copyCode")}
                 size="icon"
               >
                 <Copy className="text-subtle-foreground" size={12} />
@@ -177,9 +179,9 @@ function CodeBlock({
                   variant="default"
                   onClick={() => onApplyCode(code)}
                   className="h-5 px-1.5 ui-text-sm"
-                  tooltip="Apply this code to current buffer"
+                  tooltip={t("ai.applyCodeToCurrentBuffer")}
                 >
-                  Apply
+                  {t("ai.apply")}
                 </Button>
               )}
             </div>
@@ -195,6 +197,7 @@ function CodeBlock({
 
 // Error Block Component
 function ErrorBlock({ errorData, chatId }: { errorData: string; chatId?: string | null }) {
+  const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
   const [isRestartingSession, setIsRestartingSession] = useState(false);
   const [isOpeningTerminal, setIsOpeningTerminal] = useState(false);
@@ -229,7 +232,7 @@ function ErrorBlock({ errorData, chatId }: { errorData: string; chatId?: string 
       .find((l) => l.startsWith("details:"))
       ?.replace("details:", "")
       .trim() || "";
-  const summary = title || message || "Error";
+  const summary = title || message || t("ai.error");
   const normalizedDetails = details && details !== message ? details : "";
   const isAuthRequired = code === "AUTH_REQUIRED";
   const isConfigurationRequired = code === "CONFIG_REQUIRED";
@@ -239,10 +242,10 @@ function ErrorBlock({ errorData, chatId }: { errorData: string; chatId?: string 
     setIsRestartingSession(true);
     try {
       await AcpStreamHandler.restartAgent(agentId, chatId);
-      toast.success("Agent session restarted");
+      toast.success(t("ai.agentSessionRestarted"));
     } catch (error) {
       console.error("Failed to restart ACP agent session:", error);
-      toast.error("Couldn't restart the agent session", {
+      toast.error(t("ai.couldNotRestartAgentSession"), {
         description: error instanceof Error ? error.message : String(error),
       });
     } finally {
@@ -257,12 +260,12 @@ function ErrorBlock({ errorData, chatId }: { errorData: string; chatId?: string 
       const command = getAcpAuthenticationCommand(agentId, agents);
       const bufferId = openTerminalBuffer({
         command: command ?? undefined,
-        name: command ?? "Agent setup",
+        name: command ?? t("ai.agentSetup"),
         workingDirectory: rootFolderPath ?? undefined,
       });
       setActiveBuffer(bufferId);
     } catch (error) {
-      toast.error("Couldn't open the agent terminal", {
+      toast.error(t("ai.couldNotOpenAgentTerminal"), {
         description: error instanceof Error ? error.message : String(error),
       });
     } finally {
@@ -287,7 +290,7 @@ function ErrorBlock({ errorData, chatId }: { errorData: string; chatId?: string 
               className="h-auto px-0 text-destructive/70 hover:bg-transparent hover:text-destructive"
             >
               {isExpanded ? <ChevronDown /> : <ChevronRight />}
-              {isExpanded ? "Hide details" : "Details"}
+              {isExpanded ? t("ai.hideDetails") : t("ai.details")}
             </Button>
           ) : null}
         </span>
@@ -304,7 +307,7 @@ function ErrorBlock({ errorData, chatId }: { errorData: string; chatId?: string 
               className="h-auto gap-1.5"
             >
               <Terminal size={12} />
-              {isRestartingSession ? "Restarting..." : "Restart Agent Session"}
+              {isRestartingSession ? t("ai.restarting") : t("ai.restartAgentSession")}
             </Button>
             <Button
               type="button"
@@ -314,12 +317,12 @@ function ErrorBlock({ errorData, chatId }: { errorData: string; chatId?: string 
               className="h-auto gap-1.5"
             >
               <Terminal size={12} />
-              {isOpeningTerminal ? "Opening..." : "Open Agent Terminal"}
+              {isOpeningTerminal ? t("ai.opening") : t("ai.openAgentTerminal")}
             </Button>
             <span className="text-destructive/70">
               {isConfigurationRequired
-                ? "Finish the agent setup, then restart the session."
-                : "Complete login in the agent CLI, then restart the session."}
+                ? t("ai.finishAgentSetupThenRestart")
+                : t("ai.completeLoginThenRestart")}
             </span>
           </span>
         )}

@@ -1,5 +1,6 @@
 import { Button } from "@/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/ui/dialog";
+import { useTranslation } from "@/i18n/locale-provider";
 import type { GitPullPreflight, PullStrategy } from "../types/git.types";
 
 interface GitPullStrategyDialogProps {
@@ -8,6 +9,8 @@ interface GitPullStrategyDialogProps {
 }
 
 const GitPullStrategyDialog = ({ preflight, onSelect }: GitPullStrategyDialogProps) => {
+  const { t } = useTranslation();
+
   if (!preflight) return null;
 
   return (
@@ -25,37 +28,35 @@ const GitPullStrategyDialog = ({ preflight, onSelect }: GitPullStrategyDialogPro
         data-testid="git-pull-strategy-dialog"
       >
         <DialogHeader className="px-4 pt-4">
-          <DialogTitle>Choose Pull Strategy</DialogTitle>
+          <DialogTitle>{t("git.choosePullStrategy")}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3 px-4 py-3 ui-text-sm">
           <p id="git-pull-strategy-description" className="text-subtle-foreground">
-            The current branch and{" "}
-            <span className="font-medium text-foreground">{preflight.upstream}</span> have diverged.
-            Choose how to reconcile them.
+            {t("git.pullDivergedMessage", { upstream: preflight.upstream ?? "" })}
           </p>
           <div className="grid grid-cols-2 gap-2">
             <div className="rounded-md border border-border bg-raised px-3 py-2">
-              <div className="text-xs text-subtle-foreground">Local ahead</div>
+              <div className="text-xs text-subtle-foreground">{t("git.localAhead")}</div>
               <div className="text-base font-semibold">{preflight.ahead}</div>
             </div>
             <div className="rounded-md border border-border bg-raised px-3 py-2">
-              <div className="text-xs text-subtle-foreground">Remote ahead</div>
+              <div className="text-xs text-subtle-foreground">{t("git.remoteAhead")}</div>
               <div className="text-base font-semibold">{preflight.behind}</div>
             </div>
           </div>
           <p className="text-xs text-subtle-foreground">
-            Merge creates a merge commit. Rebase replays local commits on the upstream branch.
+            {t("git.pullStrategyHint")}
           </p>
         </div>
         <DialogFooter>
           <Button autoFocus variant="ghost" size="xs" onClick={() => onSelect(null)}>
-            Cancel
+            {t("files.cancel")}
           </Button>
           <Button variant="default" size="xs" onClick={() => onSelect("rebase")}>
-            Rebase
+            {t("git.rebase")}
           </Button>
           <Button variant="accent" size="xs" onClick={() => onSelect("merge")}>
-            Merge
+            {t("git.merge")}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { getBufferById } from "@/features/editor/utils/buffer-index";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { getFileDiff } from "../api/git-diff-api";
 import { isGitChangeRelevant, subscribeToGitChanges } from "../events/git-events";
 import type { MultiFileDiff } from "../types/git-diff.types";
@@ -20,6 +21,7 @@ interface UseDiffDataReturn {
 }
 
 export const useDiffData = (): UseDiffDataReturn => {
+  const { t } = useTranslation();
   const activeBuffer = useBufferStore((state) => {
     if (!state.activeBufferId) return null;
     return getBufferById(state.buffers, state.activeBufferId);
@@ -111,7 +113,7 @@ export const useDiffData = (): UseDiffDataReturn => {
       }
     } catch (err) {
       console.error("Failed to refresh diff:", err);
-      setError(err instanceof Error ? err.message : "Failed to refresh diff");
+      setError(err instanceof Error ? err.message : t("git.diff.refreshFailed"));
     } finally {
       setIsLoading(false);
       isRefreshing.current = false;
@@ -125,6 +127,7 @@ export const useDiffData = (): UseDiffDataReturn => {
     updateBufferContent,
     closeBuffer,
     switchToView,
+    t,
   ]);
 
   useEffect(() => {

@@ -1,6 +1,7 @@
 import type { ForwardedRef, RefObject } from "react";
 import { forwardRef, useCallback, useState } from "react";
 import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
+import { useTranslation } from "@/i18n/locale-provider";
 import Input from "@/ui/input";
 import type { EditorModelPositionResolver } from "../view-model/view-layout";
 
@@ -33,6 +34,7 @@ const RenameInput = forwardRef(
     }: RenameInputProps,
     ref: ForwardedRef<HTMLDivElement>,
   ) => {
+    const { t } = useTranslation();
     const [value, setValue] = useState(symbol);
 
     const resolvedPosition = resolveModelPosition?.(line, column);
@@ -78,7 +80,7 @@ const RenameInput = forwardRef(
                 fontSize: `${fontSize}px`,
                 width: `${Math.max(value.length, symbol.length) * charWidth + 24}px`,
               }}
-              aria-label="Rename symbol"
+              aria-label={t("editor.renameSymbol")}
             />
           </div>
         </div>

@@ -346,7 +346,7 @@ export const SidebarPaneSelector = ({
 
   if (isVertical) {
     return (
-      <nav aria-label="Activity views" className="flex h-full w-full flex-col">
+      <nav aria-label={t("workbench.activityViews")} className="flex h-full w-full flex-col">
         <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
           {topItems.map(renderVerticalItem)}
         </div>
@@ -408,7 +408,7 @@ export const SidebarPaneSelector = ({
       <TabsList
         variant={compact ? "bare" : "default"}
         className={cn(!compact && "gap-0.5 p-1")}
-        aria-label="Sidebar views"
+        aria-label={t("workbench.activityViews")}
       >
         {renderedItems.map((item) => (
           <span key={item.id} className="contents">

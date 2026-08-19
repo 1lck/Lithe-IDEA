@@ -15,6 +15,7 @@ $windowsApp = Join-Path $root "windows/tauri"
 $output = Join-Path $root $OutputDirectory
 $versionConfig = Join-Path $env:RUNNER_TEMP "lithe-tauri-version.json"
 
+& (Join-Path $root "scripts/prepare-jdtls.ps1") | Out-Null
 @{ version = $Version } | ConvertTo-Json | Set-Content -Encoding utf8 $versionConfig
 Set-Location $windowsApp
 & bun install --frozen-lockfile
@@ -23,6 +24,7 @@ if ($LASTEXITCODE -ne 0) { throw "Windows frontend dependency installation faile
 $tauriArgs = @(
     "tauri", "build",
     "--config", "src-tauri/tauri.windows.conf.json",
+    "--config", "src-tauri/tauri.jdtls.conf.json",
     "--config", $versionConfig,
     "--bundles", "nsis"
 )

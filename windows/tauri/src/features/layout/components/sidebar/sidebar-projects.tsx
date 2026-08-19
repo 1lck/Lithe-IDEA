@@ -20,9 +20,10 @@ import {
 } from "@/ui/icons";
 import { writeClipboardText } from "@/utils/clipboard";
 import { cn } from "@/utils/cn";
+import { useTranslation } from "@/i18n/locale-provider";
 
-export function getProjectNameFromPath(path?: string) {
-  if (!path) return "Open Project";
+export function getProjectNameFromPath(path?: string, fallback = "Open Project") {
+  if (!path) return fallback;
   const parts = path.split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] || path;
 }
@@ -42,6 +43,7 @@ export function SidebarProjectDots({
   isSwitchingProject: boolean;
   onSelectProject: (projectId: string) => void;
 }) {
+  const { t } = useTranslation();
   const closeProject = useFileSystemStore((state) => state.closeProject);
   const [iconPickerProject, setIconPickerProject] = useState<ProjectTab | null>(null);
 
@@ -63,7 +65,11 @@ export function SidebarProjectDots({
                   "group pointer-events-auto flex size-4 shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
                   isSwitchingProject && "cursor-default",
                 )}
-                aria-label={`${isActive ? "Current project" : "Switch to"} ${project.name}`}
+                aria-label={
+                  isActive
+                    ? t("titleProject.currentProject", { project: project.name })
+                    : t("titleProject.switchToProject", { project: project.name })
+                }
                 aria-current={isActive ? "page" : undefined}
                 aria-disabled={isSwitchingProject}
                 onContextMenu={(event) => event.stopPropagation()}
@@ -92,11 +98,11 @@ export function SidebarProjectDots({
                   onClick={() => onSelectProject(project.id)}
                 >
                   <OpenExternalIcon />
-                  Switch to Project
+                  {t("titleProject.switchToProjectMenu")}
                 </ContextMenuItem>
                 <ContextMenuItem onClick={() => void writeClipboardText(project.path)}>
                   <CopyIcon />
-                  Copy Path
+                  {t("files.copyPath")}
                 </ContextMenuItem>
                 {!isRemote ? (
                   <ContextMenuItem
@@ -105,7 +111,7 @@ export function SidebarProjectDots({
                     }
                   >
                     <FolderOpenIcon />
-                    Reveal in Finder
+                    {t("files.reveal")}
                   </ContextMenuItem>
                 ) : null}
                 <ContextMenuItem
@@ -124,12 +130,12 @@ export function SidebarProjectDots({
                   }}
                 >
                   <WindowExpandIcon />
-                  Open in New Window
+                  {t("titleProject.openInNewWindow")}
                 </ContextMenuItem>
                 {!isRemote ? (
                   <ContextMenuItem onClick={() => setIconPickerProject(project)}>
                     <ImageIcon />
-                    Select Icon
+                    {t("titleProject.selectIcon")}
                   </ContextMenuItem>
                 ) : null}
                 <ContextMenuSeparator />
@@ -138,7 +144,7 @@ export function SidebarProjectDots({
                   onClick={() => void closeProject(project.id)}
                 >
                   <TrashIcon />
-                  Remove Project
+                  {t("titleProject.removeProject")}
                 </ContextMenuItem>
               </ContextMenuContent>
             </ContextMenu>

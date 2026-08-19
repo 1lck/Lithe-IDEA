@@ -1,6 +1,7 @@
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import { SEARCH_TOGGLE_ICONS, SearchPopover } from "@/ui/search";
+import { useTranslation } from "@/i18n/locale-provider";
 
 export interface TerminalSearchOptions {
   caseSensitive: boolean;
@@ -27,6 +28,7 @@ export const TerminalSearch: React.FC<TerminalSearchProps> = ({
   currentMatch,
   totalMatches,
 }) => {
+  const { t } = useTranslation();
   const [searchTerm, setSearchTerm] = useState("");
   const [searchOptions, setSearchOptions] = useState<TerminalSearchOptions>({
     caseSensitive: false,
@@ -88,7 +90,7 @@ export const TerminalSearch: React.FC<TerminalSearchProps> = ({
         }}
         onKeyDown={handleKeyDown}
         onClose={onClose}
-        placeholder="Find in terminal..."
+        placeholder={t("terminal.searchPlaceholder")}
         inputRef={inputRef}
         matchLabel={
           searchTerm ? (totalMatches > 0 ? `${currentMatch}/${totalMatches}` : "0/0") : null
@@ -99,21 +101,21 @@ export const TerminalSearch: React.FC<TerminalSearchProps> = ({
         options={[
           {
             id: "case-sensitive",
-            label: "Match case",
+            label: t("terminal.searchMatchCase"),
             icon: SEARCH_TOGGLE_ICONS.caseSensitive,
             active: searchOptions.caseSensitive,
             onToggle: () => toggleOption("caseSensitive"),
           },
           {
             id: "whole-word",
-            label: "Match whole word",
+            label: t("terminal.searchMatchWholeWord"),
             icon: SEARCH_TOGGLE_ICONS.wholeWord,
             active: searchOptions.wholeWord,
             onToggle: () => toggleOption("wholeWord"),
           },
           {
             id: "regex",
-            label: "Use regular expression",
+            label: t("terminal.searchUseRegex"),
             icon: SEARCH_TOGGLE_ICONS.regex,
             active: searchOptions.regex,
             onToggle: () => toggleOption("regex"),

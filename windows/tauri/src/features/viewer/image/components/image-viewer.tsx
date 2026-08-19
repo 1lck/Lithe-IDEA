@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useResizeObserver } from "@/features/panes/hooks/use-resize-observer";
+import { useTranslation } from "@/i18n/locale-provider";
 import { ViewerFooter } from "@/features/viewer/components/viewer-footer";
 import { ViewerHeader } from "@/features/viewer/components/viewer-header";
 import { ViewerLayout } from "@/features/viewer/components/viewer-layout";
@@ -38,6 +39,7 @@ interface ImageViewerProps {
 }
 
 export function ImageViewer({ filePath, fileName, bufferId, onClose }: ImageViewerProps) {
+  const { t } = useTranslation();
   const { zoom, zoomIn, zoomOut, setZoom, handleWheel } = useViewerZoom({ maxZoom: 5 });
   const [initialImageSrc, setInitialImageSrc] = useState<string>("");
   const [showResizeDialog, setShowResizeDialog] = useState(false);
@@ -275,7 +277,7 @@ export function ImageViewer({ filePath, fileName, bufferId, onClose }: ImageView
               <Button
                 onClick={handleClose}
                 variant="ghost"
-                tooltip="Close image viewer"
+                tooltip={t("viewer.closeImageViewer")}
                 size="icon-xs"
               >
                 <X />
@@ -308,7 +310,7 @@ export function ImageViewer({ filePath, fileName, bufferId, onClose }: ImageView
             draggable={false}
           />
         ) : (
-          <ViewerLoadingState label="Loading image" className="p-8" />
+          <ViewerLoadingState label={t("viewer.loadingImage")} className="p-8" />
         )}
       </div>
 
@@ -317,17 +319,19 @@ export function ImageViewer({ filePath, fileName, bufferId, onClose }: ImageView
         <ViewerFooter
           endContent={
             <span className="truncate" title={relativePath}>
-              Path: {relativePath}
+              {t("viewer.path")}: {relativePath}
             </span>
           }
         >
-          <span>Zoom: {Math.round(zoom * 100)}%</span>
-          {fileExt ? <span>Type: {fileExt}</span> : null}
+          <span>
+            {t("viewer.zoom")}: {Math.round(zoom * 100)}%
+          </span>
+          {fileExt ? <span>{t("viewer.type")}: {fileExt}</span> : null}
           <span>
             {imageDimensions.width} × {imageDimensions.height}px
           </span>
           <span className="flex items-center gap-1">
-            Size: {formatFileSize(currentSize)}
+            {t("viewer.size")}: {formatFileSize(currentSize)}
             {imageOperations.hasChanges && originalSize !== currentSize && (
               <span className="flex items-center gap-0.5 text-primary">
                 (

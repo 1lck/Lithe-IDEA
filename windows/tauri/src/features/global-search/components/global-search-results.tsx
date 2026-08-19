@@ -1,4 +1,5 @@
 import type { RefObject } from "react";
+import { useTranslation } from "@/i18n/locale-provider";
 import {
   FileNavigatorSidebar,
   type FileNavigatorItem,
@@ -51,13 +52,15 @@ export function GlobalSearchResults({
   totalMatches,
   hasMoreResults,
 }: GlobalSearchResultsProps) {
+  const { t } = useTranslation();
+
   return (
     <div className="flex h-full min-h-0 overflow-hidden">
       <FileNavigatorSidebar
         items={fileNavigatorItems}
         selectedKey={selectedFileNavigatorKey}
         onSelect={onFileNavigatorSelect}
-        ariaLabel="Search result files"
+        ariaLabel={t("fileNavigator.searchResultFiles")}
         viewMode={fileNavigatorViewMode}
         onViewModeChange={onFileNavigatorViewModeChange}
         surface="inset"

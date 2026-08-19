@@ -13,6 +13,7 @@ interface FrontMatterEntry {
 
 export interface ParseMarkdownOptions {
   frontMatter?: "preserve" | "render" | "strip";
+  frontMatterLabel?: string;
 }
 
 function escapeHtml(text: string): string {
@@ -139,7 +140,7 @@ function parseFrontMatterEntries(frontMatter: string[]): FrontMatterEntry[] {
   return entries;
 }
 
-function renderFrontMatter(frontMatter: string[]): string | null {
+function renderFrontMatter(frontMatter: string[], label: string): string | null {
   const entries = parseFrontMatterEntries(frontMatter);
   if (entries.length === 0) return null;
 
@@ -164,7 +165,7 @@ function renderFrontMatter(frontMatter: string[]): string | null {
     .join("");
 
   const propertyGrid = rows ? `<dl class="markdown-front-matter-grid">${rows}</dl>` : "";
-  return `<section class="markdown-front-matter" aria-label="Document properties">${headerParts}${propertyGrid}</section>`;
+  return `<section class="markdown-front-matter" aria-label="${escapeHtml(label)}">${headerParts}${propertyGrid}</section>`;
 }
 
 export function parseMarkdown(content: string, options: ParseMarkdownOptions = {}): string {
@@ -330,7 +331,10 @@ export function parseMarkdown(content: string, options: ParseMarkdownOptions = {
   }
 
   if (frontMatterMode === "render") {
-    const frontMatterHtml = renderFrontMatter(frontMatter);
+    const frontMatterHtml = renderFrontMatter(
+      frontMatter,
+      options.frontMatterLabel ?? "Document properties",
+    );
     if (frontMatterHtml) {
       processedLines.unshift(frontMatterHtml);
     }

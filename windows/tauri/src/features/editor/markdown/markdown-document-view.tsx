@@ -1,11 +1,13 @@
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { GitHubMarkdownEditor } from "@/features/github/components/github-markdown-editor";
+import { useTranslation } from "@/i18n/locale-provider";
 
 interface MarkdownDocumentViewProps {
   bufferId: string;
 }
 
 export function MarkdownDocumentView({ bufferId }: MarkdownDocumentViewProps) {
+  const { t } = useTranslation();
   const buffer = useBufferStore((state) => {
     const candidate = state.buffers.find((item) => item.id === bufferId);
     return candidate?.type === "markdownDocument" ? candidate : null;
@@ -20,7 +22,7 @@ export function MarkdownDocumentView({ bufferId }: MarkdownDocumentViewProps) {
         <GitHubMarkdownEditor
           value={buffer.content}
           onChange={(content) => updateBuffer({ ...buffer, content })}
-          placeholder="Start writing, or type / for commands..."
+          placeholder={t("markdownDocument.placeholder")}
           minHeight={560}
           autoFocus
         />

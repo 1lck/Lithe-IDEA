@@ -26,6 +26,7 @@ import { getProjectNameFromPath } from "@/features/layout/components/sidebar/sid
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useTerminalTabsStore } from "@/features/terminal/stores/terminal-tabs.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -85,14 +86,15 @@ function SidebarNewAgentButton({
   iconOnly?: boolean;
   compact?: boolean;
 }) {
+  const { t } = useTranslation();
   const handleNewAgent = useNewAgentAction(onCreate);
 
   if (compact) {
     return (
       <SidebarHeaderIconButton
-        tooltip="New Agent"
+        tooltip={t("ai.newAgent")}
         tooltipSide="right"
-        aria-label="New Agent"
+        aria-label={t("ai.newAgent")}
         onClick={handleNewAgent}
       >
         <PlusIcon />
@@ -105,9 +107,9 @@ function SidebarNewAgentButton({
       leading={<PlusIcon className="size-4" />}
       iconOnly={iconOnly}
       onClick={handleNewAgent}
-      aria-label="New Agent"
+      aria-label={t("ai.newAgent")}
     >
-      New Agent
+      {t("ai.newAgent")}
     </SidebarListItem>
   );
 }
@@ -139,6 +141,7 @@ function SidebarAgentHistoryRow({
   onArchive,
   onDelete,
 }: SidebarAgentHistoryRowProps) {
+  const { t } = useTranslation();
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(chat.title);
 
@@ -153,7 +156,7 @@ function SidebarAgentHistoryRow({
             setIsRenaming(false);
           }}
           onCancel={() => setIsRenaming(false)}
-          aria-label={`Rename ${chat.title}`}
+          aria-label={t("ai.renameSession", { title: chat.title })}
         />
       </SidebarListEditor>
     );
@@ -181,10 +184,13 @@ function SidebarAgentHistoryRow({
               ? getModelById(chat.providerId || aiProviderId, chat.modelId || aiModelId)?.name ||
                 chat.modelId ||
                 aiModelId
-              : chat.modelId || "Agent default"
+              : chat.modelId || t("ai.agentDefault")
           }
           createdAt={chat.createdAt}
-          projectName={getProjectNameFromPath(chat.workspacePath || workspacePath || "")}
+          projectName={getProjectNameFromPath(
+            chat.workspacePath || workspacePath || "",
+            t("welcome.openProject"),
+          )}
           workspacePath={chat.workspacePath || workspacePath}
           branch={chat.branch || currentBranch}
           onOpen={() => onOpen(chat.id)}
@@ -195,7 +201,7 @@ function SidebarAgentHistoryRow({
       <ContextMenuContent>
         <ContextMenuItem onClick={() => onOpen(chat.id)}>
           <OpenExternalIcon />
-          Open
+          {t("ui.open")}
         </ContextMenuItem>
         <ContextMenuItem
           onClick={() => {
@@ -204,19 +210,19 @@ function SidebarAgentHistoryRow({
           }}
         >
           <PencilSimpleLineIcon />
-          Rename
+          {t("ui.rename")}
         </ContextMenuItem>
         <ContextMenuItem onClick={() => onPinChange(chat.id, !chat.isPinned)}>
           {chat.isPinned ? <PushPinSlashIcon /> : <PushPinIcon />}
-          {chat.isPinned ? "Unpin" : "Pin"}
+          {chat.isPinned ? t("ui.unpin") : t("ui.pin")}
         </ContextMenuItem>
         <ContextMenuItem onClick={() => onArchive(chat.id)}>
           <ArchiveIcon />
-          Archive
+          {t("ui.archive")}
         </ContextMenuItem>
         <ContextMenuItem variant="destructive" onClick={() => onDelete(chat.id)}>
           <TrashIcon />
-          Delete
+          {t("ui.delete")}
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
@@ -230,6 +236,7 @@ export function SidebarAgentHistory({
   expanded: boolean;
   workspacePath: string | null;
 }) {
+  const { t } = useTranslation();
   const chats = useAIChatStore((state) => state.chats);
   const currentChatId = useAIChatStore((state) => state.currentChatId);
   const deleteChat = useAIChatStore((state) => state.actions.deleteChat);
@@ -284,7 +291,7 @@ export function SidebarAgentHistory({
           onToggle={toggleCollapsed}
           className={visibleChats.length > 0 ? "pr-8" : undefined}
         >
-          Agents
+          {t("ai.agents")}
         </SidebarSectionHeader>
         {visibleChats.length > 0 ? (
           <span className="absolute top-0 right-1 flex h-(--lithe-tab-height) items-center">
@@ -316,7 +323,7 @@ export function SidebarAgentHistory({
               leading={<DotsThreeIcon className="size-4" />}
               onClick={handleShowMoreAgents}
             >
-              More
+              {t("ui.more")}
             </SidebarListItem>
           ) : null}
           <Dropdown
@@ -343,6 +350,7 @@ export function SidebarPinnedItems({
   showAgents: boolean;
   showTerminals: boolean;
 }) {
+  const { t } = useTranslation();
   const chats = useAIChatStore((state) => state.chats);
   const currentChatId = useAIChatStore((state) => state.currentChatId);
   const deleteChat = useAIChatStore((state) => state.actions.deleteChat);
@@ -405,7 +413,7 @@ export function SidebarPinnedItems({
 
   return (
     <div className="mt-3 w-full">
-      <SidebarSectionLabel>Pinned</SidebarSectionLabel>
+      <SidebarSectionLabel>{t("layout.pinned")}</SidebarSectionLabel>
       {pinnedChats.map((chat) => (
         <SidebarAgentHistoryRow
           key={`agent-${chat.id}`}
@@ -440,7 +448,7 @@ export function SidebarPinnedItems({
           <ContextMenuContent>
             <ContextMenuItem onClick={() => handleOpenPanelTerminal(terminal.id)}>
               <OpenExternalIcon />
-              Open
+              {t("ui.open")}
             </ContextMenuItem>
             <ContextMenuItem
               onClick={() =>
@@ -451,7 +459,7 @@ export function SidebarPinnedItems({
               }
             >
               <PushPinSlashIcon />
-              Unpin
+              {t("ui.unpin")}
             </ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>
@@ -470,11 +478,11 @@ export function SidebarPinnedItems({
           <ContextMenuContent>
             <ContextMenuItem onClick={() => setActiveBuffer(terminal.id)}>
               <OpenExternalIcon />
-              Open
+              {t("ui.open")}
             </ContextMenuItem>
             <ContextMenuItem onClick={() => handleTabPin(terminal.id)}>
               <PushPinSlashIcon />
-              Unpin
+              {t("ui.unpin")}
             </ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>
@@ -484,6 +492,7 @@ export function SidebarPinnedItems({
 }
 
 export function SidebarTerminalHistory({ expanded }: { expanded: boolean }) {
+  const { t } = useTranslation();
   const buffers = useBufferStore((state) => state.buffers);
   const activeBufferId = useBufferStore((state) => state.activeBufferId);
   const setActiveBuffer = useBufferStore.use.actions().setActiveBuffer;
@@ -533,9 +542,9 @@ export function SidebarTerminalHistory({ expanded }: { expanded: boolean }) {
           else if (terminalBuffers[0]) setActiveBuffer(terminalBuffers[0].id);
           else handleNewTerminal();
         }}
-        aria-label="Terminals"
+        aria-label={t("terminal.terminals")}
       >
-        Terminals
+        {t("terminal.terminals")}
       </SidebarListItem>
     );
   }
@@ -548,15 +557,15 @@ export function SidebarTerminalHistory({ expanded }: { expanded: boolean }) {
           onToggle={toggleCollapsed}
           className={terminalCount > 0 ? "pr-8" : undefined}
         >
-          Terminals
+          {t("terminal.terminals")}
         </SidebarSectionHeader>
         {terminalCount > 0 ? (
           <span className="absolute top-0 right-1 flex h-(--lithe-tab-height) items-center">
             <SidebarHeaderIconButton
-              tooltip="New Terminal"
+              tooltip={t("terminal.newTerminal")}
               tooltipSide="right"
               commandId="terminal.new"
-              aria-label="New Terminal"
+              aria-label={t("terminal.newTerminal")}
               onClick={handleNewTerminal}
             >
               <PlusIcon />
@@ -569,10 +578,10 @@ export function SidebarTerminalHistory({ expanded }: { expanded: boolean }) {
           {terminalCount === 0 ? (
             <SidebarListItem
               leading={<PlusIcon className="size-4" />}
-              aria-label="New Terminal"
+              aria-label={t("terminal.newTerminal")}
               onClick={handleNewTerminal}
             >
-              New Terminal
+              {t("terminal.newTerminal")}
             </SidebarListItem>
           ) : null}
           {regularPanelTerminals.map((terminal) => (
@@ -614,6 +623,7 @@ export function SidebarWorktreeHistory({
   repoPath: string | null;
   onNewWorktree: () => void;
 }) {
+  const { t } = useTranslation();
   const [worktrees, setWorktrees] = useState<GitWorktree[]>([]);
   const { isCollapsed, toggleCollapsed } = useActivityRailSectionCollapse("worktrees");
   const openableWorktrees = useMemo(() => worktrees.filter(isOpenableGitWorktree), [worktrees]);
@@ -648,9 +658,9 @@ export function SidebarWorktreeHistory({
         leading={<NodesIcon className="size-4" />}
         iconOnly
         onClick={onNewWorktree}
-        aria-label="Worktrees"
+        aria-label={t("git.worktrees")}
       >
-        Worktrees
+        {t("git.worktrees")}
       </SidebarListItem>
     );
   }
@@ -663,14 +673,14 @@ export function SidebarWorktreeHistory({
           onToggle={toggleCollapsed}
           className={openableWorktrees.length > 0 ? "pr-8" : undefined}
         >
-          Worktrees
+          {t("git.worktrees")}
         </SidebarSectionHeader>
         {openableWorktrees.length > 0 ? (
           <span className="absolute top-0 right-1 flex h-(--lithe-tab-height) items-center">
             <SidebarHeaderIconButton
-              tooltip="New Worktree"
+              tooltip={t("git.newWorktree")}
               tooltipSide="right"
-              aria-label="New Worktree"
+              aria-label={t("git.newWorktree")}
               onClick={onNewWorktree}
             >
               <PlusIcon />
@@ -684,9 +694,9 @@ export function SidebarWorktreeHistory({
             <SidebarListItem
               leading={<PlusIcon className="size-4" />}
               onClick={onNewWorktree}
-              aria-label="New Worktree"
+              aria-label={t("git.newWorktree")}
             >
-              New Worktree
+              {t("git.newWorktree")}
             </SidebarListItem>
           ) : null}
           {openableWorktrees.map((worktree) => (

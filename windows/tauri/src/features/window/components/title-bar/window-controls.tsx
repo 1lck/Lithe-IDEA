@@ -6,6 +6,7 @@ import {
   XIcon as X,
 } from "@/ui/icons";
 import { requestWindowClose } from "@/features/window/utils/request-window-close";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import { ChromeGroup } from "@/ui/chrome";
 
@@ -20,6 +21,7 @@ export function WindowControls({
   isMaximized,
   onMaximizedChange,
 }: WindowControlsProps) {
+  const { t } = useTranslation();
   const handleMinimize = async () => {
     try {
       await currentWindow?.minimize();
@@ -51,9 +53,9 @@ export function WindowControls({
         variant="ghost"
         className="pointer-events-auto"
         size="icon-xs"
-        tooltip="Minimize"
+        tooltip={t("window.minimize")}
         tooltipSide="bottom"
-        aria-label="Minimize"
+        aria-label={t("window.minimize")}
       >
         <Minus weight="bold" />
       </Button>
@@ -62,9 +64,9 @@ export function WindowControls({
         variant="ghost"
         className="pointer-events-auto"
         size="icon-xs"
-        tooltip={isMaximized ? "Restore" : "Maximize"}
+        tooltip={isMaximized ? t("window.restore") : t("window.maximize")}
         tooltipSide="bottom"
-        aria-label={isMaximized ? "Restore" : "Maximize"}
+        aria-label={isMaximized ? t("window.restore") : t("window.maximize")}
       >
         {isMaximized ? <CornersIn weight="duotone" /> : <CornersOut weight="duotone" />}
       </Button>
@@ -73,9 +75,9 @@ export function WindowControls({
         variant="danger"
         className="pointer-events-auto group hover:text-white"
         size="icon-xs"
-        tooltip="Close"
+        tooltip={t("window.close")}
         tooltipSide="bottom"
-        aria-label="Close"
+        aria-label={t("window.close")}
       >
         <X weight="bold" />
       </Button>

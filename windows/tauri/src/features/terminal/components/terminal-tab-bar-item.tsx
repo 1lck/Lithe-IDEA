@@ -4,6 +4,7 @@ import type { Terminal } from "@/features/terminal/types/terminal.types";
 import { Button } from "@/ui/button";
 import { InlineRenameInput } from "@/ui/input";
 import { TabBarTab } from "@/ui/tab-bar";
+import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
 
 interface TerminalTabBarItemProps {
@@ -45,6 +46,7 @@ const TerminalTabBarItem = memo(function TerminalTabBarItem({
   onRenameSubmit,
   onRenameCancel,
 }: TerminalTabBarItemProps) {
+  const { t } = useTranslation();
   const handleAuxClick = useCallback(
     (e: React.MouseEvent) => {
       // Only handle middle click here
@@ -73,7 +75,7 @@ const TerminalTabBarItem = memo(function TerminalTabBarItem({
         ref={tabRef}
         role="tab"
         aria-selected={isActive}
-        aria-label={`${terminal.name}${terminal.isPinned ? " (pinned)" : ""}`}
+        aria-label={`${terminal.name}${terminal.isPinned ? t("terminal.tabAriaPinned") : ""}`}
         tabIndex={isActive ? 0 : -1}
         isActive={isActive}
         isDragged={isDraggedTab}
@@ -103,7 +105,11 @@ const TerminalTabBarItem = memo(function TerminalTabBarItem({
                   ? "opacity-100"
                   : "opacity-0 group-hover/tab:opacity-100",
               )}
-              tooltip={terminal.isPinned ? "Unpin terminal" : `Close ${terminal.name}`}
+              tooltip={
+                terminal.isPinned
+                  ? t("terminal.tabUnpin")
+                  : t("terminal.tabClose", { name: terminal.name })
+              }
               commandId={terminal.isPinned ? undefined : "terminal.close"}
               tabIndex={-1}
               draggable={false}
@@ -131,8 +137,8 @@ const TerminalTabBarItem = memo(function TerminalTabBarItem({
             tone={isActive ? "default" : "muted"}
             width="content"
             className="min-w-0 max-w-full text-left"
-            placeholder="Terminal name"
-            aria-label={`Rename ${displayName}`}
+            placeholder={t("terminal.tabNamePlaceholder")}
+            aria-label={t("terminal.tabRenameAria", { name: displayName })}
             spellCheck={false}
           />
         ) : (

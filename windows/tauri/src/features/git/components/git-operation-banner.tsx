@@ -11,20 +11,7 @@ import {
 import { useGitStore } from "../stores/git.store";
 import { cn } from "@/utils/cn";
 import type { GitOperationKind } from "../types/git.types";
-
-const IN_PROGRESS_TITLES: Record<GitOperationKind, string> = {
-  merge: "Merge in progress",
-  rebase: "Rebase in progress",
-  cherryPick: "Cherry-pick in progress",
-  revert: "Revert in progress",
-};
-
-const CONTINUE_TITLES: Record<GitOperationKind, string> = {
-  merge: "Continue Merge",
-  rebase: "Continue Rebase",
-  cherryPick: "Continue Cherry-pick",
-  revert: "Continue Revert",
-};
+import { useTranslation } from "@/i18n/locale-provider";
 
 interface GitOperationBannerProps {
   repoPath: string;
@@ -36,6 +23,7 @@ interface GitOperationBannerProps {
  * while the user edits conflicted files, mirroring the macOS sidebar banner.
  */
 const GitOperationBanner = ({ repoPath }: GitOperationBannerProps) => {
+  const { t } = useTranslation();
   const operation = useGitStore((state) => state.operationState);
 
   const [isResolving, setIsResolving] = useState(false);
@@ -51,7 +39,7 @@ const GitOperationBanner = ({ repoPath }: GitOperationBannerProps) => {
           toast.error(result.message);
         }
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Git operation failed");
+        toast.error(error instanceof Error ? error.message : t("git.operationFailed"));
       } finally {
         setIsResolving(false);
       }
@@ -65,6 +53,18 @@ const GitOperationBanner = ({ repoPath }: GitOperationBannerProps) => {
 
   const hasConflicts = operation.conflictedPaths.length > 0;
   const hasProgress = operation.step != null && operation.total != null;
+  const inProgressTitles: Record<GitOperationKind, string> = {
+    merge: t("git.mergeInProgress"),
+    rebase: t("git.rebaseInProgress"),
+    cherryPick: t("git.cherryPickInProgress"),
+    revert: t("git.revertInProgress"),
+  };
+  const continueTitles: Record<GitOperationKind, string> = {
+    merge: t("git.continueMerge"),
+    rebase: t("git.continueRebase"),
+    cherryPick: t("git.continueCherryPick"),
+    revert: t("git.continueRevert"),
+  };
 
   return (
     <div
@@ -74,7 +74,7 @@ const GitOperationBanner = ({ repoPath }: GitOperationBannerProps) => {
     >
       <div className="flex items-center gap-2">
         <WarningIcon className="size-3.5 shrink-0 text-git-modified" />
-        <span className="text-xs font-semibold">{IN_PROGRESS_TITLES[operation.kind]}</span>
+        <span className="text-xs font-semibold">{inProgressTitles[operation.kind]}</span>
         {operation.reference ? (
           <span className="truncate text-xs text-subtle-foreground">
             — {operation.reference.slice(0, 7)}
@@ -83,14 +83,23 @@ const GitOperationBanner = ({ repoPath }: GitOperationBannerProps) => {
       </div>
 
       <div className="text-xs leading-relaxed text-subtle-foreground">
-        {hasProgress ? <span>Step {operation.step} of {operation.total}. </span> : null}
+        {hasProgress ? (
+          <span>
+            {t("git.operationStep", {
+              step: operation.step ?? 0,
+              total: operation.total ?? 0,
+            })}{" "}
+          </span>
+        ) : null}
         {hasConflicts ? (
           <span>
-            Resolve {operation.conflictedPaths.length} conflicted file
-            {operation.conflictedPaths.length === 1 ? "" : "s"}, stage them, then continue.
+            {t("git.resolveConflicts", {
+              count: operation.conflictedPaths.length,
+              plural: operation.conflictedPaths.length === 1 ? "" : "s",
+            })}
           </span>
         ) : (
-          <span>All conflicts resolved. Continue to finish, or abort to undo.</span>
+          <span>{t("git.conflictsResolved")}</span>
         )}
       </div>
 
@@ -102,7 +111,7 @@ const GitOperationBanner = ({ repoPath }: GitOperationBannerProps) => {
           onClick={() => void resolve(continueOperation)}
           className="h-6 px-2 text-xs"
         >
-          {CONTINUE_TITLES[operation.kind]}
+          {continueTitles[operation.kind]}
         </Button>
         {operation.kind === "rebase" ? (
           <Button
@@ -112,7 +121,7 @@ const GitOperationBanner = ({ repoPath }: GitOperationBannerProps) => {
             onClick={() => void resolve(skipOperationStep)}
             className="h-6 px-2 text-xs"
           >
-            Skip Commit
+            {t("git.skipCommit")}
           </Button>
         ) : null}
         <Button
@@ -122,7 +131,7 @@ const GitOperationBanner = ({ repoPath }: GitOperationBannerProps) => {
           onClick={() => void resolve(abortOperation)}
           className={cn("h-6 px-2 text-xs text-git-deleted hover:text-git-deleted")}
         >
-          Abort
+          {t("git.abort")}
         </Button>
       </div>
     </div>

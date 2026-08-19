@@ -21,6 +21,7 @@ import {
   type SidebarDragResource,
 } from "@/features/sidebar/utils/sidebar-resource-drag";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import {
   useActiveWorkspaceId,
   useWorkspaceStoreScopeId,
@@ -39,6 +40,7 @@ import { cn } from "@/utils/cn";
 import { activateBufferInPaneAndSync, activatePaneAndSyncBuffer } from "../utils/pane-activation";
 import { EmptyEditorState } from "./empty-editor-state";
 import { BOTTOM_PANE_ID } from "../constants/pane";
+import { getSingletonToolBufferTitleKey } from "../constants/tool-buffers";
 import { usePaneStore } from "../stores/pane.store";
 import type { PaneGroup } from "../types/pane.types";
 import type { EditorContent, NewTabContent, PullRequestContent } from "../types/pane-content.types";
@@ -177,43 +179,47 @@ const EMPTY_PANE_RENDER_STATE: PaneRenderState = {
 };
 
 function BufferPreviewCard({ buffer }: { buffer: PaneRenderBuffer }) {
+  const { t } = useTranslation();
   const previewText =
     "content" in buffer && typeof buffer.content === "string"
       ? buffer.content.split("\n").slice(0, 14).join("\n").trim()
       : "";
+  const singletonTitleKey = getSingletonToolBufferTitleKey(buffer.type);
 
   const summary =
     buffer.type === "terminal"
-      ? "Terminal session"
+      ? t("panes.terminalSession")
       : buffer.type === "webViewer"
-        ? buffer.url || "Web view"
+        ? buffer.url || t("panes.webView")
         : buffer.type === "pullRequest"
-          ? `Pull request #${buffer.prNumber}`
+          ? t("panes.pullRequestNumber", { number: buffer.prNumber })
           : buffer.type === "githubIssue"
-            ? `Issue #${buffer.issueNumber}`
+            ? t("panes.issueNumber", { number: buffer.issueNumber })
             : buffer.type === "githubAction"
-              ? `Workflow run #${buffer.runId}`
+              ? t("panes.workflowRunNumber", { number: buffer.runId })
               : buffer.type === "diff"
-                ? "Diff preview"
+                ? t("panes.diffPreview")
                 : buffer.type === "image"
-                  ? "Image preview"
+                  ? t("panes.imagePreview")
                   : buffer.type === "pdf"
-                    ? "PDF preview"
+                    ? t("panes.pdfPreview")
                     : buffer.type === "binary"
-                      ? "Binary file preview"
+                      ? t("panes.binaryFilePreview")
                       : buffer.type === "database"
-                        ? `${buffer.databaseType} viewer`
+                        ? t("panes.databaseViewer", { type: buffer.databaseType })
                         : buffer.type === "externalEditor"
-                          ? "External editor session"
-                          : buffer.type === "globalSearch"
-                            ? "Search results"
-                            : buffer.type === "diagnostics"
-                              ? "Diagnostics"
-                              : buffer.type === "references"
-                                ? "References"
-                                : previewText || "No preview available";
+                          ? t("panes.externalEditorSession")
+                          : singletonTitleKey
+                            ? t(singletonTitleKey)
+                            : previewText || t("panes.noPreviewAvailable");
 
   const previewLines = summary.split("\n").slice(0, 12);
+  const title =
+    buffer.type === "diff"
+      ? formatDiffBufferLabel(buffer.name, buffer.path, t)
+      : singletonTitleKey
+        ? t(singletonTitleKey)
+        : buffer.name;
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
@@ -231,9 +237,7 @@ function BufferPreviewCard({ buffer }: { buffer: PaneRenderBuffer }) {
       </div>
 
       <div className="border-t border-border/60 bg-surface/80 px-4 py-2">
-        <div className="truncate ui-text-sm font-medium text-foreground">
-          {buffer.type === "diff" ? formatDiffBufferLabel(buffer.name, buffer.path) : buffer.name}
-        </div>
+        <div className="truncate ui-text-sm font-medium text-foreground">{title}</div>
         <div className="truncate ui-text-sm text-subtle-foreground">{buffer.path}</div>
       </div>
     </div>
@@ -241,6 +245,7 @@ function BufferPreviewCard({ buffer }: { buffer: PaneRenderBuffer }) {
 }
 
 function PullRequestPreviewCard({ buffer }: { buffer: PullRequestContent }) {
+  const { t } = useTranslation();
   const selectedPRDetails = useGitHubStore.use.selectedPRDetails();
   const selectedPRComments = useGitHubStore.use.selectedPRComments();
   const details = selectedPRDetails?.number === buffer.prNumber ? selectedPRDetails : null;
@@ -265,16 +270,16 @@ function PullRequestPreviewCard({ buffer }: { buffer: PullRequestContent }) {
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 ui-text-sm text-subtle-foreground">
               <span className="font-medium text-muted-foreground">
-                {authorLogin ? `@${authorLogin}` : "Pull request"}
+                {authorLogin ? `@${authorLogin}` : t("panes.pullRequest")}
               </span>
-              <span>{fileCount ?? "--"} files</span>
-              <span>{commitCount ?? "--"} commits</span>
-              <span>{commentCount ?? "--"} comments</span>
+              <span>{t("panes.filesCount", { count: fileCount ?? "--" })}</span>
+              <span>{t("panes.commitsCount", { count: commitCount ?? "--" })}</span>
+              <span>{t("panes.commentsCount", { count: commentCount ?? "--" })}</span>
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-1.5 ui-text-sm">
-              <Badge>Description</Badge>
-              <Badge>Files</Badge>
-              <Badge>Comments</Badge>
+              <Badge>{t("panes.description")}</Badge>
+              <Badge>{t("panes.files")}</Badge>
+              <Badge>{t("panes.comments")}</Badge>
             </div>
           </div>
         </div>
@@ -284,7 +289,7 @@ function PullRequestPreviewCard({ buffer }: { buffer: PullRequestContent }) {
           <div className="line-clamp-5 ui-text-sm leading-6 text-subtle-foreground">
             {details?.body?.trim()
               ? details.body
-              : "Activate this card to inspect the full pull request description, changed files, comments, review state, and checkout actions."}
+              : t("panes.pullRequestPreviewFallback")}
           </div>
         </div>
         <div className="mt-3 rounded-lg bg-surface/35 px-3 py-2 ui-text-sm text-subtle-foreground">
@@ -296,12 +301,14 @@ function PullRequestPreviewCard({ buffer }: { buffer: PullRequestContent }) {
 }
 
 function WebViewerDisabledState() {
+  const { t } = useTranslation();
+
   return (
     <Empty className="size-full rounded-none bg-background px-6">
       <EmptyHeader>
-        <EmptyTitle>Web Viewer is disabled</EmptyTitle>
+        <EmptyTitle>{t("panes.webViewerDisabled")}</EmptyTitle>
         <EmptyDescription>
-          Enable it in Settings &gt; Features to open URLs in embedded editor tabs.
+          {t("panes.webViewerDisabledDescription")}
         </EmptyDescription>
       </EmptyHeader>
     </Empty>
@@ -313,6 +320,7 @@ function isStandardEditorBuffer(buffer: PaneRenderBuffer): buffer is EditorBuffe
 }
 
 export function PaneContainer({ pane }: PaneContainerProps) {
+  const { t } = useTranslation();
   const activePaneId = usePaneStore.use.activePaneId();
   const { reorderPaneBuffers } = usePaneStore.use.actions();
   const { closeBufferForce, openTerminalBuffer } = useBufferStore.use.actions();
@@ -1012,7 +1020,7 @@ export function PaneContainer({ pane }: PaneContainerProps) {
             if (!connectionId) {
               return (
                 <Empty className="h-full rounded-none" tone="error" role="alert">
-                  <EmptyDescription>Missing database connection</EmptyDescription>
+                  <EmptyDescription>{t("panes.missingDatabaseConnection")}</EmptyDescription>
                 </Empty>
               );
             }
@@ -1207,7 +1215,7 @@ export function PaneContainer({ pane }: PaneContainerProps) {
                       onMouseDown={handleCarouselResizeStart}
                       role="separator"
                       aria-orientation="vertical"
-                      aria-label="Resize buffer carousel cards"
+                      aria-label={t("panes.resizeBufferCarouselCards")}
                     />
                   </div>
                 );

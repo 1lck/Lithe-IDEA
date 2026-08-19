@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { LockIcon as Lock } from "@/ui/icons";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/ui/empty";
+import { useTranslation } from "@/i18n/locale-provider";
 import { useProFeature } from "../hooks/use-pro-feature";
 import { ProBadge } from "./pro-badge";
 
@@ -10,6 +11,7 @@ interface ProGateProps {
 }
 
 export function ProGate({ children, fallback }: ProGateProps) {
+  const { t } = useTranslation();
   const { hasHostedAi } = useProFeature();
 
   if (hasHostedAi) {
@@ -27,10 +29,10 @@ export function ProGate({ children, fallback }: ProGateProps) {
           <Lock className="size-5" />
         </EmptyMedia>
         <EmptyTitle className="flex items-center gap-2">
-          Pro Feature
+          {t("extensions.proFeature")}
           <ProBadge />
         </EmptyTitle>
-        <EmptyDescription>Upgrade to Pro to unlock this feature.</EmptyDescription>
+        <EmptyDescription>{t("extensions.upgradeToPro")}</EmptyDescription>
       </EmptyHeader>
     </Empty>
   );

@@ -13,6 +13,7 @@ import {
   SidebarTitleBar,
 } from "@/ui/sidebar";
 import { ScrollArea } from "@/ui/scroll-area";
+import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
 import { getDatabaseObjectOwner, groupDatabaseObjects } from "../lib/database-catalog";
 import type { DatabaseObjectKind, TableInfo } from "../types/common.types";
@@ -44,6 +45,7 @@ export default function TableSidebar({
   onClearHistory,
 }: TableSidebarProps) {
   const objectGroups = groupDatabaseObjects(tables);
+  const { t } = useTranslation();
   const groupIcon = {
     table: Table,
     view: Eye,
@@ -54,12 +56,12 @@ export default function TableSidebar({
 
   return (
     <SidebarPanel className="w-64 overflow-hidden">
-      <SidebarTitleBar title={`Objects (${tables.length})`} className="group">
+      <SidebarTitleBar title={t("database.objectsCount", { count: tables.length })} className="group">
         <SidebarHeaderIconButton
           onClick={onCreateTable}
           className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-          aria-label="Create table"
-          tooltip="Create table"
+          aria-label={t("database.createTable")}
+          tooltip={t("database.createTable")}
           tooltipSide="bottom"
         >
           <Plus />
@@ -71,21 +73,24 @@ export default function TableSidebar({
           return (
             <div key={group.kind}>
               <SidebarSectionLabel className={cn("px-2.5 py-1 uppercase", index > 0 && "mt-2")}>
-                {group.label}
+                {t(group.labelKey)}
               </SidebarSectionLabel>
-              {group.objects.map((t) => {
-                const owner = getDatabaseObjectOwner(t);
+              {group.objects.map((table) => {
+                const owner = getDatabaseObjectOwner(table);
                 return (
                   <SidebarListItem
-                    key={t.name}
-                    onClick={() => onSelectTable(t.name)}
-                    onContextMenu={(e) => onTableContextMenu(e, t.name, group.kind)}
-                    active={selectedTable === t.name}
-                    aria-label={`Select ${group.kind} ${t.name}`}
+                    key={table.name}
+                    onClick={() => onSelectTable(table.name)}
+                    onContextMenu={(e) => onTableContextMenu(e, table.name, group.kind)}
+                    active={selectedTable === table.name}
+                    aria-label={t("database.selectObject", {
+                      kind: group.kind,
+                      name: table.name,
+                    })}
                     leading={<Icon className="mt-0.5 shrink-0" />}
-                    description={owner ? `on ${owner}` : undefined}
+                    description={owner ? t("database.onOwner", { owner }) : undefined}
                   >
-                    {t.name}
+                    {table.name}
                   </SidebarListItem>
                 );
               })}
