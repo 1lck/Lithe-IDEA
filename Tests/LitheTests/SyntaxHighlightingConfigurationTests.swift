@@ -23,7 +23,7 @@ struct SyntaxHighlightingConfigurationTests {
             #expect(registry.format(fileExtension: fileExtension)?.id == formatID)
         }
         #expect(registry.adapter(fileExtension: "json") == .json)
-        #expect(registry.adapter(fileExtension: "yaml") == .generic)
+        #expect(registry.adapter(fileExtension: "yaml") == .yaml)
     }
 
     @Test

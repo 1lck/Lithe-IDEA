@@ -2,8 +2,8 @@ import AppKit
 import SwiftUI
 import LitheGitModule
 
-fileprivate struct CodeEditorPalette {
-    private static let jsonPropertyRGB: (red: CGFloat, green: CGFloat, blue: CGFloat) = (79, 148, 250)
+struct CodeEditorPalette {
+    private static let propertyRGB: (red: CGFloat, green: CGFloat, blue: CGFloat) = (79, 148, 250)
 
     let isDark: Bool
     let theme: AppColorTheme
@@ -47,7 +47,7 @@ fileprivate struct CodeEditorPalette {
     var keyword: NSColor { themeColor(.skill) }
     var annotation: NSColor { themeColor(.warning) }
     var type: NSColor { themeColor(.accent) }
-    var property: NSColor { color(Self.jsonPropertyRGB) }
+    var property: NSColor { color(Self.propertyRGB) }
     var number: NSColor { themeColor(.warning) }
     var string: NSColor { themeColor(.success) }
     var comment: NSColor { themeColor(.secondaryText) }
@@ -3589,124 +3589,5 @@ struct HighlightedRangeCache {
 
     mutating func removeAll() {
         ranges.removeAll(keepingCapacity: true)
-    }
-}
-
-@MainActor
-enum SyntaxHighlighter {
-    private static let keywordExpression = try! NSRegularExpression(
-        pattern: #"\b(class|struct|enum|protocol|extension|func|let|var|if|else|guard|switch|case|for|while|return|throw|throws|try|catch|async|await|public|private|internal|protected|static|final|new|import|package|interface|implements|extends|void|boolean|int|long|const|function|def|in|from|as|true|false|null|nil|self|this)\b"#
-    )
-    private static let annotationExpression = try! NSRegularExpression(
-        pattern: #"@[A-Za-z_][A-Za-z0-9_]*"#
-    )
-    private static let typeExpression = try! NSRegularExpression(
-        pattern: #"\b[A-Z][A-Za-z0-9_]*\b"#
-    )
-    private static let numberExpression = try! NSRegularExpression(
-        pattern: #"\b\d+(?:\.\d+)?\b"#
-    )
-    private static let stringExpression = try! NSRegularExpression(
-        pattern: #"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'"#
-    )
-    private static let jsonPropertyExpression = try! NSRegularExpression(
-        pattern: #"\"(?:\\.|[^\"\\])*\"(?=\s*:)"#
-    )
-    private static let commentExpression = try! NSRegularExpression(
-        pattern: #"//.*$|#.*$|/\*[\s\S]*?\*/"#,
-        options: [.anchorsMatchLines]
-    )
-
-    static func apply(
-        to storage: NSTextStorage,
-        font: NSFont,
-        fileName: String? = nil,
-        fileExtension: String,
-        isDark: Bool,
-        range: NSRange? = nil
-    ) {
-        let fullRange = NSRange(location: 0, length: storage.length)
-        guard fullRange.length > 0 else { return }
-        let target = targetRange(for: range, in: storage.string as NSString, limit: fullRange)
-        applyExact(
-            to: storage,
-            font: font,
-            fileName: fileName,
-            fileExtension: fileExtension,
-            isDark: isDark,
-            range: target
-        )
-    }
-
-    static func applyExact(
-        to storage: NSTextStorage,
-        font: NSFont,
-        fileName: String? = nil,
-        fileExtension: String,
-        isDark: Bool,
-        range target: NSRange
-    ) {
-        guard target.length > 0 else { return }
-        let palette = CodeEditorPalette(isDark: isDark, theme: LitheTheme.activeTheme)
-
-        storage.beginEditing()
-        storage.setAttributes([
-            .font: font,
-            .paragraphStyle: LitheTheme.editorParagraphStyle,
-            .ligature: 0,
-            .foregroundColor: palette.text
-        ], range: target)
-
-        apply(keywordExpression, color: palette.keyword, storage: storage, range: target)
-        apply(annotationExpression, color: palette.annotation, storage: storage, range: target)
-        apply(typeExpression, color: palette.type, storage: storage, range: target)
-        apply(numberExpression, color: palette.number, storage: storage, range: target)
-        apply(stringExpression, color: palette.string, storage: storage, range: target)
-        apply(commentExpression, color: palette.comment, storage: storage, range: target)
-        let adapter = SyntaxHighlightingRegistry.bundled.adapter(
-            fileName: fileName,
-            fileExtension: fileExtension
-        )
-        if adapter == .json {
-            apply(jsonPropertyExpression, color: palette.property, storage: storage, range: target)
-        }
-        storage.endEditing()
-    }
-
-    private static func apply(
-        _ expression: NSRegularExpression,
-        color: NSColor,
-        storage: NSTextStorage,
-        range: NSRange
-    ) {
-        expression.enumerateMatches(in: storage.string, range: range) { match, _, _ in
-            guard let match else { return }
-            storage.addAttribute(.foregroundColor, value: color, range: match.range)
-        }
-    }
-
-    /// Re-color the edited lines plus a small pad so a token that crosses the
-    /// caret, or a nearby block comment, is not left half-styled.
-    static func targetRange(for range: NSRange?, in source: NSString, limit: NSRange) -> NSRange {
-        guard let range else { return limit }
-        let safe = NSIntersectionRange(range, limit)
-        guard source.length > 0 else { return safe }
-        let startLine = source.lineRange(for: NSRange(location: safe.location, length: 0))
-        let endIndex = max(safe.location, NSMaxRange(safe) > 0 ? NSMaxRange(safe) - 1 : 0)
-        let endLine = source.lineRange(for: NSRange(location: min(endIndex, source.length - 1), length: 0))
-        var combined = NSUnionRange(startLine, endLine)
-        if combined.location > 0 {
-            combined = NSUnionRange(
-                source.lineRange(for: NSRange(location: combined.location - 1, length: 0)),
-                combined
-            )
-        }
-        if NSMaxRange(combined) < source.length {
-            combined = NSUnionRange(
-                combined,
-                source.lineRange(for: NSRange(location: NSMaxRange(combined), length: 0))
-            )
-        }
-        return NSIntersectionRange(combined, limit)
     }
 }

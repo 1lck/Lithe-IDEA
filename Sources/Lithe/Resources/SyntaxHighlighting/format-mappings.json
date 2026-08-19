@@ -11,7 +11,7 @@
       "id": "yaml",
       "displayName": "YAML",
       "fileExtensions": ["yml", "yaml"],
-      "adapter": "generic"
+      "adapter": "yaml"
     },
     {
       "id": "json",
