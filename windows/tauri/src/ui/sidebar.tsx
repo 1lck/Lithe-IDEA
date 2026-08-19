@@ -240,7 +240,9 @@ export function SidebarListItem({
         "font-sans ui-text-chrome flex min-h-(--lithe-tab-height) w-full min-w-0 items-center gap-(--lithe-chrome-gap-loose) rounded-(--lithe-chrome-radius) px-2 py-1 text-left text-subtle-foreground transition-[background-color,color]",
         "hover:bg-accent/70 hover:text-foreground focus-visible:bg-accent/70 focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20",
         "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-subtle-foreground",
-        active && "bg-accent/80 text-foreground",
+        // IntelliJ marks selected rail buttons and list rows with the same
+        // blue selection fill rather than a neutral gray block.
+        active && "bg-selected text-foreground",
         iconOnly && "justify-center gap-0 px-0",
         className,
       )}
