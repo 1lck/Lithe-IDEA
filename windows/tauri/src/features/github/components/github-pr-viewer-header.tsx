@@ -1,5 +1,6 @@
 import { DotsThreeIcon as MoreHorizontal } from "@/ui/icons";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -49,6 +50,7 @@ export function GitHubPRViewerHeader({
   onMerge,
   onClosePR,
 }: GitHubPRViewerHeaderProps) {
+  const { t } = useTranslation();
   const isClosed = pr.state === "closed";
   const canMerge = !isClosed && !pr.isDraft && pr.mergeable !== "CONFLICTING";
 
@@ -67,14 +69,14 @@ export function GitHubPRViewerHeader({
       }
       actions={
         <DropdownMenu>
-          <Tooltip content="Pull request actions" side="bottom">
+          <Tooltip content={t("github.pullRequestActions")} side="bottom">
             <DropdownMenuTrigger
               render={
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon-xs"
-                  aria-label="Pull request actions"
+                  aria-label={t("github.pullRequestActions")}
                 />
               }
             >
@@ -83,21 +85,21 @@ export function GitHubPRViewerHeader({
           </Tooltip>
           <DropdownMenuContent>
             <DropdownMenuItem disabled={isRefreshingDetails} onClick={onRefresh}>
-              {isRefreshingDetails ? "Refreshing..." : "Refresh"}
+              {isRefreshingDetails ? t("github.refreshing") : t("github.refresh")}
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={onCheckout}>Checkout branch</DropdownMenuItem>
+            <DropdownMenuItem onClick={onCheckout}>{t("github.checkoutBranch")}</DropdownMenuItem>
             <DropdownMenuItem disabled={isClosed} onClick={onApprove}>
-              Approve
+              {t("github.approve")}
             </DropdownMenuItem>
             <DropdownMenuItem disabled={isClosed} onClick={onRequestChanges}>
-              Request changes
+              {t("github.requestChanges")}
             </DropdownMenuItem>
             <DropdownMenuItem disabled={isClosed} onClick={onClosePR}>
-              Close pull request
+              {t("github.closePullRequest")}
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={onOpenInBrowser}>Open on GitHub</DropdownMenuItem>
-            <DropdownMenuItem onClick={onCopyPRLink}>Copy link</DropdownMenuItem>
-            <DropdownMenuItem onClick={onCopyBranchName}>Copy branch name</DropdownMenuItem>
+            <DropdownMenuItem onClick={onOpenInBrowser}>{t("github.openOnGitHub")}</DropdownMenuItem>
+            <DropdownMenuItem onClick={onCopyPRLink}>{t("github.copyLink")}</DropdownMenuItem>
+            <DropdownMenuItem onClick={onCopyBranchName}>{t("github.copyBranchName")}</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       }
@@ -111,7 +113,7 @@ export function GitHubPRViewerHeader({
             active={activeView === "activity"}
             size="xs"
           >
-            Overview
+            {t("github.overview")}
           </Button>
           <Button
             type="button"
@@ -120,15 +122,15 @@ export function GitHubPRViewerHeader({
             active={activeView === "files"}
             size="xs"
           >
-            {`Files ${changedFilesCount}`}
+            {t("github.filesCount", { count: changedFilesCount })}
           </Button>
         </div>
         <div className="flex items-center gap-1">
           <Button onClick={onComment} disabled={isClosed} variant="ghost" size="xs">
-            Comment
+            {t("github.comment")}
           </Button>
           <Button onClick={onMerge} disabled={!canMerge} variant="accent" size="xs">
-            Merge
+            {t("github.merge")}
           </Button>
         </div>
       </div>

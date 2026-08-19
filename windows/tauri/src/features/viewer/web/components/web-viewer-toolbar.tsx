@@ -17,6 +17,7 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { Button } from "@/ui/button";
 import { Dropdown, dropdownItemClassName } from "@/ui/dropdown";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/ui/input-group";
+import { useTranslation } from "@/i18n/locale-provider";
 import { readClipboardText, writeClipboardText } from "@/utils/clipboard";
 
 interface WebViewerToolbarProps {
@@ -78,6 +79,7 @@ export function WebViewerToolbar({
   onZoomIn,
   onZoomOut,
 }: WebViewerToolbarProps) {
+  const { t } = useTranslation();
   const SecurityIcon = isLocalhost ? Shield : isSecure ? Lock : ShieldAlert;
   const [faviconFailed, setFaviconFailed] = useState(false);
   const [showZoomPopover, setShowZoomPopover] = useState(false);
@@ -170,7 +172,7 @@ export function WebViewerToolbar({
             value={inputUrl}
             onChange={(e) => onInputUrlChange(e.target.value)}
             onKeyDown={handleUrlInputKeyDown}
-            placeholder="Enter URL..."
+            placeholder={t("viewer.enterUrl")}
             size="xs"
             className="h-full"
           />
@@ -179,7 +181,7 @@ export function WebViewerToolbar({
               type="button"
               variant="ghost"
               onClick={isLoading ? onStopLoading : onRefresh}
-              tooltip={isLoading ? "Stop loading" : "Refresh"}
+              tooltip={isLoading ? t("viewer.stopLoading") : t("docker.refresh")}
               size="icon-xs"
             >
               {isLoading ? <X className="size-3.5" /> : <RefreshCw className="size-3.5" />}
@@ -189,7 +191,7 @@ export function WebViewerToolbar({
               variant="ghost"
               onClick={onCopyUrl}
               disabled={!canCopyUrl}
-              tooltip="Copy URL"
+              tooltip={t("viewer.copyUrl")}
               size="icon-xs"
             >
               {copied ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
@@ -205,7 +207,7 @@ export function WebViewerToolbar({
           ref={zoomButtonRef}
           variant="ghost"
           onClick={() => setShowZoomPopover((open) => !open)}
-          tooltip="Zoom controls"
+          tooltip={t("viewer.zoomControls")}
           size="icon-xs"
         >
           <ZoomIn />
@@ -229,7 +231,7 @@ export function WebViewerToolbar({
               disabled={zoomLevel >= 3}
               className={dropdownItemClassName("justify-between")}
             >
-              <span>Zoom in</span>
+              <span>{t("viewer.zoomIn")}</span>
               <Plus className="size-3.5" />
             </Button>
             <Button
@@ -242,7 +244,7 @@ export function WebViewerToolbar({
               disabled={zoomLevel <= 0.25}
               className={dropdownItemClassName("justify-between")}
             >
-              <span>Zoom out</span>
+              <span>{t("viewer.zoomOut")}</span>
               <Minus className="size-3.5" />
             </Button>
             <Button
@@ -254,7 +256,7 @@ export function WebViewerToolbar({
               }}
               className={dropdownItemClassName("justify-between")}
             >
-              <span>Reset zoom</span>
+              <span>{t("viewer.resetZoom")}</span>
               <span className="text-subtle-foreground ui-text-sm">
                 {Math.round(zoomLevel * 100)}%
               </span>
@@ -265,7 +267,7 @@ export function WebViewerToolbar({
           variant="ghost"
           onClick={onClearBrowsingData}
           disabled={!canClearBrowsingData}
-          tooltip="Clear browsing data"
+          tooltip={t("viewer.clearBrowsingData")}
           size="icon-xs"
         >
           <Broom />
@@ -283,7 +285,7 @@ export function WebViewerToolbar({
           variant="ghost"
           onClick={onOpenExternal}
           disabled={!canOpenExternal}
-          tooltip="Open in browser"
+          tooltip={t("viewer.openInBrowser")}
           size="icon-xs"
         >
           <ExternalLink />

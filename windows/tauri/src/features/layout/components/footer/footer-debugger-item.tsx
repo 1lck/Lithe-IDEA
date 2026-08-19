@@ -12,6 +12,7 @@ import {
 import type { ChromeItem } from "@/features/layout/utils/chrome-items";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -29,6 +30,7 @@ export function useFooterDebuggerItem(
   enabled: boolean,
   configuredOrder: FooterLeadingItemId[],
 ): ChromeItem<FooterLeadingItemId> | null {
+  const { t } = useTranslation();
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
   const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible);
   const bottomPaneActiveTab = useUIState((state) => state.bottomPaneActiveTab);
@@ -77,29 +79,29 @@ export function useFooterDebuggerItem(
         id: "toggle-debugger",
         label:
           isBottomPaneVisible && bottomPaneActiveTab === "debugger"
-            ? "Hide Run and Debug"
-            : "Show Run and Debug",
+            ? t("debugger.hideRunAndDebug")
+            : t("debugger.showRunAndDebug"),
         icon: <BugIcon />,
         onClick: togglePane,
       },
       { id: "debugger-actions-separator", label: "", onClick: () => {}, separator: true },
       {
         id: "clear-breakpoints",
-        label: "Clear Breakpoints",
+        label: t("debugger.clearBreakpoints"),
         icon: <TrashIcon />,
         disabled: breakpointsCount === 0,
         onClick: actions.clearBreakpoints,
       },
       {
         id: "clear-watch-expressions",
-        label: "Clear Watch Expressions",
+        label: t("debugger.clearWatchExpressions"),
         icon: <TrashIcon />,
         disabled: watchExpressionsCount === 0,
         onClick: actions.clearWatchExpressions,
       },
       {
         id: "clear-debug-console",
-        label: "Clear Debug Console",
+        label: t("debugger.clearDebugConsole"),
         icon: <TrashIcon />,
         disabled: transcriptCount === 0,
         onClick: actions.clearAdapterTranscript,
@@ -107,21 +109,21 @@ export function useFooterDebuggerItem(
       { id: "debugger-footer-separator", label: "", onClick: () => {}, separator: true },
       {
         id: "move-debugger-left",
-        label: "Move Left",
+        label: t("footer.moveLeft"),
         icon: <CaretLeftIcon />,
         disabled: itemIndex <= 0,
         onClick: () => moveItem(-1),
       },
       {
         id: "move-debugger-right",
-        label: "Move Right",
+        label: t("footer.moveRight"),
         icon: <CaretRightIcon />,
         disabled: itemIndex < 0 || itemIndex >= normalizedOrder.length - 1,
         onClick: () => moveItem(1),
       },
       {
         id: "reset-footer-order",
-        label: "Reset Footer Order",
+        label: t("footer.resetOrder"),
         icon: <RefreshIcon />,
         onClick: () => void updateSetting("footerLeadingItemsOrder", [...FOOTER_LEADING_ITEM_IDS]),
       },
@@ -138,6 +140,7 @@ export function useFooterDebuggerItem(
       normalizedOrder.length,
       togglePane,
       transcriptCount,
+      t,
       updateSetting,
       watchExpressionsCount,
     ],
@@ -148,7 +151,7 @@ export function useFooterDebuggerItem(
   if (!isBackendCapabilityAvailable("debugger")) {
     return {
       id: ITEM_ID,
-      label: "Run and Debug",
+      label: t("debugger.runAndDebug"),
       content: (
         <FooterTabControl tooltip={BACKEND_UNAVAILABLE_TOOLTIP} disabled onClick={() => {}}>
           <BugIcon />
@@ -159,12 +162,12 @@ export function useFooterDebuggerItem(
 
   return {
     id: ITEM_ID,
-    label: "Run and Debug",
+    label: t("debugger.runAndDebug"),
     content: (
       <ContextMenu>
         <ContextMenuTrigger className="contents">
           <FooterTabControl
-            tooltip="Toggle Run and Debug"
+            tooltip={t("debugger.toggleRunAndDebug")}
             active={isBottomPaneVisible && bottomPaneActiveTab === "debugger"}
             commandId="workbench.showDebugger"
             onClick={togglePane}

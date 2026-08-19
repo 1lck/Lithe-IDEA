@@ -9,6 +9,7 @@ import { useAIChatStore } from "@/features/ai/stores/ai-chat.store";
 import { getProviderById } from "@/features/ai/types/providers.types";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useAuthStore } from "@/features/window/stores/auth.store";
+import { useTranslation } from "@/i18n/locale-provider";
 
 export interface AIModelOption {
   id: string;
@@ -22,6 +23,7 @@ export function useAIModelOptions(
   modelId: string,
   onChange?: (modelId: string) => void,
 ) {
+  const { t } = useTranslation();
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [modelFetchError, setModelFetchError] = useState<string | null>(null);
   const { hasHostedAi } = useProFeature();
@@ -61,16 +63,16 @@ export function useAIModelOptions(
       if (models.length === 0) {
         setModelFetchError(
           providerId === "ollama"
-            ? "No models detected. Please install a model in Ollama."
-            : "No models found.",
+            ? t("ai.noOllamaModelsDetected")
+            : t("ai.noModelsFound"),
         );
       }
     } catch {
-      setModelFetchError("Failed to fetch models");
+      setModelFetchError(t("ai.failedFetchModels"));
     } finally {
       setIsLoadingModels(false);
     }
-  }, [isCustomProvider, providerId, setDynamicModels, subscription]);
+  }, [isCustomProvider, providerId, setDynamicModels, subscription, t]);
 
   useEffect(() => {
     void fetchDynamicModels();
@@ -122,10 +124,10 @@ export function useAIModelOptions(
   const currentModelName = useMemo(() => {
     const selectedModel = availableModels.find((model) => model.id === modelId);
     if (selectedModel) return selectedModel.name;
-    if (isLoadingModels) return "Loading models...";
+    if (isLoadingModels) return t("ai.loadingModels");
     if ((providerId === "openrouter" || isCustomProvider) && modelId.trim()) return modelId;
-    return "Select model";
-  }, [availableModels, isCustomProvider, isLoadingModels, modelId, providerId]);
+    return t("ai.selectModel");
+  }, [availableModels, isCustomProvider, isLoadingModels, modelId, providerId, t]);
 
   return {
     availableModels,

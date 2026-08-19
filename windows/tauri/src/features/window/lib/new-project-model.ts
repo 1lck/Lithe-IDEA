@@ -2,6 +2,7 @@ import { joinPath } from "@/utils/path-helpers";
 
 export type NewProjectSource = "empty" | "nextjs" | "vite-react" | "clone";
 export type ProjectPackageManager = "npm" | "pnpm" | "bun";
+type Translator = (key: string, values?: Record<string, string | number>) => string;
 
 const WINDOWS_RESERVED_NAMES = new Set([
   "con",
@@ -28,23 +29,26 @@ const WINDOWS_RESERVED_NAMES = new Set([
   "lpt9",
 ]);
 
-export function getProjectNameError(projectName: string): string | null {
+export function getProjectNameError(
+  projectName: string,
+  t: Translator = (key) => key,
+): string | null {
   const trimmedName = projectName.trim();
-  if (!trimmedName) return "Enter a project name.";
+  if (!trimmedName) return t("newProject.errorEnterName");
   if (trimmedName === "." || trimmedName === "..") {
-    return "Project names cannot be path traversal segments.";
+    return t("newProject.errorPathTraversalName");
   }
   const hasControlCharacter = [...trimmedName].some((character) => character.charCodeAt(0) < 32);
   if (hasControlCharacter || /[<>:"/\\|?*]/.test(trimmedName)) {
-    return "Project names cannot contain path separators or reserved characters.";
+    return t("newProject.errorReservedCharacters");
   }
   if (/[. ]$/.test(trimmedName)) {
-    return "Project names cannot end with a period or space.";
+    return t("newProject.errorTrailingPeriodOrSpace");
   }
 
   const windowsBaseName = trimmedName.split(".")[0]?.toLowerCase();
   if (windowsBaseName && WINDOWS_RESERVED_NAMES.has(windowsBaseName)) {
-    return "Choose a project name that is supported on every platform.";
+    return t("newProject.errorCrossPlatformName");
   }
 
   return null;

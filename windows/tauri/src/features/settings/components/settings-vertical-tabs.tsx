@@ -124,12 +124,12 @@ export const SettingsVerticalTabs = ({
           className="min-h-0 min-w-0 flex-1"
           contentClassName="p-2"
           viewportProps={{
-            "aria-label": "Settings navigation",
+            "aria-label": t("settings.navigation"),
           }}
         >
           <TabsList
             variant="bare"
-            aria-label="Settings sections"
+            aria-label={t("settings.sections")}
             className="flex w-full flex-col items-stretch gap-0.5"
           >
             {visibleTabs.length > 0 ? (
@@ -163,7 +163,7 @@ export const SettingsVerticalTabs = ({
               })
             ) : (
               <Empty className="min-h-0 flex-none rounded-none p-2">
-                <EmptyDescription>No matching settings</EmptyDescription>
+                <EmptyDescription>{t("settings.noMatchingSettings")}</EmptyDescription>
               </Empty>
             )}
           </TabsList>

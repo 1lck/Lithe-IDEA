@@ -14,6 +14,7 @@ import {
 } from "@/ui/command";
 import Input from "@/ui/input";
 import { matchesSearchQuery } from "@/utils/search-match";
+import { useTranslation } from "@/i18n/locale-provider";
 import { addRemote, getRemotes, removeRemote } from "../api/git-remotes-api";
 import type { GitRemote } from "../types/git.types";
 import GitCommandSurface from "./git-command-surface";
@@ -26,6 +27,7 @@ interface GitRemoteManagerProps {
 }
 
 const GitRemoteManager = ({ isOpen, onClose, repoPath, onRefresh }: GitRemoteManagerProps) => {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [remotes, setRemotes] = useState<GitRemote[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -115,15 +117,15 @@ const GitRemoteManager = ({ isOpen, onClose, repoPath, onRefresh }: GitRemoteMan
       onClose={handleClose}
       query={query}
       onQueryChange={setQuery}
-      placeholder="Search remotes..."
-      meta={`${remotes.length} remote${remotes.length === 1 ? "" : "s"}`}
+      placeholder={t("git.searchRemotes")}
+      meta={t("git.remoteCount", { count: remotes.length, plural: remotes.length === 1 ? "" : "s" })}
     >
       <CommandForm
-        title="Add remote"
+        title={t("git.addRemote")}
         icon={<Plus className="size-4" />}
         columns={2}
-        submitLabel="Add remote"
-        pendingLabel="Adding..."
+        submitLabel={t("git.addRemote")}
+        pendingLabel={t("git.adding")}
         isPending={isAdding}
         submitDisabled={!newRemoteName.trim() || !newRemoteUrl.trim()}
         onSubmit={(event) => {
@@ -131,7 +133,7 @@ const GitRemoteManager = ({ isOpen, onClose, repoPath, onRefresh }: GitRemoteMan
           void handleAddRemote();
         }}
       >
-        <CommandFormField label="Name" htmlFor="git-remote-name">
+        <CommandFormField label={t("git.name")} htmlFor="git-remote-name">
           <Input
             id="git-remote-name"
             type="text"
@@ -141,7 +143,7 @@ const GitRemoteManager = ({ isOpen, onClose, repoPath, onRefresh }: GitRemoteMan
             size="sm"
           />
         </CommandFormField>
-        <CommandFormField label="URL" htmlFor="git-remote-url">
+        <CommandFormField label={t("git.url")} htmlFor="git-remote-url">
           <Input
             id="git-remote-url"
             type="text"
@@ -155,10 +157,10 @@ const GitRemoteManager = ({ isOpen, onClose, repoPath, onRefresh }: GitRemoteMan
 
       <CommandList>
         {isLoading && remotes.length === 0 ? (
-          <CommandEmpty>Loading remotes...</CommandEmpty>
+          <CommandEmpty>{t("git.loadingRemotes")}</CommandEmpty>
         ) : filteredRemotes.length === 0 ? (
           <CommandEmpty>
-            {query.trim() ? "No matching remotes" : "No remotes configured"}
+            {query.trim() ? t("git.noMatchingRemotes") : t("git.noRemotesConfigured")}
           </CommandEmpty>
         ) : (
           filteredRemotes.map((remote) => {
@@ -180,8 +182,8 @@ const GitRemoteManager = ({ isOpen, onClose, repoPath, onRefresh }: GitRemoteMan
                       void handleRemoveRemote(remote.name);
                     }}
                     disabled={isActionLoading}
-                    aria-label={`Remove ${remote.name}`}
-                    tooltip="Remove remote"
+                    aria-label={t("git.removeRemote")}
+                    tooltip={t("git.removeRemote")}
                   >
                     <Trash2 className="size-3.5" />
                   </CommandItemAction>

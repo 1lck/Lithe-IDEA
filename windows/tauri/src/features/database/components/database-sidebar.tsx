@@ -28,6 +28,7 @@ import {
 } from "@/ui/command";
 import Input from "@/ui/input";
 import { Spinner } from "@/ui/spinner";
+import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
 import { normalizeDatabaseError } from "../lib/database-errors";
 import type { DatabaseType } from "../types/provider.types";
@@ -100,6 +101,17 @@ export function DatabaseCommandContent({ isActive, onBack, onClose }: DatabaseCo
   const [workspaceDatabaseFiles, setWorkspaceDatabaseFiles] = useState<WorkspaceDatabaseFile[]>([]);
   const [isScanningWorkspaceDatabases, setIsScanningWorkspaceDatabases] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const { t } = useTranslation();
+  const validationMessages = useMemo(
+    () => ({
+      selectDatabaseFile: t("database.selectDatabaseFile"),
+      enterConnectionString: t("database.enterConnectionString"),
+      enterHost: t("database.enterHost"),
+      enterValidPort: t("database.enterValidPort"),
+      enterDatabaseName: t("database.enterDatabaseName"),
+    }),
+    [t],
+  );
 
   useEffect(() => {
     void loadSavedConnections();
@@ -209,12 +221,12 @@ export function DatabaseCommandContent({ isActive, onBack, onClose }: DatabaseCo
   const saveFileConnection = useCallback(
     async (filePath: string, dbType = getDatabaseTypeForFilePath(filePath)) => {
       if (!rootFolderPath) {
-        setError("Open a workspace before adding databases.");
+        setError(t("database.openWorkspaceBeforeAdding"));
         return;
       }
 
       if (!dbType) {
-        setError("Drop a SQLite or DuckDB database file.");
+        setError(t("database.dropSupportedDatabaseFile"));
         return;
       }
 
@@ -270,20 +282,23 @@ export function DatabaseCommandContent({ isActive, onBack, onClose }: DatabaseCo
 
   const saveNetworkConnection = async () => {
     if (!rootFolderPath) {
-      setError("Open a workspace before adding databases.");
+      setError(t("database.openWorkspaceBeforeAdding"));
       return;
     }
 
-    const validationError = validateConnectionInput({
-      dbType: selectedDbType,
-      isFileBased: false,
-      mode: "form",
-      filePath: "",
-      host,
-      port,
-      database: databaseName,
-      connectionString: "",
-    });
+    const validationError = validateConnectionInput(
+      {
+        dbType: selectedDbType,
+        isFileBased: false,
+        mode: "form",
+        filePath: "",
+        host,
+        port,
+        database: databaseName,
+        connectionString: "",
+      },
+      validationMessages,
+    );
     if (validationError) {
       setError(validationError);
       return;
@@ -327,7 +342,7 @@ export function DatabaseCommandContent({ isActive, onBack, onClose }: DatabaseCo
     const droppedPaths = extractDroppedFilePaths(event.dataTransfer);
     const databasePath = droppedPaths.find((path) => getDatabaseTypeForFilePath(path));
     if (!databasePath) {
-      setError("Drop a SQLite or DuckDB database file.");
+      setError(t("database.dropSupportedDatabaseFile"));
       return;
     }
 
@@ -352,7 +367,7 @@ export function DatabaseCommandContent({ isActive, onBack, onClose }: DatabaseCo
 
     if (provider.isFileBased) {
       if (!connection.file_path) {
-        setError("Database file path is missing.");
+        setError(t("database.databaseFilePathMissing"));
         return;
       }
 
@@ -403,16 +418,16 @@ export function DatabaseCommandContent({ isActive, onBack, onClose }: DatabaseCo
   const renderHeader = () =>
     mode === "list" ? (
       <CommandHeader onClose={onClose}>
-        <CommandHeaderAction type="button" onClick={onBack} aria-label="Back to commands">
+        <CommandHeaderAction type="button" onClick={onBack} aria-label={t("database.backToCommands")}>
           <ArrowLeft />
         </CommandHeaderAction>
         <CommandInput
           ref={inputRef}
           value={query}
           onChange={setQuery}
-          placeholder="Search databases"
+          placeholder={t("database.searchDatabases")}
         />
-        <CommandHeaderAction type="button" onClick={showProviderStep} aria-label="Add database">
+        <CommandHeaderAction type="button" onClick={showProviderStep} aria-label={t("database.addDatabase")}>
           <Plus />
         </CommandHeaderAction>
       </CommandHeader>
@@ -420,9 +435,9 @@ export function DatabaseCommandContent({ isActive, onBack, onClose }: DatabaseCo
       <CommandHeader onClose={onClose}>
         <CommandHeaderAction type="button" onClick={() => setMode("list")}>
           <ArrowLeft />
-          <span>Databases</span>
+          <span>{t("database.databases")}</span>
         </CommandHeaderAction>
-        <CommandHeaderAction type="button" onClick={showProviderStep} aria-label="Add database">
+        <CommandHeaderAction type="button" onClick={showProviderStep} aria-label={t("database.addDatabase")}>
           <Plus />
         </CommandHeaderAction>
       </CommandHeader>
@@ -443,7 +458,7 @@ export function DatabaseCommandContent({ isActive, onBack, onClose }: DatabaseCo
             {installedDbTypes.length === 0 ? (
               <CommandEmpty>
                 <div className="space-y-2">
-                  <div>No database providers installed.</div>
+                  <div>{t("database.noProvidersInstalled")}</div>
                   <Button
                     type="button"
                     variant="ghost"
@@ -452,7 +467,7 @@ export function DatabaseCommandContent({ isActive, onBack, onClose }: DatabaseCo
                       useBufferStore.getState().actions.openExtensionsBuffer();
                     }}
                   >
-                    Open Extensions
+                    {t("database.openExtensions")}
                   </Button>
                 </div>
               </CommandEmpty>
@@ -479,7 +494,9 @@ export function DatabaseCommandContent({ isActive, onBack, onClose }: DatabaseCo
             >
               <FolderOpen className="size-5" weight="duotone" />
               <span className="font-sans ui-text-sm">
-                Choose or drop a {PROVIDER_REGISTRY[selectedDbType].label} file
+                {t("database.chooseOrDropFile", {
+                  provider: PROVIDER_REGISTRY[selectedDbType].label,
+                })}
               </span>
             </button>
           </div>
@@ -495,14 +512,14 @@ export function DatabaseCommandContent({ isActive, onBack, onClose }: DatabaseCo
               <Input
                 value={host}
                 onChange={(event) => setHost(event.target.value)}
-                placeholder="Host"
+                placeholder={t("database.host")}
                 className="h-7 flex-1"
               />
               <Input
                 type="number"
                 value={port}
                 onChange={(event) => setPort(Number(event.target.value))}
-                placeholder="Port"
+                placeholder={t("database.port")}
                 className="h-7 w-20"
               />
             </div>
@@ -510,7 +527,7 @@ export function DatabaseCommandContent({ isActive, onBack, onClose }: DatabaseCo
               <Input
                 value={databaseName}
                 onChange={(event) => setDatabaseName(event.target.value)}
-                placeholder="Database"
+                placeholder={t("database.database")}
                 className="h-7"
               />
             ) : null}
@@ -518,14 +535,14 @@ export function DatabaseCommandContent({ isActive, onBack, onClose }: DatabaseCo
               <Input
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
-                placeholder="Username"
+                placeholder={t("database.username")}
                 className="h-7 flex-1"
               />
               <Input
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                placeholder="Password"
+                placeholder={t("database.password")}
                 className="h-7 flex-1"
               />
             </div>
@@ -537,28 +554,28 @@ export function DatabaseCommandContent({ isActive, onBack, onClose }: DatabaseCo
                 id="database-sidebar-save-password"
                 checked={saveCredential}
                 onCheckedChange={setSaveCredential}
-                aria-label="Save password securely"
+                aria-label={t("database.savePasswordSecurely")}
               />
               <span className="font-sans text-subtle-foreground ui-text-sm">
-                Save password securely
+                {t("database.savePasswordSecurely")}
               </span>
             </label>
           </div>
         ) : !rootFolderPath ? (
-          <CommandEmpty>Open a workspace to add databases.</CommandEmpty>
+          <CommandEmpty>{t("database.openWorkspaceToAdd")}</CommandEmpty>
         ) : isLoadingSaved ? (
           <CommandEmpty>
-            <Spinner label="Loading databases" showLabel compact />
+            <Spinner label={t("database.loadingDatabases")} showLabel compact />
           </CommandEmpty>
         ) : workspaceConnections.length === 0 &&
           detectedWorkspaceDatabases.length === 0 &&
           isScanningWorkspaceDatabases ? (
           <CommandEmpty>
-            <Spinner label="Loading databases" showLabel compact />
+            <Spinner label={t("database.loadingDatabases")} showLabel compact />
           </CommandEmpty>
         ) : workspaceConnections.length === 0 && detectedWorkspaceDatabases.length === 0 ? (
           <CommandEmpty>
-            {query.trim() ? "No matching databases." : "No databases in this workspace."}
+            {query.trim() ? t("database.noMatchingDatabases") : t("database.noWorkspaceDatabases")}
           </CommandEmpty>
         ) : (
           <div className="space-y-0.5">
@@ -579,7 +596,7 @@ export function DatabaseCommandContent({ isActive, onBack, onClose }: DatabaseCo
                     status === "connected" ? (
                       <CommandItemBadge>
                         <PlugsConnected className="size-3.5" weight="duotone" />
-                        Connected
+                        {t("database.connected")}
                       </CommandItemBadge>
                     ) : null
                   }
@@ -587,7 +604,7 @@ export function DatabaseCommandContent({ isActive, onBack, onClose }: DatabaseCo
                     <CommandItemAction
                       type="button"
                       tone="danger"
-                      aria-label={`Delete ${connection.name}`}
+                      aria-label={t("database.deleteConnection", { name: connection.name })}
                       disabled={isBusy}
                       onClick={(event) => {
                         event.stopPropagation();
@@ -607,7 +624,7 @@ export function DatabaseCommandContent({ isActive, onBack, onClose }: DatabaseCo
                 icon={<Database className="size-4" weight="duotone" />}
                 title={file.name}
                 description={`${PROVIDER_REGISTRY[file.dbType].label} / ${file.relativePath}`}
-                accessory={<CommandItemBadge>Detected</CommandItemBadge>}
+                accessory={<CommandItemBadge>{t("database.detected")}</CommandItemBadge>}
               />
             ))}
           </div>
@@ -622,7 +639,7 @@ export function DatabaseCommandContent({ isActive, onBack, onClose }: DatabaseCo
             onClick={() => void saveNetworkConnection()}
           >
             <FilePlus />
-            Add Database
+            {t("database.addDatabase")}
           </CommandFooterAction>
         </CommandFooter>
       ) : null}
@@ -635,7 +652,7 @@ export function DatabaseCommandContent({ isActive, onBack, onClose }: DatabaseCo
 
       {isDraggingFile ? (
         <div className="pointer-events-none absolute inset-1 z-30 flex items-center justify-center rounded-xl border border-primary bg-background/85 text-primary ui-text-sm backdrop-blur-sm">
-          Drop database file
+          {t("database.dropDatabaseFile")}
         </div>
       ) : null}
     </div>

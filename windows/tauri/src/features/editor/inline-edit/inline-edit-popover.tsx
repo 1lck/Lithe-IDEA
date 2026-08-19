@@ -3,6 +3,7 @@ import { forwardRef } from "react";
 import { Alert, AlertDescription } from "@/ui/alert";
 import { Button } from "@/ui/button";
 import Input from "@/ui/input";
+import { useTranslation } from "@/i18n/locale-provider";
 import type { Range } from "@/features/editor/types/editor.types";
 import type { useInlineEdit } from "./use-inline-edit";
 import { InlineEditModelSelector } from "./inline-edit-model-selector";
@@ -17,6 +18,8 @@ interface InlineEditPopoverProps {
 
 export const InlineEditPopover = forwardRef<HTMLDivElement, InlineEditPopoverProps>(
   function InlineEditPopover({ state, selection, zoneTop }, ref) {
+    const { t } = useTranslation();
+
     if (!state.inlineEditVisible || !state.popoverPosition) return null;
 
     return (
@@ -35,9 +38,9 @@ export const InlineEditPopover = forwardRef<HTMLDivElement, InlineEditPopoverPro
           }}
         >
           <div className="sr-only">
-            <div id="inline-edit-title">Inline edit</div>
+            <div id="inline-edit-title">{t("inlineEdit.title")}</div>
             <div id="inline-edit-description">
-              Describe the code change, then press Enter to apply or Escape to close.
+              {t("inlineEdit.description")}
             </div>
           </div>
           <div className="flex items-center gap-1.5 px-2 py-1.5">
@@ -83,7 +86,7 @@ export const InlineEditPopover = forwardRef<HTMLDivElement, InlineEditPopoverPro
               }}
               variant="ghost"
               size="sm"
-              aria-label="Inline edit instruction"
+              aria-label={t("inlineEdit.instruction")}
               aria-describedby={
                 state.inlineEditError
                   ? "inline-edit-description inline-edit-error"
@@ -93,8 +96,8 @@ export const InlineEditPopover = forwardRef<HTMLDivElement, InlineEditPopoverPro
               className="font-sans h-7 min-w-0 flex-1 bg-transparent px-0 ui-text-sm placeholder:text-subtle-foreground/80 focus:bg-transparent"
               placeholder={
                 selection && selection.start.offset !== selection.end.offset
-                  ? "Edit selection..."
-                  : "Edit current line..."
+                  ? t("inlineEdit.editSelection")
+                  : t("inlineEdit.editCurrentLine")
               }
             />
             <div className="min-w-0 shrink-0">
@@ -113,8 +116,10 @@ export const InlineEditPopover = forwardRef<HTMLDivElement, InlineEditPopoverPro
               onClick={() => void state.handleApplyInlineEdit()}
               disabled={state.isInlineEditRunning}
               className="text-primary hover:bg-transparent hover:text-primary/80"
-              aria-label={state.isInlineEditRunning ? "Applying inline edit" : "Apply inline edit"}
-              tooltip="Apply inline edit"
+              aria-label={
+                state.isInlineEditRunning ? t("inlineEdit.applying") : t("inlineEdit.apply")
+              }
+              tooltip={t("inlineEdit.apply")}
               shortcut="enter"
             >
               <CornerDownLeft />
@@ -125,7 +130,7 @@ export const InlineEditPopover = forwardRef<HTMLDivElement, InlineEditPopoverPro
               size="icon-xs"
               onClick={() => state.inlineEditToolbarActions.hide()}
               className="text-subtle-foreground hover:text-foreground"
-              tooltip="Close inline edit"
+              tooltip={t("inlineEdit.close")}
               shortcut="escape"
             >
               <X />

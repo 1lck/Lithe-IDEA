@@ -1,6 +1,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type React from "react";
 import { useMemo, useRef } from "react";
+import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
 
 export interface TableViewProps {
@@ -26,6 +27,7 @@ export function TableView({
   rowHeight = 28,
   overscan = 10,
 }: TableViewProps) {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
 
   const useVirtual = virtualize && rows.length > 200; // threshold to enable virtualization
@@ -47,7 +49,7 @@ export function TableView({
       {(actions || columns.length > 0) && (
         <div className="flex items-center justify-between border-border border-b bg-surface px-2 py-1.5">
           <div className="font-sans ui-text-sm text-subtle-foreground">
-            {rows.length} rows • {columns.length} columns
+            {t("csv.rowsColumns", { rows: rows.length, columns: columns.length })}
           </div>
           <div className="flex items-center gap-1">{actions}</div>
         </div>

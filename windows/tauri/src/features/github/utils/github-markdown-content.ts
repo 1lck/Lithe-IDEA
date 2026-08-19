@@ -1,7 +1,11 @@
 const GITHUB_ATTACHMENT_PATH_PREFIX = "/user-attachments/assets/";
 const PROTECTED_MARKDOWN_SEGMENT = /(`+[^`]*`+|!?\[[^\]]*\]\([^)]+\)|<[^>]+>)/g;
 
-export function normalizeGitHubMarkdown(content: string, repositoryUrl?: string): string {
+export function normalizeGitHubMarkdown(
+  content: string,
+  repositoryUrl?: string,
+  openAttachmentLabel = "Open attachment",
+): string {
   const normalizedRepositoryUrl = normalizeRepositoryUrl(repositoryUrl);
   let activeFence: "`" | "~" | null = null;
 
@@ -19,7 +23,7 @@ export function normalizeGitHubMarkdown(content: string, repositoryUrl?: string)
       const attachmentUrl = parseStandaloneGitHubAttachmentUrl(line);
       if (attachmentUrl) {
         const escapedUrl = escapeHtmlAttribute(attachmentUrl);
-        return `<video class="github-markdown-attachment" src="${escapedUrl}" controls preload="metadata" playsinline><a href="${escapedUrl}" target="_blank" rel="noopener noreferrer">Open attachment</a></video>`;
+        return `<video class="github-markdown-attachment" src="${escapedUrl}" controls preload="metadata" playsinline><a href="${escapedUrl}" target="_blank" rel="noopener noreferrer">${escapeHtml(openAttachmentLabel)}</a></video>`;
       }
 
       const trimmedLine = line.trim();
@@ -108,6 +112,13 @@ function escapeHtmlAttribute(value: string): string {
   return value
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 }

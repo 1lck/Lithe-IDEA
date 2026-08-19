@@ -1,6 +1,8 @@
 import { useZoomStore } from "@/features/window/stores/zoom.store";
+import { useTranslation } from "@/i18n/locale-provider";
 
 export function ZoomIndicator() {
+  const { t } = useTranslation();
   const showZoomIndicator = useZoomStore.use.showZoomIndicator();
   const zoomIndicatorType = useZoomStore.use.zoomIndicatorType();
   const editorZoomLevel = useZoomStore.use.editorZoomLevel();
@@ -11,7 +13,7 @@ export function ZoomIndicator() {
   }
 
   const zoomLevel = zoomIndicatorType === "editor" ? editorZoomLevel : terminalZoomLevel;
-  const label = zoomIndicatorType === "editor" ? "Editor" : "Terminal";
+  const label = zoomIndicatorType === "editor" ? t("editor.title") : t("workbench.terminal");
 
   return (
     <div className="fade-in-0 fade-out-0 fixed top-4 right-4 z-50 animate-out rounded bg-black/80 px-2 py-1 text-white ui-text-sm backdrop-blur-sm duration-(--app-duration-normal)">

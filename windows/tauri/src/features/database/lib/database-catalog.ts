@@ -2,13 +2,13 @@ import type { DatabaseObjectKind, TableInfo } from "../types/common.types";
 
 const DATABASE_OBJECT_GROUPS: Array<{
   kind: DatabaseObjectKind;
-  label: string;
+  labelKey: string;
 }> = [
-  { kind: "table", label: "Tables" },
-  { kind: "view", label: "Views" },
-  { kind: "materialized_view", label: "Materialized Views" },
-  { kind: "subscription", label: "Subscriptions" },
-  { kind: "index", label: "Indexes" },
+  { kind: "table", labelKey: "database.tables" },
+  { kind: "view", labelKey: "database.views" },
+  { kind: "materialized_view", labelKey: "database.materializedViews" },
+  { kind: "subscription", labelKey: "database.subscriptions" },
+  { kind: "index", labelKey: "database.indexes" },
 ];
 
 const DATABASE_OBJECT_KINDS = new Set<DatabaseObjectKind>(

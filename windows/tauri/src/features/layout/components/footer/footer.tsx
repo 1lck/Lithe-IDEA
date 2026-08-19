@@ -55,7 +55,7 @@ const Footer = () => {
     <ChromeBar
       region="footer"
       className="lithe-footer-bar relative z-20 justify-between gap-2"
-      aria-label="Status bar"
+      aria-label={t("footer.statusBar")}
     >
       <ChromeGroup gap="tight" grow className="min-w-0">
         {filePathItem ? (

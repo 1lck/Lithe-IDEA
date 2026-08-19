@@ -722,7 +722,7 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
         {expanded ? (
           <div
             role="separator"
-            aria-label="Resize activity rail"
+            aria-label={t("layout.resizeActivityRail")}
             aria-orientation="vertical"
             className="group absolute top-0 right-0 z-20 flex h-full w-(--lithe-workbench-gap) cursor-col-resize items-center justify-center hover:bg-primary/8"
             onMouseDown={handleResizeMouseDown}
@@ -734,10 +734,10 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
       </ContextMenuTrigger>
       <ContextMenuContent className="min-w-56">
         <ContextMenuGroup>
-          <ContextMenuLabel>Actions</ContextMenuLabel>
+          <ContextMenuLabel>{t("layout.actions")}</ContextMenuLabel>
           <ContextMenuItem onClick={() => setIsProjectPickerVisible(true)}>
             <FolderOpenIcon />
-            Open Project…
+            {t("welcome.openProject")}
           </ContextMenuItem>
           <ContextMenuItem onClick={() => openGlobalSearchBuffer()}>
             <MagnifyingGlassIcon />
@@ -748,11 +748,11 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
         <ContextMenuSub>
           <ContextMenuSubTrigger>
             <EyeIcon />
-            Show in Activity Sidebar
+            {t("layout.showInActivitySidebar")}
           </ContextMenuSubTrigger>
           <ContextMenuSubContent className="min-w-56">
             <ContextMenuGroup>
-              <ContextMenuLabel>Show in Activity Sidebar</ContextMenuLabel>
+              <ContextMenuLabel>{t("layout.showInActivitySidebar")}</ContextMenuLabel>
               {activityRailVisibilityItems.map((item) => (
                 <ContextMenuCheckboxItem
                   key={item.id}
@@ -770,7 +770,7 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
                 }
               >
                 <FolderIcon />
-                Project Dots
+                {t("layout.projectDots")}
               </ContextMenuCheckboxItem>
             </ContextMenuGroup>
             {hasHiddenActivityRailItems ? (

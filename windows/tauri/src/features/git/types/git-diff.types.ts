@@ -22,6 +22,8 @@ export interface ImageContainerProps {
   base64?: string;
   alt: string;
   zoom: number;
+  removed?: boolean;
+  emptyLabel?: string;
 }
 
 export interface DiffHeaderProps {

@@ -1,5 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { WarningIcon as AlertTriangle } from "@/ui/icons";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { createTranslator } from "@/i18n/locale";
 import { Button } from "@/ui/button";
 import {
   Empty,
@@ -38,25 +40,27 @@ export class ExtensionErrorBoundary extends Component<Props, State> {
 
   render() {
     if (this.state.hasError) {
+      const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
+
       return (
         <Empty className="h-full rounded-none p-4" tone="warning" role="alert">
           <EmptyHeader>
             <EmptyMedia>
               <AlertTriangle className="size-8" />
             </EmptyMedia>
-            <EmptyTitle>{this.props.name} crashed</EmptyTitle>
+            <EmptyTitle>{t("extensions.crashed", { name: this.props.name })}</EmptyTitle>
             <EmptyDescription>
-              {this.state.error?.message || "An unexpected error occurred"}
+              {this.state.error?.message || t("extensions.unexpectedError")}
             </EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
             <Button
               onClick={this.handleRetry}
               variant="default"
-              aria-label={`Retry loading ${this.props.name}`}
+              aria-label={t("extensions.retryLoading", { name: this.props.name })}
               size="xs"
             >
-              Retry
+              {t("ui.retry")}
             </Button>
           </EmptyContent>
         </Empty>

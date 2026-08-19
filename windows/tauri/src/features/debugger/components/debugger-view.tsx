@@ -18,6 +18,7 @@ import Badge from "@/ui/badge";
 import { Button } from "@/ui/button";
 import Input from "@/ui/input";
 import Select from "@/ui/select";
+import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
 import { joinPath } from "@/utils/path-helpers";
 import {
@@ -58,11 +59,18 @@ const getActiveDebuggableFile = (state: ReturnType<typeof useBufferStore.getStat
 
 function DebugStatusBadge({ status }: { status: "idle" | "running" | "paused" }) {
   const variant = status === "paused" ? "default" : status === "running" ? "accent" : "muted";
+  const { t } = useTranslation();
+  const statusLabel =
+    status === "running"
+      ? t("debugger.statusRunning")
+      : status === "paused"
+        ? t("debugger.statusPaused")
+        : t("debugger.statusIdle");
 
   return (
-    <Badge variant={variant} size="compact" className="gap-1.5 capitalize">
+    <Badge variant={variant} size="compact" className="gap-1.5">
       <DebugSessionStatusIcon status={status} />
-      {status}
+      {statusLabel}
     </Badge>
   );
 }
@@ -90,6 +98,7 @@ export default function DebuggerView() {
   const [launchLoadError, setLaunchLoadError] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const syncedBreakpointFilesRef = useRef<Set<string>>(new Set());
+  const { t } = useTranslation();
 
   const generatedConfig = useMemo(
     () => createGeneratedDebugConfig(activeFile, rootFolderPath),
@@ -203,7 +212,7 @@ export default function DebuggerView() {
         debuggerActions.setWorkspaceConfigs(parseDebugLaunchJson(content));
       } catch {
         debuggerActions.setWorkspaceConfigs([]);
-        setLaunchLoadError("No launch.json found");
+        setLaunchLoadError(t("debugger.noLaunchJsonFound"));
       }
     };
 
@@ -311,12 +320,12 @@ export default function DebuggerView() {
       <div className="flex h-10 shrink-0 items-center gap-2 border-border/70 border-b px-3">
         <Bug size={16} className="text-subtle-foreground" weight="duotone" />
         <div className="min-w-0 flex-1">
-          <div className="truncate font-medium ui-text-sm">Run and Debug</div>
+          <div className="truncate font-medium ui-text-sm">{t("debugger.runAndDebug")}</div>
         </div>
         {activeSession ? <DebugStatusBadge status={activeSession.status} /> : null}
         <Button
           variant="ghost"
-          tooltip="Toggle breakpoint on current line"
+          tooltip={t("debugger.toggleCurrentLineBreakpoint")}
           onClick={toggleCurrentLineBreakpoint}
           disabled={!activeFile}
           size="icon-xs"
@@ -329,7 +338,9 @@ export default function DebuggerView() {
         <aside className="flex min-h-0 flex-col border-border/70 border-r">
           <div className="space-y-3 p-3">
             <div className="space-y-1.5">
-              <div className="font-sans text-subtle-foreground ui-text-sm">Configuration</div>
+              <div className="font-sans text-subtle-foreground ui-text-sm">
+                {t("debugger.configuration")}
+              </div>
               <Select
                 value={selectedConfig.id}
                 onChange={(value) => debuggerActions.setActiveConfigId(value)}
@@ -337,22 +348,24 @@ export default function DebuggerView() {
                 size="sm"
                 variant="default"
                 searchable
-                aria-label="Debug configuration"
+                aria-label={t("debugger.debugConfiguration")}
               />
             </div>
 
             <div className="space-y-1.5">
-              <div className="font-sans text-subtle-foreground ui-text-sm">Command</div>
+              <div className="font-sans text-subtle-foreground ui-text-sm">
+                {t("debugger.command")}
+              </div>
               {resolvedSelectedConfig.runtime === "custom" ? (
                 <Input
                   value={customCommand}
                   onChange={(event) => setCustomCommand(event.target.value)}
-                  placeholder="Command to run"
+                  placeholder={t("debugger.commandToRun")}
                   size="sm"
                 />
               ) : (
                 <div className="font-sans min-h-8 truncate rounded-lg border border-border/60 bg-surface/70 px-2 py-1.5 font-mono ui-text-sm text-subtle-foreground">
-                  {adapterCommandPreview || selectedCommand || "No command available"}
+                  {adapterCommandPreview || selectedCommand || t("debugger.noCommandAvailable")}
                 </div>
               )}
             </div>
@@ -365,21 +378,21 @@ export default function DebuggerView() {
                 commandId="debug.start"
               >
                 <Play />
-                Start
+                {t("debugger.start")}
               </Button>
               <Button
                 variant="default"
-                tooltip={isPaused ? "Continue" : "Pause"}
+                tooltip={isPaused ? t("debugger.continue") : t("debugger.pause")}
                 disabled={!canSendAdapterThreadRequest}
                 onClick={() => void sendAdapterThreadRequest(isPaused ? "continue" : "pause")}
-                aria-label={isPaused ? "Continue debugging" : "Pause debugging"}
+                aria-label={isPaused ? t("debugger.continueDebugging") : t("debugger.pauseDebugging")}
                 size="icon"
               >
                 {isPaused ? <Play /> : <Pause />}
               </Button>
               <Button
                 variant="danger"
-                tooltip="Stop"
+                tooltip={t("debugger.stop")}
                 disabled={!isActiveSession}
                 onClick={stopDebugging}
                 commandId="debug.stop"
@@ -392,30 +405,30 @@ export default function DebuggerView() {
             <div className="grid grid-cols-3 gap-1.5">
               <Button
                 variant="default"
-                tooltip="Step over"
+                tooltip={t("debugger.stepOver")}
                 disabled={!canStep}
                 onClick={() => void sendAdapterThreadRequest("next")}
                 size="xs"
               >
-                Over
+                {t("debugger.over")}
               </Button>
               <Button
                 variant="default"
-                tooltip="Step into"
+                tooltip={t("debugger.stepInto")}
                 disabled={!canStep}
                 onClick={() => void sendAdapterThreadRequest("stepIn")}
                 size="xs"
               >
-                Into
+                {t("debugger.into")}
               </Button>
               <Button
                 variant="default"
-                tooltip="Step out"
+                tooltip={t("debugger.stepOut")}
                 disabled={!canStep}
                 onClick={() => void sendAdapterThreadRequest("stepOut")}
                 size="xs"
               >
-                Out
+                {t("debugger.out")}
               </Button>
             </div>
 
@@ -433,7 +446,7 @@ export default function DebuggerView() {
                 <span className="truncate font-medium">{activeSession.name}</span>
                 {stoppedState ? (
                   <Badge variant="warning" size="compact">
-                    Paused
+                    {t("debugger.paused")}
                   </Badge>
                 ) : null}
               </div>
@@ -447,14 +460,14 @@ export default function DebuggerView() {
             <div className="flex items-center gap-1.5">
               <FolderOpen size={12} />
               <span className="truncate">
-                {rootFolderPath || launchLoadError || "Open a project to load launch.json"}
+                {rootFolderPath || launchLoadError || t("debugger.openProjectToLoadLaunchJson")}
               </span>
             </div>
           </div>
         </aside>
 
         <div className="grid min-h-0 grid-cols-2 gap-2 p-2">
-          <DebugSection title="Stack" count={stackFrames.length}>
+          <DebugSection title={t("debugger.stack")} count={stackFrames.length}>
             <DebugStackFrames
               frames={stackFrames}
               selectedFrameId={selectedFrameId}
@@ -462,7 +475,7 @@ export default function DebuggerView() {
             />
           </DebugSection>
 
-          <DebugSection title="Variables" count={scopes.length}>
+          <DebugSection title={t("debugger.variables")} count={scopes.length}>
             <DebugVariablesPanel
               activeSessionId={activeSession?.id}
               selectedFrameId={selectedFrameId}
@@ -472,7 +485,7 @@ export default function DebuggerView() {
             />
           </DebugSection>
 
-          <DebugSection title="Watch" count={watchExpressions.length}>
+          <DebugSection title={t("debugger.watch")} count={watchExpressions.length}>
             <DebugWatchPanel
               activeSessionId={activeSession?.id}
               selectedFrameId={selectedFrameId}
@@ -482,14 +495,14 @@ export default function DebuggerView() {
           </DebugSection>
 
           <DebugSection
-            title="Console"
+            title={t("debugger.console")}
             count={activeAdapterOutput.length}
             defaultOpen
             action={
               activeAdapterOutput.length > 0 ? (
                 <Button
                   variant="ghost"
-                  tooltip="Clear console"
+                  tooltip={t("debugger.clearConsole")}
                   onClick={debuggerActions.clearAdapterTranscript}
                   size="icon-xs"
                 >
@@ -499,7 +512,7 @@ export default function DebuggerView() {
             }
           >
             {activeAdapterOutput.length === 0 ? (
-              <DebugEmptyState>Adapter output appears here.</DebugEmptyState>
+              <DebugEmptyState>{t("debugger.adapterOutputAppearsHere")}</DebugEmptyState>
             ) : (
               <div className="py-1">
                 {activeAdapterOutput.map((output, index) => (
@@ -518,14 +531,14 @@ export default function DebuggerView() {
           </DebugSection>
 
           <DebugSection
-            title="Breakpoints"
+            title={t("debugger.breakpoints")}
             count={sortedBreakpoints.length}
             className="col-span-2"
             action={
               sortedBreakpoints.length > 0 ? (
                 <Button
                   variant="ghost"
-                  tooltip="Clear breakpoints"
+                  tooltip={t("debugger.clearBreakpoints")}
                   onClick={debuggerActions.clearBreakpoints}
                   size="icon-xs"
                 >

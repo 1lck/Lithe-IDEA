@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/ui/button";
 import Input from "@/ui/input";
 import Select from "@/ui/select";
+import { useTranslation } from "@/i18n/locale-provider";
 import { parseQueryResultPageInput } from "../lib/query-result-pagination";
 
 interface PaginationProps {
@@ -21,6 +22,7 @@ export default function Pagination({
   onPageSizeChange,
 }: PaginationProps) {
   const [pageInput, setPageInput] = useState(currentPage.toString());
+  const { t } = useTranslation();
 
   const handlePageInputChange = (value: string) => {
     setPageInput(value);
@@ -53,7 +55,7 @@ export default function Pagination({
       <div className="flex items-center gap-2">
         <Select
           value={pageSize.toString()}
-          aria-label="Rows per page"
+          aria-label={t("database.rowsPerPage")}
           options={[
             { value: "10", label: "10" },
             { value: "25", label: "25" },
@@ -65,7 +67,9 @@ export default function Pagination({
           size="xs"
           className="min-w-16"
         />
-        <span className="font-sans ui-text-sm text-subtle-foreground">per page</span>
+        <span className="font-sans ui-text-sm text-subtle-foreground">
+          {t("database.perPage")}
+        </span>
       </div>
 
       <div className="flex items-center gap-1">
@@ -75,8 +79,8 @@ export default function Pagination({
           variant="ghost"
           size="icon-xs"
           className="text-subtle-foreground hover:text-foreground disabled:opacity-50"
-          aria-label="Previous page"
-          tooltip="Previous page"
+          aria-label={t("ui.previousPage")}
+          tooltip={t("ui.previousPage")}
         >
           <ArrowLeft />
         </Button>
@@ -91,7 +95,7 @@ export default function Pagination({
             onBlur={handlePageInputBlur}
             min={1}
             max={totalPages}
-            aria-label="Current page"
+            aria-label={t("database.currentPage")}
             className="font-sans ui-text-sm h-6 w-12 px-1 py-0 text-center"
           />
           <span className="font-sans ui-text-sm text-subtle-foreground">/ {totalPages}</span>
@@ -103,8 +107,8 @@ export default function Pagination({
           variant="ghost"
           size="icon-xs"
           className="text-subtle-foreground hover:text-foreground disabled:opacity-50"
-          aria-label="Next page"
-          tooltip="Next page"
+          aria-label={t("ui.nextPage")}
+          tooltip={t("ui.nextPage")}
         >
           <ArrowRight />
         </Button>

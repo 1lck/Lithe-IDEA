@@ -9,6 +9,7 @@ import {
 } from "@/features/settings/lib/font-family-resolution";
 import { useFontStore } from "@/features/settings/stores/font.store";
 import type { FontInfo } from "@/features/settings/types/font.types";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Spinner } from "@/ui/spinner";
 import Select from "@/ui/select";
 import { cn } from "@/utils/cn";
@@ -48,6 +49,7 @@ export const FontSelector = ({
   const error = useFontStore.use.error();
   const { loadAvailableFonts, loadMonospaceFonts, clearError, validateFont } =
     useFontStore.use.actions();
+  const { t } = useTranslation();
 
   const [selectedFont, setSelectedFont] = useState(value);
   const [isCustomFontValid, setIsCustomFontValid] = useState(false);
@@ -85,7 +87,10 @@ export const FontSelector = ({
   // Convert fonts to dropdown options
   const fontOptions = fonts.map((font: FontInfo, index) => ({
     value: font.family,
-    label: index < uniqueBundledFonts.length ? `${font.family} (bundled)` : font.family,
+    label:
+      index < uniqueBundledFonts.length
+        ? t("fontSelector.bundled", { font: font.family })
+        : font.family,
   }));
 
   // Add custom font option only for real system fonts that validate successfully.
@@ -99,7 +104,7 @@ export const FontSelector = ({
   ) {
     fontOptions.unshift({
       value: resolvedValue,
-      label: `${resolvedValue} (custom)`,
+      label: t("fontSelector.custom", { font: resolvedValue }),
     });
   }
 
@@ -141,13 +146,13 @@ export const FontSelector = ({
   };
 
   if (isLoading) {
-    return <Spinner label="Loading fonts" showLabel compact className={className} />;
+    return <Spinner label={t("fontSelector.loading")} showLabel compact className={className} />;
   }
 
   if (error) {
     return (
       <div className={cn("font-sans ui-text-sm text-destructive", className)}>
-        Error loading fonts: {error}
+        {t("fontSelector.error", { error })}
       </div>
     );
   }
@@ -157,7 +162,7 @@ export const FontSelector = ({
       value={resolvedValue}
       options={fontOptions}
       onChange={handleFontChange}
-      placeholder="Select font"
+      placeholder={t("fontSelector.select")}
       className={className}
       size="sm"
       variant="default"

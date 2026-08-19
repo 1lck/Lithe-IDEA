@@ -1,6 +1,7 @@
 import { WarningIcon as AlertTriangle } from "@/ui/icons";
 import { Button } from "@/ui/button";
 import Dialog from "@/ui/dialog";
+import { useTranslation } from "@/i18n/locale-provider";
 
 interface Props {
   onSave: () => void;
@@ -10,28 +11,31 @@ interface Props {
 }
 
 const UnsavedChangesDialog = ({ onSave, onDiscard, onCancel, fileName }: Props) => {
+  const { t } = useTranslation();
+
   return (
     <Dialog
-      title="Unsaved Changes"
+      title={t("unsavedChanges.title")}
       icon={AlertTriangle}
       onClose={onCancel}
       size="sm"
       footer={
         <>
           <Button onClick={onCancel} size="xs">
-            Cancel
+            {t("ui.cancel")}
           </Button>
           <Button onClick={onDiscard} size="xs">
-            Don't Save
+            {t("unsavedChanges.doNotSave")}
           </Button>
           <Button onClick={onSave} variant="accent" size="xs">
-            Save
+            {t("ui.save")}
           </Button>
         </>
       }
     >
       <p className="text-foreground ui-text-sm">
-        Do you want to save the changes you made to <strong>{fileName}</strong>?
+        {t("unsavedChanges.messagePrefix")} <strong>{fileName}</strong>
+        {t("unsavedChanges.messageSuffix")}
       </p>
     </Dialog>
   );

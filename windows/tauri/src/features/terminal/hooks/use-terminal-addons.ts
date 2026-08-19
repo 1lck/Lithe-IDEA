@@ -12,6 +12,8 @@ import {
   parseTerminalFileLinks,
   type TerminalFileLink,
 } from "@/features/terminal/utils/terminal-file-links";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { createTranslator } from "@/i18n/locale";
 import { writeClipboardText } from "@/utils/clipboard";
 
 export interface TerminalAddons {
@@ -72,12 +74,14 @@ export function loadWebglRenderer(
 
 export function loadWebLinksAddon(terminal: Terminal): void {
   const webLinksAddon = new WebLinksAddon(async (_event: MouseEvent, uri: string) => {
+    const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
+
     try {
-      const confirmed = await ask(`Do you want to open this link in your browser?\n\n${uri}`, {
-        title: "Open External Link",
+      const confirmed = await ask(t("terminal.openExternalLinkConfirm", { url: uri }), {
+        title: t("terminal.openExternalLink"),
         kind: "warning",
-        okLabel: "Open",
-        cancelLabel: "Cancel",
+        okLabel: t("ui.open"),
+        cancelLabel: t("ui.cancel"),
       });
 
       if (confirmed) {

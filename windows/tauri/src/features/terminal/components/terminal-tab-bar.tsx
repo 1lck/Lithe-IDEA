@@ -41,6 +41,7 @@ import {
 import type { Terminal } from "@/features/terminal/types/terminal.types";
 import { getAllTerminalProfiles } from "@/features/terminal/utils/terminal-profiles";
 import { normalizeTerminalTitle } from "@/features/terminal/utils/terminal-title";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Dropdown, MenuItemsList, type MenuItem } from "@/ui/dropdown";
 import { Button } from "@/ui/button";
 import { SortableTab, TabBarSurface, TabDndContext, useTabDragClickGuard } from "@/ui/tab-bar";
@@ -91,13 +92,14 @@ const ToolbarContextMenu = ({
   onFullScreen,
   isFullScreen,
 }: ToolbarContextMenuProps) => {
+  const { t } = useTranslation();
   const modes: {
     value: TerminalWidthMode;
     label: string;
     icon: React.ReactNode;
   }[] = [
-    { value: "full", label: "Full Width", icon: <Maximize /> },
-    { value: "editor", label: "Editor Width", icon: <AlignCenter /> },
+    { value: "full", label: t("terminal.toolbarFullWidth"), icon: <Maximize /> },
+    { value: "editor", label: t("terminal.toolbarEditorWidth"), icon: <AlignCenter /> },
   ];
   const layouts: {
     value: TerminalTabLayout;
@@ -106,12 +108,12 @@ const ToolbarContextMenu = ({
   }[] = [
     {
       value: "horizontal",
-      label: "Horizontal Tabs",
+      label: t("terminal.toolbarHorizontalTabs"),
       icon: <Rows3 />,
     },
     {
       value: "vertical",
-      label: "Vertical Tabs",
+      label: t("terminal.toolbarVerticalTabs"),
       icon: <PanelLeft />,
     },
   ];
@@ -134,8 +136,8 @@ const ToolbarContextMenu = ({
     label: string;
     icon: React.ReactNode;
   }[] = [
-    { value: "left", label: "Tabs on Left", icon: <PanelLeft /> },
-    { value: "right", label: "Tabs on Right", icon: <PanelRight /> },
+    { value: "left", label: t("terminal.toolbarTabsOnLeft"), icon: <PanelLeft /> },
+    { value: "right", label: t("terminal.toolbarTabsOnRight"), icon: <PanelRight /> },
   ];
   const sidebarPositionItems: MenuItem[] = sidebarPositions.map((pos) => ({
     id: `sidebar-pos-${pos.value}`,
@@ -149,7 +151,7 @@ const ToolbarContextMenu = ({
       ? [
           {
             id: "new-terminal",
-            label: "New Terminal",
+            label: t("terminal.newTerminal"),
             icon: <Plus />,
             onClick: onNewTerminal,
           },
@@ -159,7 +161,7 @@ const ToolbarContextMenu = ({
       ? [
           {
             id: "search-terminal",
-            label: "Search",
+            label: t("terminal.search"),
             icon: <Search />,
             onClick: onSearchTerminal,
           },
@@ -169,7 +171,7 @@ const ToolbarContextMenu = ({
       ? [
           {
             id: "next-terminal",
-            label: "Next Tab",
+            label: t("terminal.nextTab"),
             icon: <ArrowDown />,
             onClick: onNextTerminal,
           },
@@ -179,7 +181,7 @@ const ToolbarContextMenu = ({
       ? [
           {
             id: "previous-terminal",
-            label: "Previous Tab",
+            label: t("terminal.previousTab"),
             icon: <ArrowUp />,
             onClick: onPrevTerminal,
           },
@@ -189,7 +191,7 @@ const ToolbarContextMenu = ({
       ? [
           {
             id: "toggle-fullscreen",
-            label: isFullScreen ? "Exit Full Screen" : "Full Screen",
+            label: isFullScreen ? t("terminal.exitFullScreen") : t("terminal.fullScreen"),
             icon: isFullScreen ? <Minimize2 /> : <Maximize2 />,
             onClick: onFullScreen,
           },
@@ -199,16 +201,20 @@ const ToolbarContextMenu = ({
 
   return (
     <Dropdown isOpen={isOpen} point={position} onClose={onClose} className="min-w-45">
-      <div className="font-sans ui-text-sm px-2.5 py-1 text-subtle-foreground">Terminal Width</div>
+      <div className="font-sans ui-text-sm px-2.5 py-1 text-subtle-foreground">
+        {t("terminal.toolbarTerminalWidth")}
+      </div>
       <MenuItemsList items={modeItems} onItemSelect={onClose} />
       <div className="my-0.5 border-border/70 border-t" />
-      <div className="font-sans ui-text-sm px-2.5 py-1 text-subtle-foreground">Tab Layout</div>
+      <div className="font-sans ui-text-sm px-2.5 py-1 text-subtle-foreground">
+        {t("terminal.toolbarTabLayout")}
+      </div>
       <MenuItemsList items={layoutItems} onItemSelect={onClose} />
       {currentLayout === "vertical" && (
         <>
           <div className="my-0.5 border-border/70 border-t" />
           <div className="font-sans ui-text-sm px-2.5 py-1 text-subtle-foreground">
-            Tab Position
+            {t("terminal.toolbarTabPosition")}
           </div>
           <MenuItemsList items={sidebarPositionItems} onItemSelect={onClose} />
         </>
@@ -266,6 +272,7 @@ const TerminalTabBar = ({
   isFullScreen = false,
   orientation = "horizontal",
 }: TerminalTabBarProps) => {
+  const { t } = useTranslation();
   const [editingTerminalId, setEditingTerminalId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [draggedTerminalId, setDraggedTerminalId] = useState<string | null>(null);
@@ -460,10 +467,10 @@ const TerminalTabBar = ({
           onClick={onSearchTerminal}
           variant="ghost"
           size="icon-xs"
-          tooltip="Find in Terminal"
+          tooltip={t("terminal.findInTerminal")}
           commandId="terminal.find"
           tooltipSide="bottom"
-          aria-label="Find in terminal"
+          aria-label={t("terminal.findInTerminal")}
         >
           <Search />
         </Button>
@@ -473,15 +480,15 @@ const TerminalTabBar = ({
           onClick={onNewTerminal}
           variant="ghost"
           size="icon-xs"
-          tooltip="New Terminal"
+          tooltip={t("terminal.newTerminal")}
           commandId="terminal.new"
           tooltipSide="bottom"
-          aria-label="New terminal"
+          aria-label={t("terminal.newTerminal")}
         >
           <Plus />
         </Button>
         {onNewTerminalWithProfile && terminalProfiles.length > 1 && (
-          <Tooltip content="Choose Terminal Profile" side="bottom">
+          <Tooltip content={t("terminal.chooseTerminalProfile")} side="bottom">
             <Button
               ref={profileMenuButtonRef}
               onClick={openProfileMenu}
@@ -494,7 +501,10 @@ const TerminalTabBar = ({
         )}
       </div>
       {onFullScreen && (
-        <Tooltip content={isFullScreen ? "Exit Full Screen" : "Full Screen Terminal"} side="bottom">
+        <Tooltip
+          content={isFullScreen ? t("terminal.exitFullScreen") : t("terminal.fullScreenTerminal")}
+          side="bottom"
+        >
           <Button onClick={onFullScreen} variant="ghost" size="icon-xs">
             {isFullScreen ? <Minimize2 /> : <Maximize2 />}
           </Button>
@@ -697,7 +707,9 @@ const TerminalTabBar = ({
       >
         <div className="flex items-center gap-1.5">
           <TerminalIcon className="text-subtle-foreground" />
-          <span className="font-sans ui-text-sm text-subtle-foreground">No terminals</span>
+          <span className="font-sans ui-text-sm text-subtle-foreground">
+            {t("terminal.noTerminals")}
+          </span>
         </div>
         {onNewTerminal && (
           <div className="flex items-center gap-0.5">
@@ -707,14 +719,14 @@ const TerminalTabBar = ({
               className="rounded-(--lithe-chrome-radius) text-subtle-foreground"
               size="icon-xs"
               commandId="terminal.new"
-              tooltip="New Terminal"
+              tooltip={t("terminal.newTerminal")}
               tooltipSide="bottom"
-              aria-label="New Terminal"
+              aria-label={t("terminal.newTerminal")}
             >
               <Plus />
             </Button>
             {onNewTerminalWithProfile && terminalProfiles.length > 1 && (
-              <Tooltip content="Choose Terminal Profile" side="bottom">
+              <Tooltip content={t("terminal.chooseTerminalProfile")} side="bottom">
                 <Button
                   ref={profileMenuButtonRef}
                   onClick={openProfileMenu}
@@ -750,7 +762,7 @@ const TerminalTabBar = ({
           )}
           style={orientation === "vertical" ? { width: tabSidebarWidth } : undefined}
           role="tablist"
-          aria-label="Terminal tabs"
+          aria-label={t("terminal.terminalTabs")}
           onContextMenu={handleToolbarContextMenu}
         >
           {orientation === "vertical" && terminalToolbarActions}
@@ -911,7 +923,7 @@ const TerminalTabBar = ({
               }}
               role="separator"
               aria-orientation="vertical"
-              aria-label="Resize terminal sidebar"
+              aria-label={t("terminal.resizeSidebar")}
             />
           )}
         </TabBarSurface>
@@ -964,11 +976,11 @@ const TerminalTabBar = ({
                     defaultPath: defaultFileName,
                     filters: [
                       {
-                        name: "Text Files",
+                        name: t("terminal.textFiles"),
                         extensions: ["txt"],
                       },
                       {
-                        name: "All Files",
+                        name: t("terminal.allFiles"),
                         extensions: ["*"],
                       },
                     ],
@@ -1008,7 +1020,7 @@ const TerminalTabBar = ({
             className="w-55"
           >
             <div className="font-sans ui-text-sm px-2.5 py-1 text-subtle-foreground">
-              New Terminal
+              {t("terminal.newTerminal")}
             </div>
             <div className="my-0.5 border-border/70 border-t" />
             <MenuItemsList items={profileMenuItems} onItemSelect={closeProfileMenu} />

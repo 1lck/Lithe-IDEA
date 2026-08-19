@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "@/i18n/locale-provider";
 import type {
   ConversionOptions,
   FlipDirection,
@@ -23,6 +24,7 @@ export interface UseImageOperationsOptions {
 }
 
 export function useImageOperations(options: UseImageOperationsOptions) {
+  const { t } = useTranslation();
   const { initialSrc, onImageUpdate } = options;
 
   const [imageSrc, setImageSrc] = useState(initialSrc);
@@ -58,10 +60,10 @@ export function useImageOperations(options: UseImageOperationsOptions) {
 
         setError(null);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to update image");
+        setError(err instanceof Error ? err.message : t("image.updateFailed"));
       }
     },
-    [history, historyIndex, onImageUpdate],
+    [history, historyIndex, onImageUpdate, t],
   );
 
   const convertFormat = useCallback(
@@ -74,12 +76,12 @@ export function useImageOperations(options: UseImageOperationsOptions) {
         const result = await convertImageFormat(imageSrc, options);
         await updateImage(result.blob);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to convert format");
+        setError(err instanceof Error ? err.message : t("image.convertFailed"));
       } finally {
         setIsProcessing(false);
       }
     },
-    [imageSrc, updateImage],
+    [imageSrc, t, updateImage],
   );
 
   const rotate = useCallback(
@@ -91,12 +93,12 @@ export function useImageOperations(options: UseImageOperationsOptions) {
         const result = await rotateImage(imageSrc, degrees);
         await updateImage(result.blob);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to rotate image");
+        setError(err instanceof Error ? err.message : t("image.rotateFailed"));
       } finally {
         setIsProcessing(false);
       }
     },
-    [imageSrc, updateImage],
+    [imageSrc, t, updateImage],
   );
 
   const rotateCW = useCallback(async () => {
@@ -107,11 +109,11 @@ export function useImageOperations(options: UseImageOperationsOptions) {
       const result = await rotate90CW(imageSrc);
       await updateImage(result.blob);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to rotate image");
+      setError(err instanceof Error ? err.message : t("image.rotateFailed"));
     } finally {
       setIsProcessing(false);
     }
-  }, [imageSrc, updateImage]);
+  }, [imageSrc, t, updateImage]);
 
   const rotateCCW = useCallback(async () => {
     setIsProcessing(true);
@@ -121,11 +123,11 @@ export function useImageOperations(options: UseImageOperationsOptions) {
       const result = await rotate90CCW(imageSrc);
       await updateImage(result.blob);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to rotate image");
+      setError(err instanceof Error ? err.message : t("image.rotateFailed"));
     } finally {
       setIsProcessing(false);
     }
-  }, [imageSrc, updateImage]);
+  }, [imageSrc, t, updateImage]);
 
   const rotate180Degrees = useCallback(async () => {
     setIsProcessing(true);
@@ -135,11 +137,11 @@ export function useImageOperations(options: UseImageOperationsOptions) {
       const result = await rotate180(imageSrc);
       await updateImage(result.blob);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to rotate image");
+      setError(err instanceof Error ? err.message : t("image.rotateFailed"));
     } finally {
       setIsProcessing(false);
     }
-  }, [imageSrc, updateImage]);
+  }, [imageSrc, t, updateImage]);
 
   const flip = useCallback(
     async (direction: FlipDirection) => {
@@ -150,12 +152,12 @@ export function useImageOperations(options: UseImageOperationsOptions) {
         const result = await flipImage(imageSrc, direction);
         await updateImage(result.blob);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to flip image");
+        setError(err instanceof Error ? err.message : t("image.flipFailed"));
       } finally {
         setIsProcessing(false);
       }
     },
-    [imageSrc, updateImage],
+    [imageSrc, t, updateImage],
   );
 
   const resize = useCallback(
@@ -167,12 +169,12 @@ export function useImageOperations(options: UseImageOperationsOptions) {
         const result = await resizeImage(imageSrc, options);
         await updateImage(result.blob);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to resize image");
+        setError(err instanceof Error ? err.message : t("image.resizeFailed"));
       } finally {
         setIsProcessing(false);
       }
     },
-    [imageSrc, updateImage],
+    [imageSrc, t, updateImage],
   );
 
   const undo = useCallback(() => {

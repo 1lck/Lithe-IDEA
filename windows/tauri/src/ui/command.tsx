@@ -12,6 +12,7 @@ import { instantTransition, quickTransition } from "@/utils/motion";
 import { ScrollArea } from "@/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "@/ui/tabs";
 import { cn } from "@/utils/cn";
+import { useTranslation } from "@/i18n/locale-provider";
 
 interface CommandProps {
   isVisible: boolean;
@@ -122,9 +123,10 @@ const Command = ({
   children,
   className,
   onClose,
-  title = "Command palette",
+  title,
   autoFocus = true,
 }: CommandProps) => {
+  const { t } = useTranslation();
   const popupRef = useRef<HTMLDivElement>(null);
   const prefersReducedMotion = useReducedMotionConfig();
   const getInitialFocusTarget = useCallback(
@@ -169,7 +171,9 @@ const Command = ({
                 className={cn(commandContentVariants(), "pointer-events-auto", className)}
                 data-command-surface=""
               >
-                <DialogPrimitive.Title className="sr-only">{title}</DialogPrimitive.Title>
+                <DialogPrimitive.Title className="sr-only">
+                  {title ?? t("commandPalette.title")}
+                </DialogPrimitive.Title>
                 {children}
               </DialogPrimitive.Popup>
             </div>
@@ -197,17 +201,21 @@ export const CommandHeader = ({
   className,
   contentClassName,
 }: CommandHeaderProps) => {
+  const { t } = useTranslation();
   const clearActionsStack = useActionsStore.use.actions().clearStack;
 
   return (
     <div data-command-header className={cn("border-border border-b", className)}>
       <div className={cn(commandHeaderContentClassName, contentClassName)}>
         {children}
-        <CommandHeaderAction aria-label="Close command palette" onClick={onClose}>
+        <CommandHeaderAction aria-label={t("commandPalette.close")} onClick={onClose}>
           <X />
         </CommandHeaderAction>
         {showClearButton && (
-          <CommandHeaderAction aria-label="Clear persisted actions" onClick={clearActionsStack}>
+          <CommandHeaderAction
+            aria-label={t("commandPalette.clearPersistedActions")}
+            onClick={clearActionsStack}
+          >
             <RefreshCwIcon />
           </CommandHeaderAction>
         )}

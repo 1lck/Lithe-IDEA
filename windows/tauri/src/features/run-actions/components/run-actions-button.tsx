@@ -7,6 +7,7 @@ import { LspClient } from "@/features/editor/lsp/lsp-client";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { getBufferById } from "@/features/editor/utils/buffer-index";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.store";
 import { Button } from "@/ui/button";
@@ -31,9 +32,13 @@ const EMPTY_DRAFT: RunActionDraft = {
   workingDirectory: "",
 };
 
-function getWorkspaceLabel(workspacePath?: string, fallbackName?: string) {
+function getWorkspaceLabel(
+  workspacePath: string | undefined,
+  fallbackName: string | undefined,
+  projectLabel: string,
+) {
   if (fallbackName) return fallbackName;
-  if (!workspacePath) return "Project";
+  if (!workspacePath) return projectLabel;
   const segments = workspacePath.split(/[\\/]/).filter(Boolean);
   return segments[segments.length - 1] || workspacePath;
 }
@@ -81,6 +86,7 @@ function RunActionSection({
 }
 
 export default function RunActionsButton() {
+  const { t } = useTranslation();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
   const projectTabs = useWorkspaceTabsStore.use.projectTabs();
   const allCustomActions = useRunActionsStore.use.runActions();
@@ -103,7 +109,7 @@ export default function RunActionsButton() {
     useRunActionsStore.getState().actions;
   const activeProject = projectTabs.find((tab) => tab.isActive);
   const workspacePath = activeProject?.path || rootFolderPath || undefined;
-  const workspaceLabel = getWorkspaceLabel(workspacePath, activeProject?.name);
+  const workspaceLabel = getWorkspaceLabel(workspacePath, activeProject?.name, t("workbench.project"));
   const customActions = useMemo(
     () => getActionsForWorkspace(workspacePath),
     [allCustomActions, getActionsForWorkspace, workspacePath],
@@ -129,10 +135,10 @@ export default function RunActionsButton() {
         name: action.name,
         command: action.command,
         source: "custom",
-        sourceLabel: "Custom",
+        sourceLabel: t("run.custom"),
         workingDirectory: action.workingDirectory,
       })),
-    [customActions],
+    [customActions, t],
   );
   const visibleLspActions = useMemo(
     () => lspActions.filter((action) => matchesRunAction(action, query)),
@@ -210,9 +216,9 @@ export default function RunActionsButton() {
 
   const handleDelete = async (action: RunActionItem) => {
     closeMenu();
-    const confirmed = await showConfirmDialog(`Delete the run action “${action.name}”?`, {
-      title: "Delete run action",
-      confirmLabel: "Delete",
+    const confirmed = await showConfirmDialog(t("run.deleteActionMessage", { name: action.name }), {
+      title: t("run.deleteAction"),
+      confirmLabel: t("ui.delete"),
     });
     if (confirmed) deleteAction(action.id);
   };
@@ -237,7 +243,7 @@ export default function RunActionsButton() {
         <Tooltip
           content={
             isBackendCapabilityAvailable("runActions")
-              ? "Run project action"
+              ? t("run.projectAction")
               : BACKEND_UNAVAILABLE_TOOLTIP
           }
           side="bottom"
@@ -251,7 +257,7 @@ export default function RunActionsButton() {
             aria-haspopup="menu"
             aria-label={
               isBackendCapabilityAvailable("runActions")
-                ? "Run project action"
+                ? t("run.projectAction")
                 : BACKEND_UNAVAILABLE_TOOLTIP
             }
             size="icon-xs"
@@ -273,19 +279,19 @@ export default function RunActionsButton() {
         <div className="border-border/70 border-b bg-surface/35 px-3 pt-2.5 pb-2">
           <div className="mb-2 flex items-center justify-between gap-2">
             <div className="min-w-0">
-              <div className="font-medium text-foreground ui-text-sm">Run</div>
+              <div className="font-medium text-foreground ui-text-sm">{t("run.title")}</div>
               <div className="truncate text-subtle-foreground ui-text-sm">{workspaceLabel}</div>
             </div>
-            <Tooltip content="Rescan project actions" side="left">
+            <Tooltip content={t("run.rescanProjectActions")} side="left">
               <Button
                 type="button"
                 onClick={refresh}
                 variant="ghost"
                 size="icon-xs"
                 disabled={isDiscovering || !workspacePath}
-                aria-label="Rescan project actions"
+                aria-label={t("run.rescanProjectActions")}
               >
-                {isDiscovering ? <Spinner label="Scanning" compact /> : <RefreshIcon />}
+                {isDiscovering ? <Spinner label={t("run.scanning")} compact /> : <RefreshIcon />}
               </Button>
             </Tooltip>
           </div>
@@ -294,7 +300,7 @@ export default function RunActionsButton() {
             ref={searchInputRef}
             value={query}
             onChange={setQuery}
-            placeholder="Filter actions"
+            placeholder={t("run.filterActions")}
             className="h-8 bg-background"
             onKeyDown={(event) => {
               if (event.key === "Enter" && firstVisibleAction) {
@@ -307,14 +313,14 @@ export default function RunActionsButton() {
 
         <div className="max-h-[min(420px,60vh)] overflow-y-auto overscroll-contain">
           <div className="py-1">
-            <RunActionSection label="Current file" actions={visibleLspActions} onRun={runAction} />
+            <RunActionSection label={t("run.currentFile")} actions={visibleLspActions} onRun={runAction} />
             <RunActionSection
-              label="Detected in project"
+              label={t("run.detectedInProject")}
               actions={visibleProjectActions}
               onRun={runAction}
             />
             <RunActionSection
-              label="Custom"
+              label={t("run.custom")}
               actions={visibleCustomActions}
               onRun={runAction}
               onEdit={(action) =>
@@ -326,7 +332,7 @@ export default function RunActionsButton() {
             {!hasVisibleActions && isDiscovering ? (
               <Empty className="min-h-0 flex-none rounded-none px-6 py-8">
                 <EmptyDescription>
-                  <Spinner label="Scanning project actions" showLabel compact />
+                  <Spinner label={t("run.scanningProjectActions")} showLabel compact />
                 </EmptyDescription>
               </Empty>
             ) : null}
@@ -335,13 +341,13 @@ export default function RunActionsButton() {
               <Empty className="min-h-0 flex-none rounded-none px-6 py-8">
                 <EmptyHeader>
                   <EmptyTitle>
-                    {query ? "No matching actions" : "No runnable actions found"}
+                    {query ? t("run.noMatchingActions") : t("run.noRunnableActionsFound")}
                   </EmptyTitle>
                   <EmptyDescription>
                     {query
-                      ? "Try another name, command, or source."
+                      ? t("run.tryAnotherActionSearch")
                       : (discoveryError ??
-                        "Add a custom command, or open a file with runnable LSP CodeLens actions.")}
+                        t("run.addCustomCommandHint"))}
                   </EmptyDescription>
                 </EmptyHeader>
               </Empty>
@@ -357,7 +363,7 @@ export default function RunActionsButton() {
             className="ui-text-sm h-8 w-full justify-start gap-2"
           >
             <PlusIcon className="text-subtle-foreground" />
-            <span>New custom action</span>
+            <span>{t("run.newCustomAction")}</span>
           </Button>
         </div>
       </Dropdown>

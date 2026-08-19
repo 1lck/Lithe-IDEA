@@ -178,6 +178,13 @@
 "The interface language changes immediately. English is the default." = "界面语言会立即生效。默认语言为英文。";
 "Files" = "文件";
 "Save changed files automatically" = "自动保存已修改的文件";
+"Logs" = "日志";
+"Log directory" = "日志目录";
+"Default directory" = "默认目录";
+"Selected directory" = "当前选择的目录";
+"Choose Directory" = "选择目录";
+"Choose Log Directory" = "选择日志目录";
+"Restore Default" = "恢复默认";
 "Save after" = "保存延迟";
 "Hidden paths" = "隐藏路径";
 "One entry per line. Directory names hide matching folders; file entries support * and ?." = "每行输入一项。目录名用于隐藏匹配的文件夹；文件条目支持 * 和 ?。";

@@ -38,6 +38,14 @@ final class MacServiceContainer {
     let runConfigurationStore: MacRunConfigurationStore
     let moduleLifecycleCoordinator: ModuleLifecycleCoordinator
 
+    static func makeLogDirectoryProvider() -> any LogDirectoryProviding {
+        MacLogDirectoryProvider()
+    }
+
+    static func makeApplicationLogWriter() -> MacApplicationLogWriter {
+        MacApplicationLogWriter()
+    }
+
     init(
         store: any KeyValueStore,
         settings: AppSettings,

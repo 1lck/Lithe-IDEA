@@ -4,6 +4,7 @@ import { isBackendCapabilityAvailable } from "@/config/backend-capabilities";
 import DebuggerView from "@/features/debugger/components/debugger-view";
 import RunPane from "@/features/run/components/run-pane";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { GitLogToolWindow } from "@/features/git/components/log/git-log-tool-window";
 import { BOTTOM_PANE_ID } from "@/features/panes/constants/pane";
 import { usePaneStore } from "@/features/panes/stores/pane.store";
@@ -23,6 +24,7 @@ import { WorkbenchFullscreenSurface } from "@/features/window/components/workben
 import { BottomBufferPane } from "./bottom-buffer-pane";
 
 const BottomPane = () => {
+  const { t } = useTranslation();
   const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible);
   const bottomPaneActiveTab = useUIState((state) => state.bottomPaneActiveTab);
   const rootFolderPath = useProjectStore((state) => state.rootFolderPath);
@@ -228,7 +230,7 @@ const BottomPane = () => {
       )}
       role="separator"
       aria-orientation="horizontal"
-      aria-label="Resize bottom pane"
+      aria-label={t("layout.resizeBottomPane")}
     >
       <div
         className={cn(

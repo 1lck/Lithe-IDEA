@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 import LitheCoreContracts
 import LitheGitModule
@@ -168,7 +167,7 @@ struct SettingsView: View {
     private func searchTerms(for category: SettingsCategory) -> [String] {
         switch category {
         case .general:
-            ["General", "Appearance", "Color theme", "Appearance mode", "Language", "Projects", "Files", "Version control"]
+            ["General", "Appearance", "Color theme", "Appearance mode", "Language", "Projects", "Files", "Version control", "Logs", "Log directory"]
         case .editor:
             ["Editor", "Display", "Editor tabs", "Font size", "Indentation", "Tab width"]
         case .keymap:
@@ -367,6 +366,72 @@ struct SettingsView: View {
                     Button("Apply") { applyVisibilityDrafts() }
                         .buttonStyle(LithePrimaryButtonStyle())
                 }
+            }
+
+            group("Logs") {
+                Text("Log directory")
+                    .font(.system(size: 11.5, weight: .medium))
+
+                HStack(spacing: 10) {
+                    Text(settings.logDirectory.path)
+                        .font(.system(size: 13, weight: .medium))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                        .help(settings.logDirectory.path)
+
+                    Spacer(minLength: 8)
+
+                    Button {
+                        guard let directory = model.platformUI.chooseDirectory(
+                            title: "Choose Log Directory",
+                            prompt: "Choose"
+                        ) else { return }
+                        settings.setCustomLogDirectory(directory)
+                    } label: {
+                        Image(systemName: "folder")
+                            .font(.system(size: 16, weight: .regular))
+                            .frame(width: 26, height: 26)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .contentShape(Rectangle())
+                    .lithePointer()
+                    .help("Choose Directory")
+                }
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, minHeight: 46, maxHeight: 46)
+                .background(LitheTheme.inputBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(LitheTheme.inputBorder, lineWidth: 1)
+                }
+
+                HStack(spacing: 6) {
+                    Text("Default directory")
+                        .foregroundStyle(LitheTheme.secondaryText)
+                    Text(settings.defaultLogDirectory.path)
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                        .help(settings.defaultLogDirectory.path)
+
+                    Spacer(minLength: 8)
+
+                    if settings.customLogDirectory != nil {
+                        Button {
+                            settings.setCustomLogDirectory(nil)
+                        } label: {
+                            Text("Restore Default")
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(LitheTheme.accent)
+                        .lithePointer()
+                    }
+                }
+                .font(LitheTheme.smallFont)
             }
         }
     }

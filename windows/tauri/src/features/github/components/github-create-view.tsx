@@ -18,6 +18,7 @@ import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useAuthStore } from "@/features/window/stores/auth.store";
 import { hasProductCapability } from "@/features/window/lib/product-capabilities";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Checkbox } from "@/ui/checkbox";
 import Input from "@/ui/input";
 import Select from "@/ui/select";
@@ -46,10 +47,10 @@ interface GeneratedGitHubDraft {
   body?: string;
 }
 
-const titleByKind: Record<GitHubCreateKind, string> = {
-  "pull-request": "New pull request",
-  issue: "New issue",
-  action: "Run workflow",
+const titleKeyByKind: Record<GitHubCreateKind, string> = {
+  "pull-request": "github.newPullRequest",
+  issue: "github.newIssue",
+  action: "github.runWorkflow",
 };
 
 function extractJsonObject(text: string): GeneratedGitHubDraft {
@@ -142,6 +143,7 @@ function GitHubCreateViewContent({
   onPullRequestCreated,
   onWorkflowDispatched,
 }: GitHubCreateViewContentProps) {
+  const { t } = useTranslation();
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [head, setHead] = useState(defaultHead ?? "");
@@ -258,7 +260,7 @@ function GitHubCreateViewContent({
           issueType: issueType === "none" ? null : issueType,
         });
         onIssueCreated(issue);
-        toast.success("Issue created", { description: `#${issue.number} ${issue.title}` });
+        toast.success(t("github.issueCreated"), { description: `#${issue.number} ${issue.title}` });
         onClose();
         return;
       }
@@ -275,7 +277,7 @@ function GitHubCreateViewContent({
           assignees,
         });
         onPullRequestCreated(pullRequest);
-        toast.success("Pull request created", {
+        toast.success(t("github.pullRequestCreated"), {
           description: `#${pullRequest.number} ${pullRequest.title}`,
         });
         onClose();
@@ -288,7 +290,7 @@ function GitHubCreateViewContent({
         reference: workflowRef,
       });
       onWorkflowDispatched();
-      toast.success("Workflow queued");
+      toast.success(t("github.workflowQueued"));
       onClose();
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
@@ -307,7 +309,7 @@ function GitHubCreateViewContent({
       const enterprisePolicy = subscription?.enterprise?.policy;
       const isPro = hasProductCapability(subscription, "hostedAi");
       if (enterprisePolicy?.managedMode && enterprisePolicy.aiCompletionEnabled === false) {
-        setError("AI generation is disabled by your organization policy.");
+        setError(t("github.aiGenerationDisabledByPolicy"));
         return;
       }
 
@@ -370,11 +372,13 @@ ${statusSummary}`;
 
       const draft = extractJsonObject(editedText);
       if (!draft.title?.trim() && !draft.body?.trim()) {
-        throw new Error("AI did not return a usable draft.");
+        throw new Error(t("github.aiDraftUnusable"));
       }
       if (draft.title?.trim()) setTitle(draft.title.trim());
       if (draft.body?.trim()) setBody(draft.body.trim());
-      toast.success(kind === "pull-request" ? "PR draft generated" : "Issue draft generated");
+      toast.success(
+        kind === "pull-request" ? t("github.prDraftGenerated") : t("github.issueDraftGenerated"),
+      );
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     } finally {
@@ -395,15 +399,15 @@ ${statusSummary}`;
               ) : (
                 <Activity className="text-primary" />
               )}
-              <span>{titleByKind[kind]}</span>
+              <span>{t(titleKeyByKind[kind])}</span>
               <span className="truncate font-normal text-subtle-foreground">
-                in {repositoryName}
+                {t("github.inRepository", { repository: repositoryName })}
               </span>
             </span>
           }
           actions={
             <Button type="button" variant="ghost" size="xs" onClick={onClose}>
-              Cancel
+              {t("github.cancel")}
             </Button>
           }
         />
@@ -418,45 +422,45 @@ ${statusSummary}`;
                 <span>{repositoryName}</span>
               </div>
               <h1 className="font-sans text-2xl leading-tight font-semibold tracking-tight text-foreground">
-                Run workflow
+                {t("github.runWorkflow")}
               </h1>
               <p className="font-sans ui-text-sm text-subtle-foreground">
-                Choose a workflow and the branch or tag it should run against.
+                {t("github.chooseWorkflowDescription")}
               </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-3 border-border/60 border-y py-3">
               <div className="flex min-w-56 flex-1 items-center gap-2">
                 <span className="shrink-0 font-sans ui-text-sm text-subtle-foreground">
-                  Workflow
+                  {t("github.workflow")}
                 </span>
                 <Select
                   value={workflowId}
                   options={workflowOptions}
                   onChange={setWorkflowId}
-                  placeholder={isLoadingMetadata ? "Loading..." : "Choose workflow"}
+                  placeholder={isLoadingMetadata ? t("github.loading") : t("github.chooseWorkflow")}
                   searchable
                   size="sm"
                   className="min-w-0 flex-1"
                   triggerClassName="justify-start bg-transparent"
                   menuMinWidth={280}
-                  aria-label="Choose workflow"
+                  aria-label={t("github.chooseWorkflow")}
                 />
               </div>
               <div className="flex min-w-56 flex-1 items-center gap-2">
-                <span className="shrink-0 font-sans ui-text-sm text-subtle-foreground">Ref</span>
+                <span className="shrink-0 font-sans ui-text-sm text-subtle-foreground">{t("github.ref")}</span>
                 <Select
                   value={workflowRef}
                   options={branchOptions}
                   onChange={setWorkflowRef}
-                  placeholder={isLoadingMetadata ? "Loading..." : "Choose branch or tag"}
+                  placeholder={isLoadingMetadata ? t("github.loading") : t("github.chooseBranchOrTag")}
                   searchable
                   allowCustomValue
                   size="sm"
                   className="min-w-0 flex-1"
                   triggerClassName="justify-start bg-transparent"
                   menuMinWidth={240}
-                  aria-label="Choose workflow ref"
+                  aria-label={t("github.chooseWorkflowRef")}
                 />
               </div>
             </div>
@@ -474,8 +478,8 @@ ${statusSummary}`;
                 disabled={!canSubmit || isSubmitting}
                 onClick={() => void handleSubmit()}
               >
-                {isSubmitting ? <Spinner label="Running" compact /> : <Plus />}
-                Run workflow
+                {isSubmitting ? <Spinner label={t("github.running")} compact /> : <Plus />}
+                {t("github.runWorkflow")}
               </Button>
             </div>
           </div>
@@ -495,7 +499,7 @@ ${statusSummary}`;
                     void handleSubmit();
                   }
                 }}
-                placeholder={kind === "issue" ? "Issue title" : "Pull request title"}
+                placeholder={kind === "issue" ? t("github.issueTitle") : t("github.pullRequestTitle")}
                 variant="ghost"
                 size="md"
                 className="github-composer-title h-auto px-0 py-1 font-semibold tracking-tight"
@@ -506,42 +510,42 @@ ${statusSummary}`;
             {kind === "pull-request" ? (
               <div className="flex flex-wrap items-center gap-2 border-border/60 border-y py-3">
                 <GitBranch className="text-subtle-foreground" />
-                <span className="font-sans ui-text-sm text-subtle-foreground">Head</span>
+                <span className="font-sans ui-text-sm text-subtle-foreground">{t("github.head")}</span>
                 <Select
                   value={head}
                   options={branchOptions}
                   onChange={setHead}
-                  placeholder={isLoadingMetadata ? "Loading..." : "Choose head"}
+                  placeholder={isLoadingMetadata ? t("github.loading") : t("github.chooseHead")}
                   searchable
                   allowCustomValue
                   size="xs"
                   className="w-52"
                   triggerClassName="justify-start bg-transparent"
                   menuMinWidth={240}
-                  aria-label="Choose head branch"
+                  aria-label={t("github.chooseHeadBranch")}
                 />
                 <span className="font-sans ui-text-sm text-subtle-foreground">&rarr;</span>
-                <span className="font-sans ui-text-sm text-subtle-foreground">Base</span>
+                <span className="font-sans ui-text-sm text-subtle-foreground">{t("github.base")}</span>
                 <Select
                   value={base}
                   options={branchOptions}
                   onChange={setBase}
-                  placeholder={isLoadingMetadata ? "Loading..." : "Choose base"}
+                  placeholder={isLoadingMetadata ? t("github.loading") : t("github.chooseBase")}
                   searchable
                   allowCustomValue
                   size="xs"
                   className="w-52"
                   triggerClassName="justify-start bg-transparent"
                   menuMinWidth={240}
-                  aria-label="Choose base branch"
+                  aria-label={t("github.chooseBaseBranch")}
                 />
                 <label className="ml-auto flex h-7 items-center gap-2 rounded-lg px-2 font-sans ui-text-sm text-subtle-foreground hover:bg-accent/60">
                   <Checkbox
                     checked={draft}
                     onCheckedChange={setDraft}
-                    aria-label="Create as draft pull request"
+                    aria-label={t("github.createDraftPullRequest")}
                   />
-                  Draft
+                  {t("github.draft")}
                 </label>
               </div>
             ) : null}
@@ -550,7 +554,7 @@ ${statusSummary}`;
               <GitHubMarkdownEditor
                 value={body}
                 onChange={setBody}
-                placeholder="Write a description..."
+                placeholder={t("github.writeDescription")}
                 minHeight={240}
               />
             </div>
@@ -574,33 +578,33 @@ ${statusSummary}`;
                   <Select
                     value={milestone}
                     options={[
-                      { value: "none", label: "No milestone" },
+                      { value: "none", label: t("github.noMilestone") },
                       ...milestones.map((item) => ({
                         value: item.number.toString(),
                         label: item.title,
                       })),
                     ]}
                     onChange={setMilestone}
-                    placeholder="Milestone"
+                    placeholder={t("github.milestone")}
                     size="xs"
                     className="w-40"
                     searchable
-                    aria-label="Issue milestone"
+                    aria-label={t("github.issueMilestone")}
                   />
                 ) : null}
                 {kind === "issue" && issueTypes.length > 0 ? (
                   <Select
                     value={issueType}
                     options={[
-                      { value: "none", label: "No type" },
+                      { value: "none", label: t("github.noType") },
                       ...issueTypes.map((item) => ({ value: item.name, label: item.name })),
                     ]}
                     onChange={setIssueType}
-                    placeholder="Issue type"
+                    placeholder={t("github.issueType")}
                     size="xs"
                     className="w-40"
                     searchable
-                    aria-label="Issue type"
+                    aria-label={t("github.issueType")}
                   />
                 ) : null}
               </div>
@@ -612,8 +616,8 @@ ${statusSummary}`;
                   disabled={isGenerating || isSubmitting}
                   onClick={() => void handleGenerateDraft()}
                 >
-                  {isGenerating ? <Spinner label="Generating" compact /> : <Sparkle />}
-                  Generate
+                  {isGenerating ? <Spinner label={t("github.generating")} compact /> : <Sparkle />}
+                  {t("github.generate")}
                 </Button>
                 <Button
                   type="button"
@@ -622,8 +626,8 @@ ${statusSummary}`;
                   disabled={!canSubmit || isSubmitting}
                   onClick={() => void handleSubmit()}
                 >
-                  {isSubmitting ? <Spinner label="Creating" compact /> : <Plus />}
-                  Create
+                  {isSubmitting ? <Spinner label={t("github.creating")} compact /> : <Plus />}
+                  {t("github.create")}
                 </Button>
               </div>
             </div>
