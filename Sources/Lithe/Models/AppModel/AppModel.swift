@@ -43,13 +43,21 @@ final class AppModel: ObservableObject, Identifiable {
     @Published private(set) var standaloneFileURL: URL?
     @Published var selectedSidebar: SidebarDestination = .project {
         didSet {
-            if selectedSidebar == .changes, oldValue != .changes {
-                Task { [weak self] in await self?.refreshGit() }
-            }
-            if selectedSidebar == .pullRequests, oldValue != .pullRequests {
-                Task { [weak self] in
-                    guard let self else { return }
+            guard oldValue != selectedSidebar else { return }
+            sidebarRefreshTask?.cancel()
+            sidebarRefreshTask = nil
+            // Sidebar changes can happen faster than Git or GitHub can respond.
+            // Keep only the refresh associated with the currently visible pane.
+            sidebarRefreshTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard !Task.isCancelled else { return }
+                switch self.selectedSidebar {
+                case .changes:
+                    await self.refreshGit()
+                case .pullRequests:
                     await self.githubFeature.refresh(workspaceURL: self.workspaceURL)
+                default:
+                    break
                 }
             }
         }
@@ -136,6 +144,7 @@ final class AppModel: ObservableObject, Identifiable {
     @Published var blameVisibleURL: URL?
     @Published var gitLogSearchQuery = ""
     private var shortcutDetector: (any ShortcutDetector)?
+    private var sidebarRefreshTask: Task<Void, Never>?
     private var shortcutSettingsObservation: AnyCancellable?
     private var shortcutRecordingObservation: AnyCancellable?
     private var isProjectSessionActive = true
@@ -670,6 +679,7 @@ final class AppModel: ObservableObject, Identifiable {
 
     deinit {
         shortcutDetector?.stop()
+        sidebarRefreshTask?.cancel()
     }
 
     func configureProjectSession(
