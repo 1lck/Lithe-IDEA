@@ -370,6 +370,7 @@ struct CodeEditorView: NSViewRepresentable {
         weak var document: EditorDocument?
         weak var model: AppModel?
         weak var debugService: JavaDebugFeatureModel?
+        let fileName: String
         let fileExtension: String
         weak var textView: NSTextView?
         weak var gutter: LineNumberGutterView?
@@ -430,6 +431,7 @@ struct CodeEditorView: NSViewRepresentable {
             self.debugService = debugService
             self.markdownScrollPosition = markdownScrollPosition
             self.viewportStore = viewportStore
+            fileName = document.url.lastPathComponent
             fileExtension = document.url.pathExtension
         }
 
@@ -802,6 +804,7 @@ struct CodeEditorView: NSViewRepresentable {
                 SyntaxHighlighter.applyExact(
                     to: textStorage,
                     font: font,
+                    fileName: fileName,
                     fileExtension: fileExtension,
                     isDark: isDarkAppearance,
                     range: target
@@ -820,6 +823,7 @@ struct CodeEditorView: NSViewRepresentable {
                 SyntaxHighlighter.applyExact(
                     to: textStorage,
                     font: font,
+                    fileName: fileName,
                     fileExtension: fileExtension,
                     isDark: isDarkAppearance,
                     range: range
@@ -3616,6 +3620,7 @@ enum SyntaxHighlighter {
     static func apply(
         to storage: NSTextStorage,
         font: NSFont,
+        fileName: String? = nil,
         fileExtension: String,
         isDark: Bool,
         range: NSRange? = nil
@@ -3626,6 +3631,7 @@ enum SyntaxHighlighter {
         applyExact(
             to: storage,
             font: font,
+            fileName: fileName,
             fileExtension: fileExtension,
             isDark: isDark,
             range: target
@@ -3635,6 +3641,7 @@ enum SyntaxHighlighter {
     static func applyExact(
         to storage: NSTextStorage,
         font: NSFont,
+        fileName: String? = nil,
         fileExtension: String,
         isDark: Bool,
         range target: NSRange
@@ -3656,7 +3663,11 @@ enum SyntaxHighlighter {
         apply(numberExpression, color: palette.number, storage: storage, range: target)
         apply(stringExpression, color: palette.string, storage: storage, range: target)
         apply(commentExpression, color: palette.comment, storage: storage, range: target)
-        if fileExtension.lowercased() == "json" {
+        let adapter = SyntaxHighlightingRegistry.bundled.adapter(
+            fileName: fileName,
+            fileExtension: fileExtension
+        )
+        if adapter == .json {
             apply(jsonPropertyExpression, color: palette.property, storage: storage, range: target)
         }
         storage.endEditing()

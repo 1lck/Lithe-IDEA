@@ -108,7 +108,8 @@ let package = Package(
             ],
             path: "Sources/Lithe",
             resources: [
-                .copy("Resources/MarkdownPreview")
+                .copy("Resources/MarkdownPreview"),
+                .copy("Resources/SyntaxHighlighting")
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v5)
