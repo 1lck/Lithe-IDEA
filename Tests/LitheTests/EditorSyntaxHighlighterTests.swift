@@ -259,6 +259,38 @@ struct EditorSyntaxHighlighterTests {
     }
 
     @Test
+    func xmlSyntaxCorpusUsesExpectedTokenColors() throws {
+        let source = try syntaxCorpus(named: "xml-syntax-corpus", extension: "xml")
+        let storage = NSTextStorage(string: source)
+
+        SyntaxHighlighter.apply(
+            to: storage,
+            font: .monospacedSystemFont(ofSize: 13, weight: .regular),
+            fileExtension: "xml",
+            isDark: true
+        )
+
+        let text = source as NSString
+        let declarationColor = try color(in: storage, at: text.range(of: "<?xml").location)
+        let tagColor = try color(in: storage, at: text.range(of: "services").location)
+        let nestedTagRange = text.range(of: #"<service id="gateway""#)
+        let nestedTagColor = try color(in: storage, at: nestedTagRange.location + 1)
+        let attributeColor = try color(in: storage, at: text.range(of: "environment").location)
+        let stringColor = try color(in: storage, at: text.range(of: "example.test").location)
+        let fragmentColor = try color(in: storage, at: text.range(of: "#fragment").location)
+        let cdataColor = try color(in: storage, at: text.range(of: "candidate").location)
+        let commentColor = try color(in: storage, at: text.range(of: "service configuration").location)
+
+        #expect(tagColor == nestedTagColor)
+        #expect(attributeColor == propertyColor)
+        #expect(stringColor == fragmentColor)
+        #expect(cdataColor == stringColor)
+        #expect(declarationColor != tagColor)
+        #expect(commentColor != tagColor)
+        #expect(commentColor != stringColor)
+    }
+
+    @Test
     func tomlSyntaxCorpusUsesExpectedTokenColors() throws {
         let source = try syntaxCorpus(named: "toml-syntax-corpus", extension: "toml")
         let storage = NSTextStorage(string: source)

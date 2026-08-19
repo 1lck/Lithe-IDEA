@@ -27,6 +27,7 @@ struct SyntaxHighlightingConfigurationTests {
         #expect(registry.adapter(fileExtension: "json") == .json)
         #expect(registry.adapter(fileExtension: "properties") == .properties)
         #expect(registry.adapter(fileExtension: "toml") == .toml)
+        #expect(registry.adapter(fileExtension: "xml") == .xml)
         #expect(registry.adapter(fileExtension: "yaml") == .yaml)
         #expect(registry.adapter(fileExtension: "conf") == .config)
         #expect(registry.adapter(fileExtension: "config") == .config)

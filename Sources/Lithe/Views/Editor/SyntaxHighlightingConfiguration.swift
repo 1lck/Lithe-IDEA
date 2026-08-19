@@ -9,6 +9,7 @@ enum SyntaxHighlightingAdapterID: String, Decodable, Equatable {
     case json
     case properties
     case toml
+    case xml
     case yaml
 }
 

@@ -66,6 +66,8 @@ enum SyntaxHighlighter {
             PropertiesSyntaxHighlightingAdapter.apply(to: storage, palette: palette, range: target)
         case .toml:
             TOMLSyntaxHighlightingAdapter.apply(to: storage, palette: palette, range: target)
+        case .xml:
+            XMLSyntaxHighlightingAdapter.apply(to: storage, palette: palette, range: target)
         case .yaml:
             YAMLSyntaxHighlightingAdapter.apply(to: storage, palette: palette, range: target)
         }

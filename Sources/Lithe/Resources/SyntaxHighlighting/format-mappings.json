@@ -35,7 +35,7 @@
       "id": "xml",
       "displayName": "XML",
       "fileExtensions": ["xml"],
-      "adapter": "generic"
+      "adapter": "xml"
     },
     {
       "id": "generic-config",
