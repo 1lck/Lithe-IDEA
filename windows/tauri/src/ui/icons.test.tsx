@@ -36,10 +36,10 @@ describe("application icon mappings", () => {
 
   test("maps unmapped controls to the expected Lucide icons", () => {
     const cases: Array<[ElementType, string]> = [
-      [AppIcons.FilesIcon, "lucide-files"],
       [AppIcons.WindowExpandIcon, "lucide-maximize2"],
-      [AppIcons.ArrowSquareOutIcon, "lucide-external-link"],
       [AppIcons.SquareIcon, "lucide-square"],
+      [AppIcons.SunIcon, "lucide-sun"],
+      [AppIcons.TerminalIcon, "lucide-terminal"],
     ];
 
     for (const [IconComponent, expectedClass] of cases) {
