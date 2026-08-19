@@ -9,26 +9,38 @@ import SwiftUI
 struct LitheScrollViewChrome: NSViewRepresentable {
     var hideHorizontal = false
     var alwaysShowVertical = false
+    var usesCompactScrollers = false
 
     func makeNSView(context: Context) -> ScrollViewProbe {
-        ScrollViewProbe(hideHorizontal: hideHorizontal, alwaysShowVertical: alwaysShowVertical)
+        ScrollViewProbe(
+            hideHorizontal: hideHorizontal,
+            alwaysShowVertical: alwaysShowVertical,
+            usesCompactScrollers: usesCompactScrollers
+        )
     }
 
     func updateNSView(_ nsView: ScrollViewProbe, context: Context) {
         nsView.hideHorizontal = hideHorizontal
         nsView.alwaysShowVertical = alwaysShowVertical
+        nsView.usesCompactScrollers = usesCompactScrollers
         nsView.configureEnclosingScrollView()
     }
 
     final class ScrollViewProbe: NSView {
         var hideHorizontal: Bool
         var alwaysShowVertical: Bool
+        var usesCompactScrollers: Bool
         private weak var configuredScrollView: NSScrollView?
         private var scrollWheelMonitor: Any?
 
-        init(hideHorizontal: Bool, alwaysShowVertical: Bool) {
+        init(
+            hideHorizontal: Bool,
+            alwaysShowVertical: Bool,
+            usesCompactScrollers: Bool
+        ) {
             self.hideHorizontal = hideHorizontal
             self.alwaysShowVertical = alwaysShowVertical
+            self.usesCompactScrollers = usesCompactScrollers
             super.init(frame: .zero)
         }
 
@@ -56,6 +68,31 @@ struct LitheScrollViewChrome: NSViewRepresentable {
         func configureEnclosingScrollView() {
             guard let scrollView = enclosingScrollView else { return }
 
+            if !scrollView.hasVerticalScroller {
+                scrollView.hasVerticalScroller = true
+            }
+            if usesCompactScrollers {
+                if !(scrollView.verticalScroller is CompactOverlayScroller) {
+                    scrollView.verticalScroller = CompactOverlayScroller()
+                }
+                if !hideHorizontal,
+                   !(scrollView.horizontalScroller is CompactOverlayScroller) {
+                    scrollView.horizontalScroller = CompactOverlayScroller()
+                }
+                if scrollView.drawsBackground {
+                    scrollView.drawsBackground = false
+                }
+                if scrollView.contentView.drawsBackground {
+                    scrollView.contentView.drawsBackground = false
+                }
+                for scroller in [scrollView.verticalScroller, scrollView.horizontalScroller] {
+                    scroller?.wantsLayer = true
+                    scroller?.layer?.backgroundColor = NSColor.clear.cgColor
+                }
+            }
+
+            // Installing a custom scroller can make AppKit re-evaluate the
+            // preferred system style, so enforce overlay mode afterwards.
             let scrollerStyle: NSScroller.Style = alwaysShowVertical ? .legacy : .overlay
             if scrollView.scrollerStyle != scrollerStyle {
                 scrollView.scrollerStyle = scrollerStyle
@@ -63,14 +100,18 @@ struct LitheScrollViewChrome: NSViewRepresentable {
             if scrollView.autohidesScrollers != !alwaysShowVertical {
                 scrollView.autohidesScrollers = !alwaysShowVertical
             }
-            if !scrollView.hasVerticalScroller {
-                scrollView.hasVerticalScroller = true
-            }
             if scrollView.verticalScroller?.knobStyle != .dark {
                 scrollView.verticalScroller?.knobStyle = .dark
             }
             if scrollView.horizontalScroller?.knobStyle != .dark {
                 scrollView.horizontalScroller?.knobStyle = .dark
+            }
+            let controlSize: NSControl.ControlSize = usesCompactScrollers ? .mini : .regular
+            if scrollView.verticalScroller?.controlSize != controlSize {
+                scrollView.verticalScroller?.controlSize = controlSize
+            }
+            if scrollView.horizontalScroller?.controlSize != controlSize {
+                scrollView.horizontalScroller?.controlSize = controlSize
             }
 
             if hideHorizontal {
@@ -125,16 +166,55 @@ struct LitheScrollViewChrome: NSViewRepresentable {
             return documentView.bounds.height > scrollView.contentView.bounds.height + 0.5
         }
     }
+
+    /// Draws only a compact thumb. Omitting the knob slot keeps project-tree
+    /// content visible beneath overlay scrollers instead of adding a dark rail.
+    final class CompactOverlayScroller: NSScroller {
+        override class var isCompatibleWithOverlayScrollers: Bool { true }
+        override var isOpaque: Bool { false }
+
+        override func draw(_ dirtyRect: NSRect) {
+            drawKnob()
+        }
+
+        override func drawKnob() {
+            var knobRect = rect(for: .knob)
+            guard !knobRect.isEmpty else { return }
+
+            if bounds.height >= bounds.width {
+                let horizontalInset = max(2, (knobRect.width - 5) / 2)
+                knobRect = knobRect.insetBy(dx: horizontalInset, dy: 1)
+            } else {
+                let verticalInset = max(2, (knobRect.height - 5) / 2)
+                knobRect = knobRect.insetBy(dx: 1, dy: verticalInset)
+            }
+            guard knobRect.width > 0, knobRect.height > 0 else { return }
+
+            let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let sidebar = LitheTheme.nsColor(.sidebar, isDark: isDark)
+            let secondaryText = LitheTheme.nsColor(.secondaryText, isDark: isDark)
+            let thumbColor = sidebar.blended(withFraction: 0.28, of: secondaryText)
+                ?? secondaryText
+            thumbColor.withAlphaComponent(0.95).setFill()
+            NSBezierPath(
+                roundedRect: knobRect,
+                xRadius: min(2.5, knobRect.width / 2),
+                yRadius: min(2.5, knobRect.height / 2)
+            ).fill()
+        }
+    }
 }
 
 extension View {
     func litheScrollViewChrome(
         hideHorizontal: Bool = false,
-        alwaysShowVertical: Bool = false
+        alwaysShowVertical: Bool = false,
+        usesCompactScrollers: Bool = false
     ) -> some View {
         background(LitheScrollViewChrome(
             hideHorizontal: hideHorizontal,
-            alwaysShowVertical: alwaysShowVertical
+            alwaysShowVertical: alwaysShowVertical,
+            usesCompactScrollers: usesCompactScrollers
         ))
     }
 }

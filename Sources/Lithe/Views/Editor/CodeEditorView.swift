@@ -37,7 +37,7 @@ fileprivate struct CodeEditorPalette {
     var foldHover: NSColor { color(light: (0, 0, 0, 0.07), dark: (1, 1, 1, 0.07)) }
     var foldIndicator: NSColor { color(light: (0.28, 0.30, 0.34, 0.58), dark: (0.62, 0.62, 0.62, 0.46)) }
     var foldIndicatorHover: NSColor { color(light: (0.12, 0.14, 0.17, 0.90), dark: (0.86, 0.86, 0.86, 0.96)) }
-    var blameText: NSColor { color(light: (0.38, 0.40, 0.44, 1), dark: (0.53, 0.53, 0.53, 1)) }
+    var blameText: NSColor { color(light: (0.42, 0.44, 0.48, 1), dark: (0.46, 0.46, 0.46, 1)) }
     var gitAdded: NSColor { color(light: (0.15, 0.62, 0.31, 1), dark: (0.31, 0.78, 0.45, 1)) }
     var gitModified: NSColor { color(light: (0.16, 0.48, 0.86, 1), dark: (0.31, 0.64, 0.96, 1)) }
     var gitDeleted: NSColor { color(light: (0.82, 0.22, 0.25, 1), dark: (0.94, 0.34, 0.37, 1)) }
@@ -67,11 +67,22 @@ fileprivate struct CodeEditorPalette {
     }
 }
 
-private enum EditorLayoutMetrics {
+enum EditorLayoutMetrics {
     static let standardGutterWidth: CGFloat = 45
-    static let leadingInset: CGFloat = 0
+    static let blameMetadataWidth: CGFloat = 140
+    static let blameGutterWidth = blameMetadataWidth + standardGutterWidth
+    static let leadingInset: CGFloat = 4
     static let lineFragmentPadding: CGFloat = 4
     static let caretWidth: CGFloat = 2
+
+    static func showsBlameMetadata(
+        line: Int,
+        firstVisibleLine: Int,
+        commitHash: String,
+        previousCommitHash: String?
+    ) -> Bool {
+        line == firstVisibleLine || previousCommitHash != commitHash
+    }
 }
 
 struct EditorViewportState: Equatable {
@@ -965,7 +976,7 @@ struct CodeEditorView: NSViewRepresentable {
                 appliedBlameLines = blameLines
                 appliedDebugBreakpointLines = debugBreakpointLines
                 container?.gutterWidthConstraint?.constant = isBlameVisible
-                    ? 224
+                    ? EditorLayoutMetrics.blameGutterWidth
                     : EditorLayoutMetrics.standardGutterWidth
                 gutter?.update(blameLines: blameLines, isVisible: isBlameVisible) { [weak model] blame in
                     Task { await model?.showGitCommit(blame.commitHash) }
@@ -1452,13 +1463,6 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
         let source = string as NSString
         let caret = min(selectedRange().location, source.length)
-        let lineRange = source.lineRange(for: NSRange(location: caret, length: 0))
-        layoutManager.addTemporaryAttribute(
-            .backgroundColor,
-            value: currentLineColor,
-            forCharacterRange: lineRange
-        )
-        lastCaretBackgroundRanges.append(lineRange)
 
         for range in matchingBracketRanges(in: source, caret: caret) {
             layoutManager.addTemporaryAttribute(.backgroundColor, value: bracketColor, forCharacterRange: range)
@@ -1505,13 +1509,6 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         lastCaretBackgroundRanges = []
         let source = string as NSString
         let caret = min(selectedRange().location, source.length)
-        let lineRange = source.lineRange(for: NSRange(location: caret, length: 0))
-        layoutManager.addTemporaryAttribute(
-            .backgroundColor,
-            value: currentLineColor,
-            forCharacterRange: lineRange
-        )
-        lastCaretBackgroundRanges.append(lineRange)
 
         for range in matchingBracketRanges(in: source, caret: caret) {
             layoutManager.addTemporaryAttribute(.backgroundColor, value: bracketColor, forCharacterRange: range)
@@ -1774,14 +1771,18 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         forGlyphRange glyphRange: NSRange
     ) -> Bool {
         let characterRange = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
-        guard collapsedFoldIDs.contains(where: { id in
+        let isCollapsedLine = collapsedFoldIDs.contains(where: { id in
             guard let region = foldRegions.first(where: { $0.id == id }) else { return false }
             return NSLocationInRange(characterRange.location, region.hiddenRange)
-        }) else { return false }
+        })
 
-        lineFragmentRect.pointee.size.height = 0
-        lineFragmentUsedRect.pointee.size.height = 0
-        baselineOffset.pointee = 0
+        if isCollapsedLine {
+            lineFragmentRect.pointee.size.height = 0
+            lineFragmentUsedRect.pointee.size.height = 0
+            baselineOffset.pointee = 0
+        } else {
+            baselineOffset.pointee -= LitheTheme.editorBaselineLift
+        }
         return true
     }
 
@@ -2005,9 +2006,9 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         let lineRect = layoutManager.lineFragmentRect(forGlyphAt: lastGlyph, effectiveRange: nil)
         return NSRect(
             x: min(bounds.width - 32, textContainerOrigin.x + contentRect.maxX + 7),
-            y: textContainerOrigin.y + lineRect.minY + max(0, (lineRect.height - 17) / 2),
+            y: textContainerOrigin.y + lineRect.minY,
             width: 28,
-            height: 17
+            height: lineRect.height
         )
     }
 
@@ -2015,20 +2016,28 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         super.draw(dirtyRect)
         for region in foldRegions where collapsedFoldIDs.contains(region.id) {
             guard let rect = foldSummaryRect(for: region), rect.intersects(dirtyRect) else { continue }
-            let path = NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3)
+            let path = NSBezierPath(roundedRect: rect, xRadius: 2, yRadius: 2)
             let isHovered = hoveredFoldID == region.id
             NSColor(white: isHovered ? 0.34 : 0.25, alpha: isHovered ? 0.80 : 0.38).setFill()
             path.fill()
-            ("…" as NSString).draw(
-                in: rect.offsetBy(dx: 0, dy: -1),
-                withAttributes: [
-                    .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .semibold),
-                    .foregroundColor: NSColor(
-                        white: isHovered ? 0.90 : 0.68,
-                        alpha: isHovered ? 1 : 0.62
-                    ),
-                    .paragraphStyle: centeredParagraphStyle
-                ]
+            let label = "..." as NSString
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .semibold),
+                .foregroundColor: NSColor(
+                    white: isHovered ? 0.90 : 0.68,
+                    alpha: isHovered ? 1 : 0.62
+                ),
+                .paragraphStyle: centeredParagraphStyle
+            ]
+            let labelHeight = label.size(withAttributes: attributes).height
+            label.draw(
+                in: NSRect(
+                    x: rect.minX,
+                    y: rect.midY - labelHeight / 2,
+                    width: rect.width,
+                    height: labelHeight
+                ),
+                withAttributes: attributes
             )
         }
         drawCaret()
@@ -2075,9 +2084,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        if let region = foldRegions.first(where: {
-            collapsedFoldIDs.contains($0.id) && foldSummaryRect(for: $0)?.contains(point) == true
-        }) {
+        if let region = foldSummaryRegion(at: point) {
             onToggleFold?(region)
             return
         }
@@ -2103,7 +2110,13 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         }
         let area = NSTrackingArea(
             rect: bounds,
-            options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            options: [
+                .mouseMoved,
+                .mouseEnteredAndExited,
+                .cursorUpdate,
+                .activeAlways,
+                .inVisibleRect
+            ],
             owner: self,
             userInfo: nil
         )
@@ -2146,26 +2159,56 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
-        updateFoldHover(at: convert(event.locationInWindow, from: nil))
+        let point = convert(event.locationInWindow, from: nil)
+        let summaryRegion = foldSummaryRegion(at: point)
+        updateFoldHover(to: summaryRegion?.id)
+        if summaryRegion != nil {
+            NSCursor.pointingHand.set()
+        }
     }
 
     override func mouseMoved(with event: NSEvent) {
-        super.mouseMoved(with: event)
         let point = convert(event.locationInWindow, from: nil)
-        updateFoldHover(at: point)
-        guard isLanguageNavigationEnabled,
-              hasNavigationModifier(event.modifierFlags) else { return }
-        updateLinkHighlight(at: point)
+        let summaryRegion = foldSummaryRegion(at: point)
+        updateFoldHover(to: summaryRegion?.id)
+        if summaryRegion != nil {
+            NSCursor.pointingHand.set()
+            return
+        }
+        if hitTest(point) is CodeVisionLinkButton {
+            NSCursor.pointingHand.set()
+            return
+        }
+        if isLanguageNavigationEnabled,
+           hasNavigationModifier(event.modifierFlags) {
+            updateLinkHighlight(at: point)
+            if linkRange != nil { return }
+        }
+        NSCursor.iBeam.set()
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if foldSummaryRegion(at: point) != nil {
+            NSCursor.pointingHand.set()
+            return
+        }
+        if hitTest(point) is CodeVisionLinkButton {
+            NSCursor.pointingHand.set()
+            return
+        }
+        NSCursor.iBeam.set()
     }
 
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
-        updateFoldHover(at: nil)
+        updateFoldHover(to: nil)
         clearLinkHighlight()
+        NSCursor.arrow.set()
     }
 
     override func resignFirstResponder() -> Bool {
-        updateFoldHover(at: nil)
+        updateFoldHover(to: nil)
         clearLinkHighlight()
         return super.resignFirstResponder()
     }
@@ -2178,12 +2221,14 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         return becameFirstResponder
     }
 
-    private func updateFoldHover(at point: NSPoint?) {
-        let nextID = point.flatMap { point in
-            foldRegions.first(where: {
-                collapsedFoldIDs.contains($0.id) && foldSummaryRect(for: $0)?.contains(point) == true
-            })?.id
-        }
+    private func foldSummaryRegion(at point: NSPoint) -> JavaFoldRegion? {
+        foldRegions.first(where: {
+            collapsedFoldIDs.contains($0.id)
+                && foldSummaryRect(for: $0)?.contains(point) == true
+        })
+    }
+
+    private func updateFoldHover(to nextID: String?) {
         guard hoveredFoldID != nextID else { return }
         hoveredFoldID = nextID
         needsDisplay = true
@@ -2719,6 +2764,8 @@ final class LineNumberGutterView: NSView {
     private var onToggleDebugBreakpoint: ((Int) -> Void)?
     private var scrollRefreshScheduled = false
     private var hoveredFoldID: String?
+    private var foldIndicatorOpacities: [String: CGFloat] = [:]
+    private var foldIndicatorAnimationTimer: Timer?
     private var trackingArea: NSTrackingArea?
     private var palette = CodeEditorPalette.dark
     private var gitLineChangeMarkersByLine: [Int: GitLineChangeMarker] = [:]
@@ -2728,6 +2775,14 @@ final class LineNumberGutterView: NSView {
     private var onDiscardGitLineChange: ((GitLineChangeMarker) -> Void)?
     private var contextGitLineChange: GitLineChangeMarker?
 
+    private var editorGutterOriginX: CGFloat {
+        isBlameVisible ? EditorLayoutMetrics.blameMetadataWidth : 0
+    }
+
+    private var foldIndicatorX: CGFloat {
+        editorGutterOriginX + EditorLayoutMetrics.standardGutterWidth - 13
+    }
+
     override var isFlipped: Bool { true }
 
     override func updateTrackingAreas() {
@@ -2736,7 +2791,13 @@ final class LineNumberGutterView: NSView {
         }
         let area = NSTrackingArea(
             rect: bounds,
-            options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            options: [
+                .mouseMoved,
+                .mouseEnteredAndExited,
+                .cursorUpdate,
+                .activeAlways,
+                .inVisibleRect
+            ],
             owner: self,
             userInfo: nil
         )
@@ -2799,6 +2860,7 @@ final class LineNumberGutterView: NSView {
                 button.setAccessibilityLabel(
                     "Line \(blame.line + 1): \(blame.date), \(blame.authorName)"
                 )
+                button.toolTip = "\(blame.authorName) · \(blame.date) · \(blame.commitHash.prefix(8))"
                 addSubview(button)
                 blameButtons[blame.line] = button
             }
@@ -2815,10 +2877,14 @@ final class LineNumberGutterView: NSView {
         foldRegions = regions
         collapsedFoldIDs = collapsedIDs
         onToggleFold = onToggle
+        foldIndicatorOpacities = foldIndicatorOpacities.filter { opacity in
+            regions.contains { $0.id == opacity.key }
+        }
         if let hoveredFoldID,
            !regions.contains(where: { $0.id == hoveredFoldID }) {
             self.hoveredFoldID = nil
         }
+        animateFoldIndicators()
         needsDisplay = true
     }
 
@@ -2871,7 +2937,12 @@ final class LineNumberGutterView: NSView {
             let glyphIndex = layoutManager.glyphIndexForCharacter(at: characterIndex)
             let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
             let y = lineRect.minY + textView.textContainerOrigin.y - visibleRect.minY
-            button.frame = NSRect(x: 0, y: y, width: bounds.width, height: max(16, lineRect.height))
+            button.frame = NSRect(
+                x: 0,
+                y: y,
+                width: EditorLayoutMetrics.blameMetadataWidth,
+                height: max(16, lineRect.height)
+            )
             button.isHidden = button.frame.maxY < 0 || button.frame.minY > bounds.height
         }
         setAccessibilityChildren(Array(blameButtons.values))
@@ -2955,8 +3026,15 @@ final class LineNumberGutterView: NSView {
                 palette.currentLine.setFill()
                 NSRect(x: 0, y: y, width: bounds.width, height: lineRect.height).fill()
             }
-            if isBlameVisible, let blame = blameByLine[lineNumber - 1] {
-                drawBlame(blame, y: y + 1)
+            if isBlameVisible,
+               let blame = blameByLine[lineNumber - 1],
+               EditorLayoutMetrics.showsBlameMetadata(
+                   line: lineNumber - 1,
+                   firstVisibleLine: firstLine,
+                   commitHash: blame.commitHash,
+                   previousCommitHash: blameByLine[lineNumber - 2]?.commitHash
+               ) {
+                drawBlame(blame, y: y, height: lineRect.height)
             }
             if let marker = implementationMarkers.first(where: { $0.line == lineNumber - 1 }) {
                 drawImplementationMarker(marker, y: y, height: lineRect.height)
@@ -2985,6 +3063,14 @@ final class LineNumberGutterView: NSView {
 
     private func drawEditorDivider(in dirtyRect: NSRect) {
         palette.gutterDivider.setFill()
+        if isBlameVisible {
+            NSRect(
+                x: EditorLayoutMetrics.blameMetadataWidth,
+                y: dirtyRect.minY,
+                width: 1,
+                height: dirtyRect.height
+            ).fill()
+        }
         NSRect(
             x: bounds.width - 1,
             y: dirtyRect.minY,
@@ -3023,47 +3109,70 @@ final class LineNumberGutterView: NSView {
     private func drawLineNumber(_ number: Int, y: CGFloat, height: CGFloat) {
         let label = String(number) as NSString
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .regular),
+            .font: {
+                let editorFont = textView?.font ?? LitheTheme.editorFont(size: 13)
+                return LitheTheme.editorFont(
+                    size: max(8, editorFont.pointSize - 1),
+                    weight: .regular
+                )
+            }(),
             .foregroundColor: palette.lineNumber
         ]
         let size = label.size(withAttributes: attributes)
         let centeredY = y + max(0, (height - size.height) / 2)
         label.draw(
-            at: NSPoint(x: (bounds.width - size.width) / 2, y: centeredY),
+            at: NSPoint(
+                x: editorGutterOriginX
+                    + (EditorLayoutMetrics.standardGutterWidth - size.width) / 2,
+                y: centeredY
+            ),
             withAttributes: attributes
         )
     }
 
     private func drawFoldIndicator(_ region: JavaFoldRegion, y: CGFloat, height: CGFloat) {
-        let isHovered = hoveredFoldID == region.id
+        let opacity = foldIndicatorOpacity(for: region)
+        guard opacity > 0.01 else { return }
         let centerY = y + height / 2
-        if isHovered {
-            let hoverRect = NSRect(
-                x: 1,
-                y: y + max(0, (height - 17) / 2),
-                width: 18,
-                height: 17
-            )
-            palette.foldHover.setFill()
-            NSBezierPath(roundedRect: hoverRect, xRadius: 3, yRadius: 3).fill()
-        }
+        let editorFont = textView?.font ?? LitheTheme.editorFont(size: 13)
+        let lineNumberFont = LitheTheme.editorFont(
+            size: max(8, editorFont.pointSize - 1),
+            weight: .regular
+        )
+        // Match the line number's visual glyph height while preserving the
+        // narrower chevron geometry chosen for the gutter.
+        let symbolSize = max(6, lineNumberFont.capHeight - 1)
+        let symbolWidth = symbolSize * 0.55
+        let leftX = foldIndicatorX + 4
+        let rightX = leftX + symbolWidth
         let path = NSBezierPath()
         if collapsedFoldIDs.contains(region.id) {
-            path.move(to: NSPoint(x: 6, y: centerY - 4))
-            path.line(to: NSPoint(x: 11, y: centerY))
-            path.line(to: NSPoint(x: 6, y: centerY + 4))
+            path.move(to: NSPoint(x: leftX, y: centerY - symbolSize / 2))
+            path.line(to: NSPoint(x: rightX, y: centerY))
+            path.line(to: NSPoint(x: leftX, y: centerY + symbolSize / 2))
         } else {
-            path.move(to: NSPoint(x: 5, y: centerY - 2))
-            path.line(to: NSPoint(x: 9, y: centerY + 3))
-            path.line(to: NSPoint(x: 13, y: centerY - 2))
+            let centerX = leftX + symbolWidth / 2
+            path.move(to: NSPoint(x: centerX - symbolSize / 2, y: centerY - symbolWidth / 2))
+            path.line(to: NSPoint(x: centerX, y: centerY + symbolWidth / 2))
+            path.line(to: NSPoint(x: centerX + symbolSize / 2, y: centerY - symbolWidth / 2))
         }
-        path.close()
-        (isHovered ? palette.foldIndicatorHover : palette.foldIndicator).setFill()
-        path.fill()
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current?.cgContext.setAlpha(opacity)
+        palette.foldIndicator.setStroke()
+        path.lineWidth = 1.3
+        path.lineCapStyle = .round
+        path.lineJoinStyle = .round
+        path.stroke()
+        NSGraphicsContext.restoreGraphicsState()
     }
 
     private func drawImplementationMarker(_ marker: JavaImplementationMarker, y: CGFloat, height: CGFloat) {
-        let rect = NSRect(x: 18, y: y + max(0, (height - 13) / 2), width: 13, height: 13)
+        let rect = NSRect(
+            x: editorGutterOriginX + 18,
+            y: y + max(0, (height - 13) / 2),
+            width: 13,
+            height: 13
+        )
         if let image = LitheIcons.implementationMarkerImage(
             pointingDown: marker.direction == .down,
             size: 13
@@ -3081,7 +3190,12 @@ final class LineNumberGutterView: NSView {
     private func drawDebugBreakpoint(y: CGFloat, height: CGFloat) {
         NSColor(red: 0.92, green: 0.28, blue: 0.30, alpha: 0.96).setFill()
         NSBezierPath(
-            ovalIn: NSRect(x: 29, y: y + max(0, (height - 8) / 2), width: 8, height: 8)
+            ovalIn: NSRect(
+                x: editorGutterOriginX + 29,
+                y: y + max(0, (height - 8) / 2),
+                width: 8,
+                height: 8
+            )
         ).fill()
     }
 
@@ -3116,14 +3230,24 @@ final class LineNumberGutterView: NSView {
         return style
     }
 
-    private func drawBlame(_ blame: GitBlameLine, y: CGFloat) {
+    private func drawBlame(_ blame: GitBlameLine, y: CGFloat, height: CGFloat) {
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byTruncatingTail
+        let font = textView?.font ?? LitheTheme.editorFont(size: 13)
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 10.5),
-            .foregroundColor: palette.blameText
+            .font: font,
+            .foregroundColor: palette.blameText,
+            .paragraphStyle: style
         ]
-        (blame.date as NSString).draw(at: NSPoint(x: 8, y: y), withAttributes: attributes)
-        (blame.authorName as NSString).draw(
-            in: NSRect(x: 76, y: y, width: max(0, bounds.width - 128), height: 16),
+        let label = "\(blame.authorName) · \(blame.date)" as NSString
+        let labelHeight = label.size(withAttributes: attributes).height
+        label.draw(
+            in: NSRect(
+                x: 6,
+                y: y + max(0, (height - labelHeight) / 2) - LitheTheme.editorBaselineLift,
+                width: EditorLayoutMetrics.blameMetadataWidth - 12,
+                height: height
+            ),
             withAttributes: attributes
         )
     }
@@ -3135,7 +3259,20 @@ final class LineNumberGutterView: NSView {
 
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
-        updateFoldHover(at: convert(event.locationInWindow, from: nil))
+        let point = convert(event.locationInWindow, from: nil)
+        updateFoldHover(at: point)
+        if foldRegion(at: point) != nil {
+            NSCursor.pointingHand.set()
+        }
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if foldRegion(at: point) != nil {
+            NSCursor.pointingHand.set()
+            return
+        }
+        super.cursorUpdate(with: event)
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -3147,11 +3284,54 @@ final class LineNumberGutterView: NSView {
         let nextID = point.flatMap { foldRegion(at: $0)?.id }
         guard hoveredFoldID != nextID else { return }
         hoveredFoldID = nextID
+        animateFoldIndicators()
+    }
+
+    private func foldIndicatorOpacity(for region: JavaFoldRegion) -> CGFloat {
+        if collapsedFoldIDs.contains(region.id) { return 1 }
+        return foldIndicatorOpacities[region.id] ?? 0
+    }
+
+    private func animateFoldIndicators() {
+        guard foldIndicatorAnimationTimer == nil else { return }
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.advanceFoldIndicatorAnimation()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        foldIndicatorAnimationTimer = timer
+    }
+
+    private func advanceFoldIndicatorAnimation() {
+        let activeIDs = Set(foldIndicatorOpacities.keys)
+            .union(collapsedFoldIDs)
+            .union(hoveredFoldID.map { [$0] } ?? [])
+        var hasAnimation = false
+        for id in activeIDs {
+            let target: CGFloat = collapsedFoldIDs.contains(id) || hoveredFoldID == id ? 1 : 0
+            let current = foldIndicatorOpacities[id] ?? (collapsedFoldIDs.contains(id) ? 1 : 0)
+            let next = current + (target - current) * 0.3
+            if abs(next - target) < 0.02 {
+                if target == 0 {
+                    foldIndicatorOpacities.removeValue(forKey: id)
+                } else {
+                    foldIndicatorOpacities[id] = target
+                }
+            } else {
+                foldIndicatorOpacities[id] = next
+                hasAnimation = true
+            }
+        }
         needsDisplay = true
+        guard !hasAnimation else { return }
+        foldIndicatorAnimationTimer?.invalidate()
+        foldIndicatorAnimationTimer = nil
     }
 
     private func foldRegion(at point: NSPoint) -> JavaFoldRegion? {
-        guard point.x <= 18,
+        guard point.x >= foldIndicatorX,
+              point.x <= foldIndicatorX + 13,
               let textView,
               let scrollView,
               let layoutManager = textView.layoutManager,
@@ -3190,14 +3370,19 @@ final class LineNumberGutterView: NSView {
             ?? source.substring(to: min(characterIndex, source.length)).reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
         if point.x >= bounds.width - 8, let marker = gitLineChangeMarkersByLine[line] {
             onShowGitLineChange?(marker)
-        } else if point.x <= 16, let region = foldRegions.first(where: { $0.startLine == line }) {
+        } else if point.x >= foldIndicatorX,
+                  point.x <= foldIndicatorX + 13,
+                  let region = foldRegions.first(where: { $0.startLine == line }) {
             onToggleFold?(region)
-        } else if point.x <= 34,
+        } else if point.x >= editorGutterOriginX + 16,
+                  point.x <= editorGutterOriginX + 34,
                   let marker = implementationMarkers.first(where: { $0.line == line }) {
             onSelectImplementation?(marker)
-        } else if !isBlameVisible, point.x <= 52 {
+        } else if !isBlameVisible, point.x <= EditorLayoutMetrics.standardGutterWidth {
             onToggleDebugBreakpoint?(line)
-        } else if isBlameVisible, let blame = blameByLine[line] {
+        } else if isBlameVisible,
+                  point.x < EditorLayoutMetrics.blameMetadataWidth,
+                  let blame = blameByLine[line] {
             onSelectBlame?(blame)
         } else {
             textView.window?.makeFirstResponder(textView)
@@ -3267,6 +3452,7 @@ final class LineNumberGutterView: NSView {
     }
 
     deinit {
+        foldIndicatorAnimationTimer?.invalidate()
         if let boundsObserver {
             NotificationCenter.default.removeObserver(boundsObserver)
         }
@@ -3275,6 +3461,9 @@ final class LineNumberGutterView: NSView {
 
 @MainActor
 final class CodeVisionOverlayController {
+    private static let itemSpacing: CGFloat = 4
+    private static let buttonHeight: CGFloat = 18
+
     private weak var textView: NSTextView?
     private var buttons: [NSButton] = []
     private var currentHints: [JavaCodeVisionHint] = []
@@ -3323,39 +3512,51 @@ final class CodeVisionOverlayController {
             )
             let lastGlyph = max(glyphRange.location, NSMaxRange(glyphRange) - 1)
             let lineRect = layoutManager.lineFragmentRect(forGlyphAt: lastGlyph, effectiveRange: nil)
-            let x = textView.textContainerOrigin.x + contentRect.maxX + 8
+            let x = textView.textContainerOrigin.x + contentRect.maxX + 12
             let y = lineRect.minY + textView.textContainerOrigin.y - 1
 
-            let requiredWidth = buttonWidth(for: hint)
-            guard x + requiredWidth <= textView.bounds.maxX - 8 else { continue }
-
-            let usageButton = makeButton(title: "\(hint.usageCount) usage\(hint.usageCount == 1 ? "" : "s")") {
-                onUsages(hint)
+            var items: [NSButton] = []
+            if hint.usageCount > 0 {
+                let usageButton = makeButton(
+                    title: "\(hint.usageCount) usage\(hint.usageCount == 1 ? "" : "s")",
+                    underlinesOnHover: true
+                ) {
+                    onUsages(hint)
+                }
+                items.append(usageButton)
             }
-            usageButton.frame = NSRect(x: x, y: y, width: 70, height: 18)
-            textView.addSubview(usageButton)
-            buttons.append(usageButton)
 
-            var nextX = x + 72
             if hint.implementationCount > 0 {
                 let title = "\(hint.implementationCount) implementation\(hint.implementationCount == 1 ? "" : "s")"
                 let implementationButton = makeButton(title: title) {
                     onImplementations(hint)
                 }
-                let width = max(108, CGFloat(title.count) * 5.8 + 16)
-                implementationButton.frame = NSRect(x: nextX, y: y, width: width, height: 18)
-                textView.addSubview(implementationButton)
-                buttons.append(implementationButton)
-                nextX += width + 2
+                items.append(implementationButton)
             }
 
-            if let authorName = hint.authorName, !authorName.isEmpty {
-                let authorButton = makeButton(title: authorName, systemImage: "person") {
+        if let authorName = hint.authorName, !authorName.isEmpty {
+                let authorButton = makeButton(
+                    title: authorName,
+                    systemImage: "person",
+                    underlinesOnHover: true
+                ) {
                     onAuthor()
                 }
-                authorButton.frame = NSRect(x: nextX, y: y, width: 112, height: 18)
-                textView.addSubview(authorButton)
-                buttons.append(authorButton)
+                items.append(authorButton)
+            }
+
+            let widths = items.map(buttonWidth)
+            let requiredWidth = widths.reduce(0, +)
+                + CGFloat(max(0, items.count - 1)) * Self.itemSpacing
+            guard x + requiredWidth <= textView.bounds.maxX - 8 else { continue }
+
+            var nextX = x
+            for (index, item) in items.enumerated() {
+                let width = widths[index]
+                item.frame = NSRect(x: nextX, y: y, width: width, height: Self.buttonHeight)
+                textView.addSubview(item)
+                buttons.append(item)
+                nextX += width + Self.itemSpacing
             }
         }
         textView.setAccessibilityChildren(buttons)
@@ -3377,33 +3578,29 @@ final class CodeVisionOverlayController {
     private func makeButton(
         title: String,
         systemImage: String? = nil,
+        underlinesOnHover: Bool = false,
         action: @escaping () -> Void
     ) -> NSButton {
-        let button = ClosureButton(title: title, action: action)
+        let button = CodeVisionLinkButton(
+            title: title,
+            systemImage: systemImage,
+            underlinesOnHover: underlinesOnHover,
+            font: .systemFont(ofSize: 10.5, weight: .medium),
+            textColor: NSColor(white: 0.52, alpha: 1),
+            action: action
+        )
         button.isBordered = false
-        button.font = .systemFont(ofSize: 10.5)
         button.contentTintColor = NSColor(white: 0.52, alpha: 1)
-        button.alignment = .left
+        button.alignment = .center
         button.setAccessibilityElement(true)
         button.setAccessibilityRole(.button)
         button.setAccessibilityLabel(title)
-        if let systemImage {
-            button.image = NSImage(systemSymbolName: systemImage, accessibilityDescription: nil)
-            button.imagePosition = .imageLeading
-        }
         return button
     }
 
-    private func buttonWidth(for hint: JavaCodeVisionHint) -> CGFloat {
-        var width: CGFloat = 70
-        if hint.implementationCount > 0 {
-            let title = "\(hint.implementationCount) implementation\(hint.implementationCount == 1 ? "" : "s")"
-            width += max(108, CGFloat(title.count) * 5.8 + 16) + 2
-        }
-        if let authorName = hint.authorName, !authorName.isEmpty {
-            width += 114
-        }
-        return width
+    private func buttonWidth(_ button: NSButton) -> CGFloat {
+        button.sizeToFit()
+        return ceil(button.frame.width)
     }
 }
 
@@ -3512,6 +3709,140 @@ private final class ClosureButton: NSButton {
     override func resetCursorRects() {
         super.resetCursorRects()
         addCursorRect(bounds, cursor: .pointingHand)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        NSCursor.pointingHand.set()
+    }
+
+    @objc private func invoke() {
+        handler()
+    }
+}
+
+@MainActor
+private final class CodeVisionLinkButton: NSButton {
+    private let handler: () -> Void
+    private let linkTitle: String
+    private let systemImageName: String?
+    private let underlinesOnHover: Bool
+    private let linkFont: NSFont
+    private let linkColor: NSColor
+    private var hoverTrackingArea: NSTrackingArea?
+
+    init(
+        title: String,
+        systemImage: String?,
+        underlinesOnHover: Bool,
+        font: NSFont,
+        textColor: NSColor,
+        action: @escaping () -> Void
+    ) {
+        handler = action
+        linkTitle = title
+        systemImageName = systemImage
+        self.underlinesOnHover = underlinesOnHover
+        linkFont = font
+        linkColor = textColor
+        super.init(frame: .zero)
+        attributedTitle = styledTitle(isHovered: false)
+        target = self
+        self.action = #selector(invoke)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [
+                .mouseMoved,
+                .mouseEnteredAndExited,
+                .activeAlways,
+                .inVisibleRect
+            ],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        hoverTrackingArea = area
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: .pointingHand)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        NSCursor.pointingHand.set()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        attributedTitle = styledTitle(isHovered: true)
+        NSCursor.pointingHand.set()
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        NSCursor.pointingHand.set()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        attributedTitle = styledTitle(isHovered: false)
+    }
+
+    private func styledTitle(isHovered: Bool) -> NSAttributedString {
+        var attributes: [NSAttributedString.Key: Any] = [
+            .font: linkFont,
+            .foregroundColor: linkColor
+        ]
+        let hasInlineIcon = systemImageName != nil
+        if hasInlineIcon {
+            // Keep the author label on the same visual baseline as the
+            // text-only usage link. NSTextAttachment otherwise lowers the
+            // adjacent title when AppKit vertically centers the button.
+            attributes[.baselineOffset] = 1
+        }
+        let result = NSMutableAttributedString()
+        if let systemImageName,
+           let image = NSImage(
+               systemSymbolName: systemImageName,
+               accessibilityDescription: nil
+           )?.withSymbolConfiguration(
+               NSImage.SymbolConfiguration(pointSize: 10, weight: .medium)
+           ) {
+            let attachment = NSTextAttachment()
+            attachment.image = image
+            attachment.bounds = NSRect(x: 0, y: 1, width: 10, height: 10)
+            result.append(NSAttributedString(attachment: attachment))
+            result.append(NSAttributedString(string: " "))
+        }
+        if isHovered, underlinesOnHover,
+           let separator = linkTitle.firstIndex(of: " ") {
+            let prefix = String(linkTitle[..<separator])
+            let suffix = String(linkTitle[linkTitle.index(after: separator)...])
+            result.append(NSAttributedString(string: prefix, attributes: attributes))
+            result.append(NSAttributedString(string: " ", attributes: attributes))
+            var underlinedAttributes = attributes
+            underlinedAttributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+            underlinedAttributes[.underlineColor] = linkColor
+            result.append(NSAttributedString(string: suffix, attributes: underlinedAttributes))
+        } else {
+            var titleAttributes = attributes
+            if isHovered, underlinesOnHover {
+                titleAttributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+                titleAttributes[.underlineColor] = linkColor
+            }
+            result.append(NSAttributedString(string: linkTitle, attributes: titleAttributes))
+        }
+        return result
     }
 
     @objc private func invoke() {

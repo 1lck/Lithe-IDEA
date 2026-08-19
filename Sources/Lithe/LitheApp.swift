@@ -408,7 +408,6 @@ struct LitheApp: App {
             .environmentObject(settings)
             .environmentObject(updateChecker)
             .environment(\.locale, settings.language.locale)
-            .preferredColorScheme(settings.themePreference.preferredColorScheme)
         }
         .defaultSize(width: 1040, height: 720)
         .windowResizability(.contentMinSize)
@@ -450,7 +449,8 @@ private struct SettingsWindow: View {
         .background(
             SettingsWindowAccessor(
                 reference: windowReference,
-                title: settingsWindowTitle(for: settings.language)
+                title: settingsWindowTitle(for: settings.language),
+                themePreference: settings.themePreference
             )
         )
         .onDisappear {
@@ -469,9 +469,14 @@ private final class SettingsWindowReference: ObservableObject {
     weak var window: NSWindow?
 }
 
+private final class SettingsTitlebarBackgroundView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 private struct SettingsWindowAccessor: NSViewRepresentable {
     let reference: SettingsWindowReference
     let title: String
+    let themePreference: AppThemePreference
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
@@ -488,12 +493,53 @@ private struct SettingsWindowAccessor: NSViewRepresentable {
             guard let window = view.window else { return }
             reference.window = window
             window.title = title
+            window.appearance = themePreference.windowAppearance
+            window.styleMask.insert(.fullSizeContentView)
             window.titlebarAppearsTransparent = true
             window.titleVisibility = .visible
-            window.backgroundColor = NSColor(LitheTheme.settingsSurface)
+            window.titlebarSeparatorStyle = .none
+            window.isOpaque = true
+            let settingsSurface = LitheTheme.settingsSurfaceNSColor(
+                for: window.effectiveAppearance
+            )
+            window.backgroundColor = settingsSurface
+            applySettingsSurface(toTitlebarOf: window, color: settingsSurface)
             window.standardWindowButton(.miniaturizeButton)?.isEnabled = false
             window.standardWindowButton(.zoomButton)?.isEnabled = true
         }
+    }
+
+    private func applySettingsSurface(toTitlebarOf window: NSWindow, color: NSColor) {
+        // AppKit places the titlebar in multiple nested views. Styling only
+        // the close-button's immediate superview leaves the opaque theme
+        // frame above it untouched, which is the extra strip seen in the
+        // settings window. Apply the same surface to each titlebar ancestor.
+        var view = window.standardWindowButton(.closeButton)?.superview
+        var titlebarHost: NSView?
+        while let current = view, current !== window.contentView {
+            current.wantsLayer = true
+            current.layer?.backgroundColor = color.cgColor
+            if current.bounds.width >= window.frame.width * 0.8,
+               current.bounds.height <= 100 {
+                titlebarHost = current
+            }
+            view = current.superview
+        }
+
+        guard let titlebarHost else { return }
+        let backgroundView: SettingsTitlebarBackgroundView
+        if let existing = titlebarHost.subviews.first(where: {
+            $0 is SettingsTitlebarBackgroundView
+        }) as? SettingsTitlebarBackgroundView {
+            backgroundView = existing
+        } else {
+            backgroundView = SettingsTitlebarBackgroundView(frame: titlebarHost.bounds)
+            titlebarHost.addSubview(backgroundView, positioned: .below, relativeTo: nil)
+        }
+        backgroundView.frame = titlebarHost.bounds
+        backgroundView.autoresizingMask = [.width, .height]
+        backgroundView.wantsLayer = true
+        backgroundView.layer?.backgroundColor = color.cgColor
     }
 }
 
@@ -506,6 +552,14 @@ private func settingsWindowTitle(for language: AppLanguage) -> String {
 }
 
 private extension AppThemePreference {
+    var windowAppearance: NSAppearance? {
+        switch self {
+        case .system: nil
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
+        }
+    }
+
     var preferredColorScheme: ColorScheme? {
         switch self {
         case .system: nil

@@ -41,7 +41,10 @@ struct SettingsView: View {
             footer
         }
         .frame(minWidth: 820, minHeight: 620)
-        .background(LitheTheme.settingsSurface)
+        .background {
+            LitheTheme.settingsSurface
+                .ignoresSafeArea()
+        }
         .onAppear {
             syncVisibilityDrafts()
             model.refreshAIConfigurations()
@@ -89,6 +92,7 @@ struct SettingsView: View {
                 }
                 .padding(8)
             }
+            .litheScrollViewChrome(alwaysShowVertical: true, usesCompactScrollers: true)
         }
         .frame(width: 244)
         .frame(maxHeight: .infinity)
@@ -96,36 +100,7 @@ struct SettingsView: View {
     }
 
     private var settingsSearchField: some View {
-        HStack(spacing: 7) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(LitheTheme.tertiaryText)
-
-            TextField("Search settings", text: $searchQuery)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12.5))
-
-            if !searchQuery.isEmpty {
-                Button {
-                    searchQuery = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 11))
-                        .foregroundStyle(LitheTheme.tertiaryText)
-                }
-                .buttonStyle(.plain)
-                .lithePointer()
-                .help("Clear search")
-            }
-        }
-        .padding(.horizontal, 9)
-        .frame(height: 28)
-        .background(LitheTheme.inputBackground)
-        .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
-        .overlay {
-            RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                .stroke(LitheTheme.inputBorder, lineWidth: 1)
-        }
+        LitheSettingsSearchField("Search settings", text: $searchQuery)
     }
 
     private func categoryButton(_ category: SettingsCategory) -> some View {
@@ -144,7 +119,7 @@ struct SettingsView: View {
             .padding(.horizontal, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: LitheTheme.Metrics.treeRowHeight)
-            .background(isSelected ? LitheTheme.selection : .clear)
+            .background(isSelected ? LitheTheme.settingsSelection : .clear)
             .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius))
             .contentShape(Rectangle())
         }
@@ -235,6 +210,7 @@ struct SettingsView: View {
                 .padding(.vertical, 22)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .litheScrollViewChrome(alwaysShowVertical: true, usesCompactScrollers: true)
         }
     }
 
@@ -364,7 +340,10 @@ struct SettingsView: View {
                 HStack {
                     Spacer()
                     Button("Apply") { applyVisibilityDrafts() }
-                        .buttonStyle(LithePrimaryButtonStyle())
+                        .buttonStyle(LithePrimaryButtonStyle(
+                            backgroundColor: LitheTheme.settingsPrimaryAction,
+                            restingOpacity: 1
+                        ))
                 }
             }
 
@@ -632,7 +611,10 @@ struct SettingsView: View {
                                         syncAIProviderDraft()
                                     }
                                 }
-                                .buttonStyle(LithePrimaryButtonStyle())
+                                .buttonStyle(LithePrimaryButtonStyle(
+                                    backgroundColor: LitheTheme.settingsPrimaryAction,
+                                    restingOpacity: 1
+                                ))
                             }
                             .padding(10)
                             .background(LitheTheme.inputBackground)
@@ -1028,7 +1010,10 @@ struct SettingsView: View {
                             systemImage: "arrow.clockwise"
                         )
                     }
-                    .buttonStyle(LithePrimaryButtonStyle())
+                    .buttonStyle(LithePrimaryButtonStyle(
+                        backgroundColor: LitheTheme.settingsPrimaryAction,
+                        restingOpacity: 1
+                    ))
                     .disabled(updateChecker.isBusy)
 
                     if case .available(let version, _) = updateChecker.status {
@@ -1198,7 +1183,10 @@ struct SettingsView: View {
                     Text("OK")
                         .frame(minWidth: Self.footerActionLabelWidth)
                 }
-                    .buttonStyle(LithePrimaryButtonStyle())
+                    .buttonStyle(LithePrimaryButtonStyle(
+                        backgroundColor: LitheTheme.settingsPrimaryAction,
+                        restingOpacity: 1
+                    ))
                     .keyboardShortcut(.defaultAction)
             }
         }

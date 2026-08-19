@@ -266,7 +266,35 @@ enum LitheTheme {
     // MARK: - 背景层次
     static var window: Color { adaptive(\.window) }
     static var titlebar: Color { adaptive(\.titlebar) }
-    static var settingsSurface: Color { editor }
+    static var settingsSurface: Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            settingsSurfaceNSColor(for: appearance)
+        })
+    }
+    static func settingsSurfaceNSColor(for appearance: NSAppearance) -> NSColor {
+        let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        return isDark
+            ? NSColor(srgbRed: 0.157, green: 0.161, blue: 0.173, alpha: 1)
+            : NSColor(srgbRed: 0.925, green: 0.933, blue: 0.945, alpha: 1)
+    }
+    static let settingsPrimaryAction = Color(
+        red: 56.0 / 255.0,
+        green: 113.0 / 255.0,
+        blue: 225.0 / 255.0
+    )
+    static let settingsSelection = Color(
+        red: 43.0 / 255.0,
+        green: 66.0 / 255.0,
+        blue: 113.0 / 255.0
+    )
+    static var settingsControlBackground: Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return isDark
+                ? NSColor(srgbRed: 43.0 / 255.0, green: 45.0 / 255.0, blue: 48.0 / 255.0, alpha: 1)
+                : NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
+        })
+    }
     static var toolHeader: Color { adaptive(\.toolHeader) }
     static var toolHeaderInactive: Color { adaptive(\.toolHeaderInactive) }
     static var sidebar: Color { adaptive(\.sidebar) }
@@ -459,6 +487,8 @@ private struct LitheRowHoverModifier: ViewModifier {
 // MARK: - 按钮样式
 
 struct LithePrimaryButtonStyle: ButtonStyle {
+    var backgroundColor = LitheTheme.accent
+    var restingOpacity = 0.92
     @State private var isHovering = false
 
     func makeBody(configuration: Configuration) -> some View {
@@ -469,7 +499,7 @@ struct LithePrimaryButtonStyle: ButtonStyle {
             .frame(height: 30)
             .background(
                 RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                    .fill(LitheTheme.accent.opacity(configuration.isPressed ? 0.78 : (isHovering ? 1 : 0.92)))
+                    .fill(backgroundColor.opacity(configuration.isPressed ? 0.78 : (isHovering ? 1 : restingOpacity)))
             )
             .contentShape(Rectangle())
             .onHover { isHovering = $0 }
