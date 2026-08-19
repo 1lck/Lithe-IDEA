@@ -8,6 +8,7 @@ import { useFileSystemStore } from "@/features/file-system/stores/file-system.st
 import type { HeaderTrailingItemId } from "@/features/layout/config/item-order";
 import { orderChromeItems, type ChromeItem } from "@/features/layout/utils/chrome-items";
 import { useFooterGitBranchItem } from "@/features/layout/components/footer/footer-git-branch-item";
+import { AppUpdateControl } from "@/features/layout/components/app-update-control";
 import SettingsDialog from "@/features/settings/components/settings-dialog";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
@@ -368,6 +369,7 @@ const TitleBar = ({ showMinimal = false }: TitleBarProps) => {
         </ChromeGroup>
         <ChromeGroup className="z-20">
           <TitleBarTrailingActions items={orderedTrailingItems} />
+          {isWindows ? <AppUpdateControl /> : null}
 
           {showAppWindowControls && (
             <WindowControls
