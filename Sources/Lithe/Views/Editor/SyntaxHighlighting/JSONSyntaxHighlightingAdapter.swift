@@ -6,7 +6,7 @@ enum JSONSyntaxHighlightingAdapter {
         pattern: #"\"(?:\\.|[^\"\\])*\"(?=\s*:)"#
     )
 
-    static func apply(to storage: NSTextStorage, palette: CodeEditorPalette, range: NSRange) {
+    static func apply(to storage: NSTextStorage, palette: SyntaxHighlightingPalette, range: NSRange) {
         GenericSyntaxHighlightingAdapter.apply(
             propertyExpression,
             color: palette.property,

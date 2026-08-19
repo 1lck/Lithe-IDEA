@@ -21,7 +21,7 @@ enum YAMLSyntaxHighlightingAdapter {
         options: [.anchorsMatchLines]
     )
 
-    static func apply(to storage: NSTextStorage, palette: CodeEditorPalette, range target: NSRange) {
+    static func apply(to storage: NSTextStorage, palette: SyntaxHighlightingPalette, range target: NSRange) {
         let source = storage.string as NSString
         var lineStart = 0
         var blockScalarIndent: Int?
@@ -74,7 +74,7 @@ enum YAMLSyntaxHighlightingAdapter {
         in range: NSRange,
         source: NSString,
         storage: NSTextStorage,
-        palette: CodeEditorPalette,
+        palette: SyntaxHighlightingPalette,
         target: NSRange
     ) {
         apply(stringExpression, color: palette.string, source: source, storage: storage, range: range, target: target)

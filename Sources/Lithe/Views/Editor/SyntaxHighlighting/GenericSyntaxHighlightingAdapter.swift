@@ -14,7 +14,7 @@ enum GenericSyntaxHighlightingAdapter {
         options: [.anchorsMatchLines]
     )
 
-    static func apply(to storage: NSTextStorage, palette: CodeEditorPalette, range: NSRange) {
+    static func apply(to storage: NSTextStorage, palette: SyntaxHighlightingPalette, range: NSRange) {
         apply(keywordExpression, color: palette.keyword, storage: storage, range: range)
         apply(annotationExpression, color: palette.annotation, storage: storage, range: range)
         apply(typeExpression, color: palette.type, storage: storage, range: range)

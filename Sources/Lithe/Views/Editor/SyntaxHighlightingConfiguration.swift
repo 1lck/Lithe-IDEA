@@ -182,7 +182,7 @@ struct SyntaxHighlightingRegistry {
     }
 }
 
-private enum SyntaxHighlightingResources {
+enum SyntaxHighlightingResources {
     private static var resourceBundle: Bundle {
         let packagedURL = Bundle.main.resourceURL?
             .appendingPathComponent("Lithe_Lithe.bundle", isDirectory: true)
@@ -201,5 +201,11 @@ private enum SyntaxHighlightingResources {
         resourceBundle.resourceURL?
             .appendingPathComponent("SyntaxHighlighting", isDirectory: true)
             .appendingPathComponent("format-mappings.json", isDirectory: false)
+    }
+
+    static var colorConfigurationURL: URL? {
+        resourceBundle.resourceURL?
+            .appendingPathComponent("SyntaxHighlighting", isDirectory: true)
+            .appendingPathComponent("color-mappings.json", isDirectory: false)
     }
 }

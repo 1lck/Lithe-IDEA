@@ -32,11 +32,16 @@ enum SyntaxHighlighter {
         range target: NSRange
     ) {
         guard target.length > 0 else { return }
-        let palette = CodeEditorPalette(isDark: isDark, theme: LitheTheme.activeTheme)
-        let adapter = SyntaxHighlightingRegistry.bundled.adapter(
+        let basePalette = CodeEditorPalette(isDark: isDark, theme: LitheTheme.activeTheme)
+        let format = SyntaxHighlightingRegistry.bundled.format(
             fileName: fileName,
             fileExtension: fileExtension
         )
+        let palette = SyntaxHighlightingColorConfiguration.bundled.palette(
+            formatID: format?.id,
+            base: basePalette
+        )
+        let adapter = format?.adapter ?? .generic
 
         storage.beginEditing()
         storage.setAttributes([

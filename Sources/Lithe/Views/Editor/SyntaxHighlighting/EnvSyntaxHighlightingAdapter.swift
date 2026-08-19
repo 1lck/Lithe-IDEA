@@ -11,7 +11,7 @@ enum EnvSyntaxHighlightingAdapter {
     )
     private static let variableExpression = expression(#"\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)"#)
 
-    static func apply(to storage: NSTextStorage, palette: CodeEditorPalette, range target: NSRange) {
+    static func apply(to storage: NSTextStorage, palette: SyntaxHighlightingPalette, range target: NSRange) {
         let source = storage.string as NSString
         let scanLimit = min(NSMaxRange(target), source.length)
         var lineStart = target.location
