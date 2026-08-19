@@ -147,8 +147,8 @@ struct CodeEditorView: NSViewRepresentable {
         textView.onFindRequested = { [weak model] in model?.showFindBar() }
         textView.onFindNextRequested = { [weak model] in model?.navigateFind(offset: 1) }
         textView.onFindPreviousRequested = { [weak model] in model?.navigateFind(offset: -1) }
-        textView.onFindStateChange = { [weak model] index, count in
-            model?.updateFindState(currentIndex: index, count: count)
+        textView.onFindStateChange = { [weak coordinator = context.coordinator] index, count in
+            coordinator?.scheduleFindStateUpdate(currentIndex: index, count: count)
         }
         textView.isLanguageIntelligenceEnabled = !textView.languageServerFeatures.intersection([
             .hover, .completion, .rename, .formatting, .codeActions
@@ -192,15 +192,16 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.textView = textView
         context.coordinator.gutter = gutter
         context.coordinator.container = container
+        context.coordinator.attachVisibleRangeHighlighting(to: scrollView)
         context.coordinator.attachMarkdownImagePasteMonitor(to: scrollView)
         context.coordinator.codeVisionOverlay = CodeVisionOverlayController(textView: textView)
         context.coordinator.inlayHintOverlay = JavaInlayHintOverlayController(textView: textView)
         context.coordinator.isDarkAppearance = palette.isDark
         context.coordinator.colorTheme = settings.colorTheme
         context.coordinator.highlight()
-        textView.updateEditorDecorations()
-        context.coordinator.refreshFoldRegions(useDefaultImportFold: true)
-        context.coordinator.updateCaret()
+        textView.updateCaretDecorations()
+        context.coordinator.scheduleFoldRefresh(useDefaultImportFold: true)
+        context.coordinator.scheduleCaretUpdate()
         container.scrollView = scrollView
         container.gutter = gutter
         container.gutterWidthConstraint = gutterWidthConstraint
@@ -228,6 +229,7 @@ struct CodeEditorView: NSViewRepresentable {
             }
             context.coordinator.attachMarkdownScrollSync(to: scrollView)
             context.coordinator.attachMarkdownImagePasteMonitor(to: scrollView)
+            context.coordinator.attachVisibleRangeHighlighting(to: scrollView)
         }
         context.coordinator.isDarkAppearance = palette.isDark
         context.coordinator.colorTheme = settings.colorTheme
@@ -256,12 +258,14 @@ struct CodeEditorView: NSViewRepresentable {
             textView.string = document.text
             (textView as? CodeTextView)?.rebuildLineIndex()
             textView.setSelectedRange(NSRange(location: min(selection.location, document.text.utf16.count), length: 0))
+            context.coordinator.resetHighlightCache()
             context.coordinator.highlight()
             (textView as? CodeTextView)?.updateEditorDecorations()
             container.gutter?.needsDisplay = true
             textChanged = true
         }
         if appearanceChanged {
+            context.coordinator.resetHighlightCache()
             context.coordinator.highlight()
             (textView as? CodeTextView)?.updateEditorDecorations()
         } else if chromeChanged, !textChanged {
@@ -303,6 +307,7 @@ struct CodeEditorView: NSViewRepresentable {
         var appliedNavigationTargetID: UUID?
         var foldRegions: [JavaFoldRegion] = []
         var collapsedFoldIDs: Set<String> = []
+        var implementationMarkers: [JavaImplementationMarker] = []
         var lastFindVisible = false
         var lastFindQuery = ""
         private var pendingHighlightRange: NSRange?
@@ -311,7 +316,9 @@ struct CodeEditorView: NSViewRepresentable {
         private var foldRefreshTask: Task<Void, Never>?
         private var decorationRefreshTask: Task<Void, Never>?
         private var documentChangeTask: Task<Void, Never>?
-        private var remainingHighlightTask: Task<Void, Never>?
+        private var caretUpdateTask: Task<Void, Never>?
+        private var findStateUpdateTask: Task<Void, Never>?
+        private var highlightedRanges = HighlightedRangeCache()
         private var appliedFontSize: CGFloat?
         private var appliedTabWidth: Int?
         private var appliedLanguageFeatures: LanguageServerFeatureSet?
@@ -322,10 +329,12 @@ struct CodeEditorView: NSViewRepresentable {
         private var appliedBlameLines: [GitBlameLine] = []
         private var appliedDebugBreakpointLines = Set<Int>()
         private var appliedGitMarkers: [GitLineChangeMarker]?
-        private var appliedDiagnostics: [EditorDiagnostic]?
+        private var appliedDiagnostics: [EditorDiagnostic] = []
         private var markdownImagePasteMonitor: Any?
         private weak var markdownScrollView: NSScrollView?
         private var markdownScrollObserver: NSObjectProtocol?
+        private var highlightScrollObserver: NSObjectProtocol?
+        private var visibleHighlightTask: Task<Void, Never>?
         private var isApplyingSynchronizedMarkdownScroll = false
         private var lastObservedMarkdownScrollRevision: UInt64?
         private var isLoadingGitLineChanges = false
@@ -347,12 +356,40 @@ struct CodeEditorView: NSViewRepresentable {
             foldRefreshTask?.cancel()
             decorationRefreshTask?.cancel()
             documentChangeTask?.cancel()
-            remainingHighlightTask?.cancel()
+            caretUpdateTask?.cancel()
+            findStateUpdateTask?.cancel()
+            visibleHighlightTask?.cancel()
             if let markdownImagePasteMonitor {
                 NSEvent.removeMonitor(markdownImagePasteMonitor)
             }
             if let markdownScrollObserver {
                 NotificationCenter.default.removeObserver(markdownScrollObserver)
+            }
+            if let highlightScrollObserver {
+                NotificationCenter.default.removeObserver(highlightScrollObserver)
+            }
+        }
+
+        func attachVisibleRangeHighlighting(to scrollView: NSScrollView) {
+            guard highlightScrollObserver == nil else { return }
+            scrollView.contentView.postsBoundsChangedNotifications = true
+            highlightScrollObserver = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification,
+                object: scrollView.contentView,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.scheduleVisibleRangeHighlight()
+                }
+            }
+        }
+
+        private func scheduleVisibleRangeHighlight() {
+            visibleHighlightTask?.cancel()
+            visibleHighlightTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(24))
+                guard !Task.isCancelled else { return }
+                self?.highlight()
             }
         }
 
@@ -554,7 +591,7 @@ struct CodeEditorView: NSViewRepresentable {
             scheduleFoldRefresh()
             gutter?.needsDisplay = true
             isApplyingEditorChange = false
-            updateCaret()
+            scheduleCaretUpdate()
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
@@ -564,7 +601,7 @@ struct CodeEditorView: NSViewRepresentable {
             (textView as? CodeTextView)?.updateCaretDecorations()
             textView?.needsDisplay = true
             gutter?.needsDisplay = true
-            updateCaret()
+            scheduleCaretUpdate()
         }
 
         fileprivate func applyEditorChromeIfNeeded(
@@ -614,62 +651,67 @@ struct CodeEditorView: NSViewRepresentable {
 
         func highlight(in editedRange: NSRange? = nil) {
             guard let textView, let textStorage = textView.textStorage else { return }
+            let fullRange = NSRange(location: 0, length: textStorage.length)
+            let font = textView.font ?? LitheTheme.editorFont(size: 13)
             if let editedRange {
-                SyntaxHighlighter.apply(
+                highlightedRanges.removeAll()
+                let target = SyntaxHighlighter.targetRange(
+                    for: editedRange,
+                    in: textStorage.string as NSString,
+                    limit: fullRange
+                )
+                SyntaxHighlighter.applyExact(
                     to: textStorage,
-                    font: textView.font ?? LitheTheme.editorFont(size: 13),
+                    font: font,
                     fileExtension: fileExtension,
                     isDark: isDarkAppearance,
-                    range: editedRange
+                    range: target
                 )
+                highlightedRanges.insert(target)
                 return
             }
             let visible = (textView as? CodeTextView)?.visibleCharacterRange()
                 ?? NSRange(location: 0, length: min(8_192, textStorage.length))
-            SyntaxHighlighter.apply(
-                to: textStorage,
-                font: textView.font ?? LitheTheme.editorFont(size: 13),
-                fileExtension: fileExtension,
-                isDark: isDarkAppearance,
-                range: visible
+            let target = SyntaxHighlighter.targetRange(
+                for: visible,
+                in: textStorage.string as NSString,
+                limit: fullRange
             )
-            scheduleRemainingHighlight(skipping: visible)
-        }
-
-        func scheduleRemainingHighlight(skipping alreadyColored: NSRange) {
-            remainingHighlightTask?.cancel()
-            remainingHighlightTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .milliseconds(16))
-                guard !Task.isCancelled, let self, let textView = self.textView,
-                      let storage = textView.textStorage else { return }
-                let font = textView.font ?? LitheTheme.editorFont(size: 13)
-                let chunk = 16_384
-                var location = 0
-                while location < storage.length {
-                    if Task.isCancelled { return }
-                    let length = min(chunk, storage.length - location)
-                    let range = NSRange(location: location, length: length)
-                    if NSIntersectionRange(range, alreadyColored) != range {
-                        SyntaxHighlighter.apply(
-                            to: storage,
-                            font: font,
-                            fileExtension: self.fileExtension,
-                            isDark: self.isDarkAppearance,
-                            range: range
-                        )
-                    }
-                    location += chunk
-                    await Task.yield()
-                }
+            for range in highlightedRanges.uncoveredRanges(in: target) {
+                SyntaxHighlighter.applyExact(
+                    to: textStorage,
+                    font: font,
+                    fileExtension: fileExtension,
+                    isDark: isDarkAppearance,
+                    range: range
+                )
+                highlightedRanges.insert(range)
             }
         }
 
-        func scheduleFoldRefresh() {
+        func resetHighlightCache() {
+            highlightedRanges.removeAll()
+        }
+
+        func scheduleFoldRefresh(useDefaultImportFold: Bool = false) {
             foldRefreshTask?.cancel()
             foldRefreshTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .milliseconds(80))
-                guard !Task.isCancelled, let self else { return }
-                self.refreshFoldRegions(useDefaultImportFold: false)
+                guard !Task.isCancelled,
+                      let self,
+                      let document = self.document,
+                      let textView = self.textView as? CodeTextView else { return }
+                guard self.fileExtension.lowercased() == "java", let model = self.model else {
+                    self.clearJavaStructure()
+                    return
+                }
+                let documentID = document.id
+                let source = textView.string
+                let structure = await model.javaStructure(source: source)
+                guard !Task.isCancelled,
+                      self.document?.id == documentID,
+                      self.textView?.string == source else { return }
+                self.applyJavaStructure(structure, useDefaultImportFold: useDefaultImportFold)
             }
         }
 
@@ -695,21 +737,32 @@ struct CodeEditorView: NSViewRepresentable {
             }
         }
 
-        func refreshFoldRegions(useDefaultImportFold: Bool) {
-            guard let textView = textView as? CodeTextView else {
-                foldRegions = []
-                collapsedFoldIDs = []
+        private func applyJavaStructure(
+            _ structure: JavaStructureResult?,
+            useDefaultImportFold: Bool
+        ) {
+            guard let structure else {
+                clearJavaStructure()
                 return
             }
-            foldRegions = model?.javaStructure(source: textView.string)?.foldRegions ?? []
+            foldRegions = structure.foldRegions
+            implementationMarkers = structure.implementationMarkers
             let availableIDs = Set(foldRegions.map(\.id))
             collapsedFoldIDs.formIntersection(availableIDs)
             if useDefaultImportFold,
-               fileExtension.lowercased() == "java",
                let imports = foldRegions.first(where: { $0.kind == .imports }) {
                 collapsedFoldIDs.insert(imports.id)
             }
             applyFoldState()
+        }
+
+        private func clearJavaStructure() {
+            if !foldRegions.isEmpty || !collapsedFoldIDs.isEmpty || !implementationMarkers.isEmpty {
+                foldRegions = []
+                collapsedFoldIDs = []
+                implementationMarkers = []
+                applyFoldState()
+            }
         }
 
         func toggleFold(_ region: JavaFoldRegion) {
@@ -734,15 +787,7 @@ struct CodeEditorView: NSViewRepresentable {
             )
             // `java.structure` is an explicit local editor fallback. It does
             // not validate markers or own any language-server lifecycle.
-            let markers: [JavaImplementationMarker]
-            if let document,
-               fileExtension.lowercased() == "java",
-               let model {
-                markers = model.javaStructure(source: document.text)?.implementationMarkers ?? []
-            } else {
-                markers = []
-            }
-            gutter?.updateImplementationMarkers(markers) { [weak model, weak document] marker in
+            gutter?.updateImplementationMarkers(implementationMarkers) { [weak model, weak document] marker in
                 guard let document else { return }
                 model?.findJavaImplementations(
                     line: marker.line,
@@ -870,14 +915,15 @@ struct CodeEditorView: NSViewRepresentable {
             textView.setSelectedRange(NSRange(location: location, length: 0))
             textView.scrollRangeToVisible(NSRange(location: location, length: 0))
             textView.window?.makeFirstResponder(textView)
-            updateCaret()
+            scheduleCaretUpdate()
         }
 
-        func updateCaret() {
+        func scheduleCaretUpdate() {
             guard let textView, let document else { return }
             let text = textView.string as NSString
-            updateSelectedText(in: text, range: textView.selectedRange())
-            let location = min(textView.selectedRange().location, text.length)
+            let selection = textView.selectedRange()
+            let selectedText = selectedText(in: text, range: selection)
+            let location = min(selection.location, text.length)
             let line: Int
             let lineStart: Int
             if let codeTextView = textView as? CodeTextView {
@@ -894,26 +940,53 @@ struct CodeEditorView: NSViewRepresentable {
                 line = scannedLine
                 lineStart = scannedStart
             }
-            model?.editorCaret = EditorCaret(
+            let caret = EditorCaret(
                 url: document.url.standardizedFileURL,
                 line: line,
                 utf16Column: location - lineStart
             )
+            let documentID = document.id
+            caretUpdateTask?.cancel()
+            caretUpdateTask = Task { @MainActor [weak self] in
+                await Task.yield()
+                guard !Task.isCancelled,
+                      let self,
+                      self.document?.id == documentID,
+                      let textView = self.textView,
+                      self.model?.activeDocumentID == documentID
+                        || textView.window?.firstResponder === textView else { return }
+                self.model?.editorSelectedText = selectedText
+                self.model?.editorCaret = caret
+            }
+        }
+
+        func scheduleFindStateUpdate(currentIndex: Int, count: Int) {
+            guard let document else { return }
+            let documentID = document.id
+            findStateUpdateTask?.cancel()
+            findStateUpdateTask = Task { @MainActor [weak self] in
+                await Task.yield()
+                guard !Task.isCancelled,
+                      let self,
+                      self.document?.id == documentID,
+                      let textView = self.textView,
+                      self.model?.activeDocumentID == documentID
+                        || textView.window?.firstResponder === textView else { return }
+                self.model?.updateFindState(currentIndex: currentIndex, count: count)
+            }
         }
 
         /// 只取单行、非空白的选区作为预填词；跨行选择在 IDEA 里也不会填进查询框。
-        private func updateSelectedText(in text: NSString, range: NSRange) {
+        private func selectedText(in text: NSString, range: NSRange) -> String {
             guard range.length > 0, NSMaxRange(range) <= text.length else {
-                model?.editorSelectedText = ""
-                return
+                return ""
             }
             let selected = text.substring(with: range)
             guard !selected.contains("\n"),
                   !selected.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                model?.editorSelectedText = ""
-                return
+                return ""
             }
-            model?.editorSelectedText = selected
+            return selected
         }
     }
 }
@@ -3170,8 +3243,65 @@ private final class ClosureButton: NSButton {
     }
 }
 
+struct HighlightedRangeCache {
+    private(set) var ranges: [NSRange] = []
+
+    mutating func insert(_ range: NSRange) {
+        guard range.length > 0 else { return }
+        var merged = range
+        var result: [NSRange] = []
+        var didInsert = false
+
+        for existing in ranges {
+            if NSMaxRange(existing) < merged.location {
+                result.append(existing)
+            } else if NSMaxRange(merged) < existing.location {
+                if !didInsert {
+                    result.append(merged)
+                    didInsert = true
+                }
+                result.append(existing)
+            } else {
+                merged = NSUnionRange(merged, existing)
+            }
+        }
+        if !didInsert {
+            result.append(merged)
+        }
+        ranges = result
+    }
+
+    func uncoveredRanges(in target: NSRange) -> [NSRange] {
+        guard target.length > 0 else { return [] }
+        let targetEnd = NSMaxRange(target)
+        var cursor = target.location
+        var uncovered: [NSRange] = []
+
+        for existing in ranges {
+            if NSMaxRange(existing) <= cursor { continue }
+            if existing.location >= targetEnd { break }
+            if existing.location > cursor {
+                uncovered.append(NSRange(
+                    location: cursor,
+                    length: min(existing.location, targetEnd) - cursor
+                ))
+            }
+            cursor = max(cursor, min(NSMaxRange(existing), targetEnd))
+            if cursor >= targetEnd { break }
+        }
+        if cursor < targetEnd {
+            uncovered.append(NSRange(location: cursor, length: targetEnd - cursor))
+        }
+        return uncovered
+    }
+
+    mutating func removeAll() {
+        ranges.removeAll(keepingCapacity: true)
+    }
+}
+
 @MainActor
-private enum SyntaxHighlighter {
+fileprivate enum SyntaxHighlighter {
     private static let keywordExpression = try! NSRegularExpression(
         pattern: #"\b(class|struct|enum|protocol|extension|func|let|var|if|else|guard|switch|case|for|while|return|throw|throws|try|catch|async|await|public|private|internal|protected|static|final|new|import|package|interface|implements|extends|void|boolean|int|long|const|function|def|in|from|as|true|false|null|nil|self|this)\b"#
     )
@@ -3201,7 +3331,23 @@ private enum SyntaxHighlighter {
     ) {
         let fullRange = NSRange(location: 0, length: storage.length)
         guard fullRange.length > 0 else { return }
-        let target = expandedRange(range, in: storage.string as NSString, limit: fullRange)
+        let target = targetRange(for: range, in: storage.string as NSString, limit: fullRange)
+        applyExact(
+            to: storage,
+            font: font,
+            fileExtension: fileExtension,
+            isDark: isDark,
+            range: target
+        )
+    }
+
+    static func applyExact(
+        to storage: NSTextStorage,
+        font: NSFont,
+        fileExtension: String,
+        isDark: Bool,
+        range target: NSRange
+    ) {
         guard target.length > 0 else { return }
         let palette = CodeEditorPalette(isDark: isDark, theme: LitheTheme.activeTheme)
 
@@ -3236,7 +3382,7 @@ private enum SyntaxHighlighter {
 
     /// Re-color the edited lines plus a small pad so a token that crosses the
     /// caret, or a nearby block comment, is not left half-styled.
-    private static func expandedRange(_ range: NSRange?, in source: NSString, limit: NSRange) -> NSRange {
+    static func targetRange(for range: NSRange?, in source: NSString, limit: NSRange) -> NSRange {
         guard let range else { return limit }
         let safe = NSIntersectionRange(range, limit)
         guard source.length > 0 else { return safe }
