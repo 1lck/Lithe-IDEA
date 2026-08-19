@@ -28,6 +28,7 @@ const nativeCommands = new Set([
   "create_terminal",
   "get_secure_secret",
   "frontend_trace",
+  "get_application_memory_usage",
   "get_bundled_extensions_path",
   "get_log_settings",
   "get_monospace_fonts",
