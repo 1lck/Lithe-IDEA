@@ -335,9 +335,12 @@ export function useMenuEventsWrapper() {
     onCheckForUpdates: async () => {
       const result = await checkForUpdates({ ignoreSuppression: true });
       if (result === "up-to-date") {
-        showToast({ message: "You're on the latest version", type: "success" });
+        await showAlertDialog("You're on the latest version.", "Software Update");
       } else if (result === "failed") {
-        showToast({ message: "Failed to check for updates", type: "error" });
+        await showAlertDialog(
+          "Lithe couldn't check for updates. Please try again later.",
+          "Software Update",
+        );
       }
     },
     onOpenSettings: () => {
