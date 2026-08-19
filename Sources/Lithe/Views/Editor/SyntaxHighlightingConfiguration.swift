@@ -2,9 +2,12 @@ import Foundation
 
 /// Identifies a concrete highlighter implementation that a file-format mapping can select.
 enum SyntaxHighlightingAdapterID: String, Decodable, Equatable {
+    case config
+    case envFile
     case generic
     case ini
     case json
+    case properties
     case toml
     case yaml
 }

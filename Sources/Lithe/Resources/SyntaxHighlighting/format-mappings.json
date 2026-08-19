@@ -5,7 +5,7 @@
       "id": "properties",
       "displayName": "Java Properties",
       "fileExtensions": ["properties"],
-      "adapter": "generic"
+      "adapter": "properties"
     },
     {
       "id": "yaml",
@@ -41,14 +41,14 @@
       "id": "generic-config",
       "displayName": "Generic Configuration",
       "fileExtensions": ["conf", "config"],
-      "adapter": "generic"
+      "adapter": "config"
     },
     {
       "id": "env",
       "displayName": "ENV",
       "fileNames": [".env"],
       "fileNamePrefixes": [".env."],
-      "adapter": "generic"
+      "adapter": "envFile"
     }
   ]
 }
