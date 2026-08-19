@@ -8,6 +8,12 @@ final class GitHubFeatureModel: ObservableObject {
         static let branchCacheLifetime: TimeInterval = 60
     }
 
+    private struct PullRequestDetails {
+        let request: GitHubPullRequest
+        let files: [GitHubPullRequestFile]
+        let comments: [GitHubComment]
+    }
+
     enum ConnectionState: Equatable {
         case disconnected
         case restoring
@@ -57,6 +63,7 @@ final class GitHubFeatureModel: ObservableObject {
     private var branchLoadTask: (id: UUID, task: Task<[GitHubBranch], Error>)?
     private var branchesLoadedAt: Date?
     private var refreshGeneration = UUID()
+    private var pullRequestSelectionGeneration = UUID()
 
     init(
         service: GitHubService,
@@ -124,6 +131,8 @@ final class GitHubFeatureModel: ObservableObject {
 
     func disconnect() async {
         authorizationTask?.cancel()
+        refreshGeneration = UUID()
+        pullRequestSelectionGeneration = UUID()
         do {
             try await service.disconnect()
             connectionState = .disconnected
@@ -150,6 +159,7 @@ final class GitHubFeatureModel: ObservableObject {
         guard case .connected = connectionState else { return }
         let generation = UUID()
         refreshGeneration = generation
+        pullRequestSelectionGeneration = UUID()
         contentState = .loading
         do {
             let repository = try await service.resolveRepository(at: workspaceURL)
@@ -172,6 +182,7 @@ final class GitHubFeatureModel: ObservableObject {
             if let selectedNumber = selectedPullRequest?.number,
                pullRequests.contains(where: { $0.number == selectedNumber }) {
                 await selectPullRequest(number: selectedNumber)
+                return
             } else {
                 selectedPullRequest = nil
                 files = []
@@ -291,19 +302,39 @@ final class GitHubFeatureModel: ObservableObject {
 
     func selectPullRequest(number: UInt64) async {
         guard let repository else { return }
+        let generation = UUID()
+        pullRequestSelectionGeneration = generation
         isCreatingPullRequest = false
         contentState = .loading
         do {
-            async let request = service.pullRequest(repository: repository, number: number)
-            async let files = service.files(repository: repository, number: number)
-            async let comments = service.comments(repository: repository, number: number)
-            selectedPullRequest = try await request
-            self.files = try await files
-            self.comments = try await comments
+            let details = try await pullRequestDetails(repository: repository, number: number)
+            guard !Task.isCancelled,
+                  pullRequestSelectionGeneration == generation,
+                  self.repository == repository else { return }
+            selectedPullRequest = details.request
+            files = details.files
+            comments = details.comments
             contentState = .ready
         } catch {
+            guard !Task.isCancelled,
+                  pullRequestSelectionGeneration == generation,
+                  self.repository == repository else { return }
             contentState = .failed(error.localizedDescription)
         }
+    }
+
+    private func pullRequestDetails(
+        repository: GitHubRepository,
+        number: UInt64
+    ) async throws -> PullRequestDetails {
+        async let request = service.pullRequest(repository: repository, number: number)
+        async let files = service.files(repository: repository, number: number)
+        async let comments = service.comments(repository: repository, number: number)
+        return try await PullRequestDetails(
+            request: request,
+            files: files,
+            comments: comments
+        )
     }
 
     func createPullRequest(

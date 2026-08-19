@@ -43,9 +43,9 @@ final class AppModel: ObservableObject, Identifiable {
     @Published private(set) var standaloneFileURL: URL?
     @Published var selectedSidebar: SidebarDestination = .project {
         didSet {
+            guard oldValue != selectedSidebar else { return }
             sidebarRefreshTask?.cancel()
             sidebarRefreshTask = nil
-            guard oldValue != selectedSidebar else { return }
             // Sidebar changes can happen faster than Git or GitHub can respond.
             // Keep only the refresh associated with the currently visible pane.
             sidebarRefreshTask = Task { @MainActor [weak self] in

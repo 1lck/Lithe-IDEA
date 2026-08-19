@@ -79,7 +79,10 @@ package final class GitFeatureModel: ObservableObject {
     private var acquireModuleLease: (@MainActor (String) -> ModuleLease)?
     private var gitHistoryLimit = 300
     private var deferredSavedChanges: GitDeferredSavedChanges?
-    private var refreshRequestedWhileRunning = false
+    private var nextRefreshRequestID: UInt64 = 0
+    private var activeRefreshRequestIDs: Set<UInt64> = []
+    private var completedRefreshRequestID: UInt64 = 0
+    private var refreshCompletionWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
     private var loadingLineChangeURLs: Set<URL> = []
     private var lineChangeHunks: [URL: [String: DiffHunk]] = [:]
 
@@ -169,7 +172,6 @@ package final class GitFeatureModel: ObservableObject {
         gitDiffWhitespaceMode = .doNotIgnore
         isLoadingDiff = false
         isRefreshingGit = false
-        refreshRequestedWhileRunning = false
         pendingDiscardChange = nil
         pendingDiscardHunk = nil
         isCommitting = false
@@ -205,22 +207,71 @@ package final class GitFeatureModel: ObservableObject {
     package func refreshGit() async {
         guard let workspaceURLProvider else { return }
         guard !Task.isCancelled else { return }
+        nextRefreshRequestID &+= 1
+        let requestID = nextRefreshRequestID
+        activeRefreshRequestIDs.insert(requestID)
+        defer { activeRefreshRequestIDs.remove(requestID) }
+        await fulfillGitRefreshRequest(requestID, workspaceURLProvider: workspaceURLProvider)
+    }
+
+    private func fulfillGitRefreshRequest(
+        _ requestID: UInt64,
+        workspaceURLProvider: @MainActor () -> URL?
+    ) async {
         if isRefreshingGit {
-            if !Task.isCancelled { refreshRequestedWhileRunning = true }
+            await waitForCurrentGitRefresh()
+            guard !Task.isCancelled else { return }
+            if completedRefreshRequestID < requestID {
+                await fulfillGitRefreshRequest(requestID, workspaceURLProvider: workspaceURLProvider)
+            }
             return
         }
         guard let workspaceURL = workspaceURLProvider() else {
             reset()
+            completedRefreshRequestID = max(completedRefreshRequestID, requestID)
             return
         }
 
         isRefreshingGit = true
-        defer { isRefreshingGit = false }
+        defer { finishCurrentGitRefresh() }
         repeat {
             guard !Task.isCancelled else { return }
-            refreshRequestedWhileRunning = false
+            let processingRequestID = activeRefreshRequestIDs.max() ?? requestID
             await refreshGitState(at: workspaceURL)
-        } while !Task.isCancelled && refreshRequestedWhileRunning && workspaceURLProvider() == workspaceURL
+            guard !Task.isCancelled else { return }
+            completedRefreshRequestID = max(completedRefreshRequestID, processingRequestID)
+        } while activeRefreshRequestIDs.contains(where: { $0 > completedRefreshRequestID })
+            && workspaceURLProvider() == workspaceURL
+    }
+
+    private func waitForCurrentGitRefresh() async {
+        let waiterID = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard isRefreshingGit, !Task.isCancelled else {
+                    continuation.resume()
+                    return
+                }
+                refreshCompletionWaiters[waiterID] = continuation
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.resumeGitRefreshWaiter(waiterID)
+            }
+        }
+    }
+
+    private func finishCurrentGitRefresh() {
+        isRefreshingGit = false
+        let waiters = Array(refreshCompletionWaiters.values)
+        refreshCompletionWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    private func resumeGitRefreshWaiter(_ waiterID: UUID) {
+        refreshCompletionWaiters.removeValue(forKey: waiterID)?.resume()
     }
 
     private func refreshGitState(at workspaceURL: URL) async {
