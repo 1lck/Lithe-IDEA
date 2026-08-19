@@ -7,9 +7,12 @@ import { useGitStore } from "@/features/git/stores/git.store";
 import { useSidebarPaneController } from "@/features/layout/hooks/use-sidebar-pane-controller";
 import type { FooterTrailingItemId } from "@/features/layout/config/item-order";
 import {
+  ApplicationMemoryPoller,
+  type ApplicationMemoryUsage,
+} from "@/features/layout/services/memory-api";
+import {
   countUniqueGitChanges,
   formatMemoryMegabytes,
-  readJsHeapMemory,
   TEXT_FILE_ENCODING,
 } from "@/features/layout/utils/footer-status";
 import type { ChromeItem } from "@/features/layout/utils/chrome-items";
@@ -35,15 +38,19 @@ export function useFooterEditorStatusItems(): Array<ChromeItem<FooterTrailingIte
         }
       : null;
   });
-  const [memoryUsage, setMemoryUsage] = useState(() => readJsHeapMemory());
+  const [memoryUsage, setMemoryUsage] = useState<ApplicationMemoryUsage | null>(null);
   const changeCount = countUniqueGitChanges(gitFiles);
   const isEditorBuffer = activeBuffer?.type === "editor";
 
   useEffect(() => {
-    const updateMemory = () => setMemoryUsage(readJsHeapMemory());
-    updateMemory();
-    const intervalId = window.setInterval(updateMemory, MEMORY_POLL_INTERVAL_MS);
-    return () => window.clearInterval(intervalId);
+    const poller = new ApplicationMemoryPoller(setMemoryUsage);
+    poller.start();
+    void poller.poll();
+    const intervalId = window.setInterval(() => void poller.poll(), MEMORY_POLL_INTERVAL_MS);
+    return () => {
+      window.clearInterval(intervalId);
+      poller.stop();
+    };
   }, []);
 
   return [
@@ -93,7 +100,7 @@ export function useFooterEditorStatusItems(): Array<ChromeItem<FooterTrailingIte
               <HardDrivesIcon />
               {t("footer.memoryUsage", {
                 total: formatMemoryMegabytes(memoryUsage.totalBytes),
-                used: formatMemoryMegabytes(memoryUsage.usedBytes),
+                used: formatMemoryMegabytes(memoryUsage.litheBytes),
               })}
             </FooterStatusLabel>
           ),
