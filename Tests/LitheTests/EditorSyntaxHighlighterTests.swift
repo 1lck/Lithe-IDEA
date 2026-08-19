@@ -36,6 +36,41 @@ struct EditorSyntaxHighlighterTests {
     }
 
     @Test
+    func jsonSyntaxCorpusPreservesKeyAndValueTokenColors() throws {
+        let source = try syntaxCorpus(named: "json-syntax-corpus", extension: "json")
+        let storage = NSTextStorage(string: source)
+
+        SyntaxHighlighter.apply(
+            to: storage,
+            font: .monospacedSystemFont(ofSize: 13, weight: .regular),
+            fileExtension: "json",
+            isDark: true
+        )
+
+        let text = source as NSString
+        let keyColor = try color(in: storage, at: text.range(of: #""name""#).location)
+        let nestedKeyColor = try color(in: storage, at: text.range(of: #""nested""#).location)
+        let escapedKeyColor = try color(in: storage, at: text.range(of: #""escaped\"key""#).location)
+        let nestedNameRange = text.range(of: #""name": "nested-value""#)
+        let nestedNameColor = try color(in: storage, at: nestedNameRange.location)
+        let stringValueColor = try color(in: storage, at: text.range(of: #""Lithe""#).location)
+        let numberValueColor = try color(in: storage, at: text.range(of: "42").location)
+        let booleanValueColor = try color(in: storage, at: text.range(of: "true").location)
+        let nullTokenRange = text.range(of: #""nullValue": null"#)
+        let nullValueColor = try color(in: storage, at: NSMaxRange(nullTokenRange) - "null".utf16.count)
+        let repeatedStringColor = try color(in: storage, at: text.range(of: #""name""#, options: .backwards).location)
+        #expect(keyColor == propertyColor)
+        #expect(nestedKeyColor == propertyColor)
+        #expect(escapedKeyColor == propertyColor)
+        #expect(nestedNameColor == propertyColor)
+        #expect(stringValueColor != propertyColor)
+        #expect(numberValueColor != propertyColor)
+        #expect(booleanValueColor != propertyColor)
+        #expect(nullValueColor == booleanValueColor)
+        #expect(repeatedStringColor == stringValueColor)
+    }
+
+    @Test
     func nonJSONQuotedLabelsRemainStringColored() throws {
         let source = #"{"name":"Lithe"}"#
         let storage = NSTextStorage(string: source)
