@@ -131,7 +131,7 @@
     --lithe-chrome-gap-loose: 6px;
     --lithe-chrome-padding-inline: 8px;
     --lithe-chrome-radius: 6px;
-    --radius: 10px;
+    --radius: 8px;
     --app-duration-fast: 150ms;
     --app-duration-normal: 200ms;
     --app-ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
