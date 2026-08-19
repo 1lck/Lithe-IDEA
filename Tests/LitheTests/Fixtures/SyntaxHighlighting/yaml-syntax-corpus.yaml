@@ -1,0 +1,35 @@
+%YAML 1.1
+%TAG !e! tag:example.test,2026:
+---
+# root comment
+defaults: &defaults
+  enabled: true
+  retry-count: 3
+  ratio: -1.25e+3
+  hexadecimal: 0xCAFE
+  octal: 0o755
+  binary: 0b1010
+  empty-value: null
+  tilde-value: ~
+  quoted-double: "URL #fragment and escaped quote: \""
+  quoted-single: 'It''s # not a comment'
+  tag-value: !e!service "gateway"
+  local-tag: !Service "worker"
+  identifier: release#42 # identifier comment
+  nested:
+    - first
+    - id: 42 # item comment
+      inherits: *defaults
+message-literal: |-
+  line # remains literal text
+  number 123 remains literal text
+message-folded: >+
+  folded # text
+  another line
+flow-values: ["quoted # value", "plain value"]
+flow-numbers: [0x10, 0o10, 0b1]
+inline-map: { mode: "fast", profile: "active" }
+inline-flags: { active: true, enabled: false }
+? explicit key
+: explicit value
+...
