@@ -7,6 +7,7 @@ export type SettingsTab =
   | "ai"
   | "keyboard"
   | "language"
+  | "logs"
   | "collaboration"
   | "enterprise"
   | "advanced"
