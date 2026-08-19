@@ -4,6 +4,9 @@ import App from "./App.tsx";
 import { recordStartupMilestone } from "./features/bootstrap/startup-performance.ts";
 import { initializeFrontendTerminalSession } from "./features/terminal/utils/frontend-terminal-session.ts";
 import { traceWindowOpen } from "./features/window/utils/window-open-diagnostics.ts";
+import { initializeFrontendLogging } from "./features/logging/frontend-log-runtime.ts";
+
+void initializeFrontendLogging();
 
 if (import.meta.env.VITE_REACT_SCAN === "true") {
   void import("react-scan").then(({ scan }) => scan({ enabled: true }));
