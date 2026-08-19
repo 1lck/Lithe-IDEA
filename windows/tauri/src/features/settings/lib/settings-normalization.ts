@@ -524,6 +524,10 @@ export function normalizeSettings(settings: Settings): Settings {
   normalizedSettings.lastSettingsTab = normalizeSettingsSection(
     (normalizedSettings as { lastSettingsTab?: unknown }).lastSettingsTab,
   );
+  normalizedSettings.jdtlsJavaHomePath =
+    typeof normalizedSettings.jdtlsJavaHomePath === "string"
+      ? normalizedSettings.jdtlsJavaHomePath.trim()
+      : "";
 
   if (!isKeybindingPreset(normalizedSettings.keybindingPreset)) {
     normalizedSettings.keybindingPreset = "none";
@@ -661,6 +665,10 @@ export function normalizeSettingValue<K extends keyof Settings>(
 
   if (key === "activeV0DesignSystemId") {
     return ((value as string)?.trim() || "") as Settings[K];
+  }
+
+  if (key === "jdtlsJavaHomePath") {
+    return (value as string).trim() as Settings[K];
   }
 
   if (key === "aiCustomBaseUrl") {

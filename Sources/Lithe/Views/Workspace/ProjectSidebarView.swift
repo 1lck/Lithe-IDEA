@@ -1,3 +1,4 @@
+import LitheGitModule
 import SwiftUI
 
 struct ProjectSidebarView: View {
@@ -20,49 +21,84 @@ struct ProjectSidebarView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let root = model.rootNode {
                 GeometryReader { geometry in
-                    ScrollView([.vertical, .horizontal]) {
-                        LazyVStack(alignment: .leading, spacing: 1) {
-                            FileNodeRow(
-                                node: root,
-                                depth: 0,
-                                availableWidth: geometry.size.width,
-                                activeDocumentURL: model.activeDocument?.url,
-                                expandedDirectoryPaths: $expandedDirectoryPaths
+                    ScrollViewReader { proxy in
+                        ScrollView([.vertical, .horizontal]) {
+                            LazyVStack(alignment: .leading, spacing: 1) {
+                                ProjectFileTreeContent(
+                                    root: root,
+                                    availableWidth: geometry.size.width,
+                                    activeDocumentURL: model.activeDocument?.url,
+                                    gitStatus: ProjectGitStatusSnapshot(
+                                        repositoryRoot: model.gitRepositoryRoot,
+                                        projection: model.gitTreeStatusProjection
+                                    ),
+                                    actions: ProjectTreeActions(model: model),
+                                    expandedDirectoryPathsSnapshot: expandedDirectoryPaths,
+                                    expandedDirectoryPaths: $expandedDirectoryPaths
+                                )
+                                .equatable()
+                            }
+                            .padding(.vertical, 5)
+                            .frame(
+                                minWidth: geometry.size.width,
+                                minHeight: geometry.size.height,
+                                alignment: .topLeading
                             )
                         }
-                        .padding(.vertical, 5)
-                        .frame(
-                            minWidth: geometry.size.width,
-                            minHeight: geometry.size.height,
-                            alignment: .topLeading
-                        )
-                    }
-                    .task(id: root.url.path) {
-                        guard expandedTreeRootPath != root.url.path else { return }
-                        expandedTreeRootPath = root.url.path
-                        expandedDirectoryPaths = [root.url.path]
-                        await model.refreshGit()
-                    }
-                    .contextMenu {
-                        Button("New File…") {
-                            model.requestCreateFile(in: root.url)
+                        .task(
+                            id: ProjectTreeTaskID(
+                                rootPath: root.url.standardizedFileURL.path,
+                                revealRequestID: model.projectTreeRevealRequest?.id
+                            )
+                        ) {
+                            let rootPath = root.url.standardizedFileURL.path
+                            let revealRequest = model.projectTreeRevealRequest
+                            let shouldRefreshGit = expandedTreeRootPath != rootPath
+                            if shouldRefreshGit {
+                                expandedTreeRootPath = rootPath
+                                expandedDirectoryPaths = [rootPath]
+                            }
+                            if let request = revealRequest {
+                                expandedDirectoryPaths.formUnion(
+                                    ProjectTreeLocator.expandedDirectoryPaths(
+                                        for: request.fileURL,
+                                        rootURL: root.url
+                                    )
+                                )
+                                await Task.yield()
+                                proxy.scrollTo(
+                                    request.fileURL.standardizedFileURL.path,
+                                    anchor: .center
+                                )
+                            }
+                            if shouldRefreshGit {
+                                await model.refreshGit()
+                            }
+                            if let request = revealRequest {
+                                model.consumeProjectTreeRevealRequest(id: request.id)
+                            }
                         }
-                        Button("New Directory…") {
-                            model.requestCreateDirectory(in: root.url)
-                        }
-                        Divider()
-                        Button("Show Project in Finder") {
-                            model.revealProjectItemInFinder(root.url)
-                        }
-                        Button("Show Project Local History…") {
-                            model.showProjectLocalHistory()
-                        }
-                        Button("Copy Project Path") {
-                            model.copyProjectItemPath(root.url, relative: false)
-                        }
-                        Divider()
-                        Button("Refresh") {
-                            Task { await model.refreshWorkspace() }
+                        .contextMenu {
+                            Button("New File…") {
+                                model.requestCreateFile(in: root.url)
+                            }
+                            Button("New Directory…") {
+                                model.requestCreateDirectory(in: root.url)
+                            }
+                            Divider()
+                            Button("Show Project in Finder") {
+                                model.revealProjectItemInFinder(root.url)
+                            }
+                            Button("Show Project Local History…") {
+                                model.showProjectLocalHistory()
+                            }
+                            Button("Copy Project Path") {
+                                model.copyProjectItemPath(root.url, relative: false)
+                            }
+                            Divider()
+                            Button("Refresh") {
+                                Task { await model.refreshWorkspace() }
+                            }
                         }
                     }
                 }
@@ -105,17 +141,18 @@ struct ProjectSidebarView: View {
                 get: { model.pendingProjectItemDeletion != nil },
                 set: { if !$0 { model.cancelProjectItemDeletion() } }
             ),
-            titleVisibility: .visible
-        ) {
+            titleVisibility: .visible,
+            presenting: model.pendingProjectItemDeletion
+        ) { request in
             Button("Move to Trash", role: .destructive) {
-                Task { await model.confirmProjectItemDeletion() }
+                Task { await model.confirmProjectItemDeletion(request) }
             }
             .lithePointer()
             Button("Cancel", role: .cancel) {
                 model.cancelProjectItemDeletion()
             }
             .lithePointer()
-        } message: {
+        } message: { _ in
             Text("The item can be recovered from the macOS Trash.")
         }
     }
@@ -149,14 +186,127 @@ struct ProjectSidebarView: View {
     }
 }
 
+private struct ProjectTreeTaskID: Equatable {
+    let rootPath: String
+    let revealRequestID: UUID?
+}
+
+private struct ProjectGitStatusSnapshot: Equatable {
+    let repositoryRoot: URL?
+    let projection: GitTreeStatusProjection
+
+    func kind(for url: URL, isDirectory: Bool) -> GitChangeKind? {
+        guard let repositoryRoot,
+              let relative = Self.relativePath(for: url, root: repositoryRoot) else { return nil }
+        return projection.kind(relativePath: relative, isDirectory: isDirectory)
+    }
+
+    func change(for url: URL) -> GitChange? {
+        guard let repositoryRoot,
+              let relative = Self.relativePath(for: url, root: repositoryRoot) else { return nil }
+        return projection.change(relativePath: relative)
+    }
+
+    private static func relativePath(for url: URL, root: URL) -> String? {
+        let normalizedRoot = root.standardizedFileURL.path
+        let normalizedPath = url.standardizedFileURL.path
+        guard normalizedPath.hasPrefix(normalizedRoot + "/") else { return nil }
+        return String(normalizedPath.dropFirst(normalizedRoot.count + 1))
+    }
+}
+
+private final class ProjectTreeActions: @unchecked Sendable {
+    private let model: AppModel
+
+    init(model: AppModel) {
+        self.model = model
+    }
+
+    // Button and context-menu closures are not MainActor-isolated under the
+    // Swift 6 test/release check. Keep these methods synchronous and hop.
+    nonisolated func openFile(_ url: URL) {
+        Task { @MainActor in self.model.openFile(url) }
+    }
+    nonisolated func requestCreateFile(_ url: URL) {
+        Task { @MainActor in self.model.requestCreateFile(in: url) }
+    }
+    nonisolated func requestCreateDirectory(_ url: URL) {
+        Task { @MainActor in self.model.requestCreateDirectory(in: url) }
+    }
+    nonisolated func revealInFinder(_ url: URL) {
+        Task { @MainActor in self.model.revealProjectItemInFinder(url) }
+    }
+    nonisolated func copyPath(_ url: URL, relative: Bool) {
+        Task { @MainActor in self.model.copyProjectItemPath(url, relative: relative) }
+    }
+    nonisolated func duplicate(_ url: URL) {
+        Task { await self.model.duplicateProjectItem(at: url) }
+    }
+    nonisolated func requestRename(_ url: URL) {
+        Task { @MainActor in self.model.requestRenameProjectItem(at: url) }
+    }
+    nonisolated func requestDelete(_ url: URL, _ isDirectory: Bool) {
+        Task { @MainActor in
+            self.model.requestDeleteProjectItem(at: url, isDirectory: isDirectory)
+        }
+    }
+    nonisolated func refreshWorkspace() {
+        Task { await self.model.refreshWorkspace() }
+    }
+    nonisolated func showGitDirectoryDiff(_ url: URL) {
+        Task { await self.model.showGitDirectoryDiff(for: url) }
+    }
+    nonisolated func selectChange(_ change: GitChange) {
+        Task { @MainActor in self.model.selectChange(change) }
+    }
+    nonisolated func showLocalHistory(_ url: URL) {
+        Task { @MainActor in self.model.showLocalHistory(for: url) }
+    }
+    func javaIconKind(_ url: URL) async -> LitheIconKind? {
+        await model.javaIconKind(for: url)
+    }
+}
+
+private struct ProjectFileTreeContent: View, Equatable {
+    let root: FileNode
+    let availableWidth: CGFloat
+    let activeDocumentURL: URL?
+    let gitStatus: ProjectGitStatusSnapshot
+    let actions: ProjectTreeActions
+    let expandedDirectoryPathsSnapshot: Set<String>
+    @Binding var expandedDirectoryPaths: Set<String>
+
+    static func == (lhs: ProjectFileTreeContent, rhs: ProjectFileTreeContent) -> Bool {
+        lhs.root == rhs.root
+            && lhs.availableWidth == rhs.availableWidth
+            && lhs.activeDocumentURL == rhs.activeDocumentURL
+            && lhs.gitStatus == rhs.gitStatus
+            && lhs.expandedDirectoryPathsSnapshot == rhs.expandedDirectoryPathsSnapshot
+    }
+
+    var body: some View {
+        FileNodeRow(
+            node: root,
+            depth: 0,
+            availableWidth: availableWidth,
+            activeDocumentURL: activeDocumentURL,
+            gitStatus: gitStatus,
+            actions: actions,
+            expandedDirectoryPaths: $expandedDirectoryPaths
+        )
+        .id(root.url.standardizedFileURL.path)
+    }
+}
+
 private struct FileNodeRow: View {
     private static let horizontalInset: CGFloat = 10
 
-    @EnvironmentObject private var model: AppModel
     let node: FileNode
     let depth: Int
     let availableWidth: CGFloat
     let activeDocumentURL: URL?
+    let gitStatus: ProjectGitStatusSnapshot
+    let actions: ProjectTreeActions
     @Binding var expandedDirectoryPaths: Set<String>
     @State private var resolvedJavaIconKind: LitheIconKind?
 
@@ -181,8 +331,11 @@ private struct FileNodeRow: View {
                         depth: depth + 1,
                         availableWidth: availableWidth,
                         activeDocumentURL: activeDocumentURL,
+                        gitStatus: gitStatus,
+                        actions: actions,
                         expandedDirectoryPaths: $expandedDirectoryPaths
                     )
+                    .id(child.url.standardizedFileURL.path)
                 }
             }
         } else {
@@ -235,7 +388,7 @@ private struct FileNodeRow: View {
 
     private var fileRow: some View {
         Button {
-            model.openFile(node.url)
+            actions.openFile(node.url)
         } label: {
             HStack(spacing: 6) {
                 Color.clear.frame(width: 10)
@@ -248,7 +401,7 @@ private struct FileNodeRow: View {
                     .truncationMode(.middle)
                     .layoutPriority(1)
                 Spacer(minLength: 4)
-                if let status = model.gitChange(for: node.url) {
+                if let status = gitStatus.change(for: node.url) {
                     Text(status.displayStatus)
                         .font(.system(size: 9, weight: .bold, design: .monospaced))
                         .foregroundStyle(gitStatusColor ?? LitheTheme.secondaryText)
@@ -261,7 +414,8 @@ private struct FileNodeRow: View {
             .frame(height: LitheTheme.Metrics.treeRowHeight)
             .contentShape(Rectangle())
             .litheRowHover(
-                isActive: activeDocumentURL == node.url,
+                isActive: activeDocumentURL?.standardizedFileURL.path
+                    == node.url.standardizedFileURL.path,
                 cornerRadius: 4,
                 activeBackground: LitheTheme.subtleSelection,
                 animation: nil
@@ -274,101 +428,107 @@ private struct FileNodeRow: View {
         .contextMenu { fileContextMenu }
         .task(id: node.url.standardizedFileURL.path) {
             guard node.url.pathExtension.lowercased() == "java" else { return }
-            resolvedJavaIconKind = await model.javaIconKind(for: node.url)
+            resolvedJavaIconKind = await actions.javaIconKind(node.url)
         }
     }
 
     @ViewBuilder
     private var directoryContextMenu: some View {
-        if model.gitTreeStatus(for: node.url, isDirectory: true) != nil {
+        if gitStatus.kind(for: node.url, isDirectory: true) != nil {
             Button("Show Git Diff") {
-                Task { await model.showGitDirectoryDiff(for: node.url) }
+                actions.showGitDirectoryDiff(node.url)
             }
             Divider()
         }
 
         Button("New File…") {
-            model.requestCreateFile(in: node.url)
+            actions.requestCreateFile(node.url)
         }
         Button("New Directory…") {
-            model.requestCreateDirectory(in: node.url)
+            actions.requestCreateDirectory(node.url)
         }
 
         Divider()
 
         Button("Show in Finder") {
-            model.revealProjectItemInFinder(node.url)
+            actions.revealInFinder(node.url)
         }
         Button("Copy Path") {
-            model.copyProjectItemPath(node.url, relative: false)
+            actions.copyPath(node.url, relative: false)
         }
         Button("Copy Relative Path") {
-            model.copyProjectItemPath(node.url, relative: true)
+            actions.copyPath(node.url, relative: true)
         }
 
         if depth > 0 {
             Divider()
 
             Button("Duplicate") {
-                Task { await model.duplicateProjectItem(at: node.url) }
+                actions.duplicate(node.url)
             }
             Button("Rename…") {
-                model.requestRenameProjectItem(at: node.url)
+                actions.requestRename(node.url)
             }
             Button("Move to Trash", role: .destructive) {
-                model.requestDeleteProjectItem(at: node.url, isDirectory: true)
+                actions.requestDelete(node.url, true)
             }
         }
 
         Divider()
 
         Button("Refresh") {
-            Task { await model.refreshWorkspace() }
+            actions.refreshWorkspace()
         }
     }
 
     @ViewBuilder
     private var fileContextMenu: some View {
-        Button("Open") {
-            model.openFile(node.url)
-        }
+        Group {
+            Button("Open") {
+                actions.openFile(node.url)
+            }
 
-        if let change = model.gitChange(for: node.url) {
-            Button("Show Git Diff") {
-                model.selectChange(change)
+            if let change = gitStatus.change(for: node.url) {
+                Button("Show Git Diff") {
+                    actions.selectChange(change)
+                }
             }
         }
 
         Divider()
 
-        Button("Duplicate") {
-            Task { await model.duplicateProjectItem(at: node.url) }
-        }
-        Button("Rename…") {
-            model.requestRenameProjectItem(at: node.url)
-        }
-        Button("Local History…") {
-            model.showLocalHistory(for: node.url)
-        }
-        Button("Move to Trash", role: .destructive) {
-            model.requestDeleteProjectItem(at: node.url, isDirectory: false)
+        Group {
+            Button("Duplicate") {
+                actions.duplicate(node.url)
+            }
+            Button("Rename…") {
+                actions.requestRename(node.url)
+            }
+            Button("Local History…") {
+                actions.showLocalHistory(node.url)
+            }
+            Button("Move to Trash", role: .destructive) {
+                actions.requestDelete(node.url, false)
+            }
         }
 
         Divider()
 
-        Button("Show in Finder") {
-            model.revealProjectItemInFinder(node.url)
-        }
-        Button("Copy Path") {
-            model.copyProjectItemPath(node.url, relative: false)
-        }
-        Button("Copy Relative Path") {
-            model.copyProjectItemPath(node.url, relative: true)
+        Group {
+            Button("Show in Finder") {
+                actions.revealInFinder(node.url)
+            }
+            Button("Copy Path") {
+                actions.copyPath(node.url, relative: false)
+            }
+            Button("Copy Relative Path") {
+                actions.copyPath(node.url, relative: true)
+            }
         }
     }
 
     private var gitStatusColor: Color? {
-        guard let kind = model.gitTreeStatus(for: node.url, isDirectory: node.isDirectory) else {
+        guard let kind = gitStatus.kind(for: node.url, isDirectory: node.isDirectory) else {
             return nil
         }
         switch kind {

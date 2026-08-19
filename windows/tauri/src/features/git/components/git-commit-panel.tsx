@@ -11,6 +11,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useAuthStore } from "@/features/window/stores/auth.store";
 import { hasProductCapability } from "@/features/window/lib/product-capabilities";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import { ButtonGroup, ButtonGroupSeparator } from "@/ui/button-group";
 import { Dropdown, type MenuItem } from "@/ui/dropdown";
@@ -24,8 +25,10 @@ import {
 } from "@/features/editor/services/editor-inline-edit-service";
 import { getFileDiff } from "../api/git-diff-api";
 import { commitChanges, getGitLog } from "../api/git-commits-api";
-import { pullChanges, pushChanges, type GitRemoteActionResult } from "../api/git-remotes-api";
+import { getConflictMarkerPaths } from "../api/git-integration-api";
+import { pushChanges, type GitRemoteActionResult } from "../api/git-remotes-api";
 import { useGitBlameStore } from "../stores/git-blame.store";
+import { useGitStore } from "../stores/git.store";
 import type { GitDiff, GitFile } from "../types/git.types";
 
 interface GitCommitPanelProps {
@@ -36,6 +39,8 @@ interface GitCommitPanelProps {
   ahead?: number;
   behind?: number;
   onCommitSuccess?: () => void;
+  onPull?: () => Promise<unknown> | void;
+  isPulling?: boolean;
 }
 
 const MAX_STAGED_FILES_FOR_AI_CONTEXT = 120;
@@ -112,7 +117,7 @@ async function buildCommitMessageContext({
   const stagedFilesForContext = stagedFiles.slice(0, MAX_STAGED_FILES_FOR_AI_CONTEXT);
   const diffFilesForContext = stagedFiles.slice(0, MAX_DIFF_FILES_FOR_AI_CONTEXT);
   const [recentCommits, stagedDiffs] = await Promise.all([
-    getGitLog(repoPath, MAX_RECENT_COMMITS_FOR_AI_CONTEXT, 0),
+    getGitLog(repoPath, MAX_RECENT_COMMITS_FOR_AI_CONTEXT),
     Promise.all(diffFilesForContext.map((file) => getFileDiff(repoPath, file.path, true))),
   ]);
   const overflowCount = Math.max(stagedFiles.length - stagedFilesForContext.length, 0);
@@ -188,7 +193,10 @@ const GitCommitPanel = ({
   ahead = 0,
   behind = 0,
   onCommitSuccess,
+  onPull,
+  isPulling = false,
 }: GitCommitPanelProps) => {
+  const { t } = useTranslation();
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const subscription = useAuthStore((state) => state.subscription);
   const aiAutocompleteModelId = useSettingsStore((state) => state.settings.aiAutocompleteModelId);
@@ -197,7 +205,7 @@ const GitCommitPanel = ({
   const [isGenerating, setIsGenerating] = useState(false);
   const [commitMessageMode, setCommitMessageMode] = useState<CommitMessageMode>("title");
   const [isGenerateModeMenuOpen, setIsGenerateModeMenuOpen] = useState(false);
-  const [remoteAction, setRemoteAction] = useState<"push" | "pull" | null>(null);
+  const [remoteAction, setRemoteAction] = useState<"push" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const generateMenuAnchorRef = useRef<HTMLDivElement>(null);
   const commitTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -221,7 +229,7 @@ const GitCommitPanel = ({
     setError(null);
 
     if (!isAuthenticated) {
-      setError("Please sign in to use AI commit message generation.");
+      setError(t("git.aiCommitSignInRequired"));
       return;
     }
 
@@ -230,13 +238,13 @@ const GitCommitPanel = ({
     const isPro = hasProductCapability(subscription, "hostedAi");
 
     if (managedPolicy && !managedPolicy.aiCompletionEnabled) {
-      setError("AI commit message generation is disabled by your organization policy.");
+      setError(t("git.aiCommitDisabledByPolicy"));
       return;
     }
 
     const useByok = managedPolicy ? managedPolicy.allowByok && !isPro : !isPro;
     if (managedPolicy && useByok && !managedPolicy.allowByok) {
-      setError("BYOK is disabled by your organization policy.");
+      setError(t("git.byokDisabledByPolicy"));
       return;
     }
 
@@ -268,7 +276,7 @@ const GitCommitPanel = ({
 
       const message = normalizeGeneratedCommitMessage(editedText, commitMessageMode);
       if (!message) {
-        setError("AI returned an empty commit message.");
+        setError(t("git.aiCommitEmptyMessage"));
         return;
       }
 
@@ -277,7 +285,7 @@ const GitCommitPanel = ({
       if (generationError instanceof InlineEditError) {
         setError(generationError.message);
       } else {
-        setError("Failed to generate commit message.");
+        setError(t("git.generateCommitMessageFailed"));
       }
     } finally {
       setIsGenerating(false);
@@ -286,6 +294,27 @@ const GitCommitPanel = ({
 
   const handleCommit = async () => {
     if (!repoPath || !commitMessage.trim() || stagedFilesCount === 0) return;
+
+    // A conflicted merge/rebase must be resolved before the merge commit can
+    // be finalized; guard here so Git's raw refusal never reaches the user.
+    const conflictedPaths = useGitStore.getState().operationState?.conflictedPaths ?? [];
+    if (conflictedPaths.length > 0) {
+      setError(t("git.resolveConflictsFirst", { paths: conflictedPaths.join(", ") }));
+      return;
+    }
+
+    let markerPaths: string[];
+    try {
+      markerPaths = await getConflictMarkerPaths(repoPath);
+    } catch (markerError) {
+      console.error("Failed to check staged files for conflict markers:", markerError);
+      setError(t("git.verifyConflictMarkersFailed"));
+      return;
+    }
+    if (markerPaths.length > 0) {
+      setError(t("git.conflictMarkersRemain", { paths: markerPaths.join(", ") }));
+      return;
+    }
 
     setIsCommitting(true);
     setError(null);
@@ -297,51 +326,42 @@ const GitCommitPanel = ({
         setCommitMessage("");
         onCommitSuccess?.();
       } else {
-        setError("Failed to commit changes");
+        setError(t("git.commitChangesFailed"));
       }
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Unknown error occurred");
+      setError(error instanceof Error ? error.message : t("ai.unknownError"));
     } finally {
       setIsCommitting(false);
     }
   };
 
-  const handleRemoteAction = async (
-    action: "push" | "pull",
-    run: () => Promise<GitRemoteActionResult>,
-  ) => {
+  const handlePush = async (run: () => Promise<GitRemoteActionResult>) => {
     if (!repoPath) return;
 
-    const label = action === "push" ? "Push" : "Pull";
     let toastId: string | number | null = null;
-    setRemoteAction(action);
+    setRemoteAction("push");
     setError(null);
 
     try {
-      toastId = toast.info(`${label}ing changes...`, {
+      toastId = toast.info(t("git.pushingChanges"), {
         duration: 0,
       });
 
       const result = await run();
       if (result.success) {
-        if (action === "pull") {
-          useGitBlameStore.getState().actions.clearAllBlame();
-        }
         toast.dismiss(toastId);
-        toast.success(
-          action === "push" ? "Changes pushed successfully." : "Changes pulled successfully.",
-        );
+        toast.success(t("git.pushedChanges"));
         onCommitSuccess?.();
         return;
       }
 
-      const errorMessage = result.error || `Failed to ${action} changes.`;
+      const errorMessage = result.error || t("git.pushFailed");
       toast.dismiss(toastId);
       toast.error(errorMessage);
       setError(errorMessage);
     } catch (remoteError) {
       const errorMessage =
-        remoteError instanceof Error ? remoteError.message : `Failed to ${action} changes.`;
+        remoteError instanceof Error ? remoteError.message : t("git.pushFailed");
       if (toastId) toast.dismiss(toastId);
       toast.error(errorMessage);
       setError(errorMessage);
@@ -367,13 +387,13 @@ const GitCommitPanel = ({
   const generateModeItems: MenuItem[] = [
     {
       id: "title",
-      label: "Title only",
+      label: t("git.commitMessageTitleOnly"),
       icon: commitMessageMode === "title" ? <Check /> : undefined,
       onClick: () => setCommitMessageMode("title"),
     },
     {
       id: "body",
-      label: "Title + body",
+      label: t("git.commitMessageTitleAndBody"),
       icon: commitMessageMode === "body" ? <Check /> : undefined,
       onClick: () => setCommitMessageMode("body"),
     },
@@ -399,7 +419,7 @@ const GitCommitPanel = ({
           value={commitMessage}
           onChange={(e) => setCommitMessage(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Commit message..."
+          placeholder={t("git.commitMessagePlaceholder")}
           variant="ghost"
           className={cn(
             "max-h-32 min-h-16 w-full resize-none overflow-x-hidden bg-transparent",
@@ -415,8 +435,10 @@ const GitCommitPanel = ({
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
           <span className="px-1 ui-text-sm text-subtle-foreground">
             {stagedFilesCount > 0
-              ? `${stagedFilesCount} file${stagedFilesCount !== 1 ? "s" : ""} staged`
-              : "No files staged"}
+              ? t(stagedFilesCount === 1 ? "git.fileStaged" : "git.filesStaged", {
+                  count: stagedFilesCount,
+                })
+              : t("git.noFilesStaged")}
           </span>
 
           {hasRemoteChanges && (
@@ -424,8 +446,8 @@ const GitCommitPanel = ({
               {ahead > 0 && (
                 <Button
                   type="button"
-                  onClick={() => void handleRemoteAction("push", () => pushChanges(repoPath!))}
-                  disabled={!repoPath || isRemoteActionLoading}
+                  onClick={() => void handlePush(() => pushChanges(repoPath!))}
+                  disabled={!repoPath || isRemoteActionLoading || isPulling}
                   variant="ghost"
                   size="xs"
                   className={cn(composerButtonClassName, "text-git-added hover:text-git-added")}
@@ -439,8 +461,8 @@ const GitCommitPanel = ({
               {behind > 0 && (
                 <Button
                   type="button"
-                  onClick={() => void handleRemoteAction("pull", () => pullChanges(repoPath!))}
-                  disabled={!repoPath || isRemoteActionLoading}
+                  onClick={() => void onPull?.()}
+                  disabled={!repoPath || isRemoteActionLoading || isPulling}
                   variant="ghost"
                   size="xs"
                   className={cn(composerButtonClassName, "text-git-deleted hover:text-git-deleted")}
@@ -462,8 +484,8 @@ const GitCommitPanel = ({
               size="xs"
               onClick={() => void handleGenerateCommitMessage()}
               disabled={isGenerateDisabled}
-              tooltip="Generate commit message with AI"
-              aria-label="Generate commit message with AI"
+              tooltip={t("git.generateCommitMessageWithAI")}
+              aria-label={t("git.generateCommitMessageWithAI")}
             >
               <Sparkles />
             </Button>
@@ -475,8 +497,8 @@ const GitCommitPanel = ({
               onClick={() => setIsGenerateModeMenuOpen((open) => !open)}
               disabled={isGenerating || isCommitting}
               active={isGenerateModeMenuOpen}
-              tooltip="Commit message format"
-              aria-label="Commit message format"
+              tooltip={t("git.commitMessageFormat")}
+              aria-label={t("git.commitMessageFormat")}
               aria-haspopup="menu"
               aria-expanded={isGenerateModeMenuOpen}
             >
@@ -505,7 +527,7 @@ const GitCommitPanel = ({
                 : "text-primary hover:bg-primary/8 hover:text-primary/80",
             )}
           >
-            {isCommitting ? "Committing..." : "Commit"}
+            {isCommitting ? t("git.committing") : t("git.commit")}
           </Button>
         </div>
       </div>

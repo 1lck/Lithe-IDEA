@@ -365,6 +365,7 @@ export const GearIcon = createIconComponent(Nucleo.IconGearOutline18, "GearIcon"
 export const GearSixIcon = createIconComponent(Nucleo.IconGear2Outline18, "GearSixIcon");
 export const GitBranchIcon = createIconComponent(Nucleo.IconCodeBranchOutline18, "GitBranchIcon");
 export const GitCommitIcon = createIconComponent(Nucleo.IconCircleDotsOutline18, "GitCommitIcon");
+export const GitGraphIcon = createIconComponent(Nucleo.IconGitGraphOutline18, "GitGraphIcon");
 export const GitDiffIcon = createIconComponent(Nucleo.IconBranchMergeOutline18, "GitDiffIcon");
 export const GithubLogoIcon = createIconComponent(Nucleo.IconCodeBranchOutline18, "GithubLogoIcon");
 export const GitMergeIcon = createIconComponent(Nucleo.IconBranchMergeOutline18, "GitMergeIcon");

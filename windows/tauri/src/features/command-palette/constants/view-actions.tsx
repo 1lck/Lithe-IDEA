@@ -1,3 +1,4 @@
+import { RunIcon } from "@/features/run/components/run-icon";
 import {
   WarningCircleIcon as AlertCircle,
   ColumnsIcon as Columns,
@@ -17,6 +18,7 @@ import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import type { BottomPaneTab } from "@/features/window/stores/ui-state/types/ui-state.types";
 import { showPromptDialog } from "@/ui/dialog";
+import { createTranslator } from "@/i18n/locale";
 import { keymapRegistry } from "@/features/keymaps/utils/registry";
 import { IS_LINUX, IS_MAC, IS_WINDOWS } from "@/utils/platform";
 import type { Action } from "../types/action.types";
@@ -59,6 +61,7 @@ export const createViewActions = (params: ViewActionsParams): Action[] => {
     openWebViewerBuffer,
     onClose,
   } = params;
+  const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
 
   return [
     {
@@ -99,6 +102,24 @@ export const createViewActions = (params: ViewActionsParams): Action[] => {
       category: "View",
       action: () => {
         setIsBottomPaneVisible(!isBottomPaneVisible);
+        onClose();
+      },
+    },
+    {
+      id: "toggle-run",
+      label:
+        isBottomPaneVisible && bottomPaneActiveTab === "run" ? "View: Hide Run" : "View: Show Run",
+      description: "Toggle the Run tool window",
+      icon: <RunIcon />,
+      category: "View",
+      commandId: "workbench.toggleRun",
+      action: () => {
+        if (isBottomPaneVisible && bottomPaneActiveTab === "run") {
+          setIsBottomPaneVisible(false);
+        } else {
+          setBottomPaneActiveTab("run");
+          setIsBottomPaneVisible(true);
+        }
         onClose();
       },
     },
@@ -337,8 +358,8 @@ export const createViewActions = (params: ViewActionsParams): Action[] => {
             icon: <Globe />,
             category: "View",
             action: async () => {
-              const url = await showPromptDialog("Enter URL:", {
-                title: "Open URL",
+              const url = await showPromptDialog(t("viewer.enterUrlPrompt"), {
+                title: t("viewer.openUrl"),
                 defaultValue: "https://",
                 placeholder: "https://",
               });

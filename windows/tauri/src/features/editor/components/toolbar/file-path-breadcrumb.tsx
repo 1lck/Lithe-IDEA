@@ -3,12 +3,13 @@ import { CaretLeftIcon as ChevronLeft } from "@/ui/icons";
 import { useRef, useState } from "react";
 import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
 import { logger } from "@/features/editor/utils/logger";
-import { extensionRegistry } from "@/extensions/registry/extension-registry";
+import { isEditorLspSupported } from "@/features/editor/lsp/built-in-language-support";
 import { ThemedFileIcon } from "@/extensions/icon-themes/components/themed-file-icon";
 import { readDirectory } from "@/features/file-system/controllers/platform";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import type { FileEntry } from "@/features/file-system/types/app.types";
 import { useUIState } from "@/features/window/stores/ui-state.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import { Dropdown, dropdownItemClassName } from "@/ui/dropdown";
 import { getBaseName, getRelativePath, joinPath, normalizePath } from "@/utils/path-helpers";
@@ -23,14 +24,17 @@ interface DirectoryEntry {
 interface FilePathBreadcrumbProps {
   filePath: string;
   interactive?: boolean;
+  menuSide?: "top" | "bottom";
   className?: string;
 }
 
 export function FilePathBreadcrumb({
   filePath,
   interactive = true,
+  menuSide = "bottom",
   className,
 }: FilePathBreadcrumbProps) {
+  const { t } = useTranslation();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
   const handleFileSelect = useFileSystemStore((state) => state.handleFileSelect);
   const openCommandPaletteView = useUIState((state) => state.openCommandPaletteView);
@@ -55,8 +59,9 @@ export function FilePathBreadcrumb({
     if (filePath.startsWith("local-history://")) {
       const encodedSourcePath = filePath.replace(/^local-history:\/\/[^/]+\/?/, "");
       const sourcePath = encodedSourcePath ? decodeURIComponent(encodedSourcePath) : "";
-      const fileName = sourcePath ? getBaseName(sourcePath, "snapshot") : "snapshot";
-      return ["Local History", fileName];
+      const snapshotLabel = t("localHistory.snapshot");
+      const fileName = sourcePath ? getBaseName(sourcePath, snapshotLabel) : snapshotLabel;
+      return [t("localHistory.title"), fileName];
     }
 
     if (filePath.includes("://")) {
@@ -86,7 +91,7 @@ export function FilePathBreadcrumb({
   const loadDirectoryEntries = async (path: string) => {
     const entries = await readDirectory(path);
     const fileEntries: FileEntry[] = entries.map((entry: DirectoryEntry) => ({
-      name: entry.name || "Unknown",
+      name: entry.name || t("editor.unknownFile"),
       path: entry.path,
       isDir: entry.is_dir || false,
       children: undefined,
@@ -131,7 +136,7 @@ export function FilePathBreadcrumb({
     event.stopPropagation();
 
     if (segmentIndex === segments.length - 1) {
-      if (!filePath.includes("://") && extensionRegistry.isLspSupported(filePath)) {
+      if (!filePath.includes("://") && isEditorLspSupported(filePath)) {
         openCommandPaletteView("outline");
         return;
       }
@@ -162,7 +167,7 @@ export function FilePathBreadcrumb({
       setDropdown({
         segmentIndex,
         x: rect.left,
-        y: rect.bottom + 2,
+        y: menuSide === "top" ? rect.top : rect.bottom + 2,
         items,
         currentPath: dirPath,
         navigationStack: [],
@@ -186,6 +191,13 @@ export function FilePathBreadcrumb({
                 buttonRefs.current[index] = element;
               }
             : undefined
+        }
+        lastSegmentLeading={
+          <ThemedFileIcon
+            fileName={segments[segments.length - 1] ?? ""}
+            isDir={false}
+            className="size-3.5 shrink-0 text-subtle-foreground"
+          />
         }
         className={className}
       />
@@ -212,7 +224,7 @@ export function FilePathBreadcrumb({
               >
                 <ChevronLeft className="size-4 shrink-0 text-subtle-foreground" weight="duotone" />
                 <span className="min-w-0 flex-1 truncate text-left ui-text-sm font-normal">
-                  Go back
+                  {t("tabs.goBackShort")}
                 </span>
               </Button>
             </div>

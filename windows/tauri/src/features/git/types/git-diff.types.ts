@@ -22,6 +22,8 @@ export interface ImageContainerProps {
   base64?: string;
   alt: string;
   zoom: number;
+  removed?: boolean;
+  emptyLabel?: string;
 }
 
 export interface DiffHeaderProps {
@@ -44,6 +46,7 @@ export interface DiffHeaderProps {
 
 export interface DiffHunkHeaderProps {
   hunk: ParsedHunk;
+  stats?: { additions: number; deletions: number };
   hiddenLineCount?: number | null;
   isCollapsed: boolean;
   onToggleCollapse: () => void;

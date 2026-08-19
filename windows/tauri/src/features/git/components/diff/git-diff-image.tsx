@@ -8,6 +8,7 @@ import { memo, useCallback, useState } from "react";
 import { Button } from "@/ui/button";
 import { Empty, EmptyDescription } from "@/ui/empty";
 import { cn } from "@/utils/cn";
+import { useTranslation } from "@/i18n/locale-provider";
 import type { ImageContainerProps, ImageDiffViewerProps } from "../../types/git-diff.types";
 import { getFileStatus, getImgSrc } from "../../utils/git-diff-helpers";
 import DiffHeader from "./git-diff-header";
@@ -16,7 +17,16 @@ const ZOOM_STEP = 0.25;
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 4;
 
-const ImageContainer = memo(({ label, labelColor, base64, alt, zoom }: ImageContainerProps) => (
+const ImageContainer = memo(
+  ({
+    label,
+    labelColor,
+    base64,
+    alt,
+    zoom,
+    removed = false,
+    emptyLabel,
+  }: ImageContainerProps) => (
   <div className="flex flex-1 flex-col">
     <div
       className={cn(
@@ -25,7 +35,7 @@ const ImageContainer = memo(({ label, labelColor, base64, alt, zoom }: ImageCont
         labelColor,
       )}
     >
-      {label === "Removed" ? <Minus /> : <Plus />}
+      {removed ? <Minus /> : <Plus />}
       {label}
     </div>
     <div className="flex flex-1 items-center justify-center overflow-auto bg-size-[16px_16px] bg-[repeating-conic-gradient(#1a1a1a_0%_25%,#252525_0%_50%)] p-4">
@@ -38,16 +48,18 @@ const ImageContainer = memo(({ label, labelColor, base64, alt, zoom }: ImageCont
         />
       ) : (
         <Empty className="bg-transparent p-0">
-          <EmptyDescription className="italic">No image</EmptyDescription>
+          <EmptyDescription className="italic">{emptyLabel}</EmptyDescription>
         </Empty>
       )}
     </div>
   </div>
-));
+  ),
+);
 
 ImageContainer.displayName = "ImageContainer";
 
 const ImageDiffViewer = memo(({ diff, fileName, onClose, commitHash }: ImageDiffViewerProps) => {
+  const { t } = useTranslation();
   const [zoom, setZoom] = useState(1);
 
   const handleZoomIn = useCallback(() => {
@@ -79,8 +91,8 @@ const ImageDiffViewer = memo(({ diff, fileName, onClose, commitHash }: ImageDiff
           disabled={zoom <= MIN_ZOOM}
           variant="ghost"
           className="text-subtle-foreground disabled:opacity-50"
-          tooltip="Zoom out"
-          aria-label="Zoom out"
+          tooltip={t("git.zoomOut")}
+          aria-label={t("git.zoomOut")}
           size="icon-xs"
         >
           <ZoomOut />
@@ -94,8 +106,8 @@ const ImageDiffViewer = memo(({ diff, fileName, onClose, commitHash }: ImageDiff
           variant="ghost"
           size="icon-xs"
           className="text-subtle-foreground disabled:opacity-50"
-          tooltip="Zoom in"
-          aria-label="Zoom in"
+          tooltip={t("git.zoomIn")}
+          aria-label={t("git.zoomIn")}
         >
           <ZoomIn />
         </Button>
@@ -106,7 +118,7 @@ const ImageDiffViewer = memo(({ diff, fileName, onClose, commitHash }: ImageDiff
           <div className="flex flex-1 flex-col">
             <div className="flex items-center justify-center gap-1 border-border border-b bg-git-added/20 py-1 font-medium ui-text-sm text-git-added">
               <Plus />
-              New Image
+              {t("git.newImage")}
             </div>
             <div className="flex flex-1 items-center justify-center overflow-auto bg-size-[16px_16px] bg-[repeating-conic-gradient(#1a1a1a_0%_25%,#252525_0%_50%)] p-4">
               <img
@@ -121,7 +133,7 @@ const ImageDiffViewer = memo(({ diff, fileName, onClose, commitHash }: ImageDiff
           <div className="flex flex-1 flex-col">
             <div className="flex items-center justify-center gap-1 border-border border-b bg-git-deleted/20 py-1 font-medium ui-text-sm text-git-deleted">
               <Minus />
-              Removed Image
+              {t("git.removedImage")}
             </div>
             <div className="flex flex-1 items-center justify-center overflow-auto bg-size-[16px_16px] bg-[repeating-conic-gradient(#1a1a1a_0%_25%,#252525_0%_50%)] p-4">
               <img
@@ -136,20 +148,23 @@ const ImageDiffViewer = memo(({ diff, fileName, onClose, commitHash }: ImageDiff
           <>
             {hasOldImage && (
               <ImageContainer
-                label="Removed"
+                label={t("git.removed")}
+                removed
                 labelColor="bg-git-deleted/20 text-git-deleted"
                 base64={diff.old_blob_base64}
-                alt={`${fileName} (old)`}
+                alt={t("git.oldImageAlt", { name: fileName })}
+                emptyLabel={t("git.noImage")}
                 zoom={zoom}
               />
             )}
             {hasOldImage && hasNewImage && <div className="w-px bg-border" />}
             {hasNewImage && (
               <ImageContainer
-                label="Added"
+                label={t("git.added")}
                 labelColor="bg-git-added/20 text-git-added"
                 base64={diff.new_blob_base64}
-                alt={`${fileName} (new)`}
+                alt={t("git.newImageAlt", { name: fileName })}
+                emptyLabel={t("git.noImage")}
                 zoom={zoom}
               />
             )}

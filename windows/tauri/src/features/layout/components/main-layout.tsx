@@ -18,11 +18,13 @@ import { useMenuEventsWrapper } from "@/features/window/hooks/use-menu-events-wr
 import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { toast } from "sonner";
+import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
 import { frontendTrace } from "@/utils/frontend-trace";
 import { recordStartupMilestone } from "@/features/bootstrap/startup-performance";
 import { getInternalTabDragData } from "@/features/tabs/utils/internal-tab-drag";
 import TitleBarWithSettings from "../../window/components/title-bar/title-bar";
+import { ProjectTabBar } from "../../window/components/project-tab-bar";
 import Footer from "./footer/footer";
 import { ResizablePane } from "./resizable-pane";
 import {
@@ -71,6 +73,7 @@ const TerminalHost = lazy(() =>
 const BottomPane = lazy(() => import("./bottom-pane/bottom-pane"));
 
 export function MainLayout() {
+  const { t } = useTranslation();
   const [deferredSurfacesReady, setDeferredSurfacesReady] = useState(false);
 
   usePaneKeyboard();
@@ -120,7 +123,7 @@ export function MainLayout() {
     });
 
     if (result.openedFolderCount + result.openedFileCount === 0) {
-      toast.warning("No supported dropped files or folders could be opened.");
+      toast.warning(t("fileSystem.noSupportedDroppedPaths"));
     }
   }, !rootFolderPath);
 
@@ -178,7 +181,7 @@ export function MainLayout() {
         }
 
         useWorkspaceTabsStore.getState().actions.removeProjectTab(activeTab.id);
-        toast.warning(`Removed missing project "${activeTab.name}"`);
+        toast.warning(t("fileSystem.removedMissingProject", { name: activeTab.name }));
       }
     };
 
@@ -259,6 +262,7 @@ export function MainLayout() {
       )}
 
       <TitleBarWithSettings />
+      <ProjectTabBar />
 
       {rootFolderPath ? (
         <>

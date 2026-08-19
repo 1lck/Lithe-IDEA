@@ -38,6 +38,19 @@ struct AppLocalizationTests {
     }
 
     @Test
+    func simplifiedChineseResourcesCoverLogDirectorySettings() throws {
+        let translations = try simplifiedChineseTranslations()
+
+        #expect(translations["Logs"] == "日志")
+        #expect(translations["Log directory"] == "日志目录")
+        #expect(translations["Default directory"] == "默认目录")
+        #expect(translations["Selected directory"] == "当前选择的目录")
+        #expect(translations["Choose Directory"] == "选择目录")
+        #expect(translations["Choose Log Directory"] == "选择日志目录")
+        #expect(translations["Restore Default"] == "恢复默认")
+    }
+
+    @Test
     func simplifiedChineseResourcesCoverGitHubPullRequests() throws {
         let translations = try simplifiedChineseTranslations()
 

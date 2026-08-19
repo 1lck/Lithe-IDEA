@@ -23,6 +23,46 @@
     <string>Lithe</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Plain Text Document</string>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>public.text</string>
+                <string>public.plain-text</string>
+                <string>public.source-code</string>
+                <string>net.daringfireball.markdown</string>
+            </array>
+            <key>CFBundleTypeExtensions</key>
+            <array>
+                <string>txt</string>
+                <string>md</string>
+                <string>markdown</string>
+                <string>java</string>
+                <string>json</string>
+                <string>xml</string>
+                <string>yaml</string>
+                <string>yml</string>
+                <string>toml</string>
+                <string>rs</string>
+                <string>swift</string>
+                <string>kt</string>
+                <string>js</string>
+                <string>ts</string>
+                <string>tsx</string>
+                <string>jsx</string>
+                <string>css</string>
+                <string>html</string>
+                <string>sql</string>
+            </array>
+        </dict>
+    </array>
     <key>CFBundleIdentifier</key>
     <string>app.lithe.desktop</string>
     <key>CFBundleInfoDictionaryVersion</key>
@@ -35,6 +75,8 @@
     <string>0.1.0</string>
     <key>CFBundleVersion</key>
     <string>3</string>
+    <key>ATSApplicationFontsPath</key>
+    <string>Fonts</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>LitheGitHubOAuthClientID</key>

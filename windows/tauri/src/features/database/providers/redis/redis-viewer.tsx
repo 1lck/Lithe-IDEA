@@ -13,6 +13,7 @@ import { Button } from "@/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/ui/empty";
 import Input from "@/ui/input";
 import { Spinner } from "@/ui/spinner";
+import { useTranslation } from "@/i18n/locale-provider";
 import { ScrollArea } from "@/ui/scroll-area";
 import { cn } from "@/utils/cn";
 import {
@@ -45,6 +46,7 @@ export default function RedisViewer({ connectionId }: RedisViewerProps) {
   const [showInfo, setShowInfo] = useState(false);
   const keyListRef = useRef<HTMLDivElement | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const { t } = useTranslation();
 
   useEffect(() => {
     actions.init(connectionId);
@@ -99,18 +101,18 @@ export default function RedisViewer({ connectionId }: RedisViewerProps) {
               variant="ghost"
               size="xs"
               data-active={showInfo}
-              aria-label="Toggle server info"
+              aria-label={t("database.toggleServerInfo")}
             >
-              Info
+              {t("database.info")}
             </Button>
             <Button
               onClick={() => actions.scanKeys(undefined, true)}
               variant="ghost"
               size="icon-xs"
               disabled={store.isScanningKeys}
-              aria-label="Refresh keys"
+              aria-label={t("database.refreshKeys")}
             >
-              {store.isScanningKeys ? <Spinner label="Refreshing keys" compact /> : <RefreshCw />}
+              {store.isScanningKeys ? <Spinner label={t("database.refreshingKeys")} compact /> : <RefreshCw />}
             </Button>
           </div>
         </div>
@@ -122,20 +124,20 @@ export default function RedisViewer({ connectionId }: RedisViewerProps) {
             <Search className="text-subtle-foreground" />
             <Input
               className="border-0 bg-transparent p-0 focus:border-transparent focus:ring-0"
-              placeholder="Pattern (e.g. user:*)"
+              placeholder={t("database.keyPatternPlaceholder")}
               value={patternInput}
               onChange={(e) => setPatternInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-              aria-label="Key pattern"
+              aria-label={t("database.keyPattern")}
             />
             <Button
               onClick={handleSearch}
               variant="ghost"
               disabled={store.isScanningKeys}
-              aria-label="Search keys"
+              aria-label={t("database.searchKeys")}
               size="icon-xs"
             >
-              {store.isScanningKeys ? <Spinner label="Scanning keys" compact /> : <Search />}
+              {store.isScanningKeys ? <Spinner label={t("database.scanningKeys")} compact /> : <Search />}
             </Button>
           </div>
           <ScrollArea
@@ -153,7 +155,7 @@ export default function RedisViewer({ connectionId }: RedisViewerProps) {
                   "h-auto w-full justify-start gap-1.5 px-2 py-1 leading-row",
                   store.selectedKey === keyInfo.key && "bg-selected",
                 )}
-                aria-label={`Select key ${keyInfo.key}`}
+                aria-label={t("database.selectKey", { key: keyInfo.key })}
               >
                 <Badge
                   className={cn(
@@ -175,14 +177,16 @@ export default function RedisViewer({ connectionId }: RedisViewerProps) {
             {store.hasMore && (
               <div
                 ref={loadMoreRef}
-                aria-label="Loading more keys"
+                aria-label={t("database.loadingMoreKeys")}
                 className="px-2 py-1 text-subtle-foreground ui-text-sm"
               >
-                {store.isScanningKeys ? "Loading keys..." : "More keys..."}
+                {store.isScanningKeys ? t("database.loadingKeysEllipsis") : t("database.moreKeysEllipsis")}
               </div>
             )}
             {store.isScanningKeys && !store.hasMore && (
-              <div className="px-2 py-1 text-subtle-foreground ui-text-sm">Loading keys...</div>
+              <div className="px-2 py-1 text-subtle-foreground ui-text-sm">
+                {t("database.loadingKeysEllipsis")}
+              </div>
             )}
           </ScrollArea>
         </div>
@@ -197,7 +201,7 @@ export default function RedisViewer({ connectionId }: RedisViewerProps) {
           {store.isLoading && (
             <Empty>
               <EmptyDescription>
-                <Spinner label="Loading" showLabel />
+                <Spinner label={t("ui.loading")} showLabel />
               </EmptyDescription>
             </Empty>
           )}
@@ -206,7 +210,7 @@ export default function RedisViewer({ connectionId }: RedisViewerProps) {
             <div className="flex-1 overflow-auto p-3">
               <div className={databaseCardClassName("p-3")}>
                 <div className="mb-3 text-subtle-foreground ui-text-sm uppercase tracking-[0.08em]">
-                  Server Info
+                  {t("database.serverInfo")}
                 </div>
                 <div className="space-y-2">
                   {Object.entries(store.serverInfo).map(([key, value]) => (
@@ -239,7 +243,7 @@ export default function RedisViewer({ connectionId }: RedisViewerProps) {
                   variant="ghost"
                   size="icon-xs"
                   className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                  aria-label="Delete key"
+                  aria-label={t("database.deleteKey")}
                 >
                   <Trash2 />
                 </Button>
@@ -257,9 +261,9 @@ export default function RedisViewer({ connectionId }: RedisViewerProps) {
           {!store.isLoading && !showInfo && !store.selectedKey && (
             <Empty>
               <EmptyHeader>
-                <EmptyTitle>Select a key</EmptyTitle>
+                <EmptyTitle>{t("database.selectKeyTitle")}</EmptyTitle>
                 <EmptyDescription>
-                  Pick a Redis key from the sidebar to inspect its value.
+                  {t("database.selectKeyDescription")}
                 </EmptyDescription>
               </EmptyHeader>
             </Empty>

@@ -10,6 +10,7 @@ import { useFileSearch } from "@/features/global-search/hooks/use-file-search";
 import type { FileCategory, FileItem } from "@/features/global-search/types/global-search.types";
 import type { FileEntry } from "@/features/file-system/types/app.types";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { ThemedFileIcon } from "@/extensions/icon-themes/components/themed-file-icon";
 import { Combobox, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from "@/ui/combobox";
 import { CommandItemBadge } from "@/ui/command";
@@ -52,10 +53,10 @@ function flattenFileSearchResults(categorizedFiles: ReturnType<typeof useFileSea
   return result;
 }
 
-const categoryLabels: Record<FileCategory, string> = {
-  open: "Open",
-  recent: "Recent",
-  other: "Files",
+const categoryLabelKeys: Record<FileCategory, string> = {
+  open: "ai.open",
+  recent: "ai.recent",
+  other: "ai.files",
 };
 
 export function AIFileSelector({
@@ -77,6 +78,7 @@ export function AIFileSelector({
   leadingContent,
   hasLeadingResults = false,
 }: AIFileSelectorProps) {
+  const { t } = useTranslation();
   const lastEmittedResultsSignatureRef = useRef<string | null>(null);
   const [debouncedQuery] = useDebounce(query, 50);
   const workspaceFolders = useFileSystemStore((state) => state.workspaceFolders);
@@ -169,13 +171,13 @@ export function AIFileSelector({
         >
           <ComboboxInput
             ref={searchInputRef}
-            placeholder="Search files..."
+            placeholder={t("ai.searchFiles")}
             variant="ghost"
             size={compact ? "xs" : "sm"}
             leftIcon={Search}
             showTrigger={false}
             className="w-full"
-            aria-label="Search files"
+            aria-label={t("ai.searchFiles")}
           />
         </div>
       )}
@@ -186,7 +188,7 @@ export function AIFileSelector({
           compact && "p-0",
           listClassName,
         )}
-        aria-label="File list"
+        aria-label={t("ai.fileList")}
       >
         {leadingContent}
         {results.length === 0 && !hasLeadingResults ? (
@@ -208,7 +210,7 @@ export function AIFileSelector({
                         : "ui-text-base pt-1.5 pb-1 leading-row",
                     )}
                   >
-                    {categoryLabels[category]}
+                    {t(categoryLabelKeys[category])}
                   </div>
                 ) : null}
                 <ComboboxItem
@@ -230,7 +232,7 @@ export function AIFileSelector({
                     ) : null}
                   </span>
                   {category === "open" ? (
-                    <CommandItemBadge>open</CommandItemBadge>
+                    <CommandItemBadge>{t("ai.openLower")}</CommandItemBadge>
                   ) : category === "recent" ? (
                     <CommandItemBadge>
                       <ClockIcon />

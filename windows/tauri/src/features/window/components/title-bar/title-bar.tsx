@@ -12,8 +12,10 @@ import SettingsDialog from "@/features/settings/components/settings-dialog";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.store";
+import type { ProjectPickerMode } from "@/features/window/utils/project-picker-mode";
 import { useNativeWindowChrome } from "@/features/window/hooks/use-native-window-chrome";
 import { createAppWindow } from "@/features/window/utils/create-app-window";
+import { runTitleBarDrag } from "@/features/window/utils/title-bar-drag";
 import { Button } from "@/ui/button";
 import { ChromeBar, ChromeGroup } from "@/ui/chrome";
 import {
@@ -36,11 +38,13 @@ import Tooltip from "@/ui/tooltip";
 import { cn } from "@/utils/cn";
 import { IS_LINUX, IS_MAC, IS_WINDOWS } from "@/utils/platform";
 import ProjectPicker from "../project-picker";
+import { TitleProjectMenu } from "./title-project-menu";
 import { WindowControls } from "./window-controls";
 import WindowMenuBar from "../window-menu-bar";
 
 interface TitleBarProps {
   showMinimal?: boolean;
+  onOpenProjectPicker: (mode?: ProjectPickerMode) => void;
 }
 
 function TitleBarTrailingActions({ items }: { items: Array<ChromeItem<HeaderTrailingItemId>> }) {
@@ -57,7 +61,7 @@ function TitleBarTrailingActions({ items }: { items: Array<ChromeItem<HeaderTrai
   );
 }
 
-const TitleBar = ({ showMinimal = false }: TitleBarProps) => {
+const TitleBar = ({ showMinimal = false, onOpenProjectPicker }: TitleBarProps) => {
   const { t } = useTranslation();
   const nativeMenuBar = useSettingsStore((state) => state.settings.nativeMenuBar);
   const compactMenuBar = useSettingsStore((state) => state.settings.compactMenuBar);
@@ -67,7 +71,6 @@ const TitleBar = ({ showMinimal = false }: TitleBarProps) => {
   const handleOpenFolder = useFileSystemStore((state) => state.handleOpenFolder);
   const closeProject = useFileSystemStore((state) => state.closeProject);
   const projectTabs = useWorkspaceTabsStore.use.projectTabs();
-  const setIsProjectPickerVisible = useUIState((state) => state.setIsProjectPickerVisible);
   const setIsGlobalSearchVisible = useUIState((state) => state.setIsGlobalSearchVisible);
   const branchItem = useFooterGitBranchItem();
 
@@ -143,17 +146,10 @@ const TitleBar = ({ showMinimal = false }: TitleBarProps) => {
   };
 
   const handleTitleBarMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
-
-    const target = e.target as HTMLElement;
-    const interactiveTarget = target.closest(
-      "button, a, input, textarea, select, [role='tab'], [contenteditable='true']",
-    );
-
-    if (interactiveTarget) return;
-
-    void currentWindow?.startDragging().catch((error: unknown) => {
-      console.error("Error starting window drag:", error);
+    runTitleBarDrag(e, () => {
+      void currentWindow?.startDragging().catch((error: unknown) => {
+        console.error("Error starting window drag:", error);
+      });
     });
   };
 
@@ -189,26 +185,26 @@ const TitleBar = ({ showMinimal = false }: TitleBarProps) => {
     <ContextMenuContent>
       <ContextMenuItem onClick={() => void createAppWindow()}>
         <WindowExpandIcon />
-        New Window
+        {t("titleProject.newWindow")}
       </ContextMenuItem>
-      <ContextMenuItem onClick={() => setIsProjectPickerVisible(true)}>
+      <ContextMenuItem onClick={() => onOpenProjectPicker()}>
         <FilesIcon />
-        Add Project
+        {t("titleProject.addProject")}
       </ContextMenuItem>
       <ContextMenuItem onClick={() => void handleOpenFolder()}>
         <FolderOpenIcon />
-        Open Folder
+        {t("titleProject.openFolder")}
       </ContextMenuItem>
       <ContextMenuItem onClick={() => void handleOpenFolderInNewWindow()}>
         <WindowExpandIcon />
-        Open Folder in New Window
+        {t("titleProject.openFolderInNewWindow")}
       </ContextMenuItem>
       {projectTabs.length > 0 && (
         <>
           <ContextMenuSeparator />
           <ContextMenuItem onClick={() => void handleCloseAllProjects()}>
             <TrashIcon />
-            Close All Projects
+            {t("titleProject.closeAllProjects")}
           </ContextMenuItem>
         </>
       )}
@@ -219,13 +215,13 @@ const TitleBar = ({ showMinimal = false }: TitleBarProps) => {
     !isMacOS && !shouldUseNativeMenuBar ? (
       compactMenuBar ? (
         <div className="relative">
-          <Tooltip content="Menu" side="bottom">
+          <Tooltip content={t("window.menu")} side="bottom">
             <Button
               onClick={handleCompactMenuToggle}
               variant="ghost"
               size="icon-xs"
               className={isCompactMenuVisible ? "bg-accent/70 text-foreground" : undefined}
-              aria-label="Menu"
+              aria-label={t("window.menu")}
               aria-expanded={isCompactMenuVisible}
             >
               <ListIcon />
@@ -248,20 +244,9 @@ const TitleBar = ({ showMinimal = false }: TitleBarProps) => {
   const headerTrailingItems: Array<ChromeItem<HeaderTrailingItemId>> = [];
   const orderedTrailingItems = orderChromeItems(headerTrailingItems, headerTrailingItemsOrder);
 
-  const activeProject = projectTabs.find((project) => project.isActive);
-  const projectLabel = activeProject?.name ?? t("workbench.openProject");
   const macOSAlignedControls = (
     <ChromeGroup gap="tight" className="pointer-events-auto">
-      <Button
-        type="button"
-        variant="ghost"
-        size="xs"
-        className="max-w-56 justify-start gap-2 px-2"
-        onClick={() => setIsProjectPickerVisible(true)}
-      >
-        <img src="/logo.png" alt="" className="size-5 rounded-md" />
-        <span className="truncate">{projectLabel}</span>
-      </Button>
+      <TitleProjectMenu onOpenProjectPicker={onOpenProjectPicker} />
       {branchItem?.content}
     </ChromeGroup>
   );
@@ -299,7 +284,7 @@ const TitleBar = ({ showMinimal = false }: TitleBarProps) => {
         size="icon-xs"
         tooltip={t("workbench.moreProjectActions")}
         tooltipSide="bottom"
-        onClick={() => setIsProjectPickerVisible(true)}
+        onClick={() => onOpenProjectPicker()}
         aria-label={t("workbench.moreProjectActions")}
       >
         <ListIcon />
@@ -383,23 +368,38 @@ const TitleBar = ({ showMinimal = false }: TitleBarProps) => {
   );
 };
 
-const TitleBarWithSettings = (props: TitleBarProps) => {
+const TitleBarWithSettings = ({
+  showMinimal = false,
+}: Omit<TitleBarProps, "onOpenProjectPicker">) => {
   const isSettingsDialogVisible = useUIState((state) => state.isSettingsDialogVisible);
   const isProjectPickerVisible = useUIState((state) => state.isProjectPickerVisible);
   const setIsSettingsDialogVisible = useUIState((state) => state.setIsSettingsDialogVisible);
   const setIsProjectPickerVisible = useUIState((state) => state.setIsProjectPickerVisible);
+  const [projectPickerMode, setProjectPickerMode] = useState<ProjectPickerMode>("picker");
+  const openProjectPicker = useCallback(
+    (mode: ProjectPickerMode = "picker") => {
+      setProjectPickerMode(mode);
+      setIsProjectPickerVisible(true);
+    },
+    [setIsProjectPickerVisible],
+  );
+  const closeProjectPicker = useCallback(() => {
+    setProjectPickerMode("picker");
+    setIsProjectPickerVisible(false);
+  }, [setIsProjectPickerVisible]);
 
   return (
     <>
-      <TitleBar {...props} />
+      <TitleBar showMinimal={showMinimal} onOpenProjectPicker={openProjectPicker} />
       <SettingsDialog
         isOpen={isSettingsDialogVisible}
         onClose={() => setIsSettingsDialogVisible(false)}
       />
       {createPortal(
         <ProjectPicker
+          initialMode={projectPickerMode}
           isOpen={isProjectPickerVisible}
-          onClose={() => setIsProjectPickerVisible(false)}
+          onClose={closeProjectPicker}
         />,
         document.body,
       )}

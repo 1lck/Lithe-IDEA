@@ -5,6 +5,7 @@ import { Button, type ButtonProps } from "@/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/ui/popover";
 import { SearchField } from "@/ui/search";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/ui/tabs";
+import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
 
 export function SidebarPanel({
@@ -71,7 +72,7 @@ export const SidebarFooter = forwardRef<
     <div
       ref={ref}
       className={cn(
-        "ui-text-chrome mx-2 mb-2 shrink-0 rounded-xl border border-border/60 bg-[color-mix(in_srgb,var(--surface)_82%,var(--border)_18%)] p-0 pb-1 transition-[border-radius,background-color,border-color,box-shadow]",
+        "ui-text-chrome relative z-20 isolate mx-2 mb-2 shrink-0 rounded-xl border border-border/60 bg-background p-0 pb-1 transition-[border-radius,background-color,border-color,box-shadow]",
         className,
       )}
       {...props}
@@ -113,7 +114,7 @@ export function SidebarComposerBody({
       className={cn(
         "overflow-hidden",
         variant === "surface" &&
-          "rounded-xl border border-border/60 bg-[color-mix(in_srgb,var(--background)_96%,var(--surface)_4%)]",
+          "relative z-10 rounded-xl border border-border/60 bg-background",
         className,
       )}
       {...props}
@@ -163,15 +164,17 @@ export const SidebarSearchPopover = forwardRef<
     onChange,
     open,
     onOpenChange,
-    placeholder = "Search",
+    placeholder,
     "aria-label": ariaLabel,
     ...props
   },
   ref,
 ) {
+  const { t } = useTranslation();
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const isOpen = open ?? uncontrolledOpen;
-  const label = ariaLabel ?? placeholder;
+  const resolvedPlaceholder = placeholder ?? t("search.search");
+  const label = ariaLabel ?? resolvedPlaceholder;
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (open === undefined) {
@@ -201,7 +204,7 @@ export const SidebarSearchPopover = forwardRef<
           onChange={onChange}
           leftIcon={Search}
           size="sm"
-          placeholder={placeholder}
+          placeholder={resolvedPlaceholder}
           aria-label={ariaLabel}
           autoFocus
           {...props}
@@ -399,6 +402,8 @@ export function SidebarTabBar<TValue extends string>({
   children?: ReactNode;
   className?: string;
 }) {
+  const { t } = useTranslation();
+
   return (
     <Tabs
       value={value}
@@ -412,7 +417,7 @@ export function SidebarTabBar<TValue extends string>({
         )}
       >
         <div className="scrollbar-hidden min-w-0 overflow-x-auto">
-          <TabsList aria-label="Sidebar sections">
+          <TabsList aria-label={t("layout.sidebarSections")}>
             {items.map((item) => (
               <TabsTrigger key={item.id} value={item.id} disabled={item.disabled} size="xs">
                 {item.icon}
@@ -437,7 +442,11 @@ export function SidebarTabPanels<TValue extends string>({
   return (
     <>
       {items.map((item) => (
-        <TabsContent key={item.id} value={item.id} className={className}>
+        <TabsContent
+          key={item.id}
+          value={item.id}
+          className={cn("flex min-h-0 flex-col overflow-hidden", className)}
+        >
           {item.content}
         </TabsContent>
       ))}

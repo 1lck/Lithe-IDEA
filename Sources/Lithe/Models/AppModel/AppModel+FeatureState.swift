@@ -28,6 +28,35 @@ extension AppModel {
     }
 
     var openDocuments: [EditorDocument] { documentFeature.openDocuments }
+    var standaloneFileLoadState: StandaloneFileLoadState {
+        documentFeature.standaloneFileLoadState
+    }
+    var projectTreeRevealRequest: ProjectTreeRevealRequest? {
+        documentFeature.projectTreeRevealRequest
+    }
+
+    func canRevealInProjectTree(_ url: URL) -> Bool {
+        projectTreeURL(for: url) != nil
+    }
+
+    func projectTreeURL(for url: URL) -> URL? {
+        guard url.isFileURL else { return nil }
+        return ProjectTreeLocator.matchingURL(for: url, among: projectFiles)
+    }
+
+    func revealInProjectTree(_ url: URL) {
+        guard let treeURL = projectTreeURL(for: url) else {
+            showNotification("This file is not in the current workspace")
+            return
+        }
+        selectedSidebar = .project
+        documentFeature.requestProjectTreeReveal(for: treeURL)
+    }
+
+    func consumeProjectTreeRevealRequest(id: UUID) {
+        documentFeature.consumeProjectTreeRevealRequest(id: id)
+    }
+
     var activeDocumentID: UUID? {
         get { documentFeature.activeDocumentID }
         set {
@@ -49,16 +78,19 @@ extension AppModel {
     var isPendingProjectClose: Bool { documentFeature.isPendingProjectClose }
 
     var gitChanges: [GitChange] { gitFeatureIfActive?.gitChanges ?? [] }
+    var gitTreeStatusProjection: GitTreeStatusProjection {
+        gitFeatureIfActive?.gitTreeStatus ?? GitTreeStatusProjection(changes: [])
+    }
     func gitChange(for url: URL) -> GitChange? {
         guard let root = gitRepositoryRoot,
               let relativePath = workspaceRelativePath(for: url, root: root) else { return nil }
-        return GitTreeStatusProjection(changes: gitChanges).change(relativePath: relativePath)
+        return gitFeatureIfActive?.gitTreeStatus.change(relativePath: relativePath)
     }
 
     func gitTreeStatus(for url: URL, isDirectory: Bool) -> GitChangeKind? {
         guard let root = gitRepositoryRoot,
               let relativePath = workspaceRelativePath(for: url, root: root) else { return nil }
-        return GitTreeStatusProjection(changes: gitChanges).kind(
+        return gitFeatureIfActive?.gitTreeStatus.kind(
             relativePath: relativePath,
             isDirectory: isDirectory
         )

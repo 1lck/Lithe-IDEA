@@ -21,6 +21,7 @@ import { Button } from "@/ui/button";
 import { Spinner } from "@/ui/spinner";
 import { cn } from "@/utils/cn";
 import { getFolderName, getRelativePath } from "@/utils/path-helpers";
+import { useTranslation } from "@/i18n/locale-provider";
 import { resolveRepositoryPath } from "../api/git-repo-api";
 import { useRepositoryStore } from "../stores/git-repository.store";
 
@@ -39,6 +40,7 @@ function getSortedRepositoryPaths(repoPaths: string[], activeRepoPath: string | 
 }
 
 const GitProjectSelector = ({ className, onRepositoryChange }: GitProjectSelectorProps) => {
+  const { t } = useTranslation();
   const activeRepoPath = useRepositoryStore.use.activeRepoPath();
   const workspaceRootPath = useRepositoryStore.use.workspaceRootPath();
   const availableRepoPaths = useRepositoryStore.use.availableRepoPaths();
@@ -60,7 +62,9 @@ const GitProjectSelector = ({ className, onRepositoryChange }: GitProjectSelecto
   );
   const activeRelativePath =
     activeRepoPath && workspaceRootPath ? getRelativePath(activeRepoPath, workspaceRootPath) : null;
-  const activeRepoLabel = activeRepoPath ? getFolderName(activeRepoPath) : "Select Repository";
+  const activeRepoLabel = activeRepoPath
+    ? getFolderName(activeRepoPath)
+    : t("git.selectRepository");
   const activeRepoTitle =
     activeRepoPath && activeRelativePath && activeRelativePath !== "."
       ? activeRelativePath
@@ -83,7 +87,7 @@ const GitProjectSelector = ({ className, onRepositoryChange }: GitProjectSelecto
 
       const resolvedRepoPath = await resolveRepositoryPath(selected);
       if (!resolvedRepoPath) {
-        setSelectionError("Selected folder is not inside a Git repository.");
+        setSelectionError(t("git.selectedFolderNotRepo"));
         return;
       }
 
@@ -92,7 +96,9 @@ const GitProjectSelector = ({ className, onRepositoryChange }: GitProjectSelecto
       onRepositoryChange?.(resolvedRepoPath);
     } catch (error) {
       console.error("Failed to select repository:", error);
-      setSelectionError(error instanceof Error ? error.message : "Failed to select repository.");
+      setSelectionError(
+        error instanceof Error ? error.message : t("git.failedToSelectRepository"),
+      );
     } finally {
       setIsSelectingRepo(false);
     }
@@ -128,16 +134,16 @@ const GitProjectSelector = ({ className, onRepositoryChange }: GitProjectSelecto
           />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-72">
-          <DropdownMenuLabel>Repositories</DropdownMenuLabel>
+          <DropdownMenuLabel>{t("git.repositories")}</DropdownMenuLabel>
           {isDiscovering && availableRepoPaths.length === 0 ? (
             <DropdownMenuItem disabled>
               <Spinner compact />
-              Detecting repositories...
+              {t("git.detectingRepositories")}
             </DropdownMenuItem>
           ) : null}
 
           {!isDiscovering && sortedRepoPaths.length === 0 ? (
-            <DropdownMenuItem disabled>No repositories found</DropdownMenuItem>
+            <DropdownMenuItem disabled>{t("git.noRepositoriesFound")}</DropdownMenuItem>
           ) : null}
 
           <DropdownMenuRadioGroup
@@ -165,7 +171,7 @@ const GitProjectSelector = ({ className, onRepositoryChange }: GitProjectSelecto
                   </span>
                   {manualRepoPaths.includes(repoPath) ? (
                     <Badge variant="muted" size="compact" className="mr-4">
-                      Added
+                      {t("git.added")}
                     </Badge>
                   ) : null}
                 </DropdownMenuRadioItem>
@@ -180,7 +186,7 @@ const GitProjectSelector = ({ className, onRepositoryChange }: GitProjectSelecto
             disabled={isSelectingRepo}
           >
             <Plus />
-            {isSelectingRepo ? "Adding Repository..." : "Add Repository..."}
+            {isSelectingRepo ? t("git.addingRepository") : t("git.addRepository")}
           </DropdownMenuItem>
           <DropdownMenuItem
             closeOnClick={false}
@@ -188,10 +194,12 @@ const GitProjectSelector = ({ className, onRepositoryChange }: GitProjectSelecto
             onClick={() => void refreshWorkspaceRepositories()}
           >
             {isDiscovering ? <Spinner compact /> : <RefreshCw />}
-            Refresh
+            {t("git.refresh")}
           </DropdownMenuItem>
           {manualRepoPaths.length > 0 ? (
-            <DropdownMenuItem onClick={handleClearAddedRepositories}>Clear Added</DropdownMenuItem>
+            <DropdownMenuItem onClick={handleClearAddedRepositories}>
+              {t("git.clearAdded")}
+            </DropdownMenuItem>
           ) : null}
           {selectionError ? (
             <DropdownMenuLabel className="whitespace-normal text-destructive" role="alert">

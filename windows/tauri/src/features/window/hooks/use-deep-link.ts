@@ -2,13 +2,18 @@ import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { useEffect } from "react";
 import { useExtensionStore } from "@/extensions/registry/extension-store";
 import { toast } from "sonner";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import type { Settings } from "@/features/settings/types/settings.types";
 import type { SettingsTab } from "@/features/window/stores/ui-state/types/ui-state.types";
+import { createTranslator } from "@/i18n/locale";
 import {
   enqueueWindowOpenRequest,
   parseWindowOpenUrl,
   type WindowOpenRequest,
 } from "../utils/window-open-request";
+
+const getCurrentTranslator = () =>
+  createTranslator(useSettingsStore.getState().settings.displayLanguage);
 
 /**
  * Hook to handle deep link URLs
@@ -195,24 +200,25 @@ async function installExtensionFromDeepLink(extensionId: string) {
   const { availableExtensions } = useExtensionStore.getState();
 
   const extension = availableExtensions.get(extensionId);
+  const t = getCurrentTranslator();
 
   if (!extension) {
-    toast.error(`Extension "${extensionId}" not found`);
+    toast.error(t("extensions.notFound", { id: extensionId }));
     return;
   }
 
   if (extension.isInstalled) {
-    toast.info(`${extension.manifest.displayName} is already installed`);
+    toast.info(t("extensions.alreadyInstalled", { name: extension.manifest.displayName }));
     return;
   }
 
   try {
-    toast.info(`Installing ${extension.manifest.displayName}...`);
+    toast.info(t("extensions.installing", { name: extension.manifest.displayName }));
     await installExtension(extensionId);
-    toast.success(`${extension.manifest.displayName} installed successfully`);
+    toast.success(t("extensions.installedSuccessfully", { name: extension.manifest.displayName }));
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    toast.error(`Failed to install extension: ${message}`);
+    const message = error instanceof Error ? error.message : t("extensions.unknownError");
+    toast.error(t("extensions.installFailed", { message }));
   }
 }
 

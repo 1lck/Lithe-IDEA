@@ -1,6 +1,30 @@
 import Foundation
 
+struct LanguageSessionChromeSignature: Equatable {
+    var features: [String: LanguageServerFeatureSet]
+    var states: [String: LanguageServerSessionState]
+    var infos: [String: LanguageServerInfo]
+}
+
 extension AppModel {
+    func handleLanguageSessionChange() {
+        refreshEditorDiagnosticsStore()
+        let signature = LanguageSessionChromeSignature(
+            features: languageToolingSessionsIfActive?.languageServerFeatures ?? [:],
+            states: languageToolingSessionsIfActive?.languageServerStates ?? [:],
+            infos: languageToolingSessionsIfActive?.languageServerInfos ?? [:]
+        )
+        guard signature != languageSessionChromeSignature else { return }
+        languageSessionChromeSignature = signature
+        scheduleObjectWillChangeRelay()
+    }
+
+    func refreshEditorDiagnosticsStore() {
+        editorDiagnosticsStore.replace(
+            EditorDiagnostic.fromLanguageServerDiagnostics(languageDiagnostics)
+        )
+    }
+
     func refreshCodeVision(for fileURL: URL) async {
         let normalizedURL = fileURL.standardizedFileURL
         guard normalizedURL.pathExtension.lowercased() == "java",

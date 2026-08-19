@@ -1,18 +1,22 @@
-export function formatDiffBufferLabel(name: string, path?: string): string {
+export function formatDiffBufferLabel(
+  name: string,
+  path?: string,
+  translate?: (key: string) => string,
+): string {
   const normalizedName = decodeIfEncoded(name);
   if (normalizedName && normalizedName !== name) {
     return normalizedName;
   }
 
   if (path?.startsWith("diff://")) {
-    const derived = deriveDiffLabelFromPath(path);
+    const derived = deriveDiffLabelFromPath(path, translate);
     if (derived) return derived;
   }
 
   return name;
 }
 
-function deriveDiffLabelFromPath(path: string): string | null {
+function deriveDiffLabelFromPath(path: string, translate?: (key: string) => string): string | null {
   const stagedMatch = path.match(/^diff:\/\/(staged|unstaged)\/(.+)$/);
   if (stagedMatch) {
     const filePath = decodeIfEncoded(stagedMatch[2]);
@@ -31,7 +35,7 @@ function deriveDiffLabelFromPath(path: string): string | null {
   }
 
   if (path === "diff://working-tree/all-files") {
-    return "Uncommitted Changes";
+    return translate?.("git.diff.uncommitted") ?? "Uncommitted Changes";
   }
 
   const prMatch = path.match(/^diff:\/\/pr-(\d+)\/changes$/);

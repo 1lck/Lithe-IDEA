@@ -11,6 +11,7 @@ import {
   TrashIcon as Trash,
 } from "@/ui/icons";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
 import { databaseChipClassName } from "./database-surface";
 import { formatQueryResultSummary } from "../lib/query-result-summary";
@@ -44,12 +45,6 @@ interface TableToolbarProps {
   onDropSubscription?: () => void;
 }
 
-const VIEW_TABS: { mode: ViewMode; label: string }[] = [
-  { mode: "data", label: "Data" },
-  { mode: "schema", label: "Schema" },
-  { mode: "info", label: "Info" },
-];
-
 export default function TableToolbar({
   fileName,
   dbInfo,
@@ -72,6 +67,12 @@ export default function TableToolbar({
   onRefreshSubscription,
   onDropSubscription,
 }: TableToolbarProps) {
+  const { t } = useTranslation();
+  const viewTabs: { mode: ViewMode; label: string }[] = [
+    { mode: "data", label: t("database.data") },
+    { mode: "schema", label: t("database.schema") },
+    { mode: "info", label: t("database.info") },
+  ];
   const isSubscription = selectedObjectKind === "subscription";
   const resultSummary =
     hasData && viewMode === "data"
@@ -80,16 +81,20 @@ export default function TableToolbar({
           rowCount: resultRowCount,
           currentPage,
           totalPages,
+          formatVisibleRows: (count) => t("database.visibleRows", { count }),
+          formatQueryRows: (count) => t("database.queryRows", { count }),
+          formatVisibleQueryRowsOnPage: (count, page, pages) =>
+            t("database.visibleQueryRowsOnPage", { count, page, pages }),
         })
       : null;
   const exportTooltip = isCustomQuery
-    ? "Export visible query page as CSV"
-    : "Export visible page as CSV";
+    ? t("database.exportVisibleQueryPageCsv")
+    : t("database.exportVisiblePageCsv");
   const jsonTooltip = isCustomQuery
-    ? "Copy visible query page as JSON"
-    : "Copy visible page as JSON";
-  const exportLabel = isCustomQuery ? "Export visible query page as CSV" : "Export as CSV";
-  const jsonLabel = isCustomQuery ? "Copy visible query page as JSON" : "Copy as JSON";
+    ? t("database.copyVisibleQueryPageJson")
+    : t("database.copyVisiblePageJson");
+  const exportLabel = isCustomQuery ? t("database.exportVisibleQueryPageCsv") : t("database.exportAsCsv");
+  const jsonLabel = isCustomQuery ? t("database.copyVisibleQueryPageJson") : t("database.copyAsJson");
 
   return (
     <div className="px-3 py-2">
@@ -107,7 +112,7 @@ export default function TableToolbar({
             )}
           </div>
           <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-surface/60 p-0.5">
-            {VIEW_TABS.map(({ mode, label }) => (
+            {viewTabs.map(({ mode, label }) => (
               <Button
                 key={mode}
                 onClick={() => setViewMode(mode)}
@@ -117,8 +122,8 @@ export default function TableToolbar({
                   "px-2.5 ui-text-sm text-subtle-foreground",
                   viewMode === mode ? "text-foreground" : "text-subtle-foreground",
                 )}
-                aria-label={`Switch to ${label} view`}
-                tooltip={`Switch to ${label} view`}
+                aria-label={t("database.switchToView", { view: label })}
+                tooltip={t("database.switchToView", { view: label })}
               >
                 {label}
               </Button>
@@ -132,8 +137,8 @@ export default function TableToolbar({
               variant="ghost"
               size="icon-xs"
               className="text-subtle-foreground"
-              aria-label="Toggle column types"
-              tooltip={showColumnTypes ? "Hide column types" : "Show column types"}
+              aria-label={t("database.toggleColumnTypes")}
+              tooltip={showColumnTypes ? t("database.hideColumnTypes") : t("database.showColumnTypes")}
             >
               <Columns />
             </Button>
@@ -152,8 +157,8 @@ export default function TableToolbar({
               size="icon-xs"
               className="text-subtle-foreground"
               disabled={isCustomQuery}
-              aria-label="Open SQL editor"
-              tooltip="Open SQL editor"
+              aria-label={t("database.openSqlEditor")}
+              tooltip={t("database.openSqlEditor")}
             >
               <Code />
             </Button>
@@ -163,8 +168,8 @@ export default function TableToolbar({
               onClick={onCreateSubscription}
               variant="ghost"
               className="text-subtle-foreground"
-              aria-label="Create subscription"
-              tooltip="Create subscription"
+              aria-label={t("database.createSubscription")}
+              tooltip={t("database.createSubscription")}
               size="icon-xs"
             >
               <RadioButton />
@@ -175,8 +180,16 @@ export default function TableToolbar({
               onClick={onToggleSubscription}
               variant="ghost"
               className="text-subtle-foreground"
-              aria-label={subscriptionInfo.enabled ? "Disable subscription" : "Enable subscription"}
-              tooltip={subscriptionInfo.enabled ? "Disable subscription" : "Enable subscription"}
+              aria-label={
+                subscriptionInfo.enabled
+                  ? t("database.disableSubscription")
+                  : t("database.enableSubscription")
+              }
+              tooltip={
+                subscriptionInfo.enabled
+                  ? t("database.disableSubscription")
+                  : t("database.enableSubscription")
+              }
               size="icon-xs"
             >
               {subscriptionInfo.enabled ? <MinusCircle /> : <PlusCircle />}
@@ -187,8 +200,8 @@ export default function TableToolbar({
               onClick={onRefreshSubscription}
               variant="ghost"
               className="text-subtle-foreground"
-              aria-label="Refresh subscription"
-              tooltip="Refresh subscription"
+              aria-label={t("database.refreshSubscription")}
+              tooltip={t("database.refreshSubscription")}
               size="icon-xs"
             >
               <ArrowClockwise />
@@ -199,8 +212,8 @@ export default function TableToolbar({
               onClick={onDropSubscription}
               variant="ghost"
               className="text-subtle-foreground"
-              aria-label="Drop subscription"
-              tooltip="Drop subscription"
+              aria-label={t("database.dropSubscription")}
+              tooltip={t("database.dropSubscription")}
               size="icon-xs"
             >
               <Trash />

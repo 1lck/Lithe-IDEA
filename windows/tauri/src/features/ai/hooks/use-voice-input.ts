@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { useTranslation } from "@/i18n/locale-provider";
 import { IS_LINUX, isMac } from "@/utils/platform";
 
-function getMicrophoneAccessErrorMessage(error?: string): string {
+function getMicrophoneAccessErrorMessage(t: (key: string) => string, error?: string): string {
   if (IS_LINUX) {
     if (error === "service-not-allowed") {
-      return "Voice input is unavailable in this Linux webview. Chromium speech recognition may be blocked even when the microphone works.";
+      return t("ai.voiceUnavailableLinuxWebview");
     }
 
-    return "Microphone access failed. Check your PipeWire/PulseAudio input device and unmute the default microphone.";
+    return t("ai.microphoneAccessFailedLinux");
   }
 
-  return "Microphone access failed. Check System Settings -> Privacy & Security -> Microphone.";
+  return t("ai.microphoneAccessFailed");
 }
 
 export function useVoiceInput({
@@ -23,6 +24,7 @@ export function useVoiceInput({
   insertText: (text: string) => void;
   focusInput: () => void;
 }) {
+  const { t } = useTranslation();
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const shouldKeepListeningRef = useRef(false);
   const [isListening, setIsListening] = useState(false);
@@ -42,12 +44,12 @@ export function useVoiceInput({
     if (!enabled) return;
 
     if (isMacDevBlocked) {
-      toast.warning("Voice input is disabled in macOS dev mode. Test it in a packaged app build.");
+      toast.warning(t("ai.voiceDisabledMacDev"));
       return;
     }
 
     if (!SpeechRecognitionCtor) {
-      toast.warning("Voice input is not supported in this webview.");
+      toast.warning(t("ai.voiceNotSupportedWebview"));
       return;
     }
 
@@ -56,7 +58,7 @@ export function useVoiceInput({
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         stream.getTracks().forEach((track) => track.stop());
       } catch {
-        toast.error(getMicrophoneAccessErrorMessage());
+        toast.error(getMicrophoneAccessErrorMessage(t));
         return;
       }
     }
@@ -96,13 +98,13 @@ export function useVoiceInput({
 
       if (event.error === "not-allowed" || event.error === "service-not-allowed") {
         shouldKeepListeningRef.current = false;
-        toast.error(getMicrophoneAccessErrorMessage(event.error));
+        toast.error(getMicrophoneAccessErrorMessage(t, event.error));
         return;
       }
 
       if (!isExpectedAbort) {
         shouldKeepListeningRef.current = false;
-        toast.error("Voice input stopped unexpectedly.");
+        toast.error(t("ai.voiceStoppedUnexpectedly"));
       }
     };
 
@@ -129,9 +131,9 @@ export function useVoiceInput({
     } catch {
       shouldKeepListeningRef.current = false;
       recognitionRef.current = null;
-      toast.error("Voice input could not be started.");
+      toast.error(t("ai.voiceCouldNotStart"));
     }
-  }, [SpeechRecognitionCtor, enabled, focusInput, insertText, isMacDevBlocked]);
+  }, [SpeechRecognitionCtor, enabled, focusInput, insertText, isMacDevBlocked, t]);
 
   const toggle = useCallback(() => {
     if (isListening) {

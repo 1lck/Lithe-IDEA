@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { Button } from "@/ui/button";
 import Keybinding from "./keybinding";
+import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
 import { useKeybindingRecorder } from "../hooks/use-keybinding-recorder";
 
@@ -19,6 +20,7 @@ export function KeybindingInput({
   onCancel,
   autoFocus = true,
 }: KeybindingInputProps) {
+  const { t } = useTranslation();
   const { isRecording, keys, keybindingString, startRecording, stopRecording, reset } =
     useKeybindingRecorder(commandId);
 
@@ -62,7 +64,7 @@ export function KeybindingInput({
         }
       }}
       role="textbox"
-      aria-label="Record keybinding"
+      aria-label={t("keybindings.record")}
       tabIndex={0}
     >
       <div className="min-w-0 flex-1 truncate">
@@ -70,7 +72,7 @@ export function KeybindingInput({
           <Keybinding keys={keys} />
         ) : (
           <span className="font-sans ui-text-sm text-subtle-foreground">
-            {isRecording ? "Press keys..." : value || "Not assigned"}
+            {isRecording ? t("keybindings.pressKeys") : value || t("keybindings.notAssigned")}
           </span>
         )}
       </div>
@@ -83,7 +85,7 @@ export function KeybindingInput({
             handleCancel();
           }}
           className="ui-text-sm shrink-0 px-1 text-subtle-foreground hover:bg-transparent hover:text-foreground"
-          aria-label="Cancel recording"
+          aria-label={t("keybindings.cancelRecording")}
         >
           ESC
         </Button>

@@ -22,6 +22,7 @@ import { useToast } from "@/features/layout/contexts/toast-context";
 import { useOnboardingStore } from "@/features/onboarding/stores/onboarding.store";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useWhatsNewStore } from "@/features/settings/stores/whats-new.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { vimCommands } from "@/features/vim/stores/vim-commands";
 import { useVimStore } from "@/features/vim/stores/vim.store";
 import { useEditorAppStore } from "@/features/editor/stores/editor-app.store";
@@ -52,12 +53,14 @@ import type { Action } from "../types/action.types";
 import type { CommandPaletteViewId } from "../types/view.types";
 import { useActionsStore } from "../stores/action-history.store";
 import { useCommandPaletteViews } from "../services/command-palette-view-registry";
+import { localizeCommandPaletteAction } from "../utils/action-localization";
 
 interface CommandPaletteContentProps {
   commandPaletteInitialView: CommandPaletteViewId;
 }
 
 const CommandPaletteContent = ({ commandPaletteInitialView }: CommandPaletteContentProps) => {
+  const { t } = useTranslation();
   // Get data from stores
   const setIsCommandPaletteVisible = useUIState((state) => state.setIsCommandPaletteVisible);
   const setIsSettingsDialogVisible = useUIState((state) => state.setIsSettingsDialogVisible);
@@ -230,7 +233,7 @@ const CommandPaletteContent = ({ commandPaletteInitialView }: CommandPaletteCont
   const isActiveMarkdownFile = activeBuffer ? isMarkdownFile(activeBuffer.path) : false;
 
   // Create all actions using factory functions
-  const allActions: Action[] = [
+  const rawActions: Action[] = [
     ...createMarkdownActions({
       isMarkdownFile: isActiveMarkdownFile,
       activeBuffer,
@@ -312,6 +315,8 @@ const CommandPaletteContent = ({ commandPaletteInitialView }: CommandPaletteCont
       activeRepoPath,
       setIsSidebarVisible,
       setActiveView,
+      setIsBottomPaneVisible,
+      setBottomPaneActiveTab,
       showToast,
       gitOperations: {
         stageAllFiles,
@@ -334,6 +339,7 @@ const CommandPaletteContent = ({ commandPaletteInitialView }: CommandPaletteCont
       onClose,
     }),
   ];
+  const allActions = rawActions.map((action) => localizeCommandPaletteAction(action, t));
 
   // Filter actions based on query
   const filteredActions = allActions.filter(
@@ -398,7 +404,7 @@ const CommandPaletteContent = ({ commandPaletteInitialView }: CommandPaletteCont
   const extensionView = extensionViews.get(currentView);
 
   return (
-    <Command isVisible onClose={onClose}>
+    <Command isVisible onClose={onClose} title={t("commandPalette.title")}>
       {currentView === "color-theme" ? (
         <ThemeSelectorContent
           isActive={currentView === "color-theme"}
@@ -446,13 +452,13 @@ const CommandPaletteContent = ({ commandPaletteInitialView }: CommandPaletteCont
               value={query}
               onChange={setQuery}
               onKeyDown={handleCommandKeyDown}
-              placeholder="Type a command..."
+              placeholder={t("commandPalette.placeholder")}
             />
           </CommandHeader>
 
           <CommandList ref={resultsRef}>
             {filteredActions.length === 0 ? (
-              <CommandEmpty>No commands found</CommandEmpty>
+              <CommandEmpty>{t("commandPalette.noCommands")}</CommandEmpty>
             ) : (
               prioritizedActions.map((action, index) => {
                 const isRecent =

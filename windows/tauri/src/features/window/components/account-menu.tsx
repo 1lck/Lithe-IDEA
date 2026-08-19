@@ -30,12 +30,14 @@ import { Progress } from "@/ui/progress";
 import Tooltip from "@/ui/tooltip";
 import { useDesktopSignIn } from "@/features/window/hooks/use-desktop-sign-in";
 import { cn } from "@/utils/cn";
+import { useTranslation } from "@/i18n/locale-provider";
 
 interface AccountMenuProps {
   className?: string;
 }
 
 export const AccountMenu = ({ className }: AccountMenuProps) => {
+  const { t } = useTranslation();
   const services = getServiceUrls();
   const user = useAuthStore((s) => s.user);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -98,21 +100,23 @@ export const AccountMenu = ({ className }: AccountMenuProps) => {
   const isEnterprise = subscription?.subscription?.plan === "enterprise";
   const isTeams = Boolean(subscription?.collaboration?.enabled);
   const isPro = subscriptionStatus === "pro";
-  const planLabel = getAccountPlanLabel(subscription, isAuthenticated);
-  const modeLabel = getAiUsageModeLabel({ isAuthenticated, subscription, hasOpenRouterKey });
+  const planLabel = t(`account.plan.${getAccountPlanLabel(subscription, isAuthenticated)}`);
+  const modeLabel = t(
+    `account.aiUsageMode.${getAiUsageModeLabel({ isAuthenticated, subscription, hasOpenRouterKey })}`,
+  );
   const autocompleteUsage = extractAutocompleteUsage(subscription);
   const usageProgress = getUsageProgress(autocompleteUsage);
 
   const signedOutItems: MenuItem[] = [
     {
       id: "settings",
-      label: "Settings",
+      label: t("account.settings"),
       icon: <GearSixIcon />,
       onClick: handleOpenSettings,
     },
     {
       id: "docs",
-      label: "Docs",
+      label: t("account.docs"),
       icon: <BookOpenIcon />,
       onClick: handleOpenDocs,
     },
@@ -124,7 +128,7 @@ export const AccountMenu = ({ className }: AccountMenuProps) => {
     },
     {
       id: "sign-in",
-      label: isSigningIn ? "Signing In..." : "Sign In",
+      label: isSigningIn ? t("account.signingIn") : t("account.signIn"),
       icon: <SignInIcon />,
       onClick: handleSignIn,
       disabled: isSigningIn,
@@ -134,7 +138,7 @@ export const AccountMenu = ({ className }: AccountMenuProps) => {
   const signedInItems: MenuItem[] = [
     {
       id: "user-info",
-      label: user?.name || user?.email || "Account",
+      label: user?.name || user?.email || t("account.account"),
       icon: user?.avatar_url ? (
         <img src={user.avatar_url} alt="" className="size-3 rounded-full" />
       ) : (
@@ -151,7 +155,7 @@ export const AccountMenu = ({ className }: AccountMenuProps) => {
     },
     {
       id: "subscription",
-      label: `Plan: ${planLabel}`,
+      label: t("account.planWithName", { plan: planLabel }),
       icon: <CreditCardIcon />,
       onClick: handleOpenBillingDashboard,
     },
@@ -159,7 +163,7 @@ export const AccountMenu = ({ className }: AccountMenuProps) => {
       ? [
           {
             id: "collaboration",
-            label: "Collaboration",
+            label: t("account.collaboration"),
             icon: <UsersThreeIcon />,
             onClick: handleOpenCollaboration,
           },
@@ -167,19 +171,19 @@ export const AccountMenu = ({ className }: AccountMenuProps) => {
       : []),
     {
       id: "manage-account",
-      label: "Manage Account",
+      label: t("account.manageAccount"),
       icon: <OpenExternalIcon />,
       onClick: handleManageAccount,
     },
     {
       id: "settings",
-      label: "Settings",
+      label: t("account.settings"),
       icon: <GearSixIcon />,
       onClick: handleOpenSettings,
     },
     {
       id: "docs",
-      label: "Docs",
+      label: t("account.docs"),
       icon: <BookOpenIcon />,
       onClick: handleOpenDocs,
     },
@@ -191,13 +195,15 @@ export const AccountMenu = ({ className }: AccountMenuProps) => {
     },
     {
       id: "sign-out",
-      label: "Sign Out",
+      label: t("account.signOut"),
       icon: <SignOutIcon />,
       onClick: handleSignOut,
     },
   ];
 
-  const tooltipLabel = isAuthenticated ? user?.name || user?.email || "Account" : "Account";
+  const tooltipLabel = isAuthenticated
+    ? user?.name || user?.email || t("account.account")
+    : t("account.account");
 
   useEffect(() => {
     if (!isOpen || !hasBlockingModalOpen) return;
@@ -226,7 +232,7 @@ export const AccountMenu = ({ className }: AccountMenuProps) => {
           className={className}
           aria-expanded={isOpen}
           aria-haspopup="menu"
-          aria-label="Account"
+          aria-label={t("account.account")}
         >
           {isAuthenticated && user?.avatar_url ? (
             <img src={user.avatar_url} alt="" className="size-4 rounded-full object-cover" />
@@ -255,7 +261,7 @@ export const AccountMenu = ({ className }: AccountMenuProps) => {
             >
               <div className="mb-2 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <span className="ui-text-sm font-medium text-foreground">AI usage</span>
+                  <span className="ui-text-sm font-medium text-foreground">{t("account.aiUsage")}</span>
                   <Badge
                     variant="default"
                     size="compact"
@@ -273,27 +279,31 @@ export const AccountMenu = ({ className }: AccountMenuProps) => {
               {autocompleteUsage ? (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-3">
-                    <span className="ui-text-sm text-subtle-foreground">Hosted AI</span>
+                    <span className="ui-text-sm text-subtle-foreground">{t("account.hostedAi")}</span>
                     <span className="ui-text-sm font-medium text-foreground">
                       {formatUsdFromCents(autocompleteUsage.spendCents)} /{" "}
                       {formatUsdFromCents(autocompleteUsage.budgetCents)}
                     </span>
                   </div>
-                  <Progress value={usageProgress} size="md" aria-label="Hosted AI monthly usage" />
+                  <Progress
+                    value={usageProgress}
+                    size="md"
+                    aria-label={t("account.hostedAiMonthlyUsage")}
+                  />
                   <div className="flex items-center justify-between gap-3">
                     <span className="ui-text-sm text-subtle-foreground/70">
                       {formatUsageDate(autocompleteUsage.periodStart)} -{" "}
                       {formatUsageDate(autocompleteUsage.periodEnd)}
                     </span>
                     <span className="ui-text-sm text-subtle-foreground/70">
-                      Resets {formatUsageDate(autocompleteUsage.periodEnd)}
+                      {t("account.resetsOn", { date: formatUsageDate(autocompleteUsage.periodEnd) })}
                     </span>
                   </div>
                 </div>
               ) : (
                 <div className="flex items-center gap-1.5 text-subtle-foreground ui-text-sm">
                   <MoneyIcon />
-                  <span>Usage unavailable</span>
+                  <span>{t("account.usageUnavailable")}</span>
                 </div>
               )}
             </Button>

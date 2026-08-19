@@ -10,9 +10,11 @@ import { useFileSystemStore } from "@/features/file-system/stores/file-system.st
 import type { RecentFolder } from "@/features/file-system/types/recent-folders.types";
 import { MAX_RECENT_PROJECTS } from "@/features/file-system/utils/recent-folders";
 import { useUIState } from "@/features/window/stores/ui-state.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Dropdown, type MenuItem } from "@/ui/dropdown";
 
 export const ProjectNameMenu = () => {
+  const { t } = useTranslation();
   const projectNameMenu = useUIState((state) => state.projectNameMenu);
   const setProjectNameMenu = useUIState((state) => state.setProjectNameMenu);
   const addFolderToWorkspace = useFileSystemStore((state) => state.addFolderToWorkspace);
@@ -25,13 +27,13 @@ export const ProjectNameMenu = () => {
     const baseItems: MenuItem[] = [
       {
         id: "open-folder",
-        label: "Open Folder in New Tab",
+        label: t("projectNameMenu.openFolderInNewTab"),
         icon: <FolderOpen />,
-        onClick: () => handleOpenFolder(),
+        onClick: () => handleOpenFolder({ destination: "this-window" }),
       },
       {
         id: "add-folder-to-workspace",
-        label: "Add Folder to Workspace",
+        label: t("projectNameMenu.addFolderToWorkspace"),
         icon: <FolderPlus />,
         onClick: () => {
           void addFolderToWorkspace();
@@ -39,7 +41,7 @@ export const ProjectNameMenu = () => {
       },
       {
         id: "collapse-folders",
-        label: "Collapse All Folders",
+        label: t("projectNameMenu.collapseAllFolders"),
         icon: <PanelTopClose />,
         onClick: () => handleCollapseAllFolders(),
       },
@@ -69,6 +71,7 @@ export const ProjectNameMenu = () => {
     handleOpenFolder,
     openRecentFolder,
     recentFolders,
+    t,
   ]);
 
   if (!projectNameMenu) return null;

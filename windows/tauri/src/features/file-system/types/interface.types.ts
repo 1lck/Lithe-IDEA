@@ -25,7 +25,9 @@ export interface FsState {
 
 export interface FsActions {
   // Folder operations
-  handleOpenFolder: () => Promise<boolean>;
+  handleOpenFolder: (options?: {
+    destination?: "new-window" | "this-window";
+  }) => Promise<boolean>;
   handleOpenFolderByPath: (path: string) => Promise<boolean>;
   addFolderToWorkspace: (path?: string) => Promise<boolean>;
   removeFolderFromWorkspace: (path: string) => Promise<boolean>;
@@ -43,9 +45,9 @@ export interface FsActions {
     column?: number,
     codeEditorRef?: React.RefObject<CodeEditorRef | null>,
     isPreview?: boolean,
-  ) => Promise<void>;
+  ) => Promise<string | undefined>;
   handleFileOpen: (path: string, isDir: boolean) => Promise<void>;
-  toggleFolder: (path: string) => Promise<void>;
+  toggleFolder: (path: string) => Promise<string | undefined>;
   revealPathInTree: (targetPath: string) => Promise<void>;
   handleCreateNewFile: () => Promise<void>;
   handleCreateNewFileInDirectory: (

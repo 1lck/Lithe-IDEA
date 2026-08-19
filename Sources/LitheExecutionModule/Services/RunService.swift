@@ -300,12 +300,6 @@ package final class RunService: ObservableObject {
         scope: RunConfigurationSaveScope = .local
     ) -> Bool {
         configurationSaveError = nil
-        var options = options
-        if scope == .project {
-            options.javaHomePath = ""
-            options.mavenExecutablePath = ""
-            options.mavenJavaHomePath = ""
-        }
         if configurationStatus == .ready, let projectURL {
             do {
                 try runConfigurationOperations.saveOptions(

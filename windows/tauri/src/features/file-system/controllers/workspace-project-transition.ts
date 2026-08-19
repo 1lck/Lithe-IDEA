@@ -1,5 +1,7 @@
 import { getBufferById } from "@/features/editor/utils/buffer-index";
 import { isEditorContent, type PaneContent } from "@/features/panes/types/pane-content.types";
+import { createTranslator, type DisplayLanguage } from "@/i18n/locale";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { showChoiceDialog } from "@/ui/dialog";
 import { toast } from "sonner";
 
@@ -16,7 +18,9 @@ export const getDirtyEditorBuffers = (buffers: PaneContent[]) =>
 export const getUnsavedProjectTransitionMessage = (
   action: ProjectTransitionAction,
   buffers: PaneContent[],
+  language: DisplayLanguage = "en-US",
 ) => {
+  const t = createTranslator(language);
   const dirtyBuffers = getDirtyEditorBuffers(buffers);
 
   if (dirtyBuffers.length === 0) {
@@ -24,13 +28,19 @@ export const getUnsavedProjectTransitionMessage = (
   }
 
   if (dirtyBuffers.length === 1) {
-    return `Save changes to "${dirtyBuffers[0].name}" before ${action}?`;
+    return t("unsavedProjectTransition.messageOne", {
+      file: dirtyBuffers[0].name,
+      action: t(`unsavedProjectTransition.action.${action}`),
+    });
   }
 
-  return `Save changes to ${dirtyBuffers.length} files before ${action}?`;
+  return t("unsavedProjectTransition.messageMany", {
+    count: dirtyBuffers.length,
+    action: t(`unsavedProjectTransition.action.${action}`),
+  });
 };
 
-const saveDirtyEditorBuffers = async (dirtyBuffers: PaneContent[]) => {
+const saveDirtyEditorBuffers = async (dirtyBuffers: PaneContent[], t: ReturnType<typeof createTranslator>) => {
   const { useBufferStore } = await import("@/features/editor/stores/buffer.store");
   const { useEditorAppStore } = await import("@/features/editor/stores/editor-app.store");
   const { setActiveBuffer } = useBufferStore.getState().actions;
@@ -49,14 +59,18 @@ const saveDirtyEditorBuffers = async (dirtyBuffers: PaneContent[]) => {
     const savedBuffer = getBufferById(useBufferStore.getState().buffers, currentBuffer.id);
 
     if (savedBuffer && isEditorContent(savedBuffer) && savedBuffer.isDirty) {
-      toast.warning(`Save "${savedBuffer.name}" before continuing.`);
+      toast.warning(t("unsavedProjectTransition.saveBeforeContinuing", { file: savedBuffer.name }));
       return false;
     }
   }
 
   const remainingDirtyBuffers = getDirtyEditorBuffers(useBufferStore.getState().buffers);
   if (remainingDirtyBuffers.length > 0) {
-    toast.warning(`Save or close ${remainingDirtyBuffers.length} unsaved files before continuing.`);
+    toast.warning(
+      t("unsavedProjectTransition.saveOrCloseBeforeContinuing", {
+        count: remainingDirtyBuffers.length,
+      }),
+    );
     return false;
   }
 
@@ -72,23 +86,28 @@ export const prepareProjectTransitionWithUnsavedBuffers = async (
     return true;
   }
 
-  const message = getUnsavedProjectTransitionMessage(action, dirtyBuffers);
+  const language = useSettingsStore.getState().settings.displayLanguage;
+  const t = createTranslator(language);
+  const message = getUnsavedProjectTransitionMessage(action, dirtyBuffers, language);
   if (!message) {
     return true;
   }
 
   const choice = await showChoiceDialog<UnsavedProjectTransitionChoice>(message, {
-    title: "Unsaved Changes",
+    title: t("unsavedChanges.title"),
     choices: [
-      { value: "cancel", label: "Cancel", variant: "default" },
+      { value: "cancel", label: t("ui.cancel"), variant: "default" },
       {
         value: "discard",
-        label: dirtyBuffers.length === 1 ? "Don't Save" : "Discard All",
+        label:
+          dirtyBuffers.length === 1
+            ? t("unsavedChanges.doNotSave")
+            : t("unsavedProjectTransition.discardAll"),
         variant: "default",
       },
       {
         value: "save",
-        label: dirtyBuffers.length === 1 ? "Save" : "Save All",
+        label: dirtyBuffers.length === 1 ? t("ui.save") : t("unsavedProjectTransition.saveAll"),
         variant: "accent",
       },
     ],
@@ -102,5 +121,5 @@ export const prepareProjectTransitionWithUnsavedBuffers = async (
     return false;
   }
 
-  return await saveDirtyEditorBuffers(dirtyBuffers);
+  return await saveDirtyEditorBuffers(dirtyBuffers, t);
 };

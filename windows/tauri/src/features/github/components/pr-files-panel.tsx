@@ -9,6 +9,7 @@ import {
   type FileNavigatorItem,
   type FileNavigatorViewMode,
 } from "@/features/file-explorer/components/file-navigator-sidebar";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import Input from "@/ui/input";
 import Select from "@/ui/select";
@@ -78,6 +79,7 @@ export const PRFilesPanel = memo(
     onSelectFile,
     onOpenChangedFile,
   }: PRFilesPanelProps) => {
+    const { t } = useTranslation();
     const [fileNavigatorViewMode, setFileNavigatorViewMode] =
       useState<FileNavigatorViewMode>("flat");
 
@@ -100,14 +102,14 @@ export const PRFilesPanel = memo(
     );
 
     if (isLoadingContent && !selectedPRDiff) {
-      return <GitHubViewerLoadingState label="Loading diff" className="min-h-0" />;
+      return <GitHubViewerLoadingState label={t("github.loadingDiff")} className="min-h-0" />;
     }
 
     if (contentError) {
       return (
         <GitHubViewerState
           description={contentError}
-          actionLabel="Retry"
+          actionLabel={t("github.retry")}
           onAction={onRetry}
           tone="error"
           className="min-h-0"
@@ -116,11 +118,13 @@ export const PRFilesPanel = memo(
     }
 
     if (diffFiles.length === 0) {
-      return <GitHubViewerState description="No file changes" className="min-h-0" />;
+      return <GitHubViewerState description={t("github.noFileChanges")} className="min-h-0" />;
     }
 
     if (filteredDiff.length === 0) {
-      return <GitHubViewerState description="No files match your filters" className="min-h-0" />;
+      return (
+        <GitHubViewerState description={t("github.noFilesMatchFilters")} className="min-h-0" />
+      );
     }
 
     return (
@@ -130,7 +134,7 @@ export const PRFilesPanel = memo(
             items={fileTreeItems}
             selectedKey={selectedFilePath}
             onSelect={onSelectFile}
-            ariaLabel="Changed files"
+            ariaLabel={t("github.changedFiles")}
             viewMode={fileNavigatorViewMode}
             onViewModeChange={setFileNavigatorViewMode}
             surface="review"
@@ -146,17 +150,22 @@ export const PRFilesPanel = memo(
                 type="button"
                 variant="ghost"
                 onClick={onToggleFileTree}
-                aria-label={isFileTreeVisible ? "Hide changed files" : "Show changed files"}
+                aria-label={
+                  isFileTreeVisible ? t("github.hideChangedFiles") : t("github.showChangedFiles")
+                }
                 size="icon-xs"
               >
                 <ListBullets weight="duotone" />
               </Button>
               <span className="ui-text-sm text-subtle-foreground">
-                {filteredDiff.length} of {diffFiles.length} files
+                {t("github.filteredFilesCount", {
+                  shown: filteredDiff.length,
+                  total: diffFiles.length,
+                })}
               </span>
               {diffDebugSummary.errorCount > 0 ? (
                 <span className="ui-text-sm text-destructive">
-                  {diffDebugSummary.errorCount} patch errors
+                  {t("github.patchErrors", { count: diffDebugSummary.errorCount })}
                 </span>
               ) : null}
             </div>
@@ -164,7 +173,7 @@ export const PRFilesPanel = memo(
               <Input
                 value={fileQuery}
                 onChange={(e) => onFileQueryChange(e.target.value)}
-                placeholder="Search files..."
+                placeholder={t("github.searchFiles")}
                 leftIcon={Search}
                 size="sm"
                 className="w-full sm:w-56"
@@ -173,11 +182,11 @@ export const PRFilesPanel = memo(
                 value={fileStatusFilter}
                 onChange={(value) => onFileStatusFilterChange(value as FileStatusFilter)}
                 options={[
-                  { value: "all", label: "All" },
-                  { value: "added", label: "Added" },
-                  { value: "modified", label: "Modified" },
-                  { value: "deleted", label: "Deleted" },
-                  { value: "renamed", label: "Renamed" },
+                  { value: "all", label: t("github.all") },
+                  { value: "added", label: t("github.added") },
+                  { value: "modified", label: t("github.modified") },
+                  { value: "deleted", label: t("github.deleted") },
+                  { value: "renamed", label: t("github.renamed") },
                 ]}
                 size="sm"
                 leftIcon={SlidersHorizontal}
@@ -197,7 +206,7 @@ export const PRFilesPanel = memo(
                 patchError={patchError}
               />
             ) : (
-              <GitHubViewerState description="Select a file" className="h-full" />
+              <GitHubViewerState description={t("github.selectFile")} className="h-full" />
             )}
           </div>
         </div>

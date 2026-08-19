@@ -16,6 +16,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/ui/empty";
 import Input from "@/ui/input";
 import { Spinner } from "@/ui/spinner";
 import Select from "@/ui/select";
+import { useTranslation } from "@/i18n/locale-provider";
 import { ScrollArea } from "@/ui/scroll-area";
 import { cn } from "@/utils/cn";
 import {
@@ -38,6 +39,7 @@ export default function MongoDBViewer({ connectionId }: MongoDBViewerProps) {
   const { actions } = store;
   const [filterInput, setFilterInput] = useState("{}");
   const [sortInput, setSortInput] = useState("{}");
+  const { t } = useTranslation();
 
   useEffect(() => {
     actions.init(connectionId);
@@ -72,12 +74,12 @@ export default function MongoDBViewer({ connectionId }: MongoDBViewerProps) {
           </div>
           {store.selectedDatabase && (
             <>
-              <span className="text-subtle-foreground ui-text-sm">Database</span>
+              <span className="text-subtle-foreground ui-text-sm">{t("database.database")}</span>
               <Select
                 value={store.selectedDatabase}
                 onChange={actions.selectDatabase}
                 options={store.databases.map((db) => ({ value: db, label: db }))}
-                aria-label="Select database"
+                aria-label={t("database.selectDatabase")}
                 size="xs"
                 className="rounded-full border-border/70 bg-surface/70 px-2.5 focus:border-primary/60 focus:ring-primary/30"
               />
@@ -85,7 +87,7 @@ export default function MongoDBViewer({ connectionId }: MongoDBViewerProps) {
           )}
           <div className="ml-auto flex items-center gap-1 text-subtle-foreground ui-text-sm">
             <Layers />
-            <span>{store.collections.length} collections</span>
+            <span>{t("database.collectionsCount", { count: store.collections.length })}</span>
           </div>
         </div>
       </div>
@@ -94,7 +96,9 @@ export default function MongoDBViewer({ connectionId }: MongoDBViewerProps) {
         <div className={databasePanelClassName("w-56")}>
           <div className="flex items-center gap-1.5 border-border/60 border-b px-3 py-2">
             <Layers className="text-subtle-foreground" />
-            <span className="font-sans text-subtle-foreground ui-text-sm">Collections</span>
+            <span className="font-sans text-subtle-foreground ui-text-sm">
+              {t("database.collections")}
+            </span>
           </div>
           <ScrollArea className="flex-1" contentClassName="space-y-0.5 p-1.5">
             {store.collections.map((col) => (
@@ -107,7 +111,7 @@ export default function MongoDBViewer({ connectionId }: MongoDBViewerProps) {
                   "block h-auto w-full justify-start rounded-lg px-2 py-1 text-left ui-text-sm leading-row",
                   store.selectedCollection === col.name && "bg-selected",
                 )}
-                aria-label={`Select collection ${col.name}`}
+                aria-label={t("database.selectCollection", { collection: col.name })}
               >
                 {col.name}
               </Button>
@@ -123,7 +127,7 @@ export default function MongoDBViewer({ connectionId }: MongoDBViewerProps) {
               value={filterInput}
               onChange={(e) => setFilterInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleApplyQuery()}
-              aria-label="MongoDB filter query"
+              aria-label={t("database.mongodbFilterQuery")}
             />
             <Input
               className="w-56"
@@ -131,32 +135,32 @@ export default function MongoDBViewer({ connectionId }: MongoDBViewerProps) {
               value={sortInput}
               onChange={(e) => setSortInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleApplyQuery()}
-              aria-label="MongoDB sort query"
+              aria-label={t("database.mongodbSortQuery")}
             />
             <Button
               onClick={handleApplyQuery}
               className="gap-1.5"
-              aria-label="Apply query"
+              aria-label={t("database.applyQuery")}
               size="xs"
             >
               <Braces />
-              Apply
+              {t("database.apply")}
             </Button>
             <Button
               onClick={handleResetQuery}
               variant="ghost"
               size="xs"
               className="px-2 py-1 text-subtle-foreground"
-              aria-label="Reset query"
+              aria-label={t("database.resetQuery")}
             >
-              Reset
+              {t("database.reset")}
             </Button>
             <Button
               onClick={() => actions.refresh()}
               variant="ghost"
               size="icon-xs"
               className="text-subtle-foreground"
-              aria-label="Refresh"
+              aria-label={t("database.refresh")}
             >
               <RefreshCw />
             </Button>
@@ -165,9 +169,9 @@ export default function MongoDBViewer({ connectionId }: MongoDBViewerProps) {
           {!store.isLoading && !store.selectedCollection && (
             <Empty>
               <EmptyHeader>
-                <EmptyTitle>Select a collection</EmptyTitle>
+                <EmptyTitle>{t("database.selectCollectionTitle")}</EmptyTitle>
                 <EmptyDescription>
-                  Choose a collection from the sidebar to browse documents.
+                  {t("database.selectCollectionDescription")}
                 </EmptyDescription>
               </EmptyHeader>
             </Empty>
@@ -182,7 +186,7 @@ export default function MongoDBViewer({ connectionId }: MongoDBViewerProps) {
           {store.isLoading && (
             <Empty>
               <EmptyDescription>
-                <Spinner label="Loading" showLabel />
+                <Spinner label={t("ui.loading")} showLabel />
               </EmptyDescription>
             </Empty>
           )}
@@ -191,7 +195,7 @@ export default function MongoDBViewer({ connectionId }: MongoDBViewerProps) {
             <div className="custom-scrollbar flex-1 overflow-auto p-3">
               <div className="mb-3 flex items-center justify-between">
                 <div className="text-subtle-foreground ui-text-sm">
-                  {store.totalCount} document{store.totalCount === 1 ? "" : "s"}
+                  {t("database.documentsCount", { count: store.totalCount })}
                 </div>
                 {store.selectedCollection && (
                   <div className={databaseChipClassName("text-subtle-foreground ui-text-sm")}>
@@ -216,14 +220,14 @@ export default function MongoDBViewer({ connectionId }: MongoDBViewerProps) {
                     >
                       <div className="mb-2 flex items-center justify-between gap-2">
                         <div className="truncate text-subtle-foreground ui-text-sm">
-                          Document {displayIndex}
+                          {t("database.documentNumber", { number: displayIndex })}
                         </div>
                         <Button
                           onClick={() => actions.deleteDocument(id)}
                           variant="ghost"
                           size="icon-xs"
                           className="text-destructive opacity-0 transition-[opacity,background-color] duration-(--app-duration-fast) ease-(--app-ease-smooth) hover:bg-destructive/10 group-hover:opacity-100"
-                          aria-label={`Delete document ${id}`}
+                          aria-label={t("database.deleteDocument", { id })}
                         >
                           <Trash2 />
                         </Button>
@@ -243,9 +247,9 @@ export default function MongoDBViewer({ connectionId }: MongoDBViewerProps) {
           {!store.isLoading && store.documents.length === 0 && store.selectedCollection && (
             <Empty>
               <EmptyHeader>
-                <EmptyTitle>No documents found</EmptyTitle>
+                <EmptyTitle>{t("database.noDocumentsFound")}</EmptyTitle>
                 <EmptyDescription>
-                  The current filter returned an empty result set.
+                  {t("database.emptyFilterResult")}
                 </EmptyDescription>
               </EmptyHeader>
             </Empty>
@@ -264,22 +268,24 @@ export default function MongoDBViewer({ connectionId }: MongoDBViewerProps) {
                     { value: "500", label: "500" },
                   ]}
                   onChange={(value) => actions.setPageSize(Number(value))}
-                  aria-label="Documents per page"
+                  aria-label={t("database.documentsPerPage")}
                   size="xs"
                   className="min-w-16"
                 />
-                <span className="font-sans text-subtle-foreground ui-text-sm">per page</span>
+                <span className="font-sans text-subtle-foreground ui-text-sm">
+                  {t("database.perPage")}
+                </span>
               </div>
               <div className="flex items-center gap-1">
                 <span className="mr-2 font-sans text-subtle-foreground ui-text-sm">
-                  Page {store.currentPage} of {store.totalPages}
+                  {t("database.pageOf", { page: store.currentPage, pages: store.totalPages })}
                 </span>
                 <Button
                   onClick={() => actions.setCurrentPage(1)}
                   disabled={store.currentPage === 1}
                   variant="ghost"
                   size="icon-xs"
-                  aria-label="First page"
+                  aria-label={t("database.firstPage")}
                 >
                   <ChevronsLeft />
                 </Button>
@@ -288,7 +294,7 @@ export default function MongoDBViewer({ connectionId }: MongoDBViewerProps) {
                   disabled={store.currentPage === 1}
                   variant="ghost"
                   size="icon-xs"
-                  aria-label="Previous page"
+                  aria-label={t("ui.previousPage")}
                 >
                   <ChevronLeft />
                 </Button>
@@ -297,7 +303,7 @@ export default function MongoDBViewer({ connectionId }: MongoDBViewerProps) {
                   disabled={store.currentPage === store.totalPages}
                   variant="ghost"
                   size="icon-xs"
-                  aria-label="Next page"
+                  aria-label={t("ui.nextPage")}
                 >
                   <ChevronRight />
                 </Button>
@@ -306,7 +312,7 @@ export default function MongoDBViewer({ connectionId }: MongoDBViewerProps) {
                   disabled={store.currentPage === store.totalPages}
                   variant="ghost"
                   size="icon-xs"
-                  aria-label="Last page"
+                  aria-label={t("database.lastPage")}
                 >
                   <ChevronsRight />
                 </Button>

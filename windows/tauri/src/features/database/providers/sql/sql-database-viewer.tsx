@@ -23,6 +23,7 @@ import { useUIState } from "@/features/window/stores/ui-state.store";
 import { Alert, AlertDescription } from "@/ui/alert";
 import { Spinner } from "@/ui/spinner";
 import { Empty, EmptyDescription } from "@/ui/empty";
+import { useTranslation } from "@/i18n/locale-provider";
 import type { DatabaseObjectKind, ViewMode } from "../../types/common.types";
 import type { DatabaseType } from "../../types/provider.types";
 import type { SqlDatabaseActions, SqlDatabaseState } from "./stores/create-sql.store";
@@ -43,6 +44,7 @@ export default function SqlDatabaseViewer({
   const store = useStore();
   const { actions } = store;
   const { setDatabaseTableMenu, setDatabaseRowMenu } = useUIState();
+  const { t } = useTranslation();
 
   const [viewMode, setViewMode] = useState<ViewMode>("data");
   const [showColumnTypes, setShowColumnTypes] = useState(true);
@@ -68,7 +70,9 @@ export default function SqlDatabaseViewer({
       ? paginateQueryResult(store.queryResult, store.currentPage, store.pageSize)
       : store.queryResult;
   const gridResultLabel =
-    store.isCustomQuery && store.totalPages > 1 ? "query rows on this page" : "query rows";
+    store.isCustomQuery && store.totalPages > 1
+      ? t("database.queryRowsOnThisPage")
+      : t("database.queryRowsLabel");
 
   useEffect(() => {
     if (initKey) actions.init(initKey);
@@ -270,7 +274,7 @@ export default function SqlDatabaseViewer({
           {isBusy && (
             <Empty>
               <EmptyDescription>
-                <Spinner label="Loading" showLabel />
+                <Spinner label={t("ui.loading")} showLabel />
               </EmptyDescription>
             </Empty>
           )}
@@ -294,7 +298,7 @@ export default function SqlDatabaseViewer({
               canEditCells={canMutateRows}
               canCreateRows={canMutateRows}
               canOpenRowMenu={canMutateRows}
-              resultLabel={store.isCustomQuery ? gridResultLabel : "rows"}
+              resultLabel={store.isCustomQuery ? gridResultLabel : t("database.rows")}
               foreignKeys={store.foreignKeys}
               columnWidths={store.columnWidths}
               onColumnWidthChange={actions.setColumnWidth}

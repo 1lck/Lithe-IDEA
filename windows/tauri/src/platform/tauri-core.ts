@@ -20,6 +20,7 @@ const nativeCommands = new Set([
   "clipboard_get",
   "clipboard_paste",
   "clipboard_set",
+  "clear_lithe_logs",
   "close_terminal",
   "core_cancel",
   "core_execute",
@@ -27,20 +28,36 @@ const nativeCommands = new Set([
   "create_terminal",
   "get_secure_secret",
   "frontend_trace",
+  "get_application_memory_usage",
   "get_bundled_extensions_path",
+  "get_log_settings",
   "get_monospace_fonts",
   "get_symlink_info",
   "get_system_fonts",
   "get_system_theme",
   "list_shells",
+  "lsp_resolve_java_launch",
   "move_file",
+  "open_log_directory",
   "open_file_external",
   "read_file_custom",
   "read_local_file",
   "record_startup_milestone",
+  "read_lithe_log",
   "remove_secure_secret",
+  "resolve_previous_log_cleanup",
   "rename_file",
+  "run_discover_toolchains",
+  "run_list_java_sources",
+  "run_resolve_launch",
+  "run_start_process",
+  "run_stop_process",
+  "run_write_document",
+  "run_write_generated",
+  "run_write_stdin",
   "set_native_window_appearance",
+  "set_diagnostic_logging",
+  "set_log_directory",
   "set_project_root",
   "start_watching",
   "stop_watching",
@@ -96,6 +113,18 @@ function capabilityForCommand(command: string): BackendCapability | null {
     return "database";
   }
   if (command.startsWith("debug_")) return "debugger";
+  if (
+    command === "run_discover_toolchains" ||
+    command === "run_list_java_sources" ||
+    command === "run_resolve_launch" ||
+    command === "run_start_process" ||
+    command === "run_stop_process" ||
+    command === "run_write_document" ||
+    command === "run_write_generated" ||
+    command === "run_write_stdin"
+  ) {
+    return "run";
+  }
   if (command.startsWith("notebook_run_") || command.startsWith("run_config_")) {
     return "runActions";
   }

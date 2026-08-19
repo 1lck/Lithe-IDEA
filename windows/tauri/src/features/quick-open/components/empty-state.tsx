@@ -1,4 +1,5 @@
 import { CommandEmpty } from "@/ui/command";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Spinner } from "@/ui/spinner";
 
 interface EmptyStateProps {
@@ -18,29 +19,30 @@ export const EmptyState = ({
   filesLength,
   hasRootFolder,
 }: EmptyStateProps) => {
+  const { t } = useTranslation();
   const getMessage = () => {
     if (!hasRootFolder) {
-      return "Open a folder to start searching files";
+      return t("quickOpen.openFolder");
     }
     if (debouncedQuery) {
-      return "No matching files found";
+      return t("quickOpen.noMatch");
     }
     if (query) {
-      return "Searching...";
+      return t("quickOpen.searching");
     }
     if (filesLength === 0) {
-      return "No files found in project";
+      return t("quickOpen.noFilesInProject");
     }
-    return "No files available";
+    return t("quickOpen.noFiles");
   };
 
   return (
     <CommandEmpty>
       <div className="font-sans text-subtle-foreground">
         {isIndexing ? (
-          <Spinner label="Indexing project files" showLabel compact />
+          <Spinner label={t("quickOpen.indexing")} showLabel compact />
         ) : isLoadingFiles ? (
-          <Spinner label="Loading files" showLabel compact />
+          <Spinner label={t("quickOpen.loadingFiles")} showLabel compact />
         ) : (
           getMessage()
         )}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { extensionRegistry } from "@/extensions/registry/extension-registry";
+import { isEditorLspSupported } from "@/features/editor/lsp/built-in-language-support";
 import { LspClient } from "@/features/editor/lsp/lsp-client";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { hasTextContent } from "@/features/panes/types/pane-content.types";
@@ -30,7 +30,7 @@ export function useDocumentOutline({
     Boolean(filePath) &&
     activeBuffer?.type === "editor" &&
     !activeBuffer.isVirtual &&
-    extensionRegistry.isLspSupported(filePath);
+    isEditorLspSupported(filePath);
   const [rawSymbols, setRawSymbols] = useState<
     Awaited<ReturnType<LspClient["getDocumentSymbols"]>>
   >([]);

@@ -13,8 +13,9 @@ import Breadcrumb, {
 } from "@/features/editor/components/toolbar/breadcrumb";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { cn } from "@/utils/cn";
+import { useTranslation } from "@/i18n/locale-provider";
 import type { DiffHeaderProps } from "../../types/git-diff.types";
-import { getFileStatus } from "../../utils/git-diff-helpers";
+import { countDiffStats, getFileStatus } from "../../utils/git-diff-helpers";
 
 const DiffHeader = memo(
   ({
@@ -31,6 +32,7 @@ const DiffHeader = memo(
     onClose,
     showDisplayControls = true,
   }: DiffHeaderProps) => {
+    const { t } = useTranslation();
     const { closeBuffer } = useBufferStore.use.actions();
     const activeBufferId = useBufferStore.use.activeBufferId();
 
@@ -45,12 +47,7 @@ const DiffHeader = memo(
     const renderStats = () => {
       if (!diff) return null;
 
-      let additions = 0;
-      let deletions = 0;
-      for (const l of diff.lines) {
-        if (l.line_type === "added") additions++;
-        else if (l.line_type === "removed") deletions++;
-      }
+      const { additions, deletions } = countDiffStats([diff]);
 
       return (
         <>
@@ -89,14 +86,14 @@ const DiffHeader = memo(
     return (
       <div className="sticky top-0 z-10 border-border border-b">
         <Breadcrumb
-          filePathOverride={isMultiFileView ? title || "Uncommitted Changes" : fullPath}
+          filePathOverride={isMultiFileView ? title || t("git.uncommittedChanges") : fullPath}
           interactive={!isMultiFileView}
           showPath={!isMultiFileView}
           showDefaultActions={false}
           extraLeftContent={
             isMultiFileView ? (
               <span className="text-subtle-foreground">
-                {totalFiles} file{totalFiles !== 1 ? "s" : ""}
+                {t("git.diffFileCount", { count: totalFiles, plural: totalFiles !== 1 ? "s" : "" })}
               </span>
             ) : (
               <>
@@ -111,15 +108,15 @@ const DiffHeader = memo(
                 <>
                   <BreadcrumbActionButton
                     onClick={onExpandAll}
-                    tooltip="Expand all"
-                    aria-label="Expand all files"
+                    tooltip={t("git.expandAll")}
+                    aria-label={t("git.expandAllFiles")}
                   >
                     <ChevronDown weight="duotone" />
                   </BreadcrumbActionButton>
                   <BreadcrumbActionButton
                     onClick={onCollapseAll}
-                    tooltip="Collapse all"
-                    aria-label="Collapse all files"
+                    tooltip={t("git.collapseAll")}
+                    aria-label={t("git.collapseAllFiles")}
                   >
                     <ChevronUp weight="duotone" />
                   </BreadcrumbActionButton>
@@ -133,8 +130,12 @@ const DiffHeader = memo(
                     onClick={() => onShowWhitespaceChange?.(!showWhitespace)}
                     active={showWhitespace}
                     className="gap-1"
-                    tooltip={showWhitespace ? "Hide whitespace" : "Show whitespace"}
-                    aria-label={showWhitespace ? "Hide whitespace" : "Show whitespace"}
+                    tooltip={
+                      showWhitespace ? t("git.diff.hideWhitespace") : t("git.diff.showWhitespace")
+                    }
+                    aria-label={
+                      showWhitespace ? t("git.diff.hideWhitespace") : t("git.diff.showWhitespace")
+                    }
                   >
                     <Trash2 weight="duotone" />
                     {showWhitespace && <Check weight="duotone" />}
@@ -145,16 +146,16 @@ const DiffHeader = memo(
                       <BreadcrumbActionButton
                         onClick={() => onViewModeChange("unified")}
                         active={viewMode === "unified"}
-                        tooltip="Unified view"
-                        aria-label="Unified diff view"
+                        tooltip={t("git.unifiedView")}
+                        aria-label={t("git.unifiedDiffView")}
                       >
                         <Rows3 weight="duotone" />
                       </BreadcrumbActionButton>
                       <BreadcrumbActionButton
                         onClick={() => onViewModeChange("split")}
                         active={viewMode === "split"}
-                        tooltip="Split view"
-                        aria-label="Split diff view"
+                        tooltip={t("git.splitView")}
+                        aria-label={t("git.splitDiffView")}
                       >
                         <Columns2 weight="duotone" />
                       </BreadcrumbActionButton>
@@ -167,9 +168,9 @@ const DiffHeader = memo(
 
               <BreadcrumbActionButton
                 onClick={handleClose}
-                tooltip="Close"
+                tooltip={t("git.close")}
                 shortcut="escape"
-                aria-label="Close diff view"
+                aria-label={t("git.closeDiffView")}
               >
                 <X weight="duotone" />
               </BreadcrumbActionButton>

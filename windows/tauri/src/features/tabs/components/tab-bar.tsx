@@ -19,12 +19,14 @@ import { useFileSystemStore } from "@/features/file-system/stores/file-system.st
 import { formatDiffBufferLabel } from "@/features/git/utils/diff-buffer-label";
 import { writeClipboardText } from "@/utils/clipboard";
 import { BOTTOM_PANE_ID } from "@/features/panes/constants/pane";
+import { getSingletonToolBufferTitleKey } from "@/features/panes/constants/tool-buffers";
 import { usePaneStore } from "@/features/panes/stores/pane.store";
 import { activateBufferInPaneAndSync } from "@/features/panes/utils/pane-activation";
 import { splitEditorGroup } from "@/features/panes/utils/pane-command-actions";
 import { moveBufferToPaneDropTarget } from "@/features/panes/utils/pane-drop-actions";
 import { findPaneGroup } from "@/features/panes/utils/pane-tree";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import type { PaneContent } from "@/features/panes/types/pane-content.types";
 import { useEditorAppStore } from "@/features/editor/stores/editor-app.store";
 import { getChromeNavigationIndex } from "@/features/layout/utils/chrome-keyboard";
@@ -59,6 +61,7 @@ const TabBar = ({
   onTabClick: externalTabClick,
   disablePaneActions = false,
 }: TabBarProps) => {
+  const { t } = useTranslation();
   // Get everything from stores
   const pendingClose = useBufferStore.use.pendingClose();
   const paneRoot = usePaneStore.use.root();
@@ -321,13 +324,16 @@ const TabBar = ({
         if (dirLabel) return dirLabel;
       }
 
+      const singletonTitleKey = getSingletonToolBufferTitleKey(buffer.type);
+      if (singletonTitleKey) return t(singletonTitleKey);
+
       if (buffer.type === "diff") {
-        return formatDiffBufferLabel(displayNames.get(buffer.id) || buffer.name, buffer.path);
+        return formatDiffBufferLabel(displayNames.get(buffer.id) || buffer.name, buffer.path, t);
       }
 
       return displayNames.get(buffer.id) ?? buffer.name;
     },
-    [displayNames, getCommandLabel, getDirectoryLabel, isUsefulTerminalTitle, terminalSessions],
+    [displayNames, getCommandLabel, getDirectoryLabel, isUsefulTerminalTitle, t, terminalSessions],
   );
 
   useEffect(() => {
@@ -450,6 +456,7 @@ const TabBar = ({
 
   const handleTabSelect = useCallback(
     (buffer: PaneContent) => {
+      const displayName = getBufferDisplayName(buffer);
       if (externalTabClick) {
         externalTabClick(buffer.id);
       } else {
@@ -457,10 +464,13 @@ const TabBar = ({
       }
       updateActivePath(buffer.path);
       setSrAnnouncement(
-        `Switched to ${buffer.name}${buffer.type === "editor" && buffer.isDirty ? ", unsaved changes" : ""}`,
+        t("tabs.switchedTo", {
+          name: displayName,
+          unsaved: buffer.type === "editor" && buffer.isDirty ? t("tabs.announcementUnsaved") : "",
+        }),
       );
     },
-    [externalTabClick, handleTabClick, updateActivePath],
+    [externalTabClick, getBufferDisplayName, handleTabClick, t, updateActivePath],
   );
 
   const startRename = useCallback(
@@ -616,7 +626,13 @@ const TabBar = ({
           handleTabClick(nextBuffer.id);
           updateActivePath(nextBuffer.path);
           setSrAnnouncement(
-            `Switched to ${nextBuffer.name}${nextBuffer.type === "editor" && nextBuffer.isDirty ? ", unsaved changes" : ""}`,
+            t("tabs.switchedTo", {
+              name: getBufferDisplayName(nextBuffer),
+              unsaved:
+                nextBuffer.type === "editor" && nextBuffer.isDirty
+                  ? t("tabs.announcementUnsaved")
+                  : "",
+            }),
           );
           tabRefs.current[nextIndex]?.focus();
         }
@@ -628,10 +644,10 @@ const TabBar = ({
         case "Backspace":
           if (!buffer.isPinned) {
             e.preventDefault();
-            setSrAnnouncement(`Closed ${buffer.name}`);
+            setSrAnnouncement(t("tabs.closed", { name: getBufferDisplayName(buffer) }));
             closeTab(buffer.id);
           } else {
-            setSrAnnouncement(`Cannot close pinned tab ${buffer.name}`);
+            setSrAnnouncement(t("tabs.cannotClosePinned", { name: getBufferDisplayName(buffer) }));
           }
           break;
 
@@ -641,12 +657,16 @@ const TabBar = ({
           handleTabClick(buffer.id);
           updateActivePath(buffer.path);
           setSrAnnouncement(
-            `Activated ${buffer.name}${buffer.type === "editor" && buffer.isDirty ? ", unsaved changes" : ""}`,
+            t("tabs.activated", {
+              name: getBufferDisplayName(buffer),
+              unsaved:
+                buffer.type === "editor" && buffer.isDirty ? t("tabs.announcementUnsaved") : "",
+            }),
           );
           break;
       }
     },
-    [sortedBuffers, handleTabClick, updateActivePath, closeTab],
+    [sortedBuffers, getBufferDisplayName, handleTabClick, t, updateActivePath, closeTab],
   );
 
   return (
@@ -663,7 +683,7 @@ const TabBar = ({
           data-tab-bar-pane-id={paneId ?? ""}
           className="group/tabbar scrollbar-hidden bg-background overscroll-x-contain"
           role="tablist"
-          aria-label="Open files"
+          aria-label={t("tabs.openFiles")}
           onWheel={handleWheel}
         >
           <div className="flex h-8 shrink-0 items-center gap-0.5">
@@ -672,10 +692,10 @@ const TabBar = ({
               onClick={handleJumpBack}
               disabled={!canGoBack}
               variant="ghost"
-              tooltip="Go Back"
+              tooltip={t("tabs.goBackShort")}
               tooltipSide="bottom"
               commandId="navigation.goBack"
-              aria-label="Go back to previous location"
+              aria-label={t("tabs.goBack")}
               size="icon-xs"
             >
               <ArrowLeft />
@@ -685,10 +705,10 @@ const TabBar = ({
               onClick={handleJumpForward}
               disabled={!canGoForward}
               variant="ghost"
-              tooltip="Go Forward"
+              tooltip={t("tabs.goForwardShort")}
               tooltipSide="bottom"
               commandId="navigation.goForward"
-              aria-label="Go forward to next location"
+              aria-label={t("tabs.goForward")}
               size="icon-xs"
             >
               <ArrowRight />
@@ -808,9 +828,9 @@ const TabBar = ({
                   "pointer-events-none group-focus-within/tabbar:pointer-events-auto group-hover/tabbar:pointer-events-auto",
                   "group-focus-within/tabbar:opacity-100 group-hover/tabbar:opacity-100 focus-visible:opacity-100",
                 )}
-                tooltip="New Tab"
+                tooltip={t("tabs.newTab")}
                 tooltipSide="bottom"
-                aria-label="New tab"
+                aria-label={t("tabs.newTab")}
               >
                 <Plus weight="bold" />
               </Button>
@@ -821,9 +841,9 @@ const TabBar = ({
                 onClick={() => closePane(paneId)}
                 variant="ghost"
                 size="icon-xs"
-                tooltip="Close Split"
+                tooltip={t("tabs.closeSplit")}
                 tooltipSide="bottom"
-                aria-label="Close split pane"
+                aria-label={t("tabs.closeSplitPane")}
               >
                 <PanelLeftClose />
               </Button>
@@ -838,9 +858,9 @@ const TabBar = ({
                   "pointer-events-none group-focus-within/tabbar:pointer-events-auto group-hover/tabbar:pointer-events-auto",
                   "group-focus-within/tabbar:opacity-100 group-hover/tabbar:opacity-100 focus-visible:opacity-100",
                 )}
-                tooltip={isPaneFullscreen ? "Exit Full Screen" : "Full Screen Editor"}
+                tooltip={isPaneFullscreen ? t("tabs.exitFullScreen") : t("tabs.fullScreenEditor")}
                 tooltipSide="bottom"
-                aria-label="Toggle editor full screen"
+                aria-label={t("tabs.toggleEditorFullScreen")}
                 size="icon-xs"
               >
                 {isPaneFullscreen ? <Minimize2 /> : <Maximize2 />}

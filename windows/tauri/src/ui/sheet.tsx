@@ -4,6 +4,7 @@ import { Dialog as SheetPrimitive } from "@base-ui/react/dialog";
 import { cn } from "@/utils/cn";
 import { Button } from "@/ui/button";
 import { XIcon } from "@/ui/icons";
+import { useTranslation } from "@/i18n/locale-provider";
 
 function Sheet({ ...props }: SheetPrimitive.Root.Props) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />;
@@ -44,6 +45,8 @@ function SheetContent({
   side?: "top" | "right" | "bottom" | "left";
   showCloseButton?: boolean;
 }) {
+  const { t } = useTranslation();
+
   return (
     <SheetPortal>
       <SheetOverlay />
@@ -63,7 +66,7 @@ function SheetContent({
             render={<Button variant="ghost" className="absolute top-3 right-3" size="icon-sm" />}
           >
             <XIcon />
-            <span className="sr-only">Close</span>
+            <span className="sr-only">{t("ui.close")}</span>
           </SheetPrimitive.Close>
         )}
       </SheetPrimitive.Popup>

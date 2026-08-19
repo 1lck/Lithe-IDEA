@@ -90,8 +90,13 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
             "git.write"
         }
         "git_diff_file" | "git_status_diff_stats" => {
-            paths_from_file(&mut payload);
-            payload.entry("pathspecs").or_insert_with(|| json!([]));
+            if let Some(path) = payload.remove("filePath") {
+                payload.insert("pathspecs".into(), Value::Array(vec![path]));
+            } else {
+                // The shared core rejects empty pathspecs; a request without a
+                // file scope means the whole tree, which git spells as `.`.
+                payload.insert("pathspecs".into(), json!(["."]));
+            }
             "git.diff"
         }
         "git_ref_diff" => {
@@ -117,15 +122,67 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
             "git.write"
         }
         "git_delete_branch" => {
-            move_field(&mut payload, "branchName", "reference");
+            let branch = take_text(&mut payload, "branchName")?;
+            payload.insert(
+                "reference".into(),
+                json!(local_branch_reference(&branch)),
+            );
             payload.insert("operation".into(), json!("deleteBranch"));
             "git.write"
         }
         "git_checkout" => {
-            move_field(&mut payload, "branchName", "reference");
+            let branch = take_text(&mut payload, "branchName")?;
+            payload.insert(
+                "reference".into(),
+                json!(local_branch_reference(&branch)),
+            );
             payload.insert("operation".into(), json!("checkout"));
+            payload.insert("referenceKind".into(), json!("local"));
             "git.write"
         }
+        "git_checkout_preflight" => {
+            let branch = take_text(&mut payload, "branchName")?;
+            payload.insert(
+                "reference".into(),
+                json!(local_branch_reference(&branch)),
+            );
+            "git.checkoutPreflight"
+        }
+        "git_merge" | "git_rebase" => {
+            let branch = take_text(&mut payload, "branchName")?;
+            payload.insert(
+                "reference".into(),
+                json!(local_branch_reference(&branch)),
+            );
+            payload.insert(
+                "operation".into(),
+                json!(if command == "git_merge" {
+                    "merge"
+                } else {
+                    "rebase"
+                }),
+            );
+            "git.write"
+        }
+        "git_integration_preflight" => {
+            let branch = take_text(&mut payload, "branchName")?;
+            payload.insert(
+                "reference".into(),
+                json!(local_branch_reference(&branch)),
+            );
+            "git.integrationPreflight"
+        }
+        "git_operation_state" => "git.operationState",
+        "git_operation_continue" | "git_operation_abort" | "git_operation_skip" => {
+            let operation = match command {
+                "git_operation_continue" => "operationContinue",
+                "git_operation_abort" => "operationAbort",
+                _ => "operationSkip",
+            };
+            payload.insert("operation".into(), json!(operation));
+            "git.write"
+        }
+        "git_conflict_markers" => "git.conflictMarkers",
         "git_create_stash" => {
             payload.insert("operation".into(), json!("stashPush"));
             "git.write"
@@ -384,6 +441,19 @@ fn move_field(payload: &mut Map<String, Value>, from: &str, to: &str) {
     }
 }
 
+/// Windows callers name local branches by their short form, while the shared
+/// core requires fully qualified references so branch and tag names cannot
+/// collide. Only `refs/heads/` counts as already qualified; any other ref
+/// namespace is treated as a branch name instead of silently targeting a
+/// different namespace.
+fn local_branch_reference(branch: &str) -> String {
+    if branch.starts_with("refs/heads/") {
+        branch.to_string()
+    } else {
+        format!("refs/heads/{branch}")
+    }
+}
+
 fn paths_from_file(payload: &mut Map<String, Value>) {
     if let Some(path) = payload.remove("filePath") {
         payload.insert("paths".into(), Value::Array(vec![path]));
@@ -400,7 +470,7 @@ fn take_text(payload: &mut Map<String, Value>, field: &str) -> Result<String, St
 
 #[cfg(test)]
 mod tests {
-    use super::translate;
+    use super::{local_branch_reference, translate};
     use serde_json::json;
 
     #[test]
@@ -431,12 +501,220 @@ mod tests {
     }
 
     #[test]
+    fn translates_checkout_branch_with_reference_kind() {
+        let (command, payload) = translate(
+            "git_checkout",
+            json!({ "repoPath": "C:/work", "branchName": "feature/checkout" }),
+        )
+        .unwrap();
+
+        assert_eq!(command, "git.write");
+        assert_eq!(
+            payload,
+            json!({
+                "root": "C:/work",
+                "operation": "checkout",
+                "reference": "refs/heads/feature/checkout",
+                "referenceKind": "local"
+            })
+        );
+    }
+
+    #[test]
+    fn translates_checkout_preflight_reference() {
+        let (command, payload) = translate(
+            "git_checkout_preflight",
+            json!({ "repoPath": "C:/work", "branchName": "main" }),
+        )
+        .unwrap();
+
+        assert_eq!(command, "git.checkoutPreflight");
+        assert_eq!(
+            payload,
+            json!({ "root": "C:/work", "reference": "refs/heads/main" })
+        );
+    }
+
+    #[test]
+    fn translates_merge_and_rebase_to_qualified_references() {
+        let (merge_command, merge_payload) = translate(
+            "git_merge",
+            json!({ "repoPath": "C:/work", "branchName": "feature/demo" }),
+        )
+        .unwrap();
+        assert_eq!(merge_command, "git.write");
+        assert_eq!(
+            merge_payload,
+            json!({
+                "root": "C:/work",
+                "operation": "merge",
+                "reference": "refs/heads/feature/demo"
+            })
+        );
+
+        let (rebase_command, rebase_payload) = translate(
+            "git_rebase",
+            json!({ "repoPath": "C:/work", "branchName": "main" }),
+        )
+        .unwrap();
+        assert_eq!(rebase_command, "git.write");
+        assert_eq!(
+            rebase_payload,
+            json!({
+                "root": "C:/work",
+                "operation": "rebase",
+                "reference": "refs/heads/main"
+            })
+        );
+    }
+
+    #[test]
+    fn translates_integration_preflight_operation() {
+        let (command, payload) = translate(
+            "git_integration_preflight",
+            json!({ "repoPath": "C:/work", "branchName": "main", "operation": "rebase" }),
+        )
+        .unwrap();
+
+        assert_eq!(command, "git.integrationPreflight");
+        assert_eq!(
+            payload,
+            json!({
+                "root": "C:/work",
+                "reference": "refs/heads/main",
+                "operation": "rebase"
+            })
+        );
+    }
+
+    #[test]
+    fn translates_operation_state_and_resolution_commands() {
+        let (state_command, state_payload) =
+            translate("git_operation_state", json!({ "repoPath": "C:/work" })).unwrap();
+        assert_eq!(state_command, "git.operationState");
+        assert_eq!(state_payload, json!({ "root": "C:/work" }));
+
+        for (compat, operation) in [
+            ("git_operation_continue", "operationContinue"),
+            ("git_operation_abort", "operationAbort"),
+            ("git_operation_skip", "operationSkip"),
+        ] {
+            let (command, payload) =
+                translate(compat, json!({ "repoPath": "C:/work" })).unwrap();
+            assert_eq!(command, "git.write");
+            assert_eq!(
+                payload,
+                json!({ "root": "C:/work", "operation": operation })
+            );
+        }
+    }
+
+    #[test]
+    fn translates_conflict_markers_request() {
+        let (command, payload) =
+            translate("git_conflict_markers", json!({ "repoPath": "C:/work" })).unwrap();
+
+        assert_eq!(command, "git.conflictMarkers");
+        assert_eq!(payload, json!({ "root": "C:/work" }));
+    }
+
+    #[test]
+    fn translates_delete_branch_to_qualified_reference() {
+        let (command, payload) = translate(
+            "git_delete_branch",
+            json!({ "repoPath": "C:/work", "branchName": "feature/old" }),
+        )
+        .unwrap();
+
+        assert_eq!(command, "git.write");
+        assert_eq!(
+            payload,
+            json!({
+                "root": "C:/work",
+                "operation": "deleteBranch",
+                "reference": "refs/heads/feature/old"
+            })
+        );
+    }
+
+    #[test]
+    fn qualifies_short_branch_names_only() {
+        assert_eq!(local_branch_reference("main"), "refs/heads/main");
+        assert_eq!(
+            local_branch_reference("feature/old"),
+            "refs/heads/feature/old"
+        );
+        assert_eq!(
+            local_branch_reference("refs/heads/main"),
+            "refs/heads/main"
+        );
+        assert_eq!(local_branch_reference("refs/foo"), "refs/heads/refs/foo");
+    }
+
+    #[test]
     fn translates_diff_defaults() {
         let (command, payload) =
             translate("git_diff_file", json!({ "repoPath": "C:/work" })).unwrap();
 
         assert_eq!(command, "git.diff");
-        assert_eq!(payload, json!({ "root": "C:/work", "pathspecs": [] }));
+        assert_eq!(payload, json!({ "root": "C:/work", "pathspecs": ["."] }));
+    }
+
+    #[test]
+    fn translates_diff_file_pathspec() {
+        let (command, payload) = translate(
+            "git_diff_file",
+            json!({ "repoPath": "C:/work", "filePath": "src/main.rs", "staged": true }),
+        )
+        .unwrap();
+
+        assert_eq!(command, "git.diff");
+        assert_eq!(
+            payload,
+            json!({
+                "root": "C:/work",
+                "pathspecs": ["src/main.rs"],
+                "staged": true
+            })
+        );
+    }
+
+    #[test]
+    fn translates_untracked_diff_file_pathspec() {
+        let (command, payload) = translate(
+            "git_diff_file",
+            json!({
+                "repoPath": "C:/work",
+                "filePath": "new.txt",
+                "untracked": true
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(command, "git.diff");
+        assert_eq!(
+            payload,
+            json!({
+                "root": "C:/work",
+                "pathspecs": ["new.txt"],
+                "untracked": true
+            })
+        );
+    }
+
+    #[test]
+    fn translates_status_diff_stats_whole_tree() {
+        let (command, payload) = translate(
+            "git_status_diff_stats",
+            json!({ "repoPath": "C:/work", "staged": true }),
+        )
+        .unwrap();
+
+        assert_eq!(command, "git.diff");
+        assert_eq!(
+            payload,
+            json!({ "root": "C:/work", "pathspecs": ["."], "staged": true })
+        );
     }
 
     #[test]

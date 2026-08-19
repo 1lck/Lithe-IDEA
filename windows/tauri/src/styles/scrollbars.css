@@ -10,7 +10,7 @@
   --app-scrollbar-thumb-border: 3px solid transparent;
 }
 
-.dark {
+[data-theme-type="dark"] {
   --app-scrollbar-thumb: rgba(166, 166, 166, 0.38);
   --app-scrollbar-thumb-subtle: rgba(166, 166, 166, 0.24);
   --app-scrollbar-thumb-hover: rgba(188, 188, 188, 0.58);

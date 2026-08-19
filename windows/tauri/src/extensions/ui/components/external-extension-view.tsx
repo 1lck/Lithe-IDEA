@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/ui/empty";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Spinner } from "@/ui/spinner";
 import { uiExtensionHost } from "../services/ui-extension-host";
 import { useUIExtensionStore } from "../stores/ui-extension-store";
@@ -12,6 +13,7 @@ interface ExternalExtensionViewProps {
 }
 
 export function ExternalExtensionView({ extensionId, viewId }: ExternalExtensionViewProps) {
+  const { t } = useTranslation();
   const revision = useUIExtensionStore((state) => state.viewRevisions.get(viewId) ?? 0);
   const [node, setNode] = useState<ExtensionViewNode | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -43,14 +45,14 @@ export function ExternalExtensionView({ extensionId, viewId }: ExternalExtension
     return (
       <Empty tone="error" role="alert">
         <EmptyHeader>
-          <EmptyTitle>Extension error</EmptyTitle>
+          <EmptyTitle>{t("extensions.extensionError")}</EmptyTitle>
           <EmptyDescription>{error}</EmptyDescription>
         </EmptyHeader>
       </Empty>
     );
   }
   if (!node) {
-    return <Spinner showLabel label="Loading extension" className="m-auto" />;
+    return <Spinner showLabel label={t("extensions.loadingExtension")} className="m-auto" />;
   }
   return <ExtensionViewRenderer node={node} execute={execute} />;
 }

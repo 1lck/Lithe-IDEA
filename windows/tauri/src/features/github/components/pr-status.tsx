@@ -14,6 +14,7 @@ import { memo, useMemo, useState } from "react";
 import type { ComponentProps } from "react";
 import Badge from "@/ui/badge";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Popover, PopoverContent, PopoverTrigger } from "@/ui/popover";
 import { Spinner } from "@/ui/spinner";
 import { cn } from "@/utils/cn";
@@ -38,6 +39,7 @@ function getCheckBadgeVariant(check: StatusCheck): BadgeVariant {
 }
 
 export const CIStatusIndicator = memo(({ checks }: CIStatusProps) => {
+  const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
 
   const summary = useMemo(() => {
@@ -54,15 +56,15 @@ export const CIStatusIndicator = memo(({ checks }: CIStatusProps) => {
     if (failedCount > 0) {
       return {
         icon: <XCircle className="text-destructive" />,
-        label: `${failedCount} failed`,
+        label: t("github.jobsFailed", { count: failedCount }),
         tone: "text-destructive",
       };
     }
 
     if (pendingCount > 0) {
       return {
-        icon: <Spinner label="Pending checks" compact />,
-        label: `${pendingCount} pending`,
+        icon: <Spinner label={t("github.pendingChecks")} compact />,
+        label: t("github.checksPending", { count: pendingCount }),
         tone: "text-warning",
       };
     }
@@ -70,17 +72,17 @@ export const CIStatusIndicator = memo(({ checks }: CIStatusProps) => {
     if (passedCount === checks.length) {
       return {
         icon: <CheckCircle2 className="text-success" />,
-        label: `${passedCount} checks passed`,
+        label: t("github.checksPassed", { count: passedCount }),
         tone: "text-success",
       };
     }
 
     return {
       icon: <CircleDot className="text-subtle-foreground" />,
-      label: `${passedCount}/${checks.length} passed`,
+      label: t("github.partialChecksPassed", { passed: passedCount, total: checks.length }),
       tone: "text-subtle-foreground",
     };
-  }, [checks]);
+  }, [checks, t]);
 
   if (!summary) return null;
 
@@ -122,11 +124,11 @@ export const CIStatusIndicator = memo(({ checks }: CIStatusProps) => {
             ) : check.conclusion === "FAILURE" || check.conclusion === "ERROR" ? (
               <XCircle className="text-destructive" />
             ) : (
-              <Spinner label="Pending check" compact />
+              <Spinner label={t("github.pendingCheck")} compact />
             )}
             <div className="min-w-0 flex-1">
               <p className="truncate font-sans ui-text-sm text-foreground">
-                {check.name ?? "Check"}
+                {check.name ?? t("github.check")}
               </p>
               {check.workflowName && (
                 <p className="truncate font-sans ui-text-sm text-subtle-foreground">
@@ -155,41 +157,42 @@ interface MergeStatusProps {
 
 export const MergeStatusBadge = memo(
   ({ mergeStateStatus, mergeable, reviewDecision }: MergeStatusProps) => {
+    const { t } = useTranslation();
     const getStatusInfo = (): {
       text: string;
       variant: BadgeVariant;
       icon: typeof AlertCircle;
     } | null => {
       if (mergeable === "CONFLICTING") {
-        return { text: "Has conflicts", variant: "error", icon: AlertCircle };
+        return { text: t("github.hasConflicts"), variant: "error", icon: AlertCircle };
       }
       if (mergeStateStatus === "BLOCKED") {
         if (reviewDecision === "CHANGES_REQUESTED") {
           return {
-            text: "Changes requested",
+            text: t("github.changesRequested"),
             variant: "error",
             icon: AlertCircle,
           };
         }
         if (!reviewDecision || reviewDecision === "REVIEW_REQUIRED") {
           return {
-            text: "Review required",
+            text: t("github.reviewRequiredTitle"),
             variant: "warning",
             icon: AlertCircle,
           };
         }
-        return { text: "Blocked", variant: "warning", icon: AlertCircle };
+        return { text: t("github.blocked"), variant: "warning", icon: AlertCircle };
       }
       if (
         mergeStateStatus === "CLEAN" ||
         mergeStateStatus === "HAS_HOOKS" ||
         mergeStateStatus === "UNSTABLE"
       ) {
-        return { text: "Ready to merge", variant: "success", icon: GitMerge };
+        return { text: t("github.readyToMerge"), variant: "success", icon: GitMerge };
       }
       if (mergeStateStatus === "BEHIND") {
         return {
-          text: "Behind base",
+          text: t("github.behindBase"),
           variant: "warning",
           icon: AlertCircle,
         };
@@ -219,12 +222,13 @@ interface LinkedIssuesProps {
 }
 
 export const LinkedIssuesList = memo(({ issues }: LinkedIssuesProps) => {
+  const { t } = useTranslation();
   if (issues.length === 0) return null;
 
   return (
     <span className="font-sans ui-text-sm inline-flex shrink-0 items-center gap-1 text-subtle-foreground">
       <Link2 className="text-subtle-foreground" />
-      <span>Linked</span>
+      <span>{t("github.linked")}</span>
       <span className="inline-flex items-center gap-1">
         {issues.map((issue, idx) => (
           <a
@@ -279,12 +283,13 @@ interface AssigneesProps {
 }
 
 export const AssigneesList = memo(({ assignees }: AssigneesProps) => {
+  const { t } = useTranslation();
   if (assignees.length === 0) return null;
 
   return (
     <span className="font-sans ui-text-sm inline-flex shrink-0 items-center gap-1 text-subtle-foreground">
       <User />
-      <span>Assigned</span>
+      <span>{t("github.assigned")}</span>
       <span className="text-foreground">
         {assignees.map((assignee) => `@${assignee.login}`).join(", ")}
       </span>

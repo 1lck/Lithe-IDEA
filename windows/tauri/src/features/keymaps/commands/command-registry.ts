@@ -100,9 +100,11 @@ import {
   toggleFilesSidebar,
   toggleDockerSidebar,
   toggleGitHubSidebar,
+  toggleGitLogPane,
   toggleLineNumbers,
   toggleMinimap,
   toggleRenderWhitespace,
+  toggleRunPane,
   toggleSidebar,
   toggleSourceControlSidebar,
   toggleTerminalPane,
@@ -555,6 +557,13 @@ const viewCommands: Command[] = [
     execute: toggleSidebar,
   },
   {
+    id: "workbench.toggleRun",
+    title: "Toggle Run",
+    category: "View",
+    keybinding: "shift+f10",
+    execute: toggleRunPane,
+  },
+  {
     id: "workbench.toggleTerminal",
     title: "Toggle Terminal",
     category: "View",
@@ -567,6 +576,13 @@ const viewCommands: Command[] = [
     category: "View",
     keybinding: "cmd+`",
     execute: toggleTerminalPane,
+  },
+  {
+    id: "workbench.toggleGitLog",
+    title: "Toggle Git Log",
+    category: "Git",
+    keybinding: "alt+9",
+    execute: toggleGitLogPane,
   },
   {
     id: "workbench.toggleDiagnostics",
@@ -615,6 +631,12 @@ const viewCommands: Command[] = [
     category: "View",
     keybinding: "cmd+shift+f",
     execute: openGlobalSearchBuffer,
+  },
+  {
+    id: "workbench.searchEverywhere",
+    title: "Search Everywhere",
+    category: "View",
+    execute: openQuickOpen,
   },
   {
     id: "workbench.showProjectSearch",
@@ -873,7 +895,7 @@ const navigationCommands: Command[] = [
     id: "editor.goToReferences",
     title: "Go to References",
     category: "Navigation",
-    keybinding: "shift+F12",
+    keybinding: "cmd+b",
     execute: goToReferences,
   },
   {

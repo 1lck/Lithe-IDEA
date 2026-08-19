@@ -22,6 +22,7 @@ final class AppSettings: ObservableObject {
         static let javaLanguageServerJDKPath = "settings.javaLanguageServerJDKPath"
         static let commitMessageAI = "settings.commitMessageAI"
         static let keyboardShortcutOverrides = "settings.keyboardShortcutOverrides"
+        static let customLogDirectory = "settings.customLogDirectory"
     }
 
     private struct KeyboardShortcutOverridesPayload: Codable {
@@ -32,6 +33,7 @@ final class AppSettings: ObservableObject {
     }
 
     private let defaults: any KeyValueStore
+    private let logDirectoryProvider: any LogDirectoryProviding
 
     @Published var colorTheme: AppColorTheme {
         didSet {
@@ -77,11 +79,17 @@ final class AppSettings: ObservableObject {
         didSet { saveCommitMessageAI() }
     }
     @Published private(set) var keyboardShortcutOverrides: [String: [KeyboardShortcutBinding]]
+    @Published private(set) var customLogDirectory: URL?
 
     private var fileVisibilityRulesObservers: [UUID: () -> Void] = [:]
+    private var logDirectoryObservers: [UUID: (URL) -> Void] = [:]
 
-    init(store: any KeyValueStore) {
+    init(
+        store: any KeyValueStore,
+        logDirectoryProvider: any LogDirectoryProviding
+    ) {
         self.defaults = store
+        self.logDirectoryProvider = logDirectoryProvider
         colorTheme = AppColorTheme(
             rawValue: defaults.string(forKey: Key.colorTheme) ?? ""
         ) ?? .lithe
@@ -95,7 +103,7 @@ final class AppSettings: ObservableObject {
             rawValue: defaults.string(forKey: Key.editorTabLayoutMode) ?? ""
         ) ?? .singleLine
         showCodeVision = defaults.object(forKey: Key.showCodeVision) as? Bool ?? true
-        autoSave = defaults.object(forKey: Key.autoSave) as? Bool ?? false
+        autoSave = defaults.object(forKey: Key.autoSave) as? Bool ?? true
         autoSaveDelay = defaults.object(forKey: Key.autoSaveDelay) as? Double ?? 1.5
         terminalShell = TerminalShell(rawValue: defaults.string(forKey: Key.terminalShell) ?? "") ?? .system
         hiddenDirectoryNames = defaults.stringArray(forKey: Key.hiddenDirectories)
@@ -110,6 +118,10 @@ final class AppSettings: ObservableObject {
         ) ?? .ask
         javaLanguageServerJDKPath = defaults.string(forKey: Key.javaLanguageServerJDKPath) ?? ""
         keyboardShortcutOverrides = Self.loadKeyboardShortcutOverrides(from: defaults)
+        customLogDirectory = defaults.string(forKey: Key.customLogDirectory).flatMap { path in
+            guard !path.isEmpty else { return nil }
+            return URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
+        }
         if let data = defaults.data(forKey: Key.commitMessageAI),
            let saved = try? JSONDecoder().decode(CommitMessageAISettings.self, from: data) {
             commitMessageAI = saved
@@ -120,6 +132,27 @@ final class AppSettings: ObservableObject {
     }
 
     var terminalShellPath: String? { terminalShell.path }
+
+    var defaultLogDirectory: URL {
+        logDirectoryProvider.defaultLogDirectory
+    }
+
+    var logDirectory: URL { customLogDirectory ?? defaultLogDirectory }
+
+    func setCustomLogDirectory(_ url: URL?) {
+        customLogDirectory = url?.standardizedFileURL
+        defaults.set(customLogDirectory?.path, forKey: Key.customLogDirectory)
+        for observer in logDirectoryObservers.values {
+            observer(logDirectory)
+        }
+    }
+
+    @discardableResult
+    func addLogDirectoryObserver(_ observer: @escaping (URL) -> Void) -> UUID {
+        let id = UUID()
+        logDirectoryObservers[id] = observer
+        return id
+    }
 
     var fileVisibilityRules: FileVisibilityRules {
         FileVisibilityRules(
@@ -153,7 +186,7 @@ final class AppSettings: ObservableObject {
         tabWidth = 4
         editorTabLayoutMode = .singleLine
         showCodeVision = true
-        autoSave = false
+        autoSave = true
         autoSaveDelay = 1.5
         terminalShell = .system
         hiddenDirectoryNames = FileVisibilityRules.default.hiddenDirectoryNames
@@ -162,6 +195,7 @@ final class AppSettings: ObservableObject {
         projectOpenBehavior = .ask
         javaLanguageServerJDKPath = ""
         commitMessageAI = .default
+        setCustomLogDirectory(nil)
         setKeyboardShortcutOverrides([:])
     }
 

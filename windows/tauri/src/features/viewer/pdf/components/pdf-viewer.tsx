@@ -17,6 +17,7 @@ import { ViewerLayout } from "@/features/viewer/components/viewer-layout";
 import { ViewerErrorState, ViewerLoadingState } from "@/features/viewer/components/viewer-state";
 import { ViewerZoomControls } from "@/features/viewer/components/viewer-zoom-controls";
 import { useViewerZoom } from "@/features/viewer/hooks/use-viewer-zoom";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import { Spinner } from "@/ui/spinner";
 import { showConfirmDialog } from "@/ui/dialog";
@@ -32,6 +33,7 @@ interface PdfViewerProps {
 }
 
 export function PdfViewer({ filePath, fileName }: PdfViewerProps) {
+  const { t } = useTranslation();
   const [fileData, setFileData] = useState<Uint8Array | null>(null);
   const [numPages, setNumPages] = useState<number>(0);
   const [pageDimensions, setPageDimensions] = useState<{ width: number; height: number } | null>(
@@ -68,12 +70,12 @@ export function PdfViewer({ filePath, fileName }: PdfViewerProps) {
         setFileData(data);
       } catch (err) {
         console.error("Failed to read PDF file:", err);
-        setError("Failed to load PDF file.");
+        setError(t("viewer.failedToLoadPdfDocument"));
       }
     };
 
     loadFile();
-  }, [filePath]);
+  }, [filePath, t]);
 
   // Handle wheel zoom
   useEffect(() => {
@@ -89,7 +91,7 @@ export function PdfViewer({ filePath, fileName }: PdfViewerProps) {
 
   const onDocumentLoadError = (err: Error) => {
     console.error("PDF load error:", err);
-    setError(err.message || "Failed to load PDF document.");
+    setError(err.message || t("viewer.failedToLoadPdfDocument"));
   };
 
   // Track current page via scroll position
@@ -136,8 +138,8 @@ export function PdfViewer({ filePath, fileName }: PdfViewerProps) {
       // External links start with http etc.
       if (anchor.href.startsWith("http")) {
         const confirmed = await showConfirmDialog(
-          `Do you want to open this external link?\n\n${anchor.href}`,
-          { title: "External Link", confirmLabel: "Open" },
+          t("viewer.openExternalLinkConfirm", { url: anchor.href }),
+          { title: t("viewer.openExternalLinkTitle"), confirmLabel: t("ui.open") },
         );
         if (confirmed) {
           await openUrl(anchor.href);
@@ -166,7 +168,7 @@ export function PdfViewer({ filePath, fileName }: PdfViewerProps) {
             <Button
               variant="ghost"
               onClick={handleOpenExternal}
-              tooltip="Open in external viewer"
+              tooltip={t("viewer.openExternalViewer")}
               size="icon-xs"
             >
               <ExternalLink className="text-foreground" />
@@ -208,12 +210,12 @@ export function PdfViewer({ filePath, fileName }: PdfViewerProps) {
             onLoadError={onDocumentLoadError}
             loading={
               <div className="mt-20 flex flex-col items-center gap-2 text-subtle-foreground">
-                <Spinner label="Loading PDF" showLabel />
+                <Spinner label={t("viewer.loadingPdf")} showLabel />
               </div>
             }
             error={
               <div className="mt-20 flex flex-col items-center gap-2 text-destructive">
-                <span>Failed to load PDF document.</span>
+                <span>{t("viewer.failedToLoadPdfDocument")}</span>
               </div>
             }
             className="flex flex-col items-center gap-4"
@@ -246,7 +248,7 @@ export function PdfViewer({ filePath, fileName }: PdfViewerProps) {
                         height: pageDimensions ? pageDimensions.height * zoom : 800 * zoom,
                       }}
                     >
-                      <Spinner label="Loading page" compact />
+                      <Spinner label={t("viewer.loadingPdfPage")} compact />
                     </div>
                   }
                 />
@@ -254,7 +256,7 @@ export function PdfViewer({ filePath, fileName }: PdfViewerProps) {
             ))}
           </Document>
         ) : (
-          <ViewerLoadingState label="Reading file" />
+          <ViewerLoadingState label={t("viewer.readingFile")} />
         )}
       </div>
 
@@ -262,23 +264,28 @@ export function PdfViewer({ filePath, fileName }: PdfViewerProps) {
         <ViewerFooter
           endContent={
             <>
-              <span className="shrink-0">Size: {formatFileSize(fileData?.byteLength || 0)}</span>
+              <span className="shrink-0">
+                {t("viewer.size")}: {formatFileSize(fileData?.byteLength || 0)}
+              </span>
               <span className="truncate" title={relativePath || filePath}>
-                Path: {relativePath || filePath}
+                {t("viewer.path")}: {relativePath || filePath}
               </span>
             </>
           }
         >
-          <span>Zoom: {Math.round(zoom * 100)}%</span>
           <span>
-            Page: {currentPage}/{numPages}
+            {t("viewer.zoom")}: {Math.round(zoom * 100)}%
+          </span>
+          <span>
+            {t("viewer.page")}: {currentPage}/{numPages}
           </span>
           {pageDimensions ? (
             <span>
-              Size: {Math.round(pageDimensions.width)} × {Math.round(pageDimensions.height)}pt
+              {t("viewer.size")}: {Math.round(pageDimensions.width)} ×{" "}
+              {Math.round(pageDimensions.height)}pt
             </span>
           ) : null}
-          <span>Type: PDF</span>
+          <span>{t("viewer.type")}: PDF</span>
         </ViewerFooter>
       </div>
     </ViewerLayout>

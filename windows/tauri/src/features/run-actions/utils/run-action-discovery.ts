@@ -1,11 +1,16 @@
 import { invoke } from "@/platform/tauri-core";
 import { readFileContent } from "@/features/file-system/controllers/file-operations";
 import { parseRemotePath } from "@/features/remote/utils/remote-path";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { createTranslator } from "@/i18n/locale";
 import { joinPath } from "@/utils/path-helpers";
 import type { CodeLensItem } from "@/features/editor/lsp/use-code-lens";
 import type { RunActionItem, RunActionSource } from "../types/run-action.types";
 
 type ManifestContents = Map<string, string>;
+
+const getCurrentTranslator = () =>
+  createTranslator(useSettingsStore.getState().settings.displayLanguage);
 
 const SCRIPT_PRIORITY = new Map([
   ["dev", 0],
@@ -129,14 +134,15 @@ export function parsePackageRunActions(
 }
 
 export function parseCargoRunActions(content: string, workspacePath: string): RunActionItem[] {
+  const t = getCurrentTranslator();
   const actions: RunActionItem[] = [];
   if (/\[package\]/.test(content)) {
-    actions.push(createAction("cargo", "Cargo.toml", "Run", "cargo run", workspacePath));
+    actions.push(createAction("cargo", "Cargo.toml", t("runActions.run"), "cargo run", workspacePath));
   }
   actions.push(
-    createAction("cargo", "Cargo.toml", "Test", "cargo test", workspacePath),
-    createAction("cargo", "Cargo.toml", "Check", "cargo check", workspacePath),
-    createAction("cargo", "Cargo.toml", "Build", "cargo build", workspacePath),
+    createAction("cargo", "Cargo.toml", t("runActions.test"), "cargo test", workspacePath),
+    createAction("cargo", "Cargo.toml", t("runActions.check"), "cargo check", workspacePath),
+    createAction("cargo", "Cargo.toml", t("runActions.build"), "cargo build", workspacePath),
   );
   return actions;
 }
@@ -167,14 +173,16 @@ export function parseJustfileRunActions(content: string, workspacePath: string):
 }
 
 function parseGoRunActions(workspacePath: string): RunActionItem[] {
+  const t = getCurrentTranslator();
   return [
-    createAction("go", "go.mod", "Run", "go run .", workspacePath),
-    createAction("go", "go.mod", "Test", "go test ./...", workspacePath),
-    createAction("go", "go.mod", "Build", "go build ./...", workspacePath),
+    createAction("go", "go.mod", t("runActions.run"), "go run .", workspacePath),
+    createAction("go", "go.mod", t("runActions.test"), "go test ./...", workspacePath),
+    createAction("go", "go.mod", t("runActions.build"), "go build ./...", workspacePath),
   ];
 }
 
 export function parsePyprojectRunActions(content: string, workspacePath: string): RunActionItem[] {
+  const t = getCurrentTranslator();
   const actions: RunActionItem[] = [];
   const scriptsSection = content.match(/\[project\.scripts\]([\s\S]*?)(?=\n\[|$)/)?.[1] ?? "";
 
@@ -182,12 +190,12 @@ export function parsePyprojectRunActions(content: string, workspacePath: string)
     const match = line.match(/^\s*([A-Za-z0-9_.-]+)\s*=/);
     if (!match?.[1]) continue;
     actions.push(
-      createAction("python", "pyproject.toml", match[1], match[1], workspacePath, "Project script"),
+      createAction("python", "pyproject.toml", match[1], match[1], workspacePath, t("runActions.projectScript")),
     );
   }
 
   if (/(?:pytest|\[tool\.pytest)/i.test(content)) {
-    actions.push(createAction("python", "pyproject.toml", "Test", "pytest", workspacePath));
+    actions.push(createAction("python", "pyproject.toml", t("runActions.test"), "pytest", workspacePath));
   }
 
   return actions;

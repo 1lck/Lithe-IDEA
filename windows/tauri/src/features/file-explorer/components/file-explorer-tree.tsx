@@ -46,6 +46,7 @@ import { useFffSearch } from "@/features/file-search/hooks/use-fff-search";
 import { getNativeWorkspaceRootPaths } from "@/features/file-search/utils/file-search-paths";
 import { useGitStore } from "@/features/git/stores/git.store";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import Dialog from "@/ui/dialog";
 import { EmptyState } from "@/ui/empty";
@@ -108,7 +109,7 @@ interface FileExplorerTreeProps {
   activePath?: string;
   updateActivePath?: (path: string) => void;
   rootFolderPath?: string;
-  onFileSelect: (path: string, isDir: boolean) => void | Promise<void>;
+  onFileSelect: (path: string, isDir: boolean) => void | string | Promise<void | string>;
   onFileOpen?: (path: string, isDir: boolean) => void | Promise<void>;
   onCreateNewFileInDirectory: (
     directoryPath: string,
@@ -208,6 +209,7 @@ function FileExplorerTreeComponent({
     })),
   );
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
+  const { t } = useTranslation();
   const cutClipboardEntries = useFileClipboardStore((state) =>
     state.clipboard?.operation === "cut" ? state.clipboard.entries : null,
   );
@@ -243,8 +245,8 @@ function FileExplorerTreeComponent({
   }, []);
 
   const handleMoveError = useCallback(
-    (message: string) => showAlertDialog("Move Failed", message),
-    [showAlertDialog],
+    (message: string) => showAlertDialog(t("fileExplorer.moveFailed"), message),
+    [showAlertDialog, t],
   );
 
   const { dragState, startDrag } = useFileExplorerDragDrop(
@@ -666,7 +668,10 @@ function FileExplorerTreeComponent({
       if (!parentPath && rootFolderPath) parentPath = rootFolderPath;
 
       if (!parentPath) {
-        showAlertDialog("Cannot Create File", "Cannot determine where to create the file.");
+        showAlertDialog(
+          t("fileExplorer.cannotCreateFile"),
+          t("fileExplorer.cannotDetermineCreateLocation"),
+        );
         return;
       }
 
@@ -678,14 +683,20 @@ function FileExplorerTreeComponent({
       if (item.isDir) {
         const folder = findFileInTree(files, joinPath(parentPath, newName.trim()));
         if (folder) {
-          showAlertDialog("Folder Already Exists", "A folder with this name already exists.");
+          showAlertDialog(
+            t("fileExplorer.folderAlreadyExists"),
+            t("fileExplorer.folderAlreadyExistsMessage"),
+          );
           return;
         }
         onCreateNewFolderInDirectory?.(parentPath, newName.trim());
       } else {
         const file = findFileInTree(files, joinPath(parentPath, newName.trim()));
         if (file) {
-          showAlertDialog("File Already Exists", "A file with this name already exists.");
+          showAlertDialog(
+            t("fileExplorer.fileAlreadyExists"),
+            t("fileExplorer.fileAlreadyExistsMessage"),
+          );
           return;
         }
         onCreateNewFileInDirectory(parentPath, newName.trim());
@@ -958,7 +969,8 @@ function FileExplorerTreeComponent({
 
   const toggleDirectory = useCallback(
     async (path: string) => {
-      await Promise.resolve(onFileSelect(path, true));
+      const resolvedPath = await Promise.resolve(onFileSelect(path, true));
+      return resolvedPath ?? path;
     },
     [onFileSelect],
   );
@@ -980,9 +992,12 @@ function FileExplorerTreeComponent({
         fileOpenBenchmark.mark(t.path, "explorer-click");
       }
       if (t.isDir) {
-        void toggleDirectory(t.path);
         setFocusedPath(t.path);
         updateActivePath?.(t.path);
+        void toggleDirectory(t.path).then((resolvedPath) => {
+          setFocusedPath(resolvedPath);
+          updateActivePath?.(resolvedPath);
+        });
       } else {
         setFocusedPath(t.path);
         void Promise.resolve(onFileSelect(t.path, false));
@@ -1201,7 +1216,7 @@ function FileExplorerTreeComponent({
             if (isDir) {
               const expanded = useFileTreeStore.getState().actions.isExpanded(current.path);
               if (!expanded) {
-                void toggleDirectory(current.path);
+                void toggleDirectory(current.path).then(setFocusedPath);
               } else {
                 const child = visibleRows[curIndex + 1];
                 if (child && child.depth === visibleRows[curIndex].depth + 1) {
@@ -1232,7 +1247,7 @@ function FileExplorerTreeComponent({
             if (!current) break;
             e.preventDefault();
             if (isDir) {
-              void toggleDirectory(current.path);
+              void toggleDirectory(current.path).then(setFocusedPath);
             } else {
               void Promise.resolve(onFileOpen?.(current.path, false));
             }
@@ -1270,7 +1285,7 @@ function FileExplorerTreeComponent({
           onChange={setTreeSearchQuery}
           open={treeSearchOpen}
           onOpenChange={setTreeSearchOpen}
-          aria-label="Search files"
+          aria-label={t("fileExplorer.searchFiles")}
           aria-controls="file-tree-results"
           autoCapitalize="none"
           autoComplete="off"
@@ -1293,9 +1308,9 @@ function FileExplorerTreeComponent({
         />
         {treeSearchQuery.length > 0 ? (
           <SidebarHeaderIconButton
-            tooltip="Clear search"
+            tooltip={t("search.clear")}
             tooltipSide="bottom"
-            aria-label="Clear search"
+            aria-label={t("search.clear")}
             onClick={() => {
               setTreeSearchQuery("");
               requestAnimationFrame(() => searchInputRef.current?.focus());
@@ -1308,9 +1323,9 @@ function FileExplorerTreeComponent({
           <DropdownMenuTrigger
             render={
               <SidebarHeaderIconButton
-                tooltip="File explorer preferences"
+                tooltip={t("fileExplorer.preferences")}
                 tooltipSide="bottom"
-                aria-label="File explorer preferences"
+                aria-label={t("fileExplorer.preferences")}
               />
             }
           >
@@ -1320,7 +1335,7 @@ function FileExplorerTreeComponent({
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
                 <Eye />
-                Visibility
+                {t("fileExplorer.visibility")}
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
                 <DropdownMenuCheckboxItem
@@ -1330,7 +1345,7 @@ function FileExplorerTreeComponent({
                     void updateSetting("showHiddenFilesInFileTree", checked)
                   }
                 >
-                  Hidden Files
+                  {t("settings.files.hiddenFiles")}
                 </DropdownMenuCheckboxItem>
                 <DropdownMenuCheckboxItem
                   checked={fileTreeSettings.showGitignoredFilesInFileTree}
@@ -1339,7 +1354,7 @@ function FileExplorerTreeComponent({
                     void updateSetting("showGitignoredFilesInFileTree", checked)
                   }
                 >
-                  Gitignored Files
+                  {t("fileExplorer.gitignoredFiles")}
                 </DropdownMenuCheckboxItem>
                 <DropdownMenuCheckboxItem
                   checked={fileTreeSettings.showGitStatusInFileTree}
@@ -1348,14 +1363,14 @@ function FileExplorerTreeComponent({
                     void updateSetting("showGitStatusInFileTree", checked)
                   }
                 >
-                  Git Status Decorations
+                  {t("fileExplorer.gitStatusDecorations")}
                 </DropdownMenuCheckboxItem>
               </DropdownMenuSubContent>
             </DropdownMenuSub>
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
                 <Palette />
-                Appearance
+                {t("settings.tabs.appearance")}
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
                 <DropdownMenuCheckboxItem
@@ -1365,7 +1380,7 @@ function FileExplorerTreeComponent({
                     void updateSetting("showFileIconsInFileTree", checked)
                   }
                 >
-                  File Icons
+                  {t("fileExplorer.fileIcons")}
                 </DropdownMenuCheckboxItem>
                 <DropdownMenuCheckboxItem
                   checked={fileTreeSettings.showIndentGuidesInFileTree}
@@ -1374,7 +1389,7 @@ function FileExplorerTreeComponent({
                     void updateSetting("showIndentGuidesInFileTree", checked)
                   }
                 >
-                  Indent Guides
+                  {t("fileExplorer.indentGuides")}
                 </DropdownMenuCheckboxItem>
                 <DropdownMenuCheckboxItem
                   checked={fileTreeSettings.compactFoldersInFileTree}
@@ -1383,7 +1398,7 @@ function FileExplorerTreeComponent({
                     void updateSetting("compactFoldersInFileTree", checked)
                   }
                 >
-                  Compact Folders
+                  {t("settings.files.compactFolders")}
                 </DropdownMenuCheckboxItem>
                 <DropdownMenuCheckboxItem
                   checked={fileTreeSettings.hideRootFolderInFileTree}
@@ -1392,14 +1407,14 @@ function FileExplorerTreeComponent({
                     void updateSetting("hideRootFolderInFileTree", checked)
                   }
                 >
-                  Hide Root Folder
+                  {t("settings.files.hideRootFolder")}
                 </DropdownMenuCheckboxItem>
               </DropdownMenuSubContent>
             </DropdownMenuSub>
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
                 <ListBullets />
-                Sort Order
+                {t("settings.files.sortOrder")}
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
                 <DropdownMenuRadioGroup
@@ -1411,10 +1426,10 @@ function FileExplorerTreeComponent({
                   }}
                 >
                   <DropdownMenuRadioItem value="folders-first" closeOnClick={false}>
-                    Folders First
+                    {t("settings.files.foldersFirst")}
                   </DropdownMenuRadioItem>
                   <DropdownMenuRadioItem value="name" closeOnClick={false}>
-                    Name
+                    {t("settings.files.name")}
                   </DropdownMenuRadioItem>
                 </DropdownMenuRadioGroup>
               </DropdownMenuSubContent>
@@ -1422,7 +1437,7 @@ function FileExplorerTreeComponent({
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
                 <TextIndent />
-                Indentation
+                {t("fileExplorer.indentation")}
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
                 <DropdownMenuRadioGroup
@@ -1430,16 +1445,16 @@ function FileExplorerTreeComponent({
                   onValueChange={(value) => void updateSetting("fileTreeIndentSize", Number(value))}
                 >
                   <DropdownMenuRadioItem value="12" closeOnClick={false}>
-                    Compact
+                    {t("fileExplorer.indentationCompact")}
                   </DropdownMenuRadioItem>
                   <DropdownMenuRadioItem value="16" closeOnClick={false}>
-                    Default
+                    {t("fileExplorer.indentationDefault")}
                   </DropdownMenuRadioItem>
                   <DropdownMenuRadioItem value="20" closeOnClick={false}>
-                    Spacious
+                    {t("fileExplorer.indentationSpacious")}
                   </DropdownMenuRadioItem>
                   <DropdownMenuRadioItem value="24" closeOnClick={false}>
-                    Wide
+                    {t("fileExplorer.indentationWide")}
                   </DropdownMenuRadioItem>
                 </DropdownMenuRadioGroup>
               </DropdownMenuSubContent>
@@ -1453,7 +1468,7 @@ function FileExplorerTreeComponent({
               }
             >
               <CursorClick />
-              Auto Reveal Active File
+              {t("settings.files.autoReveal")}
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem
               checked={fileTreeSettings.confirmBeforeFileDelete}
@@ -1461,7 +1476,7 @@ function FileExplorerTreeComponent({
               onCheckedChange={(checked) => void updateSetting("confirmBeforeFileDelete", checked)}
             >
               <Trash />
-              Confirm Before Delete
+              {t("settings.files.confirmBeforeDelete")}
             </DropdownMenuCheckboxItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -1471,7 +1486,7 @@ function FileExplorerTreeComponent({
         id="file-tree-results"
         className="min-h-0 min-w-0 flex-1"
         role="tree"
-        aria-label="File Explorer"
+        aria-label={t("fileExplorer.ariaLabel")}
         aria-busy={isTreeSearchSearching}
         aria-activedescendant={highlightedPath ? getFileTreeRowId(highlightedPath) : undefined}
         tabIndex={0}
@@ -1482,8 +1497,8 @@ function FileExplorerTreeComponent({
           !rootFolderPath ? (
             <div className="file-tree-empty-state absolute inset-0 flex items-center justify-center">
               <EmptyState
-                message="No folder open"
-                action={{ label: "Open Folder", onClick: handleOpenFolder }}
+                message={t("fileExplorer.noFolderOpen")}
+                action={{ label: t("welcome.openFolder"), onClick: handleOpenFolder }}
               />
             </div>
           ) : displayedFiles.length === 0 ? (
@@ -1491,10 +1506,10 @@ function FileExplorerTreeComponent({
               <EmptyState
                 message={
                   isTreeSearchSearching
-                    ? "Searching files"
+                    ? t("fileExplorer.searchingFiles")
                     : isTreeSearchActive
-                      ? "No matching files"
-                      : "Folder is empty"
+                      ? t("fileExplorer.noMatchingFiles")
+                      : t("fileExplorer.folderIsEmpty")
                 }
               />
             </div>
@@ -1566,7 +1581,7 @@ function FileExplorerTreeComponent({
               size="xs"
               className="ui-text-base"
             >
-              OK
+              {t("fileExplorer.ok")}
             </Button>
           }
         >
@@ -1575,7 +1590,7 @@ function FileExplorerTreeComponent({
       )}
       {openAllFilesDialog && (
         <Dialog
-          title="Open All Files"
+          title={t("files.openAllFiles")}
           icon={AlertTriangle}
           onClose={() => {
             if (!isOpeningAllFiles) setOpenAllFilesDialog(null);
@@ -1588,7 +1603,7 @@ function FileExplorerTreeComponent({
                 variant="default"
                 className="ui-text-base"
               >
-                Cancel
+                {t("files.cancel")}
               </Button>
               <Button
                 onClick={() => void handleOpenAllFilesConfirm()}
@@ -1596,19 +1611,25 @@ function FileExplorerTreeComponent({
                 variant="accent"
                 className="ui-text-base"
               >
-                {isOpeningAllFiles ? "Opening..." : "Open"}
+                {isOpeningAllFiles ? t("fileExplorer.opening") : t("files.open")}
               </Button>
             </>
           }
         >
           <p className="text-foreground ui-text-base">
-            {openAllFilesDialog.filePaths.length} files will be opened in tabs. Continue?
+            {t("fileExplorer.openAllFilesMessage", {
+              count: openAllFilesDialog.filePaths.length,
+            })}
           </p>
         </Dialog>
       )}
       {deleteCandidate && (
         <Dialog
-          title={deleteCandidate.isDir ? "Delete Folder" : "Delete File"}
+          title={
+            deleteCandidate.isDir
+              ? t("fileExplorer.deleteFolder")
+              : t("fileExplorer.deleteFile")
+          }
           icon={AlertTriangle}
           onClose={() => {
             if (!isDeletingPath) setDeleteCandidate(null);
@@ -1621,7 +1642,7 @@ function FileExplorerTreeComponent({
                 variant="default"
                 className="ui-text-base disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Cancel
+                {t("files.cancel")}
               </Button>
               <Button
                 onClick={() => void handleDeleteConfirm()}
@@ -1629,15 +1650,19 @@ function FileExplorerTreeComponent({
                 variant="danger"
                 className="ui-text-base disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {isDeletingPath ? "Deleting..." : "Delete"}
+                {isDeletingPath ? t("fileExplorer.deleting") : t("files.delete")}
               </Button>
             </>
           }
         >
           <p className="text-foreground ui-text-base">
             {deleteCandidate.isDir
-              ? `Are you sure you want to delete the folder "${getPathBaseName(deleteCandidate.path)}" and all its contents? This action cannot be undone.`
-              : `Are you sure you want to delete the file "${getPathBaseName(deleteCandidate.path)}"? This action cannot be undone.`}
+              ? t("fileExplorer.deleteFolderMessage", {
+                  name: getPathBaseName(deleteCandidate.path),
+                })
+              : t("fileExplorer.deleteFileMessage", {
+                  name: getPathBaseName(deleteCandidate.path),
+                })}
           </p>
         </Dialog>
       )}

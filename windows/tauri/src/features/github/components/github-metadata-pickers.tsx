@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 import {
   Combobox,
   ComboboxContent,
@@ -27,6 +28,7 @@ export function GitHubLabelPicker({
   onChange,
   isLoading = false,
 }: GitHubLabelPickerProps) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const selectedLabels = useMemo(
     () => labels.filter((label) => selectedNames.has(label.name)),
@@ -34,10 +36,10 @@ export function GitHubLabelPicker({
   );
   const summary =
     selectedLabels.length === 0
-      ? "Labels"
+      ? t("github.labels")
       : selectedLabels.length === 1
         ? selectedLabels[0]?.name
-        : `${selectedLabels.length} labels`;
+        : t("github.labelsCount", { count: selectedLabels.length });
 
   return (
     <Combobox<Label, true>
@@ -63,7 +65,7 @@ export function GitHubLabelPicker({
         <ComboboxInput
           leftIcon={Tag}
           placeholder={summary}
-          aria-label="Choose labels"
+          aria-label={t("github.chooseLabels")}
           size="xs"
           variant="ghost"
           className="w-full bg-transparent hover:bg-accent/60"
@@ -71,7 +73,9 @@ export function GitHubLabelPicker({
         />
       </div>
       <ComboboxContent className="min-w-72" data-prevent-dialog-escape="true">
-        <ComboboxEmpty>{isLoading ? "Loading labels..." : "No matching labels"}</ComboboxEmpty>
+        <ComboboxEmpty>
+          {isLoading ? t("github.loadingLabels") : t("github.noMatchingLabels")}
+        </ComboboxEmpty>
         <ComboboxList>
           {(label: Label) => (
             <ComboboxItem key={label.name} value={label}>
@@ -94,14 +98,15 @@ interface GitHubAssigneePickerProps {
 }
 
 export function GitHubAssigneePicker({ value, onChange }: GitHubAssigneePickerProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const summary =
     value.length === 0
-      ? "Assignees"
+      ? t("github.assignees")
       : value.length === 1
         ? `@${value[0]}`
-        : `${value.length} people`;
+        : t("github.peopleCount", { count: value.length });
 
   const addAssignees = () => {
     const nextValues = draft
@@ -139,8 +144,8 @@ export function GitHubAssigneePicker({ value, onChange }: GitHubAssigneePickerPr
                 addAssignees();
               }
             }}
-            placeholder="GitHub username"
-            aria-label="Add assignee"
+            placeholder={t("github.githubUsername")}
+            aria-label={t("github.addAssignee")}
             size="sm"
             autoFocus
           />
@@ -150,7 +155,7 @@ export function GitHubAssigneePicker({ value, onChange }: GitHubAssigneePickerPr
             size="icon-sm"
             onClick={addAssignees}
             disabled={!draft.trim()}
-            aria-label="Add assignee"
+            aria-label={t("github.addAssignee")}
           >
             <Plus />
           </Button>
@@ -165,7 +170,7 @@ export function GitHubAssigneePicker({ value, onChange }: GitHubAssigneePickerPr
                 size="xs"
                 className="gap-1 bg-accent/55 font-normal"
                 onClick={() => onChange(value.filter((item) => item !== assignee))}
-                aria-label={`Remove @${assignee}`}
+                aria-label={t("github.removeAssignee", { assignee })}
               >
                 @{assignee}
                 <X />
@@ -174,7 +179,7 @@ export function GitHubAssigneePicker({ value, onChange }: GitHubAssigneePickerPr
           </div>
         ) : (
           <p className="px-1 text-subtle-foreground">
-            Type one or more GitHub usernames, then press Enter.
+            {t("github.typeGitHubUsernames")}
           </p>
         )}
       </PopoverContent>

@@ -46,6 +46,7 @@ import {
   TableIcon,
   TextTIcon,
 } from "@/ui/icons";
+import { useTranslation } from "@/i18n/locale-provider";
 import type {
   GitHubMarkdownCommandDefinition,
   GitHubMarkdownCommandGroup,
@@ -91,6 +92,7 @@ interface FloatingToolbarPosition {
 }
 
 export function MarkdownFloatingToolbar() {
+  const { t } = useTranslation();
   const editor = useCellValue(rootEditor$);
   const [position, setPosition] = useState<FloatingToolbarPosition | null>(null);
 
@@ -179,7 +181,7 @@ export function MarkdownFloatingToolbar() {
     <div
       className="github-markdown-floating-toolbar"
       role="toolbar"
-      aria-label="text formatting"
+      aria-label={t("github.textFormatting")}
       data-placement={position.placement}
       style={{ left: position.left, top: position.top } as CSSProperties}
       onPointerDown={(event) => event.preventDefault()}
@@ -194,6 +196,7 @@ export function MarkdownFloatingToolbar() {
 }
 
 export function MarkdownSlashCommands() {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const convertSelectionToNode = usePublisher(convertSelectionToNode$);
   const applyListType = usePublisher(applyListType$);
@@ -256,10 +259,14 @@ export function MarkdownSlashCommands() {
         if (!anchorElementRef.current) return null;
 
         return createPortal(
-          <div className="github-markdown-slash-menu" role="listbox" aria-label="block commands">
+          <div
+            className="github-markdown-slash-menu"
+            role="listbox"
+            aria-label={t("github.blockCommands")}
+          >
             <CommandList className="max-h-80" contentClassName="p-1.5">
               {menu.options.length === 0 ? (
-                <CommandEmpty>no matching blocks</CommandEmpty>
+                <CommandEmpty>{t("github.noMatchingBlocks")}</CommandEmpty>
               ) : (
                 COMMAND_GROUPS.map((group) => {
                   const groupOptions = menu.options.filter(
@@ -269,7 +276,9 @@ export function MarkdownSlashCommands() {
 
                   return (
                     <div key={group} className="github-markdown-slash-group">
-                      <div className="github-markdown-slash-group-label">{group}</div>
+                      <div className="github-markdown-slash-group-label">
+                        {t(`github.markdownCommandGroup.${group}`)}
+                      </div>
                       {groupOptions.map((option) => {
                         const index = menu.options.indexOf(option);
                         const isSelected = menu.selectedIndex === index;
@@ -284,7 +293,7 @@ export function MarkdownSlashCommands() {
                           >
                             <CommandItemRow
                               icon={getCommandIcon(option.definition.id)}
-                              title={option.definition.label}
+                              title={t(`github.markdownCommand.${option.definition.id}`)}
                               density="compact"
                               isSelected={isSelected}
                               onMouseEnter={() => menu.setHighlightedIndex(index)}

@@ -3,6 +3,7 @@ import "@/features/editor/markdown/styles.css";
 import { useHighlightedMarkdown } from "@/features/editor/markdown/use-highlighted-markdown";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { buildReleaseNotesMarkdown, type WhatsNewInfo } from "@/features/settings/lib/whats-new";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Spinner } from "@/ui/spinner";
 
 interface ReleaseNotesContentProps {
@@ -11,6 +12,7 @@ interface ReleaseNotesContentProps {
 }
 
 export function ReleaseNotesContent({ info, loading = false }: ReleaseNotesContentProps) {
+  const { t } = useTranslation();
   const html = useHighlightedMarkdown(buildReleaseNotesMarkdown(info));
   const openWebViewerBuffer = useBufferStore.use.actions().openWebViewerBuffer;
   const handleLinkClick = useCallback(
@@ -31,7 +33,7 @@ export function ReleaseNotesContent({ info, loading = false }: ReleaseNotesConte
   if (loading && !info.body?.trim()) {
     return (
       <div className="flex min-h-24 items-center justify-center" role="status">
-        <Spinner label="Loading release notes" />
+        <Spinner label={t("onboarding.loadingReleaseNotes")} />
       </div>
     );
   }

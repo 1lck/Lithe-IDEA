@@ -45,6 +45,7 @@ enum LitheTheme {
         let window: RGBA
         let titlebar: RGBA
         let toolHeader: RGBA
+        let toolHeaderInactive: RGBA
         let sidebar: RGBA
         let editor: RGBA
         let raised: RGBA
@@ -67,7 +68,10 @@ enum LitheTheme {
         let primaryText: RGBA
         let secondaryText: RGBA
         let tertiaryText: RGBA
+        let toolWindowText: RGBA
+        let toolWindowSelectedText: RGBA
         let accent: RGBA
+        let runAction: RGBA
         let success: RGBA
         let warning: RGBA
         let error: RGBA
@@ -130,6 +134,7 @@ enum LitheTheme {
                 window: surface,
                 titlebar: surface.mixed(with: ink, amount: strongChromeAmount),
                 toolHeader: surface.mixed(with: ink, amount: chromeAmount),
+                toolHeaderInactive: surface.mixed(with: ink, amount: strongChromeAmount),
                 sidebar: isDark
                     ? surface.mixed(with: RGBA(0x000000), amount: 0.10)
                     : surface.mixed(with: ink, amount: chromeAmount),
@@ -156,7 +161,10 @@ enum LitheTheme {
                 primaryText: ink,
                 secondaryText: ink.withAlpha(isDark ? 0.62 : 0.60),
                 tertiaryText: ink.withAlpha(isDark ? 0.43 : 0.42),
+                toolWindowText: ink,
+                toolWindowSelectedText: RGBA(0xffffff),
                 accent: accent,
+                runAction: isDark ? RGBA(0x59a869) : RGBA(0x2e7d32),
                 success: diffAdded,
                 warning: isDark ? RGBA(0xe6a23c) : RGBA(0xa96500),
                 error: diffRemoved,
@@ -175,32 +183,36 @@ enum LitheTheme {
             }
 
             return Palette(
-                window: adaptive(light: (0.965, 0.969, 0.976, 1), dark: (0.106, 0.113, 0.125, 1)),
-                titlebar: adaptive(light: (0.925, 0.933, 0.945, 1), dark: (0.145, 0.155, 0.169, 1)),
-                toolHeader: adaptive(light: (0.945, 0.949, 0.957, 1), dark: (0.122, 0.130, 0.142, 1)),
-                sidebar: adaptive(light: (0.925, 0.933, 0.945, 1), dark: (0.090, 0.096, 0.106, 1)),
-                editor: adaptive(light: (1, 1, 1, 1), dark: (0.074, 0.079, 0.088, 1)),
+                window: adaptive(light: (0.965, 0.969, 0.976, 1), dark: (0.157, 0.161, 0.173, 1)),
+                titlebar: adaptive(light: (0.925, 0.933, 0.945, 1), dark: (0.157, 0.161, 0.173, 1)),
+                toolHeader: adaptive(light: (0.925, 0.933, 0.945, 1), dark: (0.157, 0.161, 0.173, 1)),
+                toolHeaderInactive: adaptive(light: (0.902, 0.910, 0.925, 1), dark: (0.224, 0.231, 0.251, 1)),
+                sidebar: adaptive(light: (0.925, 0.933, 0.945, 1), dark: (0.157, 0.161, 0.173, 1)),
+                editor: adaptive(light: (1, 1, 1, 1), dark: (0.110, 0.114, 0.122, 1)),
                 raised: adaptive(light: (1, 1, 1, 1), dark: (0.165, 0.175, 0.190, 1)),
-                selection: adaptive(light: (0.205, 0.435, 0.765, 1), dark: (0.170, 0.290, 0.490, 1)),
+                selection: adaptive(light: (0.275, 0.455, 0.945, 1), dark: (0.208, 0.455, 0.941, 1)),
                 subtleSelection: adaptive(light: (0.855, 0.902, 0.973, 1), dark: (0.205, 0.218, 0.238, 1)),
                 hoverBackground: adaptive(light: (0, 0, 0, 0.050), dark: (1, 1, 1, 0.055)),
                 pressedBackground: adaptive(light: (0, 0, 0, 0.090), dark: (1, 1, 1, 0.095)),
-                activeTabBackground: adaptive(light: (1, 1, 1, 1), dark: (0.145, 0.155, 0.170, 1)),
+                activeTabBackground: adaptive(light: (1, 1, 1, 1), dark: (0.110, 0.114, 0.122, 1)),
                 tabUnderline: adaptive(light: (0.180, 0.425, 0.790, 1), dark: (0.31, 0.58, 0.98, 1)),
                 diffInformationBackground: adaptive(light: (0.895, 0.935, 0.990, 1), dark: (0.13, 0.20, 0.30, 1)),
                 diffInformationText: adaptive(light: (0.105, 0.365, 0.680, 1), dark: (0.50, 0.72, 0.98, 1)),
-                divider: adaptive(light: (0, 0, 0, 0.100), dark: (1, 1, 1, 0.075)),
-                panelBorder: adaptive(light: (0, 0, 0, 0.145), dark: (1, 1, 1, 0.13)),
+                divider: adaptive(light: (0, 0, 0, 0.100), dark: (0.180, 0.188, 0.212, 1)),
+                panelBorder: adaptive(light: (0, 0, 0, 0.145), dark: (0.263, 0.271, 0.290, 1)),
                 inputBackground: adaptive(light: (1, 1, 1, 1), dark: (0.065, 0.070, 0.078, 1)),
                 inputBorder: adaptive(light: (0, 0, 0, 0.150), dark: (1, 1, 1, 0.12)),
                 inputFocusBorder: adaptive(light: (0.180, 0.425, 0.790, 0.90), dark: (0.31, 0.58, 0.98, 0.85)),
-                popupBackground: adaptive(light: (1, 1, 1, 1), dark: (0.135, 0.143, 0.157, 1)),
+                popupBackground: adaptive(light: (1, 1, 1, 1), dark: (0.157, 0.161, 0.173, 1)),
                 popupShadow: adaptive(light: (0, 0, 0, 0.20), dark: (0, 0, 0, 0.55)),
                 badgeBackground: adaptive(light: (0, 0, 0, 0.075), dark: (1, 1, 1, 0.10)),
-                primaryText: adaptive(light: (0, 0, 0, 0.82), dark: (1, 1, 1, 0.86)),
+                primaryText: adaptive(light: (0, 0, 0, 0.82), dark: (0.875, 0.882, 0.898, 1)),
                 secondaryText: adaptive(light: (0, 0, 0, 0.55), dark: (1, 1, 1, 0.50)),
                 tertiaryText: adaptive(light: (0, 0, 0, 0.38), dark: (1, 1, 1, 0.34)),
+                toolWindowText: adaptive(light: (0, 0, 0, 0.82), dark: (0.875, 0.882, 0.898, 1)),
+                toolWindowSelectedText: adaptive(light: (1, 1, 1, 1), dark: (1, 1, 1, 1)),
                 accent: adaptive(light: (0.180, 0.425, 0.790, 1), dark: (0.31, 0.58, 0.98, 1)),
+                runAction: adaptive(light: (0.180, 0.490, 0.196, 1), dark: (0.349, 0.659, 0.412, 1)),
                 success: adaptive(light: (0.105, 0.545, 0.235, 1), dark: (0.28, 0.72, 0.39, 1)),
                 warning: adaptive(light: (0.690, 0.410, 0.035, 1), dark: (0.91, 0.63, 0.20, 1)),
                 error: adaptive(light: (0.780, 0.175, 0.175, 1), dark: (0.92, 0.33, 0.33, 1)),
@@ -226,6 +238,7 @@ enum LitheTheme {
         case skill
         case guide
         case activeGuide
+        case divider
     }
 
     static func nsColor(
@@ -246,13 +259,16 @@ enum LitheTheme {
         case .skill: palette.skill.nsColor
         case .guide: palette.guide.nsColor
         case .activeGuide: palette.activeGuide.nsColor
+        case .divider: palette.divider.nsColor
         }
     }
 
     // MARK: - 背景层次
     static var window: Color { adaptive(\.window) }
     static var titlebar: Color { adaptive(\.titlebar) }
+    static var settingsSurface: Color { editor }
     static var toolHeader: Color { adaptive(\.toolHeader) }
+    static var toolHeaderInactive: Color { adaptive(\.toolHeaderInactive) }
     static var sidebar: Color { adaptive(\.sidebar) }
     static var editor: Color { adaptive(\.editor) }
     static var raised: Color { adaptive(\.raised) }
@@ -288,9 +304,12 @@ enum LitheTheme {
     static var primaryText: Color { adaptive(\.primaryText) }
     static var secondaryText: Color { adaptive(\.secondaryText) }
     static var tertiaryText: Color { adaptive(\.tertiaryText) }
+    static var toolWindowText: Color { adaptive(\.toolWindowText) }
+    static var toolWindowSelectedText: Color { adaptive(\.toolWindowSelectedText) }
 
     // MARK: - 语义色
     static var accent: Color { adaptive(\.accent) }
+    static var runAction: Color { adaptive(\.runAction) }
     static var success: Color { adaptive(\.success) }
     static var warning: Color { adaptive(\.warning) }
     static var error: Color { adaptive(\.error) }
@@ -316,7 +335,23 @@ enum LitheTheme {
 
     static var uiFont: Font { uiFont(size: 14) }
     static var smallFont: Font { uiFont(size: 12) }
-    static let codeFont = Font.system(size: 13, design: .monospaced)
+    static let codeFont = Font.custom("JetBrainsMono-Regular", size: 13)
+    static let editorLineHeightMultiple: CGFloat = 1.2
+    static let editorBaselineLift: CGFloat = 1.5
+
+    static func editorFont(size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
+        let postScriptName = weight.rawValue >= NSFont.Weight.semibold.rawValue
+            ? "JetBrainsMono-Bold"
+            : "JetBrainsMono-Regular"
+        return NSFont(name: postScriptName, size: size)
+            ?? .monospacedSystemFont(ofSize: size, weight: weight)
+    }
+
+    static var editorParagraphStyle: NSParagraphStyle {
+        let style = NSMutableParagraphStyle()
+        style.lineHeightMultiple = editorLineHeightMultiple
+        return style
+    }
 
     private static func uiFont(size: CGFloat) -> Font {
         if activeTheme != .lithe, NSFont(name: "Inter", size: size) != nil {
@@ -379,7 +414,7 @@ struct LitheIconButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundStyle(LitheTheme.secondaryText)
+            .foregroundStyle(LitheTheme.toolWindowText)
             .frame(width: 28, height: 28)
             .background(
                 RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius)

@@ -13,11 +13,35 @@ export interface GitStatus {
 
 export interface GitCommit {
   hash: string;
+  shortHash: string;
+  parentHashes: string[];
   message: string;
   description?: string;
   author: string;
   email?: string;
   date: string;
+  decorations: string;
+}
+
+export type GitReferenceKind = "local" | "remote" | "tag";
+
+export interface GitReference {
+  fullName: string;
+  shortName: string;
+  kind: GitReferenceKind;
+  isCurrent: boolean;
+  upstreamShortName?: string;
+}
+
+export interface GitHistorySnapshot {
+  references: GitReference[];
+  commits: GitCommit[];
+  hasMore: boolean;
+}
+
+export interface GitCommitFile {
+  status: string;
+  path: string;
 }
 
 export interface GitDiffLine {
@@ -25,6 +49,14 @@ export interface GitDiffLine {
   content: string;
   old_line_number?: number;
   new_line_number?: number;
+}
+
+export interface GitDiffSplitRow {
+  kind: "context" | "changed" | "addition" | "removal";
+  old_line_number?: number;
+  new_line_number?: number;
+  old_content?: string;
+  new_content?: string;
 }
 
 export interface GitDiff {
@@ -43,6 +75,7 @@ export interface GitDiff {
   additions?: number;
   deletions?: number;
   is_truncated?: boolean;
+  split_hunks?: GitDiffSplitRow[][];
 }
 
 export interface GitDiffStat {
@@ -61,6 +94,34 @@ export interface GitRemote {
   name: string;
   url: string;
 }
+
+/** The current branch's relationship with its configured upstream. */
+export interface GitPullPreflight {
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  diverged: boolean;
+  hasLocalChanges: boolean;
+}
+
+/** A pull policy accepted by the shared Rust Core. */
+export type PullStrategy = "ffOnly" | "merge" | "rebase";
+
+export type GitPullResult =
+  | { status: "pulled"; strategy: PullStrategy; message: string }
+  | { status: "cancelled"; message: string }
+  | {
+      status: "blocked";
+      reason: "no-upstream" | "up-to-date" | "dirty" | "state-changed";
+      message: string;
+    }
+  | {
+      status: "failed";
+      stage: "fetch" | "preflight" | "pull";
+      message: string;
+    }
+  | { status: "conflict"; operation: GitOperationState; message: string }
+  | { status: "duplicate"; message: string };
 
 export interface GitStash {
   index: number;
@@ -101,4 +162,18 @@ export interface GitBlameLine {
   email: string;
   time: number;
   commit: string;
+}
+
+export type GitOperationKind = "merge" | "rebase" | "cherryPick" | "revert";
+
+/**
+ * An in-progress merge/rebase/cherry-pick/revert detected from the repository's
+ * Git marker files, so operations started outside the app are reported too.
+ */
+export interface GitOperationState {
+  kind: GitOperationKind;
+  reference: string | null;
+  step: number | null;
+  total: number | null;
+  conflictedPaths: string[];
 }

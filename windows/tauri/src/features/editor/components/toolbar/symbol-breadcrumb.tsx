@@ -1,5 +1,5 @@
 import { Fragment, useMemo } from "react";
-import { extensionRegistry } from "@/extensions/registry/extension-registry";
+import { isEditorLspSupported } from "@/features/editor/lsp/built-in-language-support";
 import { useExtensionStore } from "@/extensions/registry/extension-store";
 import { useEditorStateStore } from "@/features/editor/stores/state.store";
 import { resolveEditorViewCursorPosition } from "@/features/editor/utils/editor-view-cursor-position";
@@ -7,6 +7,7 @@ import { useDocumentOutline } from "@/features/outline/hooks/use-document-outlin
 import { findSymbolPathAtPosition } from "@/features/outline/utils/symbol-path";
 import { openOutlineSymbol } from "@/features/outline/utils/outline-symbols";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import {
   Breadcrumb,
@@ -33,12 +34,13 @@ export function SymbolBreadcrumb({
   interactive = true,
   className,
 }: SymbolBreadcrumbProps) {
+  const { t } = useTranslation();
   const breadcrumbShowSymbols = useSettingsStore((state) => state.settings.breadcrumbShowSymbols);
 
   const availableExtensions = useExtensionStore.use.availableExtensions();
   const isExtensionStoreReady = availableExtensions.size > 0;
 
-  const isLspSupported = !filePath.includes("://") && extensionRegistry.isLspSupported(filePath);
+  const isLspSupported = !filePath.includes("://") && isEditorLspSupported(filePath);
   const { symbols, isSupported } = useDocumentOutline({
     isActive: breadcrumbShowSymbols && isLspSupported,
     bufferId,
@@ -75,7 +77,7 @@ export function SymbolBreadcrumb({
 
   return (
     <Breadcrumb
-      aria-label="Symbol path"
+      aria-label={t("editor.symbolPath")}
       className={cn("min-w-0 overflow-x-auto scrollbar-none", className)}
     >
       <BreadcrumbList className="flex-nowrap gap-0">

@@ -10,6 +10,7 @@ import {
 import { themeRegistry } from "@/extensions/themes/theme-registry";
 import type { ThemeDefinition } from "@/extensions/themes/theme.types";
 import { installThemeJson } from "@/features/settings/utils/theme-upload";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import Dialog from "@/ui/dialog";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/ui/field";
@@ -34,9 +35,9 @@ function themeIdFromName(name: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-function formatIssues(error: unknown): string[] {
+function formatIssues(error: unknown, fallback: string): string[] {
   if (error instanceof ThemeFileValidationError) return error.issues;
-  return [error instanceof Error ? error.message : "Failed to generate the theme file."];
+  return [error instanceof Error ? error.message : fallback];
 }
 
 export function CustomThemeCreatorDialog({
@@ -45,9 +46,10 @@ export function CustomThemeCreatorDialog({
   onClose,
   onInstalled,
 }: CustomThemeCreatorDialogProps) {
+  const { t } = useTranslation();
   const fallbackTheme = themes[0];
   const initialBaseTheme = themeRegistry.getTheme(baseThemeId) ?? fallbackTheme;
-  const [name, setName] = useState("My Lithe Theme");
+  const [name, setName] = useState(t("customTheme.defaultName"));
   const [id, setId] = useState("my-lithe-theme");
   const [idEdited, setIdEdited] = useState(false);
   const [selectedBaseThemeId, setSelectedBaseThemeId] = useState(
@@ -79,7 +81,7 @@ export function CustomThemeCreatorDialog({
       setIssues([]);
       return themeFile;
     } catch (error) {
-      setIssues(formatIssues(error));
+      setIssues(formatIssues(error, t("customTheme.generateFailed")));
       return null;
     }
   };
@@ -91,14 +93,14 @@ export function CustomThemeCreatorDialog({
     setIsInstalling(false);
 
     if (!result.success || !result.theme) {
-      setIssues(result.details ?? [result.error ?? "Failed to install the theme."]);
+      setIssues(result.details ?? [result.error ?? t("customTheme.installFailed")]);
       return;
     }
 
     toast.success(
       result.themes?.length === 1
-        ? `Installed ${result.theme.name}`
-        : `Installed ${result.themes?.length ?? 0} theme variants`,
+        ? t("customTheme.installed", { theme: result.theme.name })
+        : t("customTheme.installedVariants", { count: result.themes?.length ?? 0 }),
     );
     onInstalled(result.theme.id);
     onClose();
@@ -113,16 +115,18 @@ export function CustomThemeCreatorDialog({
       const targetPath = await save({
         defaultPath: `${themeFile.themes[0]?.id || "lithe-theme"}.json`,
         filters: [
-          { name: "Lithe theme", extensions: ["json"] },
-          { name: "All files", extensions: ["*"] },
+          { name: t("customTheme.filterLitheTheme"), extensions: ["json"] },
+          { name: t("customTheme.filterAllFiles"), extensions: ["*"] },
         ],
       });
       if (!targetPath) return;
 
       await writeTextFile(targetPath, formatThemeFile(themeFile));
-      toast.success("Theme JSON saved");
+      toast.success(t("customTheme.jsonSaved"));
     } catch (error) {
-      toast.error("Failed to save theme JSON", { description: formatIssues(error)[0] });
+      toast.error(t("customTheme.saveJsonFailed"), {
+        description: formatIssues(error, t("customTheme.generateFailed"))[0],
+      });
     } finally {
       setIsSaving(false);
     }
@@ -130,14 +134,14 @@ export function CustomThemeCreatorDialog({
 
   return (
     <Dialog
-      title="Create Theme"
+      title={t("customTheme.createTitle")}
       icon={BracketsCurlyIcon}
       onClose={onClose}
       size="lg"
       footer={
         <>
           <Button type="button" variant="ghost" onClick={onClose} size="sm">
-            Cancel
+            {t("ui.cancel")}
           </Button>
           <Button
             type="button"
@@ -146,7 +150,7 @@ export function CustomThemeCreatorDialog({
             onClick={() => void handleSave()}
             disabled={isSaving}
           >
-            {isSaving ? "Saving..." : "Save JSON"}
+            {isSaving ? t("ui.saving") : t("customTheme.saveJson")}
           </Button>
           <Button
             type="button"
@@ -155,20 +159,19 @@ export function CustomThemeCreatorDialog({
             onClick={() => void handleInstall()}
             disabled={isInstalling}
           >
-            {isInstalling ? "Installing..." : "Install Theme"}
+            {isInstalling ? t("customTheme.installing") : t("customTheme.install")}
           </Button>
         </>
       }
     >
       <div className="space-y-4">
         <p className="font-sans ui-text-sm text-subtle-foreground">
-          Start from an installed theme, then edit the generated JSON before saving or installing
-          it.
+          {t("customTheme.description")}
         </p>
 
         <FieldGroup className="grid grid-cols-2 gap-3">
           <Field>
-            <FieldLabel htmlFor="custom-theme-name">Name</FieldLabel>
+            <FieldLabel htmlFor="custom-theme-name">{t("customTheme.name")}</FieldLabel>
             <Input
               id="custom-theme-name"
               value={name}
@@ -181,7 +184,7 @@ export function CustomThemeCreatorDialog({
             />
           </Field>
           <Field>
-            <FieldLabel htmlFor="custom-theme-id">ID</FieldLabel>
+            <FieldLabel htmlFor="custom-theme-id">{t("customTheme.id")}</FieldLabel>
             <Input
               id="custom-theme-id"
               value={id}
@@ -195,7 +198,7 @@ export function CustomThemeCreatorDialog({
         </FieldGroup>
 
         <Field>
-          <FieldLabel htmlFor="custom-theme-base">Base theme</FieldLabel>
+          <FieldLabel htmlFor="custom-theme-base">{t("customTheme.baseTheme")}</FieldLabel>
           <Select
             id="custom-theme-base"
             value={selectedBaseThemeId}
@@ -210,7 +213,7 @@ export function CustomThemeCreatorDialog({
         </Field>
 
         <Field data-invalid={issues.length > 0}>
-          <FieldLabel htmlFor="custom-theme-json">Theme JSON</FieldLabel>
+          <FieldLabel htmlFor="custom-theme-json">{t("customTheme.themeJson")}</FieldLabel>
           <Textarea
             id="custom-theme-json"
             value={json}

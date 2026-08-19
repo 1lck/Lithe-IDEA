@@ -65,6 +65,20 @@ final class ProjectSessionManager: ObservableObject {
         refreshRecentProjects()
     }
 
+    func openStandaloneFile(_ url: URL) {
+        let model: AppModel
+        if activeModel.workspaceURL == nil && activeModel.standaloneFileURL == nil {
+            model = activeModel
+        } else {
+            activeModel.setProjectSessionActive(false)
+            model = modelFactory()
+            sessions.append(model)
+            configure(model)
+            activeSessionID = model.id
+        }
+        model.openStandaloneFile(url.standardizedFileURL)
+    }
+
     func requestOpenProject(_ url: URL, from sourceSessionID: UUID) {
         let normalizedURL = url.standardizedFileURL
         if let existing = openProjects.first(where: {
@@ -130,6 +144,21 @@ final class ProjectSessionManager: ObservableObject {
         activeModel.closeProject()
     }
 
+    func requestCloseActiveSession() -> Bool {
+        if activeModel.workspaceURL != nil {
+            closeActiveProject()
+            return false
+        }
+        if activeModel.standaloneFileURL != nil {
+            if activeModel.hasUnsavedDocuments {
+                activeModel.closeStandaloneFile()
+                return false
+            }
+            return true
+        }
+        return true
+    }
+
     func closeProject(_ id: UUID) {
         guard sessions.contains(where: { $0.id == id }) else { return }
         if id != activeSessionID {
@@ -185,9 +214,14 @@ final class ProjectSessionManager: ObservableObject {
                 self.removeClosedSession(model)
             }
         )
-        modelObservations[model.id] = model.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
-        }
+        // Only workspace open/close should wake the window chrome. Relaying
+        // every AppModel tick rebuilds every mounted project session.
+        modelObservations[model.id] = model.$workspaceURL
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
     }
 
     private func removeClosedSession(_ model: AppModel) {

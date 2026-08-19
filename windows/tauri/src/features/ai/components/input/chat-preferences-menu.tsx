@@ -8,6 +8,7 @@ import type { SessionConfigOption } from "@/features/ai/types/acp.types";
 import type { AgentType, ChatMode } from "@/features/ai/types/ai-chat.types";
 import { useAIChatStore } from "@/features/ai/stores/ai-chat.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import {
   DropdownMenu,
@@ -35,10 +36,7 @@ import {
 import { Spinner } from "@/ui/spinner";
 import { getChatPreferencesModel } from "./chat-preferences-model";
 
-const FALLBACK_MODES: { id: ChatMode; label: string }[] = [
-  { id: "chat", label: "Ask" },
-  { id: "plan", label: "Plan" },
-];
+const FALLBACK_MODE_IDS: ChatMode[] = ["chat", "plan"];
 
 function CurrentValue({ children }: { children: string }) {
   return (
@@ -53,14 +51,15 @@ function AgentPreferencesSubmenu({
   currentAgentId: AgentType;
   onAgentChange: (agentId: AgentType) => void;
 }) {
+  const { t } = useTranslation();
   const { options, installAgent } = useAgentOptions(currentAgentId);
-  const currentAgentName = options.find((option) => option.isCurrent)?.name ?? "Agent";
+  const currentAgentName = options.find((option) => option.isCurrent)?.name ?? t("ai.agent");
 
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger>
         <Sparkles />
-        Agent
+        {t("ai.agent")}
         <CurrentValue>{currentAgentName}</CurrentValue>
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent className="min-w-56">
@@ -87,9 +86,9 @@ function AgentPreferencesSubmenu({
               <span className="min-w-0 flex-1 truncate">{option.name}</span>
               {!option.isInstalled ? (
                 option.isInstalling ? (
-                  <Spinner label={`Installing ${option.name}`} compact />
+                  <Spinner label={t("ai.installingAgent", { name: option.name })} compact />
                 ) : (
-                  <span className="text-subtle-foreground ui-text-sm">Install</span>
+                  <span className="text-subtle-foreground ui-text-sm">{t("ai.install")}</span>
                 )
               ) : null}
             </DropdownMenuRadioItem>
@@ -101,6 +100,7 @@ function AgentPreferencesSubmenu({
 }
 
 function ModePreferencesSubmenu({ currentAgentId }: { currentAgentId: AgentType }) {
+  const { t } = useTranslation();
   const mode = useAIChatStore((state) => state.mode);
   const setMode = useAIChatStore((state) => state.actions.setMode);
   const sessionModeState = useAIChatStore((state) => state.sessionModeState);
@@ -108,11 +108,14 @@ function ModePreferencesSubmenu({ currentAgentId }: { currentAgentId: AgentType 
   const isAcpAgent = currentAgentId !== "custom";
   const options = isAcpAgent
     ? sessionModeState.availableModes.map((option) => ({ id: option.id, label: option.name }))
-    : FALLBACK_MODES;
+    : FALLBACK_MODE_IDS.map((id) => ({
+        id,
+        label: id === "plan" ? t("ai.plan") : t("ai.ask"),
+      }));
   const selectedModeId = isAcpAgent
     ? (sessionModeState.currentModeId ?? options[0]?.id ?? "")
     : mode;
-  const selectedModeName = options.find((option) => option.id === selectedModeId)?.label ?? "Mode";
+  const selectedModeName = options.find((option) => option.id === selectedModeId)?.label ?? t("ai.mode");
 
   if (options.length === 0) return null;
 
@@ -120,7 +123,7 @@ function ModePreferencesSubmenu({ currentAgentId }: { currentAgentId: AgentType 
     <DropdownMenuSub>
       <DropdownMenuSubTrigger>
         <Sliders />
-        Mode
+        {t("ai.mode")}
         <CurrentValue>{selectedModeName}</CurrentValue>
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent>
@@ -158,6 +161,7 @@ function LitheAgentPreferences({
   onModelChange: (modelId: string) => void;
   onManageApiKeys: () => void;
 }) {
+  const { t } = useTranslation();
   const providers = useAvailableProviders();
   const currentProvider = providers.find((provider) => provider.id === providerId);
   const { availableModels, currentModelName, hasHostedAi, modelFetchError } = useAIModelOptions(
@@ -171,7 +175,7 @@ function LitheAgentPreferences({
       <DropdownMenuSub>
         <DropdownMenuSubTrigger>
           <ProviderIcon providerId={providerId} size={14} />
-          Provider
+          {t("ai.provider")}
           <CurrentValue>{currentProvider?.name ?? providerId}</CurrentValue>
         </DropdownMenuSubTrigger>
         <DropdownMenuSubContent className="min-w-48">
@@ -189,7 +193,7 @@ function LitheAgentPreferences({
       <DropdownMenuSub>
         <DropdownMenuSubTrigger>
           <Brain />
-          Model
+          {t("ai.model")}
           <CurrentValue>{currentModelName}</CurrentValue>
         </DropdownMenuSubTrigger>
         <DropdownMenuSubContent className="max-h-80 min-w-64 overflow-y-auto">
@@ -218,7 +222,7 @@ function LitheAgentPreferences({
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => useUIState.getState().openSettingsDialog("ai")}>
-                Configure custom model…
+                {t("ai.configureCustomModel")}
               </DropdownMenuItem>
             </>
           ) : null}
@@ -227,7 +231,7 @@ function LitheAgentPreferences({
 
       <DropdownMenuItem onClick={onManageApiKeys}>
         <Key />
-        API Keys
+        {t("ai.apiKeys")}
       </DropdownMenuItem>
     </>
   );
@@ -297,6 +301,7 @@ export function ChatPreferencesMenu({
   onManageSkills,
   onBeforeOpen,
 }: ChatPreferencesMenuProps) {
+  const { t } = useTranslation();
   const preferences = useMemo(
     () =>
       getChatPreferencesModel({
@@ -315,8 +320,8 @@ export function ChatPreferencesMenu({
             type="button"
             variant="ghost"
             size="icon-sm"
-            tooltip="AI preferences"
-            aria-label="AI preferences"
+            tooltip={t("ai.aiPreferences")}
+            aria-label={t("ai.aiPreferences")}
           />
         }
       >
@@ -352,11 +357,11 @@ export function ChatPreferencesMenu({
         <DropdownMenuGroup>
           <DropdownMenuItem onClick={onManageSkills}>
             <BookOpen />
-            Skills
+            {t("ai.skills")}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => useUIState.getState().openSettingsDialog("ai")}>
             <Preferences />
-            Settings
+            {t("ai.settings")}
           </DropdownMenuItem>
         </DropdownMenuGroup>
       </DropdownMenuContent>
