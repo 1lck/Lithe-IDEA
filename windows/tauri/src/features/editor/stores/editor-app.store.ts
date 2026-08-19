@@ -13,6 +13,7 @@ import {
   type PaneContent,
 } from "@/features/panes/types/pane-content.types";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { createTranslator } from "@/i18n/locale";
 import { createSelectors } from "@/utils/zustand-selectors";
 import { writeFile } from "@/features/file-system/controllers/platform";
 import type { EditorContentChangeOptions, Position, Range } from "../types/editor.types";
@@ -46,10 +47,11 @@ async function saveEditorBufferById(bufferId: string): Promise<boolean> {
 
   if (activeBuffer.path.startsWith("untitled:")) {
     const { save: saveDialog } = await import("@tauri-apps/plugin-dialog");
+    const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
     const result = await saveDialog({
-      title: "Save",
+      title: t("ui.save"),
       defaultPath: activeBuffer.name,
-      filters: [{ name: "All Files", extensions: ["*"] }],
+      filters: [{ name: t("settings.common.allFiles"), extensions: ["*"] }],
     });
     if (!result) return false;
 

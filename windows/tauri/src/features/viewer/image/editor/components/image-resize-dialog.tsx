@@ -5,6 +5,7 @@ import { Checkbox } from "@/ui/checkbox";
 import Dialog from "@/ui/dialog";
 import { Field, FieldLabel } from "@/ui/field";
 import Input from "@/ui/input";
+import { useTranslation } from "@/i18n/locale-provider";
 
 interface ImageResizeDialogProps {
   isOpen: boolean;
@@ -21,6 +22,7 @@ export function ImageResizeDialog({
   currentWidth,
   currentHeight,
 }: ImageResizeDialogProps) {
+  const { t } = useTranslation();
   const [width, setWidth] = useState(currentWidth);
   const [height, setHeight] = useState(currentHeight);
   const [maintainAspectRatio, setMaintainAspectRatio] = useState(true);
@@ -56,7 +58,7 @@ export function ImageResizeDialog({
 
   return (
     <Dialog
-      title="Resize Image"
+      title={t("image.resizeImage")}
       icon={Image}
       onClose={onClose}
       size="sm"
@@ -64,16 +66,16 @@ export function ImageResizeDialog({
       footer={
         <>
           <Button type="button" variant="default" onClick={onClose} size="xs">
-            Cancel
+            {t("ui.cancel")}
           </Button>
           <Button type="button" variant="accent" onClick={handleSubmit} size="xs">
-            Resize
+            {t("image.resize")}
           </Button>
         </>
       }
     >
       <Field>
-        <FieldLabel htmlFor="width">Width (px)</FieldLabel>
+        <FieldLabel htmlFor="width">{t("image.widthPx")}</FieldLabel>
         <Input
           id="width"
           type="number"
@@ -85,7 +87,7 @@ export function ImageResizeDialog({
       </Field>
 
       <Field>
-        <FieldLabel htmlFor="height">Height (px)</FieldLabel>
+        <FieldLabel htmlFor="height">{t("image.heightPx")}</FieldLabel>
         <Input
           id="height"
           type="number"
@@ -103,12 +105,12 @@ export function ImageResizeDialog({
           onCheckedChange={setMaintainAspectRatio}
         />
         <FieldLabel htmlFor="maintainAspectRatio" className="cursor-pointer">
-          Maintain aspect ratio
+          {t("image.maintainAspectRatio")}
         </FieldLabel>
       </Field>
 
       <div className="ui-text-sm text-subtle-foreground">
-        Original: {currentWidth} × {currentHeight}px
+        {t("image.originalDimensions", { width: currentWidth, height: currentHeight })}
       </div>
     </Dialog>
   );

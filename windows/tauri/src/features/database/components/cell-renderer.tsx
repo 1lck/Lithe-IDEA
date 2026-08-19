@@ -1,6 +1,7 @@
 import { useState } from "react";
 import Badge from "@/ui/badge";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
 import type { ForeignKeyInfo } from "../types/common.types";
 
@@ -22,6 +23,7 @@ export default function CellRenderer({
   onContextMenu,
 }: CellRendererProps) {
   const [expanded, setExpanded] = useState(false);
+  const { t } = useTranslation();
 
   const handleContextMenu = (e: React.MouseEvent) => {
     onContextMenu?.(e, value, columnName);
@@ -44,7 +46,7 @@ export default function CellRenderer({
           variant="ghost"
           size="xs"
           className="block h-auto max-w-70 truncate p-0 text-left font-sans font-normal text-primary"
-          tooltip="Click to expand JSON"
+          tooltip={t("database.expandJson")}
         >
           {expanded ? value : truncateText(value, 50)}
         </Button>
@@ -115,7 +117,7 @@ export default function CellRenderer({
             expanded ? "whitespace-pre-wrap" : "truncate",
             isPrimaryKey && "text-foreground",
           )}
-          tooltip="Click to expand"
+          tooltip={t("database.expandCell")}
         >
           {expanded ? text : truncateText(text, 100)}
         </Button>

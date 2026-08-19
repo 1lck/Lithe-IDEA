@@ -1,11 +1,16 @@
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useLocalHistoryStore } from "@/features/local-history/stores/local-history.store";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
+import { createTranslator } from "@/i18n/locale";
 import { toast } from "sonner";
+
+const getCurrentTranslator = () =>
+  createTranslator(useSettingsStore.getState().settings.displayLanguage);
 
 export function openLocalHistoryForPath(path: string | null | undefined): void {
   if (!path || path.includes("://")) {
-    toast.warning("Select a local file first.");
+    toast.warning(getCurrentTranslator()("localHistory.selectLocalFileFirst"));
     return;
   }
 
@@ -20,7 +25,7 @@ export function openLocalHistoryForActiveFile(): void {
   );
 
   if (!activeBuffer || activeBuffer.type !== "editor" || activeBuffer.isVirtual) {
-    toast.warning("Open a local file first.");
+    toast.warning(getCurrentTranslator()("localHistory.openLocalFileFirst"));
     return;
   }
 

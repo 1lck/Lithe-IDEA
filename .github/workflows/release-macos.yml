@@ -177,7 +177,7 @@ jobs:
             (cd dist && shasum -a 256 -c "Lithe-${LITHE_VERSION}-${architecture}.dmg.sha256")
           done
 
-      - name: Create GitHub Release
+      - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
@@ -185,12 +185,20 @@ jobs:
         shell: bash
         run: |
           notes_file="docs/releases/v${LITHE_VERSION}.md"
-          release_args=(
-            "$RELEASE_TAG"
+          release_assets=(
             "dist/Lithe-${LITHE_VERSION}-arm64.dmg"
             "dist/Lithe-${LITHE_VERSION}-arm64.dmg.sha256"
             "dist/Lithe-${LITHE_VERSION}-x86_64.dmg"
             "dist/Lithe-${LITHE_VERSION}-x86_64.dmg.sha256"
+          )
+          release_args=(
+            "$RELEASE_TAG"
+            --repo "$GITHUB_REPOSITORY"
+            --target "$GITHUB_SHA"
+            --title "Lithe $RELEASE_TAG"
+          )
+          edit_args=(
+            "$RELEASE_TAG"
             --repo "$GITHUB_REPOSITORY"
             --target "$GITHUB_SHA"
             --title "Lithe $RELEASE_TAG"
@@ -198,11 +206,22 @@ jobs:
 
           if [[ -f "$notes_file" ]]; then
             release_args+=(--notes-file "$notes_file")
+            edit_args+=(--notes-file "$notes_file")
           else
             release_args+=(--generate-notes)
           fi
 
-          gh release create "${release_args[@]}"
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if ! gh release create "${release_args[@]}"; then
+              gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+            fi
+          fi
+
+          gh release edit "${edit_args[@]}"
+          gh release upload "$RELEASE_TAG" \
+            "${release_assets[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
 
   update-cask:
     name: Update Homebrew Cask

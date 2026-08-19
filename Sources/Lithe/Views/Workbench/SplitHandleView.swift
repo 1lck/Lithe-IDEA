@@ -12,6 +12,8 @@ struct SplitHandleView: View {
     static let thickness: CGFloat = 10
 
     let axis: LitheSplitAxis
+    let leadingBackground: Color
+    let trailingBackground: Color
     let onDragStarted: () -> Void
     let onDragChanged: (CGFloat) -> Void
     let onDragEnded: () -> Void
@@ -20,8 +22,25 @@ struct SplitHandleView: View {
     @State private var isDragging = false
     @State private var lastTranslation: CGFloat = 0
 
+    init(
+        axis: LitheSplitAxis,
+        leadingBackground: Color = .clear,
+        trailingBackground: Color = .clear,
+        onDragStarted: @escaping () -> Void,
+        onDragChanged: @escaping (CGFloat) -> Void,
+        onDragEnded: @escaping () -> Void
+    ) {
+        self.axis = axis
+        self.leadingBackground = leadingBackground
+        self.trailingBackground = trailingBackground
+        self.onDragStarted = onDragStarted
+        self.onDragChanged = onDragChanged
+        self.onDragEnded = onDragEnded
+    }
+
     var body: some View {
         ZStack {
+            trackBackground
             Color.clear
             dividerLine
         }
@@ -57,14 +76,9 @@ struct SplitHandleView: View {
             guard isInside != isHovering else { return }
             isHovering = isInside
             if isInside {
-                resizeCursor.push()
+                resizeCursor.set()
             } else {
-                NSCursor.pop()
-            }
-        }
-        .onDisappear {
-            if isHovering {
-                NSCursor.pop()
+                NSCursor.arrow.set()
             }
         }
         .help(axis == .horizontal ? "Drag left or right to resize" : "Drag up or down to resize")
@@ -72,23 +86,40 @@ struct SplitHandleView: View {
     }
 
     @ViewBuilder
-    private var dividerLine: some View {
-        if isHovering || isDragging {
-            let color = isDragging
-                ? LitheTheme.accent.opacity(0.72)
-                : LitheTheme.divider
-
-            if axis == .horizontal {
-                Rectangle()
-                    .fill(color)
-                    .frame(width: isDragging ? 3 : (isHovering ? 2 : 1))
-                    .frame(maxHeight: .infinity)
-            } else {
-                Rectangle()
-                    .fill(color)
-                    .frame(height: isDragging ? 3 : (isHovering ? 2 : 1))
-                    .frame(maxWidth: .infinity)
+    private var trackBackground: some View {
+        if axis == .horizontal {
+            HStack(spacing: 0) {
+                leadingBackground
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                trailingBackground
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        } else {
+            VStack(spacing: 0) {
+                leadingBackground
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                trailingBackground
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var dividerLine: some View {
+        let color = isDragging
+            ? LitheTheme.accent.opacity(0.72)
+            : LitheTheme.divider
+
+        if axis == .horizontal {
+            Rectangle()
+                .fill(color)
+                .frame(width: isDragging ? 3 : (isHovering ? 2 : 1))
+                .frame(maxHeight: .infinity)
+        } else {
+            Rectangle()
+                .fill(color)
+                .frame(height: isDragging ? 3 : (isHovering ? 2 : 1))
+                .frame(maxWidth: .infinity)
         }
     }
 

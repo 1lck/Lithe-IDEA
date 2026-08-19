@@ -53,6 +53,7 @@ import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useProjectStore } from "@/features/window/stores/project.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import Dialog, { showPromptDialog } from "@/ui/dialog";
 import Input from "@/ui/input";
 import Textarea from "@/ui/textarea";
@@ -138,11 +139,11 @@ const dockerTabSections: Record<DockerTab, DockerSection[]> = {
   project: ["project"],
   registry: ["registry"],
 };
-const dockerTabs: Array<{ id: DockerTab; label: string }> = [
-  { id: "resources", label: "Resources" },
-  { id: "compose", label: "Compose" },
-  { id: "project", label: "Project" },
-  { id: "registry", label: "Registry" },
+const dockerTabs: Array<{ id: DockerTab; labelKey: string }> = [
+  { id: "resources", labelKey: "docker.resources" },
+  { id: "compose", labelKey: "docker.compose" },
+  { id: "project", labelKey: "docker.project" },
+  { id: "registry", labelKey: "docker.registry" },
 ];
 const emptyComposeProject: DockerComposeProject = {
   workspacePath: null,
@@ -184,30 +185,30 @@ function isDockerConnectionError(message: string) {
   ].some((fragment) => normalizedMessage.includes(fragment));
 }
 
-function getDockerUnavailableCopy(error: string) {
+function getDockerUnavailableCopy(error: string, t: (key: string) => string) {
   if (error.toLowerCase().includes("docker cli was not found")) {
     return {
-      title: "Docker CLI isn't available",
-      description: "Install Docker or make sure the Docker CLI is available in Lithe.",
+      title: t("docker.cliUnavailable"),
+      description: t("docker.cliUnavailableDescription"),
     };
   }
 
   if (isDockerConnectionError(error)) {
     return {
-      title: "Docker isn't running",
-      description: "Lithe can't connect to the active Docker context.",
+      title: t("docker.notRunning"),
+      description: t("docker.notRunningDescription"),
     };
   }
 
   return {
-    title: "Docker is unavailable",
-    description: "Lithe couldn't load Docker resources.",
+    title: t("docker.unavailable"),
+    description: t("docker.unavailableDescription"),
   };
 }
 
-function openDockerConnectionDetailsBuffer(error: string) {
-  const copy = getDockerUnavailableCopy(error);
-  const content = `${copy.title}\n\n${copy.description}\n\nTechnical details\n${error}\n`;
+function openDockerConnectionDetailsBuffer(error: string, t: (key: string) => string) {
+  const copy = getDockerUnavailableCopy(error, t);
+  const content = `${copy.title}\n\n${copy.description}\n\n${t("docker.technicalDetails")}\n${error}\n`;
   const bufferStore = useBufferStore.getState();
   const bufferId = bufferStore.actions.openContent({
     type: "editor",
@@ -245,7 +246,8 @@ function DockerUnavailableState({
   isRetrying: boolean;
   onRetry: () => void;
 }) {
-  const fallbackCopy = getDockerUnavailableCopy(error);
+  const { t } = useTranslation();
+  const fallbackCopy = getDockerUnavailableCopy(error, t);
 
   return (
     <Empty className="min-h-0 flex-none gap-3 px-4 py-5" role="status">
@@ -261,16 +263,16 @@ function DockerUnavailableState({
       <EmptyContent className="flex-row justify-center gap-1.5">
         <Button type="button" variant="default" size="sm" disabled={isRetrying} onClick={onRetry}>
           {isRetrying ? <Spinner compact /> : <Refresh />}
-          Retry
+          {t("docker.retry")}
         </Button>
         <Button
           type="button"
           variant="ghost"
           size="sm"
-          onClick={() => openDockerConnectionDetailsBuffer(error)}
+          onClick={() => openDockerConnectionDetailsBuffer(error, t)}
         >
           <OpenExternal />
-          Details
+          {t("docker.details")}
         </Button>
       </EmptyContent>
     </Empty>
@@ -288,6 +290,7 @@ function DockerInlineError({
   onDismiss: () => void;
   className?: string;
 }) {
+  const { t } = useTranslation();
   return (
     <Alert tone="error" className={cn("min-w-0", className)}>
       <AlertTitle>{title}</AlertTitle>
@@ -299,7 +302,7 @@ function DockerInlineError({
           type="button"
           variant="ghost"
           size="icon-xs"
-          tooltip="Dismiss"
+          tooltip={t("docker.dismiss")}
           tooltipSide="left"
           aria-label={`Dismiss ${title.toLowerCase()}`}
           onClick={onDismiss}
@@ -538,6 +541,7 @@ function ContainerActions({
   quickUrl: string | null;
   onOpenUrl: (url: string) => void;
 }) {
+  const { t } = useTranslation();
   const isRunning = container.state === "running";
   const isPaused = container.state === "paused";
 
@@ -549,9 +553,9 @@ function ContainerActions({
             type="button"
             variant="ghost"
             size="icon-xs"
-            tooltip="Container actions"
+            tooltip={t("docker.containerActions")}
             tooltipSide="left"
-            aria-label={`Actions for ${container.name}`}
+            aria-label={t("docker.actionsFor", { name: container.name })}
           />
         }
       >
@@ -563,31 +567,31 @@ function ContainerActions({
           onClick={() => onAction(container, "start")}
         >
           <Play />
-          Start
+          {t("docker.start")}
         </DropdownMenuItem>
         <DropdownMenuItem disabled={busy || !isRunning} onClick={() => onAction(container, "stop")}>
           <Stop />
-          Stop
+          {t("docker.stop")}
         </DropdownMenuItem>
         <DropdownMenuItem
           disabled={busy || (!isRunning && !isPaused)}
           onClick={() => onAction(container, isPaused ? "unpause" : "pause")}
         >
           {isPaused ? <Play /> : <Pause />}
-          {isPaused ? "Unpause" : "Pause"}
+          {isPaused ? t("docker.unpause") : t("docker.pause")}
         </DropdownMenuItem>
         <DropdownMenuItem disabled={busy} onClick={() => onAction(container, "restart")}>
           <Restart />
-          Restart
+          {t("docker.restart")}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem disabled={busy || !isRunning} onClick={() => onOpenTerminal(container)}>
           <Terminal />
-          Open shell
+          {t("docker.openShell")}
         </DropdownMenuItem>
         <DropdownMenuItem disabled={busy || !isRunning} onClick={() => onDebug(container)}>
           <Bug />
-          Debug
+          {t("docker.debug")}
         </DropdownMenuItem>
         <DropdownMenuItem
           disabled={busy || !quickUrl}
@@ -596,7 +600,7 @@ function ContainerActions({
           }}
         >
           <OpenExternal />
-          Open service URL
+          {t("docker.openServiceUrl")}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
@@ -605,7 +609,7 @@ function ContainerActions({
           onClick={() => onAction(container, "remove")}
         >
           <Trash />
-          Remove
+          {t("docker.remove")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -678,6 +682,7 @@ function ComposeServiceActions({
   quickUrl: string | null;
   onOpenUrl: (url: string) => void;
 }) {
+  const { t } = useTranslation();
   const isRunning = service.state === "running";
 
   return (
@@ -688,9 +693,9 @@ function ComposeServiceActions({
             type="button"
             variant="ghost"
             size="icon-xs"
-            tooltip="Service actions"
+            tooltip={t("docker.serviceActions")}
             tooltipSide="left"
-            aria-label={`Actions for ${service.name}`}
+            aria-label={t("docker.actionsFor", { name: service.name })}
           />
         }
       >
@@ -699,19 +704,19 @@ function ComposeServiceActions({
       <DropdownMenuContent align="end">
         <DropdownMenuItem disabled={busy} onClick={() => onAction(service, "up")}>
           <Play />
-          Start
+          {t("docker.start")}
         </DropdownMenuItem>
         <DropdownMenuItem disabled={busy || !isRunning} onClick={() => onAction(service, "stop")}>
           <Stop />
-          Stop
+          {t("docker.stop")}
         </DropdownMenuItem>
         <DropdownMenuItem disabled={busy} onClick={() => onAction(service, "restart")}>
           <Restart />
-          Restart
+          {t("docker.restart")}
         </DropdownMenuItem>
         <DropdownMenuItem disabled={busy} onClick={() => onAction(service, "rebuild")}>
           <ImageIcon />
-          Rebuild
+          {t("docker.rebuild")}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
@@ -721,7 +726,7 @@ function ComposeServiceActions({
           }}
         >
           <OpenExternal />
-          Open service URL
+          {t("docker.openServiceUrl")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -779,6 +784,7 @@ function ImageRow({
   onRun: (image: DockerImage) => void;
   onRemove: (image: DockerImage) => void;
 }) {
+  const { t } = useTranslation();
   const label = getImageReference(image);
   return (
     <DockerResourceRow
@@ -791,9 +797,9 @@ function ImageRow({
                 type="button"
                 variant="ghost"
                 size="icon-xs"
-                tooltip="Image actions"
+                tooltip={t("docker.imageActions")}
                 tooltipSide="left"
-                aria-label={`Actions for ${label}`}
+                aria-label={t("docker.actionsFor", { name: label })}
               />
             }
           >
@@ -802,12 +808,12 @@ function ImageRow({
           <DropdownMenuContent align="end">
             <DropdownMenuItem disabled={busy} onClick={() => onRun(image)}>
               <Play />
-              Run
+              {t("docker.run")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem variant="destructive" disabled={busy} onClick={() => onRemove(image)}>
               <Trash />
-              Remove
+              {t("docker.remove")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -851,6 +857,7 @@ function NetworkRow({ network }: { network: DockerNetwork }) {
 }
 
 export function DockerSidebar() {
+  const { t } = useTranslation();
   const rootFolderPath = useProjectStore((state) => state.rootFolderPath);
   const handleFileSelect = useFileSystemStore((state) => state.handleFileSelect);
   const [inventory, setInventory] = useState<DockerInventory>(emptyInventory);
@@ -913,6 +920,10 @@ export function DockerSidebar() {
     image: "",
     target: "",
   });
+  const localizedDockerTabs = useMemo(
+    () => dockerTabs.map((tab) => ({ id: tab.id, label: t(tab.labelKey) })),
+    [t],
+  );
   const loadInventory = useCallback(async () => {
     setIsLoading(true);
     setError(null);
@@ -1290,7 +1301,7 @@ export function DockerSidebar() {
         tag: buildDraft.tag.trim() || undefined,
         buildArgs: splitConfigLines(buildDraft.buildArgs),
       });
-      setDockerOutput(output.trim() || "Docker image build completed.");
+      setDockerOutput(output.trim() || t("docker.imageBuildCompleted"));
       setDialogMode(null);
       await loadInventory();
     } catch (buildError) {
@@ -1318,7 +1329,7 @@ export function DockerSidebar() {
         command: runDraft.command.trim() || undefined,
         detach: true,
       });
-      setDockerOutput(output.trim() || `Started ${image}.`);
+      setDockerOutput(output.trim() || t("docker.startedImage", { image }));
       setDialogMode(null);
       await loadInventory();
     } catch (runError) {
@@ -1337,10 +1348,10 @@ export function DockerSidebar() {
 
   const handleSaveBuildPreset = async () => {
     if (!rootFolderPath || !buildDraft.contextPath.trim()) return;
-    const name = await showPromptDialog("Build preset name", {
-      title: "Save Build Preset",
+    const name = await showPromptDialog(t("docker.buildPresetName"), {
+      title: t("docker.saveBuildPreset"),
       placeholder: "production image",
-      confirmLabel: "Save",
+      confirmLabel: t("ui.save"),
     });
     const presetName = name?.trim();
     if (!presetName) return;
@@ -1365,10 +1376,10 @@ export function DockerSidebar() {
 
   const handleSaveRunPreset = async () => {
     if (!rootFolderPath || !runDraft.image.trim()) return;
-    const name = await showPromptDialog("Run preset name", {
-      title: "Save Run Preset",
+    const name = await showPromptDialog(t("docker.runPresetName"), {
+      title: t("docker.saveRunPreset"),
       placeholder: "web app",
-      confirmLabel: "Save",
+      confirmLabel: t("ui.save"),
     });
     const presetName = name?.trim();
     if (!presetName) return;
@@ -1396,10 +1407,10 @@ export function DockerSidebar() {
 
   const handleSaveComposePreset = async () => {
     if (!rootFolderPath || composeProject.files.length === 0) return;
-    const name = await showPromptDialog("Compose preset name", {
-      title: "Save Compose Preset",
+    const name = await showPromptDialog(t("docker.composePresetName"), {
+      title: t("docker.saveComposePreset"),
       placeholder: "start workspace",
-      confirmLabel: "Save",
+      confirmLabel: t("ui.save"),
     });
     const presetName = name?.trim();
     if (!presetName) return;
@@ -1437,7 +1448,9 @@ export function DockerSidebar() {
         action: preset.action,
         envFiles: preset.envFiles,
       });
-      setComposeOutput(output.trim() || `Docker Compose preset ${preset.name} completed.`);
+      setComposeOutput(
+        output.trim() || t("docker.composePresetCompleted", { name: preset.name }),
+      );
       await loadComposeProject();
       await loadInventory();
     } catch (actionError) {
@@ -1461,10 +1474,10 @@ export function DockerSidebar() {
   const handleOpenEnvFile = async () => {
     if (!rootFolderPath) return;
 
-    const path = await showPromptDialog("Env file path", {
-      title: "Open Env File",
+    const path = await showPromptDialog(t("docker.envFilePath"), {
+      title: t("docker.openEnvFile"),
       placeholder: ".env",
-      confirmLabel: "Open",
+      confirmLabel: t("docker.open"),
       defaultValue: ".env",
     });
     const envPath = path?.trim();
@@ -1483,11 +1496,14 @@ export function DockerSidebar() {
   const handleDeleteEnvFile = async (envFile: DockerEnvFile) => {
     if (!rootFolderPath) return;
 
-    const confirmation = await showPromptDialog(`Type delete to remove ${envFile.relativePath}`, {
-      title: "Delete Env File",
+    const confirmation = await showPromptDialog(
+      t("docker.typeDeleteToRemove", { path: envFile.relativePath }),
+      {
+        title: t("docker.deleteEnvFile"),
       placeholder: "delete",
-      confirmLabel: "Delete",
-    });
+        confirmLabel: t("docker.delete"),
+      },
+    );
     if (confirmation?.trim().toLowerCase() !== "delete") return;
 
     setProjectConfigError(null);
@@ -1517,7 +1533,7 @@ export function DockerSidebar() {
           },
         }),
       );
-      setDockerOutput(result.output.trim() || `Opened ${devContainer.name}.`);
+      setDockerOutput(result.output.trim() || t("docker.opened", { name: devContainer.name }));
       await loadInventory();
       await loadComposeProject();
     } catch (openError) {
@@ -1535,7 +1551,7 @@ export function DockerSidebar() {
     setDockerOutput(null);
     try {
       const output = await runDockerImageAction(image.id, "remove", false);
-      setDockerOutput(output.trim() || `Removed ${getImageReference(image)}.`);
+      setDockerOutput(output.trim() || t("docker.removed", { name: getImageReference(image) }));
       await loadInventory();
     } catch (removeError) {
       handleDockerFailure(removeError);
@@ -1545,11 +1561,13 @@ export function DockerSidebar() {
   };
 
   const handlePrune = async (target: DockerPruneTarget, includeVolumes = false) => {
-    const label = includeVolumes ? `${target} and volumes` : target;
-    const confirmation = await showPromptDialog(`Type prune to clean up Docker ${label}`, {
-      title: "Confirm Docker Cleanup",
+    const label = includeVolumes
+      ? t("docker.pruneTargetWithVolumes", { target })
+      : target;
+    const confirmation = await showPromptDialog(t("docker.typePruneToClean", { target: label }), {
+      title: t("docker.confirmDockerCleanup"),
       placeholder: "prune",
-      confirmLabel: "Prune",
+      confirmLabel: t("docker.prune"),
     });
     if (confirmation?.trim().toLowerCase() !== "prune") return;
 
@@ -1558,7 +1576,7 @@ export function DockerSidebar() {
     setDockerOutput(null);
     try {
       const output = await pruneDockerResources(target, includeVolumes);
-      setDockerOutput(output.trim() || `Docker ${target} cleanup completed.`);
+      setDockerOutput(output.trim() || t("docker.cleanupCompleted", { target }));
       await loadInventory();
       await loadComposeProject();
     } catch (pruneError) {
@@ -1613,17 +1631,17 @@ export function DockerSidebar() {
   };
 
   const handleDebugContainer = async (container: DockerContainer) => {
-    const command = await showPromptDialog("Debug command", {
-      title: "Debug In Container",
+    const command = await showPromptDialog(t("docker.debugCommand"), {
+      title: t("docker.debugInContainer"),
       placeholder: "python -m pdb app.py",
-      confirmLabel: "Debug",
+      confirmLabel: t("docker.debug"),
     });
     if (!command?.trim()) return;
 
-    const workdir = await showPromptDialog("Working directory", {
-      title: "Debug In Container",
+    const workdir = await showPromptDialog(t("docker.workingDirectory"), {
+      title: t("docker.debugInContainer"),
       placeholder: "/workspace",
-      confirmLabel: "Start",
+      confirmLabel: t("docker.start"),
     });
 
     startDockerDebugSession({
@@ -1637,25 +1655,25 @@ export function DockerSidebar() {
 
   const handleSaveDebugPreset = async () => {
     if (!rootFolderPath) return;
-    const name = await showPromptDialog("Debug preset name", {
-      title: "Save Debug Preset",
+    const name = await showPromptDialog(t("docker.debugPresetName"), {
+      title: t("docker.saveDebugPreset"),
       placeholder: "debug server",
-      confirmLabel: "Next",
+      confirmLabel: t("ui.next"),
     });
     const presetName = name?.trim();
     if (!presetName) return;
 
-    const command = await showPromptDialog("Debug command", {
-      title: "Save Debug Preset",
+    const command = await showPromptDialog(t("docker.debugCommand"), {
+      title: t("docker.saveDebugPreset"),
       placeholder: "python -m pdb app.py",
-      confirmLabel: "Next",
+      confirmLabel: t("ui.next"),
     });
     if (!command?.trim()) return;
 
-    const workdir = await showPromptDialog("Working directory", {
-      title: "Save Debug Preset",
+    const workdir = await showPromptDialog(t("docker.workingDirectory"), {
+      title: t("docker.saveDebugPreset"),
       placeholder: "/workspace",
-      confirmLabel: "Save",
+      confirmLabel: t("ui.save"),
     });
 
     try {
@@ -1678,11 +1696,11 @@ export function DockerSidebar() {
 
   const handleRunDebugPreset = (preset: DockerDebugPreset) => {
     if (!selectedContainer) {
-      setProjectConfigError("Select a running container before starting a Docker debug preset.");
+      setProjectConfigError(t("docker.selectRunningContainerBeforeDebugPreset"));
       return;
     }
     if (selectedContainer.state !== "running") {
-      setProjectConfigError("Docker debug presets require a running container.");
+      setProjectConfigError(t("docker.debugPresetRequiresRunningContainer"));
       return;
     }
 
@@ -1735,10 +1753,10 @@ export function DockerSidebar() {
 
   const handleCopyFromContainer = async (entry: DockerContainerFileEntry) => {
     if (!selectedContainer) return;
-    const hostPath = await showPromptDialog("Copy to host path", {
-      title: "Copy From Container",
+    const hostPath = await showPromptDialog(t("docker.copyToHostPath"), {
+      title: t("docker.copyFromContainer"),
       placeholder: "/host/path",
-      confirmLabel: "Copy",
+      confirmLabel: t("docker.copy"),
     });
     if (!hostPath?.trim()) return;
 
@@ -1750,7 +1768,9 @@ export function DockerSidebar() {
         containerPath: entry.path,
         hostPath: hostPath.trim(),
       });
-      setDockerOutput(output.trim() || `Copied ${entry.path} to ${hostPath.trim()}.`);
+      setDockerOutput(
+        output.trim() || t("docker.copiedToHost", { source: entry.path, target: hostPath.trim() }),
+      );
     } catch (copyError) {
       setFilesError(copyError instanceof Error ? copyError.message : String(copyError));
     }
@@ -1758,18 +1778,18 @@ export function DockerSidebar() {
 
   const handleCopyToContainer = async () => {
     if (!selectedContainer) return;
-    const hostPath = await showPromptDialog("Host file or folder path", {
-      title: "Copy To Container",
+    const hostPath = await showPromptDialog(t("docker.hostFileOrFolderPath"), {
+      title: t("docker.copyToContainer"),
       placeholder: "/host/path",
-      confirmLabel: "Next",
+      confirmLabel: t("ui.next"),
     });
     if (!hostPath?.trim()) return;
 
-    const containerDestination = await showPromptDialog("Container destination path", {
-      title: "Copy To Container",
+    const containerDestination = await showPromptDialog(t("docker.containerDestinationPath"), {
+      title: t("docker.copyToContainer"),
       defaultValue: containerPath,
       placeholder: "/container/path",
-      confirmLabel: "Copy",
+      confirmLabel: t("docker.copy"),
     });
     if (!containerDestination?.trim()) return;
 
@@ -1782,7 +1802,11 @@ export function DockerSidebar() {
         containerPath: containerDestination.trim(),
       });
       setDockerOutput(
-        output.trim() || `Copied ${hostPath.trim()} to ${containerDestination.trim()}.`,
+        output.trim() ||
+          t("docker.copiedToContainer", {
+            source: hostPath.trim(),
+            target: containerDestination.trim(),
+          }),
       );
       await loadContainerFiles();
     } catch (copyError) {
@@ -1825,7 +1849,7 @@ export function DockerSidebar() {
         username: registryDraft.username.trim(),
         password: registryDraft.password,
       });
-      setRegistryOutput(output.trim() || "Docker registry login completed.");
+      setRegistryOutput(output.trim() || t("docker.registryLoginCompleted"));
       setRegistryDraft((current) => ({ ...current, password: "" }));
     } catch (loginError) {
       handleRegistryFailure(loginError);
@@ -1843,7 +1867,7 @@ export function DockerSidebar() {
     setRegistryOutput(null);
     try {
       const output = await pullDockerRegistryImage(imageName);
-      setRegistryOutput(output.trim() || `Pulled ${imageName}.`);
+      setRegistryOutput(output.trim() || t("docker.pulledImage", { image: imageName }));
       await loadInventory();
     } catch (pullError) {
       handleRegistryFailure(pullError);
@@ -1861,7 +1885,7 @@ export function DockerSidebar() {
     setRegistryOutput(null);
     try {
       const output = await pushDockerRegistryImage(imageName);
-      setRegistryOutput(output.trim() || `Pushed ${imageName}.`);
+      setRegistryOutput(output.trim() || t("docker.pushedImage", { image: imageName }));
     } catch (pushError) {
       handleRegistryFailure(pushError);
     } finally {
@@ -1879,7 +1903,7 @@ export function DockerSidebar() {
     setRegistryOutput(null);
     try {
       const output = await tagDockerImage(source, target);
-      setRegistryOutput(output.trim() || `Tagged ${source} as ${target}.`);
+      setRegistryOutput(output.trim() || t("docker.taggedImage", { source, target }));
       await loadInventory();
     } catch (tagError) {
       handleRegistryFailure(tagError);
@@ -1897,7 +1921,7 @@ export function DockerSidebar() {
         : isProjectConfigLoading;
 
   const renderSection = (section: DockerSection, rows: ReactNode, filteredCount?: number) => {
-    const title = section === "cleanup" ? "Cleanup" : section[0].toUpperCase() + section.slice(1);
+    const title = t(`docker.section.${section}`);
     const isVisible = dockerTabSections[activeTab].includes(section);
     const isCollapsed = collapsedSections.has(section);
     const hasSectionHeader = activeTab === "resources";
@@ -1939,8 +1963,8 @@ export function DockerSidebar() {
           <SidebarSearchPopover
             value={query}
             onChange={setQuery}
-            placeholder="Search Docker"
-            aria-label="Search Docker resources"
+            placeholder={t("docker.searchDocker")}
+            aria-label={t("docker.searchDockerResources")}
           />
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -1950,9 +1974,9 @@ export function DockerSidebar() {
                   variant="ghost"
                   size="icon-xs"
                   active={containerFilter !== "all"}
-                  tooltip="View options"
+                  tooltip={t("docker.viewOptions")}
                   tooltipSide="bottom"
-                  aria-label="Docker view options"
+                  aria-label={t("docker.viewOptions")}
                 />
               }
             >
@@ -1963,31 +1987,31 @@ export function DockerSidebar() {
                 value={containerFilter}
                 onValueChange={(value) => setContainerFilter(value as DockerContainerFilter)}
               >
-                <DropdownMenuLabel>Containers</DropdownMenuLabel>
+                <DropdownMenuLabel>{t("docker.containers")}</DropdownMenuLabel>
                 <DropdownMenuRadioItem value="all" closeOnClick>
-                  All
+                  {t("docker.all")}
                 </DropdownMenuRadioItem>
                 <DropdownMenuRadioItem value="running" closeOnClick>
-                  Running
+                  {t("docker.running")}
                 </DropdownMenuRadioItem>
                 <DropdownMenuRadioItem value="stopped" closeOnClick>
-                  Stopped
+                  {t("docker.stopped")}
                 </DropdownMenuRadioItem>
               </DropdownMenuRadioGroup>
               <DropdownMenuSeparator />
               <DropdownMenuItem disabled={isActiveTabLoading} onClick={refreshDocker}>
                 {isActiveTabLoading ? <Spinner compact /> : <Refresh />}
-                Refresh
+                {t("docker.refresh")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </SidebarTitleBar>
 
-        <SidebarTabBar items={dockerTabs} value={activeTab} onChange={setActiveTab} />
+        <SidebarTabBar items={localizedDockerTabs} value={activeTab} onChange={setActiveTab} />
 
         {activeTab === "resources" && error && !connectionError ? (
           <DockerInlineError
-            title="Docker action failed"
+            title={t("docker.actionFailed")}
             error={error}
             onDismiss={() => setError(null)}
             className="rounded-none border-x-0"
@@ -2002,25 +2026,25 @@ export function DockerSidebar() {
           />
         ) : activeTab === "resources" && isLoading ? (
           <div className="flex flex-1 items-center justify-center">
-            <Spinner label="Loading Docker resources" showLabel compact />
+            <Spinner label={t("docker.loadingResources")} showLabel compact />
           </div>
         ) : activeTab === "compose" && composeError ? (
           <DockerUnavailableState
             error={composeError}
             title={
-              isDockerConnectionError(composeError) ? undefined : "Docker Compose is unavailable"
+              isDockerConnectionError(composeError) ? undefined : t("docker.composeUnavailable")
             }
             description={
               isDockerConnectionError(composeError)
                 ? undefined
-                : "Lithe couldn't load Compose services for this project."
+                : t("docker.composeUnavailableDescription")
             }
             isRetrying={isComposeLoading}
             onRetry={() => void loadComposeProject()}
           />
         ) : activeTab === "compose" && isComposeLoading ? (
           <div className="flex flex-1 items-center justify-center">
-            <Spinner label="Loading Docker Compose" showLabel compact />
+            <Spinner label={t("docker.loadingCompose")} showLabel compact />
           </div>
         ) : (
           <>
@@ -2042,7 +2066,7 @@ export function DockerSidebar() {
                     />
                   ))
                 ) : (
-                  <EmptyState message="No matching containers" />
+                  <EmptyState message={t("docker.noMatchingContainers")} />
                 ),
                 filteredContainers.length,
               )}
@@ -2053,25 +2077,25 @@ export function DockerSidebar() {
                     <EmptyDescription>{composeError}</EmptyDescription>
                   </Empty>
                 ) : !rootFolderPath ? (
-                  <EmptyState message="Open a workspace to inspect Compose services" />
+                  <EmptyState message={t("docker.openWorkspaceInspectCompose")} />
                 ) : composeProject.files.length === 0 ? (
-                  <EmptyState message="No Compose files in this workspace" />
+                  <EmptyState message={t("docker.noComposeFiles")} />
                 ) : (
                   <>
                     <DockerResourceRow
-                      title="Compose project"
+                      title={t("docker.composeProject")}
                       description={composeProject.files.map(fileName).join(", ")}
                       status={
                         <Badge variant="muted" size="compact">
-                          {composeProject.services.length} services
+                          {t("docker.servicesCount", { count: composeProject.services.length })}
                         </Badge>
                       }
                       actions={
                         <DockerActionMenu
-                          label="Compose project actions"
+                          label={t("docker.composeProjectActions")}
                           actions={[
                             {
-                              label: "Start with env files",
+                              label: t("docker.startWithEnvFiles"),
                               icon: <FileIcon />,
                               disabled:
                                 busyComposeService !== null || composeEnvFilePaths.length === 0,
@@ -2079,12 +2103,12 @@ export function DockerSidebar() {
                                 void handleComposeAction(null, "up", composeEnvFilePaths),
                             },
                             {
-                              label: "Save preset",
+                              label: t("docker.savePreset"),
                               disabled: busyComposeService !== null,
                               onSelect: () => void handleSaveComposePreset(),
                             },
                             {
-                              label: "Stop project",
+                              label: t("docker.stopProject"),
                               icon: <Down />,
                               disabled: busyComposeService !== null,
                               separatorBefore: true,
@@ -2115,8 +2139,8 @@ export function DockerSidebar() {
                       <Empty>
                         <EmptyDescription>
                           {composeProject.services.length > 0
-                            ? "No matching Compose services"
-                            : "No Compose services found"}
+                            ? t("docker.noMatchingComposeServices")
+                            : t("docker.noComposeServicesFound")}
                         </EmptyDescription>
                       </Empty>
                     )}
@@ -2127,20 +2151,20 @@ export function DockerSidebar() {
               {renderSection(
                 "project",
                 !rootFolderPath ? (
-                  <EmptyState message="Open a workspace to manage Docker presets" />
+                  <EmptyState message={t("docker.openWorkspaceManagePresets")} />
                 ) : isProjectConfigLoading ? (
                   <div
                     className="flex items-center justify-center py-8"
                     role="status"
                     aria-live="polite"
                   >
-                    <Spinner label="Loading project Docker config" showLabel compact />
+                    <Spinner label={t("docker.loadingProjectConfig")} showLabel compact />
                   </div>
                 ) : (
                   <>
                     {projectConfigError ? (
                       <DockerInlineError
-                        title="Project Docker action failed"
+                        title={t("docker.projectActionFailed")}
                         error={projectConfigError}
                         onDismiss={() => setProjectConfigError(null)}
                         className="mx-2 mb-1 w-auto"
@@ -2148,12 +2172,12 @@ export function DockerSidebar() {
                     ) : null}
                     {connectionError ? (
                       <DockerCapabilityNotice>
-                        Docker is offline. Project files and presets are still available.
+                        {t("docker.offlineProjectFilesAvailable")}
                       </DockerCapabilityNotice>
                     ) : null}
                     {projectConfigItemCount === 0 ? (
                       <div className="space-y-1 px-2 py-1">
-                        <EmptyState message="No env files or presets in this workspace" />
+                        <EmptyState message={t("docker.noEnvFilesOrPresets")} />
                         <div className="flex flex-wrap items-center gap-1">
                           <Button
                             type="button"
@@ -2173,7 +2197,7 @@ export function DockerSidebar() {
                             onClick={() => void handleSaveDebugPreset()}
                           >
                             <Bug className="size-3.5" />
-                            Save Debug
+                            {t("docker.saveDebug")}
                           </Button>
                         </div>
                       </div>
@@ -2182,15 +2206,15 @@ export function DockerSidebar() {
                         <SidebarSectionLabel
                           trailing={
                             <DockerActionMenu
-                              label="Project Docker actions"
+                              label={t("docker.projectActions")}
                               actions={[
                                 {
-                                  label: "Open env file",
+                                  label: t("docker.openEnvFile"),
                                   icon: <FileIcon />,
                                   onSelect: () => void handleOpenEnvFile(),
                                 },
                                 {
-                                  label: "Save debug preset",
+                                  label: t("docker.saveDebugPreset"),
                                   icon: <Bug />,
                                   onSelect: () => void handleSaveDebugPreset(),
                                 },
@@ -2198,11 +2222,11 @@ export function DockerSidebar() {
                             />
                           }
                         >
-                          Workspace
+                          {t("docker.workspace")}
                         </SidebarSectionLabel>
                         {projectConfig.devContainers.length > 0 ? (
                           <div className="space-y-0.5">
-                            <SidebarSectionLabel>Dev Containers</SidebarSectionLabel>
+                            <SidebarSectionLabel>{t("docker.devContainers")}</SidebarSectionLabel>
                             {projectConfig.devContainers.map((devContainer) => (
                               <DockerResourceRow
                                 key={devContainer.configPath}
@@ -2217,13 +2241,13 @@ export function DockerSidebar() {
                                 }
                                 actions={
                                   <DockerActionMenu
-                                    label={`Actions for ${devContainer.name}`}
+                                    label={t("docker.actionsFor", { name: devContainer.name })}
                                     actions={[
                                       {
                                         label:
                                           busyDevContainerPath === devContainer.configPath
-                                            ? "Opening..."
-                                            : "Open",
+                                            ? t("docker.opening")
+                                            : t("docker.open"),
                                         icon:
                                           busyDevContainerPath === devContainer.configPath ? (
                                             <Spinner compact />
@@ -2245,7 +2269,7 @@ export function DockerSidebar() {
                         ) : null}
                         {projectConfig.workspaceDebugPresets.length > 0 ? (
                           <div className="space-y-0.5">
-                            <SidebarSectionLabel>Launch configs</SidebarSectionLabel>
+                            <SidebarSectionLabel>{t("docker.launchConfigs")}</SidebarSectionLabel>
                             {projectConfig.workspaceDebugPresets.map((preset) => (
                               <DockerResourceRow
                                 key={`${preset.source}-${preset.name}`}
@@ -2258,10 +2282,10 @@ export function DockerSidebar() {
                                 }
                                 actions={
                                   <DockerActionMenu
-                                    label={`Actions for ${preset.name}`}
+                                    label={t("docker.actionsFor", { name: preset.name })}
                                     actions={[
                                       {
-                                        label: "Run",
+                                        label: t("docker.run"),
                                         icon: <Play />,
                                         disabled: !isDockerDaemonReady,
                                         onSelect: () => handleRunDebugPreset(preset),
@@ -2275,7 +2299,7 @@ export function DockerSidebar() {
                         ) : null}
                         {projectConfig.debugPresets.length > 0 ? (
                           <div className="space-y-0.5">
-                            <SidebarSectionLabel>Debug presets</SidebarSectionLabel>
+                            <SidebarSectionLabel>{t("docker.debugPresets")}</SidebarSectionLabel>
                             {projectConfig.debugPresets.map((preset) => (
                               <DockerResourceRow
                                 key={preset.name}
@@ -2288,16 +2312,16 @@ export function DockerSidebar() {
                                 }
                                 actions={
                                   <DockerActionMenu
-                                    label={`Actions for ${preset.name}`}
+                                    label={t("docker.actionsFor", { name: preset.name })}
                                     actions={[
                                       {
-                                        label: "Run",
+                                        label: t("docker.run"),
                                         icon: <Play />,
                                         disabled: !isDockerDaemonReady,
                                         onSelect: () => handleRunDebugPreset(preset),
                                       },
                                       {
-                                        label: "Delete",
+                                        label: t("docker.delete"),
                                         icon: <Trash />,
                                         destructive: true,
                                         separatorBefore: true,
@@ -2313,7 +2337,7 @@ export function DockerSidebar() {
                         ) : null}
                         {projectConfig.envFiles.length > 0 ? (
                           <div className="space-y-0.5">
-                            <SidebarSectionLabel>Env files</SidebarSectionLabel>
+                            <SidebarSectionLabel>{t("docker.envFiles")}</SidebarSectionLabel>
                             {projectConfig.envFiles.map((envFile) => (
                               <DockerResourceRow
                                 key={envFile.path}
@@ -2324,20 +2348,22 @@ export function DockerSidebar() {
                                   </>
                                 }
                                 description={`${envFile.variableCount} ${
-                                  envFile.variableCount === 1 ? "variable" : "variables"
+                                  envFile.variableCount === 1
+                                    ? t("docker.variable")
+                                    : t("docker.variables")
                                 }`}
                                 onClick={() => void openEnvFile(envFile)}
                                 actions={
                                   <DockerActionMenu
-                                    label={`Actions for ${envFile.relativePath}`}
+                                    label={t("docker.actionsFor", { name: envFile.relativePath })}
                                     actions={[
                                       {
-                                        label: "Open",
+                                        label: t("docker.open"),
                                         icon: <FileIcon />,
                                         onSelect: () => void openEnvFile(envFile),
                                       },
                                       {
-                                        label: "Delete",
+                                        label: t("docker.delete"),
                                         icon: <Trash />,
                                         destructive: true,
                                         separatorBefore: true,
@@ -2352,7 +2378,7 @@ export function DockerSidebar() {
                         ) : null}
                         {projectConfig.buildPresets.length > 0 ? (
                           <div className="space-y-0.5">
-                            <SidebarSectionLabel>Build presets</SidebarSectionLabel>
+                            <SidebarSectionLabel>{t("docker.buildPresets")}</SidebarSectionLabel>
                             {projectConfig.buildPresets.map((preset) => (
                               <DockerResourceRow
                                 key={preset.name}
@@ -2360,15 +2386,15 @@ export function DockerSidebar() {
                                 description={preset.tag || preset.contextPath}
                                 actions={
                                   <DockerActionMenu
-                                    label={`Actions for ${preset.name}`}
+                                    label={t("docker.actionsFor", { name: preset.name })}
                                     actions={[
                                       {
-                                        label: "Use preset",
+                                        label: t("docker.usePreset"),
                                         icon: <ImageIcon />,
                                         onSelect: () => applyBuildPreset(preset),
                                       },
                                       {
-                                        label: "Delete",
+                                        label: t("docker.delete"),
                                         icon: <Trash />,
                                         destructive: true,
                                         separatorBefore: true,
@@ -2384,7 +2410,7 @@ export function DockerSidebar() {
                         ) : null}
                         {projectConfig.runPresets.length > 0 ? (
                           <div className="space-y-0.5">
-                            <SidebarSectionLabel>Run presets</SidebarSectionLabel>
+                            <SidebarSectionLabel>{t("docker.runPresets")}</SidebarSectionLabel>
                             {projectConfig.runPresets.map((preset) => (
                               <DockerResourceRow
                                 key={preset.name}
@@ -2392,20 +2418,20 @@ export function DockerSidebar() {
                                 description={
                                   <>
                                     {preset.image}
-                                    {preset.envFiles.length > 0 ? " · env file" : ""}
+                                    {preset.envFiles.length > 0 ? ` · ${t("docker.envFile")}` : ""}
                                   </>
                                 }
                                 actions={
                                   <DockerActionMenu
-                                    label={`Actions for ${preset.name}`}
+                                    label={t("docker.actionsFor", { name: preset.name })}
                                     actions={[
                                       {
-                                        label: "Use preset",
+                                        label: t("docker.usePreset"),
                                         icon: <Play />,
                                         onSelect: () => applyRunPreset(preset),
                                       },
                                       {
-                                        label: "Delete",
+                                        label: t("docker.delete"),
                                         icon: <Trash />,
                                         destructive: true,
                                         separatorBefore: true,
@@ -2420,7 +2446,7 @@ export function DockerSidebar() {
                         ) : null}
                         {projectConfig.composePresets.length > 0 ? (
                           <div className="space-y-0.5">
-                            <SidebarSectionLabel>Compose presets</SidebarSectionLabel>
+                            <SidebarSectionLabel>{t("docker.composePresets")}</SidebarSectionLabel>
                             {projectConfig.composePresets.map((preset) => (
                               <DockerResourceRow
                                 key={preset.name}
@@ -2433,13 +2459,13 @@ export function DockerSidebar() {
                                 }
                                 actions={
                                   <DockerActionMenu
-                                    label={`Actions for ${preset.name}`}
+                                    label={t("docker.actionsFor", { name: preset.name })}
                                     actions={[
                                       {
                                         label:
                                           busyComposeService === `preset:${preset.name}`
-                                            ? "Running..."
-                                            : "Run",
+                                            ? t("docker.runningEllipsis")
+                                            : t("docker.run"),
                                         icon:
                                           busyComposeService === `preset:${preset.name}` ? (
                                             <Spinner compact />
@@ -2451,7 +2477,7 @@ export function DockerSidebar() {
                                         onSelect: () => void handleRunComposePreset(preset),
                                       },
                                       {
-                                        label: "Delete",
+                                        label: t("docker.delete"),
                                         icon: <Trash />,
                                         destructive: true,
                                         separatorBefore: true,
@@ -2476,7 +2502,7 @@ export function DockerSidebar() {
                 <>
                   <div className="flex items-center justify-between gap-2 px-2 py-1">
                     <div className="min-w-0 truncate ui-text-sm text-subtle-foreground">
-                      Build and run local images
+                      {t("docker.buildAndRunLocalImages")}
                     </div>
                     <Button
                       type="button"
@@ -2487,7 +2513,7 @@ export function DockerSidebar() {
                       onClick={openBuildDialog}
                     >
                       <ImageIcon className="size-3.5" />
-                      Build
+                      {t("docker.build")}
                     </Button>
                   </div>
                   {dockerOutput ? (
@@ -2506,7 +2532,7 @@ export function DockerSidebar() {
                       />
                     ))
                   ) : (
-                    <EmptyState message="No matching images" />
+                    <EmptyState message={t("docker.noMatchingImages")} />
                   )}
                 </>,
                 filteredImages.length,
@@ -2516,12 +2542,14 @@ export function DockerSidebar() {
                 <>
                   {connectionError ? (
                     <DockerCapabilityNotice>
-                      Search and login remain available. Start Docker to pull, push, or tag images.
+                      {t("docker.registryOfflineNotice")}
                     </DockerCapabilityNotice>
                   ) : null}
                   <div className="space-y-3 px-2 py-2">
                     <div className="space-y-1">
-                      <SidebarSectionLabel className="h-5 px-0">Docker Hub</SidebarSectionLabel>
+                      <SidebarSectionLabel className="h-5 px-0">
+                        {t("docker.dockerHub")}
+                      </SidebarSectionLabel>
                       <div className="flex min-w-0 items-center gap-1.5">
                         <SearchField
                           value={registryQuery}
@@ -2529,8 +2557,8 @@ export function DockerSidebar() {
                           onKeyDown={(event) => {
                             if (event.key === "Enter") void handleRegistrySearch();
                           }}
-                          placeholder="Search images"
-                          aria-label="Search Docker Hub"
+                          placeholder={t("docker.searchImages")}
+                          aria-label={t("docker.searchDockerHub")}
                           size="xs"
                           className="min-w-0 flex-1 rounded-lg"
                         />
@@ -2542,12 +2570,14 @@ export function DockerSidebar() {
                           onClick={() => void handleRegistrySearch()}
                         >
                           {isRegistryBusy ? <Spinner compact /> : <Search />}
-                          Search
+                          {t("workbench.search")}
                         </Button>
                       </div>
                     </div>
                     <div className="space-y-1">
-                      <SidebarSectionLabel className="h-5 px-0">Image actions</SidebarSectionLabel>
+                      <SidebarSectionLabel className="h-5 px-0">
+                        {t("docker.imageActions")}
+                      </SidebarSectionLabel>
                       <Input
                         value={registryDraft.image}
                         onChange={(event) =>
@@ -2556,7 +2586,7 @@ export function DockerSidebar() {
                             image: event.target.value,
                           }))
                         }
-                        placeholder="Image, for example nginx:latest"
+                        placeholder={t("docker.imageExamplePlaceholder")}
                         size="xs"
                         className="w-full rounded-lg"
                       />
@@ -2568,7 +2598,7 @@ export function DockerSidebar() {
                             target: event.target.value,
                           }))
                         }
-                        placeholder="Target tag"
+                        placeholder={t("docker.targetTag")}
                         size="xs"
                         className="w-full rounded-lg"
                       />
@@ -2582,7 +2612,7 @@ export function DockerSidebar() {
                           }
                           onClick={() => void handleRegistryPull(registryDraft.image)}
                         >
-                          Pull
+                          {t("docker.pull")}
                         </Button>
                         <Button
                           type="button"
@@ -2593,7 +2623,7 @@ export function DockerSidebar() {
                           }
                           onClick={() => void handleRegistryPush()}
                         >
-                          Push
+                          {t("docker.push")}
                         </Button>
                         <Button
                           type="button"
@@ -2607,12 +2637,14 @@ export function DockerSidebar() {
                           }
                           onClick={() => void handleTagImage()}
                         >
-                          Tag
+                          {t("docker.tag")}
                         </Button>
                       </div>
                     </div>
                     <div className="space-y-1">
-                      <SidebarSectionLabel className="h-5 px-0">Registry login</SidebarSectionLabel>
+                      <SidebarSectionLabel className="h-5 px-0">
+                        {t("docker.registryLogin")}
+                      </SidebarSectionLabel>
                       <Input
                         value={registryDraft.registry}
                         onChange={(event) =>
@@ -2621,7 +2653,7 @@ export function DockerSidebar() {
                             registry: event.target.value,
                           }))
                         }
-                        placeholder="Registry (optional)"
+                        placeholder={t("docker.registryOptional")}
                         size="xs"
                         className="w-full rounded-lg"
                       />
@@ -2633,7 +2665,7 @@ export function DockerSidebar() {
                             username: event.target.value,
                           }))
                         }
-                        placeholder="Username"
+                        placeholder={t("docker.username")}
                         size="xs"
                         className="w-full rounded-lg"
                       />
@@ -2646,7 +2678,7 @@ export function DockerSidebar() {
                           }))
                         }
                         type="password"
-                        placeholder="Password"
+                        placeholder={t("docker.password")}
                         size="xs"
                         className="w-full rounded-lg"
                       />
@@ -2661,13 +2693,13 @@ export function DockerSidebar() {
                         }
                         onClick={() => void handleRegistryLogin()}
                       >
-                        Login
+                        {t("docker.login")}
                       </Button>
                     </div>
                   </div>
                   {registryError ? (
                     <DockerInlineError
-                      title="Registry action failed"
+                      title={t("docker.registryActionFailed")}
                       error={registryError}
                       onDismiss={() => setRegistryError(null)}
                       className="mx-2 mb-1 w-auto"
@@ -2685,18 +2717,20 @@ export function DockerSidebar() {
                         title={result.name}
                         description={
                           <>
-                            {result.starCount ? `${result.starCount} stars` : "Registry image"}
-                            {result.official === "[OK]" ? " · official" : ""}
-                            {result.automated === "[OK]" ? " · automated" : ""}
+                            {result.starCount
+                              ? t("docker.starsCount", { count: result.starCount })
+                              : t("docker.registryImage")}
+                            {result.official === "[OK]" ? ` · ${t("docker.official")}` : ""}
+                            {result.automated === "[OK]" ? ` · ${t("docker.automated")}` : ""}
                             {result.description ? ` · ${result.description}` : ""}
                           </>
                         }
                         actions={
                           <DockerActionMenu
-                            label={`Actions for ${result.name}`}
+                            label={t("docker.actionsFor", { name: result.name })}
                             actions={[
                               {
-                                label: "Pull",
+                                label: t("docker.pull"),
                                 icon: <Download />,
                                 disabled: isRegistryBusy || !isDockerDaemonReady,
                                 onSelect: () => void handleRegistryPull(result.name),
@@ -2707,7 +2741,7 @@ export function DockerSidebar() {
                       />
                     ))
                   ) : (
-                    <EmptyState message="Search Docker Hub to find images" />
+                    <EmptyState message={t("docker.searchDockerHubToFindImages")} />
                   )}
                 </>,
                 registryResults.length,
@@ -2717,11 +2751,11 @@ export function DockerSidebar() {
                 <div className="grid grid-cols-2 gap-1 px-2 py-1">
                   {(
                     [
-                      ["containers", "Containers"],
-                      ["images", "Images"],
-                      ["volumes", "Volumes"],
-                      ["networks", "Networks"],
-                      ["system", "System"],
+                      ["containers", t("docker.containers")],
+                      ["images", t("docker.images")],
+                      ["volumes", t("docker.volumes")],
+                      ["networks", t("docker.networks")],
+                      ["system", t("docker.system")],
                     ] as Array<[DockerPruneTarget, string]>
                   ).map(([target, label]) => (
                     <Button
@@ -2738,7 +2772,7 @@ export function DockerSidebar() {
                       ) : (
                         <Trash className="size-3.5" />
                       )}
-                      Prune {label}
+                      {t("docker.pruneTarget", { target: label })}
                     </Button>
                   ))}
                 </div>,
@@ -2749,7 +2783,7 @@ export function DockerSidebar() {
                 filteredVolumes.length > 0 ? (
                   filteredVolumes.map((volume) => <VolumeRow key={volume.name} volume={volume} />)
                 ) : (
-                  <EmptyState message="No matching volumes" />
+                  <EmptyState message={t("docker.noMatchingVolumes")} />
                 ),
                 filteredVolumes.length,
               )}
@@ -2760,7 +2794,7 @@ export function DockerSidebar() {
                     <NetworkRow key={network.id} network={network} />
                   ))
                 ) : (
-                  <EmptyState message="No matching networks" />
+                  <EmptyState message={t("docker.noMatchingNetworks")} />
                 ),
                 filteredNetworks.length,
               )}
@@ -2776,8 +2810,8 @@ export function DockerSidebar() {
                     <div className="ui-text-sm text-subtle-foreground">
                       {detailTab === "logs"
                         ? logStreamId
-                          ? "Streaming logs"
-                          : "Logs stopped"
+                          ? t("docker.streamingLogs")
+                          : t("docker.logsStopped")
                         : containerPath}
                     </div>
                   </div>
@@ -2788,10 +2822,10 @@ export function DockerSidebar() {
                         type="button"
                         variant={detailTab === tab ? "accent" : "ghost"}
                         size="xs"
-                        className="h-6 px-1.5 ui-text-sm capitalize"
+                        className="h-6 px-1.5 ui-text-sm"
                         onClick={() => setDetailTab(tab)}
                       >
-                        {tab}
+                        {tab === "logs" ? t("docker.logs") : t("docker.files")}
                       </Button>
                     ))}
                     {detailTab === "logs" ? (
@@ -2803,7 +2837,7 @@ export function DockerSidebar() {
                         disabled={logLines.length === 0}
                         onClick={() => setLogLines([])}
                       >
-                        Clear
+                        {t("ui.clear")}
                       </Button>
                     ) : (
                       <Button
@@ -2814,7 +2848,7 @@ export function DockerSidebar() {
                         onClick={() => void handleCopyToContainer()}
                       >
                         <Upload className="size-3.5" />
-                        Copy In
+                        {t("docker.copyIn")}
                       </Button>
                     )}
                   </div>
@@ -2827,7 +2861,7 @@ export function DockerSidebar() {
                         <input
                           value={logQuery}
                           onChange={(event) => setLogQuery(event.target.value)}
-                          placeholder="Search logs"
+                          placeholder={t("docker.searchLogs")}
                           className="h-6 min-w-0 flex-1 bg-transparent ui-text-sm text-foreground outline-none placeholder:text-subtle-foreground"
                         />
                       </div>
@@ -2837,10 +2871,14 @@ export function DockerSidebar() {
                           type="button"
                           variant={logFilter === filter ? "accent" : "ghost"}
                           size="xs"
-                          className="h-6 px-1.5 ui-text-sm capitalize"
+                          className="h-6 px-1.5 ui-text-sm"
                           onClick={() => setLogFilter(filter)}
                         >
-                          {filter === "stderr" ? "Err" : filter}
+                          {filter === "all"
+                            ? t("docker.logFilterAll")
+                            : filter === "stderr"
+                              ? t("docker.logFilterErr")
+                              : t("docker.logFilterErrors")}
                         </Button>
                       ))}
                     </div>
@@ -2866,7 +2904,9 @@ export function DockerSidebar() {
                         ))
                       ) : (
                         <div className="text-subtle-foreground">
-                          {logLines.length > 0 ? "No matching log lines." : "Waiting for logs."}
+                          {logLines.length > 0
+                            ? t("docker.noMatchingLogLines")
+                            : t("docker.waitingForLogs")}
                         </div>
                       )}
                     </div>
@@ -2882,7 +2922,7 @@ export function DockerSidebar() {
                         disabled={containerPath === "/"}
                         onClick={() => setContainerPath(parentContainerPath(containerPath))}
                       >
-                        Up
+                        {t("docker.up")}
                       </Button>
                       <div className="ui-text-sm min-w-0 flex-1 truncate rounded border border-border/70 bg-background px-2 py-1 font-mono text-subtle-foreground">
                         {containerPath}
@@ -2891,7 +2931,9 @@ export function DockerSidebar() {
                         type="button"
                         variant="ghost"
                         size="icon-xs"
-                        className="ui-text-sm"
+                          className="ui-text-sm"
+                        tooltip={t("docker.refreshFiles")}
+                        aria-label={t("docker.refreshFiles")}
                         disabled={isFilesLoading}
                         onClick={() => void loadContainerFiles()}
                       >
@@ -2906,7 +2948,7 @@ export function DockerSidebar() {
                     <div className="max-h-44 overflow-auto border-t border-border/50 py-1">
                       {isFilesLoading ? (
                         <div className="px-2 py-2 ui-text-sm text-subtle-foreground">
-                          Loading files...
+                          {t("docker.loadingFiles")}
                         </div>
                       ) : containerFiles.length > 0 ? (
                         containerFiles.map((entry) => (
@@ -2942,7 +2984,7 @@ export function DockerSidebar() {
                                 {entry.name}
                               </div>
                               <div className="truncate ui-text-sm text-subtle-foreground">
-                                {entry.isDirectory ? "Directory" : formatFileSize(entry.size)}
+                                {entry.isDirectory ? t("docker.directory") : formatFileSize(entry.size)}
                                 {entry.mode ? ` · ${entry.mode}` : ""}
                               </div>
                             </div>
@@ -2951,9 +2993,9 @@ export function DockerSidebar() {
                               variant="ghost"
                               size="icon-xs"
                               className="ui-text-sm"
-                              tooltip="Copy to host"
+                              tooltip={t("docker.copyToHost")}
                               tooltipSide="left"
-                              aria-label={`Copy ${entry.name} to host`}
+                              aria-label={t("docker.copyFileToHost", { name: entry.name })}
                               onClick={(event) => {
                                 event.stopPropagation();
                                 void handleCopyFromContainer(entry);
@@ -2964,7 +3006,7 @@ export function DockerSidebar() {
                           </div>
                         ))
                       ) : (
-                        <EmptyState message="No files found." />
+                        <EmptyState message={t("docker.noFilesFound")} />
                       )}
                     </div>
                   </>
@@ -2977,14 +3019,14 @@ export function DockerSidebar() {
 
       {dialogMode ? (
         <Dialog
-          title={dialogMode === "build" ? "Build Docker Image" : "Run Docker Image"}
+          title={dialogMode === "build" ? t("docker.buildDockerImage") : t("docker.runDockerImage")}
           icon={dialogMode === "build" ? ImageIcon : Play}
           onClose={() => setDialogMode(null)}
           size="md"
           footer={
             <>
               <Button variant="ghost" onClick={() => setDialogMode(null)}>
-                Cancel
+                {t("ui.cancel")}
               </Button>
               {dialogMode === "build" ? (
                 <>
@@ -2993,13 +3035,13 @@ export function DockerSidebar() {
                     onClick={() => void handleSaveBuildPreset()}
                     disabled={!rootFolderPath || !buildDraft.contextPath.trim()}
                   >
-                    Save Preset
+                    {t("docker.savePreset")}
                   </Button>
                   <Button
                     onClick={handleBuildImage}
                     disabled={!isDockerDaemonReady || !buildDraft.contextPath.trim()}
                   >
-                    Build
+                    {t("docker.build")}
                   </Button>
                 </>
               ) : (
@@ -3009,13 +3051,13 @@ export function DockerSidebar() {
                     onClick={() => void handleSaveRunPreset()}
                     disabled={!rootFolderPath || !runDraft.image.trim()}
                   >
-                    Save Preset
+                    {t("docker.savePreset")}
                   </Button>
                   <Button
                     onClick={handleRunImage}
                     disabled={!isDockerDaemonReady || !runDraft.image.trim()}
                   >
-                    Run
+                    {t("docker.run")}
                   </Button>
                 </>
               )}
@@ -3024,16 +3066,16 @@ export function DockerSidebar() {
         >
           {(dialogMode === "build" || dialogMode === "run") && connectionError ? (
             <DockerCapabilityNotice className="mx-0 mb-3">
-              Start Docker before{" "}
-              {dialogMode === "build" ? "building this image" : "running this image"}. You can still
-              save these values as a preset.
+              {dialogMode === "build"
+                ? t("docker.startDockerBeforeBuilding")
+                : t("docker.startDockerBeforeRunning")}
             </DockerCapabilityNotice>
           ) : null}
           {dialogMode === "build" ? (
             <div className="space-y-3">
               <div className="space-y-1.5">
                 <label htmlFor="docker-build-context" className="ui-text-sm block text-foreground">
-                  Context Path
+                  {t("docker.contextPath")}
                 </label>
                 <Input
                   id="docker-build-context"
@@ -3065,7 +3107,7 @@ export function DockerSidebar() {
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="docker-build-tag" className="ui-text-sm block text-foreground">
-                  Tag
+                  {t("docker.tag")}
                 </label>
                 <Input
                   id="docker-build-tag"
@@ -3078,7 +3120,7 @@ export function DockerSidebar() {
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="docker-build-args" className="ui-text-sm block text-foreground">
-                  Build Args
+                  {t("docker.buildArgs")}
                 </label>
                 <Textarea
                   id="docker-build-args"
@@ -3098,7 +3140,7 @@ export function DockerSidebar() {
             <div className="space-y-3">
               <div className="space-y-1.5">
                 <label htmlFor="docker-run-image" className="ui-text-sm block text-foreground">
-                  Image
+                  {t("docker.image")}
                 </label>
                 <Input
                   id="docker-run-image"
@@ -3111,7 +3153,7 @@ export function DockerSidebar() {
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="docker-run-name" className="ui-text-sm block text-foreground">
-                  Container Name
+                  {t("docker.containerName")}
                 </label>
                 <Input
                   id="docker-run-name"
@@ -3125,7 +3167,7 @@ export function DockerSidebar() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <label htmlFor="docker-run-ports" className="ui-text-sm block text-foreground">
-                    Ports
+                    {t("docker.ports")}
                   </label>
                   <Textarea
                     id="docker-run-ports"
@@ -3139,7 +3181,7 @@ export function DockerSidebar() {
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="docker-run-volumes" className="ui-text-sm block text-foreground">
-                    Volumes
+                    {t("docker.volumes")}
                   </label>
                   <Textarea
                     id="docker-run-volumes"
@@ -3154,7 +3196,7 @@ export function DockerSidebar() {
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="docker-run-env" className="ui-text-sm block text-foreground">
-                  Environment
+                  {t("docker.environment")}
                 </label>
                 <Textarea
                   id="docker-run-env"
@@ -3168,7 +3210,7 @@ export function DockerSidebar() {
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="docker-run-env-files" className="ui-text-sm block text-foreground">
-                  Env Files
+                  {t("docker.envFiles")}
                 </label>
                 <Textarea
                   id="docker-run-env-files"
@@ -3182,7 +3224,7 @@ export function DockerSidebar() {
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="docker-run-command" className="ui-text-sm block text-foreground">
-                  Command
+                  {t("docker.command")}
                 </label>
                 <Input
                   id="docker-run-command"

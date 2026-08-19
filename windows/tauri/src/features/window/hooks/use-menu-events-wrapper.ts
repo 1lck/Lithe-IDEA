@@ -19,6 +19,7 @@ import { useUIState } from "@/features/window/stores/ui-state.store";
 import { createAppWindow } from "@/features/window/utils/create-app-window";
 import { requestWindowClose } from "@/features/window/utils/request-window-close";
 import { showAlertDialog } from "@/ui/dialog";
+import { useTranslation } from "@/i18n/locale-provider";
 import { writeClipboardText } from "@/utils/clipboard";
 import { getServiceUrls } from "@/config/services";
 import { useMenuEvents } from "./use-menu-events";
@@ -61,6 +62,7 @@ function handleEmbeddedWebviewGlobalShortcut(shortcut: string) {
 }
 
 export function useMenuEventsWrapper() {
+  const { t } = useTranslation();
   const handleCreateNewFile = useFileSystemStore.use.handleCreateNewFile();
   const handleOpenFolder = useFileSystemStore.use.handleOpenFolder();
   const closeFolder = useFileSystemStore.use.closeFolder();
@@ -141,15 +143,15 @@ export function useMenuEventsWrapper() {
 
       try {
         const result = await save({
-          title: "Save As",
+          title: t("menu.saveAsTitle"),
           defaultPath: activeBuffer.name,
           filters: [
             {
-              name: "All Files",
+              name: t("settings.common.allFiles"),
               extensions: ["*"],
             },
             {
-              name: "Text Files",
+              name: t("terminal.textFiles"),
               extensions: ["txt", "md", "json", "js", "ts", "tsx", "jsx", "css", "html"],
             },
           ],
@@ -167,7 +169,7 @@ export function useMenuEventsWrapper() {
             // This would require updating the buffer store with the new file path
           } catch (writeError) {
             console.error("Failed to save file:", writeError);
-            await showAlertDialog("Failed to save file. Please try again.", "Save As");
+            await showAlertDialog(t("menu.saveFileFailed"), t("menu.saveAsTitle"));
           }
         }
       } catch (error) {
@@ -267,8 +269,8 @@ export function useMenuEventsWrapper() {
       // For now, we'll show a notification about vim mode
       console.log("Toggle Vim keybindings");
       await showAlertDialog(
-        "Vim mode is coming soon!\n\nThis will enable vim-style keybindings in the editor for power users.",
-        "Vim Mode",
+        t("settings.keyboard.vimModeComingSoon"),
+        t("settings.keyboard.vimMode"),
       );
       // In a full implementation, this would toggle vim keybinding mode in the editor
     },

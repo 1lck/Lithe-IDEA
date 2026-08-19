@@ -1,5 +1,6 @@
 import { CheckCircleIcon as CheckCircle2, GitPullRequestIcon as GitPullRequest } from "@/ui/icons";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 import type { Label, PullRequestDetails } from "../types/github.types";
 import { GitHubAvatar } from "./github-avatar";
 import { GitHubAssigneePicker, GitHubLabelPicker } from "./github-metadata-pickers";
@@ -27,18 +28,19 @@ export function GitHubPRSidebar({
   onLabelsChange,
   onAssigneesChange,
 }: GitHubPRSidebarProps) {
+  const { t } = useTranslation();
   const isClosed = pr.state === "closed";
 
   return (
     <GitHubDetailSidebar>
-      <GitHubDetailSection label="Status">
+      <GitHubDetailSection label={t("github.status")}>
         <div className="flex items-center gap-2">
           <GitPullRequest className={isClosed ? "text-destructive" : "text-success"} />
-          <span className="capitalize">{pr.isDraft ? "Draft" : pr.state}</span>
+          <span className="capitalize">{pr.isDraft ? t("github.draft") : pr.state}</span>
         </div>
       </GitHubDetailSection>
 
-      <GitHubDetailSection label="Merge">
+      <GitHubDetailSection label={t("github.merge")}>
         <MergeStatusBadge
           mergeStateStatus={pr.mergeStateStatus}
           mergeable={pr.mergeable}
@@ -46,7 +48,7 @@ export function GitHubPRSidebar({
         />
       </GitHubDetailSection>
 
-      <GitHubDetailSection label="Reviewers">
+      <GitHubDetailSection label={t("github.reviewers")}>
         {pr.reviewRequests.length > 0 ? (
           <div className="space-y-2">
             {pr.reviewRequests.map((reviewer) => (
@@ -65,11 +67,11 @@ export function GitHubPRSidebar({
             ) : null}
           </div>
         ) : (
-          <span className="text-subtle-foreground">{reviewSummary ?? "No reviewers"}</span>
+          <span className="text-subtle-foreground">{reviewSummary ?? t("github.noReviewers")}</span>
         )}
       </GitHubDetailSection>
 
-      <GitHubDetailSection label="Checks">
+      <GitHubDetailSection label={t("github.checks")}>
         {pr.statusChecks.length > 0 ? (
           <CIStatusIndicator checks={pr.statusChecks} />
         ) : (
@@ -80,7 +82,7 @@ export function GitHubPRSidebar({
         )}
       </GitHubDetailSection>
 
-      <GitHubDetailSection label="Changes">
+      <GitHubDetailSection label={t("github.changes")}>
         <Button
           type="button"
           variant="ghost"
@@ -88,14 +90,14 @@ export function GitHubPRSidebar({
           onClick={onShowFiles}
           className="-ml-1.5 h-auto min-w-0 justify-start py-1"
         >
-          <span>{`${changedFilesCount} files changed`}</span>
+          <span>{t("github.filesChanged", { count: changedFilesCount })}</span>
           <span className="text-git-added">+{pr.additions}</span>
           <span className="text-git-deleted">-{pr.deletions}</span>
         </Button>
       </GitHubDetailSection>
 
       <GitHubDetailSection
-        label="Assignees"
+        label={t("github.assignees")}
         action={
           <GitHubAssigneePicker
             value={pr.assignees.map((assignee) => assignee.login)}
@@ -124,18 +126,18 @@ export function GitHubPRSidebar({
             ))}
           </div>
         ) : (
-          <span className="text-subtle-foreground">No assignees</span>
+          <span className="text-subtle-foreground">{t("github.noAssignees")}</span>
         )}
       </GitHubDetailSection>
 
       {pr.linkedIssues.length > 0 ? (
-        <GitHubDetailSection label="Linked issues">
+        <GitHubDetailSection label={t("github.linkedIssues")}>
           <LinkedIssuesList issues={pr.linkedIssues} />
         </GitHubDetailSection>
       ) : null}
 
       <GitHubDetailSection
-        label="Labels"
+        label={t("github.labels")}
         action={
           <GitHubLabelPicker
             labels={availableLabels}
@@ -149,7 +151,7 @@ export function GitHubPRSidebar({
         {pr.labels.length > 0 ? (
           <LabelBadges labels={pr.labels} />
         ) : (
-          <span className="text-subtle-foreground">No labels</span>
+          <span className="text-subtle-foreground">{t("github.noLabels")}</span>
         )}
       </GitHubDetailSection>
     </GitHubDetailSidebar>

@@ -6,7 +6,6 @@ import { IdeSettingsImportDialog } from "@/features/file-system/components/ide-s
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import {
   type KeybindingPreset,
-  keybindingPresetDefinitions,
   keybindingPresetOptions,
 } from "@/features/keymaps/defaults/keybinding-presets";
 import { markOnboardingCompleted } from "@/features/onboarding/lib/onboarding-state";
@@ -16,6 +15,7 @@ import { useOnboardingStore } from "@/features/onboarding/stores/onboarding.stor
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { formatReleaseDate } from "@/features/settings/lib/whats-new";
 import { useWhatsNewStore } from "@/features/settings/stores/whats-new.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import { Card } from "@/ui/card";
 import { ScrollArea } from "@/ui/scroll-area";
@@ -24,8 +24,6 @@ import Switch from "@/ui/switch";
 import { getServiceUrls } from "@/config/services";
 import { ReleaseNotesContent } from "./release-notes-content";
 
-const telemetryDescription =
-  "Lithe sends anonymous operational metadata for updates and, when enabled, heartbeats, extensions, and crashes; it never sends file paths, project names, prompts, or editor content.";
 const telemetryLearnMoreUrl = getServiceUrls().telemetryDocsUrl;
 
 interface OnboardingViewProps {
@@ -56,6 +54,7 @@ function SettingRow({
 }
 
 export default function OnboardingView({ bufferId, context }: OnboardingViewProps) {
+  const { t } = useTranslation();
   const settings = useSettingsStore(
     useShallow((state) => ({
       keybindingPreset: state.settings.keybindingPreset,
@@ -70,7 +69,7 @@ export default function OnboardingView({ bufferId, context }: OnboardingViewProp
   const whatsNewInitialized = useWhatsNewStore((state) => state.initialized);
   const whatsNewInfo = useWhatsNewStore((state) => state.info);
   const completeOnboarding = useOnboardingStore((state) => state.actions.complete);
-  const viewModel = buildOnboardingViewModel(context);
+  const viewModel = buildOnboardingViewModel(context, t);
   const [telemetry, setTelemetry] = useState(settings.telemetry);
   const [vimMode, setVimMode] = useState(settings.vimMode);
   const [openFoldersInNewWindow, setOpenFoldersInNewWindow] = useState(
@@ -98,6 +97,7 @@ export default function OnboardingView({ bufferId, context }: OnboardingViewProp
       updateSetting("telemetry", telemetry),
       updateSetting("vimMode", vimMode),
       updateSetting("openFoldersInNewWindow", openFoldersInNewWindow),
+      updateSetting("askWhereToOpenProjects", false),
       updateSetting("keybindingPreset", keybindingPreset),
     ]);
   };
@@ -155,7 +155,7 @@ export default function OnboardingView({ bufferId, context }: OnboardingViewProp
               {releaseInfo.date ? (
                 <>
                   <span aria-hidden="true">·</span>
-                  <span>Released {formatReleaseDate(releaseInfo.date)}</span>
+                  <span>{t("onboarding.releasedDate", { date: formatReleaseDate(releaseInfo.date) })}</span>
                 </>
               ) : null}
             </div>
@@ -165,31 +165,34 @@ export default function OnboardingView({ bufferId, context }: OnboardingViewProp
         {viewModel.showSettings ? (
           <Card className="gap-0 rounded-lg py-0">
             <SettingRow
-              title="Keybinding preset"
-              description={keybindingPresetDefinitions[keybindingPreset].description}
+              title={t("onboarding.keybindingPreset")}
+              description={t(`onboarding.keybindingPreset.${keybindingPreset}.description`)}
             >
               <Select
                 value={keybindingPreset}
                 onChange={(value) => setKeybindingPreset(value as KeybindingPreset)}
-                options={keybindingPresetOptions}
+                options={keybindingPresetOptions.map((option) => ({
+                  ...option,
+                  label: t(`onboarding.keybindingPreset.${option.value}.label`),
+                }))}
                 size="sm"
                 variant="default"
-                aria-label="Keybinding preset"
+                aria-label={t("onboarding.keybindingPreset")}
               />
             </SettingRow>
 
             <SettingRow
-              title="Share anonymous telemetry"
+              title={t("onboarding.shareAnonymousTelemetry")}
               description={
                 <>
-                  {telemetryDescription}{" "}
+                  {t("onboarding.telemetryDescription")}{" "}
                   <a
                     href={telemetryLearnMoreUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-primary hover:underline"
                   >
-                    Learn more
+                    {t("onboarding.learnMore")}
                   </a>
                 </>
               }
@@ -197,20 +200,20 @@ export default function OnboardingView({ bufferId, context }: OnboardingViewProp
               <Switch checked={telemetry} onChange={setTelemetry} />
             </SettingRow>
 
-            <SettingRow title="Enable Vim mode">
+            <SettingRow title={t("onboarding.enableVimMode")}>
               <Switch checked={vimMode} onChange={setVimMode} />
             </SettingRow>
 
-            <SettingRow title="Open folders in a new window">
+            <SettingRow title={t("onboarding.openFoldersInNewWindow")}>
               <Switch checked={openFoldersInNewWindow} onChange={setOpenFoldersInNewWindow} />
             </SettingRow>
 
             <SettingRow
-              title="Import settings from another editor"
-              description="Import matching setup from VS Code, Cursor, Windsurf, Zed, or JetBrains."
+              title={t("onboarding.importSettings")}
+              description={t("onboarding.importSettingsDescription")}
             >
               <Button variant="default" onClick={() => setIsImportDialogOpen(true)}>
-                Import
+                {t("onboarding.import")}
               </Button>
             </SettingRow>
           </Card>

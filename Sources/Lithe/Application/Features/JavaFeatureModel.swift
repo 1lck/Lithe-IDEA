@@ -164,7 +164,7 @@ final class JavaFeatureModel: ObservableObject {
             workspaceRoot: workspaceRoot,
             blameLines: blame
         )
-        let candidates = structure(source: document.text)?.implementationMarkers ?? []
+        let candidates = await structure(source: document.text)?.implementationMarkers ?? []
         let implementationCounts = candidates.reduce(into: [Int: Int]()) { counts, marker in
             counts[marker.line] = max(counts[marker.line] ?? 0, marker.implementationCount)
         }
@@ -234,7 +234,7 @@ final class JavaFeatureModel: ObservableObject {
         } else {
             sources = []
         }
-        let fallback = structure(source: currentText, declarationSources: sources)?.inlayHints ?? []
+        let fallback = await structure(source: currentText, declarationSources: sources)?.inlayHints ?? []
         guard documentProvider?()?.id == document.id else { return }
         javaInlayHints[document.url.standardizedFileURL] = fallback
     }
@@ -246,8 +246,11 @@ final class JavaFeatureModel: ObservableObject {
         return String(path.dropFirst(rootPath.count + 1))
     }
 
-    func structure(source: String, declarationSources: [String] = []) -> JavaStructureResult? {
-        operations.structure(source: source, declarationSources: declarationSources)
+    func structure(source: String, declarationSources: [String] = []) async -> JavaStructureResult? {
+        let operations = self.operations
+        return await Task.detached(priority: .utility) {
+            operations.structure(source: source, declarationSources: declarationSources)
+        }.value
     }
 
     func codeVision(

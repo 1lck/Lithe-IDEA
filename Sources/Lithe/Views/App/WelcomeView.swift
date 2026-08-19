@@ -10,21 +10,12 @@ struct WelcomeView: View {
     @FocusState private var searchFocused: Bool
 
     var body: some View {
-        VStack(spacing: 0) {
-            Text("Welcome to Lithe")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(LitheTheme.primaryText)
-                .frame(maxWidth: .infinity)
-                .frame(height: 48)
-                .background(LitheTheme.window)
-
-            HStack(spacing: 0) {
-                welcomeSidebar
-                Rectangle().fill(LitheTheme.divider).frame(width: 1)
-                projectsContent
-            }
+        HStack(spacing: 0) {
+            welcomeSidebar
+            Rectangle().fill(LitheTheme.divider.opacity(0.55)).frame(width: 1)
+            projectsContent
         }
-        .background(LitheTheme.window)
+        .background(LitheTheme.editor)
         .background(WelcomeInitialFocusReset())
     }
 
@@ -84,7 +75,10 @@ struct WelcomeView: View {
             .padding(.bottom, 14)
         }
         .frame(width: 240)
-        .background(LitheTheme.sidebar)
+        .background(
+            LitheTheme.sidebar
+                .ignoresSafeArea(.container, edges: .top)
+        )
     }
 
     @ViewBuilder
@@ -214,7 +208,7 @@ struct WelcomeView: View {
                 }
             }
         }
-        .background(LitheTheme.window)
+        .background(LitheTheme.editor)
     }
 
     private var emptyProjectsState: some View {

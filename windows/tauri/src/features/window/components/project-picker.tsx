@@ -19,6 +19,7 @@ import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.s
 import { memo, type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRecentFoldersStore } from "@/features/file-system/stores/recent-folders.store";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import type { RecentFolder } from "@/features/file-system/types/recent-folders.types";
 import { showPromptDialog } from "@/ui/dialog";
 import ConnectionForm from "@/features/remote/components/connection-form";
@@ -51,11 +52,16 @@ import { Spinner } from "@/ui/spinner";
 import { toast } from "sonner";
 import { cn } from "@/utils/cn";
 import { connectionStore } from "@/features/remote/stores/remote-connection.store";
+import {
+  getProjectPickerInitialState,
+  type ProjectPickerMode,
+} from "@/features/window/utils/project-picker-mode";
 import NewProjectContent from "./new-project-content";
 
 interface ProjectPickerProps {
   isOpen: boolean;
   onClose: () => void;
+  initialMode?: ProjectPickerMode;
 }
 
 const createRemoteConnectionFormData = (): RemoteConnectionFormData => ({
@@ -69,7 +75,9 @@ const createRemoteConnectionFormData = (): RemoteConnectionFormData => ({
   saveCredentials: false,
 });
 
-const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
+const ProjectPicker = memo(
+  ({ isOpen, onClose, initialMode = "picker" }: ProjectPickerProps) => {
+  const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const remoteNameInputRef = useRef<HTMLInputElement>(null);
   const [connections, setConnections] = useState<RemoteConnection[]>([]);
@@ -124,11 +132,13 @@ const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
     }
   }, []);
 
+  const initialPickerState = getProjectPickerInitialState(initialMode);
+
   useEffect(() => {
     if (isOpen) {
       setQuery("");
       setSelectedIndex(0);
-      setCommandStep("picker");
+      setCommandStep(initialPickerState.commandStep);
       setRemoteFormData(createRemoteConnectionFormData());
       setShowRemotePassword(false);
       setRemoteValidationStatus("idle");
@@ -139,7 +149,7 @@ const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
       loadWslDistributions();
       window.setTimeout(() => inputRef.current?.focus(), 0);
     }
-  }, [isOpen, loadConnections, loadWslDistributions]);
+  }, [initialPickerState.commandStep, isOpen, loadConnections, loadWslDistributions]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -212,15 +222,13 @@ const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
 
   const handleRemoveRecentFolder = (folder: RecentFolder) => {
     removeFromRecents(folder.path);
-    toast.success(`Removed "${folder.name}" from recent projects.`);
+    toast.success(t("projectPicker.removedRecentProject", { name: folder.name }));
   };
 
   const handleRemoveMissingRecentFolders = () => {
     const missingCount = recentFolders.filter((folder) => folder.missing).length;
     removeMissingFromRecents();
-    toast.success(
-      `Removed ${missingCount} missing project${missingCount === 1 ? "" : "s"} from recents.`,
-    );
+    toast.success(t("projectPicker.removedMissingRecentProjects", { count: missingCount }));
   };
 
   const handleConnect = async (connectionId: string, providedPassword?: string) => {
@@ -261,11 +269,11 @@ const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
         const home = await invoke<string>("wsl_get_home_dir", { distro: distribution.name }).catch(
           () => "/",
         );
-        const selectedPath = await showPromptDialog("Linux project path", {
-          title: `Open ${distribution.name}`,
+        const selectedPath = await showPromptDialog(t("projectPicker.linuxProjectPath"), {
+          title: t("projectPicker.openDistribution", { name: distribution.name }),
           defaultValue: home,
           placeholder: "/home/me/project",
-          confirmLabel: "Open",
+          confirmLabel: t("projectPicker.open"),
         });
         if (!selectedPath) return;
 
@@ -273,10 +281,10 @@ const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
         await handleOpenWslProject(distribution.name, selectedPath);
       } catch (error) {
         console.error("Failed to open WSL project:", error);
-        toast.error(error instanceof Error ? error.message : "Failed to open WSL project.");
+        toast.error(error instanceof Error ? error.message : t("projectPicker.openWslFailed"));
       }
     },
-    [handleOpenWslProject, onClose],
+    [handleOpenWslProject, onClose, t],
   );
 
   const updateRemoteFormData = (updates: Partial<RemoteConnectionFormData>) => {
@@ -293,7 +301,7 @@ const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
   const handleTestRemoteConnection = async () => {
     if (!remoteFormData.host.trim() || !remoteFormData.username.trim()) {
       setRemoteTestStatus("error");
-      setRemoteTestMessage("Host and username are required to test.");
+      setRemoteTestMessage(t("projectPicker.hostAndUsernameRequired"));
       return;
     }
 
@@ -304,11 +312,11 @@ const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
     try {
       await testRemoteConnection(remoteFormData);
       setRemoteTestStatus("success");
-      setRemoteTestMessage("Connection successful.");
+      setRemoteTestMessage(t("projectPicker.connectionSuccessful"));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setRemoteTestStatus("error");
-      setRemoteTestMessage(message || "Connection failed.");
+      setRemoteTestMessage(message || t("projectPicker.connectionFailedWithPeriod"));
     } finally {
       setIsRemoteTesting(false);
     }
@@ -316,7 +324,7 @@ const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
 
   const handleSaveRemoteConnection = async () => {
     if (!isRemoteFormValid) {
-      setRemoteErrorMessage("Please fill in all required fields");
+      setRemoteErrorMessage(t("projectPicker.fillRequiredFields"));
       setRemoteValidationStatus("invalid");
       return;
     }
@@ -338,7 +346,7 @@ const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
     } catch (error) {
       console.error("Failed to save connection:", error);
       setRemoteValidationStatus("invalid");
-      setRemoteErrorMessage("Failed to save connection. Please try again.");
+      setRemoteErrorMessage(t("projectPicker.saveConnectionFailed"));
     } finally {
       setIsRemoteSaving(false);
     }
@@ -424,15 +432,21 @@ const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
         onClose={onClose}
         title={
           commandStep === "addRemote"
-            ? "New Remote Connection"
+            ? t("welcome.newRemoteConnection")
             : commandStep === "newProject"
-              ? "New Project"
-              : "Open Project"
+              ? initialMode === "clone-repository"
+                ? t("welcome.cloneRepository")
+                : t("welcome.newProject")
+              : t("welcome.openProject")
         }
         autoFocus={commandStep === "picker"}
       >
         {commandStep === "newProject" ? (
-          <NewProjectContent onBack={handleBackToPicker} onClose={onClose} />
+          <NewProjectContent
+            initialSource={initialPickerState.newProjectSource}
+            onBack={handleBackToPicker}
+            onClose={onClose}
+          />
         ) : commandStep === "picker" ? (
           <CommandHeader onClose={onClose}>
             <Search className="size-4 shrink-0 text-subtle-foreground" />
@@ -441,18 +455,18 @@ const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
               value={query}
               onChange={setQuery}
               onKeyDown={handleCommandKeyDown}
-              placeholder="Open project or remote connection"
+              placeholder={t("welcome.openProjectOrRemote")}
             />
           </CommandHeader>
         ) : (
           <CommandHeader onClose={onClose}>
-            <CommandHeaderAction aria-label="Back to projects" onClick={handleBackToPicker}>
+            <CommandHeaderAction aria-label={t("welcome.backToProjects")} onClick={handleBackToPicker}>
               <ArrowLeft />
             </CommandHeaderAction>
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <Server className="shrink-0 text-subtle-foreground" />
               <span className="min-w-0 truncate font-sans ui-text-base font-medium text-foreground">
-                New Remote Connection
+                {t("welcome.newRemoteConnection")}
               </span>
             </div>
           </CommandHeader>
@@ -493,7 +507,9 @@ const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
                         <>
                           {folder.pinned ? <PushPin className="fill-current text-primary" /> : null}
                           {folder.missing ? (
-                            <CommandItemBadge variant="warning">Missing</CommandItemBadge>
+                            <CommandItemBadge variant="warning">
+                              {t("projectPicker.missing")}
+                            </CommandItemBadge>
                           ) : null}
                         </>
                       }
@@ -504,8 +520,8 @@ const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
                             event.stopPropagation();
                             handleRemoveRecentFolder(folder);
                           }}
-                          tooltip="Remove from recent projects"
-                          aria-label={`Remove ${folder.name} from recent projects`}
+                          tooltip={t("welcome.removeRecent", { name: folder.name })}
+                          aria-label={t("welcome.removeRecent", { name: folder.name })}
                         >
                           <X />
                         </CommandItemAction>
@@ -538,9 +554,9 @@ const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
                           <span>{connection.type.toUpperCase()}</span>
                           <span>
                             {connectingMap[connection.id]
-                              ? "Connecting..."
+                              ? t("projectPicker.connecting")
                               : statusMap[connection.id] === "error"
-                                ? "Connection failed"
+                                ? t("projectPicker.connectionFailed")
                                 : `${connection.username}@${connection.host}`}
                           </span>
                         </>
@@ -554,7 +570,9 @@ const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
                             )}
                           />
                           <span className="sr-only">
-                            {connection.isConnected ? "Connected" : "Disconnected"}
+                            {connection.isConnected
+                              ? t("projectPicker.connected")
+                              : t("projectPicker.disconnected")}
                           </span>
                         </>
                       }
@@ -581,14 +599,14 @@ const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
                         <>
                           <span>WSL</span>
                           <span>
-                            {distribution.state ?? "Installed"}
+                            {distribution.state ?? t("projectPicker.installed")}
                             {distribution.version ? `, WSL ${distribution.version}` : ""}
                           </span>
                         </>
                       }
                       accessory={
                         distribution.is_default ? (
-                          <CommandItemBadge>Default</CommandItemBadge>
+                          <CommandItemBadge>{t("projectPicker.default")}</CommandItemBadge>
                         ) : null
                       }
                     />
@@ -601,7 +619,9 @@ const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
             filteredConnections.length === 0 &&
             filteredWslDistributions.length === 0 ? (
               <CommandEmpty>
-                {normalizedQuery ? `No projects match "${query}".` : "No recent projects"}
+                {normalizedQuery
+                  ? t("projectPicker.noProjectsMatch", { query })
+                  : t("welcome.noRecentProjects")}
               </CommandEmpty>
             ) : null}
           </CommandList>
@@ -619,7 +639,7 @@ const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
               testStatus={remoteTestStatus}
               testMessage={remoteTestMessage}
               disabled={isRemoteSaving}
-              intro="Connect to remote servers via SSH or SFTP."
+              intro={t("projectPicker.remoteIntro")}
               nameInputRef={remoteNameInputRef}
               onSubmit={() => void handleSaveRemoteConnection()}
             />
@@ -630,21 +650,23 @@ const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
           <CommandFooter>
             <CommandFooterAction onClick={() => void handleOpenFolderClick()}>
               <FolderOpen />
-              Open Folder
+              {t("welcome.openFolder")}
             </CommandFooterAction>
             <CommandFooterAction onClick={handleNewProjectClick}>
               <Plus />
-              New Project
+              {t("welcome.newProject")}
             </CommandFooterAction>
             <CommandFooterAction
               onClick={handleAddRemoteConnectionClick}
               disabled={!isBackendCapabilityAvailable("remote")}
               tooltip={
-                isBackendCapabilityAvailable("remote") ? "Add Remote" : BACKEND_UNAVAILABLE_TOOLTIP
+                isBackendCapabilityAvailable("remote")
+                  ? t("welcome.addRemote")
+                  : BACKEND_UNAVAILABLE_TOOLTIP
               }
             >
               <Plus />
-              Add Remote
+              {t("welcome.addRemote")}
             </CommandFooterAction>
             {missingRecentFolderCount > 0 ? (
               <CommandFooterAction onClick={handleRemoveMissingRecentFolders}>
@@ -657,7 +679,7 @@ const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
           <CommandFooter>
             <div className="flex w-full justify-end gap-2">
               <Button type="button" onClick={handleBackToPicker} variant="ghost" size="xs">
-                Cancel
+                {t("ui.cancel")}
               </Button>
               <Button
                 type="button"
@@ -667,9 +689,9 @@ const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
                 disabled={isRemoteTesting}
               >
                 {isRemoteTesting ? (
-                  <Spinner label="Testing" showLabel compact />
+                  <Spinner label={t("projectPicker.testing")} showLabel compact />
                 ) : (
-                  "Test Connection"
+                  t("projectPicker.testConnection")
                 )}
               </Button>
               <Button
@@ -678,7 +700,7 @@ const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
                 disabled={!isRemoteFormValid || isRemoteSaving}
                 size="xs"
               >
-                {isRemoteSaving ? "Saving..." : "Save Connection"}
+                {isRemoteSaving ? t("ui.saving") : t("projectPicker.saveConnection")}
               </Button>
             </div>
           </CommandFooter>
@@ -694,7 +716,8 @@ const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
       />
     </>
   );
-});
+  },
+);
 
 ProjectPicker.displayName = "ProjectPicker";
 

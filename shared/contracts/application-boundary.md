@@ -159,6 +159,8 @@ Platform clients coordinate inspection, generation, resolution, typed document
 edits, and launch planning, but must not implement a second JSON merger,
 toolchain matcher, ID generator, argument parser, or Java/Maven argument
 builder. Opening a project inspects existing files without writing; generation
-is an explicit user action. Local absolute paths belong only in
-`.lithe/**/local.json` and are excluded from project visibility and Git by
-default.
+is an explicit user action. Shared project overrides stay in
+`.lithe/run/configurations.json`. Machine-local overrides may live in
+`.lithe/run/local.json` or in a host-owned document supplied as
+`localDocument`; absolute toolchain paths belong only in that local layer and
+are excluded from project visibility and Git by default.

@@ -1,5 +1,6 @@
 import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
 import { useEditorStateStore } from "@/features/editor/stores/state.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Dropdown } from "@/ui/dropdown";
 import { IS_MAC } from "@/utils/platform";
 import {
@@ -14,6 +15,7 @@ interface EditorContextMenuProps extends EditorContextMenuHandlers {
 }
 
 const EditorContextMenu = ({ isOpen, position, onClose, ...handlers }: EditorContextMenuProps) => {
+  const { t } = useTranslation();
   const hasSelection = (() => {
     if (!isOpen) return false;
     const selection = useEditorStateStore.getState().selection;
@@ -28,6 +30,7 @@ const EditorContextMenu = ({ isOpen, position, onClose, ...handlers }: EditorCon
     hasSelection,
     modifierKey,
     altKey,
+    t,
     ...handlers,
   });
 

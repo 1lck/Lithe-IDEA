@@ -9,6 +9,16 @@ use tauri_plugin_opener::OpenerExt;
 
 static WINDOW_ID: AtomicU64 = AtomicU64::new(1);
 
+// Windows 11 taskbar downscales a 256-only ICO into an empty pill. Use the 32px
+// asset after window creation so frameless windows keep a readable app icon.
+const WINDOW_TASKBAR_ICON: tauri::image::Image<'_> = tauri::include_image!("./icons/32x32.png");
+
+pub fn apply_window_taskbar_icon(window: &WebviewWindow) {
+    if let Err(error) = window.set_icon(WINDOW_TASKBAR_ICON.clone()) {
+        eprintln!("[host] failed to set window icon: {error}");
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct FontInfo {
     name: String,
@@ -237,7 +247,7 @@ fn copy_path(source: &std::path::Path, destination: &std::path::Path) -> Result<
 }
 
 #[tauri::command]
-pub fn create_app_window(app: AppHandle, request: Option<Value>) -> Result<String, String> {
+pub async fn create_app_window(app: AppHandle, request: Option<Value>) -> Result<String, String> {
     let label = format!("workspace-{}", WINDOW_ID.fetch_add(1, Ordering::Relaxed));
     let mut query = url::form_urlencoded::Serializer::new(String::new());
     if let Some(request) = request.and_then(|value| value.as_object().cloned()) {
@@ -273,20 +283,39 @@ pub fn create_app_window(app: AppHandle, request: Option<Value>) -> Result<Strin
     } else {
         format!("index.html?{query}")
     };
-    WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(path.into()))
+    let window = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(path.into()))
         .title("Lithe")
         .decorations(false)
         .inner_size(1280.0, 800.0)
         .min_inner_size(720.0, 480.0)
+        .icon(WINDOW_TASKBAR_ICON)
+        .map_err(|error| error.to_string())?
         .build()
         .map_err(|error| error.to_string())?;
+    apply_window_taskbar_icon(&window);
     Ok(label)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{cli_payloads, copy_path, unique_destination};
+    use super::{
+        cli_payloads, copy_path, create_app_window, unique_destination, WINDOW_TASKBAR_ICON,
+    };
     use std::fs;
+    use std::future::Future;
+    use std::path::PathBuf;
+
+    fn assert_async_window_command<F, Fut>(_command: F)
+    where
+        F: Fn(tauri::AppHandle, Option<serde_json::Value>) -> Fut,
+        Fut: Future<Output = Result<String, String>>,
+    {
+    }
+
+    #[test]
+    fn creates_app_windows_outside_the_synchronous_ipc_handler() {
+        assert_async_window_command(create_app_window);
+    }
 
     #[test]
     fn parses_path_and_web_cli_arguments() {
@@ -323,19 +352,62 @@ mod tests {
 
         fs::remove_dir_all(root).unwrap();
     }
-}
 
-#[tauri::command]
-pub fn frontend_trace(level: String, scope: String, message: String, payload: Option<Value>) {
-    eprintln!(
-        "[frontend][{level}][{scope}] {message} {}",
-        payload.unwrap_or(Value::Null)
-    );
-}
+    #[test]
+    fn bundled_windows_icon_includes_taskbar_sizes() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("icons/icon.ico");
+        let data = fs::read(path).unwrap();
+        assert!(data.len() >= 6);
+        let count = u16::from_le_bytes(data[4..6].try_into().unwrap()) as usize;
+        let mut widths = Vec::new();
+        let mut offset = 6usize;
+        for _ in 0..count {
+            let width = match data[offset] {
+                0 => 256,
+                value => u32::from(value),
+            };
+            widths.push(width);
+            offset += 16;
+        }
+        assert!(widths.contains(&16), "{widths:?}");
+        assert!(widths.contains(&32), "{widths:?}");
+        assert!(widths.contains(&256), "{widths:?}");
+    }
 
-#[tauri::command]
-pub fn record_startup_milestone(milestone: String) {
-    eprintln!("[startup] {milestone}");
+    #[test]
+    fn taskbar_icon_fills_available_canvas() {
+        let width = WINDOW_TASKBAR_ICON.width();
+        let height = WINDOW_TASKBAR_ICON.height();
+        assert_eq!((width, height), (32, 32));
+
+        let mut min_x = width;
+        let mut min_y = height;
+        let mut max_x = 0;
+        let mut max_y = 0;
+        for (index, pixel) in WINDOW_TASKBAR_ICON.rgba().chunks_exact(4).enumerate() {
+            if pixel[3] < 128 {
+                continue;
+            }
+
+            let x = index as u32 % width;
+            let y = index as u32 / width;
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+        }
+
+        let visible_width = max_x.saturating_sub(min_x) + 1;
+        let visible_height = max_y.saturating_sub(min_y) + 1;
+        assert!(visible_width >= 26, "visible width: {visible_width}");
+        assert!(visible_height >= 26, "visible height: {visible_height}");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn background_font_queries_do_not_create_windows_console() {
+        assert_eq!(super::font_query_process_creation_flags(), 0x0800_0000);
+    }
 }
 
 #[tauri::command]
@@ -383,13 +455,17 @@ pub fn validate_font(font_family: String) -> bool {
 
 #[cfg(target_os = "windows")]
 fn platform_fonts() -> Vec<FontInfo> {
+    use std::os::windows::process::CommandExt;
     use std::process::Command;
-    let output = Command::new("reg.exe")
+
+    let mut command = Command::new("reg.exe");
+    command
         .args([
             "query",
             r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts",
         ])
-        .output();
+        .creation_flags(font_query_process_creation_flags());
+    let output = command.output();
     let text = output
         .ok()
         .filter(|value| value.status.success())
@@ -418,6 +494,12 @@ fn platform_fonts() -> Vec<FontInfo> {
             style: "Regular".into(),
         })
         .collect()
+}
+
+#[cfg(target_os = "windows")]
+fn font_query_process_creation_flags() -> u32 {
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    CREATE_NO_WINDOW
 }
 
 #[cfg(not(target_os = "windows"))]

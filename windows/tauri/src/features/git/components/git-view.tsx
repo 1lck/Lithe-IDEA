@@ -12,6 +12,7 @@ import {
   UploadIcon as Upload,
 } from "@/ui/icons";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "@/i18n/locale-provider";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { Button } from "@/ui/button";
 import { ButtonGroup, ButtonGroupSeparator } from "@/ui/button-group";
@@ -35,11 +36,13 @@ import { matchesSearchQuery } from "@/utils/search-match";
 import { getBranches } from "../api/git-branches-api";
 import { getStatusDiffStats } from "../api/git-diff-api";
 import { clearRepositoryDiscoveryCache, resolveRepositoryPath } from "../api/git-repo-api";
-import { fetchChanges, pullChanges, pushChanges } from "../api/git-remotes-api";
+import { fetchChanges, getRemotes, pushChanges } from "../api/git-remotes-api";
 import { applyStash, dropStash, popStash } from "../api/git-stash-api";
 import { getGitStatus, initRepository } from "../api/git-status-api";
 import { useGitDataController } from "../hooks/use-git-data-controller";
 import { useGitDiffActions } from "../hooks/use-git-diff-actions";
+import { useGitPullWorkflow } from "../hooks/use-git-pull-workflow";
+import { useGitBlameStore } from "../stores/git-blame.store";
 import { useRepositoryStore } from "../stores/git-repository.store";
 import { useGitStore } from "../stores/git.store";
 import type { GitFile } from "../types/git.types";
@@ -47,6 +50,7 @@ import {
   type WorkingTreeDiffEntry,
   type WorkingTreeDiffScope,
 } from "../services/working-tree-diff-loader";
+import { loadWorkingTreeFileDiff } from "../services/working-tree-file-diff";
 import type { GitActionsMenuAnchorRect } from "../utils/git-actions-menu-position";
 import { getStashDisplayTitle, getStashPositionLabel } from "../utils/git-stash-format";
 import { openGitWorktreeWorkspace } from "../utils/git-worktree-open";
@@ -57,6 +61,8 @@ import GitCommitPanel from "./git-commit-panel";
 import GitCommandSurface from "./git-command-surface";
 import GitRemoteManager from "./git-remote-manager";
 import GitTagManager from "./git-tag-manager";
+import GitOperationBanner from "./git-operation-banner";
+import GitPullStrategyDialog from "./git-pull-strategy-dialog";
 import GitStatusPanel from "./status/git-status-panel";
 
 interface GitViewProps {
@@ -74,12 +80,6 @@ type GitSidebarTab = "changes" | "history";
 const GIT_VIEW_BRANCH_MANAGER_EVENT = "lithe:open-git-view-branch-manager";
 type GitRemoteAction = "push" | "pull" | "fetch";
 
-const REMOTE_ACTION_LABELS: Record<GitRemoteAction, { present: string; past: string }> = {
-  push: { present: "Pushing", past: "Pushed" },
-  pull: { present: "Pulling", past: "Pulled" },
-  fetch: { present: "Fetching", past: "Fetched" },
-};
-
 type GitPaletteAction =
   | { type: "select-repository" }
   | { type: "show-tab"; tab: GitSidebarTab }
@@ -92,6 +92,12 @@ type GitPaletteAction =
   | { type: "refresh" };
 
 const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
+  const { t } = useTranslation();
+  const remoteActionLabels: Record<GitRemoteAction, { present: string; past: string }> = {
+    push: { present: t("git.pushingChanges"), past: t("git.pushedChanges") },
+    pull: { present: t("git.pullingChanges"), past: t("git.pulledChanges") },
+    fetch: { present: t("git.fetchingChanges"), past: t("git.fetchedChanges") },
+  };
   const gitStatus = useGitStore((state) => state.gitStatus);
   const isLoadingGitData = useGitStore((state) => state.isLoadingGitData);
   const isRefreshing = useGitStore((state) => state.isRefreshing);
@@ -104,6 +110,24 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     workspacePath: repoPath,
     isActive,
   });
+  const refreshPullState = useCallback(async () => {
+    if (!activeRepoPath) return;
+    await Promise.all([handleManualRefresh(), getRemotes(activeRepoPath)]);
+  }, [activeRepoPath, handleManualRefresh]);
+  const pullWorkflow = useGitPullWorkflow({
+    repoPath: activeRepoPath ?? "",
+    refresh: refreshPullState,
+  });
+  const handlePull = useCallback(async () => {
+    if (!activeRepoPath) {
+      toast.error(t("git.noRepositoryOpen"));
+      return;
+    }
+    const result = await pullWorkflow.pull();
+    if (result.status === "pulled") {
+      useGitBlameStore.getState().actions.clearAllBlame();
+    }
+  }, [activeRepoPath, pullWorkflow.pull]);
   const [showGitActionsMenu, setShowGitActionsMenu] = useState(false);
   const [showStashList, setShowStashList] = useState(false);
   const [isSelectingRepo, setIsSelectingRepo] = useState(false);
@@ -172,7 +196,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
         nextStagedFiles.push(file);
       }
 
-      if (file.status === "untracked" || seenDiffableFileKeys.has(fileKey)) {
+      if (seenDiffableFileKeys.has(fileKey)) {
         continue;
       }
 
@@ -232,18 +256,18 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
 
       const resolvedRepoPath = await resolveRepositoryPath(selected);
       if (!resolvedRepoPath) {
-        const message = "Selected folder is not inside a Git repository.";
+        const message = t("git.selectedFolderNotRepo");
         setRepoSelectionError(message);
-        await showAlertDialog(message, "Select Repository");
+        await showAlertDialog(message, t("git.selectRepository"));
         return;
       }
 
       setManualRepository(resolvedRepoPath);
     } catch (error) {
       console.error("Failed to select repository:", error);
-      const message = "Failed to select repository";
+      const message = t("git.failedToSelectRepository");
       setRepoSelectionError(message);
-      await showAlertDialog(`${message}:\n${error}`, "Select Repository");
+      await showAlertDialog(`${message}:\n${error}`, t("git.selectRepository"));
     } finally {
       setIsSelectingRepo(false);
     }
@@ -253,7 +277,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     const targetPath = repoPath;
 
     if (!targetPath) {
-      toast.error("Open a folder before initializing a repository.");
+      toast.error(t("git.openFolderBeforeInit"));
       return;
     }
 
@@ -262,7 +286,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     try {
       const success = await initRepository(targetPath);
       if (!success) {
-        const message = "Failed to initialize repository.";
+        const message = t("git.failedToInitializeRepository");
         setRepoSelectionError(message);
         toast.error(message);
         return;
@@ -271,10 +295,11 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
       clearRepositoryDiscoveryCache();
       setManualRepository(targetPath);
       await syncWorkspaceRepositories(targetPath, { force: true });
-      toast.success("Repository initialized.");
+      toast.success(t("git.repositoryInitialized"));
     } catch (error) {
       console.error("Failed to initialize repository:", error);
-      const message = error instanceof Error ? error.message : "Failed to initialize repository.";
+      const message =
+        error instanceof Error ? error.message : t("git.failedToInitializeRepository");
       setRepoSelectionError(message);
       toast.error(message);
     } finally {
@@ -285,14 +310,18 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
   const handleRemoteAction = useCallback(
     async (action: GitRemoteAction) => {
       if (!activeRepoPath) {
-        toast.error("No repository open");
+        toast.error(t("git.noRepositoryOpen"));
         return;
       }
 
       setIsSyncMenuOpen(false);
+      if (action === "pull") {
+        await handlePull();
+        return;
+      }
       setRemoteAction(action);
-      const label = REMOTE_ACTION_LABELS[action];
-      const toastId = toast.info(`${label.present} changes...`, {
+      const label = remoteActionLabels[action];
+      const toastId = toast.info(label.present, {
         duration: Infinity,
       });
 
@@ -300,48 +329,56 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
         const result =
           action === "push"
             ? await pushChanges(activeRepoPath)
-            : action === "pull"
-              ? await pullChanges(activeRepoPath)
-              : await fetchChanges(activeRepoPath);
+            : await fetchChanges(activeRepoPath);
 
         toast.dismiss(toastId);
 
         if (result.success) {
-          toast.success(`${label.past} changes successfully.`);
+          toast.success(label.past);
           await handleManualRefresh();
           return;
         }
 
-        toast.error(result.error || `Failed to ${action} changes.`);
+        toast.error(result.error || t(action === "push" ? "git.pushFailed" : "git.fetchFailed"));
       } catch (error) {
         toast.dismiss(toastId);
-        toast.error(error instanceof Error ? error.message : `Failed to ${action} changes.`);
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t(action === "push" ? "git.pushFailed" : "git.fetchFailed"),
+        );
       } finally {
         setRemoteAction(null);
       }
     },
-    [activeRepoPath, handleManualRefresh],
+    [activeRepoPath, handleManualRefresh, handlePull],
   );
 
   const aheadCount = gitStatus?.ahead ?? 0;
   const behindCount = gitStatus?.behind ?? 0;
   const primaryRemoteAction: GitRemoteAction =
     aheadCount > 0 ? "push" : behindCount > 0 ? "pull" : "fetch";
-  const syncActionLabel =
-    remoteAction !== null
-      ? REMOTE_ACTION_LABELS[remoteAction].present
+  const syncActionLabel = pullWorkflow.isPulling
+    ? t("git.pulling")
+    : remoteAction !== null
+      ? t(`git.${remoteAction}ing`)
       : primaryRemoteAction === "push"
-        ? `Push ${aheadCount}`
+        ? t("git.pushCount", { count: aheadCount })
         : primaryRemoteAction === "pull"
-          ? `Pull ${behindCount}`
-          : "Fetch";
-  const isRemoteActionLoading = remoteAction !== null;
+          ? t("git.pullCount", { count: behindCount })
+          : t("git.fetch");
+  const isRemoteActionLoading = remoteAction !== null || pullWorkflow.isPulling;
 
   const syncMenuItems = useMemo<MenuItem[]>(
     () => [
       {
         id: "push",
-        label: aheadCount > 0 ? `Push ${aheadCount} commit${aheadCount !== 1 ? "s" : ""}` : "Push",
+        label:
+          aheadCount > 0
+            ? aheadCount === 1
+              ? t("git.pushCommit", { count: aheadCount })
+              : t("git.pushCommits", { count: aheadCount })
+            : t("git.push"),
         icon: <Upload />,
         disabled: isRemoteActionLoading,
         onClick: () => void handleRemoteAction("push"),
@@ -349,20 +386,24 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
       {
         id: "pull",
         label:
-          behindCount > 0 ? `Pull ${behindCount} commit${behindCount !== 1 ? "s" : ""}` : "Pull",
+          behindCount > 0
+            ? behindCount === 1
+              ? t("git.pullCommit", { count: behindCount })
+              : t("git.pullCommits", { count: behindCount })
+            : t("git.pull"),
         icon: <Download weight="fill" />,
         disabled: isRemoteActionLoading,
         onClick: () => void handleRemoteAction("pull"),
       },
       {
         id: "fetch",
-        label: "Fetch",
+        label: t("git.fetch"),
         icon: <RefreshCw />,
         disabled: isRemoteActionLoading,
         onClick: () => void handleRemoteAction("fetch"),
       },
     ],
-    [aheadCount, behindCount, handleRemoteAction, isRemoteActionLoading],
+    [aheadCount, behindCount, handleRemoteAction, isRemoteActionLoading, t],
   );
 
   useEffect(() => {
@@ -486,6 +527,27 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
         }
       }
 
+      const untrackedFiles = visibleGitFiles.filter(
+        (file) => file.status === "untracked" && !file.staged,
+      );
+      const untrackedDiffs = await Promise.all(
+        untrackedFiles.map(async (file) => {
+          try {
+            return [file, await loadWorkingTreeFileDiff(activeRepoPath, file)] as const;
+          } catch (error) {
+            console.error(`Failed to read untracked diff stats for ${file.path}:`, error);
+            return [file, null] as const;
+          }
+        }),
+      );
+      for (const [file, diff] of untrackedDiffs) {
+        if (!diff) continue;
+        nextFileDiffStats[`unstaged:${file.path}`] = {
+          additions: diff.additions ?? 0,
+          deletions: diff.deletions ?? 0,
+        };
+      }
+
       if (!isCancelled) {
         setFileDiffStats(nextFileDiffStats);
       }
@@ -496,7 +558,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     return () => {
       isCancelled = true;
     };
-  }, [activeRepoPath, visibleGitFiles.length, visibleGitFileKeySet]);
+  }, [activeRepoPath, visibleGitFiles, visibleGitFileKeySet]);
 
   const handleGitViewWorktreeChange = useCallback(
     async (worktreePath: string) => {
@@ -551,7 +613,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
         setShowGitActionsMenu(!showGitActionsMenu);
         setShowStashList(false);
       }}
-      tooltip="Git Actions"
+      tooltip={t("git.actions")}
     >
       <MoreHorizontal />
     </SidebarHeaderIconButton>
@@ -561,11 +623,11 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     <SidebarHeaderIconButton
       onClick={handleManualRefresh}
       disabled={isLoadingGitData || isRefreshing}
-      tooltip="Refresh"
-      aria-label="Refresh git status"
+      tooltip={t("git.refresh")}
+      aria-label={t("git.refreshAria")}
     >
       {isLoadingGitData || isRefreshing ? (
-        <Spinner label="Refreshing git status" compact />
+        <Spinner label={t("git.refreshAria")} compact />
       ) : (
         <RefreshCw />
       )}
@@ -583,12 +645,12 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
         size="xs"
         tooltip={
           canInitializeRepository
-            ? "Initialize Git repository"
-            : "Open a folder before initializing Git"
+            ? t("git.initializeGitRepository")
+            : t("git.openFolderBeforeInitializing")
         }
       >
         <GitBranch weight="duotone" />
-        {isInitializingRepo ? "Initializing..." : "Initialize"}
+        {isInitializingRepo ? t("git.initializing") : t("git.initialize")}
       </Button>
     );
   };
@@ -603,7 +665,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
         onClick={() => void handleSelectRepository()}
       >
         <FolderSimpleStar weight="duotone" />
-        {isSelectingRepo ? "Selecting..." : "Browse"}
+        {isSelectingRepo ? t("git.selecting") : t("git.browse")}
       </Button>
       {renderInitializeRepositoryButton()}
     </>
@@ -626,6 +688,8 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
       hasGitRepo={hasGitRepo}
       repoPath={activeRepoPath ?? repoPath}
       onRefresh={onRefresh}
+      onPull={handlePull}
+      isPulling={pullWorkflow.isPulling}
       onOpenBranchManager={handleOpenBranchManager}
       onShowBranchDiff={() => void handleShowBranchDiffList()}
       onOpenRemoteManager={() => setShowRemoteManager(true)}
@@ -697,11 +761,11 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
       const tabMap: Record<GitSidebarTab, { id: GitSidebarTab; label: string }> = {
         changes: {
           id: "changes",
-          label: "Changes",
+          label: t("workbench.changes"),
         },
         history: {
           id: "history",
-          label: "History",
+          label: t("git.history"),
         },
       };
 
@@ -713,10 +777,10 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     return (
       <>
         <SidebarPanel>
-          <SidebarTitleBar title="Source Control">{renderActionsButton()}</SidebarTitleBar>
+          <SidebarTitleBar title={t("workbench.sourceControl")}>{renderActionsButton()}</SidebarTitleBar>
           <Empty className="h-full">
             <EmptyHeader>
-              <EmptyTitle>No repository selected</EmptyTitle>
+              <EmptyTitle>{t("git.noRepositorySelected")}</EmptyTitle>
               {repoSelectionError ? (
                 <EmptyDescription className="text-destructive">
                   {repoSelectionError}
@@ -735,8 +799,8 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     return (
       <>
         <SidebarPanel>
-          <SidebarTitleBar title="Source Control">{renderActionsButton()}</SidebarTitleBar>
-          <Spinner label="Loading Git status" showLabel compact className="m-auto" />
+          <SidebarTitleBar title={t("workbench.sourceControl")}>{renderActionsButton()}</SidebarTitleBar>
+          <Spinner label={t("git.loadingGitStatus")} showLabel compact className="m-auto" />
         </SidebarPanel>
         {renderGitActionsMenu({ hasGitRepo: false, onRefresh: handleManualRefresh })}
       </>
@@ -747,10 +811,10 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     return (
       <>
         <SidebarPanel>
-          <SidebarTitleBar title="Source Control">{renderActionsButton()}</SidebarTitleBar>
+          <SidebarTitleBar title={t("workbench.sourceControl")}>{renderActionsButton()}</SidebarTitleBar>
           <Empty className="h-full">
             <EmptyHeader>
-              <EmptyTitle>Not a Git repository</EmptyTitle>
+              <EmptyTitle>{t("git.notAGitRepository")}</EmptyTitle>
               {repoSelectionError ? (
                 <EmptyDescription className="text-destructive">
                   {repoSelectionError}
@@ -771,11 +835,12 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
   return (
     <>
       <SidebarPanel className="font-sans ui-text-sm select-none">
-        <SidebarTitleBar title="Source Control">
+        <SidebarTitleBar title={t("workbench.sourceControl")}>
           {renderRefreshButton()}
           {renderActionsButton()}
         </SidebarTitleBar>
         <SidebarTabBar items={gitTabs} value={activeTab} onChange={setActiveTab}>
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden isolate">
           <SidebarToolbar className="overflow-hidden">
             <div className="flex min-w-0 flex-1">
               <GitBranchManager
@@ -798,7 +863,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                   className="min-w-0 flex-1"
                   onClick={() => void handleRemoteAction(primaryRemoteAction)}
                   disabled={!activeRepoPath || isRemoteActionLoading}
-                  aria-label={`${syncActionLabel} remote changes`}
+                  aria-label={t("git.remoteChangesAction", { action: syncActionLabel })}
                 >
                   <span className="min-w-0 truncate whitespace-nowrap">{syncActionLabel}</span>
                 </Button>
@@ -810,7 +875,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                   onClick={() => setIsSyncMenuOpen((open) => !open)}
                   disabled={!activeRepoPath || isRemoteActionLoading}
                   active={isSyncMenuOpen}
-                  aria-label="Choose remote action"
+                  aria-label={t("git.chooseRemoteAction")}
                   aria-haspopup="menu"
                   aria-expanded={isSyncMenuOpen}
                 >
@@ -834,21 +899,24 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
               {
                 id: "changes",
                 content: (
-                  <GitStatusPanel
-                    files={visibleGitFiles}
-                    fileDiffStats={fileDiffStats}
-                    onFileSelect={handleGitFileClick}
-                    onOpenFile={handleOpenOriginalFile}
-                    onViewDiff={(scope) => void handleViewWorkingTreeDiff(scope)}
-                    onShowCommitDiffPicker={handleShowCommitDiffList}
-                    onShowBranchDiffPicker={() => void handleShowBranchDiffList()}
-                    onShowStashDiffPicker={() => {
-                      setShowStashList(true);
-                      setStashSearchQuery("");
-                    }}
-                    onRefresh={refreshAfterAction}
-                    repoPath={activeRepoPath}
-                  />
+                  <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+                    <GitOperationBanner repoPath={activeRepoPath} />
+                    <GitStatusPanel
+                      files={visibleGitFiles}
+                      fileDiffStats={fileDiffStats}
+                      onFileSelect={handleGitFileClick}
+                      onOpenFile={handleOpenOriginalFile}
+                      onViewDiff={(scope) => void handleViewWorkingTreeDiff(scope)}
+                      onShowCommitDiffPicker={handleShowCommitDiffList}
+                      onShowBranchDiffPicker={() => void handleShowBranchDiffList()}
+                      onShowStashDiffPicker={() => {
+                        setShowStashList(true);
+                        setStashSearchQuery("");
+                      }}
+                      onRefresh={refreshAfterAction}
+                      repoPath={activeRepoPath}
+                    />
+                  </div>
                 ),
               },
               {
@@ -874,12 +942,19 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
               ahead={gitStatus.ahead}
               behind={gitStatus.behind}
               onCommitSuccess={refreshAfterAction}
+              onPull={handlePull}
+              isPulling={pullWorkflow.isPulling}
             />
           </SidebarFooter>
+          </div>
         </SidebarTabBar>
       </SidebarPanel>
 
       {renderGitActionsMenu({ hasGitRepo: !!gitStatus, onRefresh: refreshAfterAction })}
+      <GitPullStrategyDialog
+        preflight={pullWorkflow.pendingPreflight}
+        onSelect={pullWorkflow.chooseStrategy}
+      />
       <GitCommandSurface
         isOpen={showCommitDiffList}
         onClose={() => {
@@ -888,13 +963,15 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
         }}
         query={commitDiffSearchQuery}
         onQueryChange={setCommitDiffSearchQuery}
-        placeholder="Search commits..."
-        meta={`${commits.length} commit${commits.length === 1 ? "" : "s"}`}
+        placeholder={t("git.searchCommits")}
+        meta={t(commits.length === 1 ? "git.commitCount" : "git.commitsCount", {
+          count: commits.length,
+        })}
       >
         <CommandList>
           {filteredDiffCommits.length === 0 ? (
             <CommandEmpty>
-              {commitDiffSearchQuery.trim() ? "No matching commits" : "No commits"}
+              {commitDiffSearchQuery.trim() ? t("git.noMatchingCommits") : t("git.noCommits")}
             </CommandEmpty>
           ) : (
             <div className="space-y-1">
@@ -930,13 +1007,18 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
         }}
         query={branchDiffSearchQuery}
         onQueryChange={setBranchDiffSearchQuery}
-        placeholder="Compare current branch with..."
-        meta={`${branchDiffBranches.length} branch${branchDiffBranches.length === 1 ? "" : "es"}`}
+        placeholder={t("git.compareBranchPlaceholder")}
+        meta={t(
+          branchDiffBranches.length === 1 ? "git.branchCount" : "git.branchesCount",
+          { count: branchDiffBranches.length },
+        )}
       >
         <CommandList>
           {filteredBranchDiffBranches.length === 0 ? (
             <CommandEmpty>
-              {branchDiffSearchQuery.trim() ? "No matching branches" : "No other branches"}
+              {branchDiffSearchQuery.trim()
+                ? t("git.noMatchingBranches")
+                : t("git.noOtherBranches")}
             </CommandEmpty>
           ) : (
             <div className="space-y-1">
@@ -946,7 +1028,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                   type="button"
                   icon={<GitBranch size={14} className="text-subtle-foreground" />}
                   title={branch}
-                  description={`compare with ${gitStatus.branch}`}
+                  description={t("git.compareWithBranch", { branch: gitStatus.branch })}
                   onClick={() => void handleViewBranchDiff(branch)}
                   disabled={isLoadingBranchDiff}
                   className="min-h-9"
@@ -964,13 +1046,15 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
         }}
         query={stashSearchQuery}
         onQueryChange={setStashSearchQuery}
-        placeholder="Search stashes..."
-        meta={`${stashes.length} stash${stashes.length === 1 ? "" : "es"}`}
+        placeholder={t("git.searchStashes")}
+        meta={t(stashes.length === 1 ? "git.stashCount" : "git.stashesCount", {
+          count: stashes.length,
+        })}
       >
         <CommandList>
           {filteredStashes.length === 0 ? (
             <CommandEmpty>
-              {stashSearchQuery.trim() ? "No matching stashes" : "No stashes"}
+              {stashSearchQuery.trim() ? t("git.noMatchingStashes") : t("git.noStashes")}
             </CommandEmpty>
           ) : (
             filteredStashes.map((stash) => {
@@ -1006,14 +1090,14 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                           void handleStashListAction(
                             () => applyStash(activeRepoPath!, stash.index),
                             stash.index,
-                            "Apply stash",
+                            t("git.applyStash"),
                           );
                         }}
                         disabled={isActionLoading}
                         variant="ghost"
                         size="icon-xs"
                         className="rounded-md text-subtle-foreground disabled:opacity-50"
-                        tooltip="Apply stash"
+                        tooltip={t("git.applyStash")}
                       >
                         <Download weight="fill" />
                       </Button>
@@ -1024,14 +1108,14 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                           void handleStashListAction(
                             () => popStash(activeRepoPath!, stash.index),
                             stash.index,
-                            "Pop stash",
+                            t("git.popStash"),
                           );
                         }}
                         disabled={isActionLoading}
                         variant="ghost"
                         size="icon-xs"
                         className="rounded-md text-subtle-foreground disabled:opacity-50"
-                        tooltip="Pop stash"
+                        tooltip={t("git.popStash")}
                       >
                         <Upload />
                       </Button>
@@ -1042,14 +1126,14 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                           void handleStashListAction(
                             () => dropStash(activeRepoPath!, stash.index),
                             stash.index,
-                            "Drop stash",
+                            t("git.dropStash"),
                           );
                         }}
                         disabled={isActionLoading}
                         variant="ghost"
                         size="icon-xs"
                         className="rounded-md text-destructive hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
-                        tooltip="Drop stash"
+                        tooltip={t("git.dropStash")}
                       >
                         <Trash2 />
                       </Button>

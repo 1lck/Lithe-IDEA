@@ -11,6 +11,7 @@ import { ProviderIcon } from "@/features/ai/components/icons/provider-icons";
 import { filterChatsByWorkspace } from "@/features/ai/lib/ai-workspace-scope";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useProjectStore } from "@/features/window/stores/project.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import Input, { InlineRenameInput } from "@/ui/input";
 import {
@@ -30,6 +31,7 @@ function EditableChatTitle({
   title: string;
   onUpdateTitle: (title: string) => void;
 }) {
+  const { t } = useTranslation();
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(title);
 
@@ -60,7 +62,7 @@ function EditableChatTitle({
         onCancel={handleCancel}
         width="content"
         className="min-w-24 max-w-52"
-        aria-label={`Rename ${title}`}
+        aria-label={t("ai.renameSession", { title })}
       />
     );
   }
@@ -69,7 +71,7 @@ function EditableChatTitle({
     <span
       className="block max-w-full cursor-pointer truncate rounded-md px-2 py-1 ui-text-sm font-medium transition-colors hover:bg-accent"
       onClick={() => setIsEditing(true)}
-      title="Click to rename session"
+      title={t("ai.clickToRenameSession")}
     >
       {title}
     </span>
@@ -105,6 +107,7 @@ export function ChatHeader({
   onPreviousMessageSearchMatch,
   onNextMessageSearchMatch,
 }: ChatHeaderProps) {
+  const { t } = useTranslation();
   const currentChatId = useAIChatStore((state) => state.currentChatId);
   const chats = useAIChatStore((state) => state.chats);
   const workspacePath = useProjectStore((state) => state.rootFolderPath || null);
@@ -149,11 +152,11 @@ export function ChatHeader({
             </PaneChip>
             {effectiveChatId ? (
               <EditableChatTitle
-                title={currentChat ? currentChat.title : "New Session"}
+                title={currentChat ? currentChat.title : t("ai.newSession")}
                 onUpdateTitle={(title) => updateChatTitle(effectiveChatId, title)}
               />
             ) : (
-              <span className={cn(paneTitleClassName(), "truncate")}>New Session</span>
+              <span className={cn(paneTitleClassName(), "truncate")}>{t("ai.newSession")}</span>
             )}
           </div>
         </div>
@@ -165,9 +168,9 @@ export function ChatHeader({
             size="icon-xs"
             onClick={onToggleMessageSearch}
             active={isMessageSearchOpen}
-            tooltip="Search messages"
+            tooltip={t("ai.searchMessages")}
             tooltipSide="bottom"
-            aria-label="Search messages"
+            aria-label={t("ai.searchMessages")}
           >
             <Search />
           </Button>
@@ -178,9 +181,9 @@ export function ChatHeader({
             variant="ghost"
             size="icon-xs"
             onClick={() => setIsChatHistoryVisible(!isChatHistoryVisible)}
-            tooltip="Agent History"
+            tooltip={t("ai.agentHistory")}
             tooltipSide="bottom"
-            aria-label="Toggle agent history"
+            aria-label={t("ai.toggleAgentHistory")}
           >
             <History />
           </Button>
@@ -190,9 +193,9 @@ export function ChatHeader({
             variant="ghost"
             size="icon-xs"
             onClick={handleNewAgent}
-            tooltip="New Agent"
+            tooltip={t("ai.newAgent")}
             tooltipSide="bottom"
-            aria-label="New Agent"
+            aria-label={t("ai.newAgent")}
           >
             <Plus />
           </Button>
@@ -221,7 +224,7 @@ export function ChatHeader({
                 }
               }
             }}
-            placeholder="Search messages"
+            placeholder={t("ai.searchMessages")}
             size="xs"
             variant="ghost"
             leftIcon={Search}
@@ -238,8 +241,8 @@ export function ChatHeader({
             size="icon-xs"
             disabled={!hasMessageSearchMatches}
             onClick={onPreviousMessageSearchMatch}
-            tooltip="Previous match"
-            aria-label="Previous search match"
+            tooltip={t("ai.previousMatch")}
+            aria-label={t("ai.previousSearchMatch")}
           >
             <ArrowUp />
           </Button>
@@ -249,8 +252,8 @@ export function ChatHeader({
             size="icon-xs"
             disabled={!hasMessageSearchMatches}
             onClick={onNextMessageSearchMatch}
-            tooltip="Next match"
-            aria-label="Next search match"
+            tooltip={t("ai.nextMatch")}
+            aria-label={t("ai.nextSearchMatch")}
           >
             <ArrowDown />
           </Button>
@@ -259,8 +262,8 @@ export function ChatHeader({
             variant="ghost"
             size="icon-xs"
             onClick={onCloseMessageSearch}
-            tooltip="Close search"
-            aria-label="Close message search"
+            tooltip={t("ai.closeSearch")}
+            aria-label={t("ai.closeMessageSearch")}
           >
             <X />
           </Button>

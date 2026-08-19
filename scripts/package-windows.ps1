@@ -23,6 +23,8 @@ $taskTempRoot = if ([string]::IsNullOrWhiteSpace($env:RUNNER_TEMP)) {
 }
 $versionConfig = Join-Path $taskTempRoot "lithe-tauri-version.json"
 
+& (Join-Path $root "scripts/prepare-jdtls.ps1") | Out-Null
+
 $versionOverrides = @{
     version = $Version
     bundle = @{}
@@ -68,6 +70,7 @@ if ($LASTEXITCODE -ne 0) { throw "Windows frontend dependency installation faile
 $tauriArgs = @(
     "tauri", "build",
     "--config", "src-tauri/tauri.windows.conf.json",
+    "--config", "src-tauri/tauri.jdtls.conf.json",
     "--config", $versionConfig,
     "--bundles", "nsis"
 )

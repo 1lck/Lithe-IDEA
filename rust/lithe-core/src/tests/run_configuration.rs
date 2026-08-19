@@ -424,6 +424,247 @@ fn ordinary_java_main_uses_an_application_launch_plan() {
 }
 
 #[test]
+fn plain_java_main_uses_the_jdk_without_maven() {
+    let root = temporary_root("run-config-plain-java-main");
+    let source = "src/com/example/WorkerMain.java";
+    fs::create_dir_all(root.join("src/com/example")).unwrap();
+    fs::write(
+        root.join(source),
+        "package com.example; class WorkerMain { public static void main(String[] args) {} }",
+    )
+    .unwrap();
+
+    let generated_response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "generate-plain-java-main",
+            "command": "runConfig.generate",
+            "payload": {"root": root, "paths": [source], "modulePaths": []}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    let generated = &generated_response["data"]["generated"];
+    let java_main = generated["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|value| value["provider"] == "java.main")
+        .unwrap();
+    assert_eq!(java_main["toolchains"]["java"], "project-jdk");
+    assert!(java_main["toolchains"]["maven"].is_null());
+    assert_eq!(java_main["source"], source);
+
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        serde_json::to_string(generated).unwrap(),
+    )
+    .unwrap();
+    let plan: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "plan-plain-java-main",
+            "command": "runConfig.createLaunchPlan",
+            "payload": {
+                "root": root,
+                "configurationId": "java-main:com.example.WorkerMain"
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(plan["ok"], true, "{plan}");
+    assert_eq!(plan["data"]["executable"]["toolchain"], "project-jdk");
+    assert_eq!(plan["data"]["arguments"], serde_json::json!([source]));
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn resolve_prefers_a_host_provided_local_document() {
+    let root = temporary_root("run-config-host-local");
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        r#"{"version":2,"configurations":[{"id":"current-file","name":"Current File","provider":"java.current-file","execution":"application","toolchains":{"java":"project-jdk"}}]}"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join(".lithe/run/local.json"),
+        r#"{"version":2,"configurations":[{"id":"current-file","name":"Project Local","provider":"java.current-file","cwd":"."}]}"#,
+    )
+    .unwrap();
+
+    let resolve: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "resolve-host-local",
+            "command": "runConfig.resolve",
+            "payload": {
+                "root": root,
+                "localDocument": {
+                    "version": 2,
+                    "configurations": [{
+                        "id": "current-file",
+                        "name": "This PC",
+                        "provider": "java.current-file",
+                        "cwd": "."
+                    }]
+                }
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(resolve["ok"], true, "{resolve}");
+    let current = resolve["data"]["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|value| value["id"] == "current-file")
+        .unwrap();
+    assert_eq!(current["name"], "This PC");
+
+    // A legacy v1 local layer supplied by the host migrates like the on-disk
+    // document, so an old `.lithe/run/local.json` read by the adapter still works.
+    let legacy: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "resolve-host-local-v1",
+            "command": "runConfig.resolve",
+            "payload": {
+                "root": root,
+                "localDocument": {
+                    "version": 1,
+                    "configurations": [{
+                        "id": "current-file",
+                        "name": "Legacy This PC",
+                        "type": "java.current-file",
+                        "programArguments": ["--dev"]
+                    }]
+                }
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(legacy["ok"], true, "{legacy}");
+    let legacy_current = legacy["data"]["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|value| value["id"] == "current-file")
+        .unwrap();
+    assert_eq!(legacy_current["name"], "Legacy This PC");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn resolve_applies_a_global_toolchain_to_every_configuration() {
+    let root = temporary_root("run-config-global-toolchain");
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        r#"{"version":2,"configurations":[
+            {"id":"spring","name":"Spring","provider":"spring-boot.maven","execution":"service","toolchains":{"java":"project-jdk","maven":"project-maven"},"extensions":{"maven":{"module":"."}}},
+            {"id":"plain","name":"Plain","provider":"java.main","execution":"application","toolchains":{"java":"project-jdk"},"extensions":{"java":{"source":"src/App.java"}}}
+        ]}"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join(".lithe/run/local.json"),
+        r#"{"version":2,"toolchain":{"java":{"homePath":"C:/custom-jdk"},"maven":{"executablePath":"C:/mvn.cmd","javaHomePath":"C:/maven-jdk"}},"configurations":[]}"#,
+    )
+    .unwrap();
+
+    let resolved: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "resolve-global-toolchain",
+            "command": "runConfig.resolve",
+            "payload": {"root": root}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(resolved["ok"], true, "{resolved}");
+    assert_eq!(
+        resolved["data"]["toolchain"]["java"]["homePath"],
+        "C:/custom-jdk"
+    );
+    let plain = resolved["data"]["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|value| value["id"] == "plain")
+        .unwrap();
+    assert_eq!(plain["extensions"]["java"]["homePath"], "C:/custom-jdk");
+    assert_eq!(
+        plain["extensions"]["java"]["mavenExecutablePath"],
+        "C:/mvn.cmd"
+    );
+    // The global toolchain replaces runtime paths but never the source path.
+    assert_eq!(plain["extensions"]["java"]["source"], "src/App.java");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn global_toolchain_updates_only_in_the_local_layer() {
+    let root = temporary_root("run-config-toolchain-update");
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(
+        root.join(".lithe/run/local.json"),
+        r#"{"version":2,"configurations":[]}"#,
+    )
+    .unwrap();
+
+    let updated: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "update-global-toolchain",
+            "command": "runConfig.updateOptions",
+            "payload": {
+                "root": root,
+                "scope": "local",
+                "configurationId": "unused",
+                "toolchain": {
+                    "javaHomePath": "C:/jdk-21",
+                    "mavenExecutablePath": "C:/apache-maven/bin/mvn.cmd",
+                    "mavenJavaHomePath": "C:/jdk-17"
+                }
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(updated["ok"], true, "{updated}");
+    let document: Value =
+        serde_json::from_str(updated["data"]["document"].as_str().unwrap()).unwrap();
+    assert_eq!(document["toolchain"]["java"]["homePath"], "C:/jdk-21");
+    assert_eq!(
+        document["toolchain"]["maven"]["executablePath"],
+        "C:/apache-maven/bin/mvn.cmd"
+    );
+    assert_eq!(document["toolchain"]["maven"]["javaHomePath"], "C:/jdk-17");
+
+    // Project scope must never accept toolchain paths.
+    let rejected: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "update-global-toolchain-project",
+            "command": "runConfig.updateOptions",
+            "payload": {
+                "root": root,
+                "scope": "project",
+                "configurationId": "unused",
+                "toolchain": {"javaHomePath": "C:/jdk-21"}
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(rejected["ok"], false, "{rejected}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn run_configuration_inspect_reports_malformed_and_unsupported_documents() {
     let root = temporary_root("run-config-errors");
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
@@ -555,6 +796,66 @@ fn run_configuration_mutations_are_shared_and_validated() {
     assert_eq!(create("Missing", ".", "com.example.Missing")["ok"], false);
 
     fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn project_scoped_toolchain_paths_are_relative_and_stay_inside_the_project() {
+    let root = temporary_root("run-config-project-toolchains");
+    let outside = temporary_root("run-config-outside-toolchain");
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::create_dir_all(root.join("toolchains/jdk")).unwrap();
+    fs::create_dir_all(root.join("toolchains/maven/bin")).unwrap();
+    fs::create_dir_all(root.join("toolchains/maven-jdk")).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    fs::write(root.join("toolchains/maven/bin/mvn"), "#!/bin/sh\n").unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        r#"{"version":2,"configurations":[{"id":"spring","name":"Spring","provider":"spring-boot.maven","execution":"service","toolchains":{"java":"project-jdk","maven":"project-maven"},"extensions":{"maven":{"module":"."}}}]}"#,
+    )
+    .unwrap();
+
+    let updated: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "project-toolchains",
+            "command": "runConfig.updateOptions",
+            "payload": {
+                "root": root,
+                "scope": "project",
+                "configurationId": "spring",
+                "javaHomePath": root.join("toolchains/jdk"),
+                "mavenExecutablePath": root.join("toolchains/maven/bin/mvn"),
+                "mavenJavaHomePath": root.join("toolchains/maven-jdk")
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(updated["ok"], true, "{updated}");
+    let document: Value =
+        serde_json::from_str(updated["data"]["document"].as_str().unwrap()).unwrap();
+    let java = &document["configurations"][0]["extensions"]["java"];
+    assert_eq!(java["homePath"], "toolchains/jdk");
+    assert_eq!(java["mavenExecutablePath"], "toolchains/maven/bin/mvn");
+    assert_eq!(java["mavenJavaHomePath"], "toolchains/maven-jdk");
+
+    let rejected: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "outside-project-toolchain",
+            "command": "runConfig.updateOptions",
+            "payload": {
+                "root": root,
+                "scope": "project",
+                "configurationId": "spring",
+                "javaHomePath": outside
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(rejected["ok"], false, "{rejected}");
+
+    fs::remove_dir_all(root).unwrap();
+    fs::remove_dir_all(outside).unwrap();
 }
 
 #[test]

@@ -79,6 +79,7 @@ export const keybindingPresetDefinitions: Record<KeybindingPreset, KeybindingPre
       { key: "ctrl+g", command: "editor.goToLine", source: "preset" },
       { key: "cmd+alt+f", command: "workbench.showFindReplace", source: "preset" },
       { key: "cmd+shift+m", command: "workbench.toggleDiagnostics", source: "preset" },
+      { key: "cmd+b", command: "workbench.toggleActivitySidebar", source: "preset" },
     ],
   }),
   jetbrains: createPresetDefinition({
@@ -95,7 +96,7 @@ export const keybindingPresetDefinitions: Record<KeybindingPreset, KeybindingPre
       { key: "cmd+l", command: "editor.goToLine", source: "preset" },
       { key: "cmd+1", command: "workbench.showFileExplorer", source: "preset" },
       { key: "cmd+9", command: "workbench.showSourceControl", source: "preset" },
-      { key: "cmd+b", command: "editor.goToDefinition", source: "preset" },
+      { key: "cmd+b", command: "editor.goToReferences", source: "preset" },
       { key: "alt+F7", command: "editor.goToReferences", source: "preset" },
       { key: "cmd+e", command: "file.reopenClosed", source: "preset" },
     ],

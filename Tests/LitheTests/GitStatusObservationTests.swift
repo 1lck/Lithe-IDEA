@@ -47,6 +47,95 @@ struct GitStatusObservationTests {
 
     @Test
     @MainActor
+    func pendingRefreshTakesOverAfterRunningRefreshIsCancelled() async {
+        let repository = URL(fileURLWithPath: "/tmp/lithe-cancelled-git-refresh")
+        let snapshotProvider = ControlledGitSnapshotProvider()
+        let model = GitFeatureModel(
+            service: GitService(operations: RustGitOperations(core: RustCoreBridge())),
+            snapshotProvider: { _ in await snapshotProvider.nextSnapshot() },
+            stashesProvider: { _ in [] },
+            operationStateProvider: { _ in nil },
+            diffDocumentProvider: { _, _ in DiffDocument(rows: [], hunks: []) }
+        )
+        model.configure(
+            workspaceURLProvider: { repository },
+            isGitLogVisibleProvider: { false },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+
+        let firstRefresh = Task { @MainActor in await model.refreshGit() }
+        #expect(await snapshotProvider.waitForRequestCount(1))
+
+        let pendingRefresh = Task { @MainActor in await model.refreshGit() }
+        await Task.yield()
+        firstRefresh.cancel()
+        await snapshotProvider.resumeNext(
+            with: GitSnapshot(repositoryRoot: repository, branch: "stale", changes: [])
+        )
+        await firstRefresh.value
+
+        let pendingRefreshTookOver = await snapshotProvider.waitForRequestCount(2)
+        #expect(pendingRefreshTookOver)
+        if pendingRefreshTookOver {
+            await snapshotProvider.resumeNext(
+                with: GitSnapshot(repositoryRoot: repository, branch: "current", changes: [])
+            )
+        } else {
+            pendingRefresh.cancel()
+        }
+        await pendingRefresh.value
+
+        #expect(model.currentBranch == "current")
+    }
+
+    @Test
+    @MainActor
+    func cancelledPendingRefreshDoesNotScheduleAnotherPass() async {
+        let repository = URL(fileURLWithPath: "/tmp/lithe-cancelled-pending-git-refresh")
+        let snapshotProvider = ControlledGitSnapshotProvider()
+        let model = GitFeatureModel(
+            service: GitService(operations: RustGitOperations(core: RustCoreBridge())),
+            snapshotProvider: { _ in await snapshotProvider.nextSnapshot() },
+            stashesProvider: { _ in [] },
+            operationStateProvider: { _ in nil },
+            diffDocumentProvider: { _, _ in DiffDocument(rows: [], hunks: []) }
+        )
+        model.configure(
+            workspaceURLProvider: { repository },
+            isGitLogVisibleProvider: { false },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+
+        let runningRefresh = Task { @MainActor in await model.refreshGit() }
+        #expect(await snapshotProvider.waitForRequestCount(1))
+
+        let cancelledRefresh = Task { @MainActor in await model.refreshGit() }
+        await Task.yield()
+        cancelledRefresh.cancel()
+        await cancelledRefresh.value
+        await snapshotProvider.resumeNext(
+            with: GitSnapshot(repositoryRoot: repository, branch: "current", changes: [])
+        )
+
+        let scheduledAnotherPass = await snapshotProvider.waitForRequestCount(
+            2,
+            timeout: .milliseconds(200)
+        )
+        if scheduledAnotherPass {
+            await snapshotProvider.resumeNext(
+                with: GitSnapshot(repositoryRoot: repository, branch: "unexpected", changes: [])
+            )
+        }
+        await runningRefresh.value
+
+        #expect(!scheduledAnotherPass)
+        #expect(model.currentBranch == "current")
+    }
+
+    @Test
+    @MainActor
     func visibleWorkspaceEditStillUsesTheWorkspacePipelineAndRefreshesGit() async throws {
         let fixture = try GitObservationFixture(label: "visible-edit")
         let repository = fixture.url.appendingPathComponent("repository", isDirectory: true)
@@ -375,6 +464,35 @@ private final class GitObservationFixture {
         }
         return String(decoding: standardOutput, as: UTF8.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+private actor ControlledGitSnapshotProvider {
+    private var continuations: [CheckedContinuation<GitSnapshot?, Never>] = []
+    private var requestCount = 0
+
+    func nextSnapshot() async -> GitSnapshot? {
+        requestCount += 1
+        return await withCheckedContinuation { continuation in
+            continuations.append(continuation)
+        }
+    }
+
+    func waitForRequestCount(
+        _ expectedCount: Int,
+        timeout: Duration = .seconds(2)
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while requestCount < expectedCount, clock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return requestCount >= expectedCount
+    }
+
+    func resumeNext(with snapshot: GitSnapshot?) {
+        guard !continuations.isEmpty else { return }
+        continuations.removeFirst().resume(returning: snapshot)
     }
 }
 

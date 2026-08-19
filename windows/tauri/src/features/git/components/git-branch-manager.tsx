@@ -6,6 +6,7 @@ import {
   TrashIcon as Trash2,
 } from "@/ui/icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "@/i18n/locale-provider";
 import { useToast } from "@/features/layout/contexts/toast-context";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { Button } from "@/ui/button";
@@ -19,12 +20,20 @@ import {
   CommandTabs,
   useCommandListNavigation,
 } from "@/ui/command";
-import { GitBranchIcon, FolderOpenIcon, NodesIcon } from "@/ui/icons";
+import { GitBranchIcon, FolderOpenIcon, GitMergeIcon, NodesIcon, DotsThreeIcon } from "@/ui/icons";
 import { showConfirmDialog } from "@/ui/dialog";
 import { cn } from "@/utils/cn";
 import { getFolderName, getRelativePath } from "@/utils/path-helpers";
 import { matchesSearchQuery } from "@/utils/search-match";
 import { checkoutBranch, createBranch, deleteBranch, getBranches } from "../api/git-branches-api";
+import { mergeBranch, rebaseOntoBranch, type IntegrationOutcome } from "../api/git-integration-api";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/ui/dropdown";
 import { resolveRepositoryPath } from "../api/git-repo-api";
 import { createStash } from "../api/git-stash-api";
 import { addWorktree, getWorktrees } from "../api/git-worktrees-api";
@@ -72,8 +81,11 @@ function getCreateBranchName(branches: string[], currentBranch: string, query: s
   return trimmedQuery;
 }
 
-function getBranchLabel(worktree: GitWorktree) {
-  return worktree.branch || (worktree.is_detached ? "Detached HEAD" : "No branch");
+function getBranchLabel(
+  worktree: GitWorktree,
+  translate: (key: string) => string,
+) {
+  return worktree.branch || (worktree.is_detached ? translate("git.detachedHead") : translate("git.noBranch"));
 }
 
 function getFilteredWorktrees(worktrees: GitWorktree[], repoPath: string, query: string) {
@@ -133,6 +145,7 @@ const GitBranchManager = ({
   openEventName = "lithe:open-branch-manager",
   triggerSurface = "default",
 }: GitBranchManagerProps) => {
+  const { t } = useTranslation();
   const [branches, setBranches] = useState<string[]>([]);
   const [worktrees, setWorktrees] = useState<GitWorktree[]>([]);
   const [branchQuery, setBranchQuery] = useState("");
@@ -272,12 +285,12 @@ const GitBranchManager = ({
           type: "warning",
           duration: 0,
           action: {
-            label: "Stash Changes",
+            label: t("git.stashChanges"),
             onClick: async () => {
               try {
                 const stashSuccess = await createStash(
                   repoPath,
-                  `Switching to ${branchName}`,
+                  t("git.switchingTo", { branch: branchName }),
                   true,
                 );
                 if (stashSuccess) {
@@ -285,21 +298,21 @@ const GitBranchManager = ({
                   if (retryResult.success) {
                     useGitBlameStore.getState().actions.clearAllBlame();
                     showToast({
-                      message: "Changes stashed and branch switched successfully",
+                      message: t("git.stashAndSwitchSuccess"),
                       type: "success",
                     });
                     setIsDropdownOpen(false);
                     onBranchChange?.();
                   } else {
                     showToast({
-                      message: "Failed to switch branch after stashing",
+                      message: t("git.stashAndSwitchFailed"),
                       type: "error",
                     });
                   }
                 }
               } catch {
                 showToast({
-                  message: "Failed to stash changes",
+                  message: t("git.stashFailed"),
                   type: "error",
                 });
               }
@@ -327,8 +340,8 @@ const GitBranchManager = ({
     if (!repoPath || !branchName || branchName === currentBranch) return;
 
     const confirmed = await showConfirmDialog(
-      `Are you sure you want to delete branch "${branchName}"?`,
-      { title: "Delete Branch", confirmLabel: "Delete" },
+      t("git.deleteBranchConfirm", { branch: branchName }),
+      { title: t("git.deleteBranch"), confirmLabel: t("git.delete") },
     );
     if (!confirmed) return;
 
@@ -338,6 +351,78 @@ const GitBranchManager = ({
       if (success) {
         await loadBranches();
       }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const reportIntegrationOutcome = (branchName: string, outcome: IntegrationOutcome) => {
+    if (outcome.status === "clean") {
+      showToast({ message: t("git.mergeSuccess", { branch: branchName }), type: "success" });
+    } else if (outcome.status === "conflicts") {
+      showToast({
+        message: t(
+          outcome.conflictedPaths.length === 1 ? "git.conflictedFile" : "git.conflictedFiles",
+          { count: outcome.conflictedPaths.length },
+        ),
+        type: "warning",
+        duration: 6000,
+      });
+    } else if (outcome.status === "stopped") {
+      showToast({
+        message: t("git.stoppedBeforeCompletion", { branch: branchName }),
+        type: "warning",
+        duration: 6000,
+      });
+    } else if (outcome.status === "blocked") {
+      const listed = outcome.blockingPaths.slice(0, 3).join(", ");
+      const remaining = outcome.blockingPaths.length - Math.min(outcome.blockingPaths.length, 3);
+      showToast({
+        message: t("git.uncommittedWouldOverwrite", {
+          listed,
+          more: remaining > 0 ? t("git.moreFiles", { count: remaining }) : "",
+        }),
+        type: "warning",
+        duration: 6000,
+      });
+    } else {
+      showToast({ message: outcome.message, type: "error" });
+    }
+  };
+
+  const handleIntegration = async (branchName: string, operation: "merge" | "rebase") => {
+    if (!repoPath || !currentBranch || !branchName || branchName === currentBranch) return;
+
+    const action = operation === "merge" ? t("git.merge") : t("git.rebase");
+    const message =
+      operation === "merge"
+        ? t("git.mergeConfirm", { branch: branchName, current: currentBranch })
+        : t("git.rebaseConfirm", { branch: branchName, current: currentBranch });
+    const confirmed = await showConfirmDialog(message, {
+      title: operation === "merge" ? t("git.mergeBranchTitle") : t("git.rebaseBranchTitle"),
+      confirmLabel: action,
+    });
+    if (!confirmed) return;
+
+    setIsLoading(true);
+    try {
+      const outcome =
+        operation === "merge"
+          ? await mergeBranch(repoPath, branchName)
+          : await rebaseOntoBranch(repoPath, branchName);
+      reportIntegrationOutcome(branchName, outcome);
+      if (
+        outcome.status === "clean" ||
+        outcome.status === "conflicts" ||
+        outcome.status === "stopped"
+      ) {
+        onBranchChange?.();
+      }
+    } catch (error) {
+      showToast({
+        message: error instanceof Error ? error.message : operation === "merge" ? t("git.mergeFailed") : t("git.rebaseFailed"),
+        type: "error",
+      });
     } finally {
       setIsLoading(false);
     }
@@ -404,7 +489,7 @@ const GitBranchManager = ({
 
       const resolvedRepoPath = await resolveRepositoryPath(selected);
       if (!resolvedRepoPath) {
-        setSelectionError("Selected folder is not inside a Git repository.");
+        setSelectionError(t("git.selectedFolderNotRepo"));
         return;
       }
 
@@ -414,11 +499,13 @@ const GitBranchManager = ({
       onRepositoryChange?.(resolvedRepoPath);
     } catch (error) {
       console.error("Failed to select repository:", error);
-      setSelectionError(error instanceof Error ? error.message : "Failed to select repository.");
+      setSelectionError(
+        error instanceof Error ? error.message : t("git.failedToSelectRepository"),
+      );
     } finally {
       setIsSelectingRepo(false);
     }
-  }, [onRepositoryChange, setManualRepository]);
+  }, [onRepositoryChange, setManualRepository, t]);
 
   const handleClearAddedRepositories = () => {
     clearManualRepository();
@@ -523,21 +610,21 @@ const GitBranchManager = ({
   const tabItems = [
     {
       id: "repositories",
-      label: "Repositories",
+      label: t("git.repositories"),
       icon: <FolderOpenIcon className={gitCommandIconClassName} />,
       isActive: activeTab === "repositories",
       onSelect: () => handleTabChange("repositories"),
     },
     {
       id: "branches",
-      label: "Branches",
+      label: t("git.branches"),
       icon: <GitBranchIcon className={gitCommandIconClassName} />,
       isActive: activeTab === "branches",
       onSelect: () => handleTabChange("branches"),
     },
     {
       id: "worktrees",
-      label: "Worktrees",
+      label: t("git.worktrees"),
       icon: <NodesIcon className={gitCommandIconClassName} />,
       isActive: activeTab === "worktrees",
       onSelect: () => handleTabChange("worktrees"),
@@ -557,7 +644,7 @@ const GitBranchManager = ({
           triggerSurface === "footer" && "font-medium",
           isDropdownOpen ? "bg-accent/80" : "cursor-pointer",
         )}
-        aria-label="Search branches"
+        aria-label={t("git.searchBranchesAria")}
       >
         <GitBranchIcon className="shrink-0" />
         <span
@@ -577,26 +664,31 @@ const GitBranchManager = ({
         inputRef={commandInputRef}
         placeholder={
           activeTab === "branches"
-            ? "Search branches..."
+            ? t("git.searchBranches")
             : activeTab === "worktrees"
-              ? "Search worktrees..."
-              : "Filter repositories..."
+              ? t("git.searchWorktrees")
+              : t("git.filterRepositories")
         }
         meta={
           activeTab === "branches"
-            ? `${branches.length} branch${branches.length === 1 ? "" : "es"}`
+            ? t(branches.length === 1 ? "git.branchCount" : "git.branchesCount", {
+                count: branches.length,
+              })
             : activeTab === "worktrees"
-              ? `${worktrees.length} worktree${worktrees.length === 1 ? "" : "s"}`
-              : `${availableRepoPaths.length} repositor${
-                  availableRepoPaths.length === 1 ? "y" : "ies"
-                }`
+              ? t(worktrees.length === 1 ? "git.worktreeCount" : "git.worktreesCount", {
+                  count: worktrees.length,
+                })
+              : t(
+                  availableRepoPaths.length === 1 ? "git.repositoryCount" : "git.repositoriesCount",
+                  { count: availableRepoPaths.length },
+                )
         }
-        headerAddon={<CommandTabs items={tabItems} ariaLabel="Git selector sections" />}
+        headerAddon={<CommandTabs items={tabItems} ariaLabel={t("git.selectorSections")} />}
       >
         <CommandList>
           {activeTab === "branches" && !createBranchName && filteredBranches.length === 0 ? (
             <CommandEmpty>
-              {branchQuery.trim() ? "No matching branches" : "No branches found"}
+              {branchQuery.trim() ? t("git.noMatchingBranches") : t("git.noBranchesFound")}
             </CommandEmpty>
           ) : null}
           {activeTab === "branches" && (createBranchName || filteredBranches.length > 0) ? (
@@ -605,7 +697,7 @@ const GitBranchManager = ({
                 <CommandItemRow
                   as="div"
                   icon={<Plus className={cn(gitCommandIconClassName, "text-subtle-foreground")} />}
-                  title={`Create new branch "${createBranchName}"`}
+                  title={t("git.createNewBranch", { name: createBranchName })}
                   onClick={() => void handleCreateBranch(createBranchName)}
                   disabled={isLoading}
                   isSelected={selectedIndex === 0}
@@ -623,6 +715,8 @@ const GitBranchManager = ({
                   onMouseEnter={() => setSelectedIndex(index + (createBranchName ? 1 : 0))}
                   onSelect={() => void handleBranchChange(branch)}
                   onDelete={() => void handleDeleteBranch(branch)}
+                  onMerge={() => void handleIntegration(branch, "merge")}
+                  onRebase={() => void handleIntegration(branch, "rebase")}
                 />
               ))}
             </div>
@@ -630,10 +724,10 @@ const GitBranchManager = ({
           {activeTab === "worktrees" && !createWorktreePath && filteredWorktrees.length === 0 ? (
             <CommandEmpty>
               {isLoadingWorktrees
-                ? "Loading worktrees..."
+                ? t("git.loadingWorktrees")
                 : branchQuery.trim()
-                  ? "No matching worktrees"
-                  : "No worktrees found"}
+                  ? t("git.noMatchingWorktrees")
+                  : t("git.noWorktreesFound")}
             </CommandEmpty>
           ) : null}
           {activeTab === "worktrees" && (createWorktreePath || filteredWorktrees.length > 0) ? (
@@ -642,7 +736,7 @@ const GitBranchManager = ({
                 <CommandItemRow
                   as="div"
                   icon={<Plus className={cn(gitCommandIconClassName, "text-subtle-foreground")} />}
-                  title={`Create worktree "${createWorktreePath}"`}
+                  title={t("git.createWorktree", { path: createWorktreePath })}
                   onClick={() => void handleCreateWorktree(createWorktreePath)}
                   disabled={isLoadingWorktrees}
                   isSelected={selectedIndex === 0}
@@ -663,11 +757,11 @@ const GitBranchManager = ({
             </div>
           ) : null}
           {activeTab === "repositories" && isDiscoveringRepos && availableRepoPaths.length === 0 ? (
-            <CommandEmpty>Detecting repositories...</CommandEmpty>
+            <CommandEmpty>{t("git.detectingRepositories")}</CommandEmpty>
           ) : null}
           {activeTab === "repositories" && !isDiscoveringRepos && filteredRepoPaths.length === 0 ? (
             <CommandEmpty>
-              {branchQuery.trim() ? "No matching repositories" : "No repositories found"}
+              {branchQuery.trim() ? t("git.noMatchingRepositories") : t("git.noRepositoriesFound")}
             </CommandEmpty>
           ) : null}
           {activeTab === "repositories" && filteredRepoPaths.length > 0 ? (
@@ -696,7 +790,7 @@ const GitBranchManager = ({
                 disabled={!createBranchName || isLoading}
               >
                 <Plus />
-                New Branch
+                {t("git.newBranch")}
               </CommandFooterAction>
               <CommandFooterAction
                 type="button"
@@ -704,7 +798,7 @@ const GitBranchManager = ({
                 disabled={isLoading}
               >
                 <RefreshCw />
-                Refresh
+                {t("git.refresh")}
               </CommandFooterAction>
             </>
           ) : null}
@@ -716,7 +810,7 @@ const GitBranchManager = ({
                 disabled={!createWorktreePath || isLoadingWorktrees}
               >
                 <Plus />
-                {isLoadingWorktrees ? "Adding..." : "Add"}
+                {isLoadingWorktrees ? t("git.adding") : t("git.add")}
               </CommandFooterAction>
               <CommandFooterAction
                 type="button"
@@ -724,7 +818,7 @@ const GitBranchManager = ({
                 disabled={isLoadingWorktrees}
               >
                 <RefreshCw />
-                Refresh
+                {t("git.refresh")}
               </CommandFooterAction>
             </>
           ) : null}
@@ -736,7 +830,7 @@ const GitBranchManager = ({
                 disabled={isSelectingRepo}
               >
                 <Plus />
-                {isSelectingRepo ? "Adding..." : "Add"}
+                {isSelectingRepo ? t("git.adding") : t("git.add")}
               </CommandFooterAction>
               <CommandFooterAction
                 type="button"
@@ -744,11 +838,11 @@ const GitBranchManager = ({
                 disabled={isDiscoveringRepos}
               >
                 <RefreshCw />
-                Refresh
+                {t("git.refresh")}
               </CommandFooterAction>
               {manualRepoPaths.length > 0 ? (
                 <CommandFooterAction type="button" onClick={handleClearAddedRepositories}>
-                  Clear Added
+                  {t("git.clearAdded")}
                 </CommandFooterAction>
               ) : null}
               {selectionError ? (
@@ -772,6 +866,8 @@ function BranchRow({
   onMouseEnter,
   onSelect,
   onDelete,
+  onMerge,
+  onRebase,
 }: {
   branch: string;
   isCurrent: boolean;
@@ -780,7 +876,10 @@ function BranchRow({
   onMouseEnter: () => void;
   onSelect: () => void;
   onDelete: () => void;
+  onMerge: () => void;
+  onRebase: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <CommandItemRow
       as="div"
@@ -800,33 +899,47 @@ function BranchRow({
         "min-h-9",
         isCurrent ? "text-foreground" : "text-subtle-foreground hover:text-foreground",
       )}
-      accessory={isCurrent ? <CommandItemBadge variant="success">current</CommandItemBadge> : null}
+      accessory={isCurrent ? <CommandItemBadge variant="success">{t("git.current")}</CommandItemBadge> : null}
       action={
         !isCurrent ? (
-          <Button
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onDelete();
-            }}
+          <div
+            className="flex items-center"
             onPointerDown={(event) => {
-              event.preventDefault();
               event.stopPropagation();
             }}
-            disabled={isLoading}
-            variant="ghost"
-            size="icon-xs"
-            className={cn(
-              "text-git-deleted opacity-100 transition-opacity sm:opacity-0",
-              "hover:bg-git-deleted/10 hover:opacity-80 hover:text-git-deleted",
-              "disabled:opacity-50 sm:group-hover:opacity-100",
-            )}
-            tooltip={`Delete ${branch}`}
-            aria-label={`Delete branch ${branch}`}
-            type="button"
+            onClick={(event) => event.stopPropagation()}
           >
-            <Trash2 />
-          </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    disabled={isLoading}
+                    aria-label={t("git.branchActions", { branch })}
+                    type="button"
+                  />
+                }
+              >
+                <DotsThreeIcon />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="min-w-64">
+                <DropdownMenuItem onClick={onMerge}>
+                  <GitMergeIcon className="size-3.5" />
+                  {t("git.mergeIntoCurrent")}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={onRebase}>
+                  <NodesIcon className="size-3.5" />
+                  {t("git.rebaseOntoThis")}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={onDelete} className="text-git-deleted">
+                  <Trash2 className="size-3.5" />
+                  {t("git.deleteBranch")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         ) : null
       }
     />
@@ -850,6 +963,7 @@ function RepositoryRow({
   onMouseEnter: () => void;
   onSelect: () => void;
 }) {
+  const { t } = useTranslation();
   const relativePath = workspaceRootPath ? getRelativePath(repoPath, workspaceRootPath) : repoPath;
 
   return (
@@ -873,8 +987,8 @@ function RepositoryRow({
       )}
       accessory={
         <>
-          {isCurrent ? <CommandItemBadge variant="success">current</CommandItemBadge> : null}
-          {isAdded ? <CommandItemBadge>added</CommandItemBadge> : null}
+          {isCurrent ? <CommandItemBadge variant="success">{t("git.current")}</CommandItemBadge> : null}
+          {isAdded ? <CommandItemBadge>{t("git.added")}</CommandItemBadge> : null}
         </>
       }
     />
@@ -894,6 +1008,7 @@ function WorktreeRow({
   onMouseEnter: () => void;
   onSelect: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <CommandItemRow
       as="div"
@@ -908,7 +1023,7 @@ function WorktreeRow({
       description={
         <>
           <GitBranchIcon className={gitCommandIconClassName} />
-          <span className="truncate">{getBranchLabel(worktree)}</span>
+          <span className="truncate">{getBranchLabel(worktree, t)}</span>
         </>
       }
       isSelected={isSelected}
@@ -918,7 +1033,7 @@ function WorktreeRow({
         "min-h-9",
         isCurrent ? "text-foreground" : "text-subtle-foreground hover:text-foreground",
       )}
-      accessory={isCurrent ? <CommandItemBadge variant="success">current</CommandItemBadge> : null}
+      accessory={isCurrent ? <CommandItemBadge variant="success">{t("git.current")}</CommandItemBadge> : null}
     />
   );
 }

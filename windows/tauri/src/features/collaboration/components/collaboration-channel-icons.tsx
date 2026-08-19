@@ -14,19 +14,20 @@ import { Tabs, TabsList, TabsTrigger } from "@/ui/tabs";
 import { Toggle } from "@/ui/toggle";
 import { EmojiPicker } from "./emoji-picker";
 import Tooltip from "@/ui/tooltip";
+import { useTranslation } from "@/i18n/locale-provider";
 
 const CHANNEL_ICON_STORAGE_KEY = "lithe.collaboration.channel-icons";
 
 const CHANNEL_SYMBOL_OPTIONS = [
-  { id: "hash", label: "Channel", icon: Hash },
-  { id: "chat", label: "Chat", icon: ChatCircleText },
-  { id: "wrench", label: "Tools", icon: Wrench },
-  { id: "rocket", label: "Launch", icon: RocketLaunch },
-  { id: "code", label: "Code", icon: Code },
-  { id: "megaphone", label: "Announce", icon: Megaphone },
-  { id: "lock", label: "Private", icon: LockKey },
-  { id: "pin", label: "Pinned", icon: PushPin },
-  { id: "lightning", label: "Fast", icon: Lightning },
+  { id: "hash", labelKey: "collaboration.channel", icon: Hash },
+  { id: "chat", labelKey: "collaboration.chat", icon: ChatCircleText },
+  { id: "wrench", labelKey: "collaboration.tools", icon: Wrench },
+  { id: "rocket", labelKey: "collaboration.launch", icon: RocketLaunch },
+  { id: "code", labelKey: "collaboration.code", icon: Code },
+  { id: "megaphone", labelKey: "collaboration.announce", icon: Megaphone },
+  { id: "lock", labelKey: "collaboration.private", icon: LockKey },
+  { id: "pin", labelKey: "collaboration.pinned", icon: PushPin },
+  { id: "lightning", labelKey: "collaboration.fast", icon: Lightning },
 ];
 
 export function loadChannelIcons() {
@@ -66,12 +67,13 @@ export function ChannelIconPicker({
   onSelect: (value: string) => void;
   onClear: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="w-60 p-1">
       <Tabs value={activeTab} onValueChange={(value) => onTabChange(value as "emoji" | "icon")}>
         <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="emoji">Emoji</TabsTrigger>
-          <TabsTrigger value="icon">Icon</TabsTrigger>
+          <TabsTrigger value="emoji">{t("collaboration.emoji")}</TabsTrigger>
+          <TabsTrigger value="icon">{t("collaboration.icon")}</TabsTrigger>
         </TabsList>
       </Tabs>
 
@@ -83,14 +85,15 @@ export function ChannelIconPicker({
             {CHANNEL_SYMBOL_OPTIONS.map((option) => {
               const Icon = option.icon;
               const value = `icon:${option.id}`;
+              const label = t(option.labelKey);
               return (
-                <Tooltip key={option.id} content={option.label} side="top">
+                <Tooltip key={option.id} content={label} side="top">
                   <Toggle
                     type="button"
                     size="md"
                     pressed={selected === value}
                     onPressedChange={(pressed) => pressed && onSelect(value)}
-                    aria-label={`Select ${option.label} icon`}
+                    aria-label={t("collaboration.selectIcon", { label })}
                   >
                     <Icon className="size-4" weight="duotone" />
                   </Toggle>
@@ -103,7 +106,7 @@ export function ChannelIconPicker({
 
       {activeTab === "icon" ? (
         <Button type="button" variant="ghost" size="sm" className="mt-2 w-full" onClick={onClear}>
-          Reset to default
+          {t("collaboration.resetToDefault")}
         </Button>
       ) : null}
     </div>

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import CoreServices
 import Foundation
 @testable import LitheDatabaseModule
@@ -84,6 +85,26 @@ struct LitheCoreLogicTests {
         #expect(fittedFrame.maxX <= visibleFrame.maxX)
         #expect(fittedFrame.minY >= visibleFrame.minY)
         #expect(fittedFrame.maxY <= visibleFrame.maxY)
+    }
+
+    @Test
+    func standaloneWindowUsesScreenRatioWithinSizeLimits() {
+        let regularScreen = NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let compactScreen = NSRect(x: 0, y: 0, width: 900, height: 600)
+        let largeScreen = NSRect(x: 0, y: 0, width: 2560, height: 1600)
+
+        #expect(
+            LitheWindowLayout.standaloneContentSize(fitting: regularScreen)
+                == NSSize(width: 936, height: 648)
+        )
+        #expect(
+            LitheWindowLayout.standaloneContentSize(fitting: compactScreen)
+                == LitheWindowLayout.standaloneMinimumContentSize
+        )
+        #expect(
+            LitheWindowLayout.standaloneContentSize(fitting: largeScreen)
+                == LitheWindowLayout.standaloneMaximumContentSize
+        )
     }
 
     @Test
@@ -1323,6 +1344,51 @@ struct LitheCoreLogicTests {
         #expect(!WorkspaceTextFilePolicy.isPlainText(Data([0x00, 0x01, 0x02])))
     }
 
+    @Test
+    @MainActor
+    func standaloneEditorLoadsUtf8TextAndLeavesBinaryFilesInFailedState() async {
+        let storage = InMemoryFileStorage()
+        let textURL = URL(fileURLWithPath: "/in-memory/notes.txt")
+        let binaryURL = URL(fileURLWithPath: "/in-memory/archive.bin")
+        storage.seed(Data("let answer = 42\n".utf8), at: textURL)
+        storage.seed(Data([0x00, 0x01, 0x02]), at: binaryURL)
+
+        let feature = DocumentFeatureModel(
+            operations: EmptyWorkspaceOperations(readFileValue: nil),
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: storage,
+            binaryFileViewerRegistry: BinaryFileViewerRegistry()
+        )
+        feature.configure(
+            workspaceURLProvider: { nil },
+            autoSaveEnabledProvider: { false },
+            autoSaveDelayProvider: { 0 },
+            notify: { _ in },
+            onDocumentOpened: { _ in },
+            onDocumentChanged: { _ in },
+            onDocumentClosed: { _ in },
+            onRecordSave: { _, _ in },
+            onRecordDiscard: { _ in },
+            onRecordExternalChanges: { _ in },
+            onDocumentCollectionChanged: {},
+            onProjectCloseReady: {}
+        )
+
+        feature.openStandaloneFile(textURL)
+        for _ in 0..<100 where feature.standaloneFileLoadState == .loading {
+            await Task.yield()
+        }
+        #expect(feature.standaloneFileLoadState == .loaded)
+        #expect(feature.activeDocument?.text == "let answer = 42\n")
+
+        feature.openStandaloneFile(binaryURL)
+        for _ in 0..<100 where feature.standaloneFileLoadState == .loading {
+            await Task.yield()
+        }
+        #expect(feature.standaloneFileLoadState == .failed(.notText))
+        #expect(feature.activeDocument == nil)
+    }
+
     @Test @MainActor
     func binaryFileViewerRegistryPrefersMagicAndDefaultsToDeny() async {
         let registry = BinaryFileViewerRegistry()
@@ -2121,6 +2187,60 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
+    func codeEditorLineIndexKeepsLineNumbersAfterSingleLineEdit() {
+        let textView = CodeTextView(frame: .zero)
+        textView.string = "one\ntwo\nthree"
+        textView.rebuildLineIndex()
+        #expect(textView.lineNumber(at: 4, in: textView.string as NSString) == 1)
+
+        textView.string = "oneX\ntwo\nthree"
+        textView.applyLineIndexEdit(replacedRange: NSRange(location: 3, length: 0), replacement: "X")
+        let source = textView.string as NSString
+        #expect(textView.lineNumber(at: 0, in: source) == 0)
+        #expect(textView.lineNumber(at: 5, in: source) == 1)
+        #expect(textView.lineNumber(at: 9, in: source) == 2)
+        #expect(textView.characterOffset(forLine: 2, in: source) == 9)
+    }
+
+    @Test
+    func highlightedRangeCacheOnlyReturnsUncoveredText() {
+        var cache = HighlightedRangeCache()
+        cache.insert(NSRange(location: 10, length: 10))
+        cache.insert(NSRange(location: 30, length: 10))
+
+        #expect(cache.uncoveredRanges(in: NSRange(location: 0, length: 50)) == [
+            NSRange(location: 0, length: 10),
+            NSRange(location: 20, length: 10),
+            NSRange(location: 40, length: 10)
+        ])
+
+        cache.insert(NSRange(location: 20, length: 10))
+        #expect(cache.ranges == [NSRange(location: 10, length: 30)])
+        #expect(cache.uncoveredRanges(in: NSRange(location: 15, length: 20)).isEmpty)
+
+        cache.removeAll()
+        #expect(cache.uncoveredRanges(in: NSRange(location: 5, length: 5)) == [
+            NSRange(location: 5, length: 5)
+        ])
+    }
+
+    @Test
+    @MainActor
+    func codeEditorShiftsFindMatchesAcrossASingleLineEdit() {
+        let textView = CodeTextView(frame: .zero)
+        textView.string = "alpha beta alpha"
+        textView.rebuildLineIndex()
+        textView.updateFindMatches(query: "alpha")
+        #expect(textView.currentFindMatchCountForTesting == 2)
+
+        textView.string = "Xalpha beta alpha"
+        textView.applyFindEdit(replacedRange: NSRange(location: 0, length: 0), insertedLength: 1, query: "alpha")
+        #expect(textView.currentFindMatchCountForTesting == 2)
+        #expect(textView.findMatchLocationsForTesting == [1, 12])
+    }
+
+    @Test
+    @MainActor
     func codeEditorReportsEachFindStateOnlyOnce() {
         let textView = CodeTextView(frame: .zero)
         textView.string = "alpha beta alpha"
@@ -2489,6 +2609,7 @@ struct LitheCoreLogicTests {
 @MainActor
 private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
     var hasActiveProject: Bool
+    var hasActiveStandaloneFile = false
     private(set) var closeActiveProjectCallCount = 0
 
     init(hasActiveProject: Bool) {
@@ -2497,6 +2618,11 @@ private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
 
     func closeActiveProject() {
         closeActiveProjectCallCount += 1
+    }
+
+    func requestCloseActiveSession() -> Bool {
+        closeActiveProject()
+        return false
     }
 }
 
@@ -2590,6 +2716,34 @@ struct EditorDocumentTests {
 
         #expect(!document.isDirty)
         #expect(try String(contentsOf: url, encoding: .utf8) == "after")
+    }
+
+    @Test
+    @MainActor
+    func liveEditorTextPublishesOnlyWhenDirtyStateChanges() {
+        let document = EditorDocument(
+            url: URL(fileURLWithPath: "/tmp/live-editor.txt"),
+            text: "before",
+            modificationDate: nil
+        )
+        var publishCount = 0
+        let observation = document.objectWillChange.sink { _ in publishCount += 1 }
+        defer { observation.cancel() }
+
+        document.applyLiveEditorText("before")
+        #expect(publishCount == 0)
+
+        document.applyLiveEditorText("after")
+        #expect(document.isDirty)
+        #expect(publishCount == 1)
+
+        document.applyLiveEditorText("after more")
+        #expect(document.isDirty)
+        #expect(publishCount == 1)
+
+        document.applyLiveEditorText("before")
+        #expect(!document.isDirty)
+        #expect(publishCount == 2)
     }
 
     @Test
@@ -2959,6 +3113,83 @@ struct EditorDocumentTests {
     }
 
     @Test
+    @MainActor
+    func capturedProjectDeletionSurvivesConfirmationDialogDismissal() async throws {
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-delete-confirmation")
+        let target = workspace.appendingPathComponent("obsolete.swift")
+        let fileOperations = RecordingTrashWorkspaceFileOperations()
+        let operations = SequencedWorkspaceOperations(
+            snapshotAvailability: [true, false],
+            files: [target]
+        )
+        var historyRecordCount = 0
+        let model = makeWorkspaceObservationUnitModel(
+            operations: operations,
+            fileOperations: fileOperations,
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(),
+            refreshGit: {},
+            recordHistory: { _, _ in historyRecordCount += 1 }
+        )
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+        model.requestDeleteProjectItem(at: target, isDirectory: false)
+        let request = try #require(model.pendingProjectItemDeletion)
+
+        // SwiftUI dismisses the confirmation dialog before its asynchronous
+        // action runs, so the captured request must not depend on pending state.
+        model.cancelProjectItemDeletion()
+        let deletionTask = Task { await model.confirmProjectItemDeletion(request) }
+
+        for _ in 0..<100 where !fileOperations.hasStarted {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(fileOperations.hasStarted)
+        #expect(model.projectFiles.isEmpty)
+        #expect(model.rootNode?.children?.isEmpty == true)
+
+        fileOperations.release()
+        await deletionTask.value
+
+        #expect(model.pendingProjectItemDeletion == nil)
+        #expect(fileOperations.trashedURLs == [target.standardizedFileURL])
+        #expect(historyRecordCount == 0)
+        #expect(model.projectFiles.isEmpty)
+        #expect(model.rootNode?.children?.isEmpty == true)
+    }
+
+    @Test
+    @MainActor
+    func failedProjectDeletionRestoresOptimisticallyRemovedItem() async {
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-delete-failure")
+        let target = workspace.appendingPathComponent("still-here.swift")
+        let operations = SequencedWorkspaceOperations(
+            snapshotAvailability: [true, true],
+            files: [target]
+        )
+        let model = makeWorkspaceObservationUnitModel(
+            operations: operations,
+            fileOperations: FailingTrashWorkspaceFileOperations(),
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(),
+            refreshGit: {}
+        )
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+        model.requestDeleteProjectItem(at: target, isDirectory: false)
+        guard let request = model.pendingProjectItemDeletion else {
+            Issue.record("The deletion request should be available")
+            return
+        }
+
+        await model.confirmProjectItemDeletion(request)
+
+        #expect(model.projectFiles == [target])
+        #expect(model.rootNode?.children?.map(\.url) == [target])
+    }
+
+    @Test
     func workspaceFilesystemFallbackBuildsAVisibleTreeAndHonorsHiddenRules() throws {
         let fileManager = FileManager.default
         let workspace = fileManager.temporaryDirectory
@@ -3154,7 +3385,9 @@ struct EditorDocumentTests {
         source?.emit(DirectoryChangeBatch(gitStateMayHaveChanged: true))
         source?.emit(DirectoryChangeBatch(gitStateMayHaveChanged: true))
         source?.emit(DirectoryChangeBatch(gitStateMayHaveChanged: true))
-        let refreshed = await waitForWorkspaceObservation { refreshCount == 2 }
+        let refreshed = await waitForWorkspaceObservation(timeout: .seconds(15)) {
+            refreshCount == 2
+        }
 
         #expect(refreshed)
         #expect(refreshCount == 2)
@@ -3384,6 +3617,157 @@ struct EditorDocumentTests {
         await pendingA.value
         #expect(model.activeDocumentID == documentB.id)
     }
+
+    @Test
+    @MainActor
+    func foregroundRequestActivatesAnEquivalentPendingBackgroundOpen() async {
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-equivalent-pending-open-tests")
+        let fileA = workspace.appendingPathComponent("A.swift")
+        let operations = BlockingWorkspaceOperations()
+        let model = DocumentFeatureModel(
+            operations: operations,
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            binaryFileViewerRegistry: BinaryFileViewerRegistry()
+        )
+        model.configure(
+            workspaceURLProvider: { workspace },
+            autoSaveEnabledProvider: { false },
+            autoSaveDelayProvider: { 0 },
+            notify: { _ in },
+            onDocumentOpened: { _ in },
+            onDocumentChanged: { _ in },
+            onDocumentClosed: { _ in },
+            onRecordSave: { _, _ in },
+            onRecordDiscard: { _ in },
+            onRecordExternalChanges: { _ in },
+            onDocumentCollectionChanged: {},
+            onProjectCloseReady: {}
+        )
+
+        let pendingA = Task { @MainActor in
+            await model.openFileAsync(
+                fileA,
+                isReadOnly: false,
+                displayPath: nil,
+                activateWhenReady: false
+            )
+        }
+        for _ in 0..<100 where !operations.didStartReadingA {
+            await Task.yield()
+        }
+        #expect(operations.didStartReadingA)
+
+        await model.openFileAsync(
+            workspace.appendingPathComponent("nested/../A.swift"),
+            isReadOnly: false,
+            displayPath: nil,
+            activateWhenReady: true
+        )
+        operations.releaseA()
+        await pendingA.value
+
+        #expect(model.openDocuments.count == 1)
+        #expect(model.activeDocumentID == model.openDocuments.first?.id)
+    }
+
+    @Test
+    @MainActor
+    func standardizedFilePathsReuseTheExistingDirtyDocument() async throws {
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-standardized-path-tests")
+        let featureDirectory = workspace.appendingPathComponent("Sources/Feature")
+        let fileURL = featureDirectory.appendingPathComponent("Example.swift")
+
+        let model = DocumentFeatureModel(
+            operations: EmptyWorkspaceOperations(readFileValue: "original"),
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            binaryFileViewerRegistry: BinaryFileViewerRegistry()
+        )
+        model.configure(
+            workspaceURLProvider: { workspace },
+            autoSaveEnabledProvider: { false },
+            autoSaveDelayProvider: { 0 },
+            notify: { _ in },
+            onDocumentOpened: { _ in },
+            onDocumentChanged: { _ in },
+            onDocumentClosed: { _ in },
+            onRecordSave: { _, _ in },
+            onRecordDiscard: { _ in },
+            onRecordExternalChanges: { _ in },
+            onDocumentCollectionChanged: {},
+            onProjectCloseReady: {}
+        )
+
+        await model.openFileAsync(
+            fileURL,
+            isReadOnly: false,
+            displayPath: nil,
+            activateWhenReady: true
+        )
+        let originalDocument = try #require(model.openDocuments.first)
+        originalDocument.text = "unsaved change"
+
+        await model.openFileAsync(
+            workspace.appendingPathComponent("Sources/Nested/../Feature/Example.swift"),
+            isReadOnly: false,
+            displayPath: nil,
+            activateWhenReady: true
+        )
+
+        #expect(model.openDocuments.count == 1)
+        #expect(model.openDocuments.first === originalDocument)
+        #expect(originalDocument.text == "unsaved change")
+        #expect(originalDocument.isDirty)
+    }
+
+    @Test
+    func projectTreeLocatorMatchesStandardizedPathsAndExpandsParents() {
+        let root = URL(fileURLWithPath: "/tmp/lithe-tree-locator-tests")
+        let featureDirectory = root.appendingPathComponent("Sources/Feature")
+        let fileURL = featureDirectory.appendingPathComponent("Example.swift")
+
+        let equivalentFile = root.appendingPathComponent("Sources/Nested/../Feature/Example.swift")
+        #expect(ProjectTreeLocator.matchingURL(for: equivalentFile, among: [fileURL]) == fileURL)
+        #expect(
+            ProjectTreeLocator.expandedDirectoryPaths(for: fileURL, rootURL: root)
+                == Set([
+                    root.standardizedFileURL.path,
+                    root.appendingPathComponent("Sources").standardizedFileURL.path,
+                    featureDirectory.standardizedFileURL.path
+                ])
+        )
+        #expect(
+            ProjectTreeLocator.matchingURL(
+                for: root.deletingLastPathComponent().appendingPathComponent("Outside.swift"),
+                among: [fileURL]
+            ) == nil
+        )
+    }
+
+    @Test
+    @MainActor
+    func editorViewportStoreRetainsStateForOpenDocuments() {
+        let retainedID = UUID()
+        let closedID = UUID()
+        let store = EditorViewportStore()
+        store.updateSelection(NSRange(location: 18, length: 4), for: retainedID)
+        store.updateScrollOffset(240, for: retainedID)
+        store.updateSelection(NSRange(location: 7, length: 0), for: closedID)
+
+        #expect(
+            store.state(for: retainedID)
+                == EditorViewportState(
+                    selectionLocation: 18,
+                    selectionLength: 4,
+                    verticalScrollOffset: 240
+                )
+        )
+
+        store.retain(documentIDs: [retainedID])
+        #expect(store.state(for: retainedID).selectionLocation == 18)
+        #expect(store.state(for: closedID) == EditorViewportState())
+    }
 }
 
 @MainActor
@@ -3394,7 +3778,8 @@ private func makeWorkspaceObservationUnitModel(
     watcherFactory: TestDirectoryWatcherFactory,
     refreshGit: @escaping @MainActor () async -> Void,
     processExternalChanges: @escaping @MainActor ([URL]) -> Bool = { _ in false },
-    reloadProjectServices: @escaping @MainActor () async -> Void = {}
+    reloadProjectServices: @escaping @MainActor () async -> Void = {},
+    recordHistory: @escaping @MainActor (URL, LocalHistoryReason) async -> Void = { _, _ in }
 ) -> WorkspaceFeatureModel {
     let model = WorkspaceFeatureModel(
         operations: operations,
@@ -3412,7 +3797,7 @@ private func makeWorkspaceObservationUnitModel(
         restoreSession: { _, _ in },
         openFile: { _ in },
         notify: { _ in },
-        recordHistory: { _, _ in },
+        recordHistory: recordHistory,
         relocateHistory: { _, _ in },
         relocateOpenDocuments: { _, _ in },
         closeDocuments: { _ in },
@@ -3503,7 +3888,33 @@ private final class InMemoryFileStorage: FileStorage, GitShelfStorage, DatabaseF
     func cacheDirectory() -> URL { support }
     func applicationSupportDirectory() -> URL { support }
     func temporaryDirectory() -> URL { support }
-    func metadata(for url: URL) -> FileMetadata? { nil }
+    func metadata(for url: URL) -> FileMetadata? {
+        lock.lock()
+        defer { lock.unlock() }
+        if let data = files[url.path] {
+            return FileMetadata(
+                byteCount: data.count,
+                modificationDate: nil,
+                isRegularFile: true,
+                isDirectory: false
+            )
+        }
+        if directories.contains(url.path) {
+            return FileMetadata(
+                byteCount: nil,
+                modificationDate: nil,
+                isRegularFile: false,
+                isDirectory: true
+            )
+        }
+        return nil
+    }
+
+    func seed(_ data: Data, at url: URL) {
+        lock.lock()
+        files[url.path] = data
+        lock.unlock()
+    }
 
     func fileExists(at url: URL) -> Bool {
         lock.lock()
@@ -3725,9 +4136,11 @@ private final class BlockingWorkspaceOperations: WorkspaceOperations, @unchecked
 private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecked Sendable {
     private let lock = NSLock()
     private var snapshotAvailability: [Bool]
+    private let files: [URL]
 
-    init(snapshotAvailability: [Bool]) {
+    init(snapshotAvailability: [Bool], files: [URL] = []) {
         self.snapshotAvailability = snapshotAvailability
+        self.files = files
     }
 
     func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? {
@@ -3736,8 +4149,12 @@ private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecke
         lock.unlock()
         guard isAvailable else { return nil }
         return WorkspaceSnapshot(
-            root: FileNode(url: rootURL, isDirectory: true, children: []),
-            files: []
+            root: FileNode(
+                url: rootURL,
+                isDirectory: true,
+                children: files.map { FileNode(url: $0, isDirectory: false, children: nil) }
+            ),
+            files: files
         )
     }
 
@@ -3797,6 +4214,57 @@ private struct EmptyWorkspaceFileOperations: WorkspaceFileOperations {
     func moveItem(at sourceURL: URL, to destinationURL: URL) throws {}
     func removeItem(at url: URL) throws {}
     func trashItem(at url: URL) throws {}
+    func writeText(_ text: String, to url: URL) throws {}
+    func readText(from url: URL) throws -> String { "" }
+}
+
+private final class RecordingTrashWorkspaceFileOperations: WorkspaceFileOperations, @unchecked Sendable {
+    private let lock = NSLock()
+    private let releaseSemaphore = DispatchSemaphore(value: 0)
+    private var recordedTrashedURLs: [URL] = []
+    private var startedValue = false
+
+    var trashedURLs: [URL] {
+        lock.withLock { recordedTrashedURLs }
+    }
+
+    var hasStarted: Bool {
+        lock.withLock { startedValue }
+    }
+
+    func release() {
+        releaseSemaphore.signal()
+    }
+
+    func fileExists(at url: URL) -> Bool { true }
+    func isDirectory(at url: URL) -> Bool { false }
+    func createFile(at url: URL) throws {}
+    func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {}
+    func copyItem(at sourceURL: URL, to destinationURL: URL) throws {}
+    func moveItem(at sourceURL: URL, to destinationURL: URL) throws {}
+    func removeItem(at url: URL) throws {}
+    func trashItem(at url: URL) throws {
+        lock.withLock {
+            startedValue = true
+        }
+        releaseSemaphore.wait()
+        lock.withLock {
+            recordedTrashedURLs.append(url.standardizedFileURL)
+        }
+    }
+    func writeText(_ text: String, to url: URL) throws {}
+    func readText(from url: URL) throws -> String { "" }
+}
+
+private struct FailingTrashWorkspaceFileOperations: WorkspaceFileOperations {
+    func fileExists(at url: URL) -> Bool { true }
+    func isDirectory(at url: URL) -> Bool { false }
+    func createFile(at url: URL) throws {}
+    func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {}
+    func copyItem(at sourceURL: URL, to destinationURL: URL) throws {}
+    func moveItem(at sourceURL: URL, to destinationURL: URL) throws {}
+    func removeItem(at url: URL) throws {}
+    func trashItem(at url: URL) throws { throw CocoaError(.fileWriteNoPermission) }
     func writeText(_ text: String, to url: URL) throws {}
     func readText(from url: URL) throws -> String { "" }
 }

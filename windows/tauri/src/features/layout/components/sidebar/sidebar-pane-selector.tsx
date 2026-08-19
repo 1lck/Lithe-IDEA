@@ -1,8 +1,15 @@
 import { useMemo, type ReactNode } from "react";
-import { BACKEND_UNAVAILABLE_TOOLTIP } from "@/config/backend-capabilities";
+import {
+  BACKEND_UNAVAILABLE_TOOLTIP,
+  isBackendCapabilityAvailable,
+} from "@/config/backend-capabilities";
 import { useTranslation } from "@/i18n/locale-provider";
 import type { CoreFeaturesState } from "@/features/settings/types/feature.types";
-import { normalizeItemOrder } from "@/features/layout/config/item-order";
+import {
+  SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS,
+  normalizeItemOrder,
+} from "@/features/layout/config/item-order";
+import { RunIcon } from "@/features/run/components/run-icon";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { SidebarListItem } from "@/ui/sidebar";
 import { Tabs, TabsList, TabsTrigger } from "@/ui/tabs";
@@ -10,8 +17,11 @@ import {
   DatabaseIcon,
   GearIcon,
   GitBranchIcon,
+  GitGraphIcon,
   FilesIcon,
   MagnifyingGlassIcon,
+  TerminalWindowIcon,
+  WarningIcon,
 } from "@/ui/icons";
 import Tooltip from "@/ui/tooltip";
 import { cn } from "@/utils/cn";
@@ -52,7 +62,15 @@ interface SidebarPaneSelectorProps {
   onViewChange: (view: SidebarView) => void;
   onSearchClick?: () => void;
   isSearchActive?: boolean;
+  onGitLogClick?: () => void;
+  isGitLogActive?: boolean;
   onSettingsClick?: () => void;
+  onTerminalClick?: () => void;
+  isTerminalActive?: boolean;
+  onDiagnosticsClick?: () => void;
+  isDiagnosticsActive?: boolean;
+  onRunClick?: () => void;
+  isRunActive?: boolean;
   compact?: boolean;
   showLabels?: boolean;
   orientation?: "horizontal" | "vertical";
@@ -66,7 +84,15 @@ export const SidebarPaneSelector = ({
   onViewChange,
   onSearchClick,
   isSearchActive = false,
+  onGitLogClick,
+  isGitLogActive = false,
   onSettingsClick,
+  onTerminalClick,
+  isTerminalActive = false,
+  onDiagnosticsClick,
+  isDiagnosticsActive = false,
+  onRunClick,
+  isRunActive = false,
   compact = false,
   showLabels = false,
   orientation = "horizontal",
@@ -137,6 +163,23 @@ export const SidebarPaneSelector = ({
             } satisfies SidebarPaneItem,
           ]
         : []),
+      ...(coreFeatures.git && onGitLogClick
+        ? [
+            {
+              id: "gitLog",
+              label: showLabels ? t("workbench.gitLog") : undefined,
+              icon: <GitGraphIcon className={iconClassName} />,
+              isActive: isGitLogActive,
+              onClick: onGitLogClick,
+              ariaLabel: t("workbench.gitLog"),
+              tooltip: {
+                content: t("workbench.gitLog"),
+                shortcut: "Alt+9",
+                side: tooltipSide,
+              },
+            } satisfies SidebarPaneItem,
+          ]
+        : []),
       {
         id: "database",
         label: showLabels ? t("workbench.database") : undefined,
@@ -148,6 +191,60 @@ export const SidebarPaneSelector = ({
           side: tooltipSide,
         },
       },
+      ...(coreFeatures.terminal && onTerminalClick
+        ? [
+            {
+              id: "terminal",
+              label: showLabels ? t("workbench.terminal") : undefined,
+              icon: <TerminalWindowIcon className={iconClassName} />,
+              isActive: isTerminalActive,
+              onClick: onTerminalClick,
+              disabled: !isBackendCapabilityAvailable("terminal"),
+              ariaLabel: t("workbench.terminal"),
+              tooltip: {
+                content: isBackendCapabilityAvailable("terminal")
+                  ? t("workbench.terminal")
+                  : BACKEND_UNAVAILABLE_TOOLTIP,
+                shortcut: isBackendCapabilityAvailable("terminal") ? "Mod+J" : undefined,
+                side: tooltipSide,
+              },
+            } satisfies SidebarPaneItem,
+          ]
+        : []),
+      ...(coreFeatures.diagnostics && onDiagnosticsClick
+        ? [
+            {
+              id: "diagnostics",
+              label: showLabels ? t("workbench.diagnostics") : undefined,
+              icon: <WarningIcon className={iconClassName} />,
+              isActive: isDiagnosticsActive,
+              onClick: onDiagnosticsClick,
+              ariaLabel: t("workbench.diagnostics"),
+              tooltip: {
+                content: t("workbench.diagnostics"),
+                shortcut: "Mod+Shift+J",
+                side: tooltipSide,
+              },
+            } satisfies SidebarPaneItem,
+          ]
+        : []),
+      ...(onRunClick
+        ? [
+            {
+              id: "run",
+              label: showLabels ? t("workbench.run") : undefined,
+              icon: <RunIcon className={iconClassName} />,
+              isActive: isRunActive,
+              onClick: onRunClick,
+              ariaLabel: t("workbench.run"),
+              tooltip: {
+                content: t("workbench.run"),
+                shortcut: "Shift+F10",
+                side: tooltipSide,
+              },
+            } satisfies SidebarPaneItem,
+          ]
+        : []),
       ...(onSettingsClick
         ? [
             {
@@ -165,15 +262,25 @@ export const SidebarPaneSelector = ({
         : []),
     ],
     [
+      coreFeatures.diagnostics,
       coreFeatures.git,
       coreFeatures.search,
+      coreFeatures.terminal,
       iconClassName,
       isFilesActive,
       isPrimarySidebarItemActive,
       isGitViewActive,
       isSearchActive,
       onSearchClick,
+      onGitLogClick,
+      isGitLogActive,
+      onTerminalClick,
+      isTerminalActive,
+      onDiagnosticsClick,
+      isDiagnosticsActive,
+      onRunClick,
       onSettingsClick,
+      isRunActive,
       onViewChange,
       showLabels,
       t,
@@ -192,44 +299,60 @@ export const SidebarPaneSelector = ({
 
   const orderedItems = orderItems(items, orderedIds);
   const visibleItems = orderedItems.filter((item) => !hiddenSidebarActivityItems.includes(item.id));
+  const topItems = visibleItems.filter(
+    (item) =>
+      !SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS.includes(
+        item.id as (typeof SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS)[number],
+      ),
+  );
+  const bottomItems = SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS.map((id) =>
+    visibleItems.find((item) => item.id === id),
+  ).filter((item): item is SidebarPaneItem => Boolean(item));
+
+  const renderVerticalItem = (item: SidebarPaneItem) => {
+    const itemNode = (
+      <SidebarListItem
+        key={item.id}
+        active={!!item.isActive}
+        leading={item.icon}
+        iconOnly={!showLabels}
+        onClick={item.onClick}
+        disabled={item.disabled}
+        aria-label={item.ariaLabel}
+        aria-current={item.isActive ? "page" : undefined}
+        className="ui-text-sm min-h-6 py-1"
+      >
+        {item.label ?? item.ariaLabel ?? item.id}
+      </SidebarListItem>
+    );
+
+    return item.tooltip && (!showLabels || item.disabled) ? (
+      <Tooltip
+        key={item.id}
+        content={item.tooltip.content}
+        shortcut={item.disabled ? undefined : item.tooltip.shortcut}
+        side={item.tooltip.side}
+        className={item.tooltip.className}
+        triggerClassName="flex w-full"
+      >
+        {itemNode}
+      </Tooltip>
+    ) : (
+      <span key={item.id} className="contents">
+        {itemNode}
+      </span>
+    );
+  };
 
   if (isVertical) {
     return (
-      <nav aria-label="Activity views" className="flex w-full flex-col gap-1">
-        {visibleItems.map((item) => {
-          const itemNode = (
-            <SidebarListItem
-              key={item.id}
-              active={!!item.isActive}
-              leading={item.icon}
-              iconOnly={!showLabels}
-              onClick={item.onClick}
-              disabled={item.disabled}
-              aria-label={item.ariaLabel}
-              aria-current={item.isActive ? "page" : undefined}
-              className="ui-text-sm min-h-6 py-1"
-            >
-              {item.label ?? item.ariaLabel ?? item.id}
-            </SidebarListItem>
-          );
-
-          return item.tooltip && (!showLabels || item.disabled) ? (
-            <Tooltip
-              key={item.id}
-              content={item.tooltip.content}
-              shortcut={item.disabled ? undefined : item.tooltip.shortcut}
-              side={item.tooltip.side}
-              className={item.tooltip.className}
-              triggerClassName="flex w-full"
-            >
-              {itemNode}
-            </Tooltip>
-          ) : (
-            <span key={item.id} className="contents">
-              {itemNode}
-            </span>
-          );
-        })}
+      <nav aria-label={t("workbench.activityViews")} className="flex h-full w-full flex-col">
+        <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
+          {topItems.map(renderVerticalItem)}
+        </div>
+        {bottomItems.length > 0 ? (
+          <div className="flex shrink-0 flex-col gap-1 pt-1">{bottomItems.map(renderVerticalItem)}</div>
+        ) : null}
       </nav>
     );
   }
@@ -285,7 +408,7 @@ export const SidebarPaneSelector = ({
       <TabsList
         variant={compact ? "bare" : "default"}
         className={cn(!compact && "gap-0.5 p-1")}
-        aria-label="Sidebar views"
+        aria-label={t("workbench.activityViews")}
       >
         {renderedItems.map((item) => (
           <span key={item.id} className="contents">

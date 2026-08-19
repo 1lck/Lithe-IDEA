@@ -4,6 +4,7 @@ import {
   ArrowCounterClockwiseIcon as RotateCcw,
 } from "@/ui/icons";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 
 interface ViewerZoomControlsProps {
   zoom: number;
@@ -18,18 +19,20 @@ export function ViewerZoomControls({
   onZoomOut,
   onResetZoom,
 }: ViewerZoomControlsProps) {
+  const { t } = useTranslation();
+
   return (
     <div className="flex items-center gap-2">
-      <Button onClick={onZoomOut} variant="ghost" tooltip="Zoom out" size="icon-xs">
+      <Button onClick={onZoomOut} variant="ghost" tooltip={t("viewer.zoomOut")} size="icon-xs">
         <Minus />
       </Button>
       <span className="min-w-12.5 px-2 text-center font-sans text-subtle-foreground ui-text-sm">
         {Math.round(zoom * 100)}%
       </span>
-      <Button onClick={onZoomIn} variant="ghost" tooltip="Zoom in" size="icon-xs">
+      <Button onClick={onZoomIn} variant="ghost" tooltip={t("viewer.zoomIn")} size="icon-xs">
         <Plus />
       </Button>
-      <Button onClick={onResetZoom} variant="ghost" tooltip="Reset zoom" size="icon-xs">
+      <Button onClick={onResetZoom} variant="ghost" tooltip={t("viewer.resetZoom")} size="icon-xs">
         <RotateCcw />
       </Button>
     </div>

@@ -37,6 +37,7 @@ struct GitModuleTests {
         #expect(projection.kind(relativePath: "Sources/Feature", isDirectory: true) == .conflicted)
         #expect(projection.kind(relativePath: "Sources", isDirectory: true) == .conflicted)
         #expect(projection.kind(relativePath: "Tests", isDirectory: true) == nil)
+        #expect(projection.kind(relativePath: "", isDirectory: true) == .conflicted)
     }
 
     @Test

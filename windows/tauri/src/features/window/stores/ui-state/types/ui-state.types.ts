@@ -7,13 +7,21 @@ export type SettingsTab =
   | "ai"
   | "keyboard"
   | "language"
+  | "logs"
   | "collaboration"
   | "enterprise"
   | "advanced"
   | "terminal"
   | "file-explorer";
 
-export type BottomPaneTab = "terminal" | "debugger" | "diagnostics" | "references" | "buffers";
+export type BottomPaneTab =
+  | "terminal"
+  | "debugger"
+  | "diagnostics"
+  | "references"
+  | "buffers"
+  | "run"
+  | "gitLog";
 
 export interface QuickEditSelection {
   text: string;

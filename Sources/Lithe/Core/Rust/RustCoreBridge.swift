@@ -2232,9 +2232,9 @@ struct RustCoreBridge: Sendable {
                 arguments: options.arguments,
                 environment: options.environment,
                 mavenProfiles: options.activeProfiles.sorted(),
-                javaHomePath: scope == .local ? options.javaHomePath : "",
-                mavenExecutablePath: scope == .local ? options.mavenExecutablePath : "",
-                mavenJavaHomePath: scope == .local ? options.mavenJavaHomePath : ""
+                javaHomePath: options.javaHomePath,
+                mavenExecutablePath: options.mavenExecutablePath,
+                mavenJavaHomePath: options.mavenJavaHomePath
             )
         )
     }

@@ -34,14 +34,20 @@ struct EditorAreaView: View {
     @State private var splitDocumentID: UUID?
     @State private var markdownViewModes: [UUID: MarkdownViewMode] = [:]
     @State private var markdownScrollPositions: [UUID: MarkdownScrollPosition] = [:]
+    @State private var editorViewportStore = EditorViewportStore()
     @State private var hoveredMarkdownMode: MarkdownViewMode?
 
     var body: some View {
         ZStack(alignment: .top) {
             Group {
                 if model.selectedSidebar == .database {
-                    DatabaseWorkspaceView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    if model.isDatabaseModuleActive {
+                        DatabaseWorkspaceView()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    } else {
+                        ProgressView()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
                 } else if let comparison = model.branchComparison {
                     BranchComparisonView(comparison: comparison)
                 } else if let commitDiff = model.selectedGitCommitDiffContext {
@@ -73,6 +79,7 @@ struct EditorAreaView: View {
             }
             markdownViewModes = markdownViewModes.filter { ids.contains($0.key) }
             markdownScrollPositions = markdownScrollPositions.filter { ids.contains($0.key) }
+            editorViewportStore.retain(documentIDs: Set(ids))
             if let draggedDocumentID = tabDragState.draggedDocumentID,
                !ids.contains(draggedDocumentID) {
                 finishTabDrag()
@@ -250,11 +257,7 @@ struct EditorAreaView: View {
                     size: 13
                 )
                 editorTabTitle(document)
-                if document.isDirty {
-                    Circle()
-                        .fill(LitheTheme.primaryText)
-                        .frame(width: 6, height: 6)
-                }
+                EditorTabDirtyIndicator(document: document)
             }
             .foregroundStyle(model.activeDocumentID == document.id ? LitheTheme.primaryText : LitheTheme.secondaryText)
             .padding(.leading, 11)
@@ -289,8 +292,12 @@ struct EditorAreaView: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .semibold))
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+                    .litheRowHover(cornerRadius: 10)
             }
-            .litheIconButton()
+            .buttonStyle(LitheTreeRowButtonStyle())
+            .lithePointer()
             .foregroundStyle(LitheTheme.secondaryText)
             .opacity(model.activeDocumentID == document.id || hoveredTabID == document.id ? 1 : 0)
             .allowsHitTesting(model.activeDocumentID == document.id || hoveredTabID == document.id)
@@ -512,7 +519,8 @@ struct EditorAreaView: View {
                 CodeEditorView(
                     document: document,
                     debugService: model.debugFeatureIfActive,
-                    shouldFocus: !showsHeader && document.id == model.activeDocumentID
+                    shouldFocus: !showsHeader && document.id == model.activeDocumentID,
+                    viewportStore: editorViewportStore
                 )
                     .id(document.id)
                     .clipped()
@@ -580,6 +588,12 @@ struct EditorAreaView: View {
             }
         }
 
+        if model.canRevealInProjectTree(document.url) {
+            Button("Reveal in Project Tree") {
+                model.activeDocumentID = document.id
+                model.revealInProjectTree(document.url)
+            }
+        }
         Button("Show in Finder") {
             model.revealProjectItemInFinder(document.url)
         }
@@ -632,12 +646,7 @@ struct EditorAreaView: View {
     ) -> some View {
         codeEditor(document, markdownScrollPosition: markdownScrollPosition)
             .overlay(alignment: .top) {
-                if model.isFindBarVisible {
-                    FindBarView()
-                        .padding(.top, 10)
-                        .padding(.horizontal, 12)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
+                FindBarOverlay()
             }
     }
 
@@ -649,7 +658,8 @@ struct EditorAreaView: View {
             document: document,
             debugService: model.debugFeatureIfActive,
             shouldFocus: true,
-            markdownScrollPosition: markdownScrollPosition
+            markdownScrollPosition: markdownScrollPosition,
+            viewportStore: editorViewportStore
         )
         .id(document.id)
         .clipped()
@@ -740,5 +750,30 @@ private struct EditorTabDropDelegate: DropDelegate {
             dragSessionID,
             dropTargetRevision
         )
+    }
+}
+
+private struct EditorTabDirtyIndicator: View {
+    @ObservedObject var document: EditorDocument
+
+    var body: some View {
+        if document.isDirty {
+            Circle()
+                .fill(LitheTheme.primaryText)
+                .frame(width: 6, height: 6)
+        }
+    }
+}
+
+private struct FindBarOverlay: View {
+    @EnvironmentObject private var chrome: EditorChromeModel
+
+    var body: some View {
+        if chrome.isFindBarVisible {
+            FindBarView()
+                .padding(.top, 10)
+                .padding(.horizontal, 12)
+                .transition(.move(edge: .top).combined(with: .opacity))
+        }
     }
 }

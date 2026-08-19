@@ -31,6 +31,7 @@ import {
 import { Spinner } from "@/ui/spinner";
 import { Empty, EmptyDescription, EmptyState } from "@/ui/empty";
 import { ScrollArea } from "@/ui/scroll-area";
+import { useTranslation } from "@/i18n/locale-provider";
 
 interface IssueListItemProps {
   issue: IssueListItem;
@@ -41,6 +42,7 @@ interface IssueListItemProps {
 }
 
 const IssueRow = memo(({ issue, isActive, onSelect, onPrefetch, repoPath }: IssueListItemProps) => {
+  const { t } = useTranslation();
   const updatedLabel = getTimeAgo(issue.updatedAt);
   const labels = issue.labels.slice(0, 3);
   const isOpen = issue.state.toUpperCase() === "OPEN";
@@ -106,19 +108,19 @@ const IssueRow = memo(({ issue, isActive, onSelect, onPrefetch, repoPath }: Issu
       }
       preview={{
         title: issue.title,
-        subtitle: `#${issue.number} by ${issue.author.login}`,
+        subtitle: t("github.itemByAuthor", { number: issue.number, author: issue.author.login }),
         icon: authorAvatar,
         badges,
         details: [
-          { label: "Updated", value: updatedLabel },
-          { label: "Author", value: issue.author.login, mono: true },
+          { label: t("github.updated"), value: updatedLabel },
+          { label: t("github.author"), value: issue.author.login, mono: true },
           {
-            label: "Labels",
+            label: t("github.labels"),
             value: issue.labels.length
               ? issue.labels.map((label) => label.name).join(", ")
-              : "None",
+              : t("github.none"),
           },
-          { label: "State", value: issue.state },
+          { label: t("github.state"), value: issue.state },
         ],
       }}
     />
@@ -150,6 +152,7 @@ const GitHubIssuesView = memo(
     const [issues, setIssues] = useState<IssueListItem[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const { t } = useTranslation();
     const deferredIssues = useDeferredValue(issues);
     const deferredSearchQuery = useDeferredValue(searchQuery);
 
@@ -157,7 +160,7 @@ const GitHubIssuesView = memo(
       async (force = false) => {
         if (!repoPath) {
           setIssues([]);
-          setError("No repository selected.");
+          setError(t("github.noRepositorySelected"));
           setIsLoading(false);
           return;
         }
@@ -311,12 +314,12 @@ const GitHubIssuesView = memo(
             </Empty>
           ) : isLoading && deferredIssues.length === 0 ? (
             <div className="flex items-center justify-center py-8">
-              <Spinner label="Loading issues" showLabel compact />
+              <Spinner label={t("github.loadingIssues")} showLabel compact />
             </div>
           ) : deferredIssues.length === 0 ? (
-            <EmptyState message="No issues" />
+            <EmptyState message={t("github.noIssues")} />
           ) : filteredIssues.length === 0 ? (
-            <EmptyState message="No matching issues" />
+            <EmptyState message={t("github.noMatchingIssues")} />
           ) : (
             <div className="space-y-1 overflow-x-hidden">
               {groupedIssues.map((group) => (

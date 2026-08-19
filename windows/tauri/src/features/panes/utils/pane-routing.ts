@@ -9,6 +9,45 @@ export interface WritablePaneRoutingInput {
   root: PaneNode;
 }
 
+export interface MainPaneRoutingInput {
+  activePaneId: string;
+  mostRecentActivePaneIds: string[];
+  root: PaneNode;
+}
+
+export interface MainPaneBufferRoutingInput extends MainPaneRoutingInput {
+  bufferId: string;
+}
+
+export function resolveMainPaneForExternalOpen({
+  activePaneId,
+  mostRecentActivePaneIds,
+  root,
+}: MainPaneRoutingInput): PaneGroup | null {
+  const mainPanes = getAllPaneGroups(root);
+  const paneById = new Map(mainPanes.map((pane) => [pane.id, pane] as const));
+
+  return (
+    paneById.get(activePaneId) ??
+    mostRecentActivePaneIds.map((paneId) => paneById.get(paneId)).find(Boolean) ??
+    mainPanes[0] ??
+    null
+  );
+}
+
+export function resolveMainPaneForBufferOpen({
+  activePaneId,
+  bufferId,
+  mostRecentActivePaneIds,
+  root,
+}: MainPaneBufferRoutingInput): PaneGroup | null {
+  const mainPanes = getAllPaneGroups(root);
+  const paneWithBuffer = mainPanes.find((pane) => pane.bufferIds.includes(bufferId));
+  if (paneWithBuffer) return paneWithBuffer;
+
+  return resolveMainPaneForExternalOpen({ activePaneId, mostRecentActivePaneIds, root });
+}
+
 export function getPaneScopeForPaneId(root: PaneNode, bottomRoot: PaneNode, paneId: string) {
   const rootPanes = getAllPaneGroups(root);
   if (rootPanes.some((pane) => pane.id === paneId)) {

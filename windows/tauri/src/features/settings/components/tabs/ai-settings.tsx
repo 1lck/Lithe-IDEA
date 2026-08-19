@@ -59,6 +59,7 @@ import {
   storeProviderApiToken,
 } from "@/features/ai/services/ai-token-service";
 import { CodexSettings } from "@/features/ai/integrations/codex/codex-settings";
+import { useTranslation } from "@/i18n/locale-provider";
 const DEFAULT_AUTOCOMPLETE_MODEL_ID = "mistralai/devstral-small";
 
 function resolveAutocompleteDefaultModelId(models: Array<{ id: string; name: string }>): string {
@@ -135,6 +136,7 @@ export const AISettings = () => {
   const needsApiKey = isOllamaCloud;
   const providers = useAvailableProviders();
   const providerSettingsActions = useAIProviderSettingsActions(settings.aiProviderId);
+  const { t } = useTranslation();
 
   useEffect(() => {
     const detectAgents = async () => {
@@ -273,10 +275,10 @@ export const AISettings = () => {
       setOllamaApiKey(trimmed);
       setHasStoredOllamaKey(true);
       setOllamaApiKeyInput("");
-      showToast({ message: "Ollama API key saved", type: "success" });
+      showToast({ message: t("aiSettings.ollamaApiKeySaved"), type: "success" });
       void validateOllamaConnection(ollamaUrl, trimmed);
     } catch {
-      showToast({ message: "Failed to save Ollama API key", type: "error" });
+      showToast({ message: t("aiSettings.ollamaApiKeySaveFailed"), type: "error" });
     } finally {
       setIsSavingOllamaKey(false);
     }
@@ -288,10 +290,10 @@ export const AISettings = () => {
       setOllamaApiKey(null);
       setHasStoredOllamaKey(false);
       setOllamaApiKeyInput("");
-      showToast({ message: "Ollama API key removed", type: "success" });
+      showToast({ message: t("aiSettings.ollamaApiKeyRemoved"), type: "success" });
       void validateOllamaConnection(ollamaUrl, null);
     } catch {
-      showToast({ message: "Failed to remove Ollama API key", type: "error" });
+      showToast({ message: t("aiSettings.ollamaApiKeyRemoveFailed"), type: "error" });
     }
   };
 
@@ -320,11 +322,11 @@ export const AISettings = () => {
         }
       } else {
         setAutocompleteModels([]);
-        setAutocompleteModelError("Model list is empty. Refresh to try again.");
+        setAutocompleteModelError(t("aiSettings.modelListEmpty"));
       }
     } catch {
       setAutocompleteModels([]);
-      setAutocompleteModelError("Could not load model list. Refresh to try again.");
+      setAutocompleteModelError(t("aiSettings.modelListLoadFailed"));
     } finally {
       setIsLoadingAutocompleteModels(false);
     }
@@ -364,9 +366,9 @@ export const AISettings = () => {
       await storeProviderApiToken(CUSTOM_AUTOCOMPLETE_PROVIDER_ID, token);
       setHasCustomAutocompleteApiKey(true);
       setCustomAutocompleteApiKeyInput("");
-      showToast({ message: "Custom autocomplete API key saved", type: "success" });
+      showToast({ message: t("aiSettings.customAutocompleteApiKeySaved"), type: "success" });
     } catch {
-      showToast({ message: "Failed to save custom autocomplete API key", type: "error" });
+      showToast({ message: t("aiSettings.customAutocompleteApiKeySaveFailed"), type: "error" });
     } finally {
       setIsSavingCustomAutocompleteApiKey(false);
     }
@@ -378,9 +380,9 @@ export const AISettings = () => {
       await removeProviderApiToken(CUSTOM_AUTOCOMPLETE_PROVIDER_ID);
       setHasCustomAutocompleteApiKey(false);
       setCustomAutocompleteApiKeyInput("");
-      showToast({ message: "Custom autocomplete API key removed", type: "success" });
+      showToast({ message: t("aiSettings.customAutocompleteApiKeyRemoved"), type: "success" });
     } catch {
-      showToast({ message: "Failed to remove custom autocomplete API key", type: "error" });
+      showToast({ message: t("aiSettings.customAutocompleteApiKeyRemoveFailed"), type: "error" });
     } finally {
       setIsSavingCustomAutocompleteApiKey(false);
     }
@@ -395,9 +397,9 @@ export const AISettings = () => {
       await storeProviderApiToken(CUSTOM_CHAT_PROVIDER_ID, token);
       setHasCustomChatApiKey(true);
       setCustomChatApiKeyInput("");
-      showToast({ message: "Custom provider API key saved", type: "success" });
+      showToast({ message: t("aiSettings.customProviderApiKeySaved"), type: "success" });
     } catch {
-      showToast({ message: "Failed to save custom provider API key", type: "error" });
+      showToast({ message: t("aiSettings.customProviderApiKeySaveFailed"), type: "error" });
     } finally {
       setIsSavingCustomChatApiKey(false);
     }
@@ -409,9 +411,9 @@ export const AISettings = () => {
       await removeProviderApiToken(CUSTOM_CHAT_PROVIDER_ID);
       setHasCustomChatApiKey(false);
       setCustomChatApiKeyInput("");
-      showToast({ message: "Custom provider API key removed", type: "success" });
+      showToast({ message: t("aiSettings.customProviderApiKeyRemoved"), type: "success" });
     } catch {
-      showToast({ message: "Failed to remove custom provider API key", type: "error" });
+      showToast({ message: t("aiSettings.customProviderApiKeyRemoveFailed"), type: "error" });
     } finally {
       setIsSavingCustomChatApiKey(false);
     }
@@ -443,8 +445,8 @@ export const AISettings = () => {
       <CodexSettings />
       <Section title="Lithe Agent">
         <SettingRow
-          label="Provider"
-          description="Choose the provider used by Lithe Agent"
+          label={t("aiSettings.provider")}
+          description={t("aiSettings.providerDescription")}
           onReset={() => {
             updateSetting("aiProviderId", getDefaultSetting("aiProviderId"));
             updateSetting("aiModelId", getDefaultSetting("aiModelId"));
@@ -461,11 +463,11 @@ export const AISettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Model"
+          label={t("aiSettings.model")}
           description={
             isCustomProviderSelected
-              ? "Model name sent to the custom endpoint"
-              : "Choose the model used by Lithe Agent"
+              ? t("aiSettings.customModelDescription")
+              : t("aiSettings.modelDescription")
           }
           onReset={() => {
             if (isCustomProviderSelected) {
@@ -499,7 +501,10 @@ export const AISettings = () => {
           )}
         </SettingRow>
 
-        <SettingRow label="API Keys" description="Manage provider API keys separately">
+        <SettingRow
+          label={t("aiSettings.apiKeys")}
+          description={t("aiSettings.apiKeysDescription")}
+        >
           <Button
             type="button"
             variant="default"
@@ -508,7 +513,7 @@ export const AISettings = () => {
             size="sm"
           >
             <Key />
-            <span>Manage keys</span>
+            <span>{t("aiSettings.manageKeys")}</span>
           </Button>
         </SettingRow>
 
@@ -519,7 +524,7 @@ export const AISettings = () => {
             <SettingRow
               key={action.id}
               label={action.label}
-              description={action.getDescription?.() || "Configure provider extension"}
+              description={action.getDescription?.() || t("aiSettings.configureProviderExtension")}
             >
               <Button
                 type="button"
@@ -537,10 +542,10 @@ export const AISettings = () => {
       </Section>
 
       {showCustomProviderSettings && (
-        <Section title="Custom Provider">
+        <Section title={t("aiSettings.customProvider")}>
           <SettingRow
-            label="Base URL"
-            description="OpenAI-compatible endpoint base URL for Lithe Agent"
+            label={t("aiSettings.baseUrl")}
+            description={t("aiSettings.customProviderBaseUrlDescription")}
             onReset={() => {
               updateSetting("aiCustomBaseUrl", getDefaultSetting("aiCustomBaseUrl"));
               setCustomProviderBaseUrl(getDefaultSetting("aiCustomBaseUrl"));
@@ -564,11 +569,11 @@ export const AISettings = () => {
             />
           </SettingRow>
           <SettingRow
-            label="API Key"
+            label={t("aiSettings.apiKey")}
             description={
               hasCustomChatApiKey
-                ? "Stored securely. Leave blank to keep the existing key."
-                : "Optional bearer token for the custom endpoint"
+                ? t("aiSettings.savedKeyDescription")
+                : t("aiSettings.optionalBearerDescription")
             }
           >
             <div className="flex items-center gap-2">
@@ -576,7 +581,7 @@ export const AISettings = () => {
                 type="password"
                 value={customChatApiKeyInput}
                 onChange={(event) => setCustomChatApiKeyInput(event.currentTarget.value)}
-                placeholder={hasCustomChatApiKey ? "Saved" : "API key"}
+                placeholder={hasCustomChatApiKey ? t("aiSettings.saved") : t("aiSettings.apiKey")}
                 size="md"
                 className={SETTINGS_CONTROL_WIDTHS.wide}
                 spellCheck={false}
@@ -590,7 +595,7 @@ export const AISettings = () => {
                 disabled={!customChatApiKeyInput.trim() || isSavingCustomChatApiKey}
                 size="sm"
               >
-                Save
+                {t("ui.save")}
               </Button>
               {hasCustomChatApiKey && (
                 <Button
@@ -600,7 +605,7 @@ export const AISettings = () => {
                   disabled={isSavingCustomChatApiKey}
                   size="sm"
                 >
-                  Remove
+                  {t("ui.remove")}
                 </Button>
               )}
             </div>
@@ -610,7 +615,7 @@ export const AISettings = () => {
 
       {(isOllamaSelected || settings.ollamaBaseUrl !== DEFAULT_OLLAMA_BASE_URL) && (
         <Section title="Ollama">
-          <SettingRow label="Mode" description="Run Ollama locally or use Ollama Cloud">
+          <SettingRow label={t("aiSettings.mode")} description={t("aiSettings.ollamaModeDescription")}>
             <ToggleGroup
               value={isOllamaCloud ? "cloud" : "local"}
               onValueChange={(nextValue) => {
@@ -620,16 +625,16 @@ export const AISettings = () => {
                 }
                 handleUseOllamaCloud();
               }}
-              ariaLabel="Ollama mode"
+              ariaLabel={t("aiSettings.ollamaMode")}
               options={[
-                { value: "local", label: "Local", icon: <Laptop /> },
-                { value: "cloud", label: "Cloud", icon: <Cloud /> },
+                { value: "local", label: t("aiSettings.local"), icon: <Laptop /> },
+                { value: "cloud", label: t("aiSettings.cloud"), icon: <Cloud /> },
               ]}
             />
           </SettingRow>
           <SettingRow
-            label="Endpoint"
-            description="Base URL for Ollama API (local, LAN, or cloud)"
+            label={t("aiSettings.endpoint")}
+            description={t("aiSettings.ollamaEndpointDescription")}
             onReset={handleResetOllamaUrl}
             canReset={settings.ollamaBaseUrl !== getDefaultSetting("ollamaBaseUrl")}
           >
@@ -654,7 +659,7 @@ export const AISettings = () => {
                   ollamaStatus === "error" && "border-destructive/60",
                 )}
               />
-              {ollamaStatus === "checking" && <Spinner label="Checking" compact />}
+              {ollamaStatus === "checking" && <Spinner label={t("aiSettings.checking")} compact />}
               {ollamaStatus === "ok" && <CheckCircle className="text-success" />}
               {ollamaStatus === "error" && <AlertCircle className="text-destructive" />}
               {ollamaUrl !== DEFAULT_OLLAMA_BASE_URL && (
@@ -662,8 +667,8 @@ export const AISettings = () => {
                   type="button"
                   variant="default"
                   onClick={handleResetOllamaUrl}
-                  title="Reset to default"
-                  aria-label="Reset Ollama URL to default"
+                  title={t("aiSettings.resetToDefault")}
+                  aria-label={t("aiSettings.resetOllamaUrl")}
                   size="icon-xs"
                 >
                   <RotateCcw />
@@ -672,15 +677,15 @@ export const AISettings = () => {
             </div>
           </SettingRow>
           <SettingRow
-            label="API Key"
-            description="Used for authenticated Ollama endpoints and Ollama Cloud."
+            label={t("aiSettings.apiKey")}
+            description={t("aiSettings.ollamaApiKeyDescription")}
           >
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
               <Input
                 type="password"
                 value={ollamaApiKeyInput}
                 onChange={(e) => setOllamaApiKeyInput(e.target.value)}
-                placeholder={hasStoredOllamaKey ? "••••••••  (saved)" : "ollama-…"}
+                placeholder={hasStoredOllamaKey ? t("aiSettings.savedKeyPlaceholder") : "ollama-…"}
                 spellCheck={false}
                 leftIcon={Key}
                 className={cn(
@@ -697,15 +702,15 @@ export const AISettings = () => {
                 disabled={!ollamaApiKeyInput.trim() || isSavingOllamaKey}
                 size="sm"
               >
-                {isSavingOllamaKey ? "Saving…" : "Save"}
+                {isSavingOllamaKey ? t("ui.saving") : t("ui.save")}
               </Button>
               {hasStoredOllamaKey && (
                 <Button
                   type="button"
                   variant="default"
                   onClick={handleRemoveOllamaApiKey}
-                  title="Remove saved API key"
-                  aria-label="Remove Ollama API key"
+                  title={t("aiSettings.removeSavedApiKey")}
+                  aria-label={t("aiSettings.removeOllamaApiKey")}
                   className="text-destructive hover:bg-destructive/10"
                   size="icon-xs"
                 >
@@ -715,7 +720,10 @@ export const AISettings = () => {
             </div>
           </SettingRow>
           {needsApiKey && !hasStoredOllamaKey && (
-            <SettingRow label="Ollama Cloud Key" description="Ollama Cloud requires an API key.">
+            <SettingRow
+              label={t("aiSettings.ollamaCloudKey")}
+              description={t("aiSettings.ollamaCloudKeyDescription")}
+            >
               <div className="flex items-center gap-1.5">
                 <AlertCircle className="shrink-0 text-warning" />
                 <a
@@ -724,21 +732,21 @@ export const AISettings = () => {
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-primary hover:underline"
                 >
-                  Get key <ExternalLink className="size-3" />
+                  {t("aiSettings.getKey")} <ExternalLink className="size-3" />
                 </a>
               </div>
             </SettingRow>
           )}
           {ollamaStatus === "error" && (
             <SettingRow
-              label="Connection Status"
+              label={t("aiSettings.connectionStatus")}
               description={
                 isOllamaCloud
-                  ? "Could not reach Ollama Cloud. Verify your API key and internet connection."
-                  : "Could not connect. Check that Ollama is running at this address."
+                  ? t("aiSettings.ollamaCloudConnectionFailed")
+                  : t("aiSettings.ollamaLocalConnectionFailed")
               }
             >
-              <Badge variant="default">Error</Badge>
+              <Badge variant="default">{t("aiSettings.error")}</Badge>
             </SettingRow>
           )}
         </Section>
@@ -751,21 +759,21 @@ export const AISettings = () => {
       />
 
       {providersNeedingAuth.length > 0 && (
-        <Section title="Authentication">
+        <Section title={t("aiSettings.authentication")}>
           {providersNeedingAuth.map((provider) => (
             <SettingRow
               key={provider.id}
               label={provider.name}
-              description="Requires OAuth authentication"
+              description={t("aiSettings.requiresOAuth")}
             >
-              <Badge variant="default">Coming Soon</Badge>
+              <Badge variant="default">{t("aiSettings.comingSoon")}</Badge>
             </SettingRow>
           ))}
         </Section>
       )}
 
       {sessionConfigOptions.length > 0 && (
-        <Section title="ACP Session">
+        <Section title={t("aiSettings.acpSession")}>
           {sessionConfigOptions.map((option) => {
             if (option.kind.type !== "select") {
               return null;
@@ -775,7 +783,7 @@ export const AISettings = () => {
               <SettingRow
                 key={option.id}
                 label={option.name}
-                description={option.description || "Session option exposed by the active ACP agent"}
+                description={option.description || t("aiSettings.acpSessionOptionDescription")}
               >
                 <Select
                   value={option.kind.currentValue}
@@ -797,10 +805,10 @@ export const AISettings = () => {
         </Section>
       )}
 
-      <Section title="Autocomplete">
+      <Section title={t("aiSettings.autocomplete")}>
         <SettingRow
-          label="AI Autocomplete"
-          description="Enable AI autocomplete while typing"
+          label={t("aiSettings.aiAutocomplete")}
+          description={t("aiSettings.aiAutocompleteDescription")}
           onReset={() => updateSetting("aiCompletion", getDefaultSetting("aiCompletion"))}
           canReset={settings.aiCompletion !== getDefaultSetting("aiCompletion")}
         >
@@ -814,8 +822,8 @@ export const AISettings = () => {
         {settings.aiCompletion && (
           <>
             <SettingRow
-              label="Autocomplete Provider"
-              description="Use Lithe/OpenRouter or an OpenAI-compatible endpoint"
+              label={t("aiSettings.autocompleteProvider")}
+              description={t("aiSettings.autocompleteProviderDescription")}
               onReset={() =>
                 updateSetting("aiAutocompleteProvider", getDefaultSetting("aiAutocompleteProvider"))
               }
@@ -827,7 +835,7 @@ export const AISettings = () => {
                 value={settings.aiAutocompleteProvider}
                 options={[
                   { value: "openrouter", label: "OpenRouter" },
-                  { value: "custom", label: "Custom" },
+                  { value: "custom", label: t("aiSettings.custom") },
                 ]}
                 onValueChange={(value) =>
                   updateSetting(
@@ -835,19 +843,21 @@ export const AISettings = () => {
                     value === "custom" ? "custom" : "openrouter",
                   )
                 }
-                ariaLabel="Autocomplete provider"
+                ariaLabel={t("aiSettings.autocompleteProvider")}
                 size="xs"
                 wrap={false}
               />
             </SettingRow>
             <SettingRow
               label={
-                settings.aiAutocompleteProvider === "custom" ? "Custom Model" : "Autocomplete Model"
+                settings.aiAutocompleteProvider === "custom"
+                  ? t("aiSettings.customModel")
+                  : t("aiSettings.autocompleteModel")
               }
               description={
                 settings.aiAutocompleteProvider === "custom"
-                  ? "Model name sent to the custom endpoint"
-                  : "Choose any OpenRouter model for autocomplete"
+                  ? t("aiSettings.customModelDescription")
+                  : t("aiSettings.autocompleteModelDescription")
               }
               onReset={() =>
                 settings.aiAutocompleteProvider === "custom"
@@ -888,11 +898,11 @@ export const AISettings = () => {
                     variant="default"
                     onClick={loadAutocompleteModels}
                     disabled={isLoadingAutocompleteModels || !aiCompletionAllowedByPolicy}
-                    title="Refresh model list"
+                    title={t("aiSettings.refreshModelList")}
                     size="icon-xs"
                   >
                     {isLoadingAutocompleteModels ? (
-                      <Spinner label="Loading models" compact />
+                      <Spinner label={t("aiSettings.loadingModels")} compact />
                     ) : (
                       <RefreshCw />
                     )}
@@ -915,7 +925,9 @@ export const AISettings = () => {
                       !hasAutocompleteModels
                     }
                     placeholder={
-                      isLoadingAutocompleteModels ? "Loading models..." : "No models loaded"
+                      isLoadingAutocompleteModels
+                        ? t("aiSettings.loadingModelsEllipsis")
+                        : t("aiSettings.noModelsLoaded")
                     }
                   />
                 </div>
@@ -924,8 +936,8 @@ export const AISettings = () => {
             {settings.aiAutocompleteProvider === "custom" && (
               <>
                 <SettingRow
-                  label="Custom Base URL"
-                  description="OpenAI-compatible endpoint base URL"
+                  label={t("aiSettings.customBaseUrl")}
+                  description={t("aiSettings.openAiCompatibleBaseUrlDescription")}
                   onReset={() =>
                     updateSetting(
                       "aiAutocompleteCustomBaseUrl",
@@ -955,11 +967,11 @@ export const AISettings = () => {
                   />
                 </SettingRow>
                 <SettingRow
-                  label="Custom API Key"
+                  label={t("aiSettings.customApiKey")}
                   description={
                     hasCustomAutocompleteApiKey
-                      ? "Stored securely. Leave blank to keep the existing key."
-                      : "Optional bearer token for the custom endpoint"
+                      ? t("aiSettings.savedKeyDescription")
+                      : t("aiSettings.optionalBearerDescription")
                   }
                 >
                   <div className="flex items-center gap-2">
@@ -969,7 +981,9 @@ export const AISettings = () => {
                       onChange={(event) =>
                         setCustomAutocompleteApiKeyInput(event.currentTarget.value)
                       }
-                      placeholder={hasCustomAutocompleteApiKey ? "Saved" : "API key"}
+                      placeholder={
+                        hasCustomAutocompleteApiKey ? t("aiSettings.saved") : t("aiSettings.apiKey")
+                      }
                       size="md"
                       className={SETTINGS_CONTROL_WIDTHS.wide}
                       disabled={!aiCompletionAllowedByPolicy || isSavingCustomAutocompleteApiKey}
@@ -984,7 +998,7 @@ export const AISettings = () => {
                       }
                       size="sm"
                     >
-                      Save
+                      {t("ui.save")}
                     </Button>
                     {hasCustomAutocompleteApiKey && (
                       <Button
@@ -993,7 +1007,7 @@ export const AISettings = () => {
                         disabled={!aiCompletionAllowedByPolicy || isSavingCustomAutocompleteApiKey}
                         size="sm"
                       >
-                        Remove
+                        {t("ui.remove")}
                       </Button>
                     )}
                   </div>
@@ -1001,33 +1015,36 @@ export const AISettings = () => {
               </>
             )}
             {autocompleteModelError && (
-              <SettingRow label="Model List" description={autocompleteModelError}>
-                <Badge variant="default">Error</Badge>
+              <SettingRow label={t("aiSettings.modelList")} description={autocompleteModelError}>
+                <Badge variant="default">{t("aiSettings.error")}</Badge>
               </SettingRow>
             )}
           </>
         )}
         {managedPolicy ? (
           <SettingRow
-            label="Enterprise Policy"
-            description={`${aiCompletionAllowedByPolicy ? "AI completion enabled." : "AI completion disabled."} ${byokAllowedByPolicy ? "BYOK allowed." : "BYOK blocked."}`}
+            label={t("aiSettings.enterprisePolicy")}
+            description={`${aiCompletionAllowedByPolicy ? t("aiSettings.aiCompletionEnabled") : t("aiSettings.aiCompletionDisabled")} ${byokAllowedByPolicy ? t("aiSettings.byokAllowed") : t("aiSettings.byokBlocked")}`}
           >
-            <Badge variant="default">Managed</Badge>
+            <Badge variant="default">{t("aiSettings.managed")}</Badge>
           </SettingRow>
         ) : null}
       </Section>
 
-      <Section title="Agent History">
-        <SettingRow label="Clear Agent History" description="Permanently delete all agent history">
+      <Section title={t("aiSettings.agentHistory")}>
+        <SettingRow
+          label={t("aiSettings.clearAgentHistory")}
+          description={t("aiSettings.clearAgentHistoryDescription")}
+        >
           <TypedConfirmAction
-            actionLabel="Clear All"
-            busyLabel="Clearing..."
+            actionLabel={t("aiSettings.clearAll")}
+            busyLabel={t("aiSettings.clearing")}
             isBusy={isClearingChats}
             onConfirm={async () => {
               setIsClearingChats(true);
               try {
                 await useAIChatStore.getState().actions.clearAllChats();
-                showToast({ message: "Agent history cleared", type: "success" });
+                showToast({ message: t("aiSettings.agentHistoryCleared"), type: "success" });
               } finally {
                 setIsClearingChats(false);
               }

@@ -1,6 +1,11 @@
 import type React from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { useTranslation } from "@/i18n/locale-provider";
+import {
+  bindOverlayWheelToScrollContainer,
+  querySidebarScrollContainer,
+} from "@/ui/scroll-container-wheel";
 import { cn } from "@/utils/cn";
 import {
   clampResponsivePaneWidth,
@@ -33,12 +38,14 @@ export function ResizablePane({
   outerEdge = true,
   reservedWidth = 0,
 }: ResizablePaneProps) {
+  const { t } = useTranslation();
   const storedWidth = useSettingsStore((state) => state.settings[widthKey]);
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
   const [width, setWidth] = useState(Math.max(storedWidth, MIN_RESPONSIVE_PANE_WIDTH));
   const [isResizing, setIsResizing] = useState(false);
   const paneRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  const resizeHandleRef = useRef<HTMLDivElement>(null);
 
   const getViewportWidth = () => (typeof window !== "undefined" ? window.innerWidth : 1280);
 
@@ -82,6 +89,15 @@ export function ResizablePane({
     window.addEventListener("resize", handleWindowResize);
     return () => window.removeEventListener("resize", handleWindowResize);
   }, [widthKey, clampWidth]);
+
+  useLayoutEffect(() => {
+    const overlay = resizeHandleRef.current;
+    if (!overlay) return;
+
+    return bindOverlayWheelToScrollContainer(overlay, () =>
+      querySidebarScrollContainer(contentRef.current),
+    );
+  }, [hidden]);
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -134,11 +150,12 @@ export function ResizablePane({
   const totalWidth = hidden ? "0px" : `${width}px`;
   const resizeHandle = !hidden ? (
     <div
+      ref={resizeHandleRef}
       onMouseDown={handleMouseDown}
       style={
         position === "left"
-          ? { right: "calc(var(--lithe-workbench-gap) / -2)" }
-          : { left: "calc(var(--lithe-workbench-gap) / -2)" }
+          ? { right: "calc(var(--lithe-workbench-gap) * -1)" }
+          : { left: "calc(var(--lithe-workbench-gap) * -1)" }
       }
       className={cn(
         "group absolute top-0 z-30 flex h-full w-(--lithe-workbench-gap) cursor-col-resize items-center justify-center",
@@ -146,7 +163,7 @@ export function ResizablePane({
       )}
       role="separator"
       aria-orientation="vertical"
-      aria-label={widthKey === "aiChatWidth" ? "Resize AI chat" : "Resize sidebar"}
+      aria-label={widthKey === "aiChatWidth" ? t("layout.resizeAiChat") : t("layout.resizeSidebar")}
       aria-valuenow={Math.round(width)}
       aria-valuemin={Math.round(getMinWidth())}
       aria-valuemax={Math.round(getMaxWidth())}

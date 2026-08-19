@@ -1,4 +1,4 @@
-import { Fragment, type MouseEvent } from "react";
+import { Fragment, type MouseEvent, type ReactNode } from "react";
 import { Button } from "@/ui/button";
 import {
   Breadcrumb,
@@ -8,6 +8,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/ui/breadcrumb";
+import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
 
 interface PathBreadcrumbProps {
@@ -15,6 +16,7 @@ interface PathBreadcrumbProps {
   interactive?: boolean;
   onSegmentClick?: (index: number, event: MouseEvent<HTMLButtonElement>) => void;
   setSegmentRef?: (index: number, element: HTMLButtonElement | null) => void;
+  lastSegmentLeading?: ReactNode;
   className?: string;
 }
 
@@ -23,13 +25,15 @@ export function PathBreadcrumb({
   interactive = false,
   onSegmentClick,
   setSegmentRef,
+  lastSegmentLeading,
   className,
 }: PathBreadcrumbProps) {
+  const { t } = useTranslation();
   if (segments.length === 0) return null;
 
   return (
     <Breadcrumb
-      aria-label="File path"
+      aria-label={t("footer.filePath")}
       className={cn("min-w-0 overflow-x-auto scrollbar-none", className)}
     >
       <BreadcrumbList className="flex-nowrap gap-0">
@@ -52,16 +56,25 @@ export function PathBreadcrumb({
                       />
                     }
                     className={cn(
-                      "min-w-0 whitespace-nowrap",
+                      "min-w-0 items-center gap-1 whitespace-nowrap",
                       isLast
                         ? "font-medium text-foreground hover:text-foreground"
                         : "text-subtle-foreground hover:text-foreground",
                     )}
                   >
+                    {isLast && lastSegmentLeading ? (
+                      <span className="flex shrink-0 items-center">{lastSegmentLeading}</span>
+                    ) : null}
                     {segment}
                   </BreadcrumbLink>
                 ) : isLast ? (
-                  <BreadcrumbPage data-slot="breadcrumb-segment" className="truncate px-1.5">
+                  <BreadcrumbPage
+                    data-slot="breadcrumb-segment"
+                    className="inline-flex items-center gap-1 truncate px-1.5"
+                  >
+                    {lastSegmentLeading ? (
+                      <span className="flex shrink-0 items-center">{lastSegmentLeading}</span>
+                    ) : null}
                     {segment}
                   </BreadcrumbPage>
                 ) : (

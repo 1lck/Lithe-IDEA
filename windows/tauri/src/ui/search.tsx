@@ -15,6 +15,7 @@ import { Button } from "@/ui/button";
 import Input from "@/ui/input";
 import { Toggle } from "@/ui/toggle";
 import { cn } from "@/utils/cn";
+import { useTranslation } from "@/i18n/locale-provider";
 
 export interface SearchToggleOption {
   id: string;
@@ -51,9 +52,11 @@ export const SearchField = forwardRef<
     leftIcon?: AppIcon;
   }
 >(function SearchField(
-  { value, onChange, leftIcon = Search, placeholder = "Search", ...props },
+  { value, onChange, leftIcon = Search, placeholder, ...props },
   ref,
 ) {
+  const { t } = useTranslation();
+
   return (
     <Input
       ref={ref}
@@ -61,7 +64,7 @@ export const SearchField = forwardRef<
       value={value}
       onChange={(event) => onChange(event.target.value)}
       leftIcon={leftIcon}
-      placeholder={placeholder}
+      placeholder={placeholder ?? t("search.search")}
       {...props}
     />
   );
@@ -88,6 +91,8 @@ export function SearchPopover({
   secondaryRow,
   className,
 }: SearchPopoverProps) {
+  const { t } = useTranslation();
+
   return (
     <div className={cn(searchSurfaceClass, className)}>
       <div className="flex items-center gap-1.5">
@@ -111,7 +116,7 @@ export function SearchPopover({
               variant="ghost"
               size="icon-xs"
               className="-translate-y-1/2 absolute top-1/2 right-1"
-              aria-label="Clear search"
+              aria-label={t("search.clear")}
             >
               <X />
             </Button>
@@ -135,7 +140,7 @@ export function SearchPopover({
           type="button"
           onClick={onClose}
           variant="ghost"
-          aria-label="Close search"
+          aria-label={t("search.close")}
           size="icon-xs"
         >
           <X />
@@ -169,7 +174,7 @@ export function SearchPopover({
                   onClick={onPrevious}
                   disabled={!canNavigate}
                   variant="ghost"
-                  aria-label="Previous match"
+                  aria-label={t("search.previousMatch")}
                   size="icon-xs"
                 >
                   <ChevronUp />
@@ -181,7 +186,7 @@ export function SearchPopover({
                   onClick={onNext}
                   disabled={!canNavigate}
                   variant="ghost"
-                  aria-label="Next match"
+                  aria-label={t("search.nextMatch")}
                   size="icon-xs"
                 >
                   <ChevronDown />
@@ -200,15 +205,18 @@ export function SearchPopover({
 export function SearchReplaceToggle({
   isExpanded,
   onToggle,
-  expandedLabel = "Hide replace",
-  collapsedLabel = "Show replace",
+  expandedLabel,
+  collapsedLabel,
 }: {
   isExpanded: boolean;
   onToggle: () => void;
   expandedLabel?: string;
   collapsedLabel?: string;
 }) {
-  const label = isExpanded ? expandedLabel : collapsedLabel;
+  const { t } = useTranslation();
+  const label = isExpanded
+    ? (expandedLabel ?? t("search.hideReplace"))
+    : (collapsedLabel ?? t("search.showReplace"));
 
   return (
     <Button
@@ -245,6 +253,8 @@ export function SearchReplaceRow({
   canReplaceAll?: boolean;
   replaceAllTooltip?: string;
 }) {
+  const { t } = useTranslation();
+
   return (
     <div className="flex items-center gap-1.5 border-border/60 border-t pt-1.5">
       <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-background text-subtle-foreground">
@@ -257,12 +267,12 @@ export function SearchReplaceRow({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={onKeyDown}
-        placeholder="Replace with..."
+        placeholder={t("search.replaceWith")}
         className="ui-text-sm h-8 flex-1 rounded-lg border-border/80 bg-background py-1"
       />
 
       <Button type="button" onClick={onReplace} disabled={!canReplace} variant="ghost">
-        Replace
+        {t("search.replace")}
       </Button>
       <Button
         type="button"
@@ -271,7 +281,7 @@ export function SearchReplaceRow({
         variant="ghost"
         tooltip={replaceAllTooltip}
       >
-        All
+        {t("search.replaceAllShort")}
       </Button>
     </div>
   );
@@ -300,6 +310,8 @@ export function SearchInput({
   extraActions,
   className,
 }: SearchInputProps) {
+  const { t } = useTranslation();
+
   return (
     <div className={cn("flex min-w-0 flex-1 items-center gap-1.5", className)}>
       <div className="relative min-w-0 flex-1">
@@ -320,7 +332,7 @@ export function SearchInput({
             variant="ghost"
             size="icon-xs"
             className="-translate-y-1/2 absolute top-1/2 right-1"
-            aria-label="Clear search"
+            aria-label={t("search.clear")}
           >
             <X />
           </Button>

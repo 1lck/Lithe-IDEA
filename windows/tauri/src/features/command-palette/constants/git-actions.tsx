@@ -5,12 +5,15 @@ import {
   FolderOpenIcon as FolderOpen,
   GitBranchIcon as GitBranch,
   GitCommitIcon as GitCommit,
+  GitGraphIcon as GitGraph,
   HardDrivesIcon as Server,
   NodesIcon as Nodes,
   TagIcon as Tag,
   ArrowClockwiseIcon as RefreshCw,
 } from "@/ui/icons";
 import type { GitRemoteActionResult } from "@/features/git/api/git-remotes-api";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { createTranslator } from "@/i18n/locale";
 import { showConfirmDialog, showPromptDialog } from "@/ui/dialog";
 import type { Action } from "../types/action.types";
 
@@ -19,6 +22,8 @@ interface GitActionsParams {
   activeRepoPath?: string | null;
   setIsSidebarVisible: (v: boolean) => void;
   setActiveView: (view: "files" | "git" | "github-prs") => void;
+  setIsBottomPaneVisible: (visible: boolean) => void;
+  setBottomPaneActiveTab: (tab: "gitLog") => void;
   showToast: (params: { message: string; type: "success" | "error" | "info" }) => void;
   gitOperations: {
     stageAllFiles: (path: string) => Promise<boolean>;
@@ -38,11 +43,14 @@ export const createGitActions = (params: GitActionsParams): Action[] => {
     activeRepoPath,
     setIsSidebarVisible,
     setActiveView,
+    setIsBottomPaneVisible,
+    setBottomPaneActiveTab,
     showToast,
     gitOperations,
     onClose,
   } = params;
   const repoPath = activeRepoPath ?? rootFolderPath;
+  const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
 
   const openBranchManager = (tab: "branches" | "worktrees" = "branches") => {
     setIsSidebarVisible(true);
@@ -156,6 +164,18 @@ export const createGitActions = (params: GitActionsParams): Action[] => {
       action: () => openGitAction({ type: "show-tab", tab: "history" }),
     },
     {
+      id: "git-open-log",
+      label: "Git: Open Log",
+      description: "Open the full Git Log tool window",
+      icon: <GitGraph />,
+      category: "Git",
+      action: () => {
+        setBottomPaneActiveTab("gitLog");
+        setIsBottomPaneVisible(true);
+        onClose();
+      },
+    },
+    {
       id: "git-manage-remotes",
       label: "Git: Manage Remotes",
       description: "Open remote manager",
@@ -251,19 +271,19 @@ export const createGitActions = (params: GitActionsParams): Action[] => {
       category: "Git",
       action: async () => {
         if (!repoPath) {
-          showToast({ message: "No repository open", type: "error" });
+          showToast({ message: t("git.noRepositoryOpen"), type: "error" });
           onClose();
           return;
         }
         try {
           const success = await gitOperations.stageAllFiles(repoPath);
           if (success) {
-            showToast({ message: "All files staged successfully", type: "success" });
+            showToast({ message: t("git.allFilesStaged"), type: "success" });
           } else {
-            showToast({ message: "Failed to stage files", type: "error" });
+            showToast({ message: t("git.stageFilesFailed"), type: "error" });
           }
         } catch (error) {
-          showToast({ message: `Error: ${error}`, type: "error" });
+          showToast({ message: t("git.operationError", { error: String(error) }), type: "error" });
         }
         onClose();
       },
@@ -276,19 +296,19 @@ export const createGitActions = (params: GitActionsParams): Action[] => {
       category: "Git",
       action: async () => {
         if (!repoPath) {
-          showToast({ message: "No repository open", type: "error" });
+          showToast({ message: t("git.noRepositoryOpen"), type: "error" });
           onClose();
           return;
         }
         try {
           const success = await gitOperations.unstageAllFiles(repoPath);
           if (success) {
-            showToast({ message: "All files unstaged successfully", type: "success" });
+            showToast({ message: t("git.allFilesUnstaged"), type: "success" });
           } else {
-            showToast({ message: "Failed to unstage files", type: "error" });
+            showToast({ message: t("git.unstageFilesFailed"), type: "error" });
           }
         } catch (error) {
-          showToast({ message: `Error: ${error}`, type: "error" });
+          showToast({ message: t("git.operationError", { error: String(error) }), type: "error" });
         }
         onClose();
       },
@@ -301,13 +321,13 @@ export const createGitActions = (params: GitActionsParams): Action[] => {
       category: "Git",
       action: async () => {
         if (!repoPath) {
-          showToast({ message: "No repository open", type: "error" });
+          showToast({ message: t("git.noRepositoryOpen"), type: "error" });
           onClose();
           return;
         }
-        const message = await showPromptDialog("Enter commit message:", {
-          title: "Commit Changes",
-          placeholder: "Commit message",
+        const message = await showPromptDialog(t("git.enterCommitMessage"), {
+          title: t("git.commitChanges"),
+          placeholder: t("git.commitMessagePlaceholder"),
         });
         if (!message) {
           onClose();
@@ -316,12 +336,12 @@ export const createGitActions = (params: GitActionsParams): Action[] => {
         try {
           const success = await gitOperations.commitChanges(repoPath, message);
           if (success) {
-            showToast({ message: "Changes committed successfully", type: "success" });
+            showToast({ message: t("git.changesCommitted"), type: "success" });
           } else {
-            showToast({ message: "Failed to commit changes", type: "error" });
+            showToast({ message: t("git.commitChangesFailed"), type: "error" });
           }
         } catch (error) {
-          showToast({ message: `Error: ${error}`, type: "error" });
+          showToast({ message: t("git.operationError", { error: String(error) }), type: "error" });
         }
         onClose();
       },
@@ -334,15 +354,15 @@ export const createGitActions = (params: GitActionsParams): Action[] => {
       category: "Git",
       action: async () => {
         if (!repoPath) {
-          showToast({ message: "No repository open", type: "error" });
+          showToast({ message: t("git.noRepositoryOpen"), type: "error" });
           onClose();
           return;
         }
         try {
-          showToast({ message: "Pushing changes...", type: "info" });
+          showToast({ message: t("git.pushingChanges"), type: "info" });
           const result = await gitOperations.pushChanges(repoPath);
           if (result.success) {
-            showToast({ message: "Changes pushed successfully", type: "success" });
+            showToast({ message: t("git.changesPushed"), type: "success" });
           } else {
             showToast({
               message: result.error || "Failed to push changes",
@@ -350,7 +370,7 @@ export const createGitActions = (params: GitActionsParams): Action[] => {
             });
           }
         } catch (error) {
-          showToast({ message: `Error: ${error}`, type: "error" });
+          showToast({ message: t("git.operationError", { error: String(error) }), type: "error" });
         }
         onClose();
       },
@@ -363,15 +383,15 @@ export const createGitActions = (params: GitActionsParams): Action[] => {
       category: "Git",
       action: async () => {
         if (!repoPath) {
-          showToast({ message: "No repository open", type: "error" });
+          showToast({ message: t("git.noRepositoryOpen"), type: "error" });
           onClose();
           return;
         }
         try {
-          showToast({ message: "Pulling changes...", type: "info" });
+          showToast({ message: t("git.pullingChanges"), type: "info" });
           const result = await gitOperations.pullChanges(repoPath);
           if (result.success) {
-            showToast({ message: "Changes pulled successfully", type: "success" });
+            showToast({ message: t("git.pulledChanges"), type: "success" });
           } else {
             showToast({
               message: result.error || "Failed to pull changes",
@@ -379,7 +399,7 @@ export const createGitActions = (params: GitActionsParams): Action[] => {
             });
           }
         } catch (error) {
-          showToast({ message: `Error: ${error}`, type: "error" });
+          showToast({ message: t("git.operationError", { error: String(error) }), type: "error" });
         }
         onClose();
       },
@@ -392,14 +412,14 @@ export const createGitActions = (params: GitActionsParams): Action[] => {
       category: "Git",
       action: async () => {
         if (!repoPath) {
-          showToast({ message: "No repository open", type: "error" });
+          showToast({ message: t("git.noRepositoryOpen"), type: "error" });
           onClose();
           return;
         }
         try {
           const result = await gitOperations.fetchChanges(repoPath);
           if (result.success) {
-            showToast({ message: "Fetched successfully", type: "success" });
+            showToast({ message: t("git.fetchedChanges"), type: "success" });
           } else {
             showToast({
               message: result.error || "Failed to fetch",
@@ -407,7 +427,7 @@ export const createGitActions = (params: GitActionsParams): Action[] => {
             });
           }
         } catch (error) {
-          showToast({ message: `Error: ${error}`, type: "error" });
+          showToast({ message: t("git.operationError", { error: String(error) }), type: "error" });
         }
         onClose();
       },
@@ -420,13 +440,13 @@ export const createGitActions = (params: GitActionsParams): Action[] => {
       category: "Git",
       action: async () => {
         if (!repoPath) {
-          showToast({ message: "No repository open", type: "error" });
+          showToast({ message: t("git.noRepositoryOpen"), type: "error" });
           onClose();
           return;
         }
         const confirmed = await showConfirmDialog(
-          "Are you sure you want to discard all changes? This cannot be undone.",
-          { title: "Discard All Changes", confirmLabel: "Discard" },
+          t("git.discardAllChangesConfirm"),
+          { title: t("git.discardAllChanges"), confirmLabel: t("git.discard") },
         );
         if (!confirmed) {
           onClose();
@@ -435,12 +455,12 @@ export const createGitActions = (params: GitActionsParams): Action[] => {
         try {
           const success = await gitOperations.discardAllChanges(repoPath);
           if (success) {
-            showToast({ message: "All changes discarded", type: "success" });
+            showToast({ message: t("git.allChangesDiscarded"), type: "success" });
           } else {
-            showToast({ message: "Failed to discard changes", type: "error" });
+            showToast({ message: t("git.discardChangesFailed"), type: "error" });
           }
         } catch (error) {
-          showToast({ message: `Error: ${error}`, type: "error" });
+          showToast({ message: t("git.operationError", { error: String(error) }), type: "error" });
         }
         onClose();
       },
@@ -455,7 +475,7 @@ export const createGitActions = (params: GitActionsParams): Action[] => {
         window.dispatchEvent(
           new CustomEvent("lithe:git-palette-action", { detail: { type: "refresh" } }),
         );
-        showToast({ message: "Refreshing Git status...", type: "info" });
+        showToast({ message: t("git.refreshingStatus"), type: "info" });
         onClose();
       },
     },

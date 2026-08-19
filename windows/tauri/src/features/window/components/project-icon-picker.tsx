@@ -8,6 +8,7 @@ import Dialog from "@/ui/dialog";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/ui/empty";
 import { Spinner } from "@/ui/spinner";
 import Tooltip from "@/ui/tooltip";
+import { useTranslation } from "@/i18n/locale-provider";
 
 function relativePath(fullPath: string, basePath: string): string {
   const normalized = fullPath.startsWith(basePath) ? fullPath.slice(basePath.length) : fullPath;
@@ -23,6 +24,7 @@ interface ProjectIconPickerProps {
 
 const ProjectIconPicker = memo(
   ({ isOpen, onClose, projectId, projectPath }: ProjectIconPickerProps) => {
+    const { t } = useTranslation();
     const [icons, setIcons] = useState<ProjectIconFile[]>([]);
     const [loading, setLoading] = useState(false);
     const { setProjectIcon } = useWorkspaceTabsStore.getState().actions;
@@ -65,17 +67,17 @@ const ProjectIconPicker = memo(
 
     return (
       <Dialog
-        title="Select project icon"
+        title={t("projectIcon.selectTitle")}
         onClose={onClose}
         size="sm"
         headerBorder={false}
         headerActions={
           currentIcon ? (
-            <Tooltip content="Remove icon" side="bottom">
+            <Tooltip content={t("projectIcon.remove")} side="bottom">
               <Button
                 onClick={handleRemoveIcon}
                 variant="ghost"
-                aria-label="Remove custom icon"
+                aria-label={t("projectIcon.removeCustom")}
                 size="icon-xs"
               >
                 <Trash2 />
@@ -91,15 +93,15 @@ const ProjectIconPicker = memo(
         {loading ? (
           <Empty className="min-h-0 flex-none py-6">
             <EmptyDescription>
-              <Spinner label="Scanning for icons" showLabel compact />
+              <Spinner label={t("projectIcon.scanning")} showLabel compact />
             </EmptyDescription>
           </Empty>
         ) : icons.length === 0 ? (
           <Empty className="min-h-0 flex-none py-6">
             <EmptyHeader>
-              <EmptyTitle>No icon files found in this project</EmptyTitle>
+              <EmptyTitle>{t("projectIcon.emptyTitle")}</EmptyTitle>
               <EmptyDescription>
-                Looks for .ico, icon/logo/favicon .png and .svg files
+                {t("projectIcon.emptyDescription")}
               </EmptyDescription>
             </EmptyHeader>
           </Empty>
