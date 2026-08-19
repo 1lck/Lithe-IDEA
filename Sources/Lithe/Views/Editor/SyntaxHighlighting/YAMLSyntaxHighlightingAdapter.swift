@@ -77,11 +77,11 @@ enum YAMLSyntaxHighlightingAdapter {
         palette: SyntaxHighlightingPalette,
         target: NSRange
     ) {
-        apply(stringExpression, color: palette.string, source: source, storage: storage, range: range, target: target)
         apply(numberExpression, color: palette.number, source: source, storage: storage, range: range, target: target)
         apply(keywordExpression, color: palette.keyword, source: source, storage: storage, range: range, target: target)
         apply(anchorOrAliasExpression, color: palette.annotation, source: source, storage: storage, range: range, target: target)
         apply(tagExpression, color: palette.annotation, source: source, storage: storage, range: range, target: target)
+        apply(stringExpression, color: palette.string, source: source, storage: storage, range: range, target: target)
         apply(
             mappingKeyExpression,
             captureGroup: 1,

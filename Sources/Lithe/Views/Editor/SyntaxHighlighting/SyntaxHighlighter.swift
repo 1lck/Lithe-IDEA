@@ -61,7 +61,6 @@ enum SyntaxHighlighter {
         case .ini:
             INISyntaxHighlightingAdapter.apply(to: storage, palette: palette, range: target)
         case .json:
-            GenericSyntaxHighlightingAdapter.apply(to: storage, palette: palette, range: target)
             JSONSyntaxHighlightingAdapter.apply(to: storage, palette: palette, range: target)
         case .properties:
             PropertiesSyntaxHighlightingAdapter.apply(to: storage, palette: palette, range: target)

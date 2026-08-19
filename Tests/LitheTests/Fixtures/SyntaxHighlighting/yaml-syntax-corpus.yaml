@@ -13,6 +13,9 @@ defaults: &defaults
   tilde-value: ~
   quoted-double: "URL #fragment and escaped quote: \""
   quoted-single: 'It''s # not a comment'
+  quoted-number: "123"
+  quoted-keyword: "true"
+  quoted-anchor: "&foo"
   tag-value: !e!service "gateway"
   local-tag: !Service "worker"
   identifier: release#42 # identifier comment
