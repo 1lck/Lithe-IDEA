@@ -3,7 +3,7 @@ import { createElement, type ElementType } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import * as AppIcons from "./icons";
 
-const intentionalHelpIcons = new Set(["Icon", "QuestionIcon"]);
+const intentionalHelpIcons = new Set(["Icon"]);
 
 const iconEntries = Object.entries(AppIcons).filter(
   ([exportName]) => exportName === "Icon" || exportName.endsWith("Icon"),
@@ -34,16 +34,10 @@ describe("application icon mappings", () => {
     }
   });
 
-  test("maps representative controls to the expected Lucide icons", () => {
+  test("maps unmapped controls to the expected Lucide icons", () => {
     const cases: Array<[ElementType, string]> = [
       [AppIcons.FilesIcon, "lucide-files"],
-      [AppIcons.MagnifyingGlassIcon, "lucide-search"],
-      [AppIcons.GearIcon, "lucide-settings"],
       [AppIcons.WindowExpandIcon, "lucide-maximize2"],
-      [AppIcons.XIcon, "lucide-x"],
-      [AppIcons.WarningIcon, "lucide-triangle-alert"],
-      [AppIcons.WarningCircleIcon, "lucide-circle-alert"],
-      [AppIcons.OpenExternalIcon, "lucide-external-link"],
       [AppIcons.ArrowSquareOutIcon, "lucide-external-link"],
       [AppIcons.SquareIcon, "lucide-square"],
     ];
@@ -51,5 +45,33 @@ describe("application icon mappings", () => {
     for (const [IconComponent, expectedClass] of cases) {
       expect(renderIcon(IconComponent)).toContain(expectedClass);
     }
+  });
+
+  test("renders mapped IntelliJ icons as dual-variant image assets", () => {
+    const mapped: Array<keyof typeof AppIcons> = [
+      "MagnifyingGlassIcon",
+      "GearIcon",
+      "XIcon",
+      "WarningIcon",
+      "WarningCircleIcon",
+      "OpenExternalIcon",
+      "GitBranchIcon",
+      "PlayIcon",
+      "QuestionIcon",
+    ];
+    for (const exportName of mapped) {
+      const markup = renderIcon(AppIcons[exportName] as ElementType);
+      expect(markup).toContain("lithe-idea-icon");
+      expect(markup.match(/<img/g)?.length).toBe(2);
+      expect(markup).toContain("lithe-idea-icon-light");
+      expect(markup).toContain("lithe-idea-icon-dark");
+    }
+  });
+
+  test("forwards title to the visible asset alt text", () => {
+    const markup = renderToStaticMarkup(
+      createElement(AppIcons.TrashIcon as ElementType, { title: "delete action" }),
+    );
+    expect(markup).toContain('alt="delete action"');
   });
 });
