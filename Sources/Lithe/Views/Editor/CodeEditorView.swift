@@ -3,6 +3,8 @@ import SwiftUI
 import LitheGitModule
 
 fileprivate struct CodeEditorPalette {
+    private static let jsonPropertyRGB: (red: CGFloat, green: CGFloat, blue: CGFloat) = (79, 148, 250)
+
     let isDark: Bool
     let theme: AppColorTheme
 
@@ -45,12 +47,22 @@ fileprivate struct CodeEditorPalette {
     var keyword: NSColor { themeColor(.skill) }
     var annotation: NSColor { themeColor(.warning) }
     var type: NSColor { themeColor(.accent) }
+    var property: NSColor { color(Self.jsonPropertyRGB) }
     var number: NSColor { themeColor(.warning) }
     var string: NSColor { themeColor(.success) }
     var comment: NSColor { themeColor(.secondaryText) }
 
     private func themeColor(_ token: LitheTheme.ResolvedColorToken) -> NSColor {
         LitheTheme.nsColor(token, theme: theme, isDark: isDark)
+    }
+
+    private func color(_ rgb: (red: CGFloat, green: CGFloat, blue: CGFloat)) -> NSColor {
+        NSColor(
+            srgbRed: rgb.red / 255,
+            green: rgb.green / 255,
+            blue: rgb.blue / 255,
+            alpha: 1
+        )
     }
 
     private func color(
@@ -3577,7 +3589,7 @@ struct HighlightedRangeCache {
 }
 
 @MainActor
-fileprivate enum SyntaxHighlighter {
+enum SyntaxHighlighter {
     private static let keywordExpression = try! NSRegularExpression(
         pattern: #"\b(class|struct|enum|protocol|extension|func|let|var|if|else|guard|switch|case|for|while|return|throw|throws|try|catch|async|await|public|private|internal|protected|static|final|new|import|package|interface|implements|extends|void|boolean|int|long|const|function|def|in|from|as|true|false|null|nil|self|this)\b"#
     )
@@ -3592,6 +3604,9 @@ fileprivate enum SyntaxHighlighter {
     )
     private static let stringExpression = try! NSRegularExpression(
         pattern: #"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'"#
+    )
+    private static let jsonPropertyExpression = try! NSRegularExpression(
+        pattern: #"\"(?:\\.|[^\"\\])*\"(?=\s*:)"#
     )
     private static let commentExpression = try! NSRegularExpression(
         pattern: #"//.*$|#.*$|/\*[\s\S]*?\*/"#,
@@ -3641,6 +3656,9 @@ fileprivate enum SyntaxHighlighter {
         apply(numberExpression, color: palette.number, storage: storage, range: target)
         apply(stringExpression, color: palette.string, storage: storage, range: target)
         apply(commentExpression, color: palette.comment, storage: storage, range: target)
+        if fileExtension.lowercased() == "json" {
+            apply(jsonPropertyExpression, color: palette.property, storage: storage, range: target)
+        }
         storage.endEditing()
     }
 
