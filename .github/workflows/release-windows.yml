@@ -87,10 +87,15 @@ jobs:
           LITHE_VERSION: ${{ steps.version.outputs.version }}
           LITHE_WINDOWS_TIMESTAMP_SERVER: ${{ secrets.WINDOWS_TIMESTAMP_SERVER }}
           WINDOWS_RELEASE_SIGNED: ${{ steps.signing.outputs.signed }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          LITHE_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
         run: |
           $packageArgs = @{
             Configuration = "Release"
             Version = $env:LITHE_VERSION
+            UpdaterEndpoint = "https://github.com/$env:GITHUB_REPOSITORY/releases/latest/download/latest.json"
+            RequireUpdaterArtifacts = $true
           }
           if ($env:WINDOWS_RELEASE_SIGNED -eq "true") {
             $packageArgs.RequireAuthenticodeSignature = $true
@@ -98,6 +103,15 @@ jobs:
             Write-Output "Packaging an unsigned Windows installer."
           }
           ./scripts/package-windows.ps1 @packageArgs
+
+      - name: Create updater manifest
+        shell: pwsh
+        run: |
+          ./scripts/create-windows-updater-manifest.ps1 `
+            -Version "${{ steps.version.outputs.version }}" `
+            -Repository "$env:GITHUB_REPOSITORY" `
+            -ReleaseTag "${{ steps.version.outputs.tag }}" `
+            -ReleaseNotesPath "docs/releases/v${{ steps.version.outputs.version }}.md"
 
       - name: Verify installer checksum
         shell: pwsh
@@ -134,4 +148,7 @@ jobs:
           gh release upload $env:RELEASE_TAG `
             "dist/Lithe-$env:LITHE_VERSION-windows-x64.exe" `
             "dist/Lithe-$env:LITHE_VERSION-windows-x64.exe.sha256" `
+            "dist/Lithe-$env:LITHE_VERSION-windows-x64-updater.exe" `
+            "dist/Lithe-$env:LITHE_VERSION-windows-x64-updater.exe.sig" `
+            "dist/latest.json" `
             --repo $env:GITHUB_REPOSITORY --clobber

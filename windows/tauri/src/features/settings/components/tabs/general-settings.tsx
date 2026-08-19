@@ -115,8 +115,8 @@ export const GeneralSettings = () => {
   };
 
   const handleCheckForUpdates = async () => {
-    const hasUpdate = await checkForUpdates({ ignoreSuppression: true });
-    if (!hasUpdate) {
+    const result = await checkForUpdates({ ignoreSuppression: true });
+    if (result === "up-to-date") {
       showToast({ message: t("settings.general.latestVersion"), type: "success" });
     }
   };
