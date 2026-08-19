@@ -23,3 +23,22 @@ describe("JDTLS JDK setting normalization", () => {
     expect(normalizeSettings(settings).jdtlsJavaHomePath).toBe("");
   });
 });
+
+describe("IDEA file icon theme normalization", () => {
+  test("uses IDEA Icons for new settings", () => {
+    expect(getDefaultSettingsSnapshot().iconTheme).toBe("idea-icons");
+  });
+
+  test("migrates current and legacy Lithe icon theme ids", () => {
+    for (const iconTheme of [
+      "lithe-icons",
+      "lithe-icons-dimmed",
+      "lithe-icons-light",
+      "lithe-file-icons",
+      "lithe-file-icons-dark",
+      "lithe-file-icons-light",
+    ]) {
+      expect(normalizeSettingValue("iconTheme", iconTheme)).toBe("idea-icons");
+    }
+  });
+});

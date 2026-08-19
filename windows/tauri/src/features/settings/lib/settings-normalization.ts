@@ -207,13 +207,14 @@ function normalizeStringList(value: unknown): string[] {
 
 function normalizeIconTheme(value: string): string {
   if (
+    value === "lithe-icons" ||
     value === "lithe-icons-dimmed" ||
     value === "lithe-icons-light" ||
     value === "lithe-file-icons" ||
     value === "lithe-file-icons-dark" ||
     value === "lithe-file-icons-light"
   ) {
-    return "lithe-icons";
+    return "idea-icons";
   }
 
   if (value === "colorful-material" || value === "seti") {

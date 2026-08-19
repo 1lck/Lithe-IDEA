@@ -1,4 +1,3 @@
-import litheIconTheme from "./icon-themes/lithe/extension.json";
 import ideaIconTheme from "./icon-themes/idea/extension.json";
 import materialIconTheme from "./icon-themes/material/extension.json";
 import pierreIconTheme from "./icon-themes/pierre/extension.json";
@@ -11,10 +10,6 @@ export interface BundledExtensionManifestEntry {
 }
 
 export const bundledExtensionManifests: BundledExtensionManifestEntry[] = [
-  {
-    manifest: litheIconTheme as ExtensionManifest,
-    relativePath: "icon-themes/lithe",
-  },
   {
     manifest: ideaIconTheme as ExtensionManifest,
     relativePath: "icon-themes/idea",
