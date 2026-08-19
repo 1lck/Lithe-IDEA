@@ -102,10 +102,10 @@ $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer).Hash.ToLowerInv
 Write-Output "Windows installer created: $installer"
 
 if ($RequireUpdaterArtifacts) {
-    $updaterBundle = Get-ChildItem -LiteralPath $bundleDirectory -Filter "*.nsis.zip" -File |
+    $updaterBundle = Get-ChildItem -LiteralPath $bundleDirectory -Filter "*.exe" -File |
         Select-Object -First 1
     if ($null -eq $updaterBundle) {
-        throw "Tauri updater bundle was not found in $bundleDirectory"
+        throw "Tauri updater installer was not found in $bundleDirectory"
     }
 
     $updaterSignature = Get-Item -LiteralPath "$($updaterBundle.FullName).sig" `
@@ -114,7 +114,7 @@ if ($RequireUpdaterArtifacts) {
         throw "Tauri updater signature was not found for $($updaterBundle.Name)"
     }
 
-    $publishedUpdaterBundle = Join-Path $output "Lithe-$Version-windows-x64.nsis.zip"
+    $publishedUpdaterBundle = Join-Path $output "Lithe-$Version-windows-x64-updater.exe"
     Copy-Item -LiteralPath $updaterBundle.FullName -Destination $publishedUpdaterBundle -Force
     Copy-Item -LiteralPath $updaterSignature.FullName `
         -Destination "$publishedUpdaterBundle.sig" -Force

@@ -148,7 +148,7 @@ jobs:
           gh release upload $env:RELEASE_TAG `
             "dist/Lithe-$env:LITHE_VERSION-windows-x64.exe" `
             "dist/Lithe-$env:LITHE_VERSION-windows-x64.exe.sha256" `
-            "dist/Lithe-$env:LITHE_VERSION-windows-x64.nsis.zip" `
-            "dist/Lithe-$env:LITHE_VERSION-windows-x64.nsis.zip.sig" `
+            "dist/Lithe-$env:LITHE_VERSION-windows-x64-updater.exe" `
+            "dist/Lithe-$env:LITHE_VERSION-windows-x64-updater.exe.sig" `
             "dist/latest.json" `
             --repo $env:GITHUB_REPOSITORY --clobber

@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $testOutput = Join-Path $root "dist/updater-manifest-test"
 $version = "9.8.7"
-$bundle = Join-Path $testOutput "Lithe-$version-windows-x64.nsis.zip"
+$bundle = Join-Path $testOutput "Lithe-$version-windows-x64-updater.exe"
 
 try {
     New-Item -ItemType Directory -Force -Path $testOutput | Out-Null
@@ -20,7 +20,7 @@ try {
     if ($manifest.version -ne $version) { throw "Manifest version is incorrect" }
     $platform = $manifest.platforms.'windows-x86_64'
     if ($platform.signature -ne "test-signature") { throw "Manifest signature is incorrect" }
-    $expectedURL = "https://github.com/example/Lithe-IDEA/releases/download/v$version/Lithe-$version-windows-x64.nsis.zip"
+$expectedURL = "https://github.com/example/Lithe-IDEA/releases/download/v$version/Lithe-$version-windows-x64-updater.exe"
     if ($platform.url -ne $expectedURL) { throw "Manifest download URL is incorrect" }
 
     Write-Output "Windows updater manifest test passed."

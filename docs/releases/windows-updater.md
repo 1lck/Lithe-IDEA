@@ -1,7 +1,7 @@
 # Windows in-app updates
 
 The Windows application uses the Tauri v2 updater with the existing NSIS
-bundle. Stable releases publish a signed updater archive and `latest.json`
+bundle. Stable releases publish a signed updater installer and `latest.json`
 alongside the normal Windows installer. The application checks the manifest at
 the `latest` stable GitHub Release for the repository that built it.
 
@@ -38,11 +38,11 @@ The `Release Windows` workflow publishes:
 
 - `Lithe-<version>-windows-x64.exe`
 - `Lithe-<version>-windows-x64.exe.sha256`
-- `Lithe-<version>-windows-x64.nsis.zip`
-- `Lithe-<version>-windows-x64.nsis.zip.sig`
+- `Lithe-<version>-windows-x64-updater.exe`
+- `Lithe-<version>-windows-x64-updater.exe.sig`
 - `latest.json`
 
-`latest.json` points at the versioned updater archive in the same GitHub
+`latest.json` points at the versioned updater installer in the same GitHub
 Release. The workflow fails instead of publishing an unsigned updater when the
 updater keypair is not configured.
 
