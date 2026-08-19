@@ -229,7 +229,7 @@ const GitCommitPanel = ({
     setError(null);
 
     if (!isAuthenticated) {
-      setError("Please sign in to use AI commit message generation.");
+      setError(t("git.aiCommitSignInRequired"));
       return;
     }
 
@@ -238,13 +238,13 @@ const GitCommitPanel = ({
     const isPro = hasProductCapability(subscription, "hostedAi");
 
     if (managedPolicy && !managedPolicy.aiCompletionEnabled) {
-      setError("AI commit message generation is disabled by your organization policy.");
+      setError(t("git.aiCommitDisabledByPolicy"));
       return;
     }
 
     const useByok = managedPolicy ? managedPolicy.allowByok && !isPro : !isPro;
     if (managedPolicy && useByok && !managedPolicy.allowByok) {
-      setError("BYOK is disabled by your organization policy.");
+      setError(t("git.byokDisabledByPolicy"));
       return;
     }
 
@@ -276,7 +276,7 @@ const GitCommitPanel = ({
 
       const message = normalizeGeneratedCommitMessage(editedText, commitMessageMode);
       if (!message) {
-        setError("AI returned an empty commit message.");
+        setError(t("git.aiCommitEmptyMessage"));
         return;
       }
 
@@ -285,7 +285,7 @@ const GitCommitPanel = ({
       if (generationError instanceof InlineEditError) {
         setError(generationError.message);
       } else {
-        setError("Failed to generate commit message.");
+        setError(t("git.generateCommitMessageFailed"));
       }
     } finally {
       setIsGenerating(false);
@@ -299,7 +299,7 @@ const GitCommitPanel = ({
     // be finalized; guard here so Git's raw refusal never reaches the user.
     const conflictedPaths = useGitStore.getState().operationState?.conflictedPaths ?? [];
     if (conflictedPaths.length > 0) {
-      setError(`Resolve the conflicts first: ${conflictedPaths.join(", ")}`);
+      setError(t("git.resolveConflictsFirst", { paths: conflictedPaths.join(", ") }));
       return;
     }
 
@@ -308,11 +308,11 @@ const GitCommitPanel = ({
       markerPaths = await getConflictMarkerPaths(repoPath);
     } catch (markerError) {
       console.error("Failed to check staged files for conflict markers:", markerError);
-      setError("Unable to verify conflict markers. Retry before committing.");
+      setError(t("git.verifyConflictMarkersFailed"));
       return;
     }
     if (markerPaths.length > 0) {
-      setError(`Conflict markers remain in: ${markerPaths.join(", ")}`);
+      setError(t("git.conflictMarkersRemain", { paths: markerPaths.join(", ") }));
       return;
     }
 
@@ -326,10 +326,10 @@ const GitCommitPanel = ({
         setCommitMessage("");
         onCommitSuccess?.();
       } else {
-        setError("Failed to commit changes");
+        setError(t("git.commitChangesFailed"));
       }
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Unknown error occurred");
+      setError(error instanceof Error ? error.message : t("ai.unknownError"));
     } finally {
       setIsCommitting(false);
     }
@@ -343,25 +343,25 @@ const GitCommitPanel = ({
     setError(null);
 
     try {
-      toastId = toast.info("Pushing changes...", {
+      toastId = toast.info(t("git.pushingChanges"), {
         duration: 0,
       });
 
       const result = await run();
       if (result.success) {
         toast.dismiss(toastId);
-        toast.success("Changes pushed successfully.");
+        toast.success(t("git.pushedChanges"));
         onCommitSuccess?.();
         return;
       }
 
-      const errorMessage = result.error || "Failed to push changes.";
+      const errorMessage = result.error || t("git.pushFailed");
       toast.dismiss(toastId);
       toast.error(errorMessage);
       setError(errorMessage);
     } catch (remoteError) {
       const errorMessage =
-        remoteError instanceof Error ? remoteError.message : "Failed to push changes.";
+        remoteError instanceof Error ? remoteError.message : t("git.pushFailed");
       if (toastId) toast.dismiss(toastId);
       toast.error(errorMessage);
       setError(errorMessage);

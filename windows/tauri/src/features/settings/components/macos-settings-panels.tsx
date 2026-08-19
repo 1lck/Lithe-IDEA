@@ -175,7 +175,7 @@ function GeneralPanel() {
         </SettingsRow>
       </SettingsGroup>
 
-      <SettingsGroup title="Git">
+      <SettingsGroup title={t("settings.mac.git")}>
         <SettingsRow
           label={t("settings.mac.saveLocalChangesWith")}
           description={t("settings.mac.gitPolicyDescription")}
@@ -186,8 +186,8 @@ function GeneralPanel() {
             onChange={(event) => setGitPolicy(event.target.value)}
           >
             <option value="ask">{t("settings.mac.askEveryTime")}</option>
-            <option value="shelf">Shelf</option>
-            <option value="stash">Git stash</option>
+            <option value="shelf">{t("settings.mac.shelf")}</option>
+            <option value="stash">{t("settings.mac.gitStash")}</option>
           </select>
         </SettingsRow>
       </SettingsGroup>
@@ -292,10 +292,10 @@ function KeyboardPanel() {
               )
             }
           >
-            <option value="none">Lithe</option>
-            <option value="vscode">Visual Studio Code</option>
-            <option value="jetbrains">JetBrains</option>
-            <option value="xcode">Xcode</option>
+            <option value="none">{t("settings.mac.keymapLithe")}</option>
+            <option value="vscode">{t("settings.mac.keymapVisualStudioCode")}</option>
+            <option value="jetbrains">{t("settings.mac.keymapJetBrains")}</option>
+            <option value="xcode">{t("settings.mac.keymapXcode")}</option>
           </select>
         </SettingsRow>
       </SettingsGroup>
@@ -332,9 +332,9 @@ function TerminalPanel() {
           onChange={(event) => void updateSetting("terminalDefaultShellId", event.target.value)}
         >
           <option value="">{t("settings.mac.systemDefault")}</option>
-          <option value="powershell">PowerShell</option>
-          <option value="cmd">Command Prompt</option>
-          <option value="wsl">WSL</option>
+          <option value="powershell">{t("settings.mac.shellPowerShell")}</option>
+          <option value="cmd">{t("settings.mac.shellCommandPrompt")}</option>
+          <option value="wsl">{t("settings.mac.shellWsl")}</option>
         </select>
       </SettingsRow>
     </SettingsGroup>

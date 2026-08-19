@@ -1,8 +1,10 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { createAppWindow } from "@/features/window/utils/create-app-window";
 import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.store";
+import { createTranslator } from "@/i18n/locale";
 import { getFolderName } from "@/utils/path-helpers";
 import { createSelectors } from "@/utils/zustand-selectors";
 import { createSafeJSONStorage } from "@/utils/zustand-storage";
@@ -19,6 +21,9 @@ import {
   updateRecentFolderMetadata,
   upsertRecentFolder,
 } from "../utils/recent-folders";
+
+const getCurrentTranslator = () =>
+  createTranslator(useSettingsStore.getState().settings.displayLanguage);
 
 export interface RecentFolderImport {
   path: string;
@@ -103,14 +108,14 @@ const useRecentFoldersStoreBase = create<RecentFoldersStore>()(
                 if (!pathInfo.is_dir) {
                   get().actions.updateRecentFolder(folderPath, { missing: true });
                   const { toast } = await import("sonner");
-                  toast.error(`Recent project is not a folder: ${folderPath}`);
+                  toast.error(getCurrentTranslator()("fileSystem.recentProjectNotFolder", { path: folderPath }));
                   return;
                 }
               } catch (error) {
                 get().actions.updateRecentFolder(folderPath, { missing: true });
                 console.error("Recent folder is no longer available:", folderPath, error);
                 const { toast } = await import("sonner");
-                toast.error(`Recent project is unavailable: ${folderPath}`);
+                toast.error(getCurrentTranslator()("fileSystem.recentProjectUnavailable", { path: folderPath }));
                 return;
               }
 

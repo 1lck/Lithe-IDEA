@@ -10,7 +10,12 @@ import {
   removeAuthToken,
   storeAuthToken,
 } from "@/features/window/services/auth-api";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { createTranslator } from "@/i18n/locale";
 import { createSelectors } from "@/utils/zustand-selectors";
+
+const getCurrentTranslator = () =>
+  createTranslator(useSettingsStore.getState().settings.displayLanguage);
 
 interface AuthState {
   user: AuthUser | null;
@@ -103,7 +108,7 @@ export function createAuthStore(
               state.isAuthenticated = false;
               state.error = dependencies.isAuthInvalidError(error)
                 ? null
-                : "Could not verify your saved session. Check your connection and try again.";
+                : getCurrentTranslator()("account.verifySavedSessionFailed");
               state.isLoading = false;
             });
           }
@@ -141,7 +146,7 @@ export function createAuthStore(
                 state.subscription = null;
                 state.isAuthenticated = false;
               }
-              state.error = "Authentication failed. Please try again.";
+              state.error = getCurrentTranslator()("account.authenticationFailed");
               state.isLoading = false;
             });
             throw error;
@@ -163,8 +168,7 @@ export function createAuthStore(
             }
 
             set((state) => {
-              state.error =
-                "Could not refresh account details. Check your connection and try again.";
+              state.error = getCurrentTranslator()("account.refreshAccountFailed");
             });
           }
         },

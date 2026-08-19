@@ -280,79 +280,14 @@ final class AppModel: ObservableObject, Identifiable {
         isSettingsPresented = true
     }
 
-    func chooseLanguageServerExecutable(providerName: String) -> URL? {
-        platformUI.chooseFile(
-            title: settings.language == .simplifiedChinese
-                ? "选择 \(providerName) 语言服务器"
-                : "Choose \(providerName) language server",
-            prompt: settings.language == .simplifiedChinese ? "选择" : "Choose"
-        )
-    }
-
-    func openLanguageServerDownload(_ url: URL) {
-        platformUI.open(url)
-    }
-
-    func languageServerToolConfigurationDidChange(providerID: String) {
-        languageToolingFeature.toolConfigurationDidChange(providerID: providerID)
-    }
-
-    func isLanguageServerDisabledInCurrentWorkspace(providerID: String) -> Bool {
-        languageToolingFeature.isDisabled(providerID)
-    }
-
-    func setLanguageServerEnabled(_ enabled: Bool, providerID: String) {
-        if enabled {
-            languageToolingFeature.setEnabled(true, providerID: providerID)
-        } else {
-            languageToolingFeature.setEnabled(false, providerID: providerID)
-        }
-    }
-
-    var javaLanguageServerJDKPath: String {
-        settings.javaLanguageServerJDKPath
-    }
-
-    var detectedJavaLanguageServerJDKs: [JavaRuntimeCandidate] {
-        runtimeFeature.javaRuntimes
-    }
-
-    func selectJavaLanguageServerJDK(_ runtime: JavaRuntimeCandidate) {
-        applyJavaLanguageServerJDKPath(runtime.homePath)
-    }
-
-    func refreshJavaLanguageServerJDKs() async {
-        await runtimeFeature.refreshAvailableRuntimes()
-    }
-
-    func chooseJavaLanguageServerJDK() {
-        guard let url = platformUI.chooseDirectory(
-            title: settings.language == .simplifiedChinese ? "选择 LSP 运行 JDK" : "Choose LSP Runtime JDK",
-            prompt: settings.language == .simplifiedChinese ? "选择" : "Choose"
-        ) else { return }
-        guard services.projectRuntimeService.configuredJavaExecutableURL(overridePath: url.path) != nil else {
-            showNotification(settings.language == .simplifiedChinese
-                ? "所选目录不是有效的 JDK Home"
-                : "The selected directory is not a valid JDK Home")
-            return
-        }
-        applyJavaLanguageServerJDKPath(url.standardizedFileURL.path)
-    }
-
-    private func applyJavaLanguageServerJDKPath(_ path: String) {
-        languageToolingFeature.selectJavaJDK(path)
-    }
-
-    func disableLanguageServerForCurrentWorkspace(providerID: String) {
-        languageToolingFeature.setEnabled(false, providerID: providerID)
-    }
-
     private var documentFeatureObservation: AnyCancellable?
     private var javaFeatureObservation: AnyCancellable?
     private var springFeatureObservation: AnyCancellable?
     private var navigationHistoryFeatureObservation: AnyCancellable?
     private var isObjectWillChangeRelayScheduled = false
     private var languageToolingObservation: AnyCancellable?
+    var javaLanguageServerRuntimePreparationTask: Task<Void, Never>?
+    var javaLanguageServerRuntimePreparationPath: String?
     private var recentProjectsStore: RecentProjectsStore { services.recentProjectsStore }
     private var workbenchLayoutStore: WorkbenchLayoutStore { services.workbenchLayoutStore }
 
@@ -1341,9 +1276,12 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     @discardableResult
-    private func activateLanguageServerIfAvailable(for document: EditorDocument) -> Bool {
+    func activateLanguageServerIfAvailable(for document: EditorDocument) -> Bool {
         guard let workspaceURL,
               let descriptor = languageProviderCatalog.provider(for: document.url) else { return false }
+        if descriptor.id == "java", !prepareJavaLanguageServerRuntimeIfNeeded(for: document) {
+            return false
+        }
         if let ownership = services.pluginCatalog.languageSupport(for: document.url),
            ownership.declaration.languageServerModuleID != nil {
             let support = ownership.declaration

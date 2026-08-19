@@ -5,6 +5,7 @@ import { useCollaborationRuntimeStore } from "@/features/collaboration/stores/co
 import { useAuthStore } from "@/features/window/stores/auth.store";
 import Badge from "@/ui/badge";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 import Section, { SettingsView, SettingRow } from "../settings-section";
 
 export const CollaborationSettings = () => {
@@ -13,6 +14,7 @@ export const CollaborationSettings = () => {
   const activeDocumentStream = useCollaborationRuntimeStore((state) => state.activeDocumentStream);
   const presenceTarget = useCollaborationRuntimeStore((state) => state.presenceTarget);
   const collaborationRuntimeActions = useCollaborationRuntimeStore((state) => state.actions);
+  const { t } = useTranslation();
 
   const workspace = collaboration?.workspace;
   const members = collaboration?.members ?? [];
@@ -27,9 +29,26 @@ export const CollaborationSettings = () => {
     (member) => member.status === "active" && member.userId && member.userId !== user?.id,
   );
   const invitePolicy = collaboration?.settings?.sharedSettings.invitePolicy ?? "admins_only";
-  const seatLimit = String(collaboration?.settings?.sharedSettings.memberSeatLimit ?? "Unlimited");
+  const invitePolicyLabel =
+    invitePolicy === "members"
+      ? t("collaborationSettings.invitePolicyMembers")
+      : invitePolicy === "admins_only"
+        ? t("collaborationSettings.invitePolicyAdminsOnly")
+        : invitePolicy;
+  const documentStreamStatus =
+    activeDocumentStream.status === "error"
+      ? t("collaborationSettings.statusError")
+      : activeDocumentStream.status === "live"
+        ? t("collaborationSettings.statusLive")
+        : activeDocumentStream.status === "connecting"
+          ? t("collaborationSettings.statusConnecting")
+          : activeDocumentStream.status;
+  const seatLimit = String(
+    collaboration?.settings?.sharedSettings.memberSeatLimit ?? t("collaborationSettings.unlimited"),
+  );
   const updateLimit = String(
-    collaboration?.settings?.sharedSettings.monthlyDocumentUpdateLimit ?? "Unlimited",
+    collaboration?.settings?.sharedSettings.monthlyDocumentUpdateLimit ??
+      t("collaborationSettings.unlimited"),
   );
 
   const openDashboardCollaboration = () => {
@@ -39,10 +58,13 @@ export const CollaborationSettings = () => {
   return (
     <SettingsView>
       <Section
-        title={workspace?.name ?? "Collaboration"}
-        description="Teams workspace status. Manage members, channels, invites, and policies in the web dashboard."
+        title={workspace?.name ?? t("collaborationSettings.title")}
+        description={t("collaborationSettings.description")}
       >
-        <SettingRow label="Dashboard" description="Open the full collaboration workspace.">
+        <SettingRow
+          label={t("collaborationSettings.dashboard")}
+          description={t("collaborationSettings.dashboardDescription")}
+        >
           <Button
             type="button"
             variant="default"
@@ -51,32 +73,50 @@ export const CollaborationSettings = () => {
             size="sm"
           >
             <UsersThree />
-            Open
+            {t("collaborationSettings.open")}
           </Button>
         </SettingRow>
 
-        <SettingRow label="Members" description={`${invitations.length} pending invitations`}>
-          <Badge variant="default" size="compact">
-            {activeMembers.length}/{members.length} active
-          </Badge>
-        </SettingRow>
-
         <SettingRow
-          label="Channels"
-          description={selectedChannel ? `Joined #${selectedChannel.slug}` : "No channel selected"}
+          label={t("collaborationSettings.members")}
+          description={t("collaborationSettings.pendingInvitations", {
+            count: invitations.length,
+          })}
         >
           <Badge variant="default" size="compact">
-            {channels.length} channels
+            {t("collaborationSettings.activeMembers", {
+              active: activeMembers.length,
+              total: members.length,
+            })}
           </Badge>
         </SettingRow>
 
         <SettingRow
-          label="Presence"
-          description={followedMember ? `Following ${followedMember.name}` : "Not following anyone"}
+          label={t("collaborationSettings.channels")}
+          description={
+            selectedChannel
+              ? t("collaborationSettings.joinedChannel", { channel: selectedChannel.slug })
+              : t("collaborationSettings.noChannelSelected")
+          }
+        >
+          <Badge variant="default" size="compact">
+            {t("collaborationSettings.channelsCount", { count: channels.length })}
+          </Badge>
+        </SettingRow>
+
+        <SettingRow
+          label={t("collaborationSettings.presence")}
+          description={
+            followedMember
+              ? t("collaborationSettings.followingMember", { name: followedMember.name })
+              : t("collaborationSettings.notFollowingAnyone")
+          }
         >
           <div className="flex items-center gap-2">
             <Badge variant="default" size="compact">
-              {collaboration?.presence.length ?? 0} sessions
+              {t("collaborationSettings.sessionsCount", {
+                count: collaboration?.presence.length ?? 0,
+              })}
             </Badge>
             <Button
               type="button"
@@ -89,41 +129,47 @@ export const CollaborationSettings = () => {
               }}
               size="sm"
             >
-              Clear
+              {t("ui.clear")}
             </Button>
           </div>
         </SettingRow>
 
         <SettingRow
-          label="Document Stream"
+          label={t("collaborationSettings.documentStream")}
           description={
             activeDocumentStream.path
               ? `${activeDocumentStream.path} · v${activeDocumentStream.lastServerVersion}`
-              : "No active document stream"
+              : t("collaborationSettings.noActiveDocumentStream")
           }
         >
           <Badge
             variant={activeDocumentStream.status === "error" ? "error" : "default"}
             size="compact"
           >
-            {activeDocumentStream.status}
+            {documentStreamStatus}
           </Badge>
         </SettingRow>
 
-        <SettingRow label="Workspace Rules" description={`Invites: ${invitePolicy}`}>
+        <SettingRow
+          label={t("collaborationSettings.workspaceRules")}
+          description={t("collaborationSettings.invitesPolicy", { policy: String(invitePolicyLabel) })}
+        >
           <Badge variant="default" size="compact">
-            Seats {seatLimit} · Updates {updateLimit}
+            {t("collaborationSettings.workspaceLimits", { seats: seatLimit, updates: updateLimit })}
           </Badge>
         </SettingRow>
       </Section>
 
       {channels.length || followableMembers.length ? (
-        <Section title="Quick Presence">
+        <Section title={t("collaborationSettings.quickPresence")}>
           {channels.slice(0, 4).map((channel) => (
             <SettingRow
               key={`channel-${channel.id}`}
               label={`#${channel.slug}`}
-              description={`${channel.memberCount} members · ${channel.guestCount} guests`}
+              description={t("collaborationSettings.channelMembersGuests", {
+                members: channel.memberCount,
+                guests: channel.guestCount,
+              })}
             >
               <Button
                 type="button"
@@ -133,13 +179,17 @@ export const CollaborationSettings = () => {
                 onClick={() => collaborationRuntimeActions.setPresenceChannel(channel.id)}
                 size="sm"
               >
-                Join
+                {t("collaborationSettings.join")}
               </Button>
             </SettingRow>
           ))}
 
           {followableMembers.slice(0, 4).map((member) => (
-            <SettingRow key={`follow-${member.id}`} label={member.name} description={member.email}>
+            <SettingRow
+              key={`follow-${member.id}`}
+              label={member.name}
+              description={String(member.email ?? "")}
+            >
               <Button
                 type="button"
                 variant={presenceTarget.followingUserId === member.userId ? "accent" : "default"}
@@ -148,7 +198,7 @@ export const CollaborationSettings = () => {
                 onClick={() => collaborationRuntimeActions.setFollowingUser(member.userId)}
                 size="sm"
               >
-                Follow
+                {t("collaborationSettings.follow")}
               </Button>
             </SettingRow>
           ))}

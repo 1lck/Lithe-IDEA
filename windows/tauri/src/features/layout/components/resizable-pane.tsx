@@ -1,6 +1,7 @@
 import type React from "react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import {
   bindOverlayWheelToScrollContainer,
   querySidebarScrollContainer,
@@ -37,6 +38,7 @@ export function ResizablePane({
   outerEdge = true,
   reservedWidth = 0,
 }: ResizablePaneProps) {
+  const { t } = useTranslation();
   const storedWidth = useSettingsStore((state) => state.settings[widthKey]);
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
   const [width, setWidth] = useState(Math.max(storedWidth, MIN_RESPONSIVE_PANE_WIDTH));
@@ -161,7 +163,7 @@ export function ResizablePane({
       )}
       role="separator"
       aria-orientation="vertical"
-      aria-label={widthKey === "aiChatWidth" ? "Resize AI chat" : "Resize sidebar"}
+      aria-label={widthKey === "aiChatWidth" ? t("layout.resizeAiChat") : t("layout.resizeSidebar")}
       aria-valuenow={Math.round(width)}
       aria-valuemin={Math.round(getMinWidth())}
       aria-valuemax={Math.round(getMaxWidth())}

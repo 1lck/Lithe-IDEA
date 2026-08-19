@@ -1,0 +1,8 @@
+{
+  "version": "1.38.0",
+  "archiveURL": "https://download.eclipse.org/jdtls/milestones/1.38.0/jdt-language-server-1.38.0-202408011337.tar.gz",
+  "archiveSHA256": "ba697788a19f2ba57b16302aba6b343c649928c95f76b0d170494ac12d17ac78",
+  "licenseURL": "https://www.eclipse.org/org/documents/epl-2.0/EPL-2.0.txt",
+  "licenseSHA256": "0becf16567beb77fa252b7664631dd177c8f9a1889e48995b45379c7130e5303",
+  "minimumJavaVersion": 17
+}

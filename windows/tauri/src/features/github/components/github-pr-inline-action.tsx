@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Spinner } from "@/ui/spinner";
 import { GitHubMarkdownEditor } from "./github-markdown-editor";
 
@@ -8,26 +9,26 @@ export type GitHubPRMergeMethod = "merge" | "squash" | "rebase";
 
 const actionCopy = {
   comment: {
-    title: "Add comment",
-    placeholder: "Write a comment...",
-    submitLabel: "Comment",
+    titleKey: "github.addComment",
+    placeholderKey: "github.writeComment",
+    submitLabelKey: "github.comment",
     requiresBody: true,
   },
   approve: {
-    title: "Approve pull request",
-    placeholder: "Optional review note...",
-    submitLabel: "Approve",
+    titleKey: "github.approvePullRequest",
+    placeholderKey: "github.optionalReviewNote",
+    submitLabelKey: "github.approve",
     requiresBody: false,
   },
   "request-changes": {
-    title: "Request changes",
-    placeholder: "Describe the requested changes...",
-    submitLabel: "Request changes",
+    titleKey: "github.requestChanges",
+    placeholderKey: "github.describeRequestedChanges",
+    submitLabelKey: "github.requestChanges",
     requiresBody: true,
   },
   merge: {
-    title: "Merge pull request",
-    submitLabel: "Merge",
+    titleKey: "github.mergePullRequest",
+    submitLabelKey: "github.merge",
     requiresBody: false,
   },
 } as const;
@@ -45,6 +46,7 @@ export function GitHubPRInlineAction({
   onCancel,
   onSubmit,
 }: GitHubPRInlineActionProps) {
+  const { t } = useTranslation();
   const [body, setBody] = useState("");
   const [method, setMethod] = useState<GitHubPRMergeMethod>("squash");
   const copy = actionCopy[kind];
@@ -60,7 +62,7 @@ export function GitHubPRInlineAction({
 
   return (
     <section className="space-y-3 rounded-lg border border-border/70 bg-surface/35 p-3">
-      <h2 className="font-sans ui-text-sm font-medium text-foreground">{copy.title}</h2>
+      <h2 className="font-sans ui-text-sm font-medium text-foreground">{t(copy.titleKey)}</h2>
       {kind === "merge" ? (
         <div className="flex flex-wrap items-center gap-1">
           {(["squash", "merge", "rebase"] as const).map((option) => (
@@ -82,7 +84,7 @@ export function GitHubPRInlineAction({
         <GitHubMarkdownEditor
           value={body}
           onChange={setBody}
-          placeholder={"placeholder" in copy ? copy.placeholder : "Write a review..."}
+          placeholder={"placeholderKey" in copy ? t(copy.placeholderKey) : t("github.writeReview")}
           autoFocus
           minHeight={160}
           disabled={isSubmitting}
@@ -90,7 +92,7 @@ export function GitHubPRInlineAction({
       )}
       <div className="flex justify-end gap-2">
         <Button type="button" variant="ghost" size="xs" onClick={onCancel} disabled={isSubmitting}>
-          Cancel
+          {t("github.cancel")}
         </Button>
         <Button
           type="button"
@@ -99,8 +101,8 @@ export function GitHubPRInlineAction({
           onClick={() => void onSubmit(body, method)}
           disabled={!canSubmit}
         >
-          {isSubmitting ? <Spinner label="Working" compact /> : null}
-          {copy.submitLabel}
+          {isSubmitting ? <Spinner label={t("github.working")} compact /> : null}
+          {t(copy.submitLabelKey)}
         </Button>
       </div>
     </section>

@@ -114,6 +114,7 @@ fn main() {
             host::clipboard_clear,
             host::create_app_window,
             lsp::lsp_resolve_java_launch,
+            lsp::lsp_validate_java_home,
             run::run_list_java_sources,
             run::run_write_generated,
             run::run_write_document,

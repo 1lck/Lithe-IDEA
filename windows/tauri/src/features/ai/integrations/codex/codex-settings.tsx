@@ -8,6 +8,7 @@ import Section, {
   SETTINGS_CONTROL_WIDTHS,
   SettingRow,
 } from "@/features/settings/components/settings-section";
+import { useTranslation } from "@/i18n/locale-provider";
 import {
   CodexIntegrationService,
   getCodexSettings,
@@ -16,21 +17,6 @@ import {
 import type { CodexIntegrationStatus, CodexThreadSettings } from "./codex-types";
 import { useProjectStore } from "@/features/window/stores/project.store";
 
-const effortOptions = ["low", "medium", "high", "xhigh"].map((value) => ({
-  value,
-  label: value === "xhigh" ? "Extra high" : `${value[0].toUpperCase()}${value.slice(1)}`,
-}));
-const sandboxOptions = [
-  { value: "read-only", label: "Read only" },
-  { value: "workspace-write", label: "Workspace write" },
-  { value: "danger-full-access", label: "Full access" },
-];
-const approvalOptions = [
-  { value: "on-request", label: "Ask when needed" },
-  { value: "untrusted", label: "Untrusted commands" },
-  { value: "never", label: "Never ask" },
-];
-
 export function CodexSettings() {
   const cwd = useProjectStore((state) => state.rootFolderPath || ".");
   const [status, setStatus] = useState<CodexIntegrationStatus | null>(null);
@@ -38,6 +24,23 @@ export function CodexSettings() {
   const [models, setModels] = useState<any[]>([]);
   const [details, setDetails] = useState({ skills: 0, mcp: 0, threads: 0 });
   const [busy, setBusy] = useState(false);
+  const { t } = useTranslation();
+  const effortOptions = [
+    { value: "low", label: t("codexSettings.effortLow") },
+    { value: "medium", label: t("codexSettings.effortMedium") },
+    { value: "high", label: t("codexSettings.effortHigh") },
+    { value: "xhigh", label: t("codexSettings.effortExtraHigh") },
+  ];
+  const sandboxOptions = [
+    { value: "read-only", label: t("codexSettings.sandboxReadOnly") },
+    { value: "workspace-write", label: t("codexSettings.sandboxWorkspaceWrite") },
+    { value: "danger-full-access", label: t("codexSettings.sandboxFullAccess") },
+  ];
+  const approvalOptions = [
+    { value: "on-request", label: t("codexSettings.approvalAskWhenNeeded") },
+    { value: "untrusted", label: t("codexSettings.approvalUntrustedCommands") },
+    { value: "never", label: t("codexSettings.approvalNeverAsk") },
+  ];
 
   const connect = useCallback(async () => {
     setBusy(true);
@@ -75,18 +78,22 @@ export function CodexSettings() {
 
   return (
     <Section
-      title="Codex Integration"
-      description="Native Codex app-server integration. Codex is built into Lithe and is not an extension agent."
+      title={t("codexSettings.title")}
+      description={t("codexSettings.description")}
     >
       <SettingRow
-        label="Codex CLI"
+        label={t("codexSettings.cli")}
         description={
-          status?.version ?? status?.error ?? "Install the Codex CLI to use this integration"
+          status?.version ?? status?.error ?? t("codexSettings.installCliDescription")
         }
       >
         <div className="flex items-center gap-2">
           <Badge variant="default">
-            {status?.initialized ? "Connected" : status?.installed ? "Installed" : "Unavailable"}
+            {status?.initialized
+              ? t("projectPicker.connected")
+              : status?.installed
+                ? t("codexSettings.installed")
+                : t("codexSettings.unavailable")}
           </Badge>
           <Button
             size="sm"
@@ -95,29 +102,29 @@ export function CodexSettings() {
             disabled={!status?.installed || busy}
           >
             {busy ? (
-              <Spinner compact label="Connecting" />
+              <Spinner compact label={t("projectPicker.connecting")} />
             ) : status?.initialized ? (
-              "Refresh"
+              t("database.refresh")
             ) : (
-              "Connect"
+              t("database.connect")
             )}
           </Button>
         </div>
       </SettingRow>
-      <SettingRow label="Model" description="Models are read from your installed Codex version">
+      <SettingRow label={t("aiSettings.model")} description={t("codexSettings.modelDescription")}>
         <Select
           value={settings.model ?? ""}
           options={models.map((model) => ({
             value: model.id ?? model.model,
             label: model.displayName ?? model.name ?? model.id,
           }))}
-          placeholder="Codex default"
+          placeholder={t("codexSettings.defaultModel")}
           onChange={(model) => update({ model })}
           className={SETTINGS_CONTROL_WIDTHS.xwide}
           searchable
         />
       </SettingRow>
-      <SettingRow label="Reasoning" description="Reasoning effort for new turns">
+      <SettingRow label={t("codexSettings.reasoning")} description={t("codexSettings.reasoningDescription")}>
         <Select
           value={settings.effort ?? "medium"}
           options={effortOptions}
@@ -125,7 +132,7 @@ export function CodexSettings() {
           className={SETTINGS_CONTROL_WIDTHS.wide}
         />
       </SettingRow>
-      <SettingRow label="Workspace access" description="Filesystem sandbox used by Codex">
+      <SettingRow label={t("codexSettings.workspaceAccess")} description={t("codexSettings.workspaceAccessDescription")}>
         <Select
           value={settings.sandbox ?? "workspace-write"}
           options={sandboxOptions}
@@ -133,7 +140,7 @@ export function CodexSettings() {
           className={SETTINGS_CONTROL_WIDTHS.wide}
         />
       </SettingRow>
-      <SettingRow label="Approvals" description="When Codex asks before running an action">
+      <SettingRow label={t("codexSettings.approvals")} description={t("codexSettings.approvalsDescription")}>
         <Select
           value={settings.approvalPolicy ?? "on-request"}
           options={approvalOptions}
@@ -142,26 +149,26 @@ export function CodexSettings() {
         />
       </SettingRow>
       <SettingRow
-        label="Codex capabilities"
-        description="Loaded from app-server for the current workspace"
+        label={t("codexSettings.capabilities")}
+        description={t("codexSettings.capabilitiesDescription")}
       >
         <div className="flex items-center gap-1.5">
-          <Badge variant="default">{details.threads} threads</Badge>
-          <Badge variant="default">{details.skills} skills</Badge>
+          <Badge variant="default">{t("codexSettings.threadsCount", { count: details.threads })}</Badge>
+          <Badge variant="default">{t("codexSettings.skillsCount", { count: details.skills })}</Badge>
           <Badge variant="default">{details.mcp} MCP</Badge>
         </div>
       </SettingRow>
-      <SettingRow label="Account" description="Uses the Codex CLI account on this Mac">
+      <SettingRow label={t("codexSettings.account")} description={t("codexSettings.accountDescription")}>
         <div className="flex items-center gap-2">
           <Button
             size="sm"
             variant="default"
             onClick={() => void invoke("start_codex_login", { loginType: "chatgpt" })}
           >
-            Sign in
+            {t("account.signIn")}
           </Button>
           <Button size="sm" variant="ghost" onClick={() => void invoke("logout_codex_account")}>
-            Sign out
+            {t("account.signOut")}
           </Button>
         </div>
       </SettingRow>

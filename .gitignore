@@ -6,6 +6,7 @@ rust/target/
 DerivedData/
 /windows/build*/
 dist/
+.artifacts/
 Fixtures/**/target/
 *.xcuserstate
 *.xcuserdata/

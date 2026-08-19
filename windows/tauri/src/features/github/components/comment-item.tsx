@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/ui/dropdown";
 import { Spinner } from "@/ui/spinner";
+import { useTranslation } from "@/i18n/locale-provider";
 import { getTimeAgo } from "../utils/github-viewer-utils";
 import { GitHubAvatar } from "./github-avatar";
 import GitHubMarkdown from "./github-markdown";
@@ -44,12 +45,13 @@ export const CommentItem = memo(
     const [isEditing, setIsEditing] = useState(false);
     const [draft, setDraft] = useState(comment.body);
     const wasEdited = Boolean(comment.updatedAt && comment.updatedAt !== comment.createdAt);
+    const { t } = useTranslation();
 
     const handleDelete = async () => {
       if (!onDelete) return;
-      const confirmed = await showConfirmDialog("Delete this comment permanently?", {
-        title: "Delete comment",
-        confirmLabel: "Delete",
+      const confirmed = await showConfirmDialog(t("github.deleteCommentConfirm"), {
+        title: t("github.deleteComment"),
+        confirmLabel: t("github.delete"),
       });
       if (confirmed) await onDelete();
     };
@@ -61,7 +63,9 @@ export const CommentItem = memo(
           <div className="ui-text-sm flex min-w-0 flex-1 items-center gap-2">
             <span className="min-w-0 truncate font-medium text-foreground">{authorLogin}</span>
             <span className="shrink-0 text-subtle-foreground">{getTimeAgo(comment.createdAt)}</span>
-            {wasEdited ? <span className="shrink-0 text-subtle-foreground">edited</span> : null}
+            {wasEdited ? (
+              <span className="shrink-0 text-subtle-foreground">{t("github.edited")}</span>
+            ) : null}
           </div>
           {canManage && onEdit && onDelete ? (
             <DropdownMenu>
@@ -71,12 +75,12 @@ export const CommentItem = memo(
                     type="button"
                     variant="ghost"
                     size="icon-xs"
-                    aria-label="Comment actions"
+                    aria-label={t("github.commentActions")}
                     disabled={isBusy}
                   />
                 }
               >
-                {isBusy ? <Spinner label="Updating comment" compact /> : <MoreHorizontal />}
+                {isBusy ? <Spinner label={t("github.updatingComment")} compact /> : <MoreHorizontal />}
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem
@@ -85,9 +89,9 @@ export const CommentItem = memo(
                     setIsEditing(true);
                   }}
                 >
-                  Edit
+                  {t("github.edit")}
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => void handleDelete()}>Delete</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => void handleDelete()}>{t("github.delete")}</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           ) : null}
@@ -98,7 +102,7 @@ export const CommentItem = memo(
               <GitHubMarkdownEditor
                 value={draft}
                 onChange={setDraft}
-                placeholder="Edit comment..."
+                placeholder={t("github.editCommentPlaceholder")}
                 minHeight={140}
               />
               <div className="flex justify-end gap-2">
@@ -109,7 +113,7 @@ export const CommentItem = memo(
                   disabled={isBusy}
                   onClick={() => setIsEditing(false)}
                 >
-                  Cancel
+                  {t("ui.cancel")}
                 </Button>
                 <Button
                   type="button"
@@ -122,8 +126,8 @@ export const CommentItem = memo(
                     });
                   }}
                 >
-                  {isBusy ? <Spinner label="Saving" compact /> : null}
-                  Save
+                  {isBusy ? <Spinner label={t("ui.saving")} compact /> : null}
+                  {t("ui.save")}
                 </Button>
               </div>
             </>

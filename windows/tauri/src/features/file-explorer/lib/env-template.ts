@@ -1,13 +1,15 @@
+import type { TranslationKey } from "@/i18n/locale";
+
 export interface EnvTemplateTarget {
   id: string;
-  label: string;
+  labelKey: TranslationKey;
   fileName: string;
 }
 
 export const ENV_TEMPLATE_TARGETS: EnvTemplateTarget[] = [
-  { id: "env-example", label: "Create .env.example", fileName: ".env.example" },
-  { id: "env-local", label: "Create .env.local", fileName: ".env.local" },
-  { id: "env-development", label: "Create .env.development", fileName: ".env.development" },
+  { id: "env-example", labelKey: "files.createEnvExample", fileName: ".env.example" },
+  { id: "env-local", labelKey: "files.createEnvLocal", fileName: ".env.local" },
+  { id: "env-development", labelKey: "files.createEnvDevelopment", fileName: ".env.development" },
 ];
 
 const ENV_ASSIGNMENT_PATTERN = /^(\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=\s*)(.*)$/;

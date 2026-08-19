@@ -16,10 +16,15 @@ import {
   type OccurrenceRange,
 } from "@/features/editor/utils/select-next-occurrence";
 import { showChoiceDialog } from "@/ui/dialog";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { createTranslator } from "@/i18n/locale";
 import { toast } from "sonner";
 import { isEditorKeyboardTarget } from "../utils/editor-keyboard-target";
 
 type EditorSelection = NonNullable<ReturnType<typeof editorAPI.getSelection>>;
+
+const getCurrentTranslator = () =>
+  createTranslator(useSettingsStore.getState().settings.displayLanguage);
 
 function getActiveEditorBuffer() {
   const bufferStore = useBufferStore.getState();
@@ -368,7 +373,7 @@ export async function formatActiveEditorDocument(): Promise<void> {
   const activeBuffer = getActiveEditorBuffer();
 
   if (!activeBuffer) {
-    toast.warning("No editable file to format.");
+    toast.warning(getCurrentTranslator()("editorCommands.noEditableFileToFormat"));
     return;
   }
 
@@ -377,7 +382,7 @@ export async function formatActiveEditorDocument(): Promise<void> {
   const languageId = extensionRegistry.getLanguageId(activeBuffer.path) || activeBuffer.language;
 
   if (!isFormattingAvailable(activeBuffer.path, languageId || undefined)) {
-    toast.warning("No formatter configured for this file type.");
+    toast.warning(getCurrentTranslator()("editorCommands.noFormatterConfigured"));
     return;
   }
 
@@ -388,23 +393,23 @@ export async function formatActiveEditorDocument(): Promise<void> {
   });
 
   if (!result.success || result.formattedContent === undefined) {
-    toast.error(result.error || "Formatting failed.");
+    toast.error(result.error || getCurrentTranslator()("editorCommands.formattingFailed"));
     return;
   }
 
   if (result.formattedContent === activeBuffer.content) {
-    toast.info("Document is already formatted.");
+    toast.info(getCurrentTranslator()("editorCommands.documentAlreadyFormatted"));
     return;
   }
 
   bufferStore.actions.updateBufferContent(activeBuffer.id, result.formattedContent, true);
-  toast.success("Document formatted.");
+  toast.success(getCurrentTranslator()("editorCommands.documentFormatted"));
 }
 
 export async function formatActiveEditorSelection(): Promise<void> {
   const selection = getNormalizedEditorSelection();
   if (!selection) {
-    toast.warning("Select text to format.");
+    toast.warning(getCurrentTranslator()("editorCommands.selectTextToFormat"));
     return;
   }
 
@@ -412,7 +417,7 @@ export async function formatActiveEditorSelection(): Promise<void> {
   const activeBuffer = getActiveEditorBuffer();
 
   if (!activeBuffer) {
-    toast.warning("No editable file to format.");
+    toast.warning(getCurrentTranslator()("editorCommands.noEditableFileToFormat"));
     return;
   }
 
@@ -429,12 +434,12 @@ export async function formatActiveEditorSelection(): Promise<void> {
   });
 
   if (!result.success || result.formattedContent === undefined) {
-    toast.error(result.error || "Selection formatting failed.");
+    toast.error(result.error || getCurrentTranslator()("editorCommands.selectionFormattingFailed"));
     return;
   }
 
   if (result.formattedContent === activeBuffer.content) {
-    toast.info("Selection is already formatted.");
+    toast.info(getCurrentTranslator()("editorCommands.selectionAlreadyFormatted"));
     return;
   }
 
@@ -445,7 +450,7 @@ export async function formatActiveEditorSelection(): Promise<void> {
   );
   editorAPI.setCursorPosition(nextCursor);
   editorAPI.setSelection(undefined);
-  toast.success("Selection formatted.");
+  toast.success(getCurrentTranslator()("editorCommands.selectionFormatted"));
 }
 
 export async function showHoverForActiveEditor(): Promise<void> {
@@ -456,7 +461,7 @@ export async function runQuickFixForActiveEditor(): Promise<void> {
   const activeBuffer = getActiveEditorBuffer();
 
   if (!activeBuffer) {
-    toast.warning("No editable file for quick fixes.");
+    toast.warning(getCurrentTranslator()("editorCommands.noEditableFileForQuickFixes"));
     return;
   }
 
@@ -469,7 +474,7 @@ export async function runQuickFixForActiveEditor(): Promise<void> {
   const diagnostic = selectDiagnosticForQuickFix(diagnostics, editorAPI.getCursorPosition());
 
   if (!diagnostic) {
-    toast.info("No diagnostic at the cursor.");
+    toast.info(getCurrentTranslator()("editorCommands.noDiagnosticAtCursor"));
     return;
   }
 
@@ -480,7 +485,7 @@ export async function runQuickFixForActiveEditor(): Promise<void> {
   );
 
   if (codeActions.length === 0) {
-    toast.info("No quick fixes available.");
+    toast.info(getCurrentTranslator()("editorCommands.noQuickFixes"));
     return;
   }
 
@@ -489,11 +494,14 @@ export async function runQuickFixForActiveEditor(): Promise<void> {
     codeActions.length === 1
       ? codeActions[0]
       : await (async () => {
-          const selected = await showChoiceDialog("Choose a quick fix:", {
-            title: "Quick Fix",
+          const t = getCurrentTranslator();
+          const selected = await showChoiceDialog(t("editorCommands.chooseQuickFixPrompt"), {
+            title: t("editor.quickFix"),
             choices: codeActions.slice(0, 8).map((codeAction, index) => ({
               value: String(index),
-              label: codeAction.isPreferred ? `${codeAction.title} (preferred)` : codeAction.title,
+              label: codeAction.isPreferred
+                ? t("editorCommands.preferredAction", { title: codeAction.title })
+                : codeAction.title,
             })),
           });
 
@@ -505,16 +513,21 @@ export async function runQuickFixForActiveEditor(): Promise<void> {
 
   const result = await lspClient.applyCodeAction(activeBuffer.path, actionToApply.payload);
   if (result.applied) {
-    toast.success(`Applied: ${actionToApply.title}`);
+    toast.success(getCurrentTranslator()("editorCommands.appliedAction", { title: actionToApply.title }));
   } else {
-    toast.warning(result.reason || `Unable to apply action: ${actionToApply.title}`);
+    toast.warning(
+      result.reason ||
+        getCurrentTranslator()("editorCommands.unableToApplyAction", {
+          title: actionToApply.title,
+        }),
+    );
   }
 }
 
 export function foldAllActiveEditor(): void {
   const activeBuffer = getActiveEditorBuffer();
   if (!activeBuffer) {
-    toast.warning("No foldable editor is active.");
+    toast.warning(getCurrentTranslator()("editorCommands.noFoldableEditor"));
     return;
   }
 
@@ -526,7 +539,7 @@ export function foldAllActiveEditor(): void {
 export function foldLevelActiveEditor(level: number): void {
   const activeBuffer = getActiveEditorBuffer();
   if (!activeBuffer) {
-    toast.warning("No foldable editor is active.");
+    toast.warning(getCurrentTranslator()("editorCommands.noFoldableEditor"));
     return;
   }
 
@@ -538,7 +551,7 @@ export function foldLevelActiveEditor(level: number): void {
 export function unfoldAllActiveEditor(): void {
   const activeBuffer = getActiveEditorBuffer();
   if (!activeBuffer) {
-    toast.warning("No foldable editor is active.");
+    toast.warning(getCurrentTranslator()("editorCommands.noFoldableEditor"));
     return;
   }
 

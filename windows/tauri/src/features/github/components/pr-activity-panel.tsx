@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "@/i18n/locale-provider";
 import type { Commit } from "../types/github-pr-viewer.types";
 import { CommentItem } from "./comment-item";
 import { CommitItem } from "./commit-item";
@@ -44,6 +45,7 @@ export function PRActivityPanel({
   onRetry,
   onBodySave,
 }: PRActivityPanelProps) {
+  const { t } = useTranslation();
   const [visibleActivityCount, setVisibleActivityCount] = useState(12);
   const visibleActivityItems = useMemo(
     () => activityItems.slice(0, visibleActivityCount),
@@ -87,10 +89,12 @@ export function PRActivityPanel({
   return (
     <div className="min-w-0 w-full space-y-8">
       <section className="space-y-3">
-        <h2 className="font-sans ui-text-sm font-normal text-subtle-foreground">Description</h2>
+        <h2 className="font-sans ui-text-sm font-normal text-subtle-foreground">
+          {t("github.description")}
+        </h2>
         <GitHubInlineMarkdown
           value={body}
-          emptyLabel="No description provided"
+          emptyLabel={t("github.noDescriptionProvided")}
           repositoryUrl={repositoryUrl}
           repoPath={repoPath}
           onSave={onBodySave}
@@ -98,19 +102,21 @@ export function PRActivityPanel({
       </section>
 
       <section className="space-y-3">
-        <h2 className="font-sans ui-text-sm font-normal text-subtle-foreground">Activity</h2>
+        <h2 className="font-sans ui-text-sm font-normal text-subtle-foreground">
+          {t("github.activity")}
+        </h2>
         {isLoadingContent && activityItems.length === 0 ? (
-          <GitHubViewerLoadingState label="Loading activity" className="min-h-0" />
+          <GitHubViewerLoadingState label={t("github.loadingActivity")} className="min-h-0" />
         ) : contentError ? (
           <GitHubViewerState
             description={contentError}
-            actionLabel="Retry"
+            actionLabel={t("github.retry")}
             onAction={onRetry}
             tone="error"
             className="min-h-0"
           />
         ) : activityItems.length === 0 ? (
-          <GitHubViewerState description="No activity" className="min-h-0" />
+          <GitHubViewerState description={t("github.noActivity")} className="min-h-0" />
         ) : (
           <div className="w-full space-y-3">
             {visibleActivityItems.map((item) =>
@@ -127,7 +133,9 @@ export function PRActivityPanel({
             )}
             {activityItems.length > visibleActivityItems.length ? (
               <div className="font-sans ui-text-sm px-1 py-2 text-subtle-foreground">
-                {`Loading ${activityItems.length - visibleActivityItems.length} more activity items...`}
+                {t("github.loadingMoreActivityItems", {
+                  count: activityItems.length - visibleActivityItems.length,
+                })}
               </div>
             ) : null}
           </div>

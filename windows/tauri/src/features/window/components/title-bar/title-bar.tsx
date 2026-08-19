@@ -185,26 +185,26 @@ const TitleBar = ({ showMinimal = false, onOpenProjectPicker }: TitleBarProps) =
     <ContextMenuContent>
       <ContextMenuItem onClick={() => void createAppWindow()}>
         <WindowExpandIcon />
-        New Window
+        {t("titleProject.newWindow")}
       </ContextMenuItem>
       <ContextMenuItem onClick={() => onOpenProjectPicker()}>
         <FilesIcon />
-        Add Project
+        {t("titleProject.addProject")}
       </ContextMenuItem>
       <ContextMenuItem onClick={() => void handleOpenFolder()}>
         <FolderOpenIcon />
-        Open Folder
+        {t("titleProject.openFolder")}
       </ContextMenuItem>
       <ContextMenuItem onClick={() => void handleOpenFolderInNewWindow()}>
         <WindowExpandIcon />
-        Open Folder in New Window
+        {t("titleProject.openFolderInNewWindow")}
       </ContextMenuItem>
       {projectTabs.length > 0 && (
         <>
           <ContextMenuSeparator />
           <ContextMenuItem onClick={() => void handleCloseAllProjects()}>
             <TrashIcon />
-            Close All Projects
+            {t("titleProject.closeAllProjects")}
           </ContextMenuItem>
         </>
       )}
@@ -215,13 +215,13 @@ const TitleBar = ({ showMinimal = false, onOpenProjectPicker }: TitleBarProps) =
     !isMacOS && !shouldUseNativeMenuBar ? (
       compactMenuBar ? (
         <div className="relative">
-          <Tooltip content="Menu" side="bottom">
+          <Tooltip content={t("window.menu")} side="bottom">
             <Button
               onClick={handleCompactMenuToggle}
               variant="ghost"
               size="icon-xs"
               className={isCompactMenuVisible ? "bg-accent/70 text-foreground" : undefined}
-              aria-label="Menu"
+              aria-label={t("window.menu")}
               aria-expanded={isCompactMenuVisible}
             >
               <ListIcon />

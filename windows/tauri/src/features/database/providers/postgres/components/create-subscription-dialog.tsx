@@ -5,6 +5,7 @@ import { Checkbox } from "@/ui/checkbox";
 import Dialog from "@/ui/dialog";
 import Input from "@/ui/input";
 import Textarea from "@/ui/textarea";
+import { useTranslation } from "@/i18n/locale-provider";
 import type { CreatePostgresSubscriptionParams } from "../../../types/common.types";
 import {
   canCreatePostgresSubscription,
@@ -27,6 +28,7 @@ export default function CreateSubscriptionDialog({
     initialCreatePostgresSubscriptionForm,
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { t } = useTranslation();
 
   if (!isOpen) return null;
 
@@ -57,20 +59,20 @@ export default function CreateSubscriptionDialog({
   return (
     <Dialog
       onClose={handleClose}
-      title="Create Subscription"
+      title={t("database.createSubscription")}
       icon={Radio}
       size="lg"
       footer={
         <>
           <Button variant="ghost" onClick={handleClose} disabled={isSubmitting} size="xs">
-            Cancel
+            {t("ui.cancel")}
           </Button>
           <Button
             type="button"
             onClick={() => void submitForm()}
             disabled={isSubmitting || !canCreatePostgresSubscription(form)}
           >
-            Create
+            {t("database.create")}
           </Button>
         </>
       }
@@ -78,7 +80,7 @@ export default function CreateSubscriptionDialog({
       <form className="space-y-4" onSubmit={handleSubmit}>
         <div className="space-y-1">
           <label htmlFor="postgres-subscription-name" className="ui-text-sm">
-            Name
+            {t("database.name")}
           </label>
           <Input
             id="postgres-subscription-name"
@@ -90,7 +92,7 @@ export default function CreateSubscriptionDialog({
         </div>
         <div className="space-y-1">
           <label htmlFor="postgres-subscription-connection-string" className="ui-text-sm">
-            Connection String
+            {t("database.connectionString")}
           </label>
           <Textarea
             id="postgres-subscription-connection-string"
@@ -108,7 +110,7 @@ export default function CreateSubscriptionDialog({
         </div>
         <div className="space-y-1">
           <label htmlFor="postgres-subscription-publications" className="ui-text-sm">
-            Publications
+            {t("database.publications")}
           </label>
           <Input
             id="postgres-subscription-publications"
@@ -128,13 +130,13 @@ export default function CreateSubscriptionDialog({
         </div>
         <div className="space-y-1">
           <label htmlFor="postgres-subscription-slot-name" className="ui-text-sm">
-            Slot Name
+            {t("database.slotName")}
           </label>
           <Input
             id="postgres-subscription-slot-name"
             value={form.with_slot_name ?? ""}
             onChange={(e) => setForm((prev) => ({ ...prev, with_slot_name: e.target.value }))}
-            placeholder="Leave blank for default"
+            placeholder={t("database.leaveBlankForDefault")}
             disabled={isSubmitting}
           />
         </div>
@@ -144,35 +146,35 @@ export default function CreateSubscriptionDialog({
               checked={form.enabled}
               onCheckedChange={(checked) => setForm((prev) => ({ ...prev, enabled: checked }))}
             />
-            Enabled
+            {t("database.enabled")}
           </label>
           <label className="flex items-center gap-2 ui-text-sm">
             <Checkbox
               checked={form.create_slot}
               onCheckedChange={(checked) => setForm((prev) => ({ ...prev, create_slot: checked }))}
             />
-            Create Slot
+            {t("database.createSlot")}
           </label>
           <label className="flex items-center gap-2 ui-text-sm">
             <Checkbox
               checked={form.copy_data}
               onCheckedChange={(checked) => setForm((prev) => ({ ...prev, copy_data: checked }))}
             />
-            Copy Existing Data
+            {t("database.copyExistingData")}
           </label>
           <label className="flex items-center gap-2 ui-text-sm">
             <Checkbox
               checked={form.connect}
               onCheckedChange={(checked) => setForm((prev) => ({ ...prev, connect: checked }))}
             />
-            Connect Immediately
+            {t("database.connectImmediately")}
           </label>
           <label className="col-span-2 flex items-center gap-2 ui-text-sm">
             <Checkbox
               checked={form.failover}
               onCheckedChange={(checked) => setForm((prev) => ({ ...prev, failover: checked }))}
             />
-            Enable failover slot sync
+            {t("database.enableFailoverSlotSync")}
           </label>
         </div>
         <button type="submit" className="hidden" />

@@ -4,6 +4,7 @@ import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useEditorSettingsStore } from "@/features/editor/stores/settings.store";
 import { hasTextContent } from "@/features/panes/types/pane-content.types";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import Select from "@/ui/select";
 import { TableView } from "./csv-table-view";
@@ -27,6 +28,7 @@ function autodetectDelimiter(text: string): Delim {
 }
 
 export function CsvPreview() {
+  const { t } = useTranslation();
   const sourceContent = useBufferStore((state) => {
     const activeBuffer = state.activeBufferId
       ? state.buffers.find((buffer) => buffer.id === state.activeBufferId)
@@ -94,22 +96,22 @@ export function CsvPreview() {
               htmlFor="csv-delimiter"
               className="font-sans mr-1 text-subtle-foreground ui-text-sm"
             >
-              Delimiter
+              {t("csv.delimiter")}
             </label>
             <Select
               id="csv-delimiter"
               value={delimiter}
               onChange={(value) => setDelimiter(value as any)}
               options={[
-                { value: "auto", label: "Auto" },
-                { value: ",", label: "Comma" },
-                { value: "\t", label: "Tab" },
-                { value: ";", label: "Semicolon" },
-                { value: "|", label: "Pipe" },
+                { value: "auto", label: t("csv.auto") },
+                { value: ",", label: t("csv.comma") },
+                { value: "\t", label: t("csv.tab") },
+                { value: ";", label: t("csv.semicolon") },
+                { value: "|", label: t("csv.pipe") },
               ]}
               size="xs"
               className="min-w-24 rounded border-border px-1"
-              title="Change delimiter"
+              title={t("csv.changeDelimiter")}
             />
 
             {/* Header toggle */}
@@ -118,9 +120,9 @@ export function CsvPreview() {
               variant="default"
               size="xs"
               className="h-6 gap-1 text-subtle-foreground"
-              tooltip="Toggle header row"
+              tooltip={t("csv.toggleHeaderRow")}
             >
-              <Rows /> {hasHeader ? "Header On" : "Header Off"}
+              <Rows /> {hasHeader ? t("csv.headerOn") : t("csv.headerOff")}
             </Button>
 
             {/* Copy CSV */}
@@ -128,7 +130,7 @@ export function CsvPreview() {
               onClick={handleCopyCsv}
               variant="default"
               className="h-6 gap-1 text-subtle-foreground"
-              tooltip="Copy as CSV"
+              tooltip={t("csv.copyAsCsv")}
               size="xs"
             >
               <Download weight="fill" /> CSV
@@ -139,7 +141,7 @@ export function CsvPreview() {
               onClick={handleCopyJson}
               variant="default"
               className="h-6 gap-1 text-subtle-foreground"
-              tooltip="Copy as JSON"
+              tooltip={t("csv.copyAsJson")}
               size="xs"
             >
               <FileJson /> JSON

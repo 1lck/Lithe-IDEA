@@ -1,11 +1,13 @@
 import { XIcon as X } from "@/ui/icons";
 import { useUIExtensionStore } from "../stores/ui-extension-store";
 import { ExtensionErrorBoundary } from "./extension-error-boundary";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from "@/ui/dialog";
 import { ScrollArea } from "@/ui/scroll-area";
 
 export function ExtensionDialogs() {
+  const { t } = useTranslation();
   const activeDialogs = useUIExtensionStore.use.activeDialogs();
   const closeDialog = useUIExtensionStore.use.actions().closeDialog;
 
@@ -33,7 +35,9 @@ export function ExtensionDialogs() {
             <DialogHeader className="flex-row items-center justify-between gap-2 border-border border-b px-4 py-3">
               <DialogTitle>{dialog.title}</DialogTitle>
               <DialogClose
-                render={<Button variant="ghost" size="icon-xs" aria-label="Close dialog" />}
+                render={
+                  <Button variant="ghost" size="icon-xs" aria-label={t("ui.closeDialog")} />
+                }
               >
                 <X />
               </DialogClose>

@@ -16,6 +16,7 @@ import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useZoomStore } from "@/features/window/stores/zoom.store";
 import { useProjectStore } from "@/features/window/stores/project.store";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { extractDroppedFilePaths } from "@/features/file-system/utils/file-system-dropped-paths";
 import {
   TERMINAL_FILE_DROP_EVENT,
@@ -73,6 +74,7 @@ export const XtermTerminal = ({
   workingDirectory,
   remoteConnectionId,
 }: XtermTerminalProps) => {
+  const { t } = useTranslation();
   const terminalContainerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
   const addonsRef = useRef<TerminalAddons | null>(null);
@@ -212,15 +214,15 @@ export const XtermTerminal = ({
     if (
       requiresConfirmation &&
       !(await showConfirmDialog(
-        `Paste ${lineCount} lines into the terminal? This may execute multiple commands.`,
-        { title: "Paste Into Terminal", confirmLabel: "Paste" },
+        t("terminal.pasteLinesConfirm", { count: lineCount }),
+        { title: t("terminal.pasteIntoTerminal"), confirmLabel: t("terminal.paste") },
       ))
     ) {
       return;
     }
 
     terminal.paste(text);
-  }, []);
+  }, [t]);
 
   const initializeTerminal = useCallback(async () => {
     const container = terminalContainerRef.current;

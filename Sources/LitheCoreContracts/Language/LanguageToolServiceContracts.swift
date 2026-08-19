@@ -1,6 +1,7 @@
 import Foundation
 
 package enum RuntimeToolSource: String, Codable, Hashable, Sendable {
+    case bundled
     case project
     case environment
     case path
@@ -11,6 +12,7 @@ package enum RuntimeToolSource: String, Codable, Hashable, Sendable {
 
     package var displayName: String {
         switch self {
+        case .bundled: "Bundled"
         case .project: "Project"
         case .environment: "Environment"
         case .path: "PATH"

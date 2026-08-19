@@ -24,6 +24,9 @@ import {
 } from "@/ui/icons";
 import Input from "@/ui/input";
 import { ScrollArea } from "@/ui/scroll-area";
+import { useTranslation } from "@/i18n/locale-provider";
+import { createTranslator } from "@/i18n/locale";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { instantTransition, overlayEntrance, quickTransition } from "@/utils/motion";
 import { resolveEscapeGuard } from "@/utils/keyboard/escape-guard";
 import { cn } from "@/utils/cn";
@@ -109,6 +112,8 @@ function DialogContent({
   size?: "sm" | "md" | "lg";
   showCloseButton?: boolean;
 }) {
+  const { t } = useTranslation();
+
   return (
     <DialogPortal>
       <DialogOverlay />
@@ -126,7 +131,7 @@ function DialogContent({
           <DialogPrimitive.Close
             render={<Button variant="ghost" size="icon-xs" />}
             className="absolute top-2.5 right-2.5 text-subtle-foreground hover:text-foreground"
-            aria-label="Close dialog"
+            aria-label={t("ui.closeDialog")}
           >
             <X />
           </DialogPrimitive.Close>
@@ -189,6 +194,7 @@ const AppDialog = ({
   size = "md",
   classNames,
 }: DialogProps) => {
+  const { t } = useTranslation();
   const prefersReducedMotion = useReducedMotionConfig();
   const popupMotion = prefersReducedMotion
     ? {
@@ -269,7 +275,7 @@ const AppDialog = ({
               {headerActions}
               <DialogPrimitive.Close
                 className="flex size-6 shrink-0 items-center justify-center rounded-md border border-transparent text-subtle-foreground transition-[transform,background-color,border-color,color] duration-(--app-duration-fast) ease-(--app-ease-smooth) hover:border-border/70 hover:bg-accent hover:text-foreground active:scale-(--app-press-scale)"
-                aria-label="Close dialog"
+                aria-label={t("ui.closeDialog")}
               >
                 <X />
               </DialogPrimitive.Close>
@@ -379,6 +385,9 @@ let nextDialogId = 1;
 let enqueueDialog: ((request: PrimitiveDialogRequest) => void) | null = null;
 const pendingDialogs: PrimitiveDialogRequest[] = [];
 
+const getDialogTranslator = () =>
+  createTranslator(useSettingsStore.getState().settings.displayLanguage);
+
 function enqueue(request: PrimitiveDialogRequest) {
   if (enqueueDialog) {
     enqueueDialog(request);
@@ -388,7 +397,10 @@ function enqueue(request: PrimitiveDialogRequest) {
   pendingDialogs.push(request);
 }
 
-export function showAlertDialog(message: ReactNode, title = "Notice"): Promise<void> {
+export function showAlertDialog(
+  message: ReactNode,
+  title = getDialogTranslator()("ui.notice"),
+): Promise<void> {
   return new Promise((resolve) => {
     enqueue({ id: nextDialogId++, type: "alert", title, message, resolve });
   });
@@ -402,10 +414,10 @@ export function showConfirmDialog(
     enqueue({
       id: nextDialogId++,
       type: "confirm",
-      title: options.title ?? "Confirm",
+      title: options.title ?? getDialogTranslator()("ui.confirm"),
       message,
-      confirmLabel: options.confirmLabel ?? "Confirm",
-      cancelLabel: options.cancelLabel ?? "Cancel",
+      confirmLabel: options.confirmLabel ?? getDialogTranslator()("ui.confirm"),
+      cancelLabel: options.cancelLabel ?? getDialogTranslator()("ui.cancel"),
       resolve,
     });
   });
@@ -419,7 +431,7 @@ export function showChoiceDialog<T extends string>(
     enqueue({
       id: nextDialogId++,
       type: "choice",
-      title: options.title ?? "Choose",
+      title: options.title ?? getDialogTranslator()("ui.choose"),
       message,
       choices: options.choices,
       resolve: (value) => resolve(value as T | null),
@@ -435,12 +447,12 @@ export function showChoiceDialogWithCheckbox<T extends string>(
     enqueue({
       id: nextDialogId++,
       type: "choice-with-checkbox",
-      title: options.title ?? "Choose",
+      title: options.title ?? getDialogTranslator()("ui.choose"),
       message,
       choices: options.choices,
       checkboxLabel: options.checkboxLabel,
       checkboxDefaultChecked: options.checkboxDefaultChecked ?? false,
-      cancelLabel: options.cancelLabel ?? "Cancel",
+      cancelLabel: options.cancelLabel ?? getDialogTranslator()("ui.cancel"),
       resolve: (value) => resolve(value as ChoiceWithCheckboxResult<T> | null),
     });
   });
@@ -454,12 +466,12 @@ export function showPromptDialog(
     enqueue({
       id: nextDialogId++,
       type: "prompt",
-      title: options.title ?? "Input",
+      title: options.title ?? getDialogTranslator()("ui.input"),
       message,
       defaultValue: options.defaultValue ?? "",
       placeholder: options.placeholder,
-      confirmLabel: options.confirmLabel ?? "OK",
-      cancelLabel: options.cancelLabel ?? "Cancel",
+      confirmLabel: options.confirmLabel ?? getDialogTranslator()("ui.ok"),
+      cancelLabel: options.cancelLabel ?? getDialogTranslator()("ui.cancel"),
       resolve,
     });
   });
@@ -503,12 +515,31 @@ function PrimitiveDialogHost({
   dialog: PrimitiveDialogRequest;
   onClose: (resolve: () => void) => void;
 }) {
+  const { t } = useTranslation();
   const [promptValue, setPromptValue] = useState(
     dialog.type === "prompt" ? dialog.defaultValue : "",
   );
   const [choiceChecked, setChoiceChecked] = useState(
     dialog.type === "choice-with-checkbox" ? dialog.checkboxDefaultChecked : false,
   );
+  const defaultDialogText = (value: string) => {
+    switch (value) {
+      case "Notice":
+        return t("ui.notice");
+      case "Confirm":
+        return t("ui.confirm");
+      case "Choose":
+        return t("ui.choose");
+      case "Input":
+        return t("ui.input");
+      case "Cancel":
+        return t("ui.cancel");
+      case "OK":
+        return t("ui.ok");
+      default:
+        return value;
+    }
+  };
 
   if (dialog.type === "alert") {
     return (
@@ -523,12 +554,12 @@ function PrimitiveDialogHost({
             <AlertDialogMedia>
               <Info />
             </AlertDialogMedia>
-            <AlertDialogTitle>{dialog.title}</AlertDialogTitle>
+            <AlertDialogTitle>{defaultDialogText(dialog.title)}</AlertDialogTitle>
             <AlertDialogDescription>{dialog.message}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="grid-cols-1">
             <AlertDialogAction variant="accent" onClick={() => onClose(dialog.resolve)}>
-              OK
+              {t("ui.ok")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -549,13 +580,13 @@ function PrimitiveDialogHost({
             <AlertDialogMedia>
               <Question />
             </AlertDialogMedia>
-            <AlertDialogTitle>{dialog.title}</AlertDialogTitle>
+            <AlertDialogTitle>{defaultDialogText(dialog.title)}</AlertDialogTitle>
             <AlertDialogDescription>{dialog.message}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>{dialog.cancelLabel}</AlertDialogCancel>
+            <AlertDialogCancel>{defaultDialogText(dialog.cancelLabel)}</AlertDialogCancel>
             <AlertDialogAction variant="accent" onClick={() => onClose(() => dialog.resolve(true))}>
-              {dialog.confirmLabel}
+              {defaultDialogText(dialog.confirmLabel)}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -576,11 +607,11 @@ function PrimitiveDialogHost({
             <AlertDialogMedia>
               <Warning />
             </AlertDialogMedia>
-            <AlertDialogTitle>{dialog.title}</AlertDialogTitle>
+            <AlertDialogTitle>{defaultDialogText(dialog.title)}</AlertDialogTitle>
             <AlertDialogDescription>{dialog.message}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("ui.cancel")}</AlertDialogCancel>
             {dialog.choices.map((choice) => (
               <AlertDialogAction
                 key={choice.value}
@@ -609,7 +640,7 @@ function PrimitiveDialogHost({
             <AlertDialogMedia>
               <Question />
             </AlertDialogMedia>
-            <AlertDialogTitle>{dialog.title}</AlertDialogTitle>
+            <AlertDialogTitle>{defaultDialogText(dialog.title)}</AlertDialogTitle>
             <AlertDialogDescription>{dialog.message}</AlertDialogDescription>
           </AlertDialogHeader>
           <label className="flex cursor-pointer items-center gap-2 font-sans ui-text-sm text-foreground sm:pl-12">
@@ -620,7 +651,7 @@ function PrimitiveDialogHost({
             <span>{dialog.checkboxLabel}</span>
           </label>
           <AlertDialogFooter>
-            <AlertDialogCancel>{dialog.cancelLabel}</AlertDialogCancel>
+            <AlertDialogCancel>{defaultDialogText(dialog.cancelLabel)}</AlertDialogCancel>
             {dialog.choices.map((choice) => (
               <AlertDialogAction
                 key={choice.value}
@@ -641,17 +672,17 @@ function PrimitiveDialogHost({
 
   return (
     <AppDialog
-      title={dialog.title}
+      title={defaultDialogText(dialog.title)}
       icon={Warning}
       onClose={() => onClose(() => dialog.resolve(null))}
       size="sm"
       footer={
         <>
           <Button variant="default" onClick={() => onClose(() => dialog.resolve(null))}>
-            {dialog.cancelLabel}
+            {defaultDialogText(dialog.cancelLabel)}
           </Button>
           <Button variant="accent" onClick={() => onClose(() => dialog.resolve(promptValue))}>
-            {dialog.confirmLabel}
+            {defaultDialogText(dialog.confirmLabel)}
           </Button>
         </>
       }

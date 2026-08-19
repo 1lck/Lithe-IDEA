@@ -1,6 +1,7 @@
 import { FilePlusIcon as FilePlus, PaperPlaneTiltIcon as PaperPlaneTilt } from "@/ui/icons";
 import { Alert, AlertDescription } from "@/ui/alert";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Spinner } from "@/ui/spinner";
 import { SidebarComposerBody, SidebarFooter } from "@/ui/sidebar";
 import Textarea from "@/ui/textarea";
@@ -26,6 +27,7 @@ export function CollaborationMessageComposer({
   onSubmit: () => void;
   onShareDocuments?: () => void;
 }) {
+  const { t } = useTranslation();
   const isSubmitDisabled = !value.trim() || disabled || isSending;
 
   return (
@@ -57,7 +59,7 @@ export function CollaborationMessageComposer({
             type="button"
             variant="ghost"
             disabled={disabled || isSending}
-            tooltip="Share Documents"
+            tooltip={t("collaboration.shareDocuments")}
             tooltipSide="top"
             onClick={onShareDocuments}
             size="icon-sm"
@@ -71,12 +73,12 @@ export function CollaborationMessageComposer({
           type="button"
           variant="accent"
           disabled={isSubmitDisabled}
-          tooltip={isSending ? "Sending" : "Send"}
+          tooltip={isSending ? t("collaboration.sending") : t("collaboration.send")}
           tooltipSide="top"
           onClick={onSubmit}
           size="icon-xs"
         >
-          {isSending ? <Spinner label="Sending" compact /> : <PaperPlaneTilt />}
+          {isSending ? <Spinner label={t("collaboration.sending")} compact /> : <PaperPlaneTilt />}
         </Button>
       </div>
     </SidebarFooter>

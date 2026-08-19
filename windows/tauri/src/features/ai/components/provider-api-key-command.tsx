@@ -12,6 +12,7 @@ import {
 } from "@/features/ai/hooks/use-available-providers";
 import { useAIChatStore } from "@/features/ai/stores/ai-chat.store";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 import Command, {
   CommandEmpty,
   CommandHeader,
@@ -68,6 +69,7 @@ function ProviderApiKeyCommandContent({
   onClose,
   initialProviderId,
 }: Pick<ProviderApiKeyCommandProps, "onClose" | "initialProviderId">) {
+  const { t } = useTranslation();
   const searchRef = useRef<HTMLInputElement>(null);
   const apiKeyInputRef = useRef<HTMLInputElement>(null);
 
@@ -103,7 +105,7 @@ function ProviderApiKeyCommandContent({
     (selectedProviderId && PLACEHOLDERS[selectedProviderId]
       ? PLACEHOLDERS[selectedProviderId]
       : undefined) ||
-    "Enter API key...";
+    t("ai.enterApiKey");
 
   const filteredProviders = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -126,7 +128,7 @@ function ProviderApiKeyCommandContent({
     if (hasExistingKey && apiKey.startsWith("•")) return;
     if (!apiKey.trim()) {
       setStatus("invalid");
-      setErrorMessage("Please enter an API key.");
+      setErrorMessage(t("ai.pleaseEnterApiKey"));
       return;
     }
 
@@ -137,14 +139,14 @@ function ProviderApiKeyCommandContent({
       const isValid = await saveApiKey(selectedProviderId, apiKey);
       if (!isValid) {
         setStatus("invalid");
-        setErrorMessage("Invalid API key.");
+        setErrorMessage(t("ai.invalidApiKey"));
         return;
       }
       setStatus("valid");
       setApiKey(MASKED_API_KEY);
     } catch {
       setStatus("invalid");
-      setErrorMessage("Failed to validate API key.");
+      setErrorMessage(t("ai.failedValidateApiKey"));
     } finally {
       setIsValidating(false);
     }
@@ -159,7 +161,7 @@ function ProviderApiKeyCommandContent({
       setErrorMessage("");
     } catch {
       setStatus("invalid");
-      setErrorMessage("Failed to remove API key.");
+      setErrorMessage(t("ai.failedRemoveApiKey"));
     }
   };
 
@@ -171,14 +173,14 @@ function ProviderApiKeyCommandContent({
           ref={searchRef}
           value={query}
           onChange={setQuery}
-          placeholder="Search API key providers..."
+          placeholder={t("ai.searchApiKeyProviders")}
         />
       </CommandHeader>
 
       <div className="grid min-h-0 flex-1 grid-cols-[200px_minmax(0,1fr)]">
         <CommandList>
           {filteredProviders.length === 0 ? (
-            <CommandEmpty>No providers found</CommandEmpty>
+            <CommandEmpty>{t("ai.noProvidersFound")}</CommandEmpty>
           ) : (
             filteredProviders.map((provider) => {
               const isSelected = provider.id === selectedProviderId;
@@ -230,7 +232,7 @@ function ProviderApiKeyCommandContent({
                     {selectedProvider.name}
                   </div>
                   <div className="ui-text-base text-subtle-foreground">
-                    {hasExistingKey ? "API key saved" : "API key required"}
+                    {hasExistingKey ? t("ai.apiKeySaved") : t("ai.apiKeyRequired")}
                   </div>
                 </div>
               </div>
@@ -258,7 +260,7 @@ function ProviderApiKeyCommandContent({
               {status === "valid" && (
                 <div className="flex items-center gap-1.5 text-success ui-text-base">
                   <CheckCircle />
-                  API key saved.
+                  {t("ai.apiKeySavedWithPeriod")}
                 </div>
               )}
               {status === "invalid" && errorMessage && (
@@ -276,7 +278,7 @@ function ProviderApiKeyCommandContent({
                     rel="noopener noreferrer"
                     className="font-sans text-subtle-foreground ui-text-base hover:text-foreground"
                   >
-                    Open dashboard
+                    {t("ai.openDashboard")}
                   </a>
                 ) : (
                   <span />
@@ -290,7 +292,7 @@ function ProviderApiKeyCommandContent({
                       className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                     >
                       <Trash />
-                      <span>Remove</span>
+                      <span>{t("ai.remove")}</span>
                     </Button>
                   )}
                   <Button
@@ -300,13 +302,13 @@ function ProviderApiKeyCommandContent({
                     disabled={!apiKey.trim() || isValidating || apiKey.startsWith("•")}
                     className={cn(isValidating && "opacity-70")}
                   >
-                    <span>{isValidating ? "Validating" : "Save key"}</span>
+                    <span>{isValidating ? t("ai.validating") : t("ai.saveKey")}</span>
                   </Button>
                 </div>
               </div>
             </div>
           ) : (
-            <CommandEmpty>Select a provider</CommandEmpty>
+            <CommandEmpty>{t("ai.selectProvider")}</CommandEmpty>
           )}
         </div>
       </div>

@@ -1,6 +1,8 @@
 import type React from "react";
 import { Component, type ReactNode } from "react";
 import { Button } from "@/ui/button";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { createTranslator } from "@/i18n/locale";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "@/ui/empty";
 
 interface Props {
@@ -29,13 +31,15 @@ export class TerminalErrorBoundary extends Component<Props, State> {
 
   render() {
     if (this.state.hasError) {
+      const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
+
       return (
         this.props.fallback || (
           <Empty className="h-full rounded-none bg-background p-4" tone="error" role="alert">
             <EmptyHeader>
-              <EmptyTitle>Terminal Error</EmptyTitle>
+              <EmptyTitle>{t("terminal.errorTitle")}</EmptyTitle>
               <EmptyDescription>
-                {this.state.error?.message || "Failed to initialize terminal"}
+                {this.state.error?.message || t("terminal.errorFallback")}
               </EmptyDescription>
             </EmptyHeader>
             <EmptyContent>
@@ -44,7 +48,7 @@ export class TerminalErrorBoundary extends Component<Props, State> {
                 variant="default"
                 onClick={() => this.setState({ hasError: false, error: undefined })}
               >
-                Retry
+                {t("terminal.retry")}
               </Button>
             </EmptyContent>
           </Empty>

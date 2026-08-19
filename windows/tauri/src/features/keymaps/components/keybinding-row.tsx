@@ -4,12 +4,14 @@ import { cva } from "class-variance-authority";
 import { Alert, AlertDescription } from "@/ui/alert";
 import Badge from "@/ui/badge";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 import { TableCell, TableRow } from "@/ui/table";
 import KeybindingDisplay from "./keybinding";
 import { cn } from "@/utils/cn";
 import { useKeybindingConflicts } from "../hooks/use-keybinding-conflicts";
 import { useKeymapStore } from "../stores/keymaps.store";
 import type { Command, Keybinding } from "../types/keymaps.types";
+import { localizeKeymapCommand } from "../utils/command-localization";
 import { KeybindingInput } from "./keybinding-input";
 
 export const keybindingTableMinWidth = cva("min-w-175");
@@ -20,6 +22,7 @@ interface KeybindingRowProps {
 }
 
 export function KeybindingRow({ command, keybinding }: KeybindingRowProps) {
+  const { t } = useTranslation();
   const [isEditing, setIsEditing] = useState(false);
   const { addKeybinding, updateKeybinding, removeKeybinding } = useKeymapStore.use.actions();
   const { hasConflict, conflictingCommands } = useKeybindingConflicts(
@@ -57,23 +60,24 @@ export function KeybindingRow({ command, keybinding }: KeybindingRowProps) {
   };
 
   const source = keybinding?.source || "default";
+  const localizedCommand = localizeKeymapCommand(command, t);
   const isUserOverride = source === "user";
   const sourceLabel =
     source === "preset"
-      ? "Preset"
+      ? t("keybindings.preset")
       : source === "default"
-        ? "Default"
+        ? t("keybindings.default")
         : source === "extension"
-          ? "Extension"
-          : "User";
+          ? t("keybindings.extension")
+          : t("keybindings.user");
 
   return (
     <>
       <TableRow className={cn(hasConflict && "bg-destructive/5 hover:bg-destructive/10")}>
         <TableCell className="min-w-0">
-          <div className="font-sans ui-text-sm truncate text-foreground">{command.title}</div>
+          <div className="font-sans ui-text-sm truncate text-foreground">{localizedCommand.title}</div>
           <div className="font-sans ui-text-sm mt-0.5 truncate text-subtle-foreground">
-            {command.category} • {command.id}
+            {localizedCommand.category} • {command.id}
           </div>
         </TableCell>
 
@@ -92,12 +96,12 @@ export function KeybindingRow({ command, keybinding }: KeybindingRowProps) {
               variant="default"
               size="xs"
               className="ui-text-sm flex h-7 w-full items-center justify-start px-1.5 hover:border hover:border-primary"
-              aria-label={`Edit keybinding for ${command.title}`}
+              aria-label={t("keybindings.editForCommand", { title: localizedCommand.title })}
             >
               {keybinding?.key ? (
                 <KeybindingDisplay binding={keybinding.key} />
               ) : (
-                <span className="text-subtle-foreground">Not assigned</span>
+                <span className="text-subtle-foreground">{t("keybindings.notAssigned")}</span>
               )}
             </Button>
           )}
@@ -125,11 +129,11 @@ export function KeybindingRow({ command, keybinding }: KeybindingRowProps) {
                 onClick={handleReset}
                 variant="ghost"
                 className="ui-text-sm text-subtle-foreground hover:text-foreground"
-                tooltip="Reset to default"
-                aria-label="Reset to default keybinding"
+                tooltip={t("keybindings.resetToDefault")}
+                aria-label={t("keybindings.resetToDefaultAria")}
                 size="xs"
               >
-                Reset
+                {t("keybindings.reset")}
               </Button>
             )}
             {keybinding && (
@@ -138,11 +142,11 @@ export function KeybindingRow({ command, keybinding }: KeybindingRowProps) {
                 onClick={handleRemove}
                 variant="ghost"
                 className="ui-text-sm text-subtle-foreground hover:text-destructive"
-                tooltip="Remove keybinding"
-                aria-label="Remove keybinding"
+                tooltip={t("keybindings.removeKeybinding")}
+                aria-label={t("keybindings.removeKeybinding")}
                 size="xs"
               >
-                Remove
+                {t("keybindings.remove")}
               </Button>
             )}
           </div>
@@ -155,7 +159,11 @@ export function KeybindingRow({ command, keybinding }: KeybindingRowProps) {
             <Alert tone="error" className="py-1.5">
               <WarningCircle />
               <AlertDescription>
-                Conflicts with: {conflictingCommands.map((conflict) => conflict.title).join(", ")}
+                {t("keybindings.conflictsWith", {
+                  commands: conflictingCommands
+                    .map((conflict) => localizeKeymapCommand(conflict, t).title)
+                    .join(", "),
+                })}
               </AlertDescription>
             </Alert>
           </TableCell>

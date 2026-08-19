@@ -38,6 +38,7 @@ import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useAuthStore } from "@/features/window/stores/auth.store";
 import { hasProductCapability } from "@/features/window/lib/product-capabilities";
 import { useProjectStore } from "@/features/window/stores/project.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/ui/empty";
 import {
   MessageScroller,
@@ -64,6 +65,7 @@ const AIChat = memo(function AIChat({
   allProjectFiles = [],
   onApplyCode,
 }: AIChatProps) {
+  const { t } = useTranslation();
   const rootFolderPath = useProjectStore((state) => state.rootFolderPath);
   const aiProviderId = useSettingsStore((state) => state.settings.aiProviderId);
   const subscription = useAuthStore((state) => state.subscription);
@@ -1055,9 +1057,9 @@ details: ${errorDetails || mainError}
       {isAiChatBlockedByPolicy ? (
         <Empty className="h-full rounded-none p-6">
           <EmptyHeader>
-            <EmptyTitle>Agent is disabled</EmptyTitle>
+            <EmptyTitle>{t("ai.agentDisabled")}</EmptyTitle>
             <EmptyDescription>
-              Your organization policy has disabled Agent for this workspace.
+              {t("ai.agentDisabledByPolicy")}
             </EmptyDescription>
           </EmptyHeader>
         </Empty>

@@ -6,6 +6,7 @@ import {
   InfoIcon as Info,
   XIcon as X,
 } from "@/ui/icons";
+import { useTranslation } from "@/i18n/locale-provider";
 import { ThinkingOrb } from "@/ui/thinking-orb";
 
 function getToastTheme(): ToasterProps["theme"] {
@@ -14,6 +15,7 @@ function getToastTheme(): ToasterProps["theme"] {
 }
 
 export function Toaster() {
+  const { t } = useTranslation();
   const [theme, setTheme] = useState<ToasterProps["theme"]>(getToastTheme);
 
   useEffect(() => {
@@ -40,7 +42,7 @@ export function Toaster() {
         info: <Info size={18} />,
         warning: <AlertTriangle size={18} />,
         error: <AlertTriangle size={18} />,
-        loading: <ThinkingOrb state="working" size={20} aria-label="Loading" />,
+        loading: <ThinkingOrb state="working" size={20} aria-label={t("ui.loading")} />,
         close: <X size={14} />,
       }}
       toastOptions={{

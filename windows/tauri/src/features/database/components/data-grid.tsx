@@ -17,6 +17,7 @@ import { Button } from "@/ui/button";
 import { Dropdown, type MenuItem } from "@/ui/dropdown";
 import { EmptyState } from "@/ui/empty";
 import Input from "@/ui/input";
+import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
 import { useCellCopy } from "../hooks/use-cell-copy";
 import { mapForeignKeysByColumn } from "../lib/database-schema";
@@ -107,7 +108,7 @@ export default function DataGrid({
   canEditCells = true,
   canCreateRows = true,
   canOpenRowMenu = true,
-  resultLabel = "rows",
+  resultLabel,
   foreignKeys = [],
   columnWidths = {},
   onColumnWidthChange,
@@ -118,6 +119,7 @@ export default function DataGrid({
   const [activeCell, setActiveCell] = useState<GridCellPosition | null>(null);
   const [selectionAnchor, setSelectionAnchor] = useState<GridCellPosition | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const { t } = useTranslation();
   const resizeRef = useRef<{
     column: string;
     startX: number;
@@ -125,6 +127,7 @@ export default function DataGrid({
   } | null>(null);
   const { cellMenu, handleCellContextMenu, copyValue, copyValueWithHeaders, closeCellMenu } =
     useCellCopy();
+  const localizedResultLabel = resultLabel ?? t("database.rows");
   const rowVirtualizer = useVirtualizer({
     count: queryResult.rows.length,
     getScrollElement: () => scrollContainerRef.current,
@@ -364,7 +367,7 @@ export default function DataGrid({
   const cellMenuItems: MenuItem[] = [
     {
       id: "copy-value",
-      label: cellMenu?.copyText ? "Copy selection" : "Copy value",
+      label: cellMenu?.copyText ? t("database.copySelection") : t("database.copyValue"),
       icon: <Copy />,
       onClick: copyValue,
     },
@@ -372,7 +375,7 @@ export default function DataGrid({
       ? [
           {
             id: "copy-selection-with-headers",
-            label: "Copy selection with headers",
+            label: t("database.copySelectionWithHeaders"),
             icon: <Copy />,
             onClick: copyValueWithHeaders,
           },
@@ -390,14 +393,17 @@ export default function DataGrid({
   const tableColumnSpan = queryResult.columns.length + 1;
 
   if (queryResult.rows.length === 0) {
-    return <EmptyState message="No data" />;
+    return <EmptyState message={t("database.noData")} />;
   }
 
   return (
     <div className="font-sans flex min-h-0 flex-1 flex-col">
       <div className="group flex h-9 items-center justify-between border-border/70 border-b px-3">
         <span className="ui-text-sm text-subtle-foreground">
-          {queryResult.rows.length} {resultLabel}
+          {t("database.resultCount", {
+            count: queryResult.rows.length,
+            label: localizedResultLabel,
+          })}
         </span>
         <Button
           type="button"
@@ -407,7 +413,7 @@ export default function DataGrid({
             "rounded-md",
             canCreateRows ? "opacity-0 group-hover:opacity-100" : "cursor-default opacity-30",
           )}
-          aria-label="Add row"
+          aria-label={t("database.addRow")}
           disabled={!canCreateRows}
           size="icon-xs"
         >
@@ -419,7 +425,7 @@ export default function DataGrid({
         className="custom-scrollbar flex-1 overflow-auto outline-none"
         tabIndex={0}
         onKeyDown={handleGridKeyDown}
-        aria-label="Database rows"
+        aria-label={t("database.databaseRows")}
       >
         <table className="w-full border-separate border-spacing-0 ui-text-sm">
           <thead className="sticky top-0 z-10">
@@ -427,7 +433,7 @@ export default function DataGrid({
               <th
                 className="w-10 cursor-pointer border-border/70 border-b bg-surface px-2 py-1.5 text-left font-normal text-subtle-foreground hover:bg-accent"
                 onClick={handleSelectAllClick}
-                aria-label="Select all visible cells"
+                aria-label={t("database.selectAllVisibleCells")}
               >
                 #
               </th>
@@ -475,7 +481,7 @@ export default function DataGrid({
                             "opacity-0 group-hover:opacity-100",
                             !canFilterColumns && "pointer-events-none opacity-20",
                           )}
-                          aria-label={`Filter by ${col}`}
+                          aria-label={t("database.filterByColumn", { column: col })}
                           size="icon"
                         >
                           <Filter className="text-subtle-foreground hover:text-foreground" />

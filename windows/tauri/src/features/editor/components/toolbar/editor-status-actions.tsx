@@ -74,6 +74,7 @@ interface EditorStatusActionsProps {
 type LanguageOption = ReturnType<typeof getAllLanguages>[number];
 
 export function CursorPositionChip({ editorViewKey }: { editorViewKey?: string | null }) {
+  const { t } = useTranslation();
   const activeEditorViewKey = useEditorStateStore.use.activeEditorViewKey();
   const cursorPosition = useEditorStateStore.use.cursorPosition();
   const [isEditing, setIsEditing] = useState(false);
@@ -125,7 +126,7 @@ export function CursorPositionChip({ editorViewKey }: { editorViewKey?: string |
     return (
       <input
         ref={inputRef}
-        aria-label="Go to line and column"
+        aria-label={t("editor.goToLineColumn")}
         value={draftPosition}
         onChange={(event) => setDraftPosition(event.target.value)}
         onBlur={submitPosition}
@@ -151,7 +152,7 @@ export function CursorPositionChip({ editorViewKey }: { editorViewKey?: string |
       type="button"
       className={statusChipClass}
       onClick={() => setIsEditing(true)}
-      aria-label="Go to line and column"
+      aria-label={t("editor.goToLineColumn")}
     >
       {displayPosition}
     </button>
@@ -263,7 +264,7 @@ export function EditorStatusActions({ bufferId }: EditorStatusActionsProps = {})
     try {
       await lspClient.restartTrackedServer(serverKey);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to restart language server");
+      toast.error(error instanceof Error ? error.message : t("lsp.restartFailed"));
     } finally {
       setBusyServerKey(null);
     }
@@ -274,7 +275,7 @@ export function EditorStatusActions({ bufferId }: EditorStatusActionsProps = {})
     try {
       await lspClient.stopTrackedServer(serverKey);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to stop language server");
+      toast.error(error instanceof Error ? error.message : t("lsp.stopFailed"));
     } finally {
       setBusyServerKey(null);
     }
@@ -287,7 +288,7 @@ export function EditorStatusActions({ bufferId }: EditorStatusActionsProps = {})
     try {
       await lspClient.restartAllTrackedServers();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to restart language servers");
+      toast.error(error instanceof Error ? error.message : t("lsp.restartAllFailed"));
     } finally {
       setBulkLspAction(null);
     }
@@ -300,7 +301,7 @@ export function EditorStatusActions({ bufferId }: EditorStatusActionsProps = {})
     try {
       await lspClient.stopAll();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to stop language servers");
+      toast.error(error instanceof Error ? error.message : t("lsp.stopAllFailed"));
     } finally {
       setBulkLspAction(null);
     }
@@ -314,7 +315,7 @@ export function EditorStatusActions({ bufferId }: EditorStatusActionsProps = {})
         forceRetry: true,
       });
       if (!started) {
-        throw new Error("Language server did not start.");
+        throw new Error(t("lsp.didNotStart"));
       }
       const fullActiveBuffer = resolvedBufferId
         ? useBufferStore.getState().buffers.find((buffer) => buffer.id === resolvedBufferId)
@@ -323,7 +324,7 @@ export function EditorStatusActions({ bufferId }: EditorStatusActionsProps = {})
         fullActiveBuffer && hasTextContent(fullActiveBuffer) ? fullActiveBuffer.content : "";
       await lspClient.notifyDocumentOpen(activeBuffer.path, bufferContent);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to start language server");
+      toast.error(error instanceof Error ? error.message : t("lsp.startFailed"));
     } finally {
       setIsRestartingCurrent(false);
     }
@@ -367,7 +368,7 @@ export function EditorStatusActions({ bufferId }: EditorStatusActionsProps = {})
             forceRetry: true,
           });
           if (!started) {
-            throw new Error("Language server did not start.");
+            throw new Error(t("lsp.didNotStart"));
           }
           const fullActiveBuffer = useBufferStore
             .getState()
@@ -626,7 +627,7 @@ export function EditorStatusActions({ bufferId }: EditorStatusActionsProps = {})
                           variant="default"
                           size="icon-xs"
                           className={editorMenuActionButtonClass}
-                          aria-label={`Stop ${entry.displayName} language server`}
+                          aria-label={t("lsp.stopNamed", { name: entry.displayName })}
                         >
                           <Square weight="duotone" />
                         </Button>
