@@ -24,8 +24,11 @@ struct SyntaxHighlightingConfigurationTests {
         }
         #expect(registry.adapter(fileExtension: "ini") == .ini)
         #expect(registry.adapter(fileExtension: "json") == .json)
+        #expect(registry.adapter(fileExtension: "properties") == .properties)
         #expect(registry.adapter(fileExtension: "toml") == .toml)
         #expect(registry.adapter(fileExtension: "yaml") == .yaml)
+        #expect(registry.adapter(fileExtension: "conf") == .config)
+        #expect(registry.adapter(fileExtension: "config") == .config)
     }
 
     @Test
@@ -35,6 +38,8 @@ struct SyntaxHighlightingConfigurationTests {
         #expect(registry.format(fileExtension: ".JSON")?.id == "json")
         #expect(registry.format(fileName: ".ENV", fileExtension: "")?.id == "env")
         #expect(registry.format(fileName: ".env.LOCAL", fileExtension: "local")?.id == "env")
+        #expect(registry.adapter(fileName: ".env", fileExtension: "env") == .envFile)
+        #expect(registry.adapter(fileName: ".env.production", fileExtension: "production") == .envFile)
     }
 
     @Test
