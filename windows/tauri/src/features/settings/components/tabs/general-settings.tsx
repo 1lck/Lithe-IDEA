@@ -55,6 +55,7 @@ export const GeneralSettings = () => {
   const [appVersion, setAppVersion] = useState<string>("");
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [isReportBugDialogOpen, setIsReportBugDialogOpen] = useState(false);
+  const [hasCheckedForUpdates, setHasCheckedForUpdates] = useState(false);
 
   useEffect(() => {
     const checkCliStatus = async () => {
@@ -115,6 +116,7 @@ export const GeneralSettings = () => {
   };
 
   const handleCheckForUpdates = async () => {
+    setHasCheckedForUpdates(true);
     const result = await checkForUpdates({ ignoreSuppression: true });
     if (result === "up-to-date") {
       showToast({ message: t("settings.general.latestVersion"), type: "success" });
@@ -166,7 +168,20 @@ export const GeneralSettings = () => {
       </SettingRow>
       <SettingRow
         label={t("settings.general.version")}
-        description={t("settings.general.versionDescription")}
+        description={
+          checking
+            ? t("settings.general.checking")
+            : available
+              ? t("settings.general.updateAvailable", {
+                  version: appVersion || "...",
+                  availableVersion: updateInfo?.version ?? "",
+                })
+              : error
+                ? t("settings.general.updateCheckFailed", { version: appVersion || "..." })
+                : hasCheckedForUpdates
+                  ? t("settings.general.upToDate", { version: appVersion || "..." })
+                  : t("settings.general.versionDescription")
+        }
       >
         <div className="flex flex-wrap justify-end gap-2">
           {available ? (
