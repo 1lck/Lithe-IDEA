@@ -22,6 +22,7 @@ struct SyntaxHighlightingConfigurationTests {
         for (fileExtension, formatID) in expectedFormatsByExtension {
             #expect(registry.format(fileExtension: fileExtension)?.id == formatID)
         }
+        #expect(registry.adapter(fileExtension: "ini") == .ini)
         #expect(registry.adapter(fileExtension: "json") == .json)
         #expect(registry.adapter(fileExtension: "yaml") == .yaml)
     }

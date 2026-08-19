@@ -49,6 +49,8 @@ enum SyntaxHighlighter {
         switch adapter {
         case .generic:
             GenericSyntaxHighlightingAdapter.apply(to: storage, palette: palette, range: target)
+        case .ini:
+            INISyntaxHighlightingAdapter.apply(to: storage, palette: palette, range: target)
         case .json:
             GenericSyntaxHighlightingAdapter.apply(to: storage, palette: palette, range: target)
             JSONSyntaxHighlightingAdapter.apply(to: storage, palette: palette, range: target)

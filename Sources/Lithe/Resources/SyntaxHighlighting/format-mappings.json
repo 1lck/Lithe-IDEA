@@ -29,7 +29,7 @@
       "id": "ini",
       "displayName": "INI",
       "fileExtensions": ["ini"],
-      "adapter": "generic"
+      "adapter": "ini"
     },
     {
       "id": "xml",

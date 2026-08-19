@@ -211,6 +211,41 @@ struct EditorSyntaxHighlighterTests {
         #expect(unseparatedHashColor != commentColor)
     }
 
+    @Test
+    func iniSyntaxCorpusUsesExpectedTokenColors() throws {
+        let source = try syntaxCorpus(named: "ini-syntax-corpus", extension: "ini")
+        let storage = NSTextStorage(string: source)
+
+        SyntaxHighlighter.apply(
+            to: storage,
+            font: .monospacedSystemFont(ofSize: 13, weight: .regular),
+            fileExtension: "ini",
+            isDark: true
+        )
+
+        let text = source as NSString
+        let sectionColor = try color(in: storage, at: text.range(of: "server.production").location)
+        let propertyColor = try color(in: storage, at: text.range(of: "port").location)
+        let stringColor = try color(in: storage, at: text.range(of: "example.test").location)
+        let numberColor = try color(in: storage, at: text.range(of: "8443").location)
+        let booleanColor = try color(in: storage, at: text.range(of: "true").location)
+        let quotedHashColor = try color(in: storage, at: text.range(of: "# path").location)
+        let quotedNumberColor = try color(in: storage, at: text.range(of: "123").location)
+        let unseparatedHashColor = try color(in: storage, at: text.range(of: "#42").location)
+        let commentColor = try color(in: storage, at: text.range(of: "; HTTPS port").location)
+        let rootCommentColor = try color(in: storage, at: text.range(of: "; root comment").location)
+
+        #expect(propertyColor == self.propertyColor)
+        #expect(sectionColor != propertyColor)
+        #expect(stringColor != propertyColor)
+        #expect(numberColor != propertyColor)
+        #expect(booleanColor != propertyColor)
+        #expect(quotedHashColor == stringColor)
+        #expect(quotedNumberColor == stringColor)
+        #expect(unseparatedHashColor == stringColor)
+        #expect(commentColor == rootCommentColor)
+    }
+
     private func yamlSyntaxCorpus() throws -> String {
         try syntaxCorpus(named: "yaml-syntax-corpus", extension: "yaml")
     }
