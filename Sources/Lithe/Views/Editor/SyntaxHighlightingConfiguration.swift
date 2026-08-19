@@ -4,6 +4,7 @@ import Foundation
 enum SyntaxHighlightingAdapterID: String, Decodable, Equatable {
     case generic
     case json
+    case yaml
 }
 
 /// Describes how one configuration-file format is recognized and highlighted.
