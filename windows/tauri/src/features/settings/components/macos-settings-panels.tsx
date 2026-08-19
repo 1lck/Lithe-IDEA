@@ -431,6 +431,7 @@ function AiPanel() {
 function UpdatesPanel() {
   const { t } = useTranslation();
   const [appVersion, setAppVersion] = useState("");
+  const [hasCheckedForUpdates, setHasCheckedForUpdates] = useState(false);
   const { checking, available, updateInfo, error, checkForUpdates } = useUpdater(false);
 
   useEffect(() => {
@@ -450,7 +451,10 @@ function UpdatesPanel() {
             variant="accent"
             size="sm"
             disabled={checking}
-            onClick={() => void checkForUpdates({ ignoreSuppression: true })}
+            onClick={() => {
+              setHasCheckedForUpdates(true);
+              void checkForUpdates({ ignoreSuppression: true });
+            }}
           >
             {checking ? t("settings.mac.checking") : t("settings.mac.checkForUpdates")}
           </Button>
@@ -460,7 +464,9 @@ function UpdatesPanel() {
             ? t("settings.mac.updateFailed")
             : available
               ? t("settings.mac.updateAvailable", { version: updateInfo?.version ?? "" })
-              : t("settings.mac.updateHint")}
+              : hasCheckedForUpdates
+                ? t("settings.mac.upToDate")
+                : t("settings.mac.updateHint")}
         </p>
       </SettingsGroup>
     </div>
