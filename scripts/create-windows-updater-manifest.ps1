@@ -14,7 +14,7 @@ param(
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $output = Join-Path $root $OutputDirectory
-$assetName = "Lithe-$Version-windows-x64.nsis.zip"
+$assetName = "Lithe-$Version-windows-x64-updater.exe"
 $asset = Join-Path $output $assetName
 $signaturePath = "$asset.sig"
 
