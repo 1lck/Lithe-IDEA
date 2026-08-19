@@ -1,6 +1,7 @@
 import { PencilSimpleIcon as EditIcon, PlusIcon, TrashIcon } from "@/ui/icons";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { Dropdown, type MenuItem } from "@/ui/dropdown";
+import { useTranslation } from "@/i18n/locale-provider";
 import type { DatabaseRow } from "../types/common.types";
 
 export const SqlTableMenu = ({
@@ -11,25 +12,26 @@ export const SqlTableMenu = ({
   onDeleteTable: (tableName: string) => void;
 }) => {
   const { databaseTableMenu, setDatabaseTableMenu } = useUIState();
+  const { t } = useTranslation();
 
   const onCloseMenu = () => setDatabaseTableMenu(null);
   const objectKind = databaseTableMenu?.objectKind ?? "table";
   const canCreateRow = objectKind === "table";
   const deleteLabel =
     objectKind === "view"
-      ? "Delete View"
+      ? t("database.deleteView")
       : objectKind === "materialized_view"
-        ? "Delete Materialized View"
+        ? t("database.deleteMaterializedView")
         : objectKind === "index"
-          ? "Delete Index"
-          : "Delete Table";
+          ? t("database.deleteIndex")
+          : t("database.deleteTable");
   const items: MenuItem[] = databaseTableMenu
     ? [
         ...(canCreateRow
           ? [
               {
                 id: "create-row",
-                label: "Add New Row",
+                label: t("database.addNewRow"),
                 icon: <PlusIcon />,
                 onClick: () => onCreateRow(databaseTableMenu.tableName),
               },
@@ -65,19 +67,20 @@ export const SqlRowMenu = ({
   onDeleteRow: (tableName: string, rowData: DatabaseRow) => void;
 }) => {
   const { databaseRowMenu, setDatabaseRowMenu } = useUIState();
+  const { t } = useTranslation();
 
   const onCloseMenu = () => setDatabaseRowMenu(null);
   const items: MenuItem[] = databaseRowMenu
     ? [
         {
           id: "edit-row",
-          label: "Edit Row",
+          label: t("database.editRow"),
           icon: <EditIcon />,
           onClick: () => onEditRow(databaseRowMenu.tableName, databaseRowMenu.rowData),
         },
         {
           id: "delete-row",
-          label: "Delete Row",
+          label: t("database.deleteRow"),
           icon: <TrashIcon />,
           onClick: () => onDeleteRow(databaseRowMenu.tableName, databaseRowMenu.rowData),
         },

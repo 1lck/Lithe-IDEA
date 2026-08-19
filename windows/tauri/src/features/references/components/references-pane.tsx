@@ -8,6 +8,7 @@ import {
 } from "@/ui/icons";
 import { useCallback, useMemo, useState } from "react";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Empty, EmptyDescription } from "@/ui/empty";
 import { Spinner } from "@/ui/spinner";
 import { ScrollArea } from "@/ui/scroll-area";
@@ -36,6 +37,7 @@ const getFileName = (filePath: string) => {
 };
 
 const ReferencesPane = ({ onFullScreen, isFullScreen = false }: ReferencesPaneProps) => {
+  const { t } = useTranslation();
   const references = useReferencesStore.use.references();
   const query = useReferencesStore.use.query();
   const isLoading = useReferencesStore.use.isLoading();
@@ -74,7 +76,9 @@ const ReferencesPane = ({ onFullScreen, isFullScreen = false }: ReferencesPanePr
       {/* Header */}
       <div className={paneHeaderClassName("justify-between border-border/70 border-b")}>
         <div className="flex items-center gap-1.5">
-          <span className="font-sans ui-text-sm font-medium text-foreground">References</span>
+          <span className="font-sans ui-text-sm font-medium text-foreground">
+            {t("references.title")}
+          </span>
           {query && <PaneChip>{query.symbol}</PaneChip>}
           <PaneChip>{isLoading ? "..." : references.length}</PaneChip>
         </div>
@@ -82,14 +86,14 @@ const ReferencesPane = ({ onFullScreen, isFullScreen = false }: ReferencesPanePr
           {onFullScreen && (
             <PaneIconButton
               onClick={onFullScreen}
-              tooltip={isFullScreen ? "Exit fullscreen" : "Fullscreen"}
+              tooltip={isFullScreen ? t("references.exitFullscreen") : t("references.fullscreen")}
             >
               {isFullScreen ? <Minimize2 /> : <Maximize2 />}
             </PaneIconButton>
           )}
           <PaneIconButton
             onClick={() => useReferencesStore.getState().actions.clear()}
-            tooltip="Clear references"
+            tooltip={t("references.clearReferences")}
           >
             <X />
           </PaneIconButton>
@@ -101,13 +105,15 @@ const ReferencesPane = ({ onFullScreen, isFullScreen = false }: ReferencesPanePr
         {isLoading ? (
           <Empty className="min-h-0 flex-none items-start rounded-none px-3 py-4 text-left">
             <EmptyDescription>
-              <Spinner label="Finding references" showLabel compact />
+              <Spinner label={t("references.findingReferences")} showLabel compact />
             </EmptyDescription>
           </Empty>
         ) : references.length === 0 ? (
           <Empty className="min-h-0 flex-none items-start rounded-none px-3 py-4 text-left">
             <EmptyDescription>
-              {query ? "No references found" : "Use Shift+F12 to find references"}
+              {query
+                ? t("references.noReferencesFound")
+                : t("references.findReferencesHint")}
             </EmptyDescription>
           </Empty>
         ) : (

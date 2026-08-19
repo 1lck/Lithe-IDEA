@@ -16,12 +16,14 @@ import {
 import { memo, useCallback, useEffect, useState } from "react";
 import type { RefCallback } from "react";
 import { ThemedFileIcon } from "@/extensions/icon-themes/components/themed-file-icon";
+import { getSingletonToolBufferTitleKey } from "@/features/panes/constants/tool-buffers";
 import type { PaneContent } from "@/features/panes/types/pane-content.types";
 import { shouldShowTabCloseButton } from "@/features/settings/lib/ui-preferences";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { Button } from "@/ui/button";
 import { InlineRenameInput } from "@/ui/input";
 import { TabBarTab } from "@/ui/tab-bar";
+import { useTranslation } from "@/i18n/locale-provider";
 import { getBaseName } from "@/utils/path-helpers";
 import { cn } from "@/utils/cn";
 import type { MultiFileDiff } from "@/features/git/types/git-diff.types";
@@ -69,6 +71,7 @@ const TabBarItem = memo(function TabBarItem({
   onRenameSubmit,
   onRenameCancel,
 }: TabBarItemProps) {
+  const { t } = useTranslation();
   const [faviconError, setFaviconError] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
   const showTabIcons = useSettingsStore((state) => state.settings.showTabIcons);
@@ -106,6 +109,9 @@ const TabBarItem = memo(function TabBarItem({
     setFaviconError(false);
   }, [buffer.type === "webViewer" ? buffer.favicon : undefined]);
 
+  const singletonTitleKey = getSingletonToolBufferTitleKey(buffer.type);
+  const accessibleName = singletonTitleKey ? t(singletonTitleKey) : buffer.name;
+
   const handleAuxClick = useCallback(
     (e: React.MouseEvent) => {
       // Only handle middle click here
@@ -124,7 +130,7 @@ const TabBarItem = memo(function TabBarItem({
       <TabBarTab
         role="tab"
         aria-selected={isActive}
-        aria-label={`${buffer.name}${buffer.type === "editor" && buffer.isDirty ? " (unsaved)" : ""}${buffer.isPinned ? " (pinned)" : ""}${buffer.isPreview ? " (preview)" : ""}`}
+        aria-label={`${accessibleName}${buffer.type === "editor" && buffer.isDirty ? t("tabs.ariaUnsavedSuffix") : ""}${buffer.isPinned ? t("tabs.ariaPinnedSuffix") : ""}${buffer.isPreview ? t("tabs.ariaPreviewSuffix") : ""}`}
         tabIndex={isActive ? 0 : -1}
         isActive={isActive}
         isDragged={isDraggedTab}
@@ -152,7 +158,7 @@ const TabBarItem = memo(function TabBarItem({
                 "-translate-y-1/2 absolute top-1/2 right-1 transition-opacity",
                 showCloseButton ? "opacity-100" : "opacity-0 group-hover/tab:opacity-100",
               )}
-              tooltip={buffer.isPinned ? "Unpin tab" : "Close"}
+              tooltip={buffer.isPinned ? t("tabs.unpin") : t("tabs.close")}
               commandId={buffer.isPinned ? undefined : "file.close"}
               tabIndex={-1}
               draggable={false}
@@ -251,8 +257,8 @@ const TabBarItem = memo(function TabBarItem({
             tone={isActive ? "default" : "muted"}
             width="content"
             className="min-w-0 max-w-full text-left"
-            placeholder="Terminal name"
-            aria-label={`Rename ${displayName}`}
+            placeholder={t("terminal.tabNamePlaceholder")}
+            aria-label={t("tabs.rename", { name: displayName })}
             spellCheck={false}
           />
         ) : (
@@ -270,9 +276,9 @@ const TabBarItem = memo(function TabBarItem({
         {buffer.type === "editor" && buffer.isDirty && (
           <div
             className="size-2 shrink-0 rounded-full bg-primary"
-            title="Unsaved changes"
+            title={t("tabs.unsavedChanges")}
             role="img"
-            aria-label="Unsaved changes"
+            aria-label={t("tabs.unsavedChanges")}
           />
         )}
       </TabBarTab>

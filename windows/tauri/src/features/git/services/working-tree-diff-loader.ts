@@ -45,6 +45,7 @@ export async function loadWorkingTreeDiffsProgressively({
   repoPath,
   bufferId,
   title,
+  indexingLabel,
   diffEntries,
   initialDiffs = [],
   initialProcessed = 0,
@@ -53,6 +54,7 @@ export async function loadWorkingTreeDiffsProgressively({
   repoPath: string;
   bufferId: string;
   title: string;
+  indexingLabel: string;
   diffEntries: WorkingTreeDiffEntry[];
   initialDiffs?: LoadedWorkingTreeDiff[];
   initialProcessed?: number;
@@ -89,7 +91,7 @@ export async function loadWorkingTreeDiffsProgressively({
       indexingProgress: {
         processed,
         total,
-        label: "Indexing",
+        label: indexingLabel,
       },
     } satisfies MultiFileDiff);
     return true;

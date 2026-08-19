@@ -14,6 +14,7 @@ import { useAIChatStore } from "@/features/ai/stores/ai-chat.store";
 import { getProviderById } from "@/features/ai/types/providers.types";
 import { useAuthStore } from "@/features/window/stores/auth.store";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 import Command, {
   CommandEmpty,
   CommandFooter,
@@ -41,6 +42,7 @@ export const InlineEditModelSelector = ({
   onModelChange,
   disabled = false,
 }: InlineEditModelSelectorProps) => {
+  const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -184,7 +186,7 @@ export const InlineEditModelSelector = ({
         onClick={openSelector}
         disabled={disabled}
         className="max-w-36 justify-start px-1.5 text-foreground"
-        tooltip="Inline edit model"
+        tooltip={t("inlineEdit.model")}
       >
         <span className="truncate ui-text-base">
           {currentProviderName} / {currentModelName}
@@ -195,11 +197,15 @@ export const InlineEditModelSelector = ({
         isVisible={isOpen}
         onClose={closeSelector}
         className="inline-edit-model-command max-h-105 w-120"
-        title="Inline edit model"
+        title={t("inlineEdit.model")}
       >
         <CommandHeader onClose={closeSelector}>
           {selectedProvider ? (
-            <CommandHeaderAction type="button" onClick={handleBack} aria-label="Back to providers">
+            <CommandHeaderAction
+              type="button"
+              onClick={handleBack}
+              aria-label={t("inlineEdit.backToProviders")}
+            >
               <CaretLeft />
             </CommandHeaderAction>
           ) : (
@@ -209,7 +215,9 @@ export const InlineEditModelSelector = ({
             ref={inputRef}
             value={query}
             onChange={setQuery}
-            placeholder={selectedProvider ? "Search models..." : "Pick a provider..."}
+            placeholder={
+              selectedProvider ? t("inlineEdit.searchModels") : t("inlineEdit.pickProvider")
+            }
           />
         </CommandHeader>
 
@@ -217,9 +225,9 @@ export const InlineEditModelSelector = ({
           <>
             <CommandList>
               {isLoadingModels ? (
-                <CommandEmpty>Loading models...</CommandEmpty>
+                <CommandEmpty>{t("inlineEdit.loadingModels")}</CommandEmpty>
               ) : filteredModels.length === 0 ? (
-                <CommandEmpty>No models found</CommandEmpty>
+                <CommandEmpty>{t("inlineEdit.noModels")}</CommandEmpty>
               ) : (
                 filteredModels.map((model) => {
                   const isSelected = selectedProvider.id === providerId && model.id === modelId;
@@ -245,7 +253,7 @@ export const InlineEditModelSelector = ({
             {providerNeedsApiKey && (
               <CommandFooter>
                 <CommandFooterAction type="button" onClick={() => setIsApiKeyOpen(true)}>
-                  Add API key
+                  {t("inlineEdit.addApiKey")}
                 </CommandFooterAction>
               </CommandFooter>
             )}
@@ -253,7 +261,7 @@ export const InlineEditModelSelector = ({
         ) : (
           <CommandList>
             {filteredProviders.length === 0 ? (
-              <CommandEmpty>No providers found</CommandEmpty>
+              <CommandEmpty>{t("inlineEdit.noProviders")}</CommandEmpty>
             ) : (
               filteredProviders.map((provider) => (
                 <CommandItemRow

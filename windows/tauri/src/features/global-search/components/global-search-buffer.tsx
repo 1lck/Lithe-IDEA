@@ -5,6 +5,7 @@ import type {
   FileNavigatorViewMode,
 } from "@/features/file-explorer/components/file-navigator-sidebar";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { readFileContent } from "@/features/file-system/controllers/file-operations";
 import { getBaseName, getRelativePath } from "@/utils/path-helpers";
 import { ScrollArea } from "@/ui/scroll-area";
@@ -47,6 +48,7 @@ const getNavigatorPath = (filePath: string, displayPath: string, fileName: strin
 };
 
 const GlobalSearchBuffer = () => {
+  const { t } = useTranslation();
   const handleFileSelect = useFileSystemStore((state) => state.handleFileSelect);
   const inputRef = useRef<HTMLInputElement>(null);
   const replaceInputRef = useRef<HTMLInputElement>(null);
@@ -367,11 +369,11 @@ const GlobalSearchBuffer = () => {
 
       if (count > 0) {
         await refreshSearch();
-        toast.success(`Replaced ${count} ${count === 1 ? "match" : "matches"}`);
+        toast.success(t("search.replacedMatches", { count }));
       }
     } catch (replaceError) {
       toast.error(
-        replaceError instanceof Error ? replaceError.message : "Failed to replace search matches",
+        replaceError instanceof Error ? replaceError.message : t("search.replaceMatchesFailed"),
       );
     } finally {
       setReplaceOperation(null);

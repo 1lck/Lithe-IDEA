@@ -2,6 +2,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useAuthStore } from "@/features/window/stores/auth.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import {
   beginDesktopAuthSession,
   DesktopAuthError,
@@ -14,6 +15,7 @@ interface UseDesktopSignInOptions {
 }
 
 export function useDesktopSignIn(options: UseDesktopSignInOptions = {}) {
+  const { t } = useTranslation();
   const handleAuthCallback = useAuthStore((state) => state.actions.handleAuthCallback);
   const [isSigningIn, setIsSigningIn] = useState(false);
 
@@ -25,21 +27,19 @@ export function useDesktopSignIn(options: UseDesktopSignInOptions = {}) {
         apiBase: options.apiBase,
       });
       await openUrl(loginUrl);
-      toast.info("Complete sign-in in your browser. Waiting for confirmation...");
+      toast.info(t("auth.completeSignInInBrowser"));
 
       const token = await waitForDesktopAuthToken(sessionId, pollSecret, undefined, {
         apiBase,
       });
       await handleAuthCallback(token);
-      toast.success("Signed in successfully!");
+      toast.success(t("auth.signedInSuccessfully"));
       options.onSuccess?.();
     } catch (error) {
       if (error instanceof DesktopAuthError && error.code === "endpoint_unavailable") {
-        toast.error(
-          "Desktop sign-in endpoint is unavailable. Check the auth server and try again.",
-        );
+        toast.error(t("auth.desktopEndpointUnavailable"));
       } else {
-        const message = error instanceof Error ? error.message : "Authentication failed.";
+        const message = error instanceof Error ? error.message : t("auth.authenticationFailed");
         toast.error(message);
       }
 

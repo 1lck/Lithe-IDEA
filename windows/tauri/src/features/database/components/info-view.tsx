@@ -1,5 +1,6 @@
 import { Button } from "@/ui/button";
 import { ScrollArea } from "@/ui/scroll-area";
+import { useTranslation } from "@/i18n/locale-provider";
 import { getDatabaseObjectOwner, groupDatabaseObjects } from "../lib/database-catalog";
 import type { ColumnFilter, DatabaseInfo, TableInfo } from "../types/common.types";
 import SqlHistoryList from "./sql-history-list";
@@ -32,6 +33,7 @@ export default function InfoView({
   onQueryHistoryClear,
 }: InfoViewProps) {
   const objectGroups = groupDatabaseObjects(tables);
+  const { t } = useTranslation();
 
   return (
     <ScrollArea className="flex-1 font-sans" orientation="both">
@@ -40,22 +42,24 @@ export default function InfoView({
         <div className="p-3">
           <div className="mb-1 ui-text-sm text-foreground">{fileName}</div>
           <div className="flex gap-4 ui-text-sm text-subtle-foreground">
-            <span>{dbInfo?.tables || 0} tables</span>
-            <span>{dbInfo?.indexes || 0} indexes</span>
+            <span>{t("database.tablesCount", { count: dbInfo?.tables || 0 })}</span>
+            <span>{t("database.indexesCount", { count: dbInfo?.indexes || 0 })}</span>
             <span>v{dbInfo?.version || "0"}</span>
-            {selectedTable && <span>current: {selectedTable}</span>}
-            {columnFilters.length > 0 && <span>{columnFilters.length} filters</span>}
+            {selectedTable && <span>{t("database.currentObject", { name: selectedTable })}</span>}
+            {columnFilters.length > 0 && (
+              <span>{t("database.filtersCount", { count: columnFilters.length })}</span>
+            )}
           </div>
         </div>
 
         {/* Tables */}
         <div className="p-3">
-          <div className="mb-2 ui-text-sm text-subtle-foreground">objects</div>
+          <div className="mb-2 ui-text-sm text-subtle-foreground">{t("database.objects")}</div>
           <div className="space-y-3">
             {objectGroups.map((group) => (
               <div key={group.kind}>
                 <div className="mb-1 ui-text-sm text-subtle-foreground uppercase tracking-wide">
-                  {group.label} ({group.objects.length})
+                  {t(group.labelKey)} ({group.objects.length})
                 </div>
                 <div className="space-y-1">
                   {group.objects.map((table) => {
@@ -74,7 +78,7 @@ export default function InfoView({
                           <span className="max-w-full truncate">{table.name}</span>
                           {owner && (
                             <span className="max-w-full truncate ui-text-sm text-subtle-foreground">
-                              on {owner}
+                              {t("database.onOwner", { owner })}
                             </span>
                           )}
                         </span>
@@ -91,7 +95,7 @@ export default function InfoView({
           <div className="p-3">
             <SqlHistoryList
               queries={sqlHistory}
-              title="Recent queries"
+              title={t("database.recentQueries")}
               onSelect={onQuerySelect}
               onRun={onQueryRun}
               onRemove={onQueryRemove}

@@ -22,9 +22,11 @@ import Badge from "@/ui/badge";
 import { Button } from "@/ui/button";
 import { Progress } from "@/ui/progress";
 import Switch from "@/ui/switch";
+import { useTranslation } from "@/i18n/locale-provider";
 import Section, { SettingsView, SettingRow } from "../settings-section";
 
 export const AccountSettings = () => {
+  const { t } = useTranslation();
   const services = getServiceUrls();
   const user = useAuthStore((state) => state.user);
   const subscription = useAuthStore((state) => state.subscription);
@@ -44,7 +46,7 @@ export const AccountSettings = () => {
   const isEnterprise = subscription?.subscription?.plan === "enterprise";
   const isTeams = Boolean(subscription?.collaboration?.enabled);
   const isPaidPlan = isPro || isEnterprise || isTeams;
-  const planLabel = getAccountPlanLabel(subscription, isAuthenticated);
+  const planLabel = t(`account.plan.${getAccountPlanLabel(subscription, isAuthenticated)}`);
   const autocompleteUsage = extractAutocompleteUsage(subscription);
   const usageProgress = getUsageProgress(autocompleteUsage);
 
@@ -60,14 +62,14 @@ export const AccountSettings = () => {
     try {
       if (checked) {
         await enableSettingsSync();
-        showToast({ message: "Cloud settings sync enabled", type: "success" });
+        showToast({ message: t("account.cloudSyncEnabled"), type: "success" });
       } else {
         disableSettingsSync();
-        showToast({ message: "Cloud settings sync disabled", type: "success" });
+        showToast({ message: t("account.cloudSyncDisabled"), type: "success" });
       }
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Could not update cloud settings sync.";
+        error instanceof Error ? error.message : t("account.cloudSyncUpdateFailed");
       showToast({ message, type: "error" });
     }
   };
@@ -75,9 +77,9 @@ export const AccountSettings = () => {
   const handleSyncNow = async () => {
     try {
       await syncSettingsNow();
-      showToast({ message: "Settings synced to cloud", type: "success" });
+      showToast({ message: t("account.settingsSyncedToCloud"), type: "success" });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Settings sync failed.";
+      const message = error instanceof Error ? error.message : t("account.settingsSyncFailed");
       showToast({ message, type: "error" });
     }
   };
@@ -85,28 +87,31 @@ export const AccountSettings = () => {
   const handleRestoreFromCloud = async () => {
     try {
       await restoreSettingsFromCloud();
-      showToast({ message: "Settings restored from cloud", type: "success" });
+      showToast({ message: t("account.settingsRestoredFromCloud"), type: "success" });
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Could not restore settings from cloud.";
+        error instanceof Error ? error.message : t("account.settingsRestoreFromCloudFailed");
       showToast({ message, type: "error" });
     }
   };
 
   const settingsSyncDescription = !isAuthenticated
-    ? "Sign in to access cloud settings sync across devices."
+    ? t("account.syncSignInDescription")
     : !hasSettingsSync
-      ? "Cloud settings sync is included with Pro."
+      ? t("account.syncProDescription")
       : settingsSyncLastSyncedAt
-        ? `Last synced ${new Date(settingsSyncLastSyncedAt).toLocaleString()}${settingsSyncLastSource ? ` from ${settingsSyncLastSource}` : ""}.`
-        : "Keep non-sensitive settings synced across your devices.";
+        ? t("account.lastSynced", {
+            date: new Date(settingsSyncLastSyncedAt).toLocaleString(),
+            source: settingsSyncLastSource ? t("account.syncedFrom", { source: settingsSyncLastSource }) : "",
+          })
+        : t("account.syncDescription");
 
   return (
     <SettingsView>
-      <Section title="Account">
+      <Section title={t("account.account")}>
         <SettingRow
-          label="Account"
-          description="Sign in to access account and subscription features."
+          label={t("account.account")}
+          description={t("account.signInDescription")}
         >
           {isAuthenticated ? (
             <span className="font-sans ui-text-base text-subtle-foreground">{user?.email}</span>
@@ -118,7 +123,7 @@ export const AccountSettings = () => {
               className="ui-text-base"
               size="sm"
             >
-              {isSigningIn ? "Signing In..." : "Sign In"}
+              {isSigningIn ? t("account.signingIn") : t("account.signIn")}
             </Button>
           )}
         </SettingRow>
@@ -133,14 +138,13 @@ export const AccountSettings = () => {
             <div className="mb-3">
               <div className="min-w-0">
                 <div id="account-ai-usage-label" className="font-sans ui-text-base text-foreground">
-                  AI Usage
+                  {t("account.aiUsage")}
                 </div>
                 <div
                   id="account-ai-usage-description"
                   className="font-sans ui-text-base text-subtle-foreground"
                 >
-                  Monthly hosted AI usage across chat, agents, inline edits, generation, and other
-                  Lithe AI features.
+                  {t("account.hostedAiMonthlyUsageDescription")}
                 </div>
               </div>
             </div>
@@ -148,32 +152,38 @@ export const AccountSettings = () => {
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-4">
                   <span className="font-sans ui-text-base text-subtle-foreground">
-                    Monthly usage
+                    {t("account.monthlyUsage")}
                   </span>
                   <span className="font-sans ui-text-base font-medium text-foreground">
                     {formatUsdFromCents(autocompleteUsage.spendCents)} /{" "}
                     {formatUsdFromCents(autocompleteUsage.budgetCents)}
                   </span>
                 </div>
-                <Progress value={usageProgress} size="md" aria-label="Hosted AI monthly usage" />
+                <Progress
+                  value={usageProgress}
+                  size="md"
+                  aria-label={t("account.hostedAiMonthlyUsage")}
+                />
                 <div className="flex items-center justify-between gap-4">
                   <span className="font-sans ui-text-base text-subtle-foreground/70">
                     {formatUsageDate(autocompleteUsage.periodStart)} -{" "}
                     {formatUsageDate(autocompleteUsage.periodEnd)}
                   </span>
                   <span className="font-sans ui-text-base text-subtle-foreground/70">
-                    Resets {formatUsageDate(autocompleteUsage.periodEnd)}
+                    {t("account.resetsOn", { date: formatUsageDate(autocompleteUsage.periodEnd) })}
                   </span>
                 </div>
               </div>
             ) : (
-              <div className="font-sans ui-text-base text-subtle-foreground">Usage unavailable</div>
+              <div className="font-sans ui-text-base text-subtle-foreground">
+                {t("account.usageUnavailable")}
+              </div>
             )}
           </div>
         )}
 
         {isAuthenticated && (
-          <SettingRow label="Plan" description="Manage your Lithe subscription and billing.">
+          <SettingRow label={t("account.plan")} description={t("account.planDescription")}>
             <div className="flex items-center gap-2">
               {isPaidPlan ? (
                 <Badge
@@ -190,7 +200,7 @@ export const AccountSettings = () => {
                 className="ui-text-base"
                 size="sm"
               >
-                {isPaidPlan ? "Manage plan" : "Upgrade plan"}
+                {isPaidPlan ? t("account.managePlan") : t("account.upgradePlan")}
               </Button>
             </div>
           </SettingRow>
@@ -198,7 +208,7 @@ export const AccountSettings = () => {
 
         {isAuthenticated && (
           <SettingRow
-            label="Cloud Settings Sync"
+            label={t("account.cloudSettingsSync")}
             description={
               settingsSyncError && settingsSyncStatus === "error"
                 ? settingsSyncError
@@ -221,8 +231,8 @@ export const AccountSettings = () => {
         {hasSettingsSync && settingsSyncEnabled ? (
           <>
             <SettingRow
-              label="Sync Now"
-              description="Upload this device's current settings snapshot to the cloud."
+              label={t("account.syncNow")}
+              description={t("account.syncNowDescription")}
             >
               <Button
                 variant="default"
@@ -231,13 +241,13 @@ export const AccountSettings = () => {
                 disabled={settingsSyncIsSyncing}
                 size="sm"
               >
-                {settingsSyncIsSyncing ? "Syncing..." : "Sync Now"}
+                {settingsSyncIsSyncing ? t("account.syncing") : t("account.syncNow")}
               </Button>
             </SettingRow>
 
             <SettingRow
-              label="Restore From Cloud"
-              description="Replace this device's non-sensitive settings with the cloud snapshot."
+              label={t("account.restoreFromCloud")}
+              description={t("account.restoreFromCloudDescription")}
             >
               <Button
                 variant="default"
@@ -246,7 +256,7 @@ export const AccountSettings = () => {
                 disabled={settingsSyncIsSyncing}
                 size="sm"
               >
-                Restore
+                {t("account.restore")}
               </Button>
             </SettingRow>
           </>
@@ -254,8 +264,8 @@ export const AccountSettings = () => {
 
         {isAuthenticated && (
           <SettingRow
-            label="Manage Account"
-            description="Open your Lithe dashboard to manage billing and subscription details."
+            label={t("account.manageAccount")}
+            description={t("account.manageAccountDescription")}
           >
             <Button
               variant="default"
@@ -263,15 +273,15 @@ export const AccountSettings = () => {
               className="ui-text-base"
               size="sm"
             >
-              Open Dashboard
+              {t("account.openDashboard")}
             </Button>
           </SettingRow>
         )}
 
         {isAuthenticated && (
           <SettingRow
-            label="Sign Out"
-            description="End your current Lithe account session on this device."
+            label={t("account.signOut")}
+            description={t("account.signOutDescription")}
           >
             <Button
               variant="default"
@@ -279,7 +289,7 @@ export const AccountSettings = () => {
               className="ui-text-base"
               size="sm"
             >
-              Sign Out
+              {t("account.signOut")}
             </Button>
           </SettingRow>
         )}

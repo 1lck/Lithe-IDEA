@@ -14,6 +14,7 @@ import { useState } from "react";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { ImageFormatDialog } from "@/features/viewer/image/editor/components/image-format-dialog";
 import type { ImageFormat } from "@/features/viewer/image/editor/types/image-operation.types";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Dropdown, type MenuItem } from "@/ui/dropdown";
 import { writeClipboardText } from "@/utils/clipboard";
 
@@ -58,6 +59,7 @@ export function ImageContextMenu({
   currentImageSrc,
   currentFileName,
 }: ImageContextMenuProps) {
+  const { t } = useTranslation();
   const [formatDialogState, setFormatDialogState] = useState<{
     isOpen: boolean;
     format: ImageFormat | null;
@@ -90,21 +92,21 @@ export function ImageContextMenu({
   const items: MenuItem[] = [
     {
       id: "rotate-cw",
-      label: "Rotate 90deg CW",
+      label: t("image.rotateCwDeg"),
       icon: <RotateCw />,
       disabled: isProcessing,
       onClick: onRotateCW,
     },
     {
       id: "rotate-ccw",
-      label: "Rotate 90deg CCW",
+      label: t("image.rotateCcwDeg"),
       icon: <RotateCcw />,
       disabled: isProcessing,
       onClick: onRotateCCW,
     },
     {
       id: "rotate-180",
-      label: "Rotate 180deg",
+      label: t("image.rotate180Deg"),
       icon: <RotateCw />,
       disabled: isProcessing,
       onClick: onRotate180,
@@ -112,21 +114,21 @@ export function ImageContextMenu({
     { id: "sep-1", label: "", separator: true, onClick: () => {} },
     {
       id: "flip-horizontal",
-      label: "Flip Horizontal",
+      label: t("image.flipHorizontal"),
       icon: <FlipHorizontal />,
       disabled: isProcessing,
       onClick: onFlipHorizontal,
     },
     {
       id: "flip-vertical",
-      label: "Flip Vertical",
+      label: t("image.flipVertical"),
       icon: <FlipVertical />,
       disabled: isProcessing,
       onClick: onFlipVertical,
     },
     {
       id: "resize",
-      label: "Resize...",
+      label: t("image.resizeEllipsis"),
       icon: <Image />,
       disabled: isProcessing,
       onClick: onResize,
@@ -134,28 +136,28 @@ export function ImageContextMenu({
     { id: "sep-2", label: "", separator: true, onClick: () => {} },
     {
       id: "convert-png",
-      label: "Convert to PNG...",
+      label: t("image.convertToFormatEllipsis", { format: "PNG" }),
       icon: <FileText />,
       disabled: isProcessing,
       onClick: () => handleFormatSelect("png"),
     },
     {
       id: "convert-jpeg",
-      label: "Convert to JPEG...",
+      label: t("image.convertToFormatEllipsis", { format: "JPEG" }),
       icon: <FileText />,
       disabled: isProcessing,
       onClick: () => handleFormatSelect("jpeg"),
     },
     {
       id: "convert-webp",
-      label: "Convert to WebP...",
+      label: t("image.convertToFormatEllipsis", { format: "WebP" }),
       icon: <FileText />,
       disabled: isProcessing,
       onClick: () => handleFormatSelect("webp"),
     },
     {
       id: "convert-avif",
-      label: "Convert to AVIF...",
+      label: t("image.convertToFormatEllipsis", { format: "AVIF" }),
       icon: <FileText />,
       disabled: isProcessing,
       onClick: () => handleFormatSelect("avif"),
@@ -163,7 +165,7 @@ export function ImageContextMenu({
     { id: "sep-3", label: "", separator: true, onClick: () => {} },
     {
       id: "undo",
-      label: "Undo",
+      label: t("image.undo"),
       icon: <Undo2 />,
       disabled: !canUndo || isProcessing,
       onClick: onUndo,
@@ -172,7 +174,7 @@ export function ImageContextMenu({
       ? [
           {
             id: "save",
-            label: "Save",
+            label: t("ui.save"),
             icon: <Save />,
             disabled: isProcessing,
             className: "text-primary",
@@ -183,13 +185,13 @@ export function ImageContextMenu({
     { id: "sep-4", label: "", separator: true, onClick: () => {} },
     {
       id: "reveal",
-      label: "Show in Finder",
+      label: t("files.reveal"),
       icon: <FolderOpen />,
       onClick: () => handleRevealInFolder?.(filePath),
     },
     {
       id: "copy-path",
-      label: "Copy Path",
+      label: t("files.copyPath"),
       icon: <Copy />,
       onClick: () => void handleCopyPath(),
     },

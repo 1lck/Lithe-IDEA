@@ -2,6 +2,7 @@ import { memo, useMemo } from "react";
 import { useDiffData } from "../../hooks/use-git-diff-data";
 import { Empty, EmptyDescription } from "@/ui/empty";
 import { Spinner } from "@/ui/spinner";
+import { useTranslation } from "@/i18n/locale-provider";
 import type { DiffViewerProps, MultiFileDiff } from "../../types/git-diff.types";
 import GitDiffEditorStack from "./git-diff-editor-stack";
 import GitDiffEditorSurface from "./git-diff-editor-surface";
@@ -13,6 +14,7 @@ function isMultiFileDiff(data: unknown): data is MultiFileDiff {
 }
 
 const DiffViewer = memo((_props: DiffViewerProps) => {
+  const { t } = useTranslation();
   const { diff, rawDiffData, filePath, isLoading, error } = useDiffData();
 
   const multiFileDiff = useMemo(() => {
@@ -30,7 +32,7 @@ const DiffViewer = memo((_props: DiffViewerProps) => {
     return (
       <Empty className="h-full rounded-none bg-background">
         <EmptyDescription>
-          <Spinner label="Loading diff" showLabel />
+          <Spinner label={t("git.loadingDiff")} showLabel />
         </EmptyDescription>
       </Empty>
     );
@@ -47,7 +49,7 @@ const DiffViewer = memo((_props: DiffViewerProps) => {
   if (!diff || !filePath) {
     return (
       <Empty className="h-full rounded-none bg-background">
-        <EmptyDescription>No diff data available</EmptyDescription>
+        <EmptyDescription>{t("git.noDiffData")}</EmptyDescription>
       </Empty>
     );
   }

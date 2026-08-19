@@ -2,15 +2,20 @@ import { combine } from "zustand/middleware";
 import { createStore } from "zustand/vanilla";
 import { connectionStore } from "@/features/remote/stores/remote-connection.store";
 import { parseRemotePath } from "@/features/remote/utils/remote-path";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { getFolderName } from "@/utils/path-helpers";
 import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.store";
+import { createTranslator } from "@/i18n/locale";
+
+const getCurrentTranslator = () =>
+  createTranslator(useSettingsStore.getState().settings.displayLanguage);
 
 const createProjectStore = () =>
   createStore(
     combine(
       {
-        projectName: "Files",
+        projectName: getCurrentTranslator()("files.title"),
         rootFolderPath: undefined as string | undefined,
         activeProjectId: undefined as string | undefined,
       },
@@ -28,7 +33,11 @@ const createProjectStore = () =>
               if (remoteInfo) {
                 try {
                   const connection = await connectionStore.getConnection(remoteInfo.connectionId);
-                  return connection ? `Remote: ${connection.name}` : activeTab.name;
+                  return connection
+                    ? getCurrentTranslator()("projectPicker.remoteProjectName", {
+                        name: connection.name,
+                      })
+                    : activeTab.name;
                 } catch {
                   return activeTab.name;
                 }
@@ -38,7 +47,7 @@ const createProjectStore = () =>
             }
 
             const { rootFolderPath } = get();
-            if (!rootFolderPath) return "Files";
+            if (!rootFolderPath) return getCurrentTranslator()("files.title");
 
             return getFolderName(rootFolderPath);
           },

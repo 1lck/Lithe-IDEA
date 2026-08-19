@@ -1,9 +1,14 @@
 import { invoke } from "@/platform/tauri-core";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { createTranslator } from "@/i18n/locale";
 import { toast } from "sonner";
 import { connectionStore } from "../stores/remote-connection.store";
 import type { RemoteConnection } from "../types/remote.types";
 import { getFriendlyRemoteError } from "../utils/remote-errors";
+
+const getCurrentTranslator = () =>
+  createTranslator(useSettingsStore.getState().settings.displayLanguage);
 
 export async function loadRemoteConnections(): Promise<RemoteConnection[]> {
   return connectionStore.getAllConnections();
@@ -30,7 +35,7 @@ export async function connectRemoteConnection(
     await handleOpenRemoteProject(connection.id, connection.name);
   }
 
-  toast.success(`Connected to ${connection.name}`);
+  toast.success(getCurrentTranslator()("remote.connectedTo", { name: connection.name }));
 }
 
 export async function testRemoteConnection(connection: {

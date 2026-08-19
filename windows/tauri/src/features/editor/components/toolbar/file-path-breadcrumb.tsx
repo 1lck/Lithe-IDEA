@@ -9,6 +9,7 @@ import { readDirectory } from "@/features/file-system/controllers/platform";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import type { FileEntry } from "@/features/file-system/types/app.types";
 import { useUIState } from "@/features/window/stores/ui-state.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import { Dropdown, dropdownItemClassName } from "@/ui/dropdown";
 import { getBaseName, getRelativePath, joinPath, normalizePath } from "@/utils/path-helpers";
@@ -33,6 +34,7 @@ export function FilePathBreadcrumb({
   menuSide = "bottom",
   className,
 }: FilePathBreadcrumbProps) {
+  const { t } = useTranslation();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
   const handleFileSelect = useFileSystemStore((state) => state.handleFileSelect);
   const openCommandPaletteView = useUIState((state) => state.openCommandPaletteView);
@@ -57,8 +59,9 @@ export function FilePathBreadcrumb({
     if (filePath.startsWith("local-history://")) {
       const encodedSourcePath = filePath.replace(/^local-history:\/\/[^/]+\/?/, "");
       const sourcePath = encodedSourcePath ? decodeURIComponent(encodedSourcePath) : "";
-      const fileName = sourcePath ? getBaseName(sourcePath, "snapshot") : "snapshot";
-      return ["Local History", fileName];
+      const snapshotLabel = t("localHistory.snapshot");
+      const fileName = sourcePath ? getBaseName(sourcePath, snapshotLabel) : snapshotLabel;
+      return [t("localHistory.title"), fileName];
     }
 
     if (filePath.includes("://")) {
@@ -88,7 +91,7 @@ export function FilePathBreadcrumb({
   const loadDirectoryEntries = async (path: string) => {
     const entries = await readDirectory(path);
     const fileEntries: FileEntry[] = entries.map((entry: DirectoryEntry) => ({
-      name: entry.name || "Unknown",
+      name: entry.name || t("editor.unknownFile"),
       path: entry.path,
       isDir: entry.is_dir || false,
       children: undefined,
@@ -221,7 +224,7 @@ export function FilePathBreadcrumb({
               >
                 <ChevronLeft className="size-4 shrink-0 text-subtle-foreground" weight="duotone" />
                 <span className="min-w-0 flex-1 truncate text-left ui-text-sm font-normal">
-                  Go back
+                  {t("tabs.goBackShort")}
                 </span>
               </Button>
             </div>

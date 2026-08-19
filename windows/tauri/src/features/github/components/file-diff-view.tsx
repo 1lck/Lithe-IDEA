@@ -1,6 +1,7 @@
 import { CaretDownIcon as ChevronDown, CaretRightIcon as ChevronRight } from "@/ui/icons";
 import { memo } from "react";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Empty, EmptyDescription } from "@/ui/empty";
 import { Spinner } from "@/ui/spinner";
 import { cn } from "@/utils/cn";
@@ -35,6 +36,7 @@ export const FileDiffView = memo(
     patchError,
     isStatic = false,
   }: FileDiffViewProps) => {
+    const { t } = useTranslation();
     const fileLines = file.lines ?? [];
     const tokenMap = usePRDiffHighlighting(isExpanded ? fileLines : [], file.path);
 
@@ -46,7 +48,7 @@ export const FileDiffView = memo(
               <div className="ui-text-sm truncate text-foreground">{file.path}</div>
               {file.oldPath && (
                 <div className="ui-text-sm truncate text-subtle-foreground">
-                  from {file.oldPath}
+                  {t("github.fromPath", { path: file.oldPath })}
                 </div>
               )}
             </div>
@@ -61,7 +63,7 @@ export const FileDiffView = memo(
               size="xs"
               className="text-subtle-foreground"
             >
-              Open
+              {t("github.open")}
             </Button>
           </div>
         ) : (
@@ -70,7 +72,9 @@ export const FileDiffView = memo(
             variant="ghost"
             onClick={onToggle}
             className="h-auto w-full justify-start rounded-none px-2.5 py-2 text-left hover:bg-accent/60"
-            aria-label={`${isExpanded ? "Collapse" : "Expand"} diff for ${file.path}`}
+            aria-label={t(isExpanded ? "github.collapseDiffForFile" : "github.expandDiffForFile", {
+              path: file.path,
+            })}
             size="xs"
           >
             {isExpanded ? (
@@ -82,7 +86,7 @@ export const FileDiffView = memo(
               <div className="ui-text-sm truncate text-foreground">{file.path}</div>
               {file.oldPath && (
                 <div className="ui-text-sm truncate text-subtle-foreground">
-                  from {file.oldPath}
+                  {t("github.fromPath", { path: file.oldPath })}
                 </div>
               )}
             </div>
@@ -99,7 +103,7 @@ export const FileDiffView = memo(
               {isLoadingPatch ? (
                 <Empty className="min-h-0 flex-none rounded-none py-6">
                   <EmptyDescription>
-                    <Spinner label="Loading file diff" showLabel compact />
+                    <Spinner label={t("github.loadingFileDiff")} showLabel compact />
                   </EmptyDescription>
                 </Empty>
               ) : patchError ? (
@@ -112,7 +116,7 @@ export const FileDiffView = memo(
                 </Empty>
               ) : fileLines.length === 0 ? (
                 <Empty className="min-h-0 flex-none rounded-none px-3 py-4">
-                  <EmptyDescription>No diff hunks available for this file.</EmptyDescription>
+                  <EmptyDescription>{t("github.noDiffHunksForFile")}</EmptyDescription>
                 </Empty>
               ) : (
                 fileLines.map((line, index) => (

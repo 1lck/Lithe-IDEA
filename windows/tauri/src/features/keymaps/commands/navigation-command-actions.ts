@@ -20,6 +20,7 @@ import {
   resolveSpringReferences,
 } from "@/features/spring/utils/spring-navigation";
 import { useUIState } from "@/features/window/stores/ui-state.store";
+import { createTranslator } from "@/i18n/locale";
 import { getBaseName, normalizePath } from "@/utils/path-helpers";
 import { showPromptDialog } from "@/ui/dialog";
 import { toast } from "sonner";
@@ -49,6 +50,18 @@ type LspNavigationClient = {
     character: number,
   ) => Promise<LspNavigationLocation[] | null>;
 };
+
+const getCurrentTranslator = () =>
+  createTranslator(useSettingsStore.getState().settings.displayLanguage);
+
+function translateNavigationLabel(label: string): string {
+  const t = getCurrentTranslator();
+  if (label === "definition") return t("navigation.definition");
+  if (label === "implementation") return t("navigation.implementation");
+  if (label === "type definition") return t("navigation.typeDefinition");
+  if (label === "reference") return t("navigation.reference");
+  return label;
+}
 
 function activeEditorNavigationContext() {
   const bufferStore = useBufferStore.getState();
@@ -216,7 +229,11 @@ async function goToActiveLspLocation(
   );
 
   if (!locations || locations.length === 0) {
-    toast.info(`No ${label} found.`);
+    toast.info(
+      getCurrentTranslator()("navigation.noTargetFound", {
+        target: translateNavigationLabel(label),
+      }),
+    );
     return;
   }
 
@@ -260,15 +277,16 @@ async function goToActiveLspLocation(
 }
 
 export async function promptGoToLine(): Promise<void> {
-  const lineText = await showPromptDialog("Go to line", {
-    title: "Go to Line",
-    placeholder: "Line number",
+  const t = getCurrentTranslator();
+  const lineText = await showPromptDialog(t("navigation.goToLinePrompt"), {
+    title: t("navigation.goToLine"),
+    placeholder: t("navigation.lineNumber"),
   });
   if (!lineText) return;
 
   const line = Number.parseInt(lineText, 10);
   if (!Number.isFinite(line) || line < 1) {
-    toast.warning("Enter a valid line number.");
+    toast.warning(t("navigation.enterValidLineNumber"));
     return;
   }
 
@@ -371,7 +389,7 @@ export async function goToReferences(): Promise<void> {
   };
 
   if (!references || references.length === 0) {
-    toast.info("No references found.");
+    toast.info(getCurrentTranslator()("navigation.noReferencesFound"));
     return;
   }
 
@@ -386,7 +404,7 @@ export async function goToReferences(): Promise<void> {
   });
 
   if (otherReferences.length === 0) {
-    toast.info("No other references found.");
+    toast.info(getCurrentTranslator()("navigation.noOtherReferencesFound"));
     return;
   }
 

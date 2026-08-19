@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "@/i18n/locale-provider";
 import { getGitHistory } from "../api/git-commits-api";
 import { subscribeToGitChanges } from "../events/git-events";
 import type { GitHistorySnapshot, GitReference } from "../types/git.types";
@@ -11,6 +12,7 @@ const MAX_COMMITS = 5_000;
 const EMPTY_HISTORY: GitHistorySnapshot = { references: [], commits: [], hasMore: false };
 
 export function useGitLogController(repoPath: string | null) {
+  const { t } = useTranslation();
   const [history, setHistory] = useState<GitHistorySnapshot>(EMPTY_HISTORY);
   const [loadState, setLoadState] = useState<GitLogLoadState>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +47,7 @@ export function useGitLogController(repoPath: string | null) {
         if (requestId !== requestIdRef.current) return;
         if (!snapshot) {
           setLoadState("failed");
-          setError("Unable to load Git history for this repository.");
+          setError(t("git.historyLoadRepositoryFailed"));
           return;
         }
 
@@ -57,12 +59,12 @@ export function useGitLogController(repoPath: string | null) {
       } catch (loadError) {
         if (requestId !== requestIdRef.current) return;
         setLoadState("failed");
-        setError(loadError instanceof Error ? loadError.message : "Unable to load Git history.");
+        setError(loadError instanceof Error ? loadError.message : t("git.historyLoadFailed"));
       } finally {
         if (requestId === requestIdRef.current) setIsLoadingMore(false);
       }
     },
-    [repoPath],
+    [repoPath, t],
   );
 
   useEffect(() => {

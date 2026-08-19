@@ -20,6 +20,7 @@ import {
   type V0DesignSystemSuggestion,
 } from "@/extensions/v0/lib/v0-design-systems";
 import type { V0DesignSystemProfile } from "@/extensions/v0/types/v0-design-system.types";
+import { useTranslation } from "@/i18n/locale-provider";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import Badge from "@/ui/badge";
 import {
@@ -57,17 +58,17 @@ type DesignSystemRow =
 const NO_DESIGN_SYSTEM_ROW: DesignSystemRow = {
   kind: "none",
   id: "",
-  name: "No design system",
-  description: "Use v0 defaults",
+  name: "",
+  description: "",
   registryUrl: "",
 };
 
-function getNameFromRegistryUrl(registryUrl: string): string {
+function getNameFromRegistryUrl(registryUrl: string, fallbackName: string): string {
   try {
     const parsed = new URL(registryUrl);
     return parsed.hostname.replace(/^www\./, "");
   } catch {
-    return registryUrl.replace(/^https?:\/\//, "").replace(/\/.*$/, "") || "Design system";
+    return registryUrl.replace(/^https?:\/\//, "").replace(/\/.*$/, "") || fallbackName;
   }
 }
 
@@ -115,6 +116,7 @@ export function V0DesignSystemCommandContent({
   onBack,
   onClose,
 }: V0DesignSystemCommandContentProps) {
+  const { t } = useTranslation();
   const settings = useSettingsStore(
     useShallow((state) => ({
       activeV0DesignSystemId: state.settings.activeV0DesignSystemId,
@@ -155,11 +157,15 @@ export function V0DesignSystemCommandContent({
 
   const rows = useMemo<DesignSystemRow[]>(
     () => [
-      NO_DESIGN_SYSTEM_ROW,
+      {
+        ...NO_DESIGN_SYSTEM_ROW,
+        name: t("v0DesignSystem.noneName"),
+        description: t("v0DesignSystem.noneDescription"),
+      },
       ...settings.v0DesignSystems.map((profile) => ({ ...profile, kind: "profile" as const })),
       ...visibleSuggestions.map((suggestion) => ({ ...suggestion, kind: "suggestion" as const })),
     ],
-    [settings.v0DesignSystems, visibleSuggestions],
+    [settings.v0DesignSystems, t, visibleSuggestions],
   );
 
   const filteredRows = useMemo(
@@ -214,7 +220,7 @@ export function V0DesignSystemCommandContent({
         headers: { Accept: "application/json" },
       });
       if (!response.ok) {
-        throw new Error(`Registry directory returned ${response.status}`);
+        throw new Error(t("v0DesignSystem.registryDirectoryStatus", { status: response.status }));
       }
 
       const directory = await response.json();
@@ -223,10 +229,10 @@ export function V0DesignSystemCommandContent({
     } catch (error) {
       setDirectoryStatus("error");
       setDirectoryError(
-        error instanceof Error ? error.message : "Could not load public registries",
+        error instanceof Error ? error.message : t("v0DesignSystem.loadPublicFailed"),
       );
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (!isActive || directoryStatus !== "idle") return;
@@ -315,11 +321,12 @@ export function V0DesignSystemCommandContent({
   const saveProfile = useCallback(async () => {
     const registryUrl = registryUrlInput.trim();
     if (!registryUrl) {
-      setFormError("Registry URL is required.");
+      setFormError(t("v0DesignSystem.registryRequired"));
       return;
     }
 
-    const name = nameInput.trim() || getNameFromRegistryUrl(registryUrl);
+    const name =
+      nameInput.trim() || getNameFromRegistryUrl(registryUrl, t("v0DesignSystem.fallbackName"));
     const id = getUniqueProfileId(settings.v0DesignSystems, name, registryUrl);
     const fallbackProfile: V0DesignSystemProfile = {
       id,
@@ -344,6 +351,7 @@ export function V0DesignSystemCommandContent({
     persistProfile,
     registryUrlInput,
     settings.v0DesignSystems,
+    t,
   ]);
 
   const removeSelectedProfile = useCallback(() => {
@@ -411,13 +419,13 @@ export function V0DesignSystemCommandContent({
               setMode("list");
               requestAnimationFrame(() => searchInputRef.current?.focus());
             }}
-            aria-label="Back to v0 design systems"
+            aria-label={t("v0DesignSystem.backToDesignSystems")}
           >
             <CaretLeft />
           </CommandHeaderAction>
           <Palette className="shrink-0 text-subtle-foreground" size={15} weight="duotone" />
           <div className="min-w-0 flex-1 truncate ui-text-base text-foreground">
-            Add v0 design system
+            {t("v0DesignSystem.addTitle")}
           </div>
         </CommandHeader>
 
@@ -436,14 +444,14 @@ export function V0DesignSystemCommandContent({
               value={nameInput}
               onChange={(event) => setNameInput(event.currentTarget.value)}
               onKeyDown={handleFormKeyDown}
-              placeholder="Name"
+              placeholder={t("v0DesignSystem.namePlaceholder")}
               size="xs"
             />
             <Input
               value={descriptionInput}
               onChange={(event) => setDescriptionInput(event.currentTarget.value)}
               onKeyDown={handleFormKeyDown}
-              placeholder="Notes"
+              placeholder={t("v0DesignSystem.notesPlaceholder")}
               size="xs"
             />
             {formError && <div className="ui-text-base text-destructive">{formError}</div>}
@@ -455,9 +463,11 @@ export function V0DesignSystemCommandContent({
             onClick={() => void saveProfile()}
             disabled={Boolean(savingRegistryUrl)}
           >
-            {savingRegistryUrl ? "Saving..." : "Save and use"}
+            {savingRegistryUrl ? t("ui.saving") : t("v0DesignSystem.saveAndUse")}
           </CommandFooterAction>
-          <CommandFooterAction onClick={() => setMode("list")}>Cancel</CommandFooterAction>
+          <CommandFooterAction onClick={() => setMode("list")}>
+            {t("ui.cancel")}
+          </CommandFooterAction>
         </CommandFooter>
       </>
     );
@@ -467,7 +477,11 @@ export function V0DesignSystemCommandContent({
     <>
       <CommandHeader onClose={onClose}>
         <div className="flex w-full items-center gap-2">
-          <CommandHeaderAction type="button" onClick={onBack} aria-label="Back to commands">
+          <CommandHeaderAction
+            type="button"
+            onClick={onBack}
+            aria-label={t("v0DesignSystem.backToCommands")}
+          >
             <CaretLeft />
           </CommandHeaderAction>
           <Palette className="shrink-0 text-subtle-foreground" size={15} weight="duotone" />
@@ -476,17 +490,21 @@ export function V0DesignSystemCommandContent({
             value={query}
             onChange={setQuery}
             onKeyDown={handleListKeyDown}
-            placeholder="Search v0 design systems..."
+            placeholder={t("v0DesignSystem.searchPlaceholder")}
             className="flex-1"
           />
           <CommandHeaderAction
             type="button"
             onClick={() => void loadDirectorySuggestions()}
-            tooltip="Refresh public registries"
+            tooltip={t("v0DesignSystem.refreshPublicRegistries")}
           >
             <RefreshCw />
           </CommandHeaderAction>
-          <CommandHeaderAction type="button" onClick={openAddForm} tooltip="Add registry">
+          <CommandHeaderAction
+            type="button"
+            onClick={openAddForm}
+            tooltip={t("v0DesignSystem.addRegistry")}
+          >
             <Plus />
           </CommandHeaderAction>
         </div>
@@ -494,7 +512,7 @@ export function V0DesignSystemCommandContent({
 
       <CommandList ref={resultsRef}>
         {filteredRows.length === 0 ? (
-          <CommandEmpty>No design systems found</CommandEmpty>
+          <CommandEmpty>{t("v0DesignSystem.noFound")}</CommandEmpty>
         ) : (
           filteredRows.map((row, index) => {
             const isCurrent = row.id === settings.activeV0DesignSystemId;
@@ -523,19 +541,19 @@ export function V0DesignSystemCommandContent({
                 </div>
                 {isAdding ? (
                   <Badge variant="accent" size="compact" className="shrink-0">
-                    adding
+                    {t("v0DesignSystem.adding")}
                   </Badge>
                 ) : isCurrent ? (
                   <Badge variant="accent" size="compact" className="shrink-0">
-                    active
+                    {t("v0DesignSystem.active")}
                   </Badge>
                 ) : row.kind === "profile" ? (
                   <Badge variant="muted" size="compact" className="shrink-0">
-                    saved
+                    {t("v0DesignSystem.saved")}
                   </Badge>
                 ) : row.kind === "suggestion" ? (
                   <Badge variant="muted" size="compact" className="shrink-0">
-                    add
+                    {t("v0DesignSystem.add")}
                   </Badge>
                 ) : null}
               </CommandItem>
@@ -547,25 +565,25 @@ export function V0DesignSystemCommandContent({
       <CommandFooter>
         <CommandFooterAction onClick={openAddForm}>
           <Plus />
-          <span>Add registry</span>
+          <span>{t("v0DesignSystem.addRegistry")}</span>
         </CommandFooterAction>
         <CommandFooterAction onClick={() => void loadDirectorySuggestions()}>
           <RefreshCw />
-          <span>Refresh</span>
+          <span>{t("ui.refresh")}</span>
         </CommandFooterAction>
         <CommandFooterAction
           onClick={removeSelectedProfile}
           disabled={!selectedRow || selectedRow.kind !== "profile"}
         >
           <Trash />
-          <span>Remove selected</span>
+          <span>{t("v0DesignSystem.removeSelected")}</span>
         </CommandFooterAction>
         <span className="ml-auto min-w-0 truncate px-1 ui-text-base text-subtle-foreground">
           {directoryStatus === "loading"
-            ? "Loading..."
+            ? t("ui.loading")
             : directoryStatus === "error"
               ? directoryError
-              : `${visibleSuggestions.length} public`}
+              : t("v0DesignSystem.publicCount", { count: visibleSuggestions.length })}
         </span>
       </CommandFooter>
     </>

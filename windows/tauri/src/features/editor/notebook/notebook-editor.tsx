@@ -37,6 +37,7 @@ import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { getBufferById } from "@/features/editor/utils/buffer-index";
 import { useHighlightedMarkdown } from "@/features/editor/markdown/use-highlighted-markdown";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import { Empty, EmptyDescription, EmptyMedia } from "@/ui/empty";
 import { cn } from "@/utils/cn";
@@ -221,6 +222,8 @@ const outputClassName =
   "m-0 overflow-auto rounded-md border border-border bg-surface p-2.5 font-mono text-[0.92em] leading-[1.55] text-foreground";
 
 function NotebookOutputView({ output }: { output: NotebookOutput }) {
+  const { t } = useTranslation();
+
   if (output.output_type === "stream") {
     return (
       <pre className={cn(outputClassName, "whitespace-pre-wrap")}>
@@ -278,7 +281,7 @@ function NotebookOutputView({ output }: { output: NotebookOutput }) {
     if (pdf) {
       return (
         <iframe
-          title="PDF output"
+          title={t("notebook.pdfOutput")}
           src={`data:application/pdf;base64,${pdf}`}
           className="h-105 w-full rounded-md border border-border bg-surface"
         />
@@ -367,6 +370,7 @@ function NotebookCellView({
   onSourceChange: (cellIndex: number, source: string) => void;
   onMoveSelection: (direction: -1 | 1) => void;
 }) {
+  const { t } = useTranslation();
   const {
     attributes,
     listeners,
@@ -433,7 +437,7 @@ function NotebookCellView({
       <div className="pt-7.75 text-right">
         <div
           ref={setActivatorNodeRef}
-          aria-label="Move cell"
+          aria-label={t("notebook.moveCell")}
           className="inline-flex cursor-grab touch-none items-center justify-end gap-1 rounded px-1 py-0.5 text-subtle-foreground transition-colors hover:bg-accent hover:text-foreground active:cursor-grabbing"
           onClick={() => onSelect(cellIndex)}
           {...attributes}
@@ -466,7 +470,7 @@ function NotebookCellView({
                 className="text-subtle-foreground hover:text-foreground"
                 onClick={() => onRun(cellIndex)}
                 disabled={isRunning}
-                tooltip={isRunning ? "Running cell" : "Run cell"}
+                tooltip={isRunning ? t("notebook.runningCell") : t("notebook.runCell")}
                 tooltipSide="bottom"
               >
                 <Play weight="duotone" />
@@ -477,7 +481,7 @@ function NotebookCellView({
               size="icon-xs"
               className="text-subtle-foreground hover:text-foreground"
               onClick={() => onTypeChange(cellIndex, isCode ? "markdown" : "code")}
-              tooltip={isCode ? "Convert to Markdown" : "Convert to Code"}
+              tooltip={isCode ? t("notebook.convertToMarkdown") : t("notebook.convertToCode")}
               tooltipSide="bottom"
             >
               {isCode ? <Text /> : <Code />}
@@ -487,7 +491,7 @@ function NotebookCellView({
               size="icon-xs"
               className="text-subtle-foreground hover:text-foreground"
               onClick={() => onInsertBelow(cellIndex, isCode ? "code" : "markdown")}
-              tooltip="Insert cell below"
+              tooltip={t("notebook.insertCellBelow")}
               tooltipSide="bottom"
             >
               <Plus />
@@ -497,7 +501,7 @@ function NotebookCellView({
               size="icon-xs"
               className="text-subtle-foreground hover:text-foreground"
               onClick={() => onDelete(cellIndex)}
-              tooltip="Delete cell"
+              tooltip={t("notebook.deleteCell")}
               tooltipSide="bottom"
             >
               <Trash weight="duotone" />
@@ -507,7 +511,7 @@ function NotebookCellView({
               size="icon-xs"
               className="text-subtle-foreground hover:text-foreground"
               onClick={() => onEditToggle(cellIndex)}
-              tooltip={isEditing ? "Preview cell" : "Edit cell"}
+              tooltip={isEditing ? t("notebook.previewCell") : t("notebook.editCell")}
               tooltipSide="bottom"
             >
               {isEditing ? <Eye weight="duotone" /> : <Edit weight="duotone" />}

@@ -1,6 +1,7 @@
 import { invoke } from "@/platform/tauri-core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { useTranslation } from "@/i18n/locale-provider";
 import { hasOverlayCoveringWebview } from "../utils/web-viewer-overlay";
 import { shouldShowEmbeddedWebview } from "../utils/embedded-webview-visibility";
 
@@ -35,6 +36,7 @@ export function useEmbeddedWebview({
   isVisible,
   onLoadStateChange,
 }: UseEmbeddedWebviewOptions): UseEmbeddedWebviewResult {
+  const { t } = useTranslation();
   const [error, setError] = useState<string | null>(null);
   const [webviewLabel, setWebviewLabel] = useState<string | null>(null);
   const webviewLabelRef = useRef<string | null>(null);
@@ -185,7 +187,7 @@ export function useEmbeddedWebview({
         setWebviewLabel(label);
       } catch (error) {
         console.error("Failed to create embedded webview:", error);
-        setError(error instanceof Error ? error.message : "Couldn't create webview.");
+        setError(error instanceof Error ? error.message : t("viewer.createWebviewFailed"));
         onLoadStateChange(false);
       } finally {
         if (lifecycleId === lifecycleIdRef.current) {
@@ -195,7 +197,7 @@ export function useEmbeddedWebview({
     };
 
     void createWebview();
-  }, [containerRef, initialUrl, onLoadStateChange, profileKey, userAgent, webviewLabel]);
+  }, [containerRef, initialUrl, onLoadStateChange, profileKey, t, userAgent, webviewLabel]);
 
   useEffect(() => {
     if (!webviewLabel || !containerRef.current || !isVisible) return;

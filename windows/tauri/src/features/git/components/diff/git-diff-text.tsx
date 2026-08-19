@@ -4,6 +4,7 @@ import { calculateLineHeight } from "@/features/editor/utils/lines";
 import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { useZoomStore } from "@/features/window/stores/zoom.store";
 import { Empty, EmptyDescription } from "@/ui/empty";
+import { useTranslation } from "@/i18n/locale-provider";
 import { useDiffHighlighting } from "../../hooks/use-git-diff-highlight";
 import type {
   DiffSearchHighlight,
@@ -198,6 +199,7 @@ const TextDiffViewer = memo(
     isEmbeddedInScrollView = false,
     searchHighlights,
   }: TextDiffViewerProps) => {
+    const { t } = useTranslation();
     const selectionScopeRef = useRef<HTMLDivElement>(null);
     const editorFontSize = useEditorSettingsStore.use.fontSize();
     const editorFontFamily = useEditorSettingsStore.use.fontFamily();
@@ -283,7 +285,7 @@ const TextDiffViewer = memo(
     if (diff.lines.length === 0) {
       return (
         <Empty className="min-h-0 flex-none rounded-none py-8">
-          <EmptyDescription>No changes in this file</EmptyDescription>
+          <EmptyDescription>{t("git.noChangesInFile")}</EmptyDescription>
         </Empty>
       );
     }
@@ -381,7 +383,7 @@ const TextDiffViewer = memo(
             ref={sharedHorizontalScrollRef}
             className="sticky bottom-0 z-20 h-3 overflow-x-auto overflow-y-hidden border-border/70 border-t bg-background"
             onScroll={(event) => syncHorizontalScroll(event.currentTarget)}
-            aria-label="Synchronized diff horizontal scroll"
+            aria-label={t("git.diff.synchronizedHorizontalScroll")}
           >
             <div
               className="h-px"

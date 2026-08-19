@@ -3,6 +3,7 @@ import { cva } from "class-variance-authority";
 import type React from "react";
 import { MinusIcon as Minus, PlusIcon as Plus } from "@/ui/icons";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 import {
   controlIconSizes,
   controlSizeVariants,
@@ -66,6 +67,7 @@ export default function NumberInput({
   id,
   ...props
 }: InputProps) {
+  const { t } = useTranslation();
   const numericStep = toNumber(step) ?? 1;
   const precision =
     numericStep > 0 ? (numericStep.toString().split(".")[1]?.length ?? 0) : undefined;
@@ -93,7 +95,7 @@ export default function NumberInput({
     >
       <NumberFieldPrimitive.Decrement
         render={<Button type="button" variant="ghost" size="icon-xs" className="shrink-0" />}
-        aria-label="Decrease value"
+        aria-label={t("ui.decreaseValue")}
       >
         <Minus size={controlIconSizes[size]} />
       </NumberFieldPrimitive.Decrement>
@@ -112,7 +114,7 @@ export default function NumberInput({
 
       <NumberFieldPrimitive.Increment
         render={<Button type="button" variant="ghost" size="icon-xs" className="shrink-0" />}
-        aria-label="Increase value"
+        aria-label={t("ui.increaseValue")}
       >
         <Plus size={controlIconSizes[size]} />
       </NumberFieldPrimitive.Increment>

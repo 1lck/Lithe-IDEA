@@ -2,6 +2,7 @@ import { KeyIcon as KeyRound } from "@/ui/icons";
 import type { AcpEvent, AcpPermissionOption } from "@/features/ai/types/acp.types";
 import Badge from "@/ui/badge";
 import { Button, type ButtonVariant } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 
 export type AcpPermissionRequest = {
   requestId: string;
@@ -16,31 +17,31 @@ const fallbackOptions: AcpPermissionOption[] = [
   { id: "allow", name: "Allow", kind: "allow_once" },
 ];
 
-function getOptionLabel(option: AcpPermissionOption) {
+function getOptionLabel(option: AcpPermissionOption, t: (key: string) => string) {
   switch (option.kind) {
     case "allow_once":
-      return "Allow";
+      return t("ai.allow");
     case "allow_always":
-      return "Always";
+      return t("ai.always");
     case "reject_once":
-      return "Deny";
+      return t("ai.deny");
     case "reject_always":
-      return "Never";
+      return t("ai.never");
     default:
       return option.name;
   }
 }
 
-function getOptionTooltip(option: AcpPermissionOption) {
+function getOptionTooltip(option: AcpPermissionOption, t: (key: string) => string) {
   switch (option.kind) {
     case "allow_once":
-      return "Allow once";
+      return t("ai.allowOnce");
     case "allow_always":
-      return "Always allow this request type";
+      return t("ai.alwaysAllowRequestType");
     case "reject_once":
-      return "Deny once";
+      return t("ai.denyOnce");
     case "reject_always":
-      return "Always deny this request type";
+      return t("ai.alwaysDenyRequestType");
     default:
       return option.name;
   }
@@ -73,6 +74,7 @@ export function AcpPermissionPrompt({
   queuedCount: number;
   onRespond: (approved: boolean, optionId?: string) => void;
 }) {
+  const { t } = useTranslation();
   const summary = (
     permission.description ||
     [permission.permissionType, permission.resource].filter(Boolean).join(" ")
@@ -87,7 +89,7 @@ export function AcpPermissionPrompt({
           className="min-w-0 flex-1 truncate text-foreground"
           title={`${permission.permissionType} - ${permission.resource}`}
         >
-          <span className="font-medium text-muted-foreground">Permission</span>
+          <span className="font-medium text-muted-foreground">{t("ai.permission")}</span>
           <span className="px-1.5 text-subtle-foreground">/</span>
           <span className="font-mono">{summary}</span>
         </div>
@@ -110,10 +112,10 @@ export function AcpPermissionPrompt({
                     permission.options.length > 0 ? option.id : undefined,
                   )
                 }
-                tooltip={getOptionTooltip(option)}
+                tooltip={getOptionTooltip(option, t)}
                 tooltipSide="top"
               >
-                {getOptionLabel(option)}
+                {getOptionLabel(option, t)}
               </Button>
             );
           })}

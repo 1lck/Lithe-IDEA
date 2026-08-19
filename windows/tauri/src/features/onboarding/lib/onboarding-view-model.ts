@@ -1,5 +1,7 @@
 import type { OnboardingContext } from "./onboarding-state";
 
+type Translator = (key: string, values?: Record<string, string | number>) => string;
+
 export interface OnboardingViewModel {
   title: string;
   description: string;
@@ -9,28 +11,34 @@ export interface OnboardingViewModel {
   secondaryLabel?: string;
 }
 
-export function buildOnboardingViewModel(context: OnboardingContext): OnboardingViewModel {
+export function buildOnboardingViewModel(
+  context: OnboardingContext,
+  t: Translator,
+): OnboardingViewModel {
   if (context.mode === "updated" || context.mode === "release-notes") {
     const versionCopy = context.previousVersion
-      ? `Updated from ${context.previousVersion} to ${context.currentVersion}.`
-      : `Lithe ${context.currentVersion} is installed.`;
+      ? t("onboarding.updatedFromVersion", {
+          previousVersion: context.previousVersion,
+          currentVersion: context.currentVersion,
+        })
+      : t("onboarding.versionInstalled", { version: context.currentVersion });
 
     return {
-      title: `What's new in Lithe ${context.currentVersion}`,
+      title: t("onboarding.whatsNewTitle", { version: context.currentVersion }),
       description:
-        context.mode === "updated" ? versionCopy : "The latest changes, improvements, and fixes.",
+        context.mode === "updated" ? versionCopy : t("onboarding.releaseNotesDescription"),
       showSettings: false,
       primaryAction: "finish",
-      primaryLabel: "Done",
+      primaryLabel: t("ui.done"),
     };
   }
 
   return {
-    title: "Welcome to Lithe",
-    description: `Lithe ${context.currentVersion} Choose a few defaults before you start.`,
+    title: t("onboarding.welcomeTitle"),
+    description: t("onboarding.welcomeDescription", { version: context.currentVersion }),
     showSettings: true,
     primaryAction: "open-folder",
-    primaryLabel: "Open Folder",
-    secondaryLabel: "Done",
+    primaryLabel: t("welcome.openFolder"),
+    secondaryLabel: t("ui.done"),
   };
 }

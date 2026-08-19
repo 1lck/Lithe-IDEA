@@ -1,5 +1,6 @@
 import { MicrophoneIcon as Mic, MonitorIcon as Monitor } from "@/ui/icons";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 import { SidebarFooter } from "@/ui/sidebar";
 
 type ShareState = "idle" | "active" | "error";
@@ -25,6 +26,8 @@ export function CollaborationMediaFooter({
   onToggleScreenShare: () => void;
   onStopFollowing: () => void;
 }) {
+  const { t } = useTranslation();
+
   return (
     <SidebarFooter>
       <div className="flex min-w-0 items-center gap-1 px-1 py-1">
@@ -32,7 +35,9 @@ export function CollaborationMediaFooter({
           type="button"
           variant={micState === "error" ? "danger" : "ghost"}
           active={micState === "active"}
-          tooltip={micState === "active" ? "Stop Mic" : "Start Mic"}
+          tooltip={
+            micState === "active" ? t("collaboration.stopMic") : t("collaboration.startMic")
+          }
           tooltipSide="top"
           onClick={onToggleMic}
           size="icon-sm"
@@ -43,7 +48,11 @@ export function CollaborationMediaFooter({
           type="button"
           variant={screenState === "error" ? "danger" : "ghost"}
           active={screenState === "active"}
-          tooltip={screenState === "active" ? "Stop Screen Share" : "Share Screen"}
+          tooltip={
+            screenState === "active"
+              ? t("collaboration.stopScreenShare")
+              : t("collaboration.shareScreen")
+          }
           tooltipSide="top"
           onClick={onToggleScreenShare}
           size="icon-sm"
@@ -53,7 +62,9 @@ export function CollaborationMediaFooter({
         <div className="ui-text-sm min-w-0 flex-1 truncate px-1">
           <span className="font-medium text-foreground">{workspaceName}</span>
           <span className="px-1 text-subtle-foreground">·</span>
-          <span className="text-subtle-foreground">{onlineCount} online</span>
+          <span className="text-subtle-foreground">
+            {t("collaboration.onlineCount", { count: onlineCount })}
+          </span>
           <span className="px-1 text-subtle-foreground">·</span>
           <span className="text-subtle-foreground">{streamStatus}</span>
         </div>
@@ -65,7 +76,7 @@ export function CollaborationMediaFooter({
             className="ml-auto"
             onClick={onStopFollowing}
           >
-            Stop
+            {t("collaboration.stopFollowing")}
           </Button>
         ) : null}
       </div>

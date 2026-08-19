@@ -14,6 +14,7 @@ import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import Badge from "@/ui/badge";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Empty, EmptyDescription } from "@/ui/empty";
 import {
   DropdownMenu,
@@ -91,6 +92,27 @@ const getWorkflowRunStatus = (status?: string | null, conclusion?: string | null
   };
 };
 
+const translateWorkflowStatusLabel = (t: (key: string) => string, label: string) => {
+  switch (label) {
+    case "Success":
+      return t("github.success");
+    case "Failed":
+      return t("github.failed");
+    case "Skipped":
+      return t("github.skipped");
+    case "Cancelled":
+      return t("github.cancelled");
+    case "Running":
+      return t("github.running");
+    case "Queued":
+      return t("github.queued");
+    case "Unknown":
+      return t("github.unknown");
+    default:
+      return label;
+  }
+};
+
 function WorkflowStatusIcon({
   status,
   conclusion,
@@ -100,13 +122,15 @@ function WorkflowStatusIcon({
   conclusion?: string | null;
   className?: string;
 }) {
+  const { t } = useTranslation();
   const state = getWorkflowRunStatus(status, conclusion);
   const Icon = state.icon;
+  const label = translateWorkflowStatusLabel(t, state.label);
 
   return (
-    <span title={state.label} aria-label={state.label} className={cn(state.className, className)}>
+    <span title={label} aria-label={label} className={cn(state.className, className)}>
       {state.animate || !Icon ? (
-        <Spinner label={state.label} compact />
+        <Spinner label={label} compact />
       ) : (
         <Icon className="size-4" weight="fill" />
       )}
@@ -275,6 +299,7 @@ const getLogLineSegments = (line: string, query: string) => {
 };
 
 const GitHubActionViewer = memo(({ runId, repoPath, bufferId }: GitHubActionViewerProps) => {
+  const { t } = useTranslation();
   const updateBuffer = useBufferStore.use.actions().updateBuffer;
   const buffer = useBufferStore((state) => state.buffers.find((item) => item.id === bufferId));
   const [details, setDetails] = useState<WorkflowRunDetails | null>(null);
@@ -304,7 +329,7 @@ const GitHubActionViewer = memo(({ runId, repoPath, bufferId }: GitHubActionView
   const fetchWorkflowRun = useCallback(
     async (force = false) => {
       if (!repoPath) {
-        setError("No repository selected.");
+        setError(t("github.noRepositorySelected"));
         setIsLoading(false);
         return;
       }
@@ -344,7 +369,7 @@ const GitHubActionViewer = memo(({ runId, repoPath, bufferId }: GitHubActionView
         setIsLoading(false);
       }
     },
-    [repoPath, runId],
+    [repoPath, runId, t],
   );
 
   useEffect(() => {
@@ -409,24 +434,24 @@ const GitHubActionViewer = memo(({ runId, repoPath, bufferId }: GitHubActionView
 
   const handleOpenInBrowser = useCallback(() => {
     if (!details?.url) {
-      toast.error("Run link is not available.");
+      toast.error(t("github.runLinkUnavailable"));
       return;
     }
     void openUrl(details.url);
-  }, [details?.url]);
+  }, [details?.url, t]);
 
   const handleCopyRunLink = useCallback(() => {
     if (!details?.url) {
-      toast.error("Run link is not available.");
+      toast.error(t("github.runLinkUnavailable"));
       return;
     }
-    void copyToClipboard(details.url, "Run link copied");
-  }, [details?.url]);
+    void copyToClipboard(details.url, t("github.runLinkCopied"));
+  }, [details?.url, t]);
 
   const loadJobLogs = useCallback(
     async (jobId: number, force = false) => {
       if (!repoPath) {
-        toast.error("No repository selected.");
+        toast.error(t("github.noRepositorySelected"));
         return;
       }
 
@@ -461,7 +486,7 @@ const GitHubActionViewer = memo(({ runId, repoPath, bufferId }: GitHubActionView
         setLoadingJobLogId((current) => (current === jobId ? null : current));
       }
     },
-    [details?.jobs, jobLogs, repoPath],
+    [details?.jobs, jobLogs, repoPath, t],
   );
 
   useEffect(() => {
@@ -486,8 +511,8 @@ const GitHubActionViewer = memo(({ runId, repoPath, bufferId }: GitHubActionView
       details?.name ||
       details?.workflowName ||
       buffer?.name ||
-      `Run #${runId}`,
-    [buffer?.name, details?.displayTitle, details?.name, details?.workflowName, runId],
+      t("github.runNumber", { number: runId }),
+    [buffer?.name, details?.displayTitle, details?.name, details?.workflowName, runId, t],
   );
   const runStatus = useMemo(
     () => getWorkflowRunStatus(details?.status, details?.conclusion),
@@ -497,16 +522,16 @@ const GitHubActionViewer = memo(({ runId, repoPath, bufferId }: GitHubActionView
     if (!details) return [];
 
     return [
-      details.workflowName ? { label: "Workflow", value: details.workflowName, mono: true } : null,
-      details.headBranch ? { label: "Branch", value: details.headBranch, mono: true } : null,
-      details.event ? { label: "Event", value: details.event } : null,
-      details.updatedAt ? { label: "Updated", value: formatRunTime(details.updatedAt) } : null,
-      details.headSha ? { label: "Commit", value: details.headSha.slice(0, 7), mono: true } : null,
-      { label: "Run", value: `#${details.databaseId}`, mono: true },
+      details.workflowName ? { label: t("github.workflow"), value: details.workflowName, mono: true } : null,
+      details.headBranch ? { label: t("github.branch"), value: details.headBranch, mono: true } : null,
+      details.event ? { label: t("github.event"), value: details.event } : null,
+      details.updatedAt ? { label: t("github.updated"), value: formatRunTime(details.updatedAt) } : null,
+      details.headSha ? { label: t("github.commit"), value: details.headSha.slice(0, 7), mono: true } : null,
+      { label: t("github.run"), value: `#${details.databaseId}`, mono: true },
     ].filter((item): item is { label: string; value: string; mono?: boolean } =>
       Boolean(item?.value),
     );
-  }, [details]);
+  }, [details, t]);
   const jobSummary = useMemo(() => {
     const jobs = details?.jobs ?? [];
     return {
@@ -537,12 +562,12 @@ const GitHubActionViewer = memo(({ runId, repoPath, bufferId }: GitHubActionView
   const hasLogSearchQuery = Boolean(logSearchQuery.trim());
   const handleCopySelectedLogs = useCallback(() => {
     if (!selectedStepLogs) {
-      toast.error("Step logs are not loaded.");
+      toast.error(t("github.stepLogsNotLoaded"));
       return;
     }
 
-    void copyToClipboard(selectedStepLogs, "Step logs copied");
-  }, [selectedStepLogs]);
+    void copyToClipboard(selectedStepLogs, t("github.stepLogsCopied"));
+  }, [selectedStepLogs, t]);
   const handleToggleLogSearch = useCallback(() => {
     setIsLogSearchVisible((current) => {
       const next = !current;
@@ -569,16 +594,20 @@ const GitHubActionViewer = memo(({ runId, repoPath, bufferId }: GitHubActionView
           }
           meta={
             <>
-              {details ? <span className={runStatus.className}>{runStatus.label}</span> : null}
+              {details ? (
+                <span className={runStatus.className}>
+                  {translateWorkflowStatusLabel(t, runStatus.label)}
+                </span>
+              ) : null}
               {jobSummary.total > 0 ? (
                 <>
                   <span>&middot;</span>
                   <span>
                     {jobSummary.failed > 0
-                      ? `${jobSummary.failed} failed`
+                      ? t("github.jobsFailed", { count: jobSummary.failed })
                       : jobSummary.running > 0
-                        ? `${jobSummary.running} running`
-                        : `${jobSummary.total} jobs`}
+                        ? t("github.jobsRunning", { count: jobSummary.running })
+                        : t("github.jobsCount", { count: jobSummary.total })}
                   </span>
                 </>
               ) : null}
@@ -586,14 +615,14 @@ const GitHubActionViewer = memo(({ runId, repoPath, bufferId }: GitHubActionView
           }
           actions={
             <DropdownMenu>
-              <Tooltip content="Action run actions" side="bottom">
+              <Tooltip content={t("github.actionRunActions")} side="bottom">
                 <DropdownMenuTrigger
                   render={
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon-xs"
-                      aria-label="Action run actions"
+                      aria-label={t("github.actionRunActions")}
                     />
                   }
                 >
@@ -605,10 +634,10 @@ const GitHubActionViewer = memo(({ runId, repoPath, bufferId }: GitHubActionView
                   disabled={isLoading && Boolean(details)}
                   onClick={() => void fetchWorkflowRun(true)}
                 >
-                  {isLoading && details ? "Refreshing..." : "Refresh"}
+                  {isLoading && details ? t("github.refreshing") : t("github.refresh")}
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleOpenInBrowser}>Open on GitHub</DropdownMenuItem>
-                <DropdownMenuItem onClick={handleCopyRunLink}>Copy link</DropdownMenuItem>
+                <DropdownMenuItem onClick={handleOpenInBrowser}>{t("github.openOnGitHub")}</DropdownMenuItem>
+                <DropdownMenuItem onClick={handleCopyRunLink}>{t("github.copyLink")}</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           }
@@ -618,7 +647,7 @@ const GitHubActionViewer = memo(({ runId, repoPath, bufferId }: GitHubActionView
       {error ? (
         <GitHubViewerState
           description={error}
-          actionLabel="Retry"
+          actionLabel={t("github.retry")}
           onAction={() => void fetchWorkflowRun(true)}
           tone="error"
         />
@@ -674,7 +703,10 @@ const GitHubActionViewer = memo(({ runId, repoPath, bufferId }: GitHubActionView
                             {job.name}
                           </span>
                           <span className="ui-text-sm text-subtle-foreground">
-                            {getWorkflowRunStatus(job.status, job.conclusion).label}
+                            {translateWorkflowStatusLabel(
+                              t,
+                              getWorkflowRunStatus(job.status, job.conclusion).label,
+                            )}
                           </span>
                         </div>
                         <div className="ui-text-sm mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-subtle-foreground">
@@ -728,7 +760,7 @@ const GitHubActionViewer = memo(({ runId, repoPath, bufferId }: GitHubActionView
                           ))
                         ) : (
                           <Empty className="min-h-0 flex-none items-start rounded-none px-2 py-2 text-left">
-                            <EmptyDescription>No steps reported.</EmptyDescription>
+                            <EmptyDescription>{t("github.noStepsReported")}</EmptyDescription>
                           </Empty>
                         )}
                       </ScrollArea>
@@ -741,9 +773,15 @@ const GitHubActionViewer = memo(({ runId, repoPath, bufferId }: GitHubActionView
                             </div>
                             <div className="ui-text-sm text-subtle-foreground">
                               {selectedStep
-                                ? getWorkflowRunStatus(selectedStep.status, selectedStep.conclusion)
-                                    .label
-                                : getWorkflowRunStatus(job.status, job.conclusion).label}
+                                ? translateWorkflowStatusLabel(
+                                    t,
+                                    getWorkflowRunStatus(selectedStep.status, selectedStep.conclusion)
+                                      .label,
+                                  )
+                                : translateWorkflowStatusLabel(
+                                    t,
+                                    getWorkflowRunStatus(job.status, job.conclusion).label,
+                                  )}
                             </div>
                           </div>
                           <div className="flex shrink-0 items-center gap-1">
@@ -753,8 +791,8 @@ const GitHubActionViewer = memo(({ runId, repoPath, bufferId }: GitHubActionView
                                 onChange={(event) => setLogSearchQuery(event.target.value)}
                                 size="xs"
                                 className="w-40 bg-surface/40"
-                                placeholder="Search logs"
-                                aria-label="Search logs"
+                                placeholder={t("github.searchLogs")}
+                                aria-label={t("github.searchLogs")}
                               />
                             ) : null}
                             <Button
@@ -762,7 +800,9 @@ const GitHubActionViewer = memo(({ runId, repoPath, bufferId }: GitHubActionView
                               onClick={handleToggleLogSearch}
                               variant="ghost"
                               size="icon-xs"
-                              tooltip={isLogSearchVisible ? "Hide log search" : "Search logs"}
+                              tooltip={
+                                isLogSearchVisible ? t("github.hideLogSearch") : t("github.searchLogs")
+                              }
                             >
                               <Search />
                             </Button>
@@ -772,11 +812,11 @@ const GitHubActionViewer = memo(({ runId, repoPath, bufferId }: GitHubActionView
                                 onClick={() => void loadJobLogs(job.id!, true)}
                                 variant="ghost"
                                 size="icon-xs"
-                                tooltip="Refresh job logs"
+                                tooltip={t("github.refreshJobLogs")}
                                 disabled={!areJobLogsDownloadable(job)}
                               >
                                 {loadingJobLogId === job.id ? (
-                                  <Spinner label="Loading job logs" compact />
+                                  <Spinner label={t("github.loadingJobLogs")} compact />
                                 ) : (
                                   <RefreshCw />
                                 )}
@@ -786,7 +826,7 @@ const GitHubActionViewer = memo(({ runId, repoPath, bufferId }: GitHubActionView
                               type="button"
                               onClick={handleCopySelectedLogs}
                               variant="ghost"
-                              tooltip="Copy job logs"
+                              tooltip={t("github.copyJobLogs")}
                               disabled={!job.id || !selectedStepLogs}
                               size="icon-xs"
                             >
@@ -798,11 +838,11 @@ const GitHubActionViewer = memo(({ runId, repoPath, bufferId }: GitHubActionView
                         <div className="max-h-[52vh] overflow-auto p-3">
                           {!areJobLogsDownloadable(job) ? (
                             <p className="ui-text-sm text-subtle-foreground">
-                              Logs are available after this job finishes.
+                              {t("github.logsAvailableAfterJobFinishes")}
                             </p>
                           ) : job.id && loadingJobLogId === job.id && !jobLogs[job.id] ? (
                             <div className="ui-text-sm flex items-center gap-2 text-subtle-foreground">
-                              <Spinner label="Loading logs" showLabel compact />
+                              <Spinner label={t("github.loadingLogs")} showLabel compact />
                             </div>
                           ) : job.id && jobLogErrors[job.id] ? (
                             <div className="space-y-2">
@@ -814,7 +854,7 @@ const GitHubActionViewer = memo(({ runId, repoPath, bufferId }: GitHubActionView
                                 size="xs"
                                 className="border border-destructive/40 text-destructive/90 hover:bg-destructive/10"
                               >
-                                Retry
+                                {t("github.retry")}
                               </Button>
                             </div>
                           ) : filteredStepLogs ? (
@@ -840,11 +880,11 @@ const GitHubActionViewer = memo(({ runId, repoPath, bufferId }: GitHubActionView
                             </pre>
                           ) : hasLogSearchQuery && selectedStepLogs ? (
                             <Empty className="min-h-0 items-start rounded-none p-0 text-left">
-                              <EmptyDescription>No log lines match this search.</EmptyDescription>
+                              <EmptyDescription>{t("github.noLogLinesMatchSearch")}</EmptyDescription>
                             </Empty>
                           ) : (
                             <Empty className="min-h-0 items-start rounded-none p-0 text-left">
-                              <EmptyDescription>No logs available for this step.</EmptyDescription>
+                              <EmptyDescription>{t("github.noLogsAvailableForStep")}</EmptyDescription>
                             </Empty>
                           )}
                         </div>
@@ -857,7 +897,9 @@ const GitHubActionViewer = memo(({ runId, repoPath, bufferId }: GitHubActionView
             {details.jobs.length > visibleJobs.length ? (
               <div className="px-1 py-2">
                 <Spinner
-                  label={`Loading ${details.jobs.length - visibleJobs.length} more jobs`}
+                  label={t("github.loadingMoreJobs", {
+                    count: details.jobs.length - visibleJobs.length,
+                  })}
                   showLabel
                   compact
                 />
@@ -866,7 +908,7 @@ const GitHubActionViewer = memo(({ runId, repoPath, bufferId }: GitHubActionView
           </div>
         </div>
       ) : (
-        <GitHubViewerLoadingState label="Loading action run" />
+        <GitHubViewerLoadingState label={t("github.loadingActionRun")} />
       )}
     </GitHubViewerShell>
   );

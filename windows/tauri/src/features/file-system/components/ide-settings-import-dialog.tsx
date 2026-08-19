@@ -1,9 +1,10 @@
 import { invoke } from "@/platform/tauri-core";
 import { ArrowLeftIcon as ArrowLeft, CheckIcon as Check } from "@/ui/icons";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRecentFoldersStore } from "@/features/file-system/stores/recent-folders.store";
 import { useToast } from "@/features/layout/contexts/toast-context";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import Command, {
   CommandEmpty,
@@ -41,12 +42,12 @@ interface IdeImportSource {
 
 interface IdeImportCapability {
   id: "recentProjects" | "settings" | "keybindings";
-  label: string;
+  labelKey: string;
 }
 
 const RECENT_PROJECTS_CAPABILITY: IdeImportCapability = {
   id: "recentProjects",
-  label: "Recent Projects",
+  labelKey: "ideImport.recentProjects",
 };
 
 const IDE_IMPORT_SOURCES: IdeImportSource[] = [
@@ -95,6 +96,7 @@ function IdeSettingsImportContent({ onClose, onBack }: IdeSettingsImportContentP
   const inputRef = useRef<HTMLInputElement>(null);
   const importRecentFolders = useRecentFoldersStore((state) => state.actions.importRecentFolders);
   const { showToast } = useToast();
+  const { t } = useTranslation();
 
   const importSources = useMemo(
     () =>
@@ -137,13 +139,13 @@ function IdeSettingsImportContent({ onClose, onBack }: IdeSettingsImportContentP
     }
 
     return selectedSource.capabilities.filter((capability) =>
-      matchesSearchQuery(trimmedQuery, [capability.label, capability.id]),
+      matchesSearchQuery(trimmedQuery, [t(capability.labelKey), capability.id]),
     );
-  }, [query, selectedSource]);
+  }, [query, selectedSource, t]);
 
   const currentItemCount = selectedSource ? filteredCapabilities.length : filteredSources.length;
 
-  const loadProjects = async () => {
+  const loadProjects = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
@@ -152,16 +154,16 @@ function IdeSettingsImportContent({ onClose, onBack }: IdeSettingsImportContentP
       setProjects(nextProjects);
     } catch (error) {
       console.error("Failed to load editor import data:", error);
-      setError(`Could not scan installed editors: ${error}`);
+      setError(t("ideImport.scanFailed", { error: String(error) }));
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [t]);
 
   useEffect(() => {
     void loadProjects();
     inputRef.current?.focus();
-  }, []);
+  }, [loadProjects]);
 
   useEffect(() => {
     setSelectedIndex(0);
@@ -194,7 +196,7 @@ function IdeSettingsImportContent({ onClose, onBack }: IdeSettingsImportContentP
 
     if (selectedCapabilityIds.includes("recentProjects") && selectedSource.projects.length === 0) {
       showToast({
-        message: `No recent projects found in ${selectedSource.name}`,
+        message: t("ideImport.noRecentProjects", { name: selectedSource.name }),
         type: "info",
       });
       return;
@@ -211,7 +213,7 @@ function IdeSettingsImportContent({ onClose, onBack }: IdeSettingsImportContentP
     }
 
     showToast({
-      message: `Imported selected settings from ${selectedSource.name}`,
+      message: t("ideImport.importedSelectedSettings", { name: selectedSource.name }),
       type: "success",
     });
     onClose();
@@ -252,7 +254,7 @@ function IdeSettingsImportContent({ onClose, onBack }: IdeSettingsImportContentP
   };
 
   const leadingAction: ReactNode = onBack ? (
-    <CommandHeaderAction type="button" aria-label="Back to projects" onClick={onBack}>
+    <CommandHeaderAction type="button" aria-label={t("ui.backToProjects")} onClick={onBack}>
       <ArrowLeft />
     </CommandHeaderAction>
   ) : null;
@@ -266,18 +268,18 @@ function IdeSettingsImportContent({ onClose, onBack }: IdeSettingsImportContentP
           value={query}
           onChange={setQuery}
           onKeyDown={handleKeyDown}
-          placeholder={selectedSource ? "Import what..." : "Import from..."}
+          placeholder={selectedSource ? t("ideImport.importWhat") : t("ideImport.importFrom")}
         />
       </CommandHeader>
 
       <CommandList>
         {isLoading ? (
-          <CommandEmpty>Scanning installed editors...</CommandEmpty>
+          <CommandEmpty>{t("ideImport.scanningInstalledEditors")}</CommandEmpty>
         ) : error ? (
           <CommandEmpty>{error}</CommandEmpty>
         ) : selectedSource ? (
           filteredCapabilities.length === 0 ? (
-            <CommandEmpty>No import option matches "{query}".</CommandEmpty>
+            <CommandEmpty>{t("ideImport.noOptionMatches", { query })}</CommandEmpty>
           ) : (
             filteredCapabilities.map((capability, index) => (
               <CommandItemRow
@@ -285,7 +287,7 @@ function IdeSettingsImportContent({ onClose, onBack }: IdeSettingsImportContentP
                 isSelected={index === selectedIndex}
                 onMouseEnter={() => setSelectedIndex(index)}
                 onClick={() => handleToggleCapability(capability)}
-                title={capability.label}
+                title={t(capability.labelKey)}
                 accessory={
                   <span className="flex size-4 shrink-0 items-center justify-center rounded border border-border text-primary">
                     {selectedCapabilityIds.includes(capability.id) ? <Check size={12} /> : null}
@@ -295,7 +297,7 @@ function IdeSettingsImportContent({ onClose, onBack }: IdeSettingsImportContentP
             ))
           )
         ) : filteredSources.length === 0 ? (
-          <CommandEmpty>No import source matches "{query}".</CommandEmpty>
+          <CommandEmpty>{t("ideImport.noSourceMatches", { query })}</CommandEmpty>
         ) : (
           filteredSources.map((source, index) => (
             <CommandItemRow
@@ -317,7 +319,7 @@ function IdeSettingsImportContent({ onClose, onBack }: IdeSettingsImportContentP
             disabled={selectedCapabilityIds.length === 0}
             onClick={handleImport}
           >
-            Import
+            {t("ui.import")}
           </Button>
         </CommandFooter>
       ) : null}
@@ -326,8 +328,10 @@ function IdeSettingsImportContent({ onClose, onBack }: IdeSettingsImportContentP
 }
 
 export function IdeSettingsImportDialog({ onClose }: IdeSettingsImportDialogProps) {
+  const { t } = useTranslation();
+
   return (
-    <Command isVisible onClose={onClose} title="Import Settings">
+    <Command isVisible onClose={onClose} title={t("ideImport.importSettings")}>
       <IdeSettingsImportContent onClose={onClose} />
     </Command>
   );

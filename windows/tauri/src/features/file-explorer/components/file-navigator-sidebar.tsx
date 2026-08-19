@@ -12,6 +12,7 @@ import {
 } from "react";
 import { cva } from "class-variance-authority";
 import { fuzzyScore } from "@/features/quick-open/utils/fuzzy-search";
+import { useTranslation } from "@/i18n/locale-provider";
 import { EmptyState } from "@/ui/empty";
 import {
   SidebarHeader,
@@ -254,7 +255,7 @@ export const FileNavigatorSidebar = memo(function FileNavigatorSidebar({
   selectedKey,
   onSelect,
   className,
-  ariaLabel = "Files",
+  ariaLabel = "",
   viewMode = "tree",
   onViewModeChange,
   surface = "sidebar",
@@ -262,6 +263,7 @@ export const FileNavigatorSidebar = memo(function FileNavigatorSidebar({
   compactRows = false,
   searchResetKey,
 }: FileNavigatorSidebarProps) {
+  const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState("");
   const navigatorRef = useRef<HTMLElement>(null);
   const [preferredWidth, setPreferredWidth] = useState(DEFAULT_FILE_NAVIGATOR_WIDTH);
@@ -385,35 +387,35 @@ export const FileNavigatorSidebar = memo(function FileNavigatorSidebar({
       ref={navigatorRef}
       className={cn(fileNavigatorSurfaceVariants({ surface }), className)}
       style={{ width: navigatorLayout.width }}
-      aria-label={ariaLabel}
+      aria-label={ariaLabel || t("fileNavigator.files")}
     >
       {onViewModeChange ? (
         <SidebarHeader className={surface === "plain" ? "px-1" : undefined}>
           <SidebarSearchPopover
             value={searchQuery}
             onChange={setSearchQuery}
-            aria-label="Search files"
+            aria-label={t("fileExplorer.searchFiles")}
           />
           <div
             className="ml-auto flex shrink-0 items-center gap-(--lithe-chrome-gap)"
             role="group"
-            aria-label="File navigator view"
+            aria-label={t("fileNavigator.viewAria")}
           >
             <SidebarHeaderIconButton
               active={viewMode === "flat"}
               onClick={() => onViewModeChange("flat")}
-              tooltip="Flat list"
+              tooltip={t("fileNavigator.flatList")}
               tooltipSide="bottom"
-              aria-label="Flat list"
+              aria-label={t("fileNavigator.flatList")}
             >
               <ListBullets />
             </SidebarHeaderIconButton>
             <SidebarHeaderIconButton
               active={viewMode === "tree"}
               onClick={() => onViewModeChange("tree")}
-              tooltip="File tree"
+              tooltip={t("fileNavigator.fileTree")}
               tooltipSide="bottom"
-              aria-label="File tree"
+              aria-label={t("fileNavigator.fileTree")}
             >
               <TreeStructure />
             </SidebarHeaderIconButton>
@@ -424,11 +426,14 @@ export const FileNavigatorSidebar = memo(function FileNavigatorSidebar({
       <ScrollArea className="min-h-0 flex-1" contentClassName="p-1" reserveScrollbarGutter>
         {hiddenItemCount > 0 ? (
           <SidebarSectionLabel>
-            Showing {searchableItems.length.toLocaleString()} of {items.length.toLocaleString()}
+            {t("fileNavigator.showingCount", {
+              visible: searchableItems.length.toLocaleString(),
+              total: items.length.toLocaleString(),
+            })}
           </SidebarSectionLabel>
         ) : null}
         {filteredItems.length === 0 ? (
-          <EmptyState message="No files match" />
+          <EmptyState message={t("fileNavigator.noFilesMatch")} />
         ) : viewMode === "flat" ? (
           flatItems.map((item) => (
             <FileNavigatorFlatRow
@@ -462,7 +467,7 @@ export const FileNavigatorSidebar = memo(function FileNavigatorSidebar({
         onKeyDown={handleResizeKeyDown}
         role="separator"
         aria-orientation="vertical"
-        aria-label="Resize file navigator"
+        aria-label={t("fileNavigator.resizeAria")}
         aria-valuemin={navigatorLayout.minWidth}
         aria-valuemax={navigatorLayout.maxWidth}
         aria-valuenow={navigatorLayout.width}

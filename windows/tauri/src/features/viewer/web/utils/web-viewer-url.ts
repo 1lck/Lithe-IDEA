@@ -139,7 +139,9 @@ export function normalizeWebViewerFaviconUrl(
   return null;
 }
 
-export function getWebViewerSecurity(url: string): {
+type Translator = (key: string, values?: Record<string, string | number>) => string;
+
+export function getWebViewerSecurity(url: string, t?: Translator): {
   isLocalhost: boolean;
   isSecure: boolean;
   tooltip: string;
@@ -150,7 +152,7 @@ export function getWebViewerSecurity(url: string): {
     return {
       isLocalhost: false,
       isSecure: false,
-      tooltip: "Enter a valid URL",
+      tooltip: t?.("viewer.enterValidUrl") ?? "Enter a valid URL",
       toneClass: "text-subtle-foreground",
     };
   }
@@ -159,7 +161,7 @@ export function getWebViewerSecurity(url: string): {
     return {
       isLocalhost: false,
       isSecure: true,
-      tooltip: "Local browser page",
+      tooltip: t?.("viewer.localBrowserPage") ?? "Local browser page",
       toneClass: "text-subtle-foreground",
     };
   }
@@ -171,10 +173,10 @@ export function getWebViewerSecurity(url: string): {
     isLocalhost,
     isSecure,
     tooltip: isLocalhost
-      ? "Local or private network connection"
+      ? (t?.("viewer.localOrPrivateConnection") ?? "Local or private network connection")
       : isSecure
-        ? "Secure connection (HTTPS)"
-        : "Not secure (HTTP)",
+        ? (t?.("viewer.secureConnectionHttps") ?? "Secure connection (HTTPS)")
+        : (t?.("viewer.notSecureHttp") ?? "Not secure (HTTP)"),
     toneClass: isLocalhost ? "text-info" : isSecure ? "text-success" : "text-warning",
   };
 }

@@ -273,9 +273,9 @@ const GitStatusPanel = ({
     if (!repoPath) return;
     if (
       confirmBeforeDiscard &&
-      !(await showConfirmDialog(`Discard changes for "${filePath}"? This cannot be undone.`, {
-        title: "Discard File Changes",
-        confirmLabel: "Discard",
+      !(await showConfirmDialog(t("git.discardFileConfirm", { path: filePath }), {
+        title: t("git.discardFileChanges"),
+        confirmLabel: t("git.discard"),
       }))
     ) {
       return;
@@ -310,14 +310,14 @@ const GitStatusPanel = ({
     if (!repoPath) return;
 
     if (stashModal.type === "file" && stashModal.filePath) {
-      await createStash(repoPath, message || `Stash ${stashModal.filePath}`, false, [
+      await createStash(repoPath, message || t("git.stashFileDefault", { path: stashModal.filePath }), false, [
         stashModal.filePath,
       ]);
     } else if (stashModal.type === "all") {
       const paths = unstagedFiles.map((f) => f.path);
       if (paths.length === 0) return;
 
-      await createStash(repoPath, message || "Stash all unstaged changes", false, paths);
+      await createStash(repoPath, message || t("git.stashAllUnstagedChanges"), false, paths);
     }
 
     await onRefresh?.();
@@ -460,8 +460,8 @@ const GitStatusPanel = ({
                 disabled={isLoading || folderState.descendantFilePaths.length === 0}
                 aria-label={
                   folderState.areAllDescendantFilesStaged
-                    ? `Unstage folder ${compacted.label}`
-                    : `Stage folder ${compacted.label}`
+                    ? t("git.unstageFolder", { name: compacted.label })
+                    : t("git.stageFolder", { name: compacted.label })
                 }
               />
             }
@@ -578,7 +578,7 @@ const GitStatusPanel = ({
                   onClick={() => setIsDiffMenuOpen((open) => !open)}
                   disabled={isLoading}
                   active={isDiffMenuOpen}
-                  aria-label="Choose diff source"
+                  aria-label={t("git.chooseDiffSource")}
                   aria-haspopup="menu"
                   aria-expanded={isDiffMenuOpen}
                 >
@@ -613,9 +613,9 @@ const GitStatusPanel = ({
                   onClick={handleStageAll}
                   disabled={isLoading}
                   className="disabled:opacity-50"
-                  tooltip="Stage all changes"
+                  tooltip={t("git.stageAllChanges")}
                   tooltipSide="bottom"
-                  aria-label="Stage all changes"
+                  aria-label={t("git.stageAllChanges")}
                 >
                   <Plus />
                 </SidebarHeaderIconButton>
@@ -625,9 +625,9 @@ const GitStatusPanel = ({
                   onClick={handleUnstageAll}
                   disabled={isLoading}
                   className="disabled:opacity-50"
-                  tooltip="Unstage all changes"
+                  tooltip={t("git.unstageAllChanges")}
                   tooltipSide="bottom"
-                  aria-label="Unstage all changes"
+                  aria-label={t("git.unstageAllChanges")}
                 >
                   <Minus />
                 </SidebarHeaderIconButton>
@@ -643,7 +643,7 @@ const GitStatusPanel = ({
               <section className="space-y-0.5">
                 {renderSectionHeader("tracked", t("git.tracked"), trackedFiles.length)}
                 {!collapsedSections.has("tracked") ? (
-                  <SidebarTree label="Tracked files">
+                  <SidebarTree label={t("git.trackedFiles")}>
                     {gitChangesFolderView
                       ? trackedFolderTree && renderFolderTree(trackedFolderTree, "changes")
                       : renderFlatFileList(groupedTrackedFiles)}
@@ -655,7 +655,7 @@ const GitStatusPanel = ({
               <section className="space-y-0.5 pt-2">
                 {renderSectionHeader("untracked", t("git.untracked"), untrackedFiles.length)}
                 {!collapsedSections.has("untracked") ? (
-                  <SidebarTree label="Untracked files">
+                  <SidebarTree label={t("git.untrackedFiles")}>
                     {gitChangesFolderView
                       ? untrackedFolderTree && renderFolderTree(untrackedFolderTree, "changes")
                       : renderFlatFileList(groupedUntrackedFiles)}
@@ -670,7 +670,7 @@ const GitStatusPanel = ({
           <EmptyMedia variant="icon">
             <Check />
           </EmptyMedia>
-          <EmptyTitle>Working tree clean</EmptyTitle>
+          <EmptyTitle>{t("git.workingTreeClean")}</EmptyTitle>
         </Empty>
       )}
 
@@ -684,7 +684,7 @@ const GitStatusPanel = ({
                   ? [
                       {
                         id: "open-file",
-                        label: "Open File",
+                        label: t("git.openFile"),
                         icon: <FileText />,
                         onClick: () => onOpenFile(contextMenuData.filePath),
                       },
@@ -694,7 +694,7 @@ const GitStatusPanel = ({
                   ? [
                       {
                         id: "unstage-file",
-                        label: "Unstage File",
+                        label: t("git.unstageFile"),
                         icon: <Minus />,
                         onClick: () => void handleUnstageFile(contextMenuData.filePath),
                       },
@@ -702,13 +702,13 @@ const GitStatusPanel = ({
                   : [
                       {
                         id: "stage-file",
-                        label: "Stage File",
+                        label: t("git.stageFile"),
                         icon: <Plus />,
                         onClick: () => void handleStageFile(contextMenuData.filePath),
                       },
                       {
                         id: "stash-file",
-                        label: "Stash File",
+                        label: t("git.stashFile"),
                         icon: <Archive />,
                         onClick: () => void handleStashFile(contextMenuData.filePath),
                       },
@@ -717,7 +717,7 @@ const GitStatusPanel = ({
                   ? [
                       {
                         id: "discard-file",
-                        label: "Discard Changes",
+                        label: t("git.discardChanges"),
                         icon: <Trash2 />,
                         onClick: () => void handleDiscardFile(contextMenuData.filePath),
                       },

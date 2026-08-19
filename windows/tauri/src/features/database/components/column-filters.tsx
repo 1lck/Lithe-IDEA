@@ -2,22 +2,23 @@ import { PlusIcon as Plus, XIcon as X } from "@/ui/icons";
 import { Button } from "@/ui/button";
 import Input from "@/ui/input";
 import Select from "@/ui/select";
+import { useTranslation } from "@/i18n/locale-provider";
 import { databaseCardClassName } from "./database-surface";
 import type { ColumnFilter, ColumnInfo, FilterOperator } from "../types/common.types";
 
-const FILTER_OPERATORS: { value: FilterOperator; label: string }[] = [
-  { value: "equals", label: "=" },
-  { value: "notEquals", label: "!=" },
-  { value: "contains", label: "contains" },
-  { value: "startsWith", label: "starts with" },
-  { value: "endsWith", label: "ends with" },
-  { value: "gt", label: ">" },
-  { value: "gte", label: ">=" },
-  { value: "lt", label: "<" },
-  { value: "lte", label: "<=" },
-  { value: "between", label: "between" },
-  { value: "isNull", label: "is null" },
-  { value: "isNotNull", label: "is not null" },
+const FILTER_OPERATORS: { value: FilterOperator; labelKey: string; fallback: string }[] = [
+  { value: "equals", labelKey: "database.filterEquals", fallback: "=" },
+  { value: "notEquals", labelKey: "database.filterNotEquals", fallback: "!=" },
+  { value: "contains", labelKey: "database.filterContains", fallback: "contains" },
+  { value: "startsWith", labelKey: "database.filterStartsWith", fallback: "starts with" },
+  { value: "endsWith", labelKey: "database.filterEndsWith", fallback: "ends with" },
+  { value: "gt", labelKey: "database.filterGreaterThan", fallback: ">" },
+  { value: "gte", labelKey: "database.filterGreaterThanOrEqual", fallback: ">=" },
+  { value: "lt", labelKey: "database.filterLessThan", fallback: "<" },
+  { value: "lte", labelKey: "database.filterLessThanOrEqual", fallback: "<=" },
+  { value: "between", labelKey: "database.filterBetween", fallback: "between" },
+  { value: "isNull", labelKey: "database.filterIsNull", fallback: "is null" },
+  { value: "isNotNull", labelKey: "database.filterIsNotNull", fallback: "is not null" },
 ];
 
 const NO_VALUE_OPERATORS = new Set<FilterOperator>(["isNull", "isNotNull"]);
@@ -39,6 +40,7 @@ export default function ColumnFilters({
   onClear,
   onAddFilter,
 }: ColumnFiltersProps) {
+  const { t } = useTranslation();
   if (filters.length === 0) return null;
 
   return (
@@ -46,7 +48,7 @@ export default function ColumnFilters({
       <div className="mb-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="font-sans ui-text-sm text-subtle-foreground">
-            {filters.length} filter{filters.length !== 1 ? "s" : ""}
+            {t("database.filtersCount", { count: filters.length })}
           </span>
           {columns.length > 0 && (
             <Button
@@ -54,10 +56,10 @@ export default function ColumnFilters({
               variant="ghost"
               size="xs"
               className="gap-0.5 text-subtle-foreground"
-              aria-label="Add filter"
+              aria-label={t("database.addFilter")}
             >
               <Plus />
-              Add
+              {t("database.add")}
             </Button>
           )}
         </div>
@@ -65,10 +67,10 @@ export default function ColumnFilters({
           onClick={onClear}
           variant="ghost"
           className="text-subtle-foreground"
-          aria-label="Clear all filters"
+          aria-label={t("database.clearAllFilters")}
           size="xs"
         >
-          Clear all
+          {t("database.clearAll")}
         </Button>
       </div>
       <div className="space-y-1">
@@ -85,7 +87,7 @@ export default function ColumnFilters({
               value={filter.operator}
               options={FILTER_OPERATORS.map((operator) => ({
                 value: operator.value,
-                label: operator.label,
+                label: t(operator.labelKey) || operator.fallback,
               }))}
               onChange={(value) => onUpdate(index, { operator: value as FilterOperator })}
               size="xs"
@@ -95,7 +97,7 @@ export default function ColumnFilters({
               <Input
                 value={filter.value}
                 onChange={(e) => onUpdate(index, { value: e.target.value })}
-                placeholder="value"
+                placeholder={t("database.value")}
                 size="xs"
                 className="flex-1"
               />
@@ -104,7 +106,7 @@ export default function ColumnFilters({
               <Input
                 value={filter.value2 || ""}
                 onChange={(e) => onUpdate(index, { value2: e.target.value })}
-                placeholder="to"
+                placeholder={t("database.to")}
                 size="xs"
                 className="flex-1"
               />
@@ -114,7 +116,7 @@ export default function ColumnFilters({
               variant="ghost"
               size="icon-xs"
               className="text-subtle-foreground hover:text-destructive"
-              aria-label="Remove filter"
+              aria-label={t("database.removeFilter")}
             >
               <X />
             </Button>
