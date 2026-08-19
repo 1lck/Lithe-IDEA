@@ -23,6 +23,7 @@ import { frontendTrace } from "@/utils/frontend-trace";
 import { recordStartupMilestone } from "@/features/bootstrap/startup-performance";
 import { getInternalTabDragData } from "@/features/tabs/utils/internal-tab-drag";
 import TitleBarWithSettings from "../../window/components/title-bar/title-bar";
+import { AppUpdateControl } from "./app-update-control";
 import Footer from "./footer/footer";
 import { ResizablePane } from "./resizable-pane";
 import {
@@ -259,6 +260,11 @@ export function MainLayout() {
       )}
 
       <TitleBarWithSettings />
+      <div className="pointer-events-none absolute top-2 right-3 z-30">
+        <div className="pointer-events-auto">
+          <AppUpdateControl />
+        </div>
+      </div>
 
       {rootFolderPath ? (
         <>
