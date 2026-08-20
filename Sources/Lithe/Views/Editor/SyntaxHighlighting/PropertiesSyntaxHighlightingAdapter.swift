@@ -13,13 +13,21 @@ enum PropertiesSyntaxHighlightingAdapter {
     static func apply(to storage: NSTextStorage, palette: SyntaxHighlightingPalette, range target: NSRange) {
         let source = storage.string as NSString
         let scanLimit = min(NSMaxRange(target), source.length)
-        var lineStart = target.location
+        var lineStart = logicalStart(for: target.location, in: source)
         var continuation = false
 
-        while lineStart < scanLimit {
+        while lineStart < source.length && (lineStart < scanLimit || continuation) {
             let lineRange = source.lineRange(for: NSRange(location: lineStart, length: 0))
             let contentRange = lineContentRange(in: source, lineRange: lineRange)
             let trimmed = trimmedRange(in: source, range: contentRange)
+            let highlightRange = NSMaxRange(lineRange) > target.location
+                ? lineRange
+                : NSRange(location: target.location, length: 0)
+            if highlightRange.length > 0 {
+                // Continuation changes can propagate past the dirty range, so
+                // reset each affected line before applying its current tokens.
+                storage.addAttribute(.foregroundColor, value: palette.text, range: lineRange)
+            }
             guard trimmed.length > 0 else {
                 continuation = false
                 lineStart = NSMaxRange(lineRange)
@@ -27,14 +35,14 @@ enum PropertiesSyntaxHighlightingAdapter {
             }
 
             if continuation {
-                addColor(palette.string, to: storage, range: trimmed, limitedTo: target)
+                addColor(palette.string, to: storage, range: trimmed, limitedTo: highlightRange)
                 continuation = endsWithContinuation(in: source, range: contentRange)
                 lineStart = NSMaxRange(lineRange)
                 continue
             }
             let first = source.character(at: trimmed.location)
             if first == 35 || first == 33 {
-                addColor(palette.comment, to: storage, range: trimmed, limitedTo: target)
+                addColor(palette.comment, to: storage, range: trimmed, limitedTo: highlightRange)
                 lineStart = NSMaxRange(lineRange)
                 continue
             }
@@ -43,18 +51,31 @@ enum PropertiesSyntaxHighlightingAdapter {
                 let keyRange = trimmedRange(in: source, range: NSRange(location: trimmed.location, length: separator - trimmed.location))
                 let valueStart = valueStart(in: source, after: separator, limit: NSMaxRange(trimmed))
                 let valueRange = NSRange(location: valueStart, length: NSMaxRange(trimmed) - valueStart)
-                addColor(palette.property, to: storage, range: keyRange, limitedTo: target)
-                addColor(palette.string, to: storage, range: valueRange, limitedTo: target)
+                addColor(palette.property, to: storage, range: keyRange, limitedTo: highlightRange)
+                addColor(palette.string, to: storage, range: valueRange, limitedTo: highlightRange)
                 let quotedRanges = quotedStringRanges(in: source, range: valueRange)
-                apply(numberExpression, color: palette.number, source: source, storage: storage, range: valueRange, excluding: quotedRanges, target: target)
-                apply(booleanExpression, color: palette.keyword, source: source, storage: storage, range: valueRange, excluding: quotedRanges, target: target)
+                apply(numberExpression, color: palette.number, source: source, storage: storage, range: valueRange, excluding: quotedRanges, target: highlightRange)
+                apply(booleanExpression, color: palette.keyword, source: source, storage: storage, range: valueRange, excluding: quotedRanges, target: highlightRange)
                 continuation = endsWithContinuation(in: source, range: contentRange)
             } else {
-                addColor(palette.property, to: storage, range: trimmed, limitedTo: target)
+                addColor(palette.property, to: storage, range: trimmed, limitedTo: highlightRange)
                 continuation = false
             }
             lineStart = NSMaxRange(lineRange)
         }
+    }
+
+    private static func logicalStart(for location: Int, in source: NSString) -> Int {
+        var lineStart = source.lineRange(
+            for: NSRange(location: min(max(0, location), max(0, source.length - 1)), length: 0)
+        ).location
+        while lineStart > 0 {
+            let previousLine = source.lineRange(for: NSRange(location: lineStart - 1, length: 0))
+            let previousContent = lineContentRange(in: source, lineRange: previousLine)
+            guard endsWithContinuation(in: source, range: previousContent) else { break }
+            lineStart = previousLine.location
+        }
+        return lineStart
     }
 
     private static func separatorLocation(in source: NSString, range: NSRange) -> Int? {

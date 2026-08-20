@@ -563,6 +563,40 @@ struct EditorSyntaxHighlighterTests {
     }
 
     @Test
+    func propertiesIncrementalHighlightingPreservesContinuationState() throws {
+        let source = [
+            "continued=first line \\",
+            "  second line \\",
+            "  third line",
+            "next=true"
+        ].joined(separator: "\n") + "\n"
+        let fullStorage = NSTextStorage(string: source)
+        let incrementalStorage = NSTextStorage(string: source)
+        let text = source as NSString
+        let editedRange = text.range(of: "third line")
+
+        SyntaxHighlighter.apply(
+            to: fullStorage,
+            font: .monospacedSystemFont(ofSize: 13, weight: .regular),
+            fileExtension: "properties",
+            isDark: true
+        )
+        SyntaxHighlighter.apply(
+            to: incrementalStorage,
+            font: .monospacedSystemFont(ofSize: 13, weight: .regular),
+            fileExtension: "properties",
+            isDark: true,
+            range: editedRange
+        )
+
+        let expectedColor = try color(in: fullStorage, at: editedRange.location)
+        let incrementalColor = try color(in: incrementalStorage, at: editedRange.location)
+
+        #expect(incrementalColor == expectedColor)
+        #expect(incrementalColor == syntaxPalette(fileExtension: "properties").string)
+    }
+
+    @Test
     func configSyntaxCorpusUsesExpectedTokenColors() throws {
         let source = try syntaxCorpus(named: "config-syntax-corpus", extension: "conf")
         let storage = NSTextStorage(string: source)
