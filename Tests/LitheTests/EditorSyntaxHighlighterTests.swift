@@ -166,6 +166,90 @@ struct EditorSyntaxHighlighterTests {
     }
 
     @Test
+    func yamlMappingKeysInsideQuotedScalarsRemainStringColored() throws {
+        let source = #"""
+        message: "hello, owner: admin"
+        single: 'hello, owner: admin'
+        flow: { owner: admin }
+        """#
+        let storage = NSTextStorage(string: source)
+
+        SyntaxHighlighter.apply(
+            to: storage,
+            font: .monospacedSystemFont(ofSize: 13, weight: .regular),
+            fileExtension: "yaml",
+            isDark: true
+        )
+
+        let text = source as NSString
+        let doubleLine = text.range(of: #"message: "hello, owner: admin""#)
+        let singleLine = text.range(of: "single: 'hello, owner: admin'")
+        let flowLine = text.range(of: "flow: { owner: admin }")
+        let doubleStringColor = try color(in: storage, at: doubleLine.location + "message: \"hello, ".utf16.count)
+        let singleStringColor = try color(in: storage, at: singleLine.location + "single: 'hello, ".utf16.count)
+        let flowPropertyColor = try color(in: storage, at: flowLine.location + "flow: { ".utf16.count)
+
+        #expect(doubleStringColor == singleStringColor)
+        #expect(doubleStringColor != flowPropertyColor)
+        #expect(flowPropertyColor == propertyColor)
+    }
+
+    @Test
+    func yamlBlockScalarStateIsRestoredBeforeIncrementalRange() throws {
+        let source = #"""
+        description: |
+          first line
+          number 123 remains literal text
+        enabled: true
+        """#
+        let fullStorage = NSTextStorage(string: source)
+        let incrementalStorage = NSTextStorage(string: source)
+        let editedRange = (source as NSString).range(of: "number 123 remains literal text")
+
+        SyntaxHighlighter.apply(
+            to: fullStorage,
+            font: .monospacedSystemFont(ofSize: 13, weight: .regular),
+            fileExtension: "yaml",
+            isDark: true
+        )
+        SyntaxHighlighter.apply(
+            to: incrementalStorage,
+            font: .monospacedSystemFont(ofSize: 13, weight: .regular),
+            fileExtension: "yaml",
+            isDark: true,
+            range: editedRange
+        )
+
+        #expect(
+            try color(in: incrementalStorage, at: editedRange.location)
+                == color(in: fullStorage, at: editedRange.location)
+        )
+    }
+
+    @Test
+    func yamlIncrementalHighlightingUsesCachedLineStateNearDocumentEnd() {
+        let source = String(repeating: "entry: value\n", count: 20_000) + "tail: true\n"
+        let storage = NSTextStorage(string: source)
+        let fullRange = NSRange(location: 0, length: storage.length)
+        let palette = syntaxPalette(fileExtension: "yaml")
+        YAMLSyntaxHighlightingAdapter.apply(to: storage, palette: palette, range: fullRange)
+        let editedRange = (source as NSString).range(of: "tail: true")
+        let target = SyntaxHighlighter.targetRange(
+            for: editedRange,
+            in: source as NSString,
+            limit: fullRange
+        )
+
+        let scannedLineCount = YAMLSyntaxHighlightingAdapter.apply(
+            to: storage,
+            palette: palette,
+            range: target
+        )
+
+        #expect(scannedLineCount < 10)
+    }
+
+    @Test
     func yamlSyntaxCorpusUsesExpectedTokenColors() throws {
         let source = try yamlSyntaxCorpus()
         let storage = NSTextStorage(string: source)
@@ -473,6 +557,18 @@ struct EditorSyntaxHighlighterTests {
 
     private var propertyColor: NSColor {
         NSColor(srgbRed: 79 / 255, green: 148 / 255, blue: 250 / 255, alpha: 1)
+    }
+
+    private func syntaxPalette(fileExtension: String) -> SyntaxHighlightingPalette {
+        let basePalette = CodeEditorPalette(isDark: true, theme: LitheTheme.activeTheme)
+        let format = SyntaxHighlightingRegistry.bundled.format(
+            fileName: nil,
+            fileExtension: fileExtension
+        )
+        return SyntaxHighlightingColorConfiguration.bundled.palette(
+            formatID: format?.id,
+            base: basePalette
+        )
     }
 
     private func color(in storage: NSTextStorage, at location: Int) throws -> NSColor {
