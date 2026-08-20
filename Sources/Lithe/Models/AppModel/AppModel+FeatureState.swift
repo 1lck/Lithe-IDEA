@@ -41,16 +41,20 @@ extension AppModel {
 
     func projectTreeURL(for url: URL) -> URL? {
         guard url.isFileURL else { return nil }
-        return ProjectTreeLocator.matchingURL(for: url, among: projectFiles)
+        if let matchingFile = ProjectTreeLocator.matchingURL(for: url, among: projectFiles) {
+            return matchingFile
+        }
+        guard let rootNode else { return nil }
+        return ProjectTreeLocator.matchingURL(for: url, in: rootNode)
     }
 
-    func revealInProjectTree(_ url: URL) {
+    func revealInProjectTree(_ url: URL, isDirectory: Bool = false) {
         guard let treeURL = projectTreeURL(for: url) else {
             showNotification("This file is not in the current workspace")
             return
         }
         selectedSidebar = .project
-        documentFeature.requestProjectTreeReveal(for: treeURL)
+        documentFeature.requestProjectTreeReveal(for: treeURL, isDirectory: isDirectory)
     }
 
     func consumeProjectTreeRevealRequest(id: UUID) {

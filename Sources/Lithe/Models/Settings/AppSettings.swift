@@ -9,6 +9,7 @@ final class AppSettings: ObservableObject {
         static let themePreference = "settings.themePreference"
         static let language = "settings.language"
         static let editorFontSize = "settings.editorFontSize"
+        static let projectTreeRowHeight = "settings.projectTreeRowHeight"
         static let tabWidth = "settings.tabWidth"
         static let editorTabLayoutMode = "settings.editorTabLayoutMode"
         static let showCodeVision = "settings.showCodeVision"
@@ -46,6 +47,9 @@ final class AppSettings: ObservableObject {
     }
     @Published var language: AppLanguage { didSet { defaults.set(language.rawValue, forKey: Key.language) } }
     @Published var editorFontSize: Double { didSet { defaults.set(editorFontSize, forKey: Key.editorFontSize) } }
+    @Published var projectTreeRowHeight: Double {
+        didSet { defaults.set(projectTreeRowHeight, forKey: Key.projectTreeRowHeight) }
+    }
     @Published var tabWidth: Int { didSet { defaults.set(tabWidth, forKey: Key.tabWidth) } }
     @Published var editorTabLayoutMode: EditorTabLayoutMode {
         didSet { defaults.set(editorTabLayoutMode.rawValue, forKey: Key.editorTabLayoutMode) }
@@ -98,6 +102,7 @@ final class AppSettings: ObservableObject {
         ) ?? .dark
         language = AppLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .english
         editorFontSize = defaults.object(forKey: Key.editorFontSize) as? Double ?? 13
+        projectTreeRowHeight = defaults.object(forKey: Key.projectTreeRowHeight) as? Double ?? 24
         tabWidth = defaults.object(forKey: Key.tabWidth) as? Int ?? 4
         editorTabLayoutMode = EditorTabLayoutMode(
             rawValue: defaults.string(forKey: Key.editorTabLayoutMode) ?? ""
@@ -183,6 +188,7 @@ final class AppSettings: ObservableObject {
         themePreference = .dark
         language = .english
         editorFontSize = 13
+        projectTreeRowHeight = 24
         tabWidth = 4
         editorTabLayoutMode = .singleLine
         showCodeVision = true
