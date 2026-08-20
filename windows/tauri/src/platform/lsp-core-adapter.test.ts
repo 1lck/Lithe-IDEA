@@ -24,11 +24,12 @@ const TauriEvent = {
 } as const;
 const frontendTrace = mock(() => undefined);
 const commands: string[] = [];
-let scenario: "failure" | "virtual-document" = "failure";
+let scenario: "delayed-start" | "failure" | "virtual-document" = "failure";
 let startPayload: Record<string, unknown> | undefined;
 let requestPayload: Record<string, unknown> | undefined;
 let pollCount = 0;
 let virtualDocumentPending = false;
+let releaseInitialization: (() => void) | undefined;
 
 const executeCore = mock(
   async (request: { id: string; command: string; payload?: Record<string, unknown> }) => {
@@ -45,6 +46,28 @@ const executeCore = mock(
     }
     if (request.command === "lsp.pollEvents") {
       pollCount += 1;
+      if (scenario === "delayed-start") {
+        if (pollCount === 1) {
+          await new Promise<void>((resolve) => {
+            releaseInitialization = resolve;
+          });
+          return {
+            id: request.id,
+            ok: true as const,
+            data: {
+              events: [
+                {
+                  type: "stateChanged",
+                  state: "ready",
+                  providerId: "java",
+                  sessionId: "java-session",
+                },
+              ],
+            },
+          };
+        }
+        return { id: request.id, ok: true as const, data: { events: [] } };
+      }
       if (scenario === "virtual-document") {
         if (pollCount === 1) {
           return {
@@ -142,6 +165,7 @@ describe("Rust Core LSP adapter failures", () => {
     requestPayload = undefined;
     pollCount = 0;
     virtualDocumentPending = false;
+    releaseInitialization = undefined;
     emit.mockClear();
     frontendTrace.mockClear();
     executeCore.mockClear();
@@ -211,5 +235,98 @@ describe("Rust Core LSP adapter failures", () => {
     await invokeLsp("lsp_stop_for_file", { filePath });
     expect(commands).toContain("lsp.stopServer");
     expect(commands).toContain("lsp.destroyServer");
+  });
+
+  test("shares an in-flight server start across files and normalizes Windows paths", async () => {
+    scenario = "virtual-document";
+
+    await Promise.all([
+      invokeLsp("lsp_start_for_file", {
+        workspacePath: "C:\\work",
+        filePath: "C:\\work\\Main.java",
+        languageId: "java",
+        providerId: "java",
+        serverPath: "C:/Lithe/jdtls.bat",
+      }),
+      invokeLsp("lsp_start_for_file", {
+        workspacePath: "C:/work",
+        filePath: "C:/work/Other.java",
+        languageId: "java",
+        providerId: "java",
+        serverPath: "C:/Lithe/jdtls.bat",
+      }),
+    ]);
+
+    expect(commands.filter((command) => command === "lsp.startServer")).toHaveLength(1);
+
+    await invokeLsp("lsp_stop_for_file", { filePath: "C:/work/Main.java" });
+    expect(commands.filter((command) => command === "lsp.stopServer")).toHaveLength(0);
+
+    await invokeLsp("lsp_stop_for_file", { filePath: "C:\\work\\Other.java" });
+    expect(commands.filter((command) => command === "lsp.stopServer")).toHaveLength(1);
+    expect(commands.filter((command) => command === "lsp.destroyServer")).toHaveLength(1);
+  });
+
+  test("keeps initializing sessions recoverable and makes an in-flight file stop deterministic", async () => {
+    scenario = "delayed-start";
+    const previousStorage = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
+    const values = new Map<string, string>();
+    const storage: Storage = {
+      get length() {
+        return values.size;
+      },
+      clear: () => values.clear(),
+      getItem: (key) => values.get(key) ?? null,
+      key: (index) => [...values.keys()][index] ?? null,
+      removeItem: (key) => values.delete(key),
+      setItem: (key, value) => values.set(key, value),
+    };
+    Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: storage });
+
+    try {
+      const firstStart = invokeLsp("lsp_start_for_file", {
+        workspacePath: "C:\\work",
+        filePath: "C:\\work\\Main.java",
+        languageId: "java",
+        providerId: "java",
+        serverPath: "C:/Lithe/jdtls.bat",
+      });
+      for (let attempt = 0; attempt < 10 && !releaseInitialization; attempt += 1) {
+        await Promise.resolve();
+      }
+
+      expect(releaseInitialization).toBeDefined();
+      expect(JSON.parse(values.get("lithe:lsp-core-sessions:v1") ?? "[]")).toEqual([
+        expect.objectContaining({ id: "java-session", ready: false }),
+      ]);
+
+      const secondStart = invokeLsp("lsp_start_for_file", {
+        workspacePath: "C:/work",
+        filePath: "C:/work/Other.java",
+        languageId: "java",
+        providerId: "java",
+        serverPath: "C:/Lithe/jdtls.bat",
+      });
+      const stopSecond = invokeLsp("lsp_stop_for_file", { filePath: "C:\\work\\Other.java" });
+
+      releaseInitialization?.();
+      await Promise.all([firstStart, secondStart, stopSecond]);
+
+      expect(commands.filter((command) => command === "lsp.startServer")).toHaveLength(1);
+      expect(commands.filter((command) => command === "lsp.stopServer")).toHaveLength(0);
+      expect(JSON.parse(values.get("lithe:lsp-core-sessions:v1") ?? "[]")).toEqual([
+        expect.objectContaining({ files: ["C:\\work\\Main.java"], ready: true }),
+      ]);
+
+      await invokeLsp("lsp_stop_for_file", { filePath: "C:/work/Main.java" });
+      expect(commands.filter((command) => command === "lsp.stopServer")).toHaveLength(1);
+      expect(values.has("lithe:lsp-core-sessions:v1")).toBe(false);
+    } finally {
+      if (previousStorage) {
+        Object.defineProperty(globalThis, "sessionStorage", previousStorage);
+      } else {
+        delete (globalThis as { sessionStorage?: Storage }).sessionStorage;
+      }
+    }
   });
 });

@@ -257,21 +257,8 @@ export function registerMonacoLspProviders() {
     },
   });
 
-  languages.registerDefinitionProvider(selector, {
-    async provideDefinition(model, position) {
-      if (!isLspModel(model)) return [];
-
-      const locations = await lspClient.getDefinition(
-        filePathFromModel(model),
-        position.lineNumber - 1,
-        position.column - 1,
-      );
-      return (locations ?? []).map((location) => ({
-        uri: toMonacoLocationUri(location.uri),
-        range: toMonacoRange(location.range),
-      }));
-    },
-  });
+  // Lithe owns definition navigation so target files and virtual documents are
+  // opened as buffers. Monaco's standalone navigation cannot load those models.
 
   languages.registerImplementationProvider(selector, {
     async provideImplementation(model, position) {
