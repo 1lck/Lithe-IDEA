@@ -397,16 +397,24 @@ struct EditorSyntaxHighlighterTests {
         let text = source as NSString
         let palette = syntaxPalette(fileExtension: "xml")
         let outsideAttribute = try color(in: storage, at: text.range(of: "attr").location)
+        let outsideValue = try color(in: storage, at: text.range(of: "not-an-attribute").location)
         let commentAttribute = try color(in: storage, at: text.range(of: "fake attr").location + "fake ".utf16.count)
         let realAttribute = try color(in: storage, at: text.range(of: "real").location)
+        let realValue = try color(in: storage, at: text.range(of: #""value""#).location)
         let enabledAttribute = try color(in: storage, at: text.range(of: "enabled").location)
+        let enabledValue = try color(in: storage, at: text.range(of: #""true""#).location)
         let bodyAttribute = try color(in: storage, at: text.range(of: "body attr").location + "body ".utf16.count)
+        let bodyValue = try color(in: storage, at: text.range(of: "still-not-an-attribute").location)
 
         #expect(outsideAttribute == palette.text)
+        #expect(outsideValue == palette.text)
         #expect(commentAttribute == palette.comment)
         #expect(realAttribute == palette.property)
+        #expect(realValue == palette.string)
         #expect(enabledAttribute == palette.property)
+        #expect(enabledValue == palette.string)
         #expect(bodyAttribute == palette.text)
+        #expect(bodyValue == palette.text)
     }
 
     @Test

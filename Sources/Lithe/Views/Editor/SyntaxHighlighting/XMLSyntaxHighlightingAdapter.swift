@@ -6,17 +6,12 @@ enum XMLSyntaxHighlightingAdapter {
         #"<\?(?:[A-Za-z_][A-Za-z0-9_.:-]*)|<!DOCTYPE\b"#,
         options: [.caseInsensitive]
     )
-    private static let tagNameExpression = expression(
-        #"</?\s*([A-Za-z_][A-Za-z0-9_.:-]*)"#
-    )
-    private static let stringExpression = expression(#"\"[^\"]*\"|'[^']*'"#)
     private static let cdataExpression = expression(#"<!\[CDATA\[[\s\S]*?\]\]>"#)
     private static let commentExpression = expression(#"<!--[\s\S]*?-->"#)
 
     static func apply(to storage: NSTextStorage, palette: SyntaxHighlightingPalette, range target: NSRange) {
         let source = storage.string as NSString
         apply(declarationExpression, color: palette.annotation, storage: storage, source: source, range: target)
-        apply(stringExpression, color: palette.string, storage: storage, source: source, range: target)
         apply(cdataExpression, color: palette.string, storage: storage, source: source, range: target)
         apply(commentExpression, color: palette.comment, storage: storage, source: source, range: target)
         applyTagsAndAttributes(in: source, storage: storage, palette: palette, target: target)
@@ -94,6 +89,23 @@ enum XMLSyntaxHighlightingAdapter {
             while lookahead < limit, isWhitespace(source.character(at: lookahead)) { lookahead += 1 }
             guard lookahead < limit, source.character(at: lookahead) == 61 else { continue }
             addColor(palette.property, to: storage, range: nameRange, limitedTo: target)
+
+            var valueStart = lookahead + 1
+            while valueStart < limit, isWhitespace(source.character(at: valueStart)) { valueStart += 1 }
+            guard valueStart < limit else { continue }
+            let quote = source.character(at: valueStart)
+            guard quote == 34 || quote == 39 else {
+                cursor = valueStart
+                continue
+            }
+            let valueEnd = quotedEnd(in: source, from: valueStart, limit: limit)
+            addColor(
+                palette.string,
+                to: storage,
+                range: NSRange(location: valueStart, length: valueEnd - valueStart),
+                limitedTo: target
+            )
+            cursor = valueEnd
         }
     }
 
