@@ -7,7 +7,7 @@ import {
   MagnifyingGlassIcon as Search,
   RowsIcon as Rows3,
 } from "@/ui/icons";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import CodeEditor from "@/features/editor/components/code-editor";
 import Breadcrumb, {
@@ -39,6 +39,7 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { joinPath } from "@/utils/path-helpers";
 import { Avatar } from "@/ui/avatar";
 import { Button } from "@/ui/button";
+import { bindScrollContainerWheel } from "@/ui/scroll-container-wheel";
 import { Empty, EmptyDescription } from "@/ui/empty";
 import {
   DropdownMenu,
@@ -1062,6 +1063,12 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
       isCancelled = true;
     };
   }, [isWorkingTree, multiDiff.commitHash, multiDiff.repoPath, rootFolderPath]);
+
+  useLayoutEffect(() => {
+    const element = diffStackScrollRef.current;
+    if (!element) return;
+    return bindScrollContainerWheel(element);
+  }, [isIndexingDiffs, multiDiff.files.length]);
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-background">

@@ -6,7 +6,8 @@ import {
   NetworkIcon,
   TagIcon,
 } from "@/ui/icons";
-import { useMemo } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
+import { bindScrollContainerWheel } from "@/ui/scroll-container-wheel";
 import { cn } from "@/utils/cn";
 import { useTranslation } from "@/i18n/locale-provider";
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
@@ -122,6 +123,13 @@ export function GitReferenceTree({
     () => new Map(SECTION_KEYS.map(({ kind }) => [kind, buildGitReferenceTree(references, kind)])),
     [references],
   );
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const element = scrollRef.current;
+    if (!element) return;
+    return bindScrollContainerWheel(element);
+  }, []);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface/45 font-sans ui-text-sm select-none">
@@ -129,7 +137,7 @@ export function GitReferenceTree({
         {t("git.log.references")}
         <span className="ml-auto tabular-nums">{references.length}</span>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto p-1.5">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto p-1.5">
         <button
           type="button"
           onClick={() => onSelect(currentReference)}

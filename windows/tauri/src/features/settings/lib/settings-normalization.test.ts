@@ -5,6 +5,12 @@ import {
   normalizeSettingValue,
 } from "@/features/settings/lib/settings-normalization";
 
+describe("default settings", () => {
+  test("enables auto-save unless the user turns it off", () => {
+    expect(getDefaultSettingsSnapshot().autoSave).toBe(true);
+  });
+});
+
 describe("JDTLS JDK setting normalization", () => {
   test("defaults to automatic discovery", () => {
     expect(getDefaultSettingsSnapshot().jdtlsJavaHomePath).toBe("");

@@ -166,11 +166,14 @@ function GeneralPanel() {
       </SettingsGroup>
 
       <SettingsGroup title={t("settings.mac.files")}>
-        <SettingsRow label={t("settings.mac.autoSave")}>
+        <SettingsRow
+          label={t("settings.editor.autoSave")}
+          description={t("settings.editor.autoSaveDescription")}
+        >
           <Switch
             checked={settings.autoSave}
             onChange={(checked) => void updateSetting("autoSave", checked)}
-            size="sm"
+            size="md"
           />
         </SettingsRow>
       </SettingsGroup>
@@ -229,6 +232,18 @@ function EditorPanel() {
 
   return (
     <div className="flex flex-col gap-4">
+      <SettingsGroup title={t("settings.mac.files")}>
+        <SettingsRow
+          label={t("settings.editor.autoSave")}
+          description={t("settings.editor.autoSaveDescription")}
+        >
+          <Switch
+            checked={settings.autoSave}
+            onChange={(checked) => void updateSetting("autoSave", checked)}
+            size="md"
+          />
+        </SettingsRow>
+      </SettingsGroup>
       <SettingsGroup title={t("settings.mac.display")}>
         <SettingsRow label={t("settings.mac.fontSize")}>
           <input

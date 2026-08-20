@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { SettingsTab } from "@/features/window/stores/ui-state.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
+import { bindScrollContainerWheel } from "@/ui/scroll-container-wheel";
 import Dialog from "@/ui/dialog";
 import {
   ArrowClockwiseIcon,
@@ -60,12 +61,20 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
   const { t } = useTranslation();
   const settingsInitialTab = useUIState((state) => state.settingsInitialTab);
   const [activeCategory, setActiveCategory] = useState<MacSettingsCategory>("general");
+  const contentRef = useRef<HTMLDivElement>(null);
   const resetToDefaults = useSettingsStore((state) => state.actions.resetToDefaults);
 
   useEffect(() => {
     if (!isOpen) return;
     setActiveCategory(categoryFromRequestedTab(settingsInitialTab));
   }, [isOpen, settingsInitialTab]);
+
+  useLayoutEffect(() => {
+    if (!isOpen) return;
+    const element = contentRef.current;
+    if (!element) return;
+    return bindScrollContainerWheel(element);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -126,10 +135,13 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
           })}
         </nav>
 
-        <section className="min-w-0 min-h-0 flex-1 overflow-y-auto bg-background p-6">
+        <div
+          ref={contentRef}
+          className="min-w-0 min-h-0 flex-1 overflow-y-auto bg-background p-6"
+        >
           <h2 className="mb-5 text-xl font-semibold text-foreground">{t(activeItem.labelKey)}</h2>
           <MacSettingsPanel category={activeCategory} onClose={onClose} />
-        </section>
+        </div>
       </div>
     </Dialog>
   );

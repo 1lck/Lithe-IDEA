@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { GitDiffIcon } from "@/ui/icons";
+import { bindScrollContainerWheel } from "@/ui/scroll-container-wheel";
 import { Button } from "@/ui/button";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/ui/resizable";
 import { useTranslation } from "@/i18n/locale-provider";
@@ -24,6 +25,7 @@ export function GitCommitInspector({
   const [loadState, setLoadState] = useState<FilesLoadState>("idle");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const requestIdRef = useRef(0);
+  const detailsScrollRef = useRef<HTMLDivElement>(null);
   const inspectorPanelLayout = useGitLogPreferencesStore.use.inspectorPanelLayout();
   const { setInspectorPanelLayout } = useGitLogPreferencesStore.use.actions();
 
@@ -51,6 +53,12 @@ export function GitCommitInspector({
       requestIdRef.current += 1;
     };
   }, [commit, repoPath]);
+
+  useLayoutEffect(() => {
+    const element = detailsScrollRef.current;
+    if (!element) return;
+    return bindScrollContainerWheel(element);
+  }, []);
 
   return (
     <div className="h-full min-h-0 bg-surface/35 font-sans ui-text-sm select-none">
@@ -110,7 +118,10 @@ export function GitCommitInspector({
         </ResizablePanel>
         <ResizableHandle />
         <ResizablePanel id="details" defaultSize="38" minSize={80}>
-          <div className="h-full overflow-auto border-border bg-background p-3">
+          <div
+            ref={detailsScrollRef}
+            className="h-full overflow-auto border-border bg-background p-3"
+          >
             {commit ? (
               <div className="space-y-2 select-text">
                 <div className="font-medium text-foreground">{commit.message}</div>

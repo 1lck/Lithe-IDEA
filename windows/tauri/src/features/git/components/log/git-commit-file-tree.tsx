@@ -1,6 +1,7 @@
 import { CaretDownIcon, CaretRightIcon, FileIcon, FolderIcon } from "@/ui/icons";
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "@/i18n/locale-provider";
+import { bindScrollContainerWheel } from "@/ui/scroll-container-wheel";
 import { cn } from "@/utils/cn";
 import type { GitCommitFile } from "../../types/git.types";
 
@@ -147,6 +148,14 @@ export function GitCommitFileTree({
 }) {
   const tree = useMemo(() => buildFileTree(files), [files]);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const element = scrollRef.current;
+    if (!element) return;
+    return bindScrollContainerWheel(element);
+  }, []);
+
   const toggle = (path: string) => {
     setCollapsed((current) => {
       const next = new Set(current);
@@ -157,7 +166,7 @@ export function GitCommitFileTree({
   };
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto p-1.5">
+    <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto p-1.5">
       {tree.map((node) => (
         <FileNode
           key={node.id}
