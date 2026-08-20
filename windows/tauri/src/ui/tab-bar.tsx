@@ -201,13 +201,12 @@ const tabVariants = cva(
         className: "text-subtle-foreground/90 hover:bg-accent hover:text-foreground",
       },
       {
-        // IntelliJ editor tabs: selected tab is marked by a 4px accent
-        // underline on the top edge over the editor background, not a block
-        // highlight; unselected labels render at reduced alpha.
+        // IntelliJ editor tabs use a slim accent on the content-facing edge;
+        // the tab stays on the editor surface instead of becoming a filled pill.
         variant: "connected",
         active: true,
         className:
-          "z-10 bg-transparent text-foreground shadow-none hover:bg-transparent before:absolute before:inset-x-1.5 before:top-0 before:h-[4px] before:rounded-full before:bg-primary before:content-['']",
+          "z-10 bg-transparent text-foreground shadow-none hover:bg-accent/35 before:absolute before:inset-x-1.5 before:bottom-0 before:h-[3px] before:rounded-t-sm before:bg-primary before:content-['']",
       },
       {
         variant: "connected",

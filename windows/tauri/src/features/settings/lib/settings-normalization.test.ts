@@ -42,3 +42,35 @@ describe("IDEA file icon theme normalization", () => {
     }
   });
 });
+
+describe("Windows New UI defaults", () => {
+  test("uses Chinese and the native CJK UI typography for new settings", () => {
+    const settings = getDefaultSettingsSnapshot();
+
+    expect(settings.displayLanguage).toBe("zh-CN");
+    expect(settings.uiFontFamily).toBe("Microsoft YaHei UI");
+    expect(settings.uiFontSize).toBe(13);
+  });
+
+  test("migrates the previous bundled UI typography as a pair", () => {
+    const settings = getDefaultSettingsSnapshot();
+    settings.uiFontFamily = "Geist Sans";
+    settings.uiFontSize = 15;
+
+    const normalized = normalizeSettings(settings);
+
+    expect(normalized.uiFontFamily).toBe("Microsoft YaHei UI");
+    expect(normalized.uiFontSize).toBe(13);
+  });
+
+  test("preserves an explicitly customized typography pair", () => {
+    const settings = getDefaultSettingsSnapshot();
+    settings.uiFontFamily = "Geist Sans";
+    settings.uiFontSize = 14;
+
+    const normalized = normalizeSettings(settings);
+
+    expect(normalized.uiFontFamily).toBe("Geist Sans");
+    expect(normalized.uiFontSize).toBe(14);
+  });
+});

@@ -57,7 +57,6 @@ import {
 } from "@/ui/context-menu";
 import { Spinner } from "@/ui/spinner";
 import {
-  DatabaseIcon,
   EyeIcon,
   FilesIcon,
   FolderIcon,
@@ -207,11 +206,6 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
             },
           ]
         : []),
-      {
-        id: "database",
-        label: t("workbench.database"),
-        icon: <DatabaseIcon />,
-      },
       ...(coreFeatures.terminal
         ? [
             {

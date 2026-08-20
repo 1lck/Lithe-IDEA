@@ -245,7 +245,7 @@ const BottomPane = () => {
     <div
       data-bottom-pane-drop-target
       className={cn(
-        "lithe-glass-island relative flex min-h-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-background",
+        "lithe-glass-island relative flex min-h-0 flex-col overflow-hidden rounded-xl border-border/70 border-t border-l bg-background",
         isInternalHoverTarget && "ring-2 ring-primary ring-inset",
         isFullScreen && "size-full rounded-none border-0 shadow-none ring-0",
         !isFullScreen && "flex-1",

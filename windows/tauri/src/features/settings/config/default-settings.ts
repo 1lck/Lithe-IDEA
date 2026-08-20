@@ -64,7 +64,7 @@ export const defaultSettings: Settings = {
   // UI
   uiFontFamily: DEFAULT_UI_FONT_FAMILY,
   uiFontSize: UI_FONT_SIZE_DEFAULT,
-  displayLanguage: "en-US",
+  displayLanguage: "zh-CN",
   reduceMotion: false,
   showStatusBar: true,
   showTabIcons: true,

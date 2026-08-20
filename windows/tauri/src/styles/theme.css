@@ -104,12 +104,12 @@
   :root {
     color-scheme: light;
     --app-font-family:
-      "Geist Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-      "Helvetica Neue", Arial, sans-serif;
+      "Microsoft YaHei UI", "Segoe UI", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+      Roboto, "Helvetica Neue", Arial, sans-serif;
     --editor-font-family:
       "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono",
       monospace;
-    --app-ui-font-size: 15px;
+    --app-ui-font-size: 13px;
     --app-ui-scale: 1;
     --ui-text-caption: 12px;
     --ui-text-chrome: 13px;
@@ -122,7 +122,7 @@
     --lithe-tab-height: 1.75rem;
     --lithe-tab-max-width: 12.5rem;
     --lithe-sidebar-header-height: 2rem;
-    --lithe-workbench-gap: 8px;
+    --lithe-workbench-gap: 4px;
     --lithe-chrome-control-height: 1.5rem;
     --lithe-chrome-hit-target: 1.75rem;
     --lithe-chrome-line-height: 1rem;
@@ -130,7 +130,7 @@
     --lithe-chrome-gap: 4px;
     --lithe-chrome-gap-loose: 6px;
     --lithe-chrome-padding-inline: 8px;
-    --lithe-chrome-radius: 6px;
+    --lithe-chrome-radius: 4px;
     --radius: 8px;
     --app-duration-fast: 150ms;
     --app-duration-normal: 200ms;

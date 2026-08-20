@@ -14,7 +14,6 @@ import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { SidebarListItem } from "@/ui/sidebar";
 import { Tabs, TabsList, TabsTrigger } from "@/ui/tabs";
 import {
-  DatabaseIcon,
   GearIcon,
   GitBranchIcon,
   GitGraphIcon,
@@ -180,17 +179,6 @@ export const SidebarPaneSelector = ({
             } satisfies SidebarPaneItem,
           ]
         : []),
-      {
-        id: "database",
-        label: showLabels ? t("workbench.database") : undefined,
-        icon: <DatabaseIcon className={iconClassName} />,
-        disabled: true,
-        ariaLabel: t("workbench.database"),
-        tooltip: {
-          content: BACKEND_UNAVAILABLE_TOOLTIP,
-          side: tooltipSide,
-        },
-      },
       ...(coreFeatures.terminal && onTerminalClick
         ? [
             {

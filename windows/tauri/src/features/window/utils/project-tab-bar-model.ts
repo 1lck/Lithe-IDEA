@@ -8,3 +8,7 @@ export function getProjectTabBarItems(projectTabs: ProjectTab[]): ProjectTab[] {
     isActive: projectTab.id === activeProjectId,
   }));
 }
+
+export function shouldShowProjectTabBar(projectCount: number, hideWhenSingle = false): boolean {
+  return projectCount > 0 && (!hideWhenSingle || projectCount > 1);
+}

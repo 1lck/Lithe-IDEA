@@ -9,7 +9,6 @@ import {
 } from "@/features/layout/config/item-order";
 import { orderChromeItems, type ChromeItem } from "@/features/layout/utils/chrome-items";
 import { useTranslation } from "@/i18n/locale-provider";
-import { useFooterGitBranchItem } from "./footer-git-branch-item";
 import { useFooterFilePathItem } from "./footer-file-path-item";
 import { useFooterEditorStatusItems } from "./footer-editor-status";
 import { ChromeBar, ChromeGroup } from "@/ui/chrome";
@@ -23,11 +22,9 @@ const Footer = () => {
     (state) => state.settings.footerTrailingItemsOrder,
   );
   const filePathItem = useFooterFilePathItem();
-  const branchItem = useFooterGitBranchItem();
   const editorStatusItems = useFooterEditorStatusItems();
   const footerLeadingItemsSource: Array<ChromeItem<FooterLeadingItemId> | null> = [
     filePathItem,
-    branchItem,
   ];
   const footerLeadingItems = footerLeadingItemsSource.filter(
     (item): item is ChromeItem<FooterLeadingItemId> => item !== null,
@@ -54,7 +51,7 @@ const Footer = () => {
   return (
     <ChromeBar
       region="footer"
-      className="lithe-footer-bar relative z-20 justify-between gap-2"
+      className="lithe-footer-bar relative z-20 justify-between gap-2 bg-surface"
       aria-label={t("footer.statusBar")}
     >
       <ChromeGroup gap="tight" grow className="min-w-0">

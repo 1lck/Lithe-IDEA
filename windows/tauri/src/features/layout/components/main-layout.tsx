@@ -19,7 +19,6 @@ import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.s
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { toast } from "sonner";
 import { useTranslation } from "@/i18n/locale-provider";
-import { cn } from "@/utils/cn";
 import { frontendTrace } from "@/utils/frontend-trace";
 import { recordStartupMilestone } from "@/features/bootstrap/startup-performance";
 import { getInternalTabDragData } from "@/features/tabs/utils/internal-tab-drag";
@@ -262,7 +261,7 @@ export function MainLayout() {
       )}
 
       <TitleBarWithSettings />
-      <ProjectTabBar />
+      <ProjectTabBar hideWhenSingle />
 
       {rootFolderPath ? (
         <>
@@ -282,13 +281,7 @@ export function MainLayout() {
               </ResizablePane>
 
               <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                <div
-                  className={cn(
-                    "lithe-glass-island relative min-h-0 flex-1 overflow-hidden border-border/70 border-y border-r bg-background",
-                    !isSidebarVisible && "rounded-l-xl border-l",
-                    "rounded-r-xl",
-                  )}
-                >
+                <div className="lithe-glass-island relative min-h-0 flex-1 overflow-hidden rounded-xl border-border border-l bg-background">
                   <CachedWorkspaceSplitViews />
                 </div>
                 {terminalWidthMode === "editor" && deferredSurfacesReady && (
