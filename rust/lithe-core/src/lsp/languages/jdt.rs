@@ -8,7 +8,7 @@
 #![allow(dead_code)] // This module is an engine adapter seam; integration is intentionally separate.
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
@@ -105,6 +105,36 @@ pub(crate) fn adapt_start(context: &JdtStartContext) -> JdtStartAdaptation {
         arguments,
         data_directory: Some(data_directory),
     }
+}
+
+/// Adds the JDT LS client extensions required for class-file navigation.
+///
+/// Catalog-provided options are preserved, while the provider-owned capability
+/// is authoritative because virtual class files cannot be opened without it.
+pub(crate) fn adapt_initialization_options(
+    provider_id: &str,
+    initialization_options: Option<Value>,
+) -> Option<Value> {
+    if !is_java_provider(provider_id) {
+        return initialization_options;
+    }
+
+    let mut options = match initialization_options {
+        Some(Value::Object(options)) => options,
+        _ => Map::new(),
+    };
+    let extended = options
+        .entry("extendedClientCapabilities")
+        .or_insert_with(|| json!({}));
+    if !extended.is_object() {
+        *extended = json!({});
+    }
+    extended
+        .as_object_mut()
+        .expect("the extended capabilities were normalized to an object")
+        .insert("classFileContentsSupport".to_string(), Value::Bool(true));
+
+    Some(Value::Object(options))
 }
 
 /// Returns JDT LS configuration values in the same order as the requested
@@ -471,12 +501,41 @@ mod tests {
         assert!(workspace_configuration("rust", &[]).is_none());
         assert!(initialized_notification("rust").is_none());
         assert!(virtual_source_resolve_params("rust", "jdt://contents/A.class").is_none());
+        assert_eq!(
+            adapt_initialization_options("rust", Some(json!({ "custom": true }))),
+            Some(json!({ "custom": true }))
+        );
         let location = ProviderLocation {
             uri: "jdt://contents/A.class".to_string(),
             is_read_only: false,
             display_path: None,
         };
         assert_eq!(normalize_location("rust", location.clone()), location);
+    }
+
+    #[test]
+    fn java_initialization_enables_class_file_content_without_losing_catalog_options() {
+        let options = adapt_initialization_options(
+            "JAVA",
+            Some(json!({
+                "workspace": { "custom": true },
+                "extendedClientCapabilities": {
+                    "customCapability": true,
+                    "classFileContentsSupport": false
+                }
+            })),
+        )
+        .unwrap();
+
+        assert_eq!(options["workspace"]["custom"], true);
+        assert_eq!(
+            options["extendedClientCapabilities"]["customCapability"],
+            true
+        );
+        assert_eq!(
+            options["extendedClientCapabilities"]["classFileContentsSupport"],
+            true
+        );
     }
 
     #[test]

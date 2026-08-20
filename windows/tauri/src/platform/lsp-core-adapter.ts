@@ -14,10 +14,7 @@ interface Session {
   languageId: string;
   files: Set<string>;
   running: boolean;
-  pending: Map<
-    string,
-    { resolve: (value: unknown) => void; reject: (reason: Error) => void }
-  >;
+  pending: Map<string, { resolve: (value: unknown) => void; reject: (reason: Error) => void }>;
   completed: Map<string, RuntimeEvent>;
 }
 
@@ -229,8 +226,8 @@ async function start(args: JsonRecord): Promise<void> {
   let session = sessions.get(key);
   if (!session) {
     const environment = {
-      ...(args.tools?.lsp?.env ?? {}),
-      ...(args.environment ?? {}),
+      ...args.tools?.lsp?.env,
+      ...args.environment,
     };
     const started = await core<{ sessionId: string }>("lsp.startServer", {
       providerId,
@@ -316,14 +313,19 @@ const operations: Record<string, string> = {
   lsp_get_code_actions: "codeActions",
   lsp_get_inlay_hints: "inlayHints",
   lsp_get_code_lens: "codeLens",
+  lsp_get_virtual_document: "virtualDocument",
 };
 
 function semanticPayload(command: string, args: JsonRecord, session: Session): JsonRecord {
   const payload: JsonRecord = {
     sessionId: session.id,
     operation: operations[command],
-    uri: fileUri(args.filePath),
   };
+  if (command === "lsp_get_virtual_document") {
+    payload.virtualUri = args.virtualUri;
+  } else {
+    payload.uri = fileUri(args.filePath);
+  }
   if (typeof args.line === "number") {
     payload.position = { line: args.line, utf16Column: args.character ?? 0 };
   }
@@ -343,13 +345,15 @@ function semanticPayload(command: string, args: JsonRecord, session: Session): J
         utf16Column: diagnostic.endColumn ?? diagnostic.column ?? 0,
       },
     };
-    payload.diagnostics = [{
-      range: payload.range,
-      message: diagnostic.message ?? "",
-      severity: diagnostic.severity ?? null,
-      source: diagnostic.source ?? null,
-      code: diagnostic.code == null ? null : String(diagnostic.code),
-    }];
+    payload.diagnostics = [
+      {
+        range: payload.range,
+        message: diagnostic.message ?? "",
+        severity: diagnostic.severity ?? null,
+        source: diagnostic.source ?? null,
+        code: diagnostic.code == null ? null : String(diagnostic.code),
+      },
+    ];
   }
   return payload;
 }
@@ -357,24 +361,29 @@ function semanticPayload(command: string, args: JsonRecord, session: Session): J
 function unwrapResult(command: string, result: any): unknown {
   const normalized = normalizeCoreValue(result) as JsonRecord;
   switch (command) {
-    case "lsp_get_completions": return normalized.items ?? [];
+    case "lsp_get_completions":
+      return normalized.items ?? [];
     case "lsp_get_hover": {
       const hover = normalized.hover;
       if (!hover) return null;
       return {
         contents: hover.isMarkdown
           ? { kind: "markdown", value: hover.contents ?? "" }
-          : hover.contents ?? "",
+          : (hover.contents ?? ""),
         range: hover.range,
       };
     }
     case "lsp_get_definition":
     case "lsp_get_implementation":
     case "lsp_get_type_definition":
-    case "lsp_get_references": return normalized.locations ?? [];
-    case "lsp_rename": return normalized.changes ? { changes: normalized.changes } : null;
-    case "lsp_format_document": return normalized.edits ?? [];
-    case "lsp_get_code_actions": return normalized.actions ?? [];
+    case "lsp_get_references":
+      return normalized.locations ?? [];
+    case "lsp_rename":
+      return normalized.changes ? { changes: normalized.changes } : null;
+    case "lsp_format_document":
+      return normalized.edits ?? [];
+    case "lsp_get_code_actions":
+      return normalized.actions ?? [];
     case "lsp_get_inlay_hints":
       return (normalized.hints ?? []).map((hint: JsonRecord) => ({
         ...hint,
@@ -388,7 +397,10 @@ function unwrapResult(command: string, result: any): unknown {
         command: lens.command?.command,
         arguments: lens.command?.arguments,
       }));
-    default: return normalized;
+    case "lsp_get_virtual_document":
+      return typeof normalized.text === "string" ? normalized.text : null;
+    default:
+      return normalized;
   }
 }
 
@@ -417,7 +429,11 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
     if (session.files.size === 0) await stopSession(session);
     return undefined as T;
   }
-  if (command === "lsp_document_open" || command === "lsp_document_change" || command === "lsp_document_save") {
+  if (
+    command === "lsp_document_open" ||
+    command === "lsp_document_change" ||
+    command === "lsp_document_save"
+  ) {
     const session = sessionForFile(args.filePath);
     await core("lsp.syncDocument", {
       sessionId: session.id,
@@ -438,9 +454,9 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
     if (!commandPayload?.command) return { applied: true } as T;
     try {
       await requestOperation(session, {
-      sessionId: session.id,
-      operation: "executeCommand",
-      command: commandPayload,
+        sessionId: session.id,
+        operation: "executeCommand",
+        command: commandPayload,
       });
       return { applied: true } as T;
     } catch (reason) {

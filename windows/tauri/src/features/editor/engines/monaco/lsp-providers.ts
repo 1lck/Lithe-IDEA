@@ -41,6 +41,12 @@ function toMonacoRange(range: {
   );
 }
 
+function toMonacoLocationUri(uri: string): Monaco.Uri {
+  return uri.startsWith("file://") || !uri.includes("://")
+    ? Uri.file(filePathFromUri(uri))
+    : Uri.parse(uri);
+}
+
 function toMonacoTextEdit(edit: LspTextEdit): Monaco.languages.TextEdit {
   return {
     range: toMonacoRange(edit.range),
@@ -261,7 +267,7 @@ export function registerMonacoLspProviders() {
         position.column - 1,
       );
       return (locations ?? []).map((location) => ({
-        uri: Uri.file(filePathFromUri(location.uri)),
+        uri: toMonacoLocationUri(location.uri),
         range: toMonacoRange(location.range),
       }));
     },
@@ -277,7 +283,7 @@ export function registerMonacoLspProviders() {
         position.column - 1,
       );
       return (locations ?? []).map((location) => ({
-        uri: Uri.file(filePathFromUri(location.uri)),
+        uri: toMonacoLocationUri(location.uri),
         range: toMonacoRange(location.range),
       }));
     },
@@ -293,7 +299,7 @@ export function registerMonacoLspProviders() {
         position.column - 1,
       );
       return (locations ?? []).map((location) => ({
-        uri: Uri.file(filePathFromUri(location.uri)),
+        uri: toMonacoLocationUri(location.uri),
         range: toMonacoRange(location.range),
       }));
     },
@@ -309,7 +315,7 @@ export function registerMonacoLspProviders() {
         position.column - 1,
       );
       return (locations ?? []).map((location) => ({
-        uri: Uri.file(filePathFromUri(location.uri)),
+        uri: toMonacoLocationUri(location.uri),
         range: toMonacoRange(location.range),
       }));
     },

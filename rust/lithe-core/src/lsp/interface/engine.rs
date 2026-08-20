@@ -11,8 +11,9 @@ use super::{
     ParseServerMessagesRequest,
 };
 use crate::lsp::languages::jdt::{
-    adapt_start, initialized_notification, virtual_source_content, virtual_source_resolve_params,
-    workspace_configuration, JdtStartContext, WorkspaceConfigurationItem,
+    adapt_initialization_options, adapt_start, initialized_notification, normalize_location,
+    virtual_source_content, virtual_source_resolve_params, workspace_configuration,
+    JdtStartContext, ProviderLocation, WorkspaceConfigurationItem,
 };
 use crate::protocol::{CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
@@ -483,7 +484,10 @@ impl LspEngine {
             state: LspClientState::default(),
             root_uri: request.root_uri.clone(),
             process_id: Some(std::process::id() as i64),
-            initialization_options: request.initialization_options,
+            initialization_options: adapt_initialization_options(
+                &request.provider_id,
+                request.initialization_options,
+            ),
         })?;
         let request_id = (initialize.state.next_request_id - 1).to_string();
         let now = Instant::now();
@@ -1136,12 +1140,16 @@ impl RuntimeSession {
                                         None,
                                     )
                                 });
+                            let result = normalize_provider_navigation_result(
+                                &self.provider_id,
+                                event.and_then(|event| event.result.clone()),
+                            );
                             push_request_event(
                                 self,
                                 &mut state,
                                 operation_id,
                                 &pending.method,
-                                event.and_then(|event| event.result.clone()),
+                                result,
                                 error,
                             );
                         }
@@ -1805,6 +1813,47 @@ fn push_request_event(
         message: None,
         detail: None,
     });
+}
+
+fn normalize_provider_navigation_result(
+    provider_id: &str,
+    mut result: Option<Value>,
+) -> Option<Value> {
+    let locations = result
+        .as_mut()
+        .and_then(|result| result.get_mut("locations"))
+        .and_then(Value::as_array_mut);
+    let Some(locations) = locations else {
+        return result;
+    };
+
+    for location in locations {
+        let Some(uri) = location
+            .get("uri")
+            .and_then(Value::as_str)
+            .map(ToString::to_string)
+        else {
+            continue;
+        };
+        let normalized = normalize_location(
+            provider_id,
+            ProviderLocation {
+                uri,
+                is_read_only: location
+                    .get("isReadOnly")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                display_path: location
+                    .get("displayPath")
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string),
+            },
+        );
+        location["isReadOnly"] = Value::Bool(normalized.is_read_only);
+        location["displayPath"] = normalized.display_path.map_or(Value::Null, Value::String);
+    }
+
+    result
 }
 
 fn push_diagnostics_event(
@@ -3044,6 +3093,67 @@ mod tests {
             .expect("the command should reach the language server");
         assert_eq!(request["params"]["command"], "source.fix");
         assert!(request["params"].get("textDocument").is_none());
+    }
+
+    #[test]
+    fn java_start_enables_and_normalizes_class_file_navigation() {
+        let cache = std::env::temp_dir().join("lithe-core-java-navigation-tests");
+        let mut harness = Harness::start(|request| {
+            request.provider_id = "java".to_string();
+            request.cache_directory = Some(cache.to_string_lossy().into_owned());
+            request.initialization_options = Some(json!({
+                "extendedClientCapabilities": { "customCapability": true }
+            }));
+        });
+        let initialize = harness
+            .server
+            .messages()
+            .into_iter()
+            .find(|message| message["method"] == "initialize")
+            .expect("the initialize request should reach JDT LS");
+        assert_eq!(
+            initialize["params"]["initializationOptions"]["extendedClientCapabilities"]
+                ["classFileContentsSupport"],
+            true
+        );
+        assert_eq!(
+            initialize["params"]["initializationOptions"]["extendedClientCapabilities"]
+                ["customCapability"],
+            true
+        );
+
+        harness
+            .server
+            .complete_initialize(json!({ "definitionProvider": true }));
+        harness.await_state(LspLifecycleState::Ready);
+        let uri = "file:///workspace/Main.java";
+        harness.sync(uri, "class Main { String value; }");
+        let operation_id = harness.request(LspSemanticOperation::Definition, uri);
+        let request_id = harness
+            .server
+            .await_request("textDocument/definition")
+            .expect("the definition request should reach JDT LS");
+        let virtual_uri = "jdt://contents/java.base/java/lang/String.class?=demo";
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": [{
+                "uri": virtual_uri,
+                "range": {
+                    "start": { "line": 10, "character": 4 },
+                    "end": { "line": 10, "character": 10 }
+                }
+            }]
+        }));
+        let event = harness
+            .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()))
+            .clone();
+        let location = &event.result.as_ref().unwrap()["locations"][0];
+        assert_eq!(location["uri"], virtual_uri);
+        assert_eq!(location["isReadOnly"], true);
+        assert_eq!(location["displayPath"], "java.base/java/lang/String.java");
+
+        let _ = std::fs::remove_dir_all(cache);
     }
 
     #[test]

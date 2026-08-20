@@ -53,6 +53,7 @@ import { toggleCaseText } from "../utils/text-operations";
 import { editorAPI } from "../extensions/api";
 import type { EditorModelPositionResolver } from "../view-model/view-layout";
 import { syncContainedEditorFontOptions } from "../engines/monaco/contained-editors";
+import { registerMonacoDefinitionLinkGesture } from "../engines/monaco/definition-link";
 import {
   consumeLocalContentSnapshot,
   rememberLocalContentSnapshot,
@@ -699,6 +700,12 @@ export function MonacoEditor({
     requestAnimationFrame(syncNestedEditorFonts);
 
     editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyA, selectEntireModel);
+    const definitionLinkDisposable = registerMonacoDefinitionLinkGesture({
+      editor,
+      model,
+      filePath,
+      workspaceRoot: rootFolderPath,
+    });
 
     const handleWindowSelectAllShortcut = (event: KeyboardEvent) => {
       const isSelectAllShortcut =
@@ -834,6 +841,7 @@ export function MonacoEditor({
         syncBottomScrollPadding(info.height);
         scheduleMonacoHoverClamp();
       }),
+      definitionLinkDisposable,
     ];
 
     const handleWindowMouseUp = () => {
@@ -945,6 +953,7 @@ export function MonacoEditor({
     readOnly,
     renderIndentGuides,
     renderWhitespace,
+    rootFolderPath,
     scrollable,
     scheduleInlineGitBlameRender,
     selectEntireModel,

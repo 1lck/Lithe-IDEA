@@ -38,6 +38,9 @@ export interface LspError {
 
 export interface LspLocation {
   uri: string;
+  filePath?: string | null;
+  displayPath?: string | null;
+  isReadOnly?: boolean;
   range: {
     start: { line: number; character: number };
     end: { line: number; character: number };
@@ -463,7 +466,10 @@ export class LspClient {
         return;
       }
 
-      logger.debug("LSPClient", `Using LSP server: ${launch.serverPath} for language: ${launch.languageId}`);
+      logger.debug(
+        "LSPClient",
+        `Using LSP server: ${launch.serverPath} for language: ${launch.languageId}`,
+      );
       const serverKey = `${workspacePath}:${launch.languageId}`;
       if (this.activeLanguageServers.has(serverKey)) {
         logger.debug("LSPClient", `LSP for ${launch.languageId} already running in workspace`);
@@ -590,7 +596,10 @@ export class LspClient {
       }
 
       const languageId = launch.languageId;
-      logger.debug("LSPClient", `Using LSP server: ${launch.serverPath} for language: ${languageId}`);
+      logger.debug(
+        "LSPClient",
+        `Using LSP server: ${launch.serverPath} for language: ${languageId}`,
+      );
 
       const serverKey = `${workspacePath}:${languageId}`;
       if (options.forceRetry) {
@@ -905,6 +914,18 @@ export class LspClient {
       line,
       character,
     );
+  }
+
+  async getVirtualDocument(filePath: string, virtualUri: string): Promise<string | null> {
+    try {
+      return await invoke<string | null>("lsp_get_virtual_document", {
+        filePath,
+        virtualUri,
+      });
+    } catch (error) {
+      logger.error("LSPClient", `LSP virtual document error for ${virtualUri}:`, error);
+      return null;
+    }
   }
 
   async getSemanticTokens(filePath: string): Promise<LspSemanticTokensResponse | null> {
