@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ProjectSidebarView: View {
     @EnvironmentObject private var model: AppModel
+    let rowHeight: CGFloat
     @State private var expandedDirectoryPaths: Set<String> = []
     @State private var expandedTreeRootPath: String?
 
@@ -27,6 +28,7 @@ struct ProjectSidebarView: View {
                                 ProjectFileTreeContent(
                                     root: root,
                                     availableWidth: geometry.size.width,
+                                    rowHeight: rowHeight,
                                     activeDocumentURL: model.activeDocument?.url,
                                     gitStatus: ProjectGitStatusSnapshot(
                                         repositoryRoot: model.gitRepositoryRoot,
@@ -62,7 +64,8 @@ struct ProjectSidebarView: View {
                                 expandedDirectoryPaths.formUnion(
                                     ProjectTreeLocator.expandedDirectoryPaths(
                                         for: request.fileURL,
-                                        rootURL: root.url
+                                        rootURL: root.url,
+                                        includeItem: request.isDirectory
                                     )
                                 )
                                 await Task.yield()
@@ -270,6 +273,7 @@ private final class ProjectTreeActions: @unchecked Sendable {
 private struct ProjectFileTreeContent: View, Equatable {
     let root: FileNode
     let availableWidth: CGFloat
+    let rowHeight: CGFloat
     let activeDocumentURL: URL?
     let gitStatus: ProjectGitStatusSnapshot
     let actions: ProjectTreeActions
@@ -279,6 +283,7 @@ private struct ProjectFileTreeContent: View, Equatable {
     static func == (lhs: ProjectFileTreeContent, rhs: ProjectFileTreeContent) -> Bool {
         lhs.root == rhs.root
             && lhs.availableWidth == rhs.availableWidth
+            && lhs.rowHeight == rhs.rowHeight
             && lhs.activeDocumentURL == rhs.activeDocumentURL
             && lhs.gitStatus == rhs.gitStatus
             && lhs.expandedDirectoryPathsSnapshot == rhs.expandedDirectoryPathsSnapshot
@@ -289,6 +294,7 @@ private struct ProjectFileTreeContent: View, Equatable {
             node: root,
             depth: 0,
             availableWidth: availableWidth,
+            rowHeight: rowHeight,
             activeDocumentURL: activeDocumentURL,
             gitStatus: gitStatus,
             actions: actions,
@@ -304,6 +310,7 @@ private struct FileNodeRow: View {
     let node: FileNode
     let depth: Int
     let availableWidth: CGFloat
+    let rowHeight: CGFloat
     let activeDocumentURL: URL?
     let gitStatus: ProjectGitStatusSnapshot
     let actions: ProjectTreeActions
@@ -330,6 +337,7 @@ private struct FileNodeRow: View {
                         node: child,
                         depth: depth + 1,
                         availableWidth: availableWidth,
+                        rowHeight: rowHeight,
                         activeDocumentURL: activeDocumentURL,
                         gitStatus: gitStatus,
                         actions: actions,
@@ -372,7 +380,7 @@ private struct FileNodeRow: View {
             .padding(.leading, CGFloat(depth * 14 + 8))
             .padding(.trailing, 8)
             .frame(width: rowWidth, alignment: .leading)
-            .frame(height: LitheTheme.Metrics.treeRowHeight)
+            .frame(height: rowHeight)
             .contentShape(Rectangle())
             .litheRowHover(
                 cornerRadius: 4,
@@ -381,7 +389,6 @@ private struct FileNodeRow: View {
         }
         .buttonStyle(LitheTreeRowButtonStyle())
         .lithePointer()
-        .padding(.vertical, 0.5)
         .padding(.horizontal, Self.horizontalInset)
         .contextMenu { directoryContextMenu }
     }
@@ -411,7 +418,7 @@ private struct FileNodeRow: View {
             .padding(.leading, CGFloat(depth * 14 + 8))
             .padding(.trailing, 8)
             .frame(width: rowWidth, alignment: .leading)
-            .frame(height: LitheTheme.Metrics.treeRowHeight)
+            .frame(height: rowHeight)
             .contentShape(Rectangle())
             .litheRowHover(
                 isActive: activeDocumentURL?.standardizedFileURL.path
@@ -423,7 +430,6 @@ private struct FileNodeRow: View {
         }
         .buttonStyle(LitheTreeRowButtonStyle())
         .lithePointer()
-        .padding(.vertical, 0.5)
         .padding(.horizontal, Self.horizontalInset)
         .contextMenu { fileContextMenu }
         .task(id: node.url.standardizedFileURL.path) {

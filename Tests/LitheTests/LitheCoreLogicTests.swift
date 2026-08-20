@@ -75,6 +75,19 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    @MainActor
+    func workspaceWindowKeepsAnAccessibleTitleWithoutShowingTheNativeTitle() {
+        let sessions = TestProjectWindowSessions(hasActiveProject: true)
+        let coordinator = LitheWindowCoordinator(projectSessions: sessions)
+        let window = NSWindow()
+
+        coordinator.attach(to: window, layout: .workspace, title: "Lithe-IDEA")
+
+        #expect(window.title == "Lithe-IDEA")
+        #expect(window.titleVisibility == .hidden)
+    }
+
+    @Test
     func workspaceWindowFitsInsideTheVisibleScreen() {
         let visibleFrame = NSRect(x: 0, y: 24, width: 1280, height: 776)
         let oversizedFrame = NSRect(x: -80, y: -40, width: 1440, height: 900)
@@ -2122,6 +2135,40 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
+    func codeEditorRegistersThePrivateTerminalTabDropType() {
+        let textView = CodeTextView(frame: .zero)
+
+        #expect(textView.registeredDraggedTypes.contains(TerminalTabDragPayload.pasteboardType))
+    }
+
+    @Test
+    @MainActor
+    func codeEditorRoutesPrivateTerminalTabDropsWithoutChangingText() {
+        let sessionID = UUID()
+        let textView = CodeTextView(frame: .zero)
+        let pasteboard = NSPasteboard(
+            name: .init("lithe-code-editor-terminal-tab-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        pasteboard.setData(
+            Data(sessionID.uuidString.utf8),
+            forType: TerminalTabDragPayload.pasteboardType
+        )
+        defer { pasteboard.clearContents() }
+        textView.string = "before"
+        var receivedSessionID: UUID?
+        textView.onTerminalTabDrop = { droppedSessionID in
+            receivedSessionID = droppedSessionID
+            return true
+        }
+
+        #expect(textView.performTerminalTabDrop(from: pasteboard))
+        #expect(receivedSessionID == sessionID)
+        #expect(textView.string == "before")
+    }
+
+    @Test
+    @MainActor
     func codeEditorInterceptsCommandVPasteBeforeMenuRouting() throws {
         let textView = CodeTextView(frame: .zero)
         var handled = false
@@ -3724,8 +3771,21 @@ struct EditorDocumentTests {
     @Test
     func projectTreeLocatorMatchesStandardizedPathsAndExpandsParents() {
         let root = URL(fileURLWithPath: "/tmp/lithe-tree-locator-tests")
+        let sourcesDirectory = root.appendingPathComponent("Sources")
         let featureDirectory = root.appendingPathComponent("Sources/Feature")
         let fileURL = featureDirectory.appendingPathComponent("Example.swift")
+        let tree = FileNode(
+            url: root,
+            isDirectory: true,
+            children: [
+                FileNode(
+                    url: featureDirectory,
+                    isDirectory: true,
+                    children: [FileNode(url: fileURL, isDirectory: false, children: nil)],
+                    collapsedAncestorPaths: [sourcesDirectory.path]
+                )
+            ]
+        )
 
         let equivalentFile = root.appendingPathComponent("Sources/Nested/../Feature/Example.swift")
         #expect(ProjectTreeLocator.matchingURL(for: equivalentFile, among: [fileURL]) == fileURL)
@@ -3741,6 +3801,27 @@ struct EditorDocumentTests {
             ProjectTreeLocator.matchingURL(
                 for: root.deletingLastPathComponent().appendingPathComponent("Outside.swift"),
                 among: [fileURL]
+            ) == nil
+        )
+        #expect(ProjectTreeLocator.matchingURL(for: featureDirectory, in: tree) == featureDirectory)
+        #expect(ProjectTreeLocator.matchingURL(for: sourcesDirectory, in: tree) == featureDirectory)
+        #expect(ProjectTreeLocator.matchingURL(for: fileURL, in: tree) == fileURL)
+        #expect(
+            ProjectTreeLocator.expandedDirectoryPaths(
+                for: featureDirectory,
+                rootURL: root,
+                includeItem: true
+            ) == Set([
+                root.standardizedFileURL.path,
+                root.appendingPathComponent("Sources").standardizedFileURL.path,
+                featureDirectory.standardizedFileURL.path
+            ])
+        )
+        #expect(ProjectTreeLocator.matchingURL(for: root.appendingPathComponent("Hidden"), in: tree) == nil)
+        #expect(
+            ProjectTreeLocator.matchingURL(
+                for: root.deletingLastPathComponent().appendingPathComponent("Outside"),
+                in: tree
             ) == nil
         )
     }

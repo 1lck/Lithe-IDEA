@@ -3,15 +3,15 @@
 
   <h1>Lithe</h1>
 
-  <p><strong>A lightweight IDE for the AI era</strong></p>
-  <p>Start tools on demand · keep the workspace responsive · stay focused on the code</p>
-  <p><em>AI writes the code. Lithe helps you understand it, run it, and review it.</em></p>
+  <p><strong>A lightweight IntelliJ IDEA alternative for AI-assisted Java development</strong></p>
+  <p>Core IDEA workflows · ~300–400 MB baseline memory · tools start on demand</p>
+  <p><em>Let Codex or Claude Code write. Use Lithe to understand, run, debug, and review.</em></p>
 
   <p>
     <a href="./README.zh-CN.md"><strong>简体中文</strong></a> ·
     <a href="#core-features">Core features</a> ·
     <a href="#product-tour">Product tour</a> ·
-    <a href="#use-lithe">Use Lithe</a> ·
+    <a href="#download-and-install">Download</a> ·
     <a href="#architecture-overview">Architecture</a> ·
     <a href="#develop-lithe">Develop Lithe</a> ·
     <a href="#contact-us">Contact us</a>
@@ -20,11 +20,12 @@
   <p>
     <a href="https://github.com/1lck/Lithe-IDEA/releases/latest"><img src="https://img.shields.io/github/v/release/1lck/Lithe-IDEA?style=for-the-badge&label=latest%20release&logo=github&logoColor=white" alt="Latest release"></a>
     <img src="https://img.shields.io/badge/platform-macOS%2013%2B-111827?style=for-the-badge&logo=apple&logoColor=white" alt="macOS 13+">
-    <img src="https://img.shields.io/badge/Swift-6.2%2B-F05138?style=for-the-badge&logo=swift&logoColor=white" alt="Swift 6.2+">
+    <img src="https://img.shields.io/badge/platform-Windows%20x64-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows x64">
   </p>
   <p>
-    <img src="https://img.shields.io/badge/UI-SwiftUI%20%2B%20AppKit-0A84FF?style=for-the-badge&logo=apple&logoColor=white" alt="SwiftUI and AppKit">
+    <img src="https://img.shields.io/badge/Java-JDK%2017%2B-E76F00?style=for-the-badge&logo=openjdk&logoColor=white" alt="JDK 17+">
     <img src="https://img.shields.io/badge/workflow-IDEA--style-7C3AED?style=for-the-badge&logo=intellijidea&logoColor=white" alt="IDEA-style workflow">
+    <img src="https://img.shields.io/badge/baseline%20memory-300--400%20MB-159957?style=for-the-badge" alt="300 to 400 MB baseline memory">
     <a href="./LICENSE"><img src="https://img.shields.io/github/license/1lck/Lithe-IDEA?style=for-the-badge&label=license" alt="Apache License 2.0"></a>
   </p>
 
@@ -34,22 +35,17 @@
   </p>
 </div>
 
-<table align="center">
-  <tr>
-    <td align="center">🧭<br><strong>General-purpose IDE</strong><br>Project · Editor · Search · Diff</td>
-    <td align="center">⚡<br><strong>Performance focused</strong><br>Services start on demand to keep workflows responsive</td>
-    <td align="center">🤖<br><strong>AI-ready review loop</strong><br>See, run, diff, undo, and commit external changes</td>
-    <td align="center">🪶<br><strong>Lighter footprint</strong><br>Keep the resident app small and focused</td>
-  </tr>
-</table>
+## Why Lithe
 
-## About Lithe
+Codex, Claude Code, and other AI coding tools can now handle much of the implementation work. Developers still need an IDE to understand the generated code, follow symbols, run and debug the project, and review every diff. Keeping a heavyweight development environment open for those tasks can mean several gigabytes of resident memory.
 
-Lithe is a lightweight, general-purpose IDE built for the AI era. It brings project browsing, editing, search, code navigation, Git, run, and debug workflows together for multi-language and multi-type projects, while starting language servers, terminals, build tools, and debug processes only when needed.
+## Meet Lithe
 
-When an external AI tool changes a project, Lithe helps you locate the affected code, run the project, review the diff, and decide which changes to stage, undo, or commit.
+Lithe is a lightweight IntelliJ IDEA alternative built first for Java and Spring Boot developers. It keeps the core workflows for browsing, editing, navigation, search, Maven, run and debug, Git diff review, local history, and databases.
 
-> **A lightweight IDE that starts what you need, when you need it.**
+The Lithe application typically uses about **300–400 MB of baseline memory** after opening a regular project. Language servers, terminals, build tools, debuggers, and database helpers start on demand. Actual usage varies with the project and active services.
+
+> **AI writes the code. Lithe helps you understand it, run it, and review it.**
 
 ## Core features
 
@@ -116,73 +112,44 @@ When an external AI tool changes a project, Lithe helps you locate the affected 
   <img src="./docs/assets/screenshots/database-sql-operation.png" width="49%" alt="Database SQL operation and table structure">
 </p>
 
-## Use Lithe
+## Download and install
 
-Lithe requires macOS 13 or later. Java project features require JDK 17 or newer; JDK 17 or JDK 21 is recommended. Release packages include Eclipse JDT Language Server for Java completion, navigation, references, and diagnostics, so JDTLS does not need to be installed separately. Maven projects need either a project `mvnw` or a system Maven installation. Lightweight completion does not start an external process; Lithe routes the capabilities a running language server actually advertises through the shared Rust LSP Core. See the [language tooling and LSP architecture](./docs/architecture/language-tooling.md) for provider configuration and compatibility details.
+- **macOS 13+:** Download the `arm64` DMG for Apple silicon or the `x86_64` DMG for Intel Macs from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest).
+- **Windows x64:** Download the Windows `.exe` installer from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest).
 
-Download the latest macOS `.dmg` from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest). If a release provides architecture-specific installers, choose `arm64` for Apple silicon or `x86_64` for an Intel Mac. Open the disk image, drag `Lithe.app` into `/Applications`, and launch it.
-
-Install Lithe with the project Homebrew tap. The tap verifies the release checksum and clears the macOS quarantine attribute after installation:
+Homebrew is the recommended installation and update method on macOS:
 
 ```bash
 brew tap 1lck/lithe https://github.com/1lck/Lithe-IDEA.git
 brew install --cask 1lck/lithe/lithe
-```
-
-Update it with:
-
-```bash
-brew update
 brew upgrade --cask lithe
 ```
 
-If macOS blocks an app from an unidentified developer, right-click the app and select **Open**, or go to **System Settings → Privacy & Security → Open Anyway**. Only after confirming that the app came from an official Lithe GitHub Release, you can also run:
-
-```bash
-xattr -dr com.apple.quarantine "/Applications/Lithe.app"
-open "/Applications/Lithe.app"
-```
-
-After opening a project, use **Settings → Project** to configure the project JDK, Maven, and the JDK used by Maven. Lithe also detects Java and Maven from common system locations.
-
-### Database workspace and external MCP
-
-The optional Database workspace supports MySQL, MariaDB, PostgreSQL, SQLite,
-Microsoft SQL Server, MongoDB, Redis, and Nacos through an on-demand Rust helper.
-The helper is not started while the database workspace is unused. SQL connections provide table CRUD, TSV batch paste,
-find/replace within the current page, plus CSV, JSON, and SQL import and export.
-MariaDB reuses the MySQL-compatible engine; SQL Server has a native TDS data-grid
-adapter. MongoDB collections use the document grid with paging, filters, indexes,
-and protected insert/update/delete operations.
-Redis uses incremental `SCAN` pages instead of loading an entire keyspace, and its
-first workspace supports String and Hash editing, TTL changes, key renaming, and
-deletion. Nacos provides configuration search and publishing, plus service and
-instance health views. Redis and Nacos writes follow the same read-only and
-production-protection rules as SQL writes. SQL backups are complete by default,
-without a per-table row limit. Restoring a SQL backup always requires confirmation,
-verifies the backup before changing the target, and then replaces the current
-database objects and data. Release bundles also include
-`Contents/Helpers/lithe-db-mcp`, an independent MCP stdio adapter for external
-automation. It provides database tools only; Lithe does not include an in-app
-natural-language Agent conversation.
-
-For upstream audit, `third_party/dbx` contains a source-only snapshot of
-[t8y2/dbx](https://github.com/t8y2/dbx) at commit
-[`996ce42e80387bba4b33a2bf1713f590ef79d476`](https://github.com/t8y2/dbx/commit/996ce42e80387bba4b33a2bf1713f590ef79d476).
-It is not a Git submodule or runtime dependency and is excluded from Lithe's
-release bundle; the database helper is implemented and built independently.
-The eight database brand marks used by the current workspace are copied into
-`Resources/DatabaseIcons` as independent application resources. Their DBX
-source, Apache-2.0 license, and trademark-use notice are recorded alongside
-the files, so the packaged application never resolves assets from `third_party`.
+Java features require JDK 17 or newer. Release packages include Eclipse JDT Language Server, so JDTLS does not need to be installed separately.
 
 ## Architecture Overview
 
-The macOS and Windows implementations are feature-complete. The Windows build is currently in pre-release validation and has not been published yet.
+macOS is the current reference product. Windows is an independent React/Tauri implementation. Both products share deterministic commands and contracts through Rust Core while keeping native UI and platform integrations separate.
 
-<p align="center">
-  <img src="./docs/assets/architecture-diagram.png" width="100%" alt="Lithe cross-platform architecture">
-</p>
+```mermaid
+flowchart LR
+    subgraph macOS["macOS"]
+        MacUI["SwiftUI / AppKit workbench"] --> MacApp["Application models and services"]
+        MacApp --> MacAdapters["macOS adapters"]
+    end
+
+    subgraph Shared["Shared behavior"]
+        Contracts["JSON contracts and fixtures"] --> Core["Rust lithe-core"]
+    end
+
+    subgraph Windows["Windows"]
+        WinUI["React workbench"] --> WinFeatures["TypeScript features and stores"]
+        WinFeatures --> Tauri["Tauri 2 host and Windows adapters"]
+    end
+
+    MacApp -->|"JSON C ABI"| Core
+    Tauri -->|"Rust crate"| Core
+```
 
 ## Develop Lithe
 
@@ -266,16 +233,6 @@ See [Repository layout and shared boundaries](./docs/architecture/repository-lay
       <a href="https://torchai.ai"><strong>TorchAI</strong></a> provides large language model relay services for developers who need convenient API access across coding, content, and automation scenarios. Its support helps sustain Lithe's development and exploration of practical AI-powered tools. Thank you to TorchAI for supporting this project!
     </td>
   </tr>
-  <tr>
-    <td width="112" align="center">
-      <a href="https://shu26.cfd/">
-        <img src="./docs/assets/sponsors/code-go.png" width="64" alt="Code GO">
-      </a>
-    </td>
-    <td>
-      <a href="https://shu26.cfd/"><strong>Code GO</strong></a> specializes in relay services for Claude models, helping users access capable coding and reasoning models with less setup overhead. Its support gives Lithe more room to refine model integration and developer workflows. Thank you to Code GO for supporting this project!
-    </td>
-  </tr>
 </table>
 
 ### ⭐ Special thanks
@@ -287,7 +244,7 @@ See [Repository layout and shared boundaries](./docs/architecture/repository-lay
 </p>
 
 <p align="center">
-  <strong>For all things AI, head to <a href="https://linux.do">LINUX DO</a>. Wishing the community ever greater success.</strong>
+  <strong>For all things AI, head to <a href="https://linux.do/">LINUX DO</a>. Wishing the community ever greater success.</strong>
 </p>
 
 ### Contributors
