@@ -446,6 +446,11 @@ private struct SettingsWindow: View {
             onDismiss: close
         )
         .environmentObject(model)
+        // Rebuild the SwiftUI theme environment when the preference changes.
+        // Without a new identity, a Window scene can retain the previous
+        // Light/Dark color scheme even after the AppKit window has switched.
+        .id(settings.themePreference.rawValue)
+        .preferredColorScheme(settings.themePreference.preferredColorScheme)
         .background(
             SettingsWindowAccessor(
                 reference: windowReference,
@@ -473,19 +478,37 @@ private final class SettingsTitlebarBackgroundView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
+private final class SettingsWindowProbe: NSView {
+    var onEffectiveAppearanceChange: (() -> Void)?
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        onEffectiveAppearanceChange?()
+    }
+}
+
 private struct SettingsWindowAccessor: NSViewRepresentable {
     let reference: SettingsWindowReference
     let title: String
     let themePreference: AppThemePreference
 
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: .zero)
+    func makeNSView(context: Context) -> SettingsWindowProbe {
+        let view = SettingsWindowProbe(frame: .zero)
+        bindAppearanceUpdates(to: view)
         configureWindow(for: view)
         return view
     }
 
-    func updateNSView(_ view: NSView, context: Context) {
+    func updateNSView(_ view: SettingsWindowProbe, context: Context) {
+        bindAppearanceUpdates(to: view)
         configureWindow(for: view)
+    }
+
+    private func bindAppearanceUpdates(to view: SettingsWindowProbe) {
+        view.onEffectiveAppearanceChange = { [weak view] in
+            guard let view else { return }
+            configureWindow(for: view)
+        }
     }
 
     private func configureWindow(for view: NSView) {
@@ -493,7 +516,13 @@ private struct SettingsWindowAccessor: NSViewRepresentable {
             guard let window = view.window else { return }
             reference.window = window
             window.title = title
-            window.appearance = themePreference.windowAppearance
+            let windowAppearance = themePreference.windowAppearance
+            if window.appearance?.name != windowAppearance?.name {
+                window.appearance = windowAppearance
+            }
+            if window.contentView?.appearance?.name != windowAppearance?.name {
+                window.contentView?.appearance = windowAppearance
+            }
             window.styleMask.insert(.fullSizeContentView)
             window.titlebarAppearsTransparent = true
             window.titleVisibility = .visible

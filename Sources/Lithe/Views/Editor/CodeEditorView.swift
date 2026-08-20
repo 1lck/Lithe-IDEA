@@ -68,7 +68,10 @@ fileprivate struct CodeEditorPalette {
 }
 
 enum EditorLayoutMetrics {
-    static let standardGutterWidth: CGFloat = 45
+    static let markerColumnWidth: CGFloat = 16
+    static let lineNumberWidth: CGFloat = 36
+    static let foldIndicatorWidth: CGFloat = 13
+    static let standardGutterWidth = markerColumnWidth + lineNumberWidth + foldIndicatorWidth
     static let blameMetadataWidth: CGFloat = 140
     static let blameGutterWidth = blameMetadataWidth + standardGutterWidth
     static let leadingInset: CGFloat = 4
@@ -2780,7 +2783,13 @@ final class LineNumberGutterView: NSView {
     }
 
     private var foldIndicatorX: CGFloat {
-        editorGutterOriginX + EditorLayoutMetrics.standardGutterWidth - 13
+        editorGutterOriginX
+            + EditorLayoutMetrics.markerColumnWidth
+            + EditorLayoutMetrics.lineNumberWidth
+    }
+
+    private var markerColumnRange: ClosedRange<CGFloat> {
+        editorGutterOriginX...(editorGutterOriginX + EditorLayoutMetrics.markerColumnWidth)
     }
 
     override var isFlipped: Bool { true }
@@ -3036,11 +3045,10 @@ final class LineNumberGutterView: NSView {
                ) {
                 drawBlame(blame, y: y, height: lineRect.height)
             }
-            if let marker = implementationMarkers.first(where: { $0.line == lineNumber - 1 }) {
-                drawImplementationMarker(marker, y: y, height: lineRect.height)
-            }
             if !isBlameVisible, debugBreakpointLines.contains(lineNumber - 1) {
                 drawDebugBreakpoint(y: y, height: lineRect.height)
+            } else if let marker = implementationMarkers.first(where: { $0.line == lineNumber - 1 }) {
+                drawImplementationMarker(marker, y: y, height: lineRect.height)
             }
             if let marker = gitLineChangeMarkersByLine[lineNumber - 1] {
                 drawGitLineChange(marker, y: y, height: lineRect.height)
@@ -3123,7 +3131,8 @@ final class LineNumberGutterView: NSView {
         label.draw(
             at: NSPoint(
                 x: editorGutterOriginX
-                    + (EditorLayoutMetrics.standardGutterWidth - size.width) / 2,
+                    + EditorLayoutMetrics.markerColumnWidth
+                    + (EditorLayoutMetrics.lineNumberWidth - size.width) / 2,
                 y: centeredY
             ),
             withAttributes: attributes
@@ -3168,7 +3177,7 @@ final class LineNumberGutterView: NSView {
 
     private func drawImplementationMarker(_ marker: JavaImplementationMarker, y: CGFloat, height: CGFloat) {
         let rect = NSRect(
-            x: editorGutterOriginX + 18,
+            x: editorGutterOriginX + (EditorLayoutMetrics.markerColumnWidth - 13) / 2,
             y: y + max(0, (height - 13) / 2),
             width: 13,
             height: 13
@@ -3191,7 +3200,7 @@ final class LineNumberGutterView: NSView {
         NSColor(red: 0.92, green: 0.28, blue: 0.30, alpha: 0.96).setFill()
         NSBezierPath(
             ovalIn: NSRect(
-                x: editorGutterOriginX + 29,
+                x: editorGutterOriginX + (EditorLayoutMetrics.markerColumnWidth - 8) / 2,
                 y: y + max(0, (height - 8) / 2),
                 width: 8,
                 height: 8
@@ -3331,7 +3340,7 @@ final class LineNumberGutterView: NSView {
 
     private func foldRegion(at point: NSPoint) -> JavaFoldRegion? {
         guard point.x >= foldIndicatorX,
-              point.x <= foldIndicatorX + 13,
+              point.x <= foldIndicatorX + EditorLayoutMetrics.foldIndicatorWidth,
               let textView,
               let scrollView,
               let layoutManager = textView.layoutManager,
@@ -3371,15 +3380,17 @@ final class LineNumberGutterView: NSView {
         if point.x >= bounds.width - 8, let marker = gitLineChangeMarkersByLine[line] {
             onShowGitLineChange?(marker)
         } else if point.x >= foldIndicatorX,
-                  point.x <= foldIndicatorX + 13,
+                  point.x <= foldIndicatorX + EditorLayoutMetrics.foldIndicatorWidth,
                   let region = foldRegions.first(where: { $0.startLine == line }) {
             onToggleFold?(region)
-        } else if point.x >= editorGutterOriginX + 16,
-                  point.x <= editorGutterOriginX + 34,
-                  let marker = implementationMarkers.first(where: { $0.line == line }) {
-            onSelectImplementation?(marker)
-        } else if !isBlameVisible, point.x <= EditorLayoutMetrics.standardGutterWidth {
-            onToggleDebugBreakpoint?(line)
+        } else if markerColumnRange.contains(point.x) {
+            if !isBlameVisible, debugBreakpointLines.contains(line) {
+                onToggleDebugBreakpoint?(line)
+            } else if let marker = implementationMarkers.first(where: { $0.line == line }) {
+                onSelectImplementation?(marker)
+            } else if !isBlameVisible {
+                onToggleDebugBreakpoint?(line)
+            }
         } else if isBlameVisible,
                   point.x < EditorLayoutMetrics.blameMetadataWidth,
                   let blame = blameByLine[line] {
@@ -3519,7 +3530,7 @@ final class CodeVisionOverlayController {
             if hint.usageCount > 0 {
                 let usageButton = makeButton(
                     title: "\(hint.usageCount) usage\(hint.usageCount == 1 ? "" : "s")",
-                    underlinesOnHover: true
+                    hoverUnderlineStyle: .afterFirstSpace
                 ) {
                     onUsages(hint)
                 }
@@ -3528,17 +3539,20 @@ final class CodeVisionOverlayController {
 
             if hint.implementationCount > 0 {
                 let title = "\(hint.implementationCount) implementation\(hint.implementationCount == 1 ? "" : "s")"
-                let implementationButton = makeButton(title: title) {
+                let implementationButton = makeButton(
+                    title: title,
+                    hoverUnderlineStyle: .afterFirstSpace
+                ) {
                     onImplementations(hint)
                 }
                 items.append(implementationButton)
             }
 
-        if let authorName = hint.authorName, !authorName.isEmpty {
+            if let authorName = hint.authorName, !authorName.isEmpty {
                 let authorButton = makeButton(
                     title: authorName,
                     systemImage: "person",
-                    underlinesOnHover: true
+                    hoverUnderlineStyle: .all
                 ) {
                     onAuthor()
                 }
@@ -3578,13 +3592,13 @@ final class CodeVisionOverlayController {
     private func makeButton(
         title: String,
         systemImage: String? = nil,
-        underlinesOnHover: Bool = false,
+        hoverUnderlineStyle: CodeVisionHoverUnderlineStyle = .none,
         action: @escaping () -> Void
     ) -> NSButton {
         let button = CodeVisionLinkButton(
             title: title,
             systemImage: systemImage,
-            underlinesOnHover: underlinesOnHover,
+            hoverUnderlineStyle: hoverUnderlineStyle,
             font: .systemFont(ofSize: 10.5, weight: .medium),
             textColor: NSColor(white: 0.52, alpha: 1),
             action: action
@@ -3721,11 +3735,18 @@ private final class ClosureButton: NSButton {
 }
 
 @MainActor
+private enum CodeVisionHoverUnderlineStyle {
+    case none
+    case all
+    case afterFirstSpace
+}
+
+@MainActor
 private final class CodeVisionLinkButton: NSButton {
     private let handler: () -> Void
     private let linkTitle: String
     private let systemImageName: String?
-    private let underlinesOnHover: Bool
+    private let hoverUnderlineStyle: CodeVisionHoverUnderlineStyle
     private let linkFont: NSFont
     private let linkColor: NSColor
     private var hoverTrackingArea: NSTrackingArea?
@@ -3733,7 +3754,7 @@ private final class CodeVisionLinkButton: NSButton {
     init(
         title: String,
         systemImage: String?,
-        underlinesOnHover: Bool,
+        hoverUnderlineStyle: CodeVisionHoverUnderlineStyle,
         font: NSFont,
         textColor: NSColor,
         action: @escaping () -> Void
@@ -3741,7 +3762,7 @@ private final class CodeVisionLinkButton: NSButton {
         handler = action
         linkTitle = title
         systemImageName = systemImage
-        self.underlinesOnHover = underlinesOnHover
+        self.hoverUnderlineStyle = hoverUnderlineStyle
         linkFont = font
         linkColor = textColor
         super.init(frame: .zero)
@@ -3824,7 +3845,8 @@ private final class CodeVisionLinkButton: NSButton {
             result.append(NSAttributedString(attachment: attachment))
             result.append(NSAttributedString(string: " "))
         }
-        if isHovered, underlinesOnHover,
+        if isHovered,
+           hoverUnderlineStyle == .afterFirstSpace,
            let separator = linkTitle.firstIndex(of: " ") {
             let prefix = String(linkTitle[..<separator])
             let suffix = String(linkTitle[linkTitle.index(after: separator)...])
@@ -3836,7 +3858,7 @@ private final class CodeVisionLinkButton: NSButton {
             result.append(NSAttributedString(string: suffix, attributes: underlinedAttributes))
         } else {
             var titleAttributes = attributes
-            if isHovered, underlinesOnHover {
+            if isHovered, hoverUnderlineStyle == .all {
                 titleAttributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
                 titleAttributes[.underlineColor] = linkColor
             }

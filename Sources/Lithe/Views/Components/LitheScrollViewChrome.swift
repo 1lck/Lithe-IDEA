@@ -72,12 +72,12 @@ struct LitheScrollViewChrome: NSViewRepresentable {
                 scrollView.hasVerticalScroller = true
             }
             if usesCompactScrollers {
-                if !(scrollView.verticalScroller is CompactOverlayScroller) {
-                    scrollView.verticalScroller = CompactOverlayScroller()
+                if !(scrollView.verticalScroller is CompactScroller) {
+                    scrollView.verticalScroller = CompactScroller()
                 }
                 if !hideHorizontal,
-                   !(scrollView.horizontalScroller is CompactOverlayScroller) {
-                    scrollView.horizontalScroller = CompactOverlayScroller()
+                   !(scrollView.horizontalScroller is CompactScroller) {
+                    scrollView.horizontalScroller = CompactScroller()
                 }
                 if scrollView.drawsBackground {
                     scrollView.drawsBackground = false
@@ -91,8 +91,8 @@ struct LitheScrollViewChrome: NSViewRepresentable {
                 }
             }
 
-            // Installing a custom scroller can make AppKit re-evaluate the
-            // preferred system style, so enforce overlay mode afterwards.
+            // Persistent scrollers require legacy style because AppKit owns
+            // overlay fade behavior. Non-persistent scrollers remain overlay.
             let scrollerStyle: NSScroller.Style = alwaysShowVertical ? .legacy : .overlay
             if scrollView.scrollerStyle != scrollerStyle {
                 scrollView.scrollerStyle = scrollerStyle
@@ -167,9 +167,9 @@ struct LitheScrollViewChrome: NSViewRepresentable {
         }
     }
 
-    /// Draws only a compact thumb. Omitting the knob slot keeps project-tree
-    /// content visible beneath overlay scrollers instead of adding a dark rail.
-    final class CompactOverlayScroller: NSScroller {
+    /// Draws only a compact thumb in either persistent legacy or fading overlay
+    /// mode. Omitting the knob slot avoids adding a visible track background.
+    final class CompactScroller: NSScroller {
         override class var isCompatibleWithOverlayScrollers: Bool { true }
         override var isOpaque: Bool { false }
 

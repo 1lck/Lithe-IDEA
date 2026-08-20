@@ -4,13 +4,26 @@ import Testing
 struct EditorLayoutMetricsTests {
     @Test
     func blameGutterKeepsTheStandardEditorGutterBesideCompactMetadata() {
-        #expect(EditorLayoutMetrics.blameGutterWidth == 185)
+        #expect(EditorLayoutMetrics.blameGutterWidth == 205)
         #expect(
             abs(
                 EditorLayoutMetrics.blameGutterWidth
                     - EditorLayoutMetrics.blameMetadataWidth
                     - EditorLayoutMetrics.standardGutterWidth
             ) < 0.001
+        )
+    }
+
+    @Test
+    func standardGutterUsesDistinctMarkerLineNumberAndFoldColumns() {
+        #expect(EditorLayoutMetrics.markerColumnWidth == 16)
+        #expect(EditorLayoutMetrics.lineNumberWidth == 36)
+        #expect(EditorLayoutMetrics.foldIndicatorWidth == 13)
+        #expect(
+            EditorLayoutMetrics.standardGutterWidth
+                == EditorLayoutMetrics.markerColumnWidth
+                    + EditorLayoutMetrics.lineNumberWidth
+                    + EditorLayoutMetrics.foldIndicatorWidth
         )
     }
 
