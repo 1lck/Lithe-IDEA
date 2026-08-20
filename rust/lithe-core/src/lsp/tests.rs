@@ -593,6 +593,7 @@ fn client_core_tracks_documents_and_feature_requests() {
         state: opened.state,
         uri: "file:///tmp/project/main.rs".to_string(),
         text: "fn main() { launch(); }\n".to_string(),
+        content_changes: Vec::new(),
     })
     .unwrap();
     assert_eq!(
@@ -630,6 +631,54 @@ fn client_core_tracks_documents_and_feature_requests() {
     let request_message: Value = serde_json::from_str(&requested.messages[0]).unwrap();
     assert_eq!(request_message["method"], "textDocument/definition");
     assert_eq!(request_message["params"]["position"]["character"], 12);
+}
+
+#[test]
+fn client_change_document_emits_incremental_ranges_when_the_server_supports_them() {
+    let opened = client_open_document(ClientOpenDocumentRequest {
+        state: LspClientState::default(),
+        uri: "file:///tmp/project/main.rs".to_string(),
+        language_id: "rust".to_string(),
+        text: "fn main() {}\n".to_string(),
+    })
+    .unwrap();
+    let mut state = opened.state;
+    state.text_document_sync = LspTextDocumentSyncKind::Incremental;
+    let changed = client_change_document(ClientChangeDocumentRequest {
+        state,
+        uri: "file:///tmp/project/main.rs".to_string(),
+        text: String::new(),
+        content_changes: vec![LspDocumentContentChange {
+            range: Some(LspRange {
+                start: LspPosition {
+                    line: 0,
+                    utf16_column: 8,
+                },
+                end: LspPosition {
+                    line: 0,
+                    utf16_column: 8,
+                },
+            }),
+            text: "launch".to_string(),
+        }],
+    })
+    .unwrap();
+    assert_eq!(
+        changed
+            .state
+            .open_documents
+            .get("file:///tmp/project/main.rs")
+            .unwrap()
+            .text,
+        "fn main(launch) {}\n"
+    );
+    let did_change: Value = serde_json::from_str(&changed.messages[0]).unwrap();
+    assert_eq!(did_change["method"], "textDocument/didChange");
+    assert_eq!(did_change["params"]["contentChanges"][0]["text"], "launch");
+    assert_eq!(
+        did_change["params"]["contentChanges"][0]["range"]["start"]["character"],
+        8
+    );
 }
 
 #[test]
@@ -728,6 +777,7 @@ fn client_core_ignores_diagnostics_for_unopened_or_stale_document_versions() {
         state: opened.state,
         uri: uri.to_string(),
         text: "fn main() { launch(); }\n".to_string(),
+        content_changes: Vec::new(),
     })
     .unwrap();
 

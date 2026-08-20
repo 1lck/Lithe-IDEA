@@ -7,8 +7,8 @@ use super::{
     frame_message, parse_server_messages, ClientApplyServerMessageRequest,
     ClientChangeDocumentRequest, ClientCloseDocumentRequest, ClientFeatureRequest,
     ClientInitializeRequest, ClientOpenDocumentRequest, ClientShutdownRequest, FrameMessageRequest,
-    LspClientDiagnostic, LspClientDocument, LspClientState, LspPosition, LspRange,
-    ParseServerMessagesRequest,
+    LspClientDiagnostic, LspClientDocument, LspClientState, LspDocumentContentChange, LspPosition,
+    LspRange, ParseServerMessagesRequest,
 };
 use crate::lsp::languages::jdt::{
     adapt_start, initialized_notification, virtual_source_content, virtual_source_resolve_params,
@@ -21,7 +21,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -96,12 +96,17 @@ pub struct SessionRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-/// Complete document contents to open or update in a session.
+/// Complete document contents or incremental edits to open or update in a session.
 pub struct SyncDocumentRequest {
     pub session_id: String,
     pub uri: String,
     pub language_id: String,
+    /// Full document text. Required for `didOpen`; optional for incremental `didChange`.
+    #[serde(default)]
     pub text: String,
+    /// Range-based edits used when the server advertised Incremental `textDocumentSync`.
+    #[serde(default)]
+    pub content_changes: Vec<LspDocumentContentChange>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -200,6 +205,20 @@ pub struct CancelOperationRequest {
 /// Ordered events drained from a session since the previous poll.
 pub struct PollEventsResponse {
     pub events: Vec<LspRuntimeEvent>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// Request that waits until queued events exist or the timeout elapses.
+pub struct WaitEventsRequest {
+    pub session_id: String,
+    /// Upper bound for blocking on the session event channel, in milliseconds.
+    #[serde(default = "default_wait_events_timeout")]
+    pub timeout_milliseconds: u64,
+}
+
+fn default_wait_events_timeout() -> u64 {
+    30_000
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -329,6 +348,7 @@ struct RuntimeSession {
     #[cfg(test)]
     root_uri: String,
     state: Mutex<SessionState>,
+    event_signal: Condvar,
     process: Arc<dyn LspProcessHandle>,
     active: AtomicBool,
 }
@@ -402,6 +422,15 @@ pub fn cancel_operation(request: CancelOperationRequest) -> Result<(), CoreError
 pub fn poll_events(request: SessionRequest) -> Result<PollEventsResponse, CoreError> {
     Ok(PollEventsResponse {
         events: engine().session(&request.session_id)?.poll_events()?,
+    })
+}
+
+/// Waits until queued events exist or the supplied timeout elapses.
+pub fn wait_events(request: WaitEventsRequest) -> Result<PollEventsResponse, CoreError> {
+    Ok(PollEventsResponse {
+        events: engine()
+            .session(&request.session_id)?
+            .wait_events(Duration::from_millis(request.timeout_milliseconds))?,
     })
 }
 
@@ -516,6 +545,7 @@ impl LspEngine {
                 shutdown_timeout,
                 terminal_event_emitted: false,
             }),
+            event_signal: Condvar::new(),
             process: process.handle,
             active: AtomicBool::new(true),
         });
@@ -599,6 +629,7 @@ impl RuntimeSession {
                         state: state.client.clone(),
                         uri: uri.clone(),
                         text: request.text,
+                        content_changes: request.content_changes,
                     })?
                 } else {
                     client_open_document(ClientOpenDocumentRequest {
@@ -912,6 +943,40 @@ impl RuntimeSession {
     fn poll_events(&self) -> Result<Vec<LspRuntimeEvent>, CoreError> {
         let mut state = self.lock_state()?;
         Ok(state.events.drain(..).collect())
+    }
+
+    fn wait_events(&self, timeout: Duration) -> Result<Vec<LspRuntimeEvent>, CoreError> {
+        let mut state = self.lock_state()?;
+        let deadline = Instant::now() + timeout;
+        loop {
+            crate::protocol::cancellation::check()?;
+            if !state.events.is_empty() {
+                return Ok(state.events.drain(..).collect());
+            }
+            if matches!(
+                state.lifecycle,
+                LspLifecycleState::Stopped | LspLifecycleState::Failed
+            ) {
+                return Ok(Vec::new());
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Ok(Vec::new());
+            }
+            let (guard, wait_result) =
+                self.event_signal
+                    .wait_timeout(state, remaining)
+                    .map_err(|_| {
+                        CoreError::new(
+                            ErrorCode::Unknown,
+                            "Language-server event wait lock was poisoned.",
+                        )
+                    })?;
+            state = guard;
+            if wait_result.timed_out() && state.events.is_empty() {
+                return Ok(Vec::new());
+            }
+        }
     }
 
     #[cfg(test)]
@@ -1748,6 +1813,15 @@ fn parse_server_info(message: &Value) -> Option<LspServerInfo> {
     })
 }
 
+fn enqueue_runtime_event(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    event: LspRuntimeEvent,
+) {
+    state.events.push_back(event);
+    session.event_signal.notify_all();
+}
+
 fn transition_locked(
     session: &RuntimeSession,
     state: &mut SessionState,
@@ -1756,25 +1830,29 @@ fn transition_locked(
 ) {
     state.lifecycle = lifecycle;
     let sequence = take_sequence(state);
-    state.events.push_back(LspRuntimeEvent {
-        kind: "stateChanged".to_string(),
-        sequence,
-        provider_id: session.provider_id.clone(),
-        session_id: session.id.clone(),
-        state: Some(lifecycle),
-        operation_id: None,
-        method: None,
-        uri: None,
-        version: None,
-        diagnostics: None,
-        result: None,
-        error,
-        capabilities: None,
-        server_info: None,
-        level: None,
-        message: None,
-        detail: None,
-    });
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "stateChanged".to_string(),
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: Some(lifecycle),
+            operation_id: None,
+            method: None,
+            uri: None,
+            version: None,
+            diagnostics: None,
+            result: None,
+            error,
+            capabilities: None,
+            server_info: None,
+            level: None,
+            message: None,
+            detail: None,
+        },
+    );
 }
 
 fn push_request_event(
@@ -1786,25 +1864,29 @@ fn push_request_event(
     error: Option<LspRuntimeError>,
 ) {
     let sequence = take_sequence(state);
-    state.events.push_back(LspRuntimeEvent {
-        kind: "requestCompleted".to_string(),
-        sequence,
-        provider_id: session.provider_id.clone(),
-        session_id: session.id.clone(),
-        state: None,
-        operation_id: Some(operation_id.to_string()),
-        method: Some(method.to_string()),
-        uri: None,
-        version: None,
-        diagnostics: None,
-        result,
-        error,
-        capabilities: None,
-        server_info: None,
-        level: None,
-        message: None,
-        detail: None,
-    });
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "requestCompleted".to_string(),
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: None,
+            operation_id: Some(operation_id.to_string()),
+            method: Some(method.to_string()),
+            uri: None,
+            version: None,
+            diagnostics: None,
+            result,
+            error,
+            capabilities: None,
+            server_info: None,
+            level: None,
+            message: None,
+            detail: None,
+        },
+    );
 }
 
 fn push_diagnostics_event(
@@ -1815,25 +1897,29 @@ fn push_diagnostics_event(
     diagnostics: Vec<LspClientDiagnostic>,
 ) {
     let sequence = take_sequence(state);
-    state.events.push_back(LspRuntimeEvent {
-        kind: "diagnostics".to_string(),
-        sequence,
-        provider_id: session.provider_id.clone(),
-        session_id: session.id.clone(),
-        state: None,
-        operation_id: None,
-        method: None,
-        uri: Some(uri.to_string()),
-        version,
-        diagnostics: Some(diagnostics),
-        result: None,
-        error: None,
-        capabilities: None,
-        server_info: None,
-        level: None,
-        message: None,
-        detail: None,
-    });
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "diagnostics".to_string(),
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: None,
+            operation_id: None,
+            method: None,
+            uri: Some(uri.to_string()),
+            version,
+            diagnostics: Some(diagnostics),
+            result: None,
+            error: None,
+            capabilities: None,
+            server_info: None,
+            level: None,
+            message: None,
+            detail: None,
+        },
+    );
 }
 
 fn push_features_event(
@@ -1842,48 +1928,56 @@ fn push_features_event(
     capabilities: Vec<String>,
 ) {
     let sequence = take_sequence(state);
-    state.events.push_back(LspRuntimeEvent {
-        kind: "featuresChanged".to_string(),
-        sequence,
-        provider_id: session.provider_id.clone(),
-        session_id: session.id.clone(),
-        state: None,
-        operation_id: None,
-        method: None,
-        uri: None,
-        version: None,
-        diagnostics: None,
-        result: None,
-        error: None,
-        capabilities: Some(capabilities),
-        server_info: None,
-        level: None,
-        message: None,
-        detail: None,
-    });
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "featuresChanged".to_string(),
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: None,
+            operation_id: None,
+            method: None,
+            uri: None,
+            version: None,
+            diagnostics: None,
+            result: None,
+            error: None,
+            capabilities: Some(capabilities),
+            server_info: None,
+            level: None,
+            message: None,
+            detail: None,
+        },
+    );
 }
 
 fn push_server_info_event(session: &RuntimeSession, state: &mut SessionState, info: LspServerInfo) {
     let sequence = take_sequence(state);
-    state.events.push_back(LspRuntimeEvent {
-        kind: "serverInfoChanged".to_string(),
-        sequence,
-        provider_id: session.provider_id.clone(),
-        session_id: session.id.clone(),
-        state: None,
-        operation_id: None,
-        method: None,
-        uri: None,
-        version: None,
-        diagnostics: None,
-        result: None,
-        error: None,
-        capabilities: None,
-        server_info: Some(info),
-        level: None,
-        message: None,
-        detail: None,
-    });
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "serverInfoChanged".to_string(),
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: None,
+            operation_id: None,
+            method: None,
+            uri: None,
+            version: None,
+            diagnostics: None,
+            result: None,
+            error: None,
+            capabilities: None,
+            server_info: Some(info),
+            level: None,
+            message: None,
+            detail: None,
+        },
+    );
 }
 
 fn push_log_event(
@@ -1894,25 +1988,29 @@ fn push_log_event(
     detail: Option<String>,
 ) {
     let sequence = take_sequence(state);
-    state.events.push_back(LspRuntimeEvent {
-        kind: "log".to_string(),
-        sequence,
-        provider_id: session.provider_id.clone(),
-        session_id: session.id.clone(),
-        state: None,
-        operation_id: None,
-        method: None,
-        uri: None,
-        version: None,
-        diagnostics: None,
-        result: None,
-        error: None,
-        capabilities: None,
-        server_info: None,
-        level: Some(level.to_string()),
-        message: Some(message.to_string()),
-        detail: detail.filter(|value| !value.is_empty()),
-    });
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "log".to_string(),
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: None,
+            operation_id: None,
+            method: None,
+            uri: None,
+            version: None,
+            diagnostics: None,
+            result: None,
+            error: None,
+            capabilities: None,
+            server_info: None,
+            level: Some(level.to_string()),
+            message: Some(message.to_string()),
+            detail: detail.filter(|value| !value.is_empty()),
+        },
+    );
 }
 
 fn take_sequence(state: &mut SessionState) -> u64 {
@@ -2146,6 +2244,7 @@ mod tests {
                     uri: uri.to_string(),
                     language_id: "go".to_string(),
                     text: text.to_string(),
+                    content_changes: Vec::new(),
                 })
                 .expect("syncing a document should succeed");
         }
@@ -2541,6 +2640,7 @@ mod tests {
                 uri: "file:///workspace/main.go".to_string(),
                 language_id: "go".to_string(),
                 text: "package main".to_string(),
+                content_changes: Vec::new(),
             })
             .expect_err("a broken pipe must surface to the caller");
         assert!(matches!(error.code, ErrorCode::ProcessFailed));
@@ -2925,6 +3025,7 @@ mod tests {
                 uri: uri.to_string(),
                 language_id: "go".to_string(),
                 text: "package main".to_string(),
+                content_changes: Vec::new(),
             })
             .unwrap();
         old_server.send(json!({
@@ -2986,6 +3087,7 @@ mod tests {
                 uri: uri.to_string(),
                 language_id: "go".to_string(),
                 text: "package main".to_string(),
+                content_changes: Vec::new(),
             })
             .is_err());
     }
@@ -3108,6 +3210,59 @@ mod tests {
             }))
         );
         assert!(event.error.is_none());
+    }
+
+    #[test]
+    fn wait_events_returns_queued_events_without_waiting_the_timeout() {
+        let harness = Harness::start(|_| {});
+        let started = Instant::now();
+        let events = harness
+            .session()
+            .wait_events(Duration::from_secs(2))
+            .expect("waiting should succeed");
+        assert!(
+            !events.is_empty(),
+            "starting a session should enqueue at least one lifecycle event"
+        );
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "queued events must not wait out the timeout"
+        );
+    }
+
+    #[test]
+    fn wait_events_times_out_with_an_empty_queue() {
+        let mut harness = Harness::ready();
+        harness.poll();
+        let started = Instant::now();
+        let events = harness
+            .session()
+            .wait_events(Duration::from_millis(40))
+            .expect("waiting should succeed");
+        assert!(events.is_empty());
+        assert!(started.elapsed() >= Duration::from_millis(30));
+    }
+
+    #[test]
+    fn wait_events_wakes_when_the_session_enqueues_a_lifecycle_event() {
+        let mut harness = Harness::ready();
+        harness.poll();
+        let session = harness.session();
+        let waiter = thread::spawn({
+            let session = Arc::clone(&session);
+            move || {
+                session
+                    .wait_events(Duration::from_secs(2))
+                    .expect("waiting should succeed")
+            }
+        });
+        thread::sleep(Duration::from_millis(30));
+        session.stop().expect("the session should stop");
+        let events = waiter.join().expect("the waiter thread should finish");
+        assert!(
+            events.iter().any(|event| event.kind == "stateChanged"),
+            "stop should wake waiters with a lifecycle event, got {events:?}"
+        );
     }
 
     #[test]

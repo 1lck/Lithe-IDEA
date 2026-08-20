@@ -4,10 +4,11 @@
  * mouse hit-testing cannot land after the last visible character.
  */
 export function documentUsesCrlf(content: string): boolean {
-  return content.includes("\r\n");
+  return typeof content === "string" && content.includes("\r\n");
 }
 
 export function toMonacoModelValue(content: string): string {
+  if (typeof content !== "string") return "";
   if (!content.includes("\r")) return content;
   return content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }

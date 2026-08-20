@@ -64,18 +64,40 @@ if ($RequireUpdaterArtifacts) {
 
 $versionOverrides | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 $versionConfig
 Set-Location $windowsApp
+
+function Add-DirectoryToPath([string]$Directory) {
+    if ([string]::IsNullOrWhiteSpace($Directory)) { return }
+    if (-not (Test-Path -LiteralPath $Directory -PathType Container)) { return }
+    $existing = $env:Path -split ";" | Where-Object { $_ -ne "" }
+    if ($existing -contains $Directory) { return }
+    $env:Path = "$Directory;" + $env:Path
+}
+
+$cargoHome = if (-not [string]::IsNullOrWhiteSpace($env:CARGO_HOME)) {
+    $env:CARGO_HOME
+} else {
+    Join-Path $env:USERPROFILE ".cargo"
+}
+Add-DirectoryToPath (Join-Path $cargoHome "bin")
+$nodeCommand = Get-Command node -ErrorAction SilentlyContinue
+if ($null -ne $nodeCommand) {
+    Add-DirectoryToPath (Split-Path -Parent $nodeCommand.Source)
+}
+
 & bun install --frozen-lockfile
 if ($LASTEXITCODE -ne 0) { throw "Windows frontend dependency installation failed" }
 
 $tauriArgs = @(
-    "tauri", "build",
+    "tauri",
+    "--",
+    "build",
     "--config", "src-tauri/tauri.windows.conf.json",
     "--config", "src-tauri/tauri.jdtls.conf.json",
     "--config", $versionConfig,
     "--bundles", "nsis"
 )
 if ($Configuration -eq "Debug") { $tauriArgs += "--debug" }
-& bunx @tauriArgs
+& bun run @tauriArgs
 if ($LASTEXITCODE -ne 0) { throw "Tauri NSIS packaging failed" }
 
 $bundleDirectory = Join-Path $windowsApp "src-tauri/target/release/bundle/nsis"

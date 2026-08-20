@@ -98,8 +98,9 @@ async function dispatchSessionEvent(session: Session, event: RuntimeEvent): Prom
 }
 
 async function poll(session: Session): Promise<RuntimeEvent[]> {
-  const response = await core<{ events: RuntimeEvent[] }>("lsp.pollEvents", {
+  const response = await core<{ events: RuntimeEvent[] }>("lsp.waitEvents", {
     sessionId: session.id,
+    timeoutMilliseconds: 30_000,
   });
   for (const event of response.events) await dispatchSessionEvent(session, event);
   return response.events;
@@ -118,20 +119,23 @@ async function runEventPump(session: Session): Promise<void> {
       await emit("lsp://server-crashed", {});
       return;
     }
-    await new Promise((resolve) => setTimeout(resolve, 20));
   }
 }
 
 async function waitUntilReady(session: Session): Promise<void> {
   const deadline = Date.now() + 12_000;
   while (Date.now() < deadline) {
-    const events = await poll(session);
-    const state = [...events].reverse().find((event) => event.type === "stateChanged")?.state;
+    const response = await core<{ events: RuntimeEvent[] }>("lsp.waitEvents", {
+      sessionId: session.id,
+      timeoutMilliseconds: 200,
+    });
+    for (const event of response.events) await dispatchSessionEvent(session, event);
+    const state = [...response.events].reverse().find((event) => event.type === "stateChanged")
+      ?.state;
     if (state === "ready") return;
     if (state === "failed" || state === "stopped") {
       throw new Error(`Language server entered ${state} state`);
     }
-    await new Promise((resolve) => setTimeout(resolve, 20));
   }
   throw new Error("Language server initialization timed out");
 }
@@ -334,13 +338,56 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
     if (session.files.size === 0) await stopSession(session);
     return undefined as T;
   }
-  if (command === "lsp_document_open" || command === "lsp_document_change" || command === "lsp_document_save") {
+  if (command === "lsp_document_open") {
     const session = sessionForFile(args.filePath);
     await core("lsp.syncDocument", {
       sessionId: session.id,
       uri: fileUri(args.filePath),
       languageId: args.languageId ?? session.languageId,
-      text: args.content,
+      text: args.content ?? "",
+    });
+    return undefined as T;
+  }
+  if (command === "lsp_document_change") {
+    const session = sessionForFile(args.filePath);
+    const contentChanges = Array.isArray(args.contentChanges)
+      ? args.contentChanges
+          .map((change: JsonRecord) => {
+            if (
+              typeof change.startLine !== "number" ||
+              typeof change.startColumn !== "number" ||
+              typeof change.endLine !== "number" ||
+              typeof change.endColumn !== "number"
+            ) {
+              return null;
+            }
+            return {
+              range: {
+                start: { line: change.startLine, utf16Column: change.startColumn },
+                end: { line: change.endLine, utf16Column: change.endColumn },
+              },
+              text: String(change.text ?? ""),
+            };
+          })
+          .filter(Boolean)
+      : [];
+    await core("lsp.syncDocument", {
+      sessionId: session.id,
+      uri: fileUri(args.filePath),
+      languageId: args.languageId ?? session.languageId,
+      ...(contentChanges.length > 0
+        ? { contentChanges }
+        : { text: args.content ?? "" }),
+    });
+    return undefined as T;
+  }
+  if (command === "lsp_document_save") {
+    const session = sessionForFile(args.filePath);
+    await core("lsp.syncDocument", {
+      sessionId: session.id,
+      uri: fileUri(args.filePath),
+      languageId: args.languageId ?? session.languageId,
+      text: args.content ?? "",
     });
     return undefined as T;
   }

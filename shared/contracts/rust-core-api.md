@@ -87,11 +87,12 @@ stable error code and a user-facing message:
 | `lsp.builtinNavigation` | Return lightweight current-file definition/reference locations |
 | `lsp.startServer` | Start one Rust-owned process/session and begin initialization |
 | `lsp.stopServer` | Gracefully shut down a session, with a bounded force-stop fallback |
-| `lsp.syncDocument` | Open or full-text change a Rust-owned document with monotonic versions |
+| `lsp.syncDocument` | Open a document or apply a full-text or incremental `didChange` with monotonic versions |
 | `lsp.closeDocument` | Close a document and clear its diagnostics |
 | `lsp.request` | Submit a typed semantic request and return an opaque operation ID |
 | `lsp.cancelOperation` | Cancel one pending semantic operation |
 | `lsp.pollEvents` | Drain ordered typed lifecycle/feature/diagnostic/result/log events |
+| `lsp.waitEvents` | Block until queued events exist or a timeout elapses, then drain them |
 | `lsp.clearDiagnostics` | Clear every diagnostic owned by a session |
 | `lsp.snapshot` | Return a diagnostic runtime snapshot for testing and control surfaces |
 | `lsp.destroyServer` | Remove a terminal session handle from the registry |
@@ -321,7 +322,8 @@ then submitted to the Rust-owned runtime. Built-in descriptors are merged by pro
 [`language-tooling.md`](../../docs/architecture/language-tooling.md) for routing,
 discovery, lifecycle, and compatibility rules.
 
-The `lsp.*Server`, `lsp.*Document`, `lsp.request`, and `lsp.pollEvents`
+The `lsp.*Server`, `lsp.*Document`, `lsp.request`, `lsp.pollEvents`, and
+`lsp.waitEvents`
 commands are the semantic LSP runtime boundary. `lsp.startServer` accepts the
 provider ID, selected executable/arguments/environment, root URI, working
 directory, initialization options, optional runtime executable and cache
@@ -330,16 +332,23 @@ session's child process, stdin/stdout/stderr, framing buffer, JSON-RPC request
 IDs, document versions, pending deadlines, capabilities, diagnostics, and
 graceful/forced termination.
 
-`lsp.syncDocument` accepts `{ sessionId, uri, languageId, text }`; the first
-sync emits `didOpen` at version 1 and later syncs emit full-text `didChange`
-with increasing versions. `lsp.request` accepts a semantic `operation` plus
+`lsp.syncDocument` accepts `{ sessionId, uri, languageId, text?, contentChanges? }`.
+The first sync emits `didOpen` at version 1. Later syncs emit `didChange` with
+increasing versions. When the server advertised incremental `textDocumentSync`
+and `contentChanges` includes LSP ranges, the notification carries those
+range-based edits and does not require a full document `text` field. Otherwise
+the change is a full-text replacement. `lsp.request` accepts a semantic `operation` plus
 the operation-specific URI, position, range, diagnostics, item, action, or
 command fields, and returns `{ operationId }`. Supported operations include
 completion, hover, definition/declaration/type-definition, references,
 implementation, rename, formatting, code actions and resolve, execute command,
 inlay hints, folding ranges, code lens, and provider virtual documents.
 
-`lsp.pollEvents` drains events ordered by per-session `sequence`. Event types
+`lsp.pollEvents` drains events ordered by per-session `sequence`. `lsp.waitEvents`
+accepts `{ sessionId, timeoutMilliseconds }` and waits on a session event
+channel until events are queued or the timeout elapses, then drains the same
+typed events. Hosts should use `waitEvents` so idle sessions do not poll.
+Event types
 include `stateChanged`, `featuresChanged`, `diagnostics`,
 `requestCompleted`, `serverInfoChanged`, and `log`. Every request completes at
 most once with either `result` or a structured runtime error containing

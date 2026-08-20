@@ -21,7 +21,7 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { CheckCircleIcon, HardDrivesIcon, LockIcon, LockOpenIcon } from "@/ui/icons";
 import { FooterStatusChip, FooterStatusLabel } from "./footer-status-chip";
 
-const MEMORY_POLL_INTERVAL_MS = 2000;
+const MEMORY_POLL_INTERVAL_MS = 10_000;
 
 export function useFooterEditorStatusItems(): Array<ChromeItem<FooterTrailingItemId> | null> {
   const { t } = useTranslation();
@@ -46,8 +46,21 @@ export function useFooterEditorStatusItems(): Array<ChromeItem<FooterTrailingIte
     const poller = new ApplicationMemoryPoller(setMemoryUsage);
     poller.start();
     void poller.poll();
-    const intervalId = window.setInterval(() => void poller.poll(), MEMORY_POLL_INTERVAL_MS);
+
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === "hidden") return;
+      void poller.poll();
+    }, MEMORY_POLL_INTERVAL_MS);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void poller.poll();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.clearInterval(intervalId);
       poller.stop();
     };

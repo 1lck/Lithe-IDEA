@@ -8,5 +8,8 @@ dist/
 *.log
 src-tauri/target/
 src-tauri/gen/
+*.pdb
+*.ilk
+*.exp
 .DS_Store
 .Thumbs.db

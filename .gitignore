@@ -5,8 +5,14 @@ rust/target/
 .idea/
 DerivedData/
 /windows/build*/
+windows/tauri/src-tauri/target/
+windows/tauri/src-tauri/gen/
+windows/tauri/dist/
 dist/
 .artifacts/
+*.pdb
+*.ilk
+*.exp
 Fixtures/**/target/
 *.xcuserstate
 *.xcuserdata/

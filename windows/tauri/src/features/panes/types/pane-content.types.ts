@@ -64,6 +64,12 @@ export interface EditorContent extends PaneContentBase {
   language?: string;
   languageOverride?: string;
   tokens: TokenEntry[];
+  /**
+   * Bumped only for content that did not originate from the local editor
+   * model (reload, undo-restore, format-on-save). Local typing must not
+   * change this so Monaco can stay the in-session source of truth.
+   */
+  contentRevision?: number;
 }
 
 export interface TerminalContent extends PaneContentBase {
@@ -100,6 +106,7 @@ export interface DiffContent extends PaneContentBase {
   content: string;
   savedContent: string;
   diffData?: GitDiff | MultiFileDiff;
+  contentRevision?: number;
 }
 
 interface ImageContent extends PaneContentBase {

@@ -93,29 +93,57 @@ const TitleBar = ({ showMinimal = false, onOpenProjectPicker }: TitleBarProps) =
       const window = getCurrentWindow();
       setCurrentWindow(window);
 
+      let resizeSyncTimer: ReturnType<typeof setTimeout> | undefined;
+      let syncWindowStateInFlight = false;
+      let pendingWindowStateSync = false;
       const syncWindowState = async () => {
-        try {
-          const [maximized, fullscreen] = await Promise.all([
-            window.isMaximized(),
-            window.isFullscreen(),
-          ]);
-          setIsMaximized(maximized);
-          setIsFullscreen(fullscreen);
-        } catch (error) {
-          console.error("Error checking window state:", error);
+        if (syncWindowStateInFlight) {
+          pendingWindowStateSync = true;
+          return;
         }
+        syncWindowStateInFlight = true;
+        try {
+          do {
+            pendingWindowStateSync = false;
+            try {
+              const [maximized, fullscreen] = await Promise.all([
+                window.isMaximized(),
+                window.isFullscreen(),
+              ]);
+              setIsMaximized(maximized);
+              setIsFullscreen(fullscreen);
+            } catch (error) {
+              console.error("Error checking window state:", error);
+            }
+          } while (pendingWindowStateSync);
+        } finally {
+          syncWindowStateInFlight = false;
+        }
+      };
+
+      const scheduleWindowStateSync = () => {
+        if (resizeSyncTimer !== undefined) {
+          globalThis.clearTimeout(resizeSyncTimer);
+        }
+        resizeSyncTimer = globalThis.setTimeout(() => {
+          resizeSyncTimer = undefined;
+          void syncWindowState();
+        }, 100);
       };
 
       try {
         await syncWindowState();
         const unlistenResize = await window.onResized(() => {
-          void syncWindowState();
+          scheduleWindowStateSync();
         });
         const unlistenFocus = await window.onFocusChanged(() => {
-          void syncWindowState();
+          scheduleWindowStateSync();
         });
 
         return () => {
+          if (resizeSyncTimer !== undefined) {
+            globalThis.clearTimeout(resizeSyncTimer);
+          }
           unlistenResize();
           unlistenFocus();
         };

@@ -105,6 +105,8 @@ pub enum CoreCommand {
     LspCancelOperation,
     /// Drains queued session events (`lsp.pollEvents`).
     LspPollEvents,
+    /// Waits for queued session events (`lsp.waitEvents`).
+    LspWaitEvents,
     /// Stops and removes a server session (`lsp.destroyServer`).
     LspDestroyServer,
     /// Discovers Java main classes and run entries (`java.runConfigurations`).
@@ -220,6 +222,7 @@ impl CoreCommand {
             "lsp.request" => Some(Self::LspRequest),
             "lsp.cancelOperation" => Some(Self::LspCancelOperation),
             "lsp.pollEvents" => Some(Self::LspPollEvents),
+            "lsp.waitEvents" => Some(Self::LspWaitEvents),
             "lsp.destroyServer" => Some(Self::LspDestroyServer),
             "java.runConfigurations" => Some(Self::JavaRunConfigurations),
             "runConfig.inspect" => Some(Self::RunConfigInspect),
@@ -274,6 +277,7 @@ mod tests {
             "lsp.request",
             "lsp.cancelOperation",
             "lsp.pollEvents",
+            "lsp.waitEvents",
             "lsp.destroyServer",
         ] {
             assert!(CoreCommand::parse(command).is_some(), "missing {command}");

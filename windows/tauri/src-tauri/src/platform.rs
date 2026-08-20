@@ -6,11 +6,16 @@ static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
 #[tauri::command]
 pub async fn platform_invoke(command: String, args: Value) -> Result<Value, String> {
+    let operation_id = args
+        .get("operationId")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .unwrap_or_else(|| format!("windows-{}", REQUEST_ID.fetch_add(1, Ordering::Relaxed)));
     let (core_command, payload) = translate(&command, args)?;
-    let id = format!("windows-{}", REQUEST_ID.fetch_add(1, Ordering::Relaxed));
     let request = json!({
-        "id": id,
-        "operationId": id,
+        "id": operation_id,
+        "operationId": operation_id,
         "timeoutMilliseconds": 30_000,
         "command": core_command,
         "payload": payload
@@ -53,6 +58,8 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
         "git_status" => "git.status",
         "git_blame_file" => {
             move_field(&mut payload, "filePath", "path");
+            payload.remove("operationId");
+            payload.remove("content");
             "git.blame"
         }
         "git_log" | "git_branches" => "git.history",
