@@ -10,6 +10,7 @@ import {
   SidebarSimpleIcon as PanelLeftClose,
 } from "@/ui/icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useJavaFileIconCacheLifecycle } from "@/extensions/icon-themes/hooks/use-java-file-icon-kind";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useJumpListStore } from "@/features/editor/stores/jump-list.store";
 import { useEditorStateStore } from "@/features/editor/stores/state.store";
@@ -61,6 +62,7 @@ const TabBar = ({
   onTabClick: externalTabClick,
   disablePaneActions = false,
 }: TabBarProps) => {
+  useJavaFileIconCacheLifecycle();
   const { t } = useTranslation();
   // Get everything from stores
   const pendingClose = useBufferStore.use.pendingClose();

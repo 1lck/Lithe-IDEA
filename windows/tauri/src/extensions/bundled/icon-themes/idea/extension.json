@@ -54,9 +54,21 @@
         "idea-rst": "./icons/expui/fileTypes/rst_dark.svg",
         "idea-patch": "./icons/expui/fileTypes/patch_dark.svg",
         "idea-text": "./icons/expui/fileTypes/text_dark.svg",
+        "idea-class": "./icons/expui/nodes/class_dark.svg",
+        "idea-interface": "./icons/expui/nodes/interface_dark.svg",
+        "idea-enum": "./icons/expui/nodes/enum_dark.svg",
+        "idea-annotation": "./icons/expui/nodes/annotation_dark.svg",
+        "idea-record": "./icons/expui/nodes/record_dark.svg",
+        "idea-exception": "./icons/expui/nodes/exception_dark.svg",
+        "idea-maven": "./icons/expui/fileTypes/maven_dark.svg",
         "idea-docker": "./icons/expui/fileTypes/docker_dark.svg",
         "idea-gitignore": "./icons/expui/fileTypes/gitignore.svg",
         "idea-editorConfig": "./icons/expui/fileTypes/editorConfig_dark.svg",
+        "idea-sourceRoot": "./icons/expui/nodes/sourceRoot_dark.svg",
+        "idea-testRoot": "./icons/expui/nodes/testRoot_dark.svg",
+        "idea-resourcesRoot": "./icons/expui/nodes/resourcesRoot_dark.svg",
+        "idea-testResourcesRoot": "./icons/expui/nodes/testResourcesRoot_dark.svg",
+        "idea-package": "./icons/expui/nodes/package_dark.svg",
         "idea-folder": "./icons/expui/nodes/folder_dark.svg"
       },
       "lightIconDefinitions": {
@@ -96,9 +108,21 @@
         "idea-rst": "./icons/expui/fileTypes/rst.svg",
         "idea-patch": "./icons/expui/fileTypes/patch.svg",
         "idea-text": "./icons/expui/fileTypes/text.svg",
+        "idea-class": "./icons/expui/nodes/class.svg",
+        "idea-interface": "./icons/expui/nodes/interface.svg",
+        "idea-enum": "./icons/expui/nodes/enum.svg",
+        "idea-annotation": "./icons/expui/nodes/annotation.svg",
+        "idea-record": "./icons/expui/nodes/record.svg",
+        "idea-exception": "./icons/expui/nodes/exception.svg",
+        "idea-maven": "./icons/expui/fileTypes/maven.svg",
         "idea-docker": "./icons/expui/fileTypes/docker.svg",
         "idea-gitignore": "./icons/expui/fileTypes/gitignore.svg",
         "idea-editorConfig": "./icons/expui/fileTypes/editorConfig.svg",
+        "idea-sourceRoot": "./icons/expui/nodes/sourceRoot.svg",
+        "idea-testRoot": "./icons/expui/nodes/testRoot.svg",
+        "idea-resourcesRoot": "./icons/expui/nodes/resourcesRoot.svg",
+        "idea-testResourcesRoot": "./icons/expui/nodes/testResourcesRoot.svg",
+        "idea-package": "./icons/expui/nodes/package.svg",
         "idea-folder": "./icons/expui/nodes/folder.svg"
       },
       "fileExtensions": {
@@ -180,6 +204,13 @@
         ".lock": "idea-text"
       },
       "filenames": {
+        "\u0000lithe:java.class": "idea-class",
+        "\u0000lithe:java.interface": "idea-interface",
+        "\u0000lithe:java.enum": "idea-enum",
+        "\u0000lithe:java.annotation": "idea-annotation",
+        "\u0000lithe:java.record": "idea-record",
+        "\u0000lithe:java.exception": "idea-exception",
+        "pom.xml": "idea-maven",
         "dockerfile": "idea-docker",
         ".gitignore": "idea-gitignore",
         ".editorconfig": "idea-editorConfig",
@@ -187,8 +218,20 @@
         "license": "idea-text",
         "notice": "idea-text"
       },
-      "folders": {},
-      "expandedFolders": {}
+      "folders": {
+        "\u0000lithe:folder.source-root": "idea-sourceRoot",
+        "\u0000lithe:folder.test-root": "idea-testRoot",
+        "\u0000lithe:folder.resources-root": "idea-resourcesRoot",
+        "\u0000lithe:folder.test-resources-root": "idea-testResourcesRoot",
+        "\u0000lithe:folder.package": "idea-package"
+      },
+      "expandedFolders": {
+        "\u0000lithe:folder.source-root": "idea-sourceRoot",
+        "\u0000lithe:folder.test-root": "idea-testRoot",
+        "\u0000lithe:folder.resources-root": "idea-resourcesRoot",
+        "\u0000lithe:folder.test-resources-root": "idea-testResourcesRoot",
+        "\u0000lithe:folder.package": "idea-package"
+      }
     }
   ]
 }

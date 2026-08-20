@@ -15,12 +15,30 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
+interface IconMappingSpec {
+  source: string;
+  asset: string;
+  definition?: string;
+  darkSource?: string;
+  darkAsset?: string;
+}
+
+type IconMapping = string | IconMappingSpec;
+
 interface FileThemeMapping {
-  fileExtensions: Record<string, string>;
-  filenames: Record<string, string>;
-  folders: Record<string, string>;
-  defaultFile: string;
-  defaultFolder: string;
+  fileExtensions: Record<string, IconMapping>;
+  filenames: Record<string, IconMapping>;
+  folders: Record<string, IconMapping>;
+  defaultFile: IconMapping;
+  defaultFolder: IconMapping;
+}
+
+interface ResolvedIconMapping {
+  source: string;
+  asset: string;
+  definition: string;
+  darkSource: string;
+  darkAsset: string;
 }
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
@@ -47,14 +65,32 @@ function sha(buffer: Buffer): string {
   return createHash("sha256").update(buffer).digest("hex");
 }
 
-function definitionName(source: string): string {
-  const file = source.split("/").pop() ?? source;
+function definitionName(asset: string): string {
+  const file = asset.split("/").pop() ?? asset;
   return `idea-${file.replace(/\.svg$/, "")}`;
 }
 
-function themeAssetPath(source: string, dark: boolean): string {
-  const rel = dark ? source.replace(/\.svg$/, "_dark.svg") : source;
-  return `./icons/${rel}`;
+function resolveIconMapping(mapping: IconMapping): ResolvedIconMapping {
+  const spec = typeof mapping === "string" ? { source: mapping, asset: mapping } : mapping;
+  if (spec.asset.startsWith("/") || spec.asset.split("/").includes("..")) {
+    throw new Error(`Icon asset path must stay inside the bundled theme: ${spec.asset}`);
+  }
+
+  return {
+    source: spec.source,
+    asset: spec.asset,
+    definition: spec.definition ?? definitionName(spec.asset),
+    darkSource: spec.darkSource ?? spec.source.replace(/\.svg$/, "_dark.svg"),
+    darkAsset: spec.darkAsset ?? spec.asset.replace(/\.svg$/, "_dark.svg"),
+  };
+}
+
+function sourcePath(source: string): string {
+  return resolve(sourceRoot!, source);
+}
+
+function themeAssetPath(mapping: ResolvedIconMapping, dark: boolean): string {
+  return `./icons/${dark ? mapping.darkAsset : mapping.asset}`;
 }
 
 const { source: sourceRoot, check } = parseArgs();
@@ -65,15 +101,15 @@ if (!sourceRoot) {
 
 const mapping = JSON.parse(readFileSync(MAPPING_PATH, "utf8")) as FileThemeMapping;
 
-const entries = new Map<string, string>(); // definition name -> source svg
+const entries = new Map<string, ResolvedIconMapping>(); // definition name -> source/asset pair
 const mapKeys = new Map<string, string>(); // ".ts" / "Dockerfile" / "src" -> definition name
 
-function registerEntries(record: Record<string, string>): string[] {
+function registerEntries(record: Record<string, IconMapping>): string[] {
   const keys: string[] = [];
-  for (const [key, source] of Object.entries(record)) {
-    const name = definitionName(source);
-    entries.set(name, source);
-    mapKeys.set(key, name);
+  for (const [key, rawMapping] of Object.entries(record)) {
+    const resolvedMapping = resolveIconMapping(rawMapping);
+    entries.set(resolvedMapping.definition, resolvedMapping);
+    mapKeys.set(key, resolvedMapping.definition);
     keys.push(key);
   }
   return keys;
@@ -82,17 +118,19 @@ function registerEntries(record: Record<string, string>): string[] {
 const extensionKeys = registerEntries(mapping.fileExtensions);
 const filenameKeys = registerEntries(mapping.filenames);
 const folderKeys = registerEntries(mapping.folders);
-entries.set(definitionName(mapping.defaultFile), mapping.defaultFile);
-entries.set(definitionName(mapping.defaultFolder), mapping.defaultFolder);
+const defaultFile = resolveIconMapping(mapping.defaultFile);
+const defaultFolder = resolveIconMapping(mapping.defaultFolder);
+entries.set(defaultFile.definition, defaultFile);
+entries.set(defaultFolder.definition, defaultFolder);
 
 const missing: string[] = [];
 const darkVariants = new Map<string, boolean>(); // definition name -> has dark pair
-for (const [name, source] of entries) {
-  if (!existsSync(join(sourceRoot, source))) {
-    missing.push(source);
+for (const [name, iconMapping] of entries) {
+  if (!existsSync(sourcePath(iconMapping.source))) {
+    missing.push(iconMapping.source);
     continue;
   }
-  const hasDark = existsSync(join(sourceRoot, source.replace(/\.svg$/, "_dark.svg")));
+  const hasDark = existsSync(sourcePath(iconMapping.darkSource));
   darkVariants.set(name, hasDark);
 }
 if (missing.length > 0) {
@@ -107,10 +145,10 @@ const filenames: Record<string, string> = {};
 const folders: Record<string, string> = {};
 const expandedFolders: Record<string, string> = {};
 
-for (const [name, source] of entries) {
+for (const [name, iconMapping] of entries) {
   const hasDark = darkVariants.get(name) === true;
-  iconDefinitions[name] = themeAssetPath(source, hasDark);
-  lightIconDefinitions[name] = themeAssetPath(source, false);
+  iconDefinitions[name] = themeAssetPath(iconMapping, hasDark);
+  lightIconDefinitions[name] = themeAssetPath(iconMapping, false);
 }
 for (const key of extensionKeys) fileExtensions[key] = mapKeys.get(key)!;
 for (const key of filenameKeys) filenames[key] = mapKeys.get(key)!;
@@ -135,9 +173,9 @@ const manifest = {
       name: "IDEA Icons",
       description:
         "File icons from the IntelliJ platform icon set (intellij-community, Apache-2.0).",
-      defaultFile: definitionName(mapping.defaultFile),
-      defaultFolder: definitionName(mapping.defaultFolder),
-      defaultFolderOpen: definitionName(mapping.defaultFolder),
+      defaultFile: defaultFile.definition,
+      defaultFolder: defaultFolder.definition,
+      defaultFolderOpen: defaultFolder.definition,
       iconDefinitions,
       lightIconDefinitions,
       fileExtensions,
@@ -148,11 +186,11 @@ const manifest = {
   ],
 };
 
-const filesToCopy: Array<[string, boolean]> = [];
-for (const [name, source] of entries) {
-  filesToCopy.push([source, false]);
+const filesToCopy: Array<{ source: string; asset: string }> = [];
+for (const [name, iconMapping] of entries) {
+  filesToCopy.push({ source: iconMapping.source, asset: iconMapping.asset });
   if (darkVariants.get(name) === true) {
-    filesToCopy.push([source.replace(/\.svg$/, "_dark.svg"), true]);
+    filesToCopy.push({ source: iconMapping.darkSource, asset: iconMapping.darkAsset });
   }
 }
 
@@ -163,12 +201,12 @@ if (check) {
   if (current !== expected) {
     problems.push("extension.json is out of date; rerun the generator");
   }
-  for (const [rel] of filesToCopy) {
-    const copied = join(THEME_DIR, "icons", rel);
+  for (const file of filesToCopy) {
+    const copied = join(THEME_DIR, "icons", file.asset);
     if (!existsSync(copied)) {
-      problems.push(`missing copied asset: idea/icons/${rel}`);
-    } else if (sha(readFileSync(copied)) !== sha(readFileSync(join(sourceRoot, rel)))) {
-      problems.push(`copied asset differs from source: idea/icons/${rel}`);
+      problems.push(`missing copied asset: idea/icons/${file.asset}`);
+    } else if (sha(readFileSync(copied)) !== sha(readFileSync(sourcePath(file.source)))) {
+      problems.push(`copied asset differs from source: idea/icons/${file.asset}`);
     }
   }
   if (problems.length > 0) {
@@ -179,10 +217,10 @@ if (check) {
   process.exit(0);
 }
 
-for (const [rel] of filesToCopy) {
-  const dest = join(THEME_DIR, "icons", rel);
+for (const file of filesToCopy) {
+  const dest = join(THEME_DIR, "icons", file.asset);
   mkdirSync(dirname(dest), { recursive: true });
-  writeFileSync(dest, readFileSync(join(sourceRoot, rel)));
+  writeFileSync(dest, readFileSync(sourcePath(file.source)));
 }
 writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2) + "\n");
 console.log(

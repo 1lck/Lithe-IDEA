@@ -79,6 +79,7 @@ import {
   getVisibleFileTreeRowKey,
   useFileExplorerVisibleRows,
 } from "../hooks/use-file-explorer-visible-rows";
+import { useJavaFileIconCacheLifecycle } from "@/extensions/icon-themes/hooks/use-java-file-icon-kind";
 import { FileExplorerViewport, type FileExplorerViewportHandle } from "./file-explorer-viewport";
 import { FileExplorerTreeItem } from "./file-explorer-tree-item";
 import type { FileTreeGuideTarget } from "./file-explorer-tree-item";
@@ -164,6 +165,7 @@ function FileExplorerTreeComponent({
   onUploadFile,
   onFileMove,
 }: FileExplorerTreeProps) {
+  useJavaFileIconCacheLifecycle();
   const [deleteCandidate, setDeleteCandidate] = useState<{
     path: string;
     isDir: boolean;
@@ -483,6 +485,7 @@ function FileExplorerTreeComponent({
   }, [currentResolvedTreeSearch, isTreeSearchActive]);
   const { rowHeight, visibleRows, visibleRowIndexByPath } = useFileExplorerVisibleRows({
     files: displayedFiles,
+    semanticFiles: files,
     expandedPathsOverride: displayedExpandedPaths,
     rootFolderPath,
   });
@@ -1101,10 +1104,11 @@ function FileExplorerTreeComponent({
   return (
     <div
       className={cn(
-        "relative flex min-h-0 min-w-0 flex-1 select-none flex-col overflow-hidden p-0",
+        "file-explorer-shell relative flex min-h-0 min-w-0 flex-1 select-none flex-col overflow-hidden p-0",
         dragState.dragOverPath === "__ROOT__" &&
           "border-2! border-dashed! border-primary! bg-primary! bg-opacity-10!",
       )}
+      data-tree-focused={hasTreeFocus ? "true" : undefined}
       onFocusCapture={() => {
         setHasTreeFocus(true);
         setFocusedPath((current) => current || activePath || visibleRows[0]?.file.path);
@@ -1275,10 +1279,13 @@ function FileExplorerTreeComponent({
       onMouseLeave={handleContainerMouseLeave}
     >
       <SidebarHeader
-        className="px-3"
+        className="file-explorer-header px-2"
         onClick={(event) => event.stopPropagation()}
         onMouseDown={(event) => event.stopPropagation()}
       >
+        <h2 className="file-explorer-header-title min-w-0 flex-1 truncate">
+          {t("workbench.project")}
+        </h2>
         <SidebarSearchPopover
           ref={searchInputRef}
           value={treeSearchQuery}
@@ -1553,6 +1560,12 @@ function FileExplorerTreeComponent({
               showIndentGuides={fileTreeSettings.showIndentGuidesInFileTree}
               isExpanded={row.isExpanded}
               isActive={highlightedPath === row.file.path}
+              semanticKind={row.semanticKind}
+              isRoot={
+                rootFolderPath !== undefined &&
+                stripTrailingPathSeparators(row.file.path) ===
+                  stripTrailingPathSeparators(rootFolderPath)
+              }
               isCut={cutFilePaths.has(row.file.path)}
               isDragOver={dragState.dragOverPath === row.file.path}
               isDragging={dragState.isDragging}
@@ -1626,9 +1639,7 @@ function FileExplorerTreeComponent({
       {deleteCandidate && (
         <Dialog
           title={
-            deleteCandidate.isDir
-              ? t("fileExplorer.deleteFolder")
-              : t("fileExplorer.deleteFile")
+            deleteCandidate.isDir ? t("fileExplorer.deleteFolder") : t("fileExplorer.deleteFile")
           }
           icon={AlertTriangle}
           onClose={() => {

@@ -79,6 +79,19 @@
     ".lock": "expui/fileTypes/text.svg"
   },
   "filenames": {
+    "\u0000lithe:java.class": "expui/nodes/class.svg",
+    "\u0000lithe:java.interface": "expui/nodes/interface.svg",
+    "\u0000lithe:java.enum": "expui/nodes/enum.svg",
+    "\u0000lithe:java.annotation": "expui/nodes/annotation.svg",
+    "\u0000lithe:java.record": "expui/nodes/record.svg",
+    "\u0000lithe:java.exception": "expui/nodes/exception.svg",
+    "pom.xml": {
+      "source": "../../../plugins/maven/src/main/resources/images/expui/build/mavenProject.svg",
+      "darkSource": "../../../plugins/maven/src/main/resources/images/expui/build/mavenProject_dark.svg",
+      "asset": "expui/fileTypes/maven.svg",
+      "darkAsset": "expui/fileTypes/maven_dark.svg",
+      "definition": "idea-maven"
+    },
     "dockerfile": "expui/fileTypes/docker.svg",
     ".gitignore": "expui/fileTypes/gitignore.svg",
     ".editorconfig": "expui/fileTypes/editorConfig.svg",
@@ -86,7 +99,13 @@
     "license": "expui/fileTypes/text.svg",
     "notice": "expui/fileTypes/text.svg"
   },
-  "folders": {},
+  "folders": {
+    "\u0000lithe:folder.source-root": "expui/nodes/sourceRoot.svg",
+    "\u0000lithe:folder.test-root": "expui/nodes/testRoot.svg",
+    "\u0000lithe:folder.resources-root": "expui/nodes/resourcesRoot.svg",
+    "\u0000lithe:folder.test-resources-root": "expui/nodes/testResourcesRoot.svg",
+    "\u0000lithe:folder.package": "expui/nodes/package.svg"
+  },
   "defaultFile": "expui/fileTypes/text.svg",
   "defaultFolder": "expui/nodes/folder.svg"
 }
