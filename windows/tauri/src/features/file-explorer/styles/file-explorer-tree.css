@@ -40,7 +40,9 @@
   width: 100% !important;
   min-width: 0 !important;
   height: 100%;
-  overflow: clip;
+  /* Keep overflow visible so WebView2 does not latch wheel onto the row; ellipsis
+     is handled on the label span below. */
+  overflow: visible;
   display: flex !important;
   justify-content: flex-start !important;
 }
@@ -73,14 +75,15 @@
   height: 100%;
   max-width: 100%;
   min-width: 0;
-  overflow: clip;
+  overflow: visible;
 }
 
 .file-tree-container .file-tree-row > span:last-child {
   min-width: 0;
   flex: 1 1 auto;
-  overflow: clip;
+  overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .file-tree-container .file-tree-row input {

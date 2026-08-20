@@ -62,6 +62,7 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
   const settingsInitialTab = useUIState((state) => state.settingsInitialTab);
   const [activeCategory, setActiveCategory] = useState<MacSettingsCategory>("general");
   const contentRef = useRef<HTMLDivElement>(null);
+  const navRef = useRef<HTMLNavElement>(null);
   const resetToDefaults = useSettingsStore((state) => state.actions.resetToDefaults);
 
   useEffect(() => {
@@ -71,9 +72,14 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
 
   useLayoutEffect(() => {
     if (!isOpen) return;
-    const element = contentRef.current;
-    if (!element) return;
-    return bindScrollContainerWheel(element);
+    const content = contentRef.current;
+    const nav = navRef.current;
+    const unbindContent = content ? bindScrollContainerWheel(content) : undefined;
+    const unbindNav = nav ? bindScrollContainerWheel(nav) : undefined;
+    return () => {
+      unbindContent?.();
+      unbindNav?.();
+    };
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -85,6 +91,7 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
       onClose={onClose}
       title={t("workbench.settings")}
       icon={GearIcon}
+      contentScroll={false}
       footer={
         <div className="flex w-full items-center justify-between">
           <Button
@@ -105,12 +112,13 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
         modal:
           "h-[620px] w-[820px] max-h-[calc(100vh-32px)] max-w-[calc(100vw-32px)] border-border bg-background",
         header: "h-11 border-border border-b bg-surface px-3 py-0",
-        content: "flex h-full p-0",
+        content: "p-0",
       }}
     >
       <div className="flex size-full min-h-0 min-w-0">
         <nav
-          className="flex w-47.5 shrink-0 flex-col gap-0.5 border-border border-r bg-surface p-2"
+          ref={navRef}
+          className="flex w-47.5 shrink-0 flex-col gap-0.5 overflow-y-auto border-border border-r bg-surface p-2"
           aria-label={t("settings.mac.categories")}
         >
           {categories.map((category) => {
@@ -137,7 +145,8 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
 
         <div
           ref={contentRef}
-          className="min-w-0 min-h-0 flex-1 overflow-y-auto bg-background p-6"
+          data-scroll-container=""
+          className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-background p-6"
         >
           <h2 className="mb-5 text-xl font-semibold text-foreground">{t(activeItem.labelKey)}</h2>
           <MacSettingsPanel category={activeCategory} onClose={onClose} />

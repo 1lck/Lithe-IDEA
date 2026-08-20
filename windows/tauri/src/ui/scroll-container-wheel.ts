@@ -129,7 +129,13 @@ function findNestedVerticalScrollTarget(
   return null;
 }
 
-function applyVerticalWheelEvent(element: HTMLElement, event: WheelEvent) {
+/**
+ * Apply a wheel delta to `element`, preferring a nested scroller still able to
+ * move. Always mutates scrollTop ourselves: WebView2 may latch the default
+ * action onto overflow:hidden/clip descendants, so yielding to native scroll
+ * (or to a nested node without its own binder) leaves the view stuck.
+ */
+export function applyVerticalWheelEvent(element: HTMLElement, event: WheelEvent) {
   if (event.ctrlKey || event.metaKey || event.defaultPrevented) return false;
   if (!isMostlyVerticalWheel(event.deltaX, event.deltaY)) return false;
 
@@ -145,7 +151,10 @@ function applyVerticalWheelEvent(element: HTMLElement, event: WheelEvent) {
     outerCanScrollInDirection: canScrollVerticallyInDirection(element, delta.y),
   });
 
-  if (target === "nested" || target === "none") return false;
+  if (target === "none") return false;
+  if (target === "nested") {
+    return nested !== null && applyVerticalWheelToScrollContainer(nested, delta.y);
+  }
   return applyVerticalWheelToScrollContainer(element, delta.y);
 }
 
@@ -172,9 +181,11 @@ export function bindOverlayWheelToScrollContainer(
     event.preventDefault();
   };
 
-  overlay.addEventListener("wheel", onWheel, { passive: false });
+  // Capture so overflow:hidden/clip descendants cannot swallow the gesture
+  // before it reaches an overlay (resize handle, scroll-area chrome, etc.).
+  overlay.addEventListener("wheel", onWheel, { capture: true, passive: false });
   return () => {
-    overlay.removeEventListener("wheel", onWheel);
+    overlay.removeEventListener("wheel", onWheel, { capture: true });
   };
 }
 

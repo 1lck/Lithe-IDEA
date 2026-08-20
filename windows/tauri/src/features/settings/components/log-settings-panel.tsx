@@ -24,11 +24,11 @@ import { writeClipboardText } from "@/utils/clipboard";
 
 function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="overflow-hidden rounded-md border border-border bg-surface/35">
-      <h3 className="border-border border-b px-3 py-2 ui-text-sm font-medium text-subtle-foreground">
+    <section className="rounded-md border border-border bg-surface/35">
+      <h3 className="rounded-t-md border-border border-b px-3 py-2 ui-text-sm font-medium text-subtle-foreground">
         {title}
       </h3>
-      <div className="flex flex-col gap-3 p-3">{children}</div>
+      <div className="flex flex-col gap-3 rounded-b-md p-3">{children}</div>
     </section>
   );
 }

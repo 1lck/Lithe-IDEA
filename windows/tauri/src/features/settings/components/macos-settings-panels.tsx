@@ -26,12 +26,14 @@ const controlClassName =
   "h-8 rounded-md border border-input bg-background px-2.5 text-foreground outline-none focus:border-primary";
 
 export function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
+  // Avoid overflow:hidden/clip here: WebView2 latches wheel onto those boxes and
+  // blocks scrolling the settings panel. Radius is applied on the chrome pieces.
   return (
-    <section className="overflow-hidden rounded-md border border-border bg-surface/35">
-      <h3 className="border-border border-b px-3 py-2 ui-text-sm font-medium text-subtle-foreground">
+    <section className="rounded-md border border-border bg-surface/35">
+      <h3 className="rounded-t-md border-border border-b px-3 py-2 ui-text-sm font-medium text-subtle-foreground">
         {title}
       </h3>
-      <div className="flex flex-col gap-3 p-3">{children}</div>
+      <div className="flex flex-col gap-3 rounded-b-md p-3">{children}</div>
     </section>
   );
 }

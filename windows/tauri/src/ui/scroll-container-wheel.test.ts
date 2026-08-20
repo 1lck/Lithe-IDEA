@@ -140,4 +140,21 @@ describe("scroll container wheel", () => {
       }),
     ).toBeNull();
   });
+
+  test("selects the nested scroller as the element that must receive the delta", () => {
+    // Outer binders must apply the delta to the nested node themselves. Yielding
+    // to native scroll fails when WebView2 latches onto overflow:hidden rows.
+    const nested = {
+      scrollTop: 10,
+      scrollHeight: 400,
+      clientHeight: 100,
+    };
+    const chain = resolveWheelScrollChainTarget({
+      nestedCanScrollInDirection: true,
+      outerCanScrollInDirection: true,
+    });
+    expect(chain).toBe("nested");
+    expect(applyVerticalWheelToScrollContainer(nested, 40)).toBe(true);
+    expect(nested.scrollTop).toBe(50);
+  });
 });

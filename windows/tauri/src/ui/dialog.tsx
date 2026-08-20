@@ -43,6 +43,11 @@ interface DialogProps {
   size?: "sm" | "md" | "lg";
   headerBorder?: boolean;
   footerBorder?: boolean;
+  /**
+   * When false, skip the built-in ScrollArea wrapper so the caller can own a
+   * single scroll region (avoids nested scrollers fighting WebView2 wheel).
+   */
+  contentScroll?: boolean;
   classNames?: Partial<{
     backdrop: string;
     modal: string;
@@ -192,6 +197,7 @@ const AppDialog = ({
   headerActions,
   footer,
   size = "md",
+  contentScroll = true,
   classNames,
 }: DialogProps) => {
   const { t } = useTranslation();
@@ -282,9 +288,20 @@ const AppDialog = ({
             </div>
           </div>
 
-          <ScrollArea className="flex-1" contentClassName={cn("p-4", classNames?.content)}>
-            {children}
-          </ScrollArea>
+          {contentScroll ? (
+            <ScrollArea className="min-h-0 flex-1" contentClassName={cn("p-4", classNames?.content)}>
+              {children}
+            </ScrollArea>
+          ) : (
+            <div
+              className={cn(
+                "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
+                classNames?.content,
+              )}
+            >
+              {children}
+            </div>
+          )}
 
           {footer && (
             <div className="flex shrink-0 items-center justify-end gap-2 px-4 py-3">{footer}</div>
