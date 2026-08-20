@@ -227,29 +227,6 @@ struct EditorSyntaxHighlighterTests {
     }
 
     @Test
-    func yamlIncrementalHighlightingUsesCachedLineStateNearDocumentEnd() {
-        let source = String(repeating: "entry: value\n", count: 20_000) + "tail: true\n"
-        let storage = NSTextStorage(string: source)
-        let fullRange = NSRange(location: 0, length: storage.length)
-        let palette = syntaxPalette(fileExtension: "yaml")
-        YAMLSyntaxHighlightingAdapter.apply(to: storage, palette: palette, range: fullRange)
-        let editedRange = (source as NSString).range(of: "tail: true")
-        let target = SyntaxHighlighter.targetRange(
-            for: editedRange,
-            in: source as NSString,
-            limit: fullRange
-        )
-
-        let scannedLineCount = YAMLSyntaxHighlightingAdapter.apply(
-            to: storage,
-            palette: palette,
-            range: target
-        )
-
-        #expect(scannedLineCount < 10)
-    }
-
-    @Test
     func yamlSyntaxCorpusUsesExpectedTokenColors() throws {
         let source = try yamlSyntaxCorpus()
         let storage = NSTextStorage(string: source)
@@ -515,29 +492,6 @@ struct EditorSyntaxHighlighterTests {
     }
 
     @Test
-    func tomlIncrementalHighlightingUsesCachedLineStateNearDocumentEnd() {
-        let source = String(repeating: "entry = \"value\"\n", count: 20_000) + "tail = true\n"
-        let storage = NSTextStorage(string: source)
-        let fullRange = NSRange(location: 0, length: storage.length)
-        let palette = syntaxPalette(fileExtension: "toml")
-        TOMLSyntaxHighlightingAdapter.apply(to: storage, palette: palette, range: fullRange)
-        let editedRange = (source as NSString).range(of: "tail = true")
-        let target = SyntaxHighlighter.targetRange(
-            for: editedRange,
-            in: source as NSString,
-            limit: fullRange
-        )
-
-        let scannedLineCount = TOMLSyntaxHighlightingAdapter.apply(
-            to: storage,
-            palette: palette,
-            range: target
-        )
-
-        #expect(scannedLineCount < 10)
-    }
-
-    @Test
     func envSyntaxCorpusUsesExpectedTokenColors() throws {
         let source = try syntaxCorpus(named: "env-syntax-corpus", extension: "env")
         let storage = NSTextStorage(string: source)
@@ -705,6 +659,63 @@ struct EditorSyntaxHighlighterTests {
     private func color(in storage: NSTextStorage, at location: Int) throws -> NSColor {
         try #require(
             storage.attribute(.foregroundColor, at: location, effectiveRange: nil) as? NSColor
+        )
+    }
+}
+
+@Suite("Syntax highlighting incremental performance", .serialized)
+struct SyntaxHighlightingIncrementalPerformanceTests {
+    @Test
+    func yamlIncrementalHighlightingUsesCachedLineStateNearDocumentEnd() {
+        let source = String(repeating: "entry: value\n", count: 20_000) + "tail: true\n"
+        let storage = NSTextStorage(string: source)
+        let fullRange = NSRange(location: 0, length: storage.length)
+        let palette = performanceTestPalette
+        YAMLSyntaxHighlightingAdapter.apply(to: storage, palette: palette, range: fullRange)
+        let editedRange = (source as NSString).range(of: "tail: true")
+        let target = SyntaxHighlighter.targetRange(
+            for: editedRange,
+            in: source as NSString,
+            limit: fullRange
+        )
+
+        let scannedLineCount = YAMLSyntaxHighlightingAdapter.apply(
+            to: storage,
+            palette: palette,
+            range: target
+        )
+
+        #expect(scannedLineCount < 10)
+    }
+
+    @Test
+    func tomlIncrementalHighlightingUsesCachedLineStateNearDocumentEnd() {
+        let source = String(repeating: "entry = \"value\"\n", count: 20_000) + "tail = true\n"
+        let storage = NSTextStorage(string: source)
+        let fullRange = NSRange(location: 0, length: storage.length)
+        let palette = performanceTestPalette
+        TOMLSyntaxHighlightingAdapter.apply(to: storage, palette: palette, range: fullRange)
+        let editedRange = (source as NSString).range(of: "tail = true")
+        let target = SyntaxHighlighter.targetRange(
+            for: editedRange,
+            in: source as NSString,
+            limit: fullRange
+        )
+
+        let scannedLineCount = TOMLSyntaxHighlightingAdapter.apply(
+            to: storage,
+            palette: palette,
+            range: target
+        )
+
+        #expect(scannedLineCount < 10)
+    }
+
+    private var performanceTestPalette: SyntaxHighlightingPalette {
+        SyntaxHighlightingPalette(
+            base: .dark,
+            defaults: SyntaxHighlightingColorOverrides(),
+            overrides: nil
         )
     }
 }
