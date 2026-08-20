@@ -1,5 +1,5 @@
 import { convertFileSrc } from "@/platform/tauri-core";
-import { useMemo, useState, type ReactNode } from "react";
+import { useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useRecentFoldersStore } from "@/features/file-system/stores/recent-folders.store";
 import { useTranslation } from "@/i18n/locale-provider";
@@ -27,6 +27,7 @@ import {
   DropdownMenuTrigger,
 } from "@/ui/dropdown";
 import { Button } from "@/ui/button";
+import { bindScrollContainerWheel } from "@/ui/scroll-container-wheel";
 import { cn } from "@/utils/cn";
 
 interface TitleProjectMenuProps {
@@ -115,10 +116,16 @@ export function TitleProjectMenu({ onOpenProjectPicker }: TitleProjectMenuProps)
   const isSwitchingProject = useFileSystemStore((state) => state.isSwitchingProject);
   const projectLabel = activeProject?.name ?? t("projectOpen.title");
   const [isOpen, setIsOpen] = useState(false);
+  const [menuNode, setMenuNode] = useState<HTMLDivElement | null>(null);
   const projects = useMemo(
     () => getTitleProjectMenuProjects(projectTabs, recentFolders),
     [projectTabs, recentFolders],
   );
+
+  useLayoutEffect(() => {
+    if (!menuNode) return;
+    return bindScrollContainerWheel(menuNode);
+  }, [menuNode]);
 
   const closeAndRun = (action: () => void) => {
     setIsOpen(false);
@@ -154,6 +161,7 @@ export function TitleProjectMenu({ onOpenProjectPicker }: TitleProjectMenuProps)
       </DropdownMenuTrigger>
 
       <DropdownMenuContent
+        ref={setMenuNode}
         align="start"
         side="bottom"
         className="max-h-[min(32.5rem,calc(100vh-3rem))] w-96 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-md p-1.5"
