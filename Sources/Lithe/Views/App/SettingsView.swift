@@ -169,7 +169,7 @@ struct SettingsView: View {
         case .general:
             ["General", "Appearance", "Color theme", "Appearance mode", "Language", "Projects", "Files", "Version control", "Logs", "Log directory"]
         case .editor:
-            ["Editor", "Display", "Editor tabs", "Font size", "Indentation", "Tab width"]
+            ["Editor", "Display", "Editor tabs", "Font size", "File tree row height", "Indentation", "Tab width"]
         case .keymap:
             ["Keymap", "Keyboard shortcuts", "Shortcuts", "Actions"]
         case .terminal:
@@ -454,6 +454,16 @@ struct SettingsView: View {
                         step: 1,
                         width: 126,
                         accessibilityLabel: "Font size",
+                        title: { "\(Int($0)) pt" }
+                    )
+                }
+                row("File tree row height") {
+                    LitheSettingsStepper(
+                        value: $settings.projectTreeRowHeight,
+                        in: 20...32,
+                        step: 1,
+                        width: 126,
+                        accessibilityLabel: "File tree row height",
                         title: { "\(Int($0)) pt" }
                     )
                 }
