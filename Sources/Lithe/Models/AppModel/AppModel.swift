@@ -162,6 +162,7 @@ final class AppModel: ObservableObject, Identifiable {
     let workspaceFeature: WorkspaceFeatureModel
     let githubFeature: GitHubFeatureModel
     let discourseCommunityFeature: DiscourseCommunityFeatureModel
+    let terminalPlacementFeature: TerminalPlacementFeatureModel
     private struct CachedModuleCapability {
         let moduleID: ModuleID
         let value: AnyObject
@@ -274,6 +275,8 @@ final class AppModel: ObservableObject, Identifiable {
     private var workspaceFeatureObservation: AnyCancellable?
     private var githubFeatureObservation: AnyCancellable?
     private var runtimeFeatureObservation: AnyCancellable?
+    private var terminalPlacementObservation: AnyCancellable?
+    private var activeDocumentSelectionObservation: AnyCancellable?
     private var moduleRuntimeObservationID: UUID?
 
     var detectedCodexConfiguration: CodexConfigurationSnapshot? {
@@ -357,6 +360,7 @@ final class AppModel: ObservableObject, Identifiable {
         platformUI = services.platformUI
         keyboardShortcutFeature = KeyboardShortcutFeatureModel(settings: settings)
         discourseCommunityFeature = DiscourseCommunityFeatureModel(service: services.discourseCommunityService)
+        terminalPlacementFeature = TerminalPlacementFeatureModel()
         workspaceFeature = WorkspaceFeatureModel(
             operations: services.workspaceOperations,
             fileOperations: services.fileOperations,
@@ -422,6 +426,15 @@ final class AppModel: ObservableObject, Identifiable {
         navigationHistoryFeatureObservation = navigationHistoryFeature.objectWillChange.sink { [weak self] _ in
             self?.scheduleObjectWillChangeRelay()
         }
+        terminalPlacementObservation = terminalPlacementFeature.objectWillChange.sink { [weak self] _ in
+            self?.scheduleObjectWillChangeRelay()
+        }
+        activeDocumentSelectionObservation = documentFeature.$activeDocumentID
+            .dropFirst()
+            .sink { [weak self] documentID in
+                guard documentID != nil else { return }
+                self?.terminalPlacementFeature.activateDocument()
+            }
         Task { [weak self] in
             guard let self else { return }
             await self.githubFeature.restore(workspaceURL: self.workspaceURL)

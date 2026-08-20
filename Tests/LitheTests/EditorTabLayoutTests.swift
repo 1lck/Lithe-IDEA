@@ -1,10 +1,11 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import Testing
 import UniformTypeIdentifiers
 @testable import Lithe
 
-@Suite("Editor tab layout")
+@Suite("Editor tab layout", .serialized)
 struct EditorTabLayoutTests {
     @Test
     func flowLayoutWrapsByIntrinsicWidth() {
@@ -60,6 +61,48 @@ struct EditorTabLayoutTests {
 
         #expect(provider.registeredTypeIdentifiers.contains(EditorTabDragPayload.type.identifier))
         #expect(provider.registeredTypeIdentifiers.contains(UTType.utf8PlainText.identifier))
+    }
+
+    @Test
+    func terminalTabDragPayloadOnlyOffersItsPrivateSessionIdentifier() throws {
+        let sessionID = UUID()
+        let provider = TerminalTabDragPayload.provider(for: sessionID)
+        let encoded = Data(sessionID.uuidString.utf8)
+
+        #expect(provider.registeredTypeIdentifiers.contains(TerminalTabDragPayload.type.identifier))
+        #expect(!provider.registeredTypeIdentifiers.contains(UTType.utf8PlainText.identifier))
+        #expect(TerminalTabDragPayload.sessionID(from: encoded) == sessionID)
+    }
+
+    @Test
+    func terminalTabPasteboardRoundTripsItsPrivateSessionIdentifier() throws {
+        let sessionID = UUID()
+        let pasteboard = NSPasteboard(
+            name: .init("lithe-terminal-tab-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        pasteboard.setData(
+            Data(sessionID.uuidString.utf8),
+            forType: TerminalTabDragPayload.pasteboardType
+        )
+        defer { pasteboard.clearContents() }
+
+        #expect(TerminalTabDragPayload.sessionID(from: pasteboard) == sessionID)
+        #expect(pasteboard.string(forType: .string) == nil)
+    }
+
+    @Test
+    func terminalTabPasteboardUsesTheActiveDragWhenPromisedDataIsNotReady() {
+        let sessionID = UUID()
+        _ = TerminalTabDragPayload.provider(for: sessionID)
+        let pasteboard = NSPasteboard(
+            name: .init("lithe-promised-terminal-tab-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        pasteboard.setData(Data(), forType: TerminalTabDragPayload.pasteboardType)
+        defer { pasteboard.clearContents() }
+
+        #expect(TerminalTabDragPayload.sessionID(from: pasteboard) == sessionID)
     }
 
     @Test
