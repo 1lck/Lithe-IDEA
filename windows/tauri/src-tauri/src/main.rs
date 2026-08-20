@@ -3,7 +3,9 @@
 mod core;
 mod file_events;
 mod host;
+mod logging;
 mod lsp;
+mod memory;
 mod platform;
 mod run;
 mod secure_storage;
@@ -18,7 +20,7 @@ use tauri::Manager;
 use tauri_plugin_window_state::StateFlags;
 
 fn main() {
-    tauri::Builder::default()
+    let application = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, arguments, _| {
             host::enqueue_cli_arguments(app, arguments);
         }))
@@ -39,6 +41,17 @@ fn main() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            match logging::LogManager::initialize(app.handle()) {
+                Ok(log_manager) => {
+                    app.manage(log_manager);
+                }
+                Err(error) => {
+                    // Logging is diagnostic infrastructure; an unavailable log
+                    // directory or writer must never prevent the product from starting.
+                    eprintln!("[logging] application file logging is unavailable: {error}");
+                    app.manage(logging::LogManager::degraded(app.handle(), error));
+                }
+            }
             app.manage(Arc::new(FileWatcher::new(Arc::new(
                 TauriFileChangeEmitter::new(app.handle().clone()),
             ))));
@@ -59,6 +72,7 @@ fn main() {
             core::core_execute,
             core::core_cancel,
             platform::platform_invoke,
+            memory::get_application_memory_usage,
             terminal::begin_frontend_terminal_session,
             terminal::warm_terminal_environment,
             terminal::create_terminal,
@@ -73,8 +87,15 @@ fn main() {
             secure_storage::store_secure_secret,
             secure_storage::get_secure_secret,
             secure_storage::remove_secure_secret,
-            host::frontend_trace,
-            host::record_startup_milestone,
+            logging::get_log_settings,
+            logging::set_log_directory,
+            logging::set_diagnostic_logging,
+            logging::read_lithe_log,
+            logging::clear_lithe_logs,
+            logging::resolve_previous_log_cleanup,
+            logging::open_log_directory,
+            logging::frontend_trace,
+            logging::record_startup_milestone,
             host::get_system_theme,
             host::set_native_window_appearance,
             host::get_system_fonts,
@@ -105,8 +126,16 @@ fn main() {
             run::run_start_process,
             run::run_stop_process,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Lithe desktop shell");
+        .build(tauri::generate_context!())
+        .expect("error while building Lithe desktop shell");
+
+    application.run(|app, event| {
+        if matches!(event, tauri::RunEvent::Exit) {
+            if let Some(manager) = app.try_state::<Arc<logging::LogManager>>() {
+                manager.shutdown();
+            }
+        }
+    });
 }
 
 fn window_state_flags() -> StateFlags {

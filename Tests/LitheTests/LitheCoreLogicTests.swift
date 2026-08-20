@@ -2203,6 +2203,28 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    func highlightedRangeCacheOnlyReturnsUncoveredText() {
+        var cache = HighlightedRangeCache()
+        cache.insert(NSRange(location: 10, length: 10))
+        cache.insert(NSRange(location: 30, length: 10))
+
+        #expect(cache.uncoveredRanges(in: NSRange(location: 0, length: 50)) == [
+            NSRange(location: 0, length: 10),
+            NSRange(location: 20, length: 10),
+            NSRange(location: 40, length: 10)
+        ])
+
+        cache.insert(NSRange(location: 20, length: 10))
+        #expect(cache.ranges == [NSRange(location: 10, length: 30)])
+        #expect(cache.uncoveredRanges(in: NSRange(location: 15, length: 20)).isEmpty)
+
+        cache.removeAll()
+        #expect(cache.uncoveredRanges(in: NSRange(location: 5, length: 5)) == [
+            NSRange(location: 5, length: 5)
+        ])
+    }
+
+    @Test
     @MainActor
     func codeEditorShiftsFindMatchesAcrossASingleLineEdit() {
         let textView = CodeTextView(frame: .zero)

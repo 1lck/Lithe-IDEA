@@ -13,6 +13,7 @@ import {
   GearSixIcon,
   KeyboardIcon,
   MagicWandIcon,
+  FileTextIcon,
   TerminalWindowIcon,
   type Icon,
 } from "@/ui/icons";
@@ -36,6 +37,7 @@ const categories: CategoryItem[] = [
   { id: "terminal", labelKey: "settings.tabs.terminal", icon: TerminalWindowIcon },
   { id: "lsp", labelKey: "settings.tabs.lsp", icon: DatabaseIcon },
   { id: "ai", labelKey: "settings.tabs.aiCommit", icon: MagicWandIcon },
+  { id: "logs", labelKey: "settings.tabs.logs", icon: FileTextIcon },
   { id: "updates", labelKey: "settings.tabs.updates", icon: ArrowClockwiseIcon },
 ];
 
@@ -45,6 +47,7 @@ function categoryFromRequestedTab(tab: SettingsTab | null): MacSettingsCategory 
     case "keyboard":
     case "terminal":
     case "ai":
+    case "logs":
       return tab;
     case "language":
       return "lsp";
@@ -125,7 +128,7 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
 
         <section className="min-w-0 min-h-0 flex-1 overflow-y-auto bg-background p-6">
           <h2 className="mb-5 text-xl font-semibold text-foreground">{t(activeItem.labelKey)}</h2>
-          <MacSettingsPanel category={activeCategory} />
+          <MacSettingsPanel category={activeCategory} onClose={onClose} />
         </section>
       </div>
     </Dialog>

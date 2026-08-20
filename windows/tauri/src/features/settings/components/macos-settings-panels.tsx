@@ -10,6 +10,7 @@ import {
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import Switch from "@/ui/switch";
+import { LogSettingsPanel } from "./log-settings-panel";
 
 export type MacSettingsCategory =
   | "general"
@@ -18,12 +19,13 @@ export type MacSettingsCategory =
   | "terminal"
   | "lsp"
   | "ai"
+  | "logs"
   | "updates";
 
 const controlClassName =
   "h-8 rounded-md border border-input bg-background px-2.5 text-foreground outline-none focus:border-primary";
 
-function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
+export function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="overflow-hidden rounded-md border border-border bg-surface/35">
       <h3 className="border-border border-b px-3 py-2 ui-text-sm font-medium text-subtle-foreground">
@@ -34,7 +36,7 @@ function SettingsGroup({ title, children }: { title: string; children: ReactNode
   );
 }
 
-function SettingsRow({
+export function SettingsRow({
   label,
   description,
   children,
@@ -439,6 +441,7 @@ function AiPanel() {
 function UpdatesPanel() {
   const { t } = useTranslation();
   const [appVersion, setAppVersion] = useState("");
+  const [hasCheckedForUpdates, setHasCheckedForUpdates] = useState(false);
   const { checking, available, updateInfo, error, checkForUpdates } = useUpdater(false);
 
   useEffect(() => {
@@ -458,7 +461,10 @@ function UpdatesPanel() {
             variant="accent"
             size="sm"
             disabled={checking}
-            onClick={() => void checkForUpdates({ ignoreSuppression: true })}
+            onClick={() => {
+              setHasCheckedForUpdates(true);
+              void checkForUpdates({ ignoreSuppression: true });
+            }}
           >
             {checking ? t("settings.mac.checking") : t("settings.mac.checkForUpdates")}
           </Button>
@@ -468,14 +474,22 @@ function UpdatesPanel() {
             ? t("settings.mac.updateFailed")
             : available
               ? t("settings.mac.updateAvailable", { version: updateInfo?.version ?? "" })
-              : t("settings.mac.updateHint")}
+              : hasCheckedForUpdates
+                ? t("settings.mac.upToDate")
+                : t("settings.mac.updateHint")}
         </p>
       </SettingsGroup>
     </div>
   );
 }
 
-export function MacSettingsPanel({ category }: { category: MacSettingsCategory }) {
+export function MacSettingsPanel({
+  category,
+  onClose,
+}: {
+  category: MacSettingsCategory;
+  onClose: () => void;
+}) {
   switch (category) {
     case "general":
       return <GeneralPanel />;
@@ -489,6 +503,8 @@ export function MacSettingsPanel({ category }: { category: MacSettingsCategory }
       return <LspPanel />;
     case "ai":
       return <AiPanel />;
+    case "logs":
+      return <LogSettingsPanel onClose={onClose} />;
     case "updates":
       return <UpdatesPanel />;
   }
