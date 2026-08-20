@@ -3,15 +3,15 @@
 
   <h1>Lithe</h1>
 
-  <p><strong>一款面向 AI 时代的轻量 IDE</strong></p>
-  <p>工具按需启动 · 工作区保持流畅 · 让注意力回到代码</p>
-  <p><em>AI 负责编写代码，Lithe 负责帮你看懂、跑通并审查修改。</em></p>
+  <p><strong>面向 AI 编程时代的轻量级 IDEA 替代品</strong></p>
+  <p>保留 IDEA 核心工作流 · 基础内存约 300～400 MB · 工具按需启动</p>
+  <p><em>让 Codex 或 Claude Code 写代码，用 Lithe 看懂、跑通、调试并审查。</em></p>
 
   <p>
     <a href="./README.md"><strong>English</strong></a> ·
     <a href="#核心功能">核心功能</a> ·
     <a href="#产品截图">产品截图</a> ·
-    <a href="#如何使用">如何使用</a> ·
+    <a href="#下载与安装">下载</a> ·
     <a href="#架构概览">架构图</a> ·
     <a href="#如何开发">如何开发</a> ·
     <a href="#联系我们">联系我们</a>
@@ -20,11 +20,12 @@
   <p>
     <a href="https://github.com/1lck/Lithe-IDEA/releases/latest"><img src="https://img.shields.io/github/v/release/1lck/Lithe-IDEA?style=for-the-badge&label=latest%20release&logo=github&logoColor=white" alt="最新版本"></a>
     <img src="https://img.shields.io/badge/platform-macOS%2013%2B-111827?style=for-the-badge&logo=apple&logoColor=white" alt="macOS 13+">
-    <img src="https://img.shields.io/badge/Swift-6.2%2B-F05138?style=for-the-badge&logo=swift&logoColor=white" alt="Swift 6.2+">
+    <img src="https://img.shields.io/badge/platform-Windows%20x64-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows x64">
   </p>
   <p>
-    <img src="https://img.shields.io/badge/UI-SwiftUI%20%2B%20AppKit-0A84FF?style=for-the-badge&logo=apple&logoColor=white" alt="SwiftUI 和 AppKit">
+    <img src="https://img.shields.io/badge/Java-JDK%2017%2B-E76F00?style=for-the-badge&logo=openjdk&logoColor=white" alt="JDK 17+">
     <img src="https://img.shields.io/badge/workflow-IDEA--style-7C3AED?style=for-the-badge&logo=intellijidea&logoColor=white" alt="IDEA 风格工作流">
+    <img src="https://img.shields.io/badge/baseline%20memory-300--400%20MB-159957?style=for-the-badge" alt="基础内存 300 到 400 MB">
     <a href="./LICENSE"><img src="https://img.shields.io/github/license/1lck/Lithe-IDEA?style=for-the-badge&label=license" alt="Apache License 2.0"></a>
   </p>
 
@@ -34,22 +35,17 @@
   </p>
 </div>
 
-<table align="center">
-  <tr>
-    <td align="center">🧭<br><strong>通用型 IDE</strong><br>Project · Editor · Search · Diff</td>
-    <td align="center">⚡<br><strong>极致性能</strong><br>服务按需启动，让开发流程保持流畅</td>
-    <td align="center">🤖<br><strong>适配 AI 开发</strong><br>查看、运行、Diff、撤销和提交外部修改</td>
-    <td align="center">🪶<br><strong>更轻的资源占用</strong><br>让常驻应用保持小而专注</td>
-  </tr>
-</table>
+## 为什么做 Lithe
 
-## 项目简介
+Codex、Claude Code 等 AI 编程工具已经可以承担大量编码工作，但开发者仍然需要 IDE 来理解生成的代码、跳转符号、运行调试项目并审查每一次修改。只为完成这些工作而常驻一套占用数 GB 内存的开发环境，显得越来越沉重。
 
-Lithe 是一款面向 AI 时代打造的轻量通用型 IDE。它面向多语言和多类型项目，整合项目浏览、编辑、搜索、代码导航、Git、运行和调试工作流，并让语言服务器、终端、构建工具和调试进程只在需要时启动。
+## Lithe 是什么
 
-当外部 AI 工具修改项目后，你可以用 Lithe 定位受影响的代码、运行项目、审查 Diff，并决定暂存、撤销或提交哪些修改。
+Lithe 是一款主要面向 Java 和 Spring Boot 开发者的轻量级 IDEA 替代品，保留项目浏览、代码编辑与导航、搜索、Maven、运行调试、Git Diff、本地历史和数据库等核心工作流。
 
-> **需要什么就启动什么，让 IDE 始终保持轻量。**
+打开普通项目后，Lithe 应用本身的基础内存占用通常约为 **300～400 MB**。语言服务器、终端、构建工具、调试器和数据库组件均按需启动；实际占用会随项目和启用的服务变化。
+
+> **AI 负责编写代码，Lithe 负责帮你看懂、跑通并审查修改。**
 
 ## 核心功能
 
@@ -116,67 +112,44 @@ Lithe 是一款面向 AI 时代打造的轻量通用型 IDE。它面向多语言
   <img src="./docs/assets/screenshots/database-sql-operation.png" width="49%" alt="数据库 SQL 操作和表结构">
 </p>
 
-## 如何使用
+## 下载与安装
 
-Lithe 需要 macOS 13 或更高版本。Java 项目功能需要 JDK 17 或更高版本，推荐使用 JDK 17 或 JDK 21；正式安装包已包含 Eclipse JDT Language Server，可直接提供 Java 补全、跳转、引用和诊断，无需单独安装 JDTLS。Maven 项目需要项目自带 `mvnw` 或系统中可用的 Maven。轻量补全无需启动外部进程；Lithe 会通过共享 Rust LSP Core 按运行中服务器实际声明的能力提供语义功能。详细设计与自定义 provider 配置见[语言工具与 LSP 架构](./docs/architecture/language-tooling.md)。
+- **macOS 13+：**前往 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载 `.dmg`。M 系列芯片选择 `arm64`，Intel 芯片选择 `x86_64`。
+- **Windows x64：**前往 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载 Windows `.exe` 安装包。
 
-从 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载最新的 macOS `.dmg`。如果该版本提供独立架构安装包，M 系列芯片选择 `arm64`，Intel 芯片选择 `x86_64`。打开磁盘映像，将 `Lithe.app` 拖入 `/Applications` 后启动。
-
-也可以使用项目自建的 Homebrew Tap 安装 Lithe。Tap 会校验 Release 的 SHA256，并在安装完成后清除应用的 macOS quarantine 标记：
+macOS 推荐使用 Homebrew 安装和更新：
 
 ```bash
 brew tap 1lck/lithe https://github.com/1lck/Lithe-IDEA.git
 brew install --cask 1lck/lithe/lithe
-```
-
-升级 Lithe：
-
-```bash
-brew update
 brew upgrade --cask lithe
 ```
 
-如果 macOS 阻止打开来自未识别开发者的 App，右键点击 App 并选择 **打开**，或前往 **系统设置 → 隐私与安全性 → 仍要打开**。仅在确认 App 来自 Lithe 官方 GitHub Release 时，也可以运行：
-
-```bash
-xattr -dr com.apple.quarantine "/Applications/Lithe.app"
-open "/Applications/Lithe.app"
-```
-
-打开项目后，在 **Settings → Project** 中配置 Project JDK、Maven 和 Maven 使用的 JDK。Lithe 也会从常见的系统位置自动探测 Java 与 Maven。
-
-### 数据库工作台与外部 MCP
-
-可选的 Database 工作台通过按需启动的 Rust helper 支持 MySQL、MariaDB、
-PostgreSQL、SQLite、Microsoft SQL Server、MongoDB、Redis 和 Nacos；用户没有
-使用数据库功能时不会启动数据库进程。SQL 连接
-提供表格增删改、TSV 批量粘贴、当前分页查找替换，以及 CSV、JSON、SQL 导入导出。
-MariaDB 复用 MySQL 兼容引擎；SQL Server 使用原生 TDS 数据表格适配器。MongoDB
-集合支持文档表格、分页、筛选、索引查看，以及受安全规则保护的新增、修改和删除。
-Redis 使用增量 `SCAN` 分页，不会默认全量加载键空间；第一版支持 String 和 Hash
-编辑、TTL 修改、键重命名和删除。Nacos 支持配置搜索与发布，以及服务和实例健康
-状态查看。Redis 和 Nacos 写入同样遵守只读与生产环境保护规则。SQL 备份默认完整
-导出，不会按每张表截断行数；恢复 SQL 备份始终需要确认，会先验证备份内容，再将
-当前数据库对象和数据恢复为备份状态。发布包同时包含
-`Contents/Helpers/lithe-db-mcp`，这是供外部自动化工具调用的独立 MCP stdio
-适配器，只提供数据库工具，不包含产品内 Agent 自然语言对话功能。
-
-为便于审计，`third_party/dbx` 保存了
-[t8y2/dbx](https://github.com/t8y2/dbx) 在提交
-[`996ce42e80387bba4b33a2bf1713f590ef79d476`](https://github.com/t8y2/dbx/commit/996ce42e80387bba4b33a2bf1713f590ef79d476)
-的仅源码快照。它不是 Git 子模块，也不是运行时依赖，不会被打入 Lithe 发布包；
-数据库 helper 由本项目独立实现和构建。
-当前工作台使用的八个数据库品牌标识已独立复制到 `Resources/DatabaseIcons`。
-素材目录内保留了 DBX 来源、Apache-2.0 许可证及商标用途说明；应用打包和运行时
-不会从 `third_party` 目录读取这些素材。
+Java 功能需要 JDK 17 或更高版本。正式安装包已包含 Eclipse JDT Language Server，无需单独安装 JDTLS。
 
 ## 架构概览
 
-macOS 和 Windows 两端功能均已完成。Windows 版本目前处于上线前验证阶段，暂未正式发布。
+macOS 是当前参考产品，Windows 是独立的 React/Tauri 实现。两端通过 Rust Core 共享确定性命令与契约，同时保持原生界面和平台能力相互独立。
 
-<p align="center">
-  <img src="./docs/assets/architecture-diagram.png" width="100%" alt="Lithe 跨平台架构图">
-</p>
+```mermaid
+flowchart LR
+    subgraph macOS["macOS"]
+        MacUI["SwiftUI / AppKit 工作台"] --> MacApp["应用模型与服务"]
+        MacApp --> MacAdapters["macOS 适配器"]
+    end
+
+    subgraph Shared["共享行为"]
+        Contracts["JSON 契约与 Fixtures"] --> Core["Rust lithe-core"]
+    end
+
+    subgraph Windows["Windows"]
+        WinUI["React 工作台"] --> WinFeatures["TypeScript Features 与 Stores"]
+        WinFeatures --> Tauri["Tauri 2 Host 与 Windows 适配器"]
+    end
+
+    MacApp -->|"JSON C ABI"| Core
+    Tauri -->|"Rust crate"| Core
+```
 
 ## 如何开发
 
@@ -260,16 +233,6 @@ open dist/Lithe.app
       <a href="https://torchai.ai"><strong>TorchAI</strong></a> 面向开发者提供大模型中转服务，便于在编程、内容生成和自动化等不同场景中调用模型 API。其支持帮助 Lithe 保持持续开发，并探索更实用的 AI 工具体验。感谢 TorchAI 对本项目的支持！
     </td>
   </tr>
-  <tr>
-    <td width="112" align="center">
-      <a href="https://shu26.cfd/">
-        <img src="./docs/assets/sponsors/code-go.png" width="64" alt="Code GO">
-      </a>
-    </td>
-    <td>
-      <a href="https://shu26.cfd/"><strong>Code GO</strong></a> 主要提供 Claude 系列模型的中转服务，帮助用户以更低的接入成本使用擅长编程与推理的模型。其支持让 Lithe 能够继续打磨模型集成和开发者工作流。感谢 Code GO 对本项目的支持！
-    </td>
-  </tr>
 </table>
 
 ### ⭐ 特别鸣谢
@@ -281,7 +244,7 @@ open dist/Lithe.app
 </p>
 
 <p align="center">
-  <strong>关于 AI 的一切，欢迎前往 LINUX DO！祝社区越来越好～</strong>
+  <strong>关于 AI 的一切，欢迎前往 <a href="https://linux.do/">LINUX DO</a>！祝社区越来越好～</strong>
 </p>
 
 ### 贡献者
