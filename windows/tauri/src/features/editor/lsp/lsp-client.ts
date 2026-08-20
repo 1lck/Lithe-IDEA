@@ -14,11 +14,11 @@ import type {
   Diagnostic,
   DiagnosticCodeAction,
 } from "@/features/diagnostics/types/diagnostics.types";
-import { hasTextContent } from "@/features/panes/types/pane-content.types";
+import { hasTextContent, shouldStartLsp } from "@/features/panes/types/pane-content.types";
 import { useBufferStore } from "../stores/buffer.store";
-import { getSourceEditorBufferByPath } from "../utils/buffer-index";
 import { logger } from "../utils/logger";
 import { isBuiltInLspPath, languageIdForEditorFile } from "./built-in-language-support";
+import { resolvePublishedDiagnosticsFilePath } from "./diagnostics-file-path";
 import { resolveEditorLspLaunch } from "./resolve-editor-lsp-launch";
 import type { LspSemanticTokensResponse } from "./semantic-token-types";
 import { useLspStore } from "./stores/lsp.store";
@@ -378,14 +378,22 @@ export class LspClient {
 
           logger.debug("LSPClient", `Received diagnostics for ${uri}:`, diagnostics);
 
-          // Convert URI to file path
-          const filePath = filePathFromUri(uri);
-          const isOpenInEditor =
-            this.openDocuments.has(filePath) ||
-            !!getSourceEditorBufferByPath(useBufferStore.getState().buffers, filePath);
+          const publishedFilePath = filePathFromUri(uri);
+          const sourceBufferPaths = useBufferStore
+            .getState()
+            .buffers.filter(shouldStartLsp)
+            .map((buffer) => buffer.path);
+          const filePath = resolvePublishedDiagnosticsFilePath(
+            publishedFilePath,
+            sourceBufferPaths,
+            this.openDocuments,
+          );
 
-          if (!isOpenInEditor) {
-            logger.debug("LSPClient", `Ignoring diagnostics for closed document: ${filePath}`);
+          if (!filePath) {
+            logger.debug(
+              "LSPClient",
+              `Ignoring diagnostics for closed document: ${publishedFilePath}`,
+            );
             return;
           }
 
