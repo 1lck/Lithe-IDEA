@@ -2828,6 +2828,7 @@ final class LineNumberGutterView: NSView {
     private var isBlameVisible = false
     private var onSelectBlame: ((GitBlameLine) -> Void)?
     private var blameButtons: [Int: NSButton] = [:]
+    private var visibleBlameButtonLines: Set<Int> = []
     private var foldRegions: [JavaFoldRegion] = []
     private var collapsedFoldIDs: Set<String> = []
     private var onToggleFold: ((JavaFoldRegion) -> Void)?
@@ -2930,10 +2931,12 @@ final class LineNumberGutterView: NSView {
         onSelectBlame = onSelect
         blameButtons.values.forEach { $0.removeFromSuperview() }
         blameButtons = [:]
+        visibleBlameButtonLines = []
         if isVisible {
             for blame in blameLines {
                 let button = ClosureButton(title: "") { onSelect(blame) }
                 button.isBordered = false
+                button.isHidden = true
                 button.setAccessibilityElement(true)
                 button.setAccessibilityRole(.button)
                 button.setAccessibilityLabel(
@@ -3004,10 +3007,29 @@ final class LineNumberGutterView: NSView {
         guard isBlameVisible,
               let textView,
               let scrollView,
-              let layoutManager = textView.layoutManager else { return }
+              let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else {
+            hideAllBlameButtons()
+            return
+        }
         let source = textView.string as NSString
         let visibleRect = scrollView.documentVisibleRect
-        for (line, button) in blameButtons {
+        guard let visibleLines = visibleLineRange(
+            source: source,
+            visibleRect: visibleRect,
+            layoutManager: layoutManager,
+            textContainer: textContainer,
+            textView: textView
+        ) else {
+            hideAllBlameButtons()
+            return
+        }
+        let firstVisibleLine = visibleLines.lowerBound
+        var newlyVisibleLines: Set<Int> = []
+        var accessibilityButtons: [NSButton] = []
+        for line in visibleLines {
+            guard let button = blameButtons[line],
+                  showsBlameMetadata(line: line, firstVisibleLine: firstVisibleLine) else { continue }
             let characterIndex = characterOffset(forLine: line, in: source)
             guard characterIndex < source.length else {
                 button.isHidden = true
@@ -3022,9 +3044,68 @@ final class LineNumberGutterView: NSView {
                 width: EditorLayoutMetrics.blameMetadataWidth,
                 height: max(16, lineRect.height)
             )
-            button.isHidden = button.frame.maxY < 0 || button.frame.minY > bounds.height
+            button.isHidden = !button.frame.intersects(bounds)
+            if !button.isHidden {
+                newlyVisibleLines.insert(line)
+                accessibilityButtons.append(button)
+            }
         }
-        setAccessibilityChildren(Array(blameButtons.values))
+        for line in visibleBlameButtonLines.subtracting(newlyVisibleLines) {
+            blameButtons[line]?.isHidden = true
+        }
+        visibleBlameButtonLines = newlyVisibleLines
+        setAccessibilityChildren(accessibilityButtons.sorted { $0.frame.minY < $1.frame.minY })
+    }
+
+    private func hideAllBlameButtons() {
+        for line in visibleBlameButtonLines {
+            blameButtons[line]?.isHidden = true
+        }
+        visibleBlameButtonLines = []
+        setAccessibilityChildren([])
+    }
+
+    private func visibleLineRange(
+        source: NSString,
+        visibleRect: NSRect,
+        layoutManager: NSLayoutManager,
+        textContainer: NSTextContainer,
+        textView: NSTextView
+    ) -> ClosedRange<Int>? {
+        guard layoutManager.numberOfGlyphs > 0 else { return nil }
+        let textContainerVisibleRect = NSRect(
+            x: visibleRect.minX - textView.textContainerOrigin.x,
+            y: visibleRect.minY - textView.textContainerOrigin.y,
+            width: visibleRect.width,
+            height: visibleRect.height
+        )
+        let glyphRange = layoutManager.glyphRange(
+            forBoundingRect: textContainerVisibleRect,
+            in: textContainer
+        )
+        guard glyphRange.length > 0 else { return nil }
+        let firstGlyph = min(glyphRange.location, layoutManager.numberOfGlyphs - 1)
+        let lastGlyph = min(NSMaxRange(glyphRange) - 1, layoutManager.numberOfGlyphs - 1)
+        let firstCharacter = layoutManager.characterIndexForGlyph(at: firstGlyph)
+        let lastCharacter = layoutManager.characterIndexForGlyph(at: lastGlyph)
+        let codeTextView = textView as? CodeTextView
+        let firstLine = codeTextView?.lineNumber(at: firstCharacter, in: source)
+            ?? source.substring(to: min(source.length, firstCharacter))
+                .reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
+        let lastLine = codeTextView?.lineNumber(at: lastCharacter, in: source)
+            ?? source.substring(to: min(source.length, lastCharacter))
+                .reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
+        return firstLine...max(firstLine, lastLine)
+    }
+
+    private func showsBlameMetadata(line: Int, firstVisibleLine: Int) -> Bool {
+        guard let blame = blameByLine[line] else { return false }
+        return EditorLayoutMetrics.showsBlameMetadata(
+            line: line,
+            firstVisibleLine: firstVisibleLine,
+            commitHash: blame.commitHash,
+            previousCommitHash: blameByLine[line - 1]?.commitHash
+        )
     }
 
     private func characterOffset(forLine targetLine: Int, in source: NSString) -> Int {
@@ -3107,12 +3188,7 @@ final class LineNumberGutterView: NSView {
             }
             if isBlameVisible,
                let blame = blameByLine[lineNumber - 1],
-               EditorLayoutMetrics.showsBlameMetadata(
-                   line: lineNumber - 1,
-                   firstVisibleLine: firstLine,
-                   commitHash: blame.commitHash,
-                   previousCommitHash: blameByLine[lineNumber - 2]?.commitHash
-               ) {
+               showsBlameMetadata(line: lineNumber - 1, firstVisibleLine: firstLine) {
                 drawBlame(blame, y: y, height: lineRect.height)
             }
             if !isBlameVisible, debugBreakpointLines.contains(lineNumber - 1) {

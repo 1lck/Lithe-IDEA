@@ -20,10 +20,14 @@ struct EditorLayoutMetricsTests {
         #expect(EditorLayoutMetrics.lineNumberWidth == 36)
         #expect(EditorLayoutMetrics.foldIndicatorWidth == 13)
         #expect(
-            EditorLayoutMetrics.standardGutterWidth
-                == EditorLayoutMetrics.markerColumnWidth
-                    + EditorLayoutMetrics.lineNumberWidth
-                    + EditorLayoutMetrics.foldIndicatorWidth
+            abs(
+                EditorLayoutMetrics.standardGutterWidth
+                    - (
+                        EditorLayoutMetrics.markerColumnWidth
+                            + EditorLayoutMetrics.lineNumberWidth
+                            + EditorLayoutMetrics.foldIndicatorWidth
+                    )
+            ) < 0.001
         )
     }
 
@@ -45,6 +49,28 @@ struct EditorLayoutMetricsTests {
             line: 13,
             firstVisibleLine: 12,
             commitHash: "same",
+            previousCommitHash: "same"
+        ))
+    }
+
+    @Test
+    func blameMetadataMovesToTheNewFirstVisibleLineWithinTheSameCommit() {
+        #expect(EditorLayoutMetrics.showsBlameMetadata(
+            line: 2,
+            firstVisibleLine: 2,
+            commitHash: "same",
+            previousCommitHash: "same"
+        ))
+        #expect(!EditorLayoutMetrics.showsBlameMetadata(
+            line: 1,
+            firstVisibleLine: 2,
+            commitHash: "same",
+            previousCommitHash: "same"
+        ))
+        #expect(EditorLayoutMetrics.showsBlameMetadata(
+            line: 3,
+            firstVisibleLine: 2,
+            commitHash: "new",
             previousCommitHash: "same"
         ))
     }

@@ -438,19 +438,26 @@ private struct SettingsWindow: View {
     @ObservedObject var model: AppModel
     @ObservedObject var settings: AppSettings
     @StateObject private var windowReference = SettingsWindowReference()
+    @StateObject private var viewState: SettingsViewState
+
+    init(model: AppModel, settings: AppSettings) {
+        self.model = model
+        self.settings = settings
+        _viewState = StateObject(wrappedValue: SettingsViewState(
+            initialCategory: model.requestedSettingsCategory
+        ))
+    }
 
     var body: some View {
-        SettingsView(
-            settings: settings,
-            initialCategory: model.requestedSettingsCategory,
-            onDismiss: close
-        )
-        .environmentObject(model)
-        // Rebuild the SwiftUI theme environment when the preference changes.
-        // Without a new identity, a Window scene can retain the previous
-        // Light/Dark color scheme even after the AppKit window has switched.
-        .id(settings.themePreference.rawValue)
-        .preferredColorScheme(settings.themePreference.preferredColorScheme)
+        SettingsAppearanceContainer(themePreference: settings.themePreference) {
+            SettingsView(
+                settings: settings,
+                viewState: viewState,
+                initialCategory: model.requestedSettingsCategory,
+                onDismiss: close
+            )
+            .environmentObject(model)
+        }
         .background(
             SettingsWindowAccessor(
                 reference: windowReference,
@@ -466,6 +473,23 @@ private struct SettingsWindow: View {
     private func close() {
         model.isSettingsPresented = false
         windowReference.window?.performClose(nil)
+    }
+}
+
+struct SettingsAppearanceContainer<Content: View>: View {
+    let themePreference: AppThemePreference
+    let content: Content
+
+    init(
+        themePreference: AppThemePreference,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.themePreference = themePreference
+        self.content = content()
+    }
+
+    var body: some View {
+        content.preferredColorScheme(themePreference.preferredColorScheme)
     }
 }
 

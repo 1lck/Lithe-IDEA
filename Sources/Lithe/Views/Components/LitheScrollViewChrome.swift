@@ -1,6 +1,79 @@
 import AppKit
 import SwiftUI
 
+enum LitheScrollWheelDestination: Equatable {
+    case nested
+    case outer
+    case unchanged
+}
+
+enum LitheScrollWheelRouting {
+    static func destination(
+        hitsNestedScrollView: Bool,
+        nestedCanScrollInDirection: Bool,
+        outerCanScrollInDirection: Bool
+    ) -> LitheScrollWheelDestination {
+        if hitsNestedScrollView, nestedCanScrollInDirection {
+            return .nested
+        }
+        return outerCanScrollInDirection ? .outer : .unchanged
+    }
+
+    static func destination(
+        hitView: NSView?,
+        within outerScrollView: NSScrollView,
+        deltaX: CGFloat,
+        deltaY: CGFloat
+    ) -> LitheScrollWheelDestination {
+        let nearestScrollView = nearestScrollView(from: hitView, within: outerScrollView)
+        let hitsNestedScrollView = nearestScrollView != nil && nearestScrollView !== outerScrollView
+        return destination(
+            hitsNestedScrollView: hitsNestedScrollView,
+            nestedCanScrollInDirection: hitsNestedScrollView
+                && canScroll(nearestScrollView, deltaX: deltaX, deltaY: deltaY),
+            outerCanScrollInDirection: canScroll(
+                outerScrollView,
+                deltaX: deltaX,
+                deltaY: deltaY
+            )
+        )
+    }
+
+    static func nearestScrollView(
+        from hitView: NSView?,
+        within outerScrollView: NSScrollView
+    ) -> NSScrollView? {
+        var candidate = hitView
+        while let current = candidate {
+            if let scrollView = current as? NSScrollView,
+               scrollView === outerScrollView || scrollView.isDescendant(of: outerScrollView) {
+                return scrollView
+            }
+            candidate = current.superview
+        }
+        return nil
+    }
+
+    static func canScroll(
+        _ scrollView: NSScrollView?,
+        deltaX: CGFloat,
+        deltaY: CGFloat
+    ) -> Bool {
+        guard let scrollView,
+              abs(deltaY) > abs(deltaX),
+              deltaY != 0 else { return false }
+        let clipView = scrollView.contentView
+        let documentRect = clipView.documentRect
+        let minimumY = documentRect.minY
+        let maximumY = max(minimumY, documentRect.maxY - clipView.bounds.height)
+        guard maximumY - minimumY > 0.5 else { return false }
+        let currentY = clipView.bounds.minY
+        return deltaY > 0
+            ? currentY > minimumY + 0.5
+            : currentY < maximumY - 0.5
+    }
+}
+
 /// Keeps SwiftUI scroll views visually close to IntelliJ's overlay scrollers.
 /// SwiftUI otherwise inherits the user's macOS "Always show scroll bars"
 /// setting, which can turn a compact tool window into a set of bright, thick
@@ -141,10 +214,20 @@ struct LitheScrollViewChrome: NSViewRepresentable {
             scrollWheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self, weak scrollView] event in
                 guard let self,
                       let scrollView,
-                      self.isEvent(event, inside: scrollView),
-                      self.canScrollVertically(scrollView) else { return event }
-                scrollView.scrollWheel(with: event)
-                return nil
+                      self.isEvent(event, inside: scrollView) else { return event }
+                let destination = LitheScrollWheelRouting.destination(
+                    hitView: self.hitView(for: event),
+                    within: scrollView,
+                    deltaX: event.scrollingDeltaX,
+                    deltaY: event.scrollingDeltaY
+                )
+                switch destination {
+                case .nested, .unchanged:
+                    return event
+                case .outer:
+                    scrollView.scrollWheel(with: event)
+                    return nil
+                }
             }
         }
 
@@ -161,9 +244,10 @@ struct LitheScrollViewChrome: NSViewRepresentable {
             return scrollView.bounds.contains(point)
         }
 
-        private func canScrollVertically(_ scrollView: NSScrollView) -> Bool {
-            guard let documentView = scrollView.documentView else { return false }
-            return documentView.bounds.height > scrollView.contentView.bounds.height + 0.5
+        private func hitView(for event: NSEvent) -> NSView? {
+            guard let contentView = event.window?.contentView else { return nil }
+            let point = contentView.convert(event.locationInWindow, from: nil)
+            return contentView.hitTest(point)
         }
     }
 
