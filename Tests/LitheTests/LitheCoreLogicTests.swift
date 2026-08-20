@@ -75,6 +75,19 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    @MainActor
+    func workspaceWindowKeepsAnAccessibleTitleWithoutShowingTheNativeTitle() {
+        let sessions = TestProjectWindowSessions(hasActiveProject: true)
+        let coordinator = LitheWindowCoordinator(projectSessions: sessions)
+        let window = NSWindow()
+
+        coordinator.attach(to: window, layout: .workspace, title: "Lithe-IDEA")
+
+        #expect(window.title == "Lithe-IDEA")
+        #expect(window.titleVisibility == .hidden)
+    }
+
+    @Test
     func workspaceWindowFitsInsideTheVisibleScreen() {
         let visibleFrame = NSRect(x: 0, y: 24, width: 1280, height: 776)
         let oversizedFrame = NSRect(x: -80, y: -40, width: 1440, height: 900)
@@ -2117,6 +2130,40 @@ struct LitheCoreLogicTests {
         textView.paste(nil)
 
         #expect(handled)
+        #expect(textView.string == "before")
+    }
+
+    @Test
+    @MainActor
+    func codeEditorRegistersThePrivateTerminalTabDropType() {
+        let textView = CodeTextView(frame: .zero)
+
+        #expect(textView.registeredDraggedTypes.contains(TerminalTabDragPayload.pasteboardType))
+    }
+
+    @Test
+    @MainActor
+    func codeEditorRoutesPrivateTerminalTabDropsWithoutChangingText() {
+        let sessionID = UUID()
+        let textView = CodeTextView(frame: .zero)
+        let pasteboard = NSPasteboard(
+            name: .init("lithe-code-editor-terminal-tab-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        pasteboard.setData(
+            Data(sessionID.uuidString.utf8),
+            forType: TerminalTabDragPayload.pasteboardType
+        )
+        defer { pasteboard.clearContents() }
+        textView.string = "before"
+        var receivedSessionID: UUID?
+        textView.onTerminalTabDrop = { droppedSessionID in
+            receivedSessionID = droppedSessionID
+            return true
+        }
+
+        #expect(textView.performTerminalTabDrop(from: pasteboard))
+        #expect(receivedSessionID == sessionID)
         #expect(textView.string == "before")
     }
 

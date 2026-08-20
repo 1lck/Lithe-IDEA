@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { countUniqueGitChanges, formatMemoryMegabytes } from "./footer-status";
 
 describe("footer status helpers", () => {
-  test("formats heap sizes in megabytes", () => {
+  test("formats private working-set sizes in megabytes", () => {
     expect(formatMemoryMegabytes(213.7 * 1024 * 1024)).toBe("213.7 MB");
     expect(formatMemoryMegabytes(0)).toBe("0.0 MB");
   });

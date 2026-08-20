@@ -5,6 +5,7 @@ mod file_events;
 mod host;
 mod logging;
 mod lsp;
+mod memory;
 mod platform;
 mod run;
 mod secure_storage;
@@ -71,6 +72,7 @@ fn main() {
             core::core_execute,
             core::core_cancel,
             platform::platform_invoke,
+            memory::get_application_memory_usage,
             terminal::begin_frontend_terminal_session,
             terminal::warm_terminal_environment,
             terminal::create_terminal,

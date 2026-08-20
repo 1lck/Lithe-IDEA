@@ -40,6 +40,8 @@ interface CheckForUpdatesOptions {
   ignoreSuppression?: boolean;
 }
 
+export type UpdateCheckResult = "available" | "up-to-date" | "suppressed" | "failed";
+
 function readRawUpdateText(update: Update, key: string): string | undefined {
   const value = update.rawJson?.[key];
   return typeof value === "string" && value.trim() ? value : undefined;
@@ -95,7 +97,7 @@ export const useUpdater = (checkOnMount = true) => {
             availableVersion: update.version,
             currentVersion,
           });
-          return false;
+          return "suppressed" as const;
         }
 
         updateInfoRef.current = updateInfo;
@@ -110,7 +112,7 @@ export const useUpdater = (checkOnMount = true) => {
           availableVersion: update.version,
           currentVersion,
         });
-        return true;
+        return "available" as const;
       }
 
       updateInfoRef.current = null;
@@ -125,7 +127,7 @@ export const useUpdater = (checkOnMount = true) => {
         availableVersion: null,
         currentVersion,
       });
-      return false;
+      return "up-to-date" as const;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to check for updates";
       const failedCurrentVersion = updateInfoRef.current?.currentVersion ?? "";
@@ -141,7 +143,7 @@ export const useUpdater = (checkOnMount = true) => {
         currentVersion: failedCurrentVersion,
         error: message,
       });
-      return false;
+      return "failed" as const;
     }
   }, []);
 
