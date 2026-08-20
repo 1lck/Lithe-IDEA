@@ -414,6 +414,37 @@ struct EditorSyntaxHighlighterTests {
     }
 
     @Test
+    func tomlInlinePropertiesDoNotOverrideStringTokens() throws {
+        let source = """
+        message = "hello, owner = admin"
+        literal = '''
+        hello, owner = admin
+        '''
+        inline = { owner = "Tom" }
+        """
+        let storage = NSTextStorage(string: source)
+
+        SyntaxHighlighter.apply(
+            to: storage,
+            font: .monospacedSystemFont(ofSize: 13, weight: .regular),
+            fileExtension: "toml",
+            isDark: true
+        )
+
+        let text = source as NSString
+        let quotedLine = text.range(of: #"message = "hello, owner = admin""#)
+        let multilineLine = text.range(of: "hello, owner = admin", options: .backwards)
+        let inlineLine = text.range(of: #"inline = { owner = "Tom" }"#)
+        let quotedOwnerColor = try color(in: storage, at: quotedLine.location + "message = \"hello, ".utf16.count)
+        let multilineOwnerColor = try color(in: storage, at: multilineLine.location + "hello, ".utf16.count)
+        let inlineOwnerColor = try color(in: storage, at: inlineLine.location + "inline = { ".utf16.count)
+
+        #expect(quotedOwnerColor == multilineOwnerColor)
+        #expect(quotedOwnerColor != inlineOwnerColor)
+        #expect(inlineOwnerColor == propertyColor)
+    }
+
+    @Test
     func tomlMultilineStringKeepsItsColorDuringIncrementalHighlighting() throws {
         let source = try syntaxCorpus(named: "toml-syntax-corpus", extension: "toml")
         let fullStorage = NSTextStorage(string: source)
@@ -438,6 +469,29 @@ struct EditorSyntaxHighlighterTests {
         let expectedColor = try color(in: fullStorage, at: editedRange.location)
         let incrementalColor = try color(in: incrementalStorage, at: editedRange.location)
         #expect(incrementalColor == expectedColor)
+    }
+
+    @Test
+    func tomlIncrementalHighlightingUsesCachedLineStateNearDocumentEnd() {
+        let source = String(repeating: "entry = \"value\"\n", count: 20_000) + "tail = true\n"
+        let storage = NSTextStorage(string: source)
+        let fullRange = NSRange(location: 0, length: storage.length)
+        let palette = syntaxPalette(fileExtension: "toml")
+        TOMLSyntaxHighlightingAdapter.apply(to: storage, palette: palette, range: fullRange)
+        let editedRange = (source as NSString).range(of: "tail = true")
+        let target = SyntaxHighlighter.targetRange(
+            for: editedRange,
+            in: source as NSString,
+            limit: fullRange
+        )
+
+        let scannedLineCount = TOMLSyntaxHighlightingAdapter.apply(
+            to: storage,
+            palette: palette,
+            range: target
+        )
+
+        #expect(scannedLineCount < 10)
     }
 
     @Test

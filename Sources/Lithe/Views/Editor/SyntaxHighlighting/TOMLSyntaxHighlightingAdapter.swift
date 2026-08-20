@@ -2,6 +2,12 @@ import AppKit
 
 /// Highlights TOML tables, assignments, scalar values, comments, and multiline strings.
 enum TOMLSyntaxHighlightingAdapter {
+    /// Lexer state cached after a physical line; `nil` means normal TOML content.
+    private struct CachedMultilineState {
+        let delimiter: String?
+    }
+
+    private static let multilineStateAttribute = NSAttributedString.Key("lithe.toml.multiline-state")
     private static let numberExpression = expression(
         #"(?<![A-Za-z0-9_.-])[-+]?(?:0x[0-9A-Fa-f_]+|0o[0-7_]+|0b[01_]+|\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][-+]?\d+)?|inf|nan)(?![A-Za-z0-9_.-])"#,
         options: [.caseInsensitive]
@@ -17,17 +23,46 @@ enum TOMLSyntaxHighlightingAdapter {
         #"(?:[,{])[ \t]*([A-Za-z0-9_-]+|\"(?:\\.|[^\"\\])*\"|'[^']*')(?=[ \t]*=)"#
     )
 
-    static func apply(to storage: NSTextStorage, palette: SyntaxHighlightingPalette, range target: NSRange) {
+    @discardableResult
+    static func apply(to storage: NSTextStorage, palette: SyntaxHighlightingPalette, range target: NSRange) -> Int {
         let source = storage.string as NSString
-        let scanLimit = min(NSMaxRange(target), source.length)
-        var lineStart = 0
-        var multilineDelimiter: String?
+        guard source.length > 0 else { return 0 }
+        let scanStart = lineRange(containing: target.location, in: source).location
+        let requiredEnd = NSMaxRange(lineRange(containing: max(target.location, NSMaxRange(target) - 1), in: source))
+        let cachedStateBeforeTarget = cachedMultilineState(at: scanStart - 1, in: storage)
+        let shouldConverge = cachedStateBeforeTarget != nil
+            || cachedMultilineState(afterLineEndingAt: requiredEnd, in: storage) != nil
+        var multilineDelimiter = cachedStateBeforeTarget?.delimiter
+        var scannedLineCount = 0
 
-        // A multiline string may begin before the dirty range, so retain that
-        // state by scanning from the beginning while mutating only the target.
-        while lineStart < scanLimit {
+        // Line-ending attributes move with NSTextStorage edits, so an unchanged
+        // predecessor restores state in O(1) and rescanning stops after convergence.
+        if cachedStateBeforeTarget == nil, scanStart > 0 {
+            var prefixLineStart = 0
+            while prefixLineStart < scanStart {
+                let lineRange = source.lineRange(for: NSRange(location: prefixLineStart, length: 0))
+                updateMultilineState(
+                    in: lineRange,
+                    source: source,
+                    multilineDelimiter: &multilineDelimiter
+                )
+                cache(multilineDelimiter: multilineDelimiter, after: lineRange, in: storage)
+                prefixLineStart = NSMaxRange(lineRange)
+                scannedLineCount += 1
+            }
+        }
+
+        storage.removeAttribute(
+            multilineStateAttribute,
+            range: NSRange(location: scanStart, length: max(0, requiredEnd - scanStart))
+        )
+
+        var lineStart = scanStart
+        while lineStart < source.length {
             let lineRange = source.lineRange(for: NSRange(location: lineStart, length: 0))
+            let cachedExitState = cachedMultilineState(after: lineRange, in: storage)
             let contentRange = lineContentRange(in: source, lineRange: lineRange)
+            storage.addAttribute(.foregroundColor, value: palette.text, range: lineRange)
 
             if let activeMultilineDelimiter = multilineDelimiter {
                 if let closingRange = stringClosingRange(
@@ -44,7 +79,7 @@ enum TOMLSyntaxHighlightingAdapter {
                             location: contentRange.location,
                             length: NSMaxRange(closingRange) - contentRange.location
                         ),
-                        limitedTo: target
+                        limitedTo: lineRange
                     )
                     let remainder = NSRange(
                         location: NSMaxRange(closingRange),
@@ -55,14 +90,25 @@ enum TOMLSyntaxHighlightingAdapter {
                             palette.comment,
                             to: storage,
                             range: NSRange(location: commentLocation, length: NSMaxRange(contentRange) - commentLocation),
-                            limitedTo: target
+                            limitedTo: lineRange
                         )
                     }
                     multilineDelimiter = nil
                 } else {
-                    addColor(palette.string, to: storage, range: contentRange, limitedTo: target)
+                    addColor(palette.string, to: storage, range: contentRange, limitedTo: lineRange)
                 }
+                cache(multilineDelimiter: multilineDelimiter, after: lineRange, in: storage)
+                scannedLineCount += 1
                 lineStart = NSMaxRange(lineRange)
+                if shouldStop(
+                    after: lineRange,
+                    requiredEnd: requiredEnd,
+                    shouldConverge: shouldConverge,
+                    cachedExitState: cachedExitState,
+                    multilineDelimiter: multilineDelimiter
+                ) {
+                    break
+                }
                 continue
             }
 
@@ -73,7 +119,7 @@ enum TOMLSyntaxHighlightingAdapter {
             )
 
             if let tableRange = tableHeaderRange(in: source, range: bodyRange) {
-                addColor(palette.type, to: storage, range: tableRange, limitedTo: target)
+                addColor(palette.type, to: storage, range: tableRange, limitedTo: lineRange)
             } else if let separator = firstAssignmentSeparator(in: source, range: bodyRange) {
                 let keyRange = trimmedRange(
                     in: source,
@@ -83,15 +129,22 @@ enum TOMLSyntaxHighlightingAdapter {
                     in: source,
                     range: NSRange(location: separator + 1, length: NSMaxRange(bodyRange) - separator - 1)
                 )
-                addColor(palette.property, to: storage, range: keyRange, limitedTo: target)
+                addColor(palette.property, to: storage, range: keyRange, limitedTo: lineRange)
                 let stringTokens = stringTokenRanges(in: source, range: valueRange)
                 for stringRange in stringTokens.ranges {
-                    addColor(palette.string, to: storage, range: stringRange, limitedTo: target)
+                    addColor(palette.string, to: storage, range: stringRange, limitedTo: lineRange)
                 }
-                applyUnquoted(numberExpression, color: palette.number, source: source, storage: storage, range: valueRange, excluding: stringTokens.ranges, target: target)
-                applyUnquoted(dateExpression, color: palette.number, source: source, storage: storage, range: valueRange, excluding: stringTokens.ranges, target: target)
-                applyUnquoted(booleanExpression, color: palette.keyword, source: source, storage: storage, range: valueRange, excluding: stringTokens.ranges, target: target)
-                applyInlineProperties(in: valueRange, source: source, storage: storage, palette: palette, target: target)
+                applyUnquoted(numberExpression, color: palette.number, source: source, storage: storage, range: valueRange, excluding: stringTokens.ranges, target: lineRange)
+                applyUnquoted(dateExpression, color: palette.number, source: source, storage: storage, range: valueRange, excluding: stringTokens.ranges, target: lineRange)
+                applyUnquoted(booleanExpression, color: palette.keyword, source: source, storage: storage, range: valueRange, excluding: stringTokens.ranges, target: lineRange)
+                applyInlineProperties(
+                    in: valueRange,
+                    source: source,
+                    storage: storage,
+                    palette: palette,
+                    excluding: stringTokens.ranges,
+                    target: lineRange
+                )
                 multilineDelimiter = stringTokens.unclosedMultilineDelimiter
             }
 
@@ -100,11 +153,23 @@ enum TOMLSyntaxHighlightingAdapter {
                     palette.comment,
                     to: storage,
                     range: NSRange(location: commentLocation, length: NSMaxRange(contentRange) - commentLocation),
-                    limitedTo: target
+                    limitedTo: lineRange
                 )
             }
+            cache(multilineDelimiter: multilineDelimiter, after: lineRange, in: storage)
+            scannedLineCount += 1
             lineStart = NSMaxRange(lineRange)
+            if shouldStop(
+                after: lineRange,
+                requiredEnd: requiredEnd,
+                shouldConverge: shouldConverge,
+                cachedExitState: cachedExitState,
+                multilineDelimiter: multilineDelimiter
+            ) {
+                break
+            }
         }
+        return scannedLineCount
     }
 
     private static func applyUnquoted(
@@ -130,13 +195,117 @@ enum TOMLSyntaxHighlightingAdapter {
         source: NSString,
         storage: NSTextStorage,
         palette: SyntaxHighlightingPalette,
+        excluding stringRanges: [NSRange],
         target: NSRange
     ) {
         guard range.length > 0 else { return }
         inlinePropertyExpression.enumerateMatches(in: source as String, range: range) { match, _, _ in
             guard let match else { return }
-            addColor(palette.property, to: storage, range: match.range(at: 1), limitedTo: target)
+            let propertyRange = match.range(at: 1)
+            guard !stringRanges.contains(where: {
+                NSIntersectionRange(propertyRange, $0).length > 0
+            }) else {
+                return
+            }
+            addColor(palette.property, to: storage, range: propertyRange, limitedTo: target)
         }
+    }
+
+    private static func updateMultilineState(
+        in lineRange: NSRange,
+        source: NSString,
+        multilineDelimiter: inout String?
+    ) {
+        let contentRange = lineContentRange(in: source, lineRange: lineRange)
+        if let activeMultilineDelimiter = multilineDelimiter {
+            if stringClosingRange(
+                delimiterCharacter: activeMultilineDelimiter == "\"\"\"" ? 34 : 39,
+                isMultiline: true,
+                in: source,
+                from: contentRange.location,
+                limit: NSMaxRange(contentRange)
+            ) != nil {
+                multilineDelimiter = nil
+            }
+            return
+        }
+
+        let commentLocation = firstCommentLocation(in: source, range: contentRange)
+        let bodyRange = NSRange(
+            location: contentRange.location,
+            length: (commentLocation ?? NSMaxRange(contentRange)) - contentRange.location
+        )
+        guard let separator = firstAssignmentSeparator(in: source, range: bodyRange) else { return }
+        let valueRange = trimmedRange(
+            in: source,
+            range: NSRange(location: separator + 1, length: NSMaxRange(bodyRange) - separator - 1)
+        )
+        multilineDelimiter = stringTokenRanges(in: source, range: valueRange).unclosedMultilineDelimiter
+    }
+
+    private static func cache(
+        multilineDelimiter: String?,
+        after lineRange: NSRange,
+        in storage: NSTextStorage
+    ) {
+        guard lineRange.length > 0 else { return }
+        storage.addAttribute(
+            multilineStateAttribute,
+            value: multilineDelimiter ?? "",
+            range: NSRange(location: NSMaxRange(lineRange) - 1, length: 1)
+        )
+    }
+
+    private static func cachedMultilineState(
+        at location: Int,
+        in storage: NSTextStorage
+    ) -> CachedMultilineState? {
+        guard location >= 0, location < storage.length,
+              let value = storage.attribute(
+                  multilineStateAttribute,
+                  at: location,
+                  effectiveRange: nil
+              ) as? String else {
+            return nil
+        }
+        return CachedMultilineState(delimiter: value.isEmpty ? nil : value)
+    }
+
+    private static func cachedMultilineState(
+        after lineRange: NSRange,
+        in storage: NSTextStorage
+    ) -> CachedMultilineState? {
+        cachedMultilineState(at: NSMaxRange(lineRange) - 1, in: storage)
+    }
+
+    private static func cachedMultilineState(
+        afterLineEndingAt location: Int,
+        in storage: NSTextStorage
+    ) -> CachedMultilineState? {
+        guard location < storage.length else { return nil }
+        let source = storage.string as NSString
+        let nextLine = source.lineRange(for: NSRange(location: location, length: 0))
+        return cachedMultilineState(after: nextLine, in: storage)
+    }
+
+    private static func shouldStop(
+        after lineRange: NSRange,
+        requiredEnd: Int,
+        shouldConverge: Bool,
+        cachedExitState: CachedMultilineState?,
+        multilineDelimiter: String?
+    ) -> Bool {
+        let lineEnd = NSMaxRange(lineRange)
+        guard lineEnd >= requiredEnd else { return false }
+        guard shouldConverge else { return true }
+        guard lineRange.location >= requiredEnd else { return false }
+        return cachedExitState?.delimiter == multilineDelimiter
+    }
+
+    private static func lineRange(containing location: Int, in source: NSString) -> NSRange {
+        source.lineRange(
+            for: NSRange(location: min(max(0, location), max(0, source.length - 1)), length: 0)
+        )
     }
 
     private static func addColor(
