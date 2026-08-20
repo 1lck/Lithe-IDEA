@@ -34,12 +34,7 @@ enum WorkbenchModuleUIComposition {
                 ideaAssetPath: nil,
                 isVisible: { _ in true },
                 isSelected: { $0.isTerminalVisible },
-                content: { model in
-                    guard let session = model.activeTerminalSession else {
-                        return AnyView(WorkbenchModuleUIRegistry.moduleLoadingView)
-                    }
-                    return AnyView(TerminalView(session: session).id(session.id))
-                }
+                content: { _ in AnyView(TerminalView()) }
             )
         ]
     )

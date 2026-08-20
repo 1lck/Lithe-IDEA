@@ -1,5 +1,6 @@
 import SwiftUI
 import LitheGitModule
+import LitheTerminalModule
 
 private enum MarkdownViewMode: String, CaseIterable, Identifiable, Equatable {
     case editor
@@ -56,7 +57,7 @@ struct EditorAreaView: View {
                     DiffReviewView(change: selectedChange)
                 } else {
                     VStack(spacing: 0) {
-                        if model.openDocuments.isEmpty {
+                        if model.openDocuments.isEmpty && model.editorTerminalSessions.isEmpty {
                             emptyState
                         } else {
                             editorWorkspace
@@ -95,7 +96,9 @@ struct EditorAreaView: View {
 
     @ViewBuilder
     private var externalConflictBanner: some View {
-        if let document = model.activeDocument, document.hasExternalConflict {
+        if model.activeEditorTerminalSession == nil,
+           let document = model.activeDocument,
+           document.hasExternalConflict {
             HStack(spacing: 10) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(LitheTheme.warning)
@@ -125,6 +128,7 @@ struct EditorAreaView: View {
             editorTabLayout
                 .frame(maxWidth: .infinity, alignment: .leading)
             if let document = model.activeDocument,
+               model.activeEditorTerminalSession == nil,
                isMarkdownFile(document),
                splitDocumentID == nil {
                 markdownModePicker
@@ -153,8 +157,13 @@ struct EditorAreaView: View {
         // next to the last tab. In that case no individual tab receives
         // performDrop, so the tab bar itself must finish the session.
         .onDrop(
-            of: [EditorTabDragPayload.type],
-            delegate: EditorTabBarDropDelegate(finish: { finishTabDrag() })
+            of: [EditorTabDragPayload.type, TerminalTabDragPayload.type],
+            delegate: EditorTabBarDropDelegate(
+                finish: { finishTabDrag() },
+                receiveTerminal: { sessionID in
+                    model.moveTerminalToEditor(sessionID)
+                }
+            )
         )
     }
 
@@ -167,9 +176,13 @@ struct EditorAreaView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    @ViewBuilder
     private var editorTabItems: some View {
         ForEach(Array(model.openDocuments.enumerated()), id: \.element.id) { index, document in
             editorTab(document, at: index)
+        }
+        ForEach(model.editorTerminalSessions) { session in
+            editorTerminalTab(session)
         }
     }
 
@@ -202,7 +215,7 @@ struct EditorAreaView: View {
                 Color.clear
                     .contentShape(Rectangle())
                     .onDrop(
-                        of: [EditorTabDragPayload.type],
+                        of: [EditorTabDragPayload.type, TerminalTabDragPayload.type],
                         delegate: EditorTabDropDelegate(
                             draggedDocumentID: tabDragState.draggedDocumentID,
                             targetDocumentID: document.id,
@@ -236,7 +249,10 @@ struct EditorAreaView: View {
                                     )
                                 }
                             },
-                            finish: { finishTabDrag() }
+                            finish: { finishTabDrag() },
+                            receiveTerminal: { sessionID in
+                                model.moveTerminalToEditor(sessionID)
+                            }
                         )
                     )
             }
@@ -246,11 +262,128 @@ struct EditorAreaView: View {
         .animation(tabAnimation, value: isDragged)
     }
 
+    private func editorTerminalTab(_ session: TerminalSession) -> some View {
+        let isActive = model.activeEditorTerminalSession?.id == session.id
+
+        return HStack(spacing: 0) {
+            HStack(spacing: 7) {
+                Image(systemName: "terminal")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(isActive ? LitheTheme.accent : LitheTheme.secondaryText)
+                EditorTerminalTabTitle(
+                    session: session,
+                    fallbackTitle: model.terminalTitle(for: session)
+                )
+            }
+            .foregroundStyle(isActive ? LitheTheme.primaryText : LitheTheme.secondaryText)
+            .padding(.leading, 11)
+            .frame(height: LitheTheme.Metrics.tabHeight)
+            .contentShape(Rectangle())
+            .contentShape(
+                .dragPreview,
+                RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius)
+            )
+            .onTapGesture {
+                model.selectEditorTerminalSession(session)
+                session.focus()
+            }
+            .onDrag {
+                TerminalTabDragPayload.provider(for: session.id)
+            } preview: {
+                editorTerminalDragPreview(session)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(model.terminalTitle(for: session))
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction {
+                model.selectEditorTerminalSession(session)
+            }
+            .lithePointer()
+
+            Button {
+                model.closeTerminalSession(session)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+                    .litheRowHover(cornerRadius: 10)
+            }
+            .buttonStyle(LitheTreeRowButtonStyle())
+            .lithePointer()
+            .foregroundStyle(LitheTheme.secondaryText)
+            .opacity(isActive || hoveredTabID == session.id ? 1 : 0)
+            .allowsHitTesting(isActive || hoveredTabID == session.id)
+            .padding(.trailing, 4)
+        }
+        .background(isActive ? LitheTheme.activeTabBackground : LitheTheme.inactiveTabBackground)
+        .overlay(alignment: .bottom) {
+            if isActive {
+                Rectangle().fill(LitheTheme.accent).frame(height: 2)
+            }
+        }
+        .background {
+            GeometryReader { geometry in
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onDrop(
+                        of: [TerminalTabDragPayload.type],
+                        delegate: EditorTerminalTabDropDelegate(
+                            targetSessionID: session.id,
+                            targetWidth: geometry.size.width,
+                            moveBefore: { sourceID in
+                                model.moveTerminalToEditor(sourceID, before: session.id)
+                            },
+                            moveAfter: { sourceID in
+                                model.moveTerminalToEditor(sourceID, after: session.id)
+                            }
+                        )
+                    )
+            }
+        }
+        .onHover { isHovering in
+            hoveredTabID = isHovering ? session.id : nil
+        }
+        .contextMenu {
+            Button("Move to Terminal") {
+                model.moveTerminalToTool(session.id)
+            }
+            Divider()
+            Button("Interrupt", action: session.interrupt)
+            Button("Restart", action: session.restart)
+            Button("Clear", action: session.clear)
+            Divider()
+            Button("Close") {
+                model.closeTerminalSession(session)
+            }
+        }
+    }
+
+    private func editorTerminalDragPreview(_ session: TerminalSession) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: "terminal")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(LitheTheme.accent)
+            Text(model.terminalTitle(for: session))
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(LitheTheme.primaryText)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 11)
+        .frame(height: LitheTheme.Metrics.tabHeight)
+        .background(LitheTheme.activeTabBackground)
+        .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius))
+        .shadow(color: .black.opacity(0.42), radius: 10, y: 6)
+    }
+
     private func editorTabContent(
         _ document: EditorDocument,
         dropSide: EditorTabDropSide? = nil
     ) -> some View {
-        HStack(spacing: 0) {
+        let isActive = model.activeEditorTerminalSession == nil
+            && model.activeDocumentID == document.id
+
+        return HStack(spacing: 0) {
             HStack(spacing: 7) {
                 LitheIcon(
                     kind: LitheIcons.kind(for: document.url, isDirectory: false),
@@ -259,7 +392,7 @@ struct EditorAreaView: View {
                 editorTabTitle(document)
                 EditorTabDirtyIndicator(document: document)
             }
-            .foregroundStyle(model.activeDocumentID == document.id ? LitheTheme.primaryText : LitheTheme.secondaryText)
+            .foregroundStyle(isActive ? LitheTheme.primaryText : LitheTheme.secondaryText)
             .padding(.leading, 11)
             .frame(height: LitheTheme.Metrics.tabHeight)
             .contentShape(Rectangle())
@@ -271,7 +404,7 @@ struct EditorAreaView: View {
             // can win the mouse gesture before a parent onDrag creates a
             // dragging session.
             .onTapGesture {
-                model.activeDocumentID = document.id
+                model.selectEditorDocument(document)
             }
             .onDrag {
                 beginTabDrag(document.id)
@@ -283,7 +416,7 @@ struct EditorAreaView: View {
             .accessibilityLabel(document.displayName)
             .accessibilityAddTraits(.isButton)
             .accessibilityAction {
-                model.activeDocumentID = document.id
+                model.selectEditorDocument(document)
             }
             .lithePointer()
 
@@ -299,19 +432,19 @@ struct EditorAreaView: View {
             .buttonStyle(LitheTreeRowButtonStyle())
             .lithePointer()
             .foregroundStyle(LitheTheme.secondaryText)
-            .opacity(model.activeDocumentID == document.id || hoveredTabID == document.id ? 1 : 0)
-            .allowsHitTesting(model.activeDocumentID == document.id || hoveredTabID == document.id)
+            .opacity(isActive || hoveredTabID == document.id ? 1 : 0)
+            .allowsHitTesting(isActive || hoveredTabID == document.id)
             .padding(.trailing, 4)
         }
         .background(
-            model.activeDocumentID == document.id
+            isActive
                 ? LitheTheme.activeTabBackground
                 : (dropSide == nil
                     ? LitheTheme.inactiveTabBackground
                     : LitheTheme.accent.opacity(0.13))
         )
         .overlay(alignment: .bottom) {
-            if model.activeDocumentID == document.id {
+            if isActive {
                 Rectangle().fill(LitheTheme.accent).frame(height: 2)
             }
         }
@@ -469,7 +602,8 @@ struct EditorAreaView: View {
             editorTabs
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
-            if let splitDocumentID,
+            if model.activeEditorTerminalSession == nil,
+               let splitDocumentID,
                let splitDocument = model.openDocuments.first(where: { $0.id == splitDocumentID }) {
                 HStack(spacing: 0) {
                     editorPane(model.activeDocument)
@@ -481,6 +615,13 @@ struct EditorAreaView: View {
                 activeEditor
             }
         }
+        .contentShape(Rectangle())
+        .onDrop(
+            of: [TerminalTabDragPayload.type],
+            delegate: EditorTerminalDropDelegate { sessionID in
+                model.moveTerminalToEditor(sessionID)
+            }
+        )
     }
 
     @ViewBuilder
@@ -610,7 +751,13 @@ struct EditorAreaView: View {
 
     @ViewBuilder
     private var activeEditor: some View {
-        if let document = model.activeDocument {
+        if let session = model.activeEditorTerminalSession {
+            TerminalSurfaceView(session: session)
+                .id(session.id)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(8)
+                .background(LitheTheme.editor)
+        } else if let document = model.activeDocument {
             if isMarkdownFile(document) {
                 switch markdownViewModes[document.id] ?? .editor {
                 case .editor:
@@ -685,24 +832,40 @@ struct EditorAreaView: View {
                 .foregroundStyle(LitheTheme.secondaryText)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .onDrop(
+            of: [TerminalTabDragPayload.type],
+            delegate: EditorTerminalDropDelegate { sessionID in
+                model.moveTerminalToEditor(sessionID)
+            }
+        )
     }
 
 }
 
 private struct EditorTabBarDropDelegate: DropDelegate {
     let finish: () -> Void
+    let receiveTerminal: @MainActor (UUID) -> Void
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
         DropProposal(operation: .move)
     }
 
     func performDrop(info: DropInfo) -> Bool {
+        let terminalProviders = info.itemProviders(for: [TerminalTabDragPayload.type])
+        if !terminalProviders.isEmpty {
+            finish()
+            return TerminalTabDragPayload.loadSessionID(
+                from: terminalProviders,
+                completion: receiveTerminal
+            )
+        }
         finish()
         return true
     }
 
     func validateDrop(info: DropInfo) -> Bool {
-        !info.itemProviders(for: [EditorTabDragPayload.type]).isEmpty
+        !info.itemProviders(for: [EditorTabDragPayload.type, TerminalTabDragPayload.type]).isEmpty
     }
 }
 
@@ -715,6 +878,7 @@ private struct EditorTabDropDelegate: DropDelegate {
     let updateTarget: (EditorTabDropTarget, UUID?, UInt) -> Void
     let clearTarget: (UUID, UUID?, UInt) -> Void
     let finish: () -> Void
+    let receiveTerminal: @MainActor (UUID) -> Void
 
     func dropEntered(info: DropInfo) {
         updateTargetIfNeeded(using: info)
@@ -726,16 +890,25 @@ private struct EditorTabDropDelegate: DropDelegate {
     }
 
     func dropExited(info: DropInfo) {
+        guard !info.itemProviders(for: [EditorTabDragPayload.type]).isEmpty else { return }
         clearTarget(targetDocumentID, dragSessionID, dropTargetRevision)
     }
 
     func performDrop(info: DropInfo) -> Bool {
+        let terminalProviders = info.itemProviders(for: [TerminalTabDragPayload.type])
+        if !terminalProviders.isEmpty {
+            finish()
+            return TerminalTabDragPayload.loadSessionID(
+                from: terminalProviders,
+                completion: receiveTerminal
+            )
+        }
         finish()
         return true
     }
 
     func validateDrop(info: DropInfo) -> Bool {
-        !info.itemProviders(for: [EditorTabDragPayload.type]).isEmpty
+        !info.itemProviders(for: [EditorTabDragPayload.type, TerminalTabDragPayload.type]).isEmpty
     }
 
     private func updateTargetIfNeeded(using info: DropInfo) {
@@ -750,6 +923,67 @@ private struct EditorTabDropDelegate: DropDelegate {
             dragSessionID,
             dropTargetRevision
         )
+    }
+}
+
+private struct EditorTerminalDropDelegate: DropDelegate {
+    let receive: @MainActor (UUID) -> Void
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func validateDrop(info: DropInfo) -> Bool {
+        !info.itemProviders(for: [TerminalTabDragPayload.type]).isEmpty
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        TerminalTabDragPayload.loadSessionID(
+            from: info.itemProviders(for: [TerminalTabDragPayload.type]),
+            completion: receive
+        )
+    }
+}
+
+private struct EditorTerminalTabDropDelegate: DropDelegate {
+    let targetSessionID: UUID
+    let targetWidth: CGFloat
+    let moveBefore: @MainActor (UUID) -> Void
+    let moveAfter: @MainActor (UUID) -> Void
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func validateDrop(info: DropInfo) -> Bool {
+        !info.itemProviders(for: [TerminalTabDragPayload.type]).isEmpty
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        let insertAfter = info.location.x >= targetWidth / 2
+        return TerminalTabDragPayload.loadSessionID(
+            from: info.itemProviders(for: [TerminalTabDragPayload.type])
+        ) { sourceSessionID in
+            guard sourceSessionID != targetSessionID else { return }
+            if insertAfter {
+                moveAfter(sourceSessionID)
+            } else {
+                moveBefore(sourceSessionID)
+            }
+        }
+    }
+}
+
+private struct EditorTerminalTabTitle: View {
+    @ObservedObject var session: TerminalSession
+    let fallbackTitle: String
+
+    var body: some View {
+        Text(session.processTitle.flatMap { $0.isEmpty ? nil : $0 } ?? fallbackTitle)
+            .font(.system(size: 12.5))
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .frame(maxWidth: 240, alignment: .leading)
     }
 }
 
