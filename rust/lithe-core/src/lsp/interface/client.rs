@@ -285,13 +285,27 @@ pub fn client_shutdown(request: ClientShutdownRequest) -> Result<LspClientRespon
 pub(crate) fn client_feature_request_canonical(
     request: ClientFeatureRequest,
 ) -> Result<LspClientResponse, CoreError> {
+    client_feature_request_with_document_ownership(request, true)
+}
+
+/// Allocates a feature request for a provider-owned virtual document.
+pub(crate) fn client_provider_document_feature_request_canonical(
+    request: ClientFeatureRequest,
+) -> Result<LspClientResponse, CoreError> {
+    client_feature_request_with_document_ownership(request, false)
+}
+
+fn client_feature_request_with_document_ownership(
+    request: ClientFeatureRequest,
+    require_open_document: bool,
+) -> Result<LspClientResponse, CoreError> {
     validate_uri(&request.uri)?;
     validate_lsp_method(&request.method)?;
     let params = feature_request_params(&request)?;
     let uri = request.uri.clone();
     let method = request.method.clone();
     let mut state = request.state;
-    if !state.open_documents.contains_key(&uri) {
+    if require_open_document && !state.open_documents.contains_key(&uri) {
         return Err(CoreError::new(
             ErrorCode::InvalidRequest,
             "Cannot request LSP features for a document that is not open.",

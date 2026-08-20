@@ -125,7 +125,7 @@ Rust Core 的 `lsp.builtinCompletions`、`lsp.builtinHover` 和
 
 macOS discovery 的查找顺序包括项目 `.lithe` 工具目录、`LITHE_<TOOL>_PATH`/`LITHE_TOOL_<TOOL>_PATH`、`PATH` 和常见系统目录；`gopls` 等 Go 工具还会检查 `GOBIN`、`GOPATH/bin`、`~/go/bin` 和 `~/.go/bin`。discovery 只查找，不自动安装软件。
 
-正式 macOS 与 Windows 安装包包含 JDTLS。发布构建根据 `third_party/jdtls/manifest.json` 下载固定版本，同时校验归档与 EPL-2.0 许可证的 SHA-256，再将产物放入应用资源目录的 `LanguageServers/jdtls`。平台 adapter 优先使用这个包内启动器；开发环境仍保留项目工具目录、显式覆盖和 `PATH` 等外部候选作为回退。下载只发生在构建阶段，应用运行时不会联网安装 JDTLS；Java 语义功能仍要求系统提供 JDK 17 或更高版本。
+正式 macOS 与 Windows 安装包包含 JDTLS。发布构建根据 `third_party/jdtls/manifest.json` 下载固定版本，同时校验 JDTLS 归档、EPL-2.0 许可证、Lombok agent 与 MIT 许可证的 SHA-256，再将产物放入应用资源目录的 `LanguageServers/jdtls`。包内启动器通过相对路径加载 Lombok `-javaagent`，确保 JDTLS 能解析注解生成的成员；agent 缺失时启动器会明确失败，而不会产生静默的错误诊断。平台 adapter 优先使用这个包内启动器；开发环境仍保留项目工具目录、显式覆盖和 `PATH` 等外部候选作为回退。下载只发生在构建阶段，应用运行时不会联网安装 JDTLS 或 Lombok；Java 语义功能仍要求系统提供 JDK 17 或更高版本。
 
 JDTLS 使用独立于项目运行/调试配置的全局 JDK 偏好。空路径表示自动模式：平台探测本机 JDK，并只选择主版本 17 或更高的候选。用户也可以在语言服务器设置中选择单独的 JDK Home；平台会在保存时探测 `java -version`，并在每次启动 JDTLS 前再次校验路径和版本。这个偏好不会读取、覆盖或写回项目的 Java/Maven JDK 设置。
 

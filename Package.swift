@@ -108,7 +108,8 @@ let package = Package(
             ],
             path: "Sources/Lithe",
             resources: [
-                .copy("Resources/MarkdownPreview")
+                .copy("Resources/MarkdownPreview"),
+                .copy("Resources/SyntaxHighlighting")
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v5)
@@ -118,6 +119,9 @@ let package = Package(
             name: "LitheTests",
             dependencies: ["Lithe", "LitheModuleAPI", "LitheApplicationKernel", "LitheCoreContracts", "LitheGitModule", "LitheDatabaseModule", "LitheAIAssistanceModule", "LitheLanguageIntelligenceModule", "LitheGoSupportModule"],
             path: "Tests/LitheTests",
+            resources: [
+                .copy("Fixtures")
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]

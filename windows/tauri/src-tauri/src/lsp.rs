@@ -302,7 +302,16 @@ fn language_server_cache_directory(app: &AppHandle) -> PathBuf {
 }
 
 fn normalize_path(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
+    let path = path.to_string_lossy();
+    if let Some(network_path) = path.strip_prefix(r"\\?\UNC\") {
+        return format!("//{}", network_path.replace('\\', "/"));
+    }
+
+    // Tauri can return verbatim resource paths, but cmd.exe cannot execute
+    // their `//?/` form after slash normalization.
+    path.strip_prefix(r"\\?\")
+        .unwrap_or(path.as_ref())
+        .replace('\\', "/")
 }
 
 #[cfg(test)]
@@ -466,6 +475,24 @@ mod tests {
 
         assert!(error.contains("JDK 17 or newer"), "{error}");
         assert!(error.contains("11.0.26"), "{error}");
+    }
+
+    #[test]
+    fn strips_verbatim_prefix_from_windows_launch_paths() {
+        assert_eq!(
+            normalize_path(Path::new(
+                r"\\?\D:\Lithe\LanguageServers\jdtls\bin\jdtls.bat"
+            )),
+            "D:/Lithe/LanguageServers/jdtls/bin/jdtls.bat"
+        );
+    }
+
+    #[test]
+    fn preserves_unc_root_when_stripping_verbatim_prefix() {
+        assert_eq!(
+            normalize_path(Path::new(r"\\?\UNC\server\share\jdtls\bin\jdtls.bat")),
+            "//server/share/jdtls/bin/jdtls.bat"
+        );
     }
 
     fn java_runtime(home_path: &str, version: &str) -> run::JavaRuntime {

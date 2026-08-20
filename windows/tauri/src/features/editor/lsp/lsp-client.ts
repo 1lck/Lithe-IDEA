@@ -1,4 +1,8 @@
-import { invokeLsp as invoke } from "@/platform/lsp-core-adapter";
+import {
+  getLspSessionSnapshot,
+  invokeLsp as invoke,
+  isLspSemanticCommandSupported,
+} from "@/platform/lsp-core-adapter";
 import { listen } from "@tauri-apps/api/event";
 import type {
   CompletionItem,
@@ -14,14 +18,20 @@ import type {
   Diagnostic,
   DiagnosticCodeAction,
 } from "@/features/diagnostics/types/diagnostics.types";
-import { hasTextContent } from "@/features/panes/types/pane-content.types";
+import { hasTextContent, shouldStartLsp } from "@/features/panes/types/pane-content.types";
 import { useBufferStore } from "../stores/buffer.store";
-import { getSourceEditorBufferByPath } from "../utils/buffer-index";
 import { logger } from "../utils/logger";
+import { normalizePath } from "@/utils/path-helpers";
 import { isBuiltInLspPath, languageIdForEditorFile } from "./built-in-language-support";
+import { resolvePublishedDiagnosticsFilePath } from "./diagnostics-file-path";
 import { resolveEditorLspLaunch } from "./resolve-editor-lsp-launch";
 import type { LspSemanticTokensResponse } from "./semantic-token-types";
-import { useLspStore } from "./stores/lsp.store";
+import { useLspStore, type LspStatus } from "./stores/lsp.store";
+import {
+  lspDocumentRequestArgs,
+  normalizeLspDocumentTarget,
+  type LspDocumentTargetInput,
+} from "./lsp-document-target";
 import {
   applyWorkspaceEdit,
   applyTextEditsToContent,
@@ -36,8 +46,22 @@ export interface LspError {
   code?: string;
 }
 
+export interface LspDocumentAvailability {
+  languageId?: string;
+  status: LspStatus;
+  hasSession: boolean;
+  ready: boolean;
+  featuresKnown: boolean;
+  supportsFeature: boolean;
+  available: boolean;
+  workspacePath?: string;
+}
+
 export interface LspLocation {
   uri: string;
+  filePath?: string | null;
+  displayPath?: string | null;
+  isReadOnly?: boolean;
   range: {
     start: { line: number; character: number };
     end: { line: number; character: number };
@@ -122,6 +146,11 @@ function isCanceledLspRequest(error: unknown): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function trackedFileKey(filePath: string): string {
+  const normalized = normalizePath(filePath);
+  return /^(?:[A-Za-z]:\/|\/\/)/.test(normalized) ? normalized.toLowerCase() : normalized;
 }
 
 function getCodeActionEdit(actionPayload: unknown): unknown {
@@ -258,21 +287,38 @@ export class LspClient {
   }
 
   private findServerKeyForFile(filePath: string, languageId?: string): string | null {
+    const targetKey = trackedFileKey(filePath);
+    const tracksFile = (trackedFiles: Set<string>) =>
+      Array.from(trackedFiles).some((trackedFile) => trackedFileKey(trackedFile) === targetKey);
     if (languageId) {
       const directMatch = Array.from(this.activeServerFiles.entries()).find(
-        ([key, trackedFiles]) => trackedFiles.has(filePath) && key.endsWith(`:${languageId}`),
+        ([key, trackedFiles]) => tracksFile(trackedFiles) && key.endsWith(`:${languageId}`),
       );
       if (directMatch) return directMatch[0];
     }
 
     const fallbackMatch = Array.from(this.activeServerFiles.entries()).find(([, trackedFiles]) =>
-      trackedFiles.has(filePath),
+      tracksFile(trackedFiles),
     );
     return fallbackMatch?.[0] ?? null;
   }
 
   private addTrackedFile(serverKey: string, filePath: string) {
+    const targetKey = trackedFileKey(filePath);
+    for (const [existingKey, trackedFiles] of this.activeServerFiles) {
+      if (existingKey === serverKey) continue;
+      for (const trackedFile of trackedFiles) {
+        if (trackedFileKey(trackedFile) === targetKey) trackedFiles.delete(trackedFile);
+      }
+      if (trackedFiles.size === 0) {
+        this.activeServerFiles.delete(existingKey);
+        this.activeLanguageServers.delete(existingKey);
+      }
+    }
     const trackedFiles = this.activeServerFiles.get(serverKey) ?? new Set<string>();
+    for (const trackedFile of trackedFiles) {
+      if (trackedFileKey(trackedFile) === targetKey) trackedFiles.delete(trackedFile);
+    }
     trackedFiles.add(filePath);
     this.activeServerFiles.set(serverKey, trackedFiles);
   }
@@ -281,7 +327,10 @@ export class LspClient {
     const trackedFiles = this.activeServerFiles.get(serverKey);
     if (!trackedFiles) return;
 
-    trackedFiles.delete(filePath);
+    const targetKey = trackedFileKey(filePath);
+    for (const trackedFile of trackedFiles) {
+      if (trackedFileKey(trackedFile) === targetKey) trackedFiles.delete(trackedFile);
+    }
     if (trackedFiles.size === 0) {
       this.activeServerFiles.delete(serverKey);
       return;
@@ -375,14 +424,22 @@ export class LspClient {
 
           logger.debug("LSPClient", `Received diagnostics for ${uri}:`, diagnostics);
 
-          // Convert URI to file path
-          const filePath = filePathFromUri(uri);
-          const isOpenInEditor =
-            this.openDocuments.has(filePath) ||
-            !!getSourceEditorBufferByPath(useBufferStore.getState().buffers, filePath);
+          const publishedFilePath = filePathFromUri(uri);
+          const sourceBufferPaths = useBufferStore
+            .getState()
+            .buffers.filter(shouldStartLsp)
+            .map((buffer) => buffer.path);
+          const filePath = resolvePublishedDiagnosticsFilePath(
+            publishedFilePath,
+            sourceBufferPaths,
+            this.openDocuments,
+          );
 
-          if (!isOpenInEditor) {
-            logger.debug("LSPClient", `Ignoring diagnostics for closed document: ${filePath}`);
+          if (!filePath) {
+            logger.debug(
+              "LSPClient",
+              `Ignoring diagnostics for closed document: ${publishedFilePath}`,
+            );
             return;
           }
 
@@ -463,7 +520,10 @@ export class LspClient {
         return;
       }
 
-      logger.debug("LSPClient", `Using LSP server: ${launch.serverPath} for language: ${launch.languageId}`);
+      logger.debug(
+        "LSPClient",
+        `Using LSP server: ${launch.serverPath} for language: ${launch.languageId}`,
+      );
       const serverKey = `${workspacePath}:${launch.languageId}`;
       if (this.activeLanguageServers.has(serverKey)) {
         logger.debug("LSPClient", `LSP for ${launch.languageId} already running in workspace`);
@@ -590,7 +650,10 @@ export class LspClient {
       }
 
       const languageId = launch.languageId;
-      logger.debug("LSPClient", `Using LSP server: ${launch.serverPath} for language: ${languageId}`);
+      logger.debug(
+        "LSPClient",
+        `Using LSP server: ${launch.serverPath} for language: ${languageId}`,
+      );
 
       const serverKey = `${workspacePath}:${languageId}`;
       if (options.forceRetry) {
@@ -659,7 +722,38 @@ export class LspClient {
   }
 
   hasSessionForFile(filePath: string): boolean {
-    return this.findServerKeyForFile(filePath, languageIdForEditorFile(filePath)) !== null;
+    return getLspSessionSnapshot({ filePath }) !== null;
+  }
+
+  getDocumentAvailability(
+    target: LspDocumentTargetInput,
+    feature?: string,
+  ): LspDocumentAvailability {
+    const document = normalizeLspDocumentTarget(target);
+    const session = getLspSessionSnapshot({
+      filePath: document.filePath,
+      sessionFilePath: document.sessionFilePath,
+    });
+    const languageId =
+      document.languageId ?? session?.languageId ?? languageIdForEditorFile(document.filePath);
+    const supportsFeature = Boolean(
+      session && (!feature || (session.featuresKnown && session.features.includes(feature))),
+    );
+    const status: LspStatus = session
+      ? session.ready
+        ? "connected"
+        : "connecting"
+      : "disconnected";
+    return {
+      languageId,
+      status,
+      hasSession: session !== null,
+      ready: session?.ready ?? false,
+      featuresKnown: session?.featuresKnown ?? false,
+      supportsFeature,
+      available: Boolean(session?.ready && supportsFeature),
+      workspacePath: session?.workspacePath,
+    };
   }
 
   /**
@@ -799,18 +893,22 @@ export class LspClient {
   }
 
   async getCompletions(
-    filePath: string,
+    target: LspDocumentTargetInput,
     line: number,
     character: number,
   ): Promise<CompletionItem[]> {
+    const document = normalizeLspDocumentTarget(target);
     try {
-      logger.debug("LSPClient", `Getting completions for ${filePath}:${line}:${character}`);
+      logger.debug(
+        "LSPClient",
+        `Getting completions for ${document.filePath}:${line}:${character}`,
+      );
       logger.debug(
         "LSPClient",
         `Active language servers: ${Array.from(this.activeLanguageServers).join(", ")}`,
       );
       const completions = await invoke<CompletionItem[]>("lsp_get_completions", {
-        filePath,
+        ...lspDocumentRequestArgs(document),
         line,
         character,
       });
@@ -826,10 +924,14 @@ export class LspClient {
     }
   }
 
-  async getHover(filePath: string, line: number, character: number): Promise<Hover | null> {
+  async getHover(
+    target: LspDocumentTargetInput,
+    line: number,
+    character: number,
+  ): Promise<Hover | null> {
     try {
       return await invoke<Hover | null>("lsp_get_hover", {
-        filePath,
+        ...lspDocumentRequestArgs(target),
         line,
         character,
       });
@@ -844,14 +946,15 @@ export class LspClient {
   private async getNavigationLocations(
     command: "lsp_get_definition" | "lsp_get_implementation" | "lsp_get_type_definition",
     label: string,
-    filePath: string,
+    target: LspDocumentTargetInput,
     line: number,
     character: number,
   ): Promise<LspLocation[] | null> {
+    const document = normalizeLspDocumentTarget(target);
     try {
-      logger.debug("LSPClient", `Getting ${label} for ${filePath}:${line}:${character}`);
+      logger.debug("LSPClient", `Getting ${label} for ${document.filePath}:${line}:${character}`);
       const locations = await invoke<LspLocation[] | null>(command, {
-        filePath,
+        ...lspDocumentRequestArgs(document),
         line,
         character,
       });
@@ -866,48 +969,55 @@ export class LspClient {
   }
 
   async getDefinition(
-    filePath: string,
+    target: LspDocumentTargetInput,
     line: number,
     character: number,
   ): Promise<LspLocation[] | null> {
-    return this.getNavigationLocations(
-      "lsp_get_definition",
-      "definition",
-      filePath,
-      line,
-      character,
-    );
+    return this.getNavigationLocations("lsp_get_definition", "definition", target, line, character);
   }
 
   async getImplementation(
-    filePath: string,
+    target: LspDocumentTargetInput,
     line: number,
     character: number,
   ): Promise<LspLocation[] | null> {
     return this.getNavigationLocations(
       "lsp_get_implementation",
       "implementation",
-      filePath,
+      target,
       line,
       character,
     );
   }
 
   async getTypeDefinition(
-    filePath: string,
+    target: LspDocumentTargetInput,
     line: number,
     character: number,
   ): Promise<LspLocation[] | null> {
     return this.getNavigationLocations(
       "lsp_get_type_definition",
       "type definition",
-      filePath,
+      target,
       line,
       character,
     );
   }
 
+  async getVirtualDocument(filePath: string, virtualUri: string): Promise<string | null> {
+    try {
+      return await invoke<string | null>("lsp_get_virtual_document", {
+        filePath,
+        virtualUri,
+      });
+    } catch (error) {
+      logger.error("LSPClient", `LSP virtual document error for ${virtualUri}:`, error);
+      return null;
+    }
+  }
+
   async getSemanticTokens(filePath: string): Promise<LspSemanticTokensResponse | null> {
+    if (!isLspSemanticCommandSupported("lsp_get_semantic_tokens")) return null;
     try {
       return await invoke<LspSemanticTokensResponse>("lsp_get_semantic_tokens", { filePath });
     } catch (error) {
@@ -917,7 +1027,7 @@ export class LspClient {
     }
   }
 
-  async getCodeLens(filePath: string): Promise<
+  async getCodeLens(target: LspDocumentTargetInput): Promise<
     {
       line: number;
       title: string;
@@ -926,7 +1036,7 @@ export class LspClient {
     }[]
   > {
     try {
-      return await invoke("lsp_get_code_lens", { filePath });
+      return await invoke("lsp_get_code_lens", lspDocumentRequestArgs(target));
     } catch (error) {
       if (isCanceledLspRequest(error)) return [];
       logger.error("LSPClient", "LSP code lens error:", error);
@@ -935,7 +1045,7 @@ export class LspClient {
   }
 
   async getInlayHints(
-    filePath: string,
+    target: LspDocumentTargetInput,
     startLine: number,
     endLine: number,
   ): Promise<
@@ -950,7 +1060,7 @@ export class LspClient {
   > {
     try {
       return await invoke("lsp_get_inlay_hints", {
-        filePath,
+        ...lspDocumentRequestArgs(target),
         startLine,
         endLine,
       });
@@ -974,6 +1084,7 @@ export class LspClient {
       hierarchyPath?: number[];
     }[]
   > {
+    if (!isLspSemanticCommandSupported("lsp_get_document_symbols")) return [];
     try {
       logger.debug("LSPClient", `Getting document symbols for ${filePath}`);
       const symbols = await invoke<
@@ -1013,6 +1124,7 @@ export class LspClient {
       filePath: string;
     }[]
   > {
+    if (!isLspSemanticCommandSupported("lsp_get_workspace_symbols")) return [];
     try {
       logger.debug("LSPClient", `Getting workspace symbols for "${query}" in ${workspacePath}`);
       const symbols = await invoke<
@@ -1054,6 +1166,7 @@ export class LspClient {
     activeSignature?: number;
     activeParameter?: number;
   } | null> {
+    if (!isLspSemanticCommandSupported("lsp_get_signature_help")) return null;
     try {
       return await invoke("lsp_get_signature_help", {
         filePath,
@@ -1067,6 +1180,7 @@ export class LspClient {
   }
 
   async getSignatureTriggerCharacters(filePath: string): Promise<string[]> {
+    if (!isLspSemanticCommandSupported("lsp_get_signature_trigger_characters")) return [];
     try {
       return await invoke<string[]>("lsp_get_signature_trigger_characters", { filePath });
     } catch (error) {
@@ -1075,9 +1189,12 @@ export class LspClient {
     }
   }
 
-  async formatDocument(filePath: string, content: string): Promise<string | null> {
+  async formatDocument(target: LspDocumentTargetInput, content: string): Promise<string | null> {
     try {
-      const edits = await invoke<LspTextEdit[]>("lsp_format_document", { filePath });
+      const edits = await invoke<LspTextEdit[]>(
+        "lsp_format_document",
+        lspDocumentRequestArgs(target),
+      );
       if (!edits.length) return content;
       return applyTextEditsToContent(content, edits);
     } catch (error) {
@@ -1094,6 +1211,7 @@ export class LspClient {
       end: { line: number; character: number };
     },
   ): Promise<string | null> {
+    if (!isLspSemanticCommandSupported("lsp_format_range")) return null;
     try {
       const edits = await invoke<LspTextEdit[]>("lsp_format_range", {
         filePath,
@@ -1111,7 +1229,7 @@ export class LspClient {
   }
 
   async getReferences(
-    filePath: string,
+    target: LspDocumentTargetInput,
     line: number,
     character: number,
   ): Promise<
@@ -1124,8 +1242,9 @@ export class LspClient {
       }[]
     | null
   > {
+    const document = normalizeLspDocumentTarget(target);
     try {
-      logger.debug("LSPClient", `Getting references for ${filePath}:${line}:${character}`);
+      logger.debug("LSPClient", `Getting references for ${document.filePath}:${line}:${character}`);
       const references = await invoke<
         | {
             uri: string;
@@ -1136,7 +1255,7 @@ export class LspClient {
           }[]
         | null
       >("lsp_get_references", {
-        filePath,
+        ...lspDocumentRequestArgs(document),
         line,
         character,
       });
@@ -1151,15 +1270,19 @@ export class LspClient {
   }
 
   async rename(
-    filePath: string,
+    target: LspDocumentTargetInput,
     line: number,
     character: number,
     newName: string,
   ): Promise<WorkspaceEdit | null> {
+    const document = normalizeLspDocumentTarget(target);
     try {
-      logger.debug("LSPClient", `Renaming at ${filePath}:${line}:${character} to "${newName}"`);
+      logger.debug(
+        "LSPClient",
+        `Renaming at ${document.filePath}:${line}:${character} to "${newName}"`,
+      );
       const result = await invoke<WorkspaceEdit | null>("lsp_rename", {
-        filePath,
+        ...lspDocumentRequestArgs(document),
         line,
         character,
         newName,
@@ -1179,6 +1302,7 @@ export class LspClient {
     line: number,
     character: number,
   ): Promise<PrepareRenameResult | null> {
+    if (!isLspSemanticCommandSupported("lsp_prepare_rename")) return null;
     try {
       return await invoke<PrepareRenameResult | null>("lsp_prepare_rename", {
         filePath,
@@ -1191,10 +1315,13 @@ export class LspClient {
     }
   }
 
-  async getCodeActions(filePath: string, diagnostic: Diagnostic): Promise<DiagnosticCodeAction[]> {
+  async getCodeActions(
+    target: LspDocumentTargetInput,
+    diagnostic: Diagnostic,
+  ): Promise<DiagnosticCodeAction[]> {
     try {
       return await invoke<DiagnosticCodeAction[]>("lsp_get_code_actions", {
-        filePath,
+        ...lspDocumentRequestArgs(target),
         diagnostic: {
           line: diagnostic.line,
           column: diagnostic.column,
@@ -1213,7 +1340,7 @@ export class LspClient {
   }
 
   async applyCodeAction(
-    filePath: string,
+    target: LspDocumentTargetInput,
     actionPayload: unknown,
   ): Promise<ApplyDiagnosticCodeActionResult> {
     try {
@@ -1231,7 +1358,7 @@ export class LspClient {
       }
 
       const result = await invoke<ApplyDiagnosticCodeActionResult>("lsp_apply_code_action", {
-        filePath,
+        ...lspDocumentRequestArgs(target),
         actionPayload,
       });
 
