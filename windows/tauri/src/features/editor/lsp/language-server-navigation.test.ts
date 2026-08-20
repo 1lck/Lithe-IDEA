@@ -8,8 +8,25 @@ describe("language server jump messages", () => {
         languageId: "java",
         status: "connected",
         hasSession: true,
+        ready: true,
+        featuresKnown: true,
+        supportsFeature: true,
       }),
     ).toBeNull();
+  });
+
+  test("reports a negotiated unsupported capability", () => {
+    expect(
+      languageServerUnavailableMessage({
+        languageId: "java",
+        status: "connected",
+        hasSession: true,
+        ready: true,
+        featuresKnown: true,
+        supportsFeature: false,
+        featureLabel: "references",
+      }),
+    ).toBe("Java language server does not support references.");
   });
 
   test("reports startup, failure, and not-ready states", () => {
