@@ -116,7 +116,15 @@ export const useLspIntegration = ({
 
       const notify =
         preferIncremental && contentChanges.length > 0
-          ? lspClient.notifyDocumentChange(filePath, undefined, newVersion, contentChanges)
+          ? // Always include the latest full text so Core can fall back to a
+            // full-document didChange when a multi-change batch is unsafe to
+            // replay incrementally (overlap / missing ranges).
+            lspClient.notifyDocumentChange(
+              filePath,
+              documentTextForPath(filePath),
+              newVersion,
+              contentChanges,
+            )
           : lspClient.notifyDocumentChange(filePath, documentTextForPath(filePath), newVersion);
 
       notify.catch((error) => {

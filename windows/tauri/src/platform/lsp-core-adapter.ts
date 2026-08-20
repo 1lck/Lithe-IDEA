@@ -32,8 +32,12 @@ const fileSessions = new Map<string, Session>();
 
 function coreData<T>(response: CoreResponse<T>): T {
   if (response.ok) return response.data;
-  const error = new Error(response.error.message) as Error & { code?: string };
+  const error = new Error(response.error.message) as Error & {
+    code?: string;
+    details?: string;
+  };
   error.code = response.error.code;
+  error.details = response.error.details;
   throw error;
 }
 
@@ -79,6 +83,15 @@ async function dispatchRuntimeEvent(event: RuntimeEvent): Promise<void> {
 
 async function dispatchSessionEvent(session: Session, event: RuntimeEvent): Promise<void> {
   await dispatchRuntimeEvent(event);
+  if (event.type === "stateChanged" && (event.state === "failed" || event.state === "stopped")) {
+    const error = new Error(`Language server entered ${event.state} state`) as Error & {
+      code?: string;
+    };
+    error.code = event.state === "failed" ? "sessionFailed" : "sessionStopped";
+    for (const pending of session.pending.values()) pending.reject(error);
+    session.pending.clear();
+    session.running = false;
+  }
   if (event.type !== "requestCompleted" || !event.operationId) return;
   const pending = session.pending.get(event.operationId);
   if (!pending) {
@@ -116,7 +129,12 @@ async function runEventPump(session: Session): Promise<void> {
       for (const pending of session.pending.values()) pending.reject(error);
       session.pending.clear();
       session.running = false;
-      await emit("lsp://server-crashed", {});
+      const details = String((error as Error & { details?: string }).details ?? "");
+      // waitEvents returns process_failed/sessionStopped after an intentional
+      // stop; only unexpected failures (and sessionFailed) should crash UI.
+      if (details !== "sessionStopped") {
+        await emit("lsp://server-crashed", {});
+      }
       return;
     }
   }
@@ -375,9 +393,10 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
       sessionId: session.id,
       uri: fileUri(args.filePath),
       languageId: args.languageId ?? session.languageId,
-      ...(contentChanges.length > 0
-        ? { contentChanges }
-        : { text: args.content ?? "" }),
+      // Prefer ranged changes when present, but keep full text so Core can
+      // fall back to a full-document didChange for unsafe multi-change batches.
+      text: args.content ?? "",
+      ...(contentChanges.length > 0 ? { contentChanges } : {}),
     });
     return undefined as T;
   }

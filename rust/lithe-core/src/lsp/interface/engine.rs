@@ -957,7 +957,17 @@ impl RuntimeSession {
                 state.lifecycle,
                 LspLifecycleState::Stopped | LspLifecycleState::Failed
             ) {
-                return Ok(Vec::new());
+                // Returning Ok([]) here would let frontend pumps spin on Core IPC
+                // forever after the terminal stateChanged event was drained.
+                let details = match state.lifecycle {
+                    LspLifecycleState::Failed => "sessionFailed",
+                    _ => "sessionStopped",
+                };
+                return Err(CoreError::new(
+                    ErrorCode::ProcessFailed,
+                    "Language-server session is no longer running.",
+                )
+                .with_details(details));
             }
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
@@ -3263,6 +3273,50 @@ mod tests {
             events.iter().any(|event| event.kind == "stateChanged"),
             "stop should wake waiters with a lifecycle event, got {events:?}"
         );
+    }
+
+    #[test]
+    fn wait_events_errors_after_terminal_state_events_are_drained() {
+        let mut harness = Harness::ready();
+        harness.poll();
+        harness.session().stop().unwrap();
+        let shutdown_id = harness
+            .server
+            .await_request("shutdown")
+            .expect("stop should request shutdown");
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": shutdown_id,
+            "result": null
+        }));
+        assert!(
+            harness.server.await_notification("exit"),
+            "exit must follow the shutdown response"
+        );
+        harness.server.exit(Some(0));
+        harness.await_state(LspLifecycleState::Stopped);
+
+        // Drain any remaining lifecycle events from the stop transition.
+        loop {
+            let events = match harness.session().wait_events(Duration::from_millis(20)) {
+                Ok(events) => events,
+                Err(error) => {
+                    assert!(matches!(error.code, ErrorCode::ProcessFailed));
+                    assert_eq!(error.details.as_deref(), Some("sessionStopped"));
+                    return;
+                }
+            };
+            if events.is_empty() {
+                break;
+            }
+        }
+
+        let error = harness
+            .session()
+            .wait_events(Duration::from_millis(50))
+            .expect_err("drained terminal sessions must not return empty Ok");
+        assert!(matches!(error.code, ErrorCode::ProcessFailed));
+        assert_eq!(error.details.as_deref(), Some("sessionStopped"));
     }
 
     #[test]

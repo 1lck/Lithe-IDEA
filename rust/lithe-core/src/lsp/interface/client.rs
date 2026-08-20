@@ -1,7 +1,10 @@
 //! Pure LSP client-state transitions and JSON-RPC message construction.
 
 use super::types::*;
-use crate::lsp::{apply_text_edits, ApplyTextEditsRequest, LspTextEdit};
+use crate::lsp::{
+    apply_content_changes_sequential, order_incremental_changes_for_replay, ApplyTextEditsRequest,
+    LspTextEdit,
+};
 use crate::protocol::{CoreError, ErrorCode};
 use serde_json::{json, Value};
 
@@ -154,22 +157,32 @@ pub fn client_change_document(
             "Cannot change a document that is not open in the LSP client.",
         ));
     };
-    let incremental = state.text_document_sync == LspTextDocumentSyncKind::Incremental
-        && !request.content_changes.is_empty()
-        && request
-            .content_changes
-            .iter()
-            .all(|change| change.range.is_some());
-    let next_text = if incremental {
-        apply_content_changes(&document.text, &request.content_changes)?
-    } else if !request.content_changes.is_empty() && request.text.is_empty() {
-        apply_content_changes(&document.text, &request.content_changes)?
+    let wants_incremental = state.text_document_sync == LspTextDocumentSyncKind::Incremental
+        && !request.content_changes.is_empty();
+    let ordered_incremental = if wants_incremental {
+        order_incremental_changes_for_replay(&document.text, &request.content_changes)?
     } else {
-        request.text
+        None
     };
-    let content_changes = if incremental {
-        json!(request
-            .content_changes
+    let (next_text, wire_incremental) = if let Some(changes) = ordered_incremental {
+        (
+            apply_content_changes_sequential(&document.text, &changes)?,
+            Some(changes),
+        )
+    } else if !request.text.is_empty() {
+        // Host-provided full text, or full-sync fallback after an unsafe batch.
+        (request.text, None)
+    } else if !request.content_changes.is_empty() {
+        // No full text available; derive local document from the ranged batch.
+        (
+            apply_content_changes_as_simultaneous_edits(&document.text, &request.content_changes)?,
+            None,
+        )
+    } else {
+        (String::new(), None)
+    };
+    let content_changes = if let Some(changes) = wire_incremental.as_ref() {
+        json!(changes
             .iter()
             .map(|change| {
                 let range = change.range.expect("incremental changes require a range");
@@ -208,7 +221,7 @@ pub fn client_change_document(
     Ok(client_response(state, vec![message], Vec::new()))
 }
 
-fn apply_content_changes(
+fn apply_content_changes_as_simultaneous_edits(
     text: &str,
     changes: &[LspDocumentContentChange],
 ) -> Result<String, CoreError> {
@@ -222,7 +235,7 @@ fn apply_content_changes(
             new_text: change.text.clone(),
         });
     }
-    Ok(apply_text_edits(ApplyTextEditsRequest {
+    Ok(crate::lsp::apply_text_edits(ApplyTextEditsRequest {
         text: text.to_string(),
         edits,
     })?

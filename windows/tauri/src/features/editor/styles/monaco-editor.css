@@ -1,5 +1,50 @@
 .monaco-editor-shell {
   --vscode-editor-background: var(--background, #0f1117);
+  --vscode-editorWidget-background: color-mix(in srgb, var(--surface, #1c1b19) 94%, var(--background, #0f1117));
+  --vscode-editorWidget-foreground: var(--foreground, #faf9f5);
+  --vscode-editorWidget-border: color-mix(in srgb, var(--border, rgba(255, 255, 255, 0.12)) 78%, transparent);
+  --vscode-editorHoverWidget-background: color-mix(
+    in srgb,
+    var(--surface, #1c1b19) 96%,
+    var(--background, #0f1117)
+  );
+  --vscode-editorHoverWidget-foreground: var(--foreground, #faf9f5);
+  --vscode-editorHoverWidget-border: var(--border, rgba(255, 255, 255, 0.12));
+  --vscode-widget-shadow: color-mix(in srgb, black 28%, transparent);
+}
+
+/*
+ * Find-widget button tooltips (e.g. "Previous Match (Shift+Enter)") render in a
+ * context-view container outside .monaco-editor-shell. Without opaque styles the
+ * label sits on top of the find bar and hideOnHover causes show/hide flicker.
+ */
+.monaco-hover.workbench-hover {
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12)) !important;
+  border-radius: var(--radius-md, 8px) !important;
+  background: color-mix(
+    in srgb,
+    var(--surface, #1c1b19) 96%,
+    var(--background, #0f1117)
+  ) !important;
+  color: var(--foreground, #faf9f5) !important;
+  box-shadow: var(--shadow-popover) !important;
+  font-family: var(--app-font-family);
+}
+
+.monaco-hover.workbench-hover.compact .hover-contents {
+  color: var(--foreground, #faf9f5) !important;
+  font-family: var(--app-font-family);
+  font-size: var(--ui-text-sm);
+}
+
+.workbench-hover-pointer:after {
+  background-color: color-mix(
+    in srgb,
+    var(--surface, #1c1b19) 96%,
+    var(--background, #0f1117)
+  ) !important;
+  border-right-color: var(--border, rgba(255, 255, 255, 0.12)) !important;
+  border-bottom-color: var(--border, rgba(255, 255, 255, 0.12)) !important;
 }
 
 .monaco-editor-shell .monaco-editor,

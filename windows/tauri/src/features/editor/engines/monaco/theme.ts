@@ -89,6 +89,12 @@ function createMonacoThemeData(
       "editorWidget.foreground": foreground,
       "editorWidget.border": border,
       "editorWidget.resizeBorder": accent,
+      // Find/replace button tooltips (Previous Match / Shift+Enter, etc.) use
+      // workbench hover CSS vars derived from these theme colors.
+      "editorHoverWidget.background": secondaryBackground,
+      "editorHoverWidget.foreground": foreground,
+      "editorHoverWidget.border": border,
+      "editorHoverWidget.statusBarBackground": selected,
       "editorSuggestWidget.background": background,
       "editorSuggestWidget.foreground": foreground,
       "editorSuggestWidget.border": border,

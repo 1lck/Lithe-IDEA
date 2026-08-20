@@ -1,5 +1,5 @@
 import { ScrollArea as ScrollAreaPrimitive } from "@base-ui/react/scroll-area";
-import { useLayoutEffect, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type * as React from "react";
 import {
   bindOverlayWheelToScrollContainer,
@@ -33,6 +33,8 @@ function ScrollArea({
   ...props
 }: ScrollAreaProps) {
   const { ref: viewportRef, style: viewportStyle, ...resolvedViewportProps } = viewportProps ?? {};
+  const viewportRefProp = useRef(viewportRef);
+  viewportRefProp.current = viewportRef;
   const [rootNode, setRootNode] = useState<HTMLDivElement | null>(null);
   const [viewportNode, setViewportNode] = useState<HTMLDivElement | null>(null);
 
@@ -46,14 +48,17 @@ function ScrollArea({
     return bindOverlayWheelToScrollContainer(rootNode, () => viewportNode);
   }, [rootNode, viewportNode]);
 
-  const setViewportRef = (node: HTMLDivElement | null) => {
-    setViewportNode(node);
-    if (typeof viewportRef === "function") {
-      viewportRef(node);
-    } else if (viewportRef) {
-      viewportRef.current = node;
+  // Keep this callback identity stable. Base UI forks refs; a new function each
+  // render retriggers cleanup(null)/attach(node) and can infinite-loop setState.
+  const setViewportRef = useCallback((node: HTMLDivElement | null) => {
+    setViewportNode((current) => (current === node ? current : node));
+    const forwarded = viewportRefProp.current;
+    if (typeof forwarded === "function") {
+      forwarded(node);
+    } else if (forwarded) {
+      forwarded.current = node;
     }
-  };
+  }, []);
 
   return (
     <ScrollAreaPrimitive.Root

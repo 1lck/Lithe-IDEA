@@ -47,23 +47,86 @@ export function getWheelDeltaPixels(event: WheelDeltaEvent, metrics: WheelDeltaM
   return { x: event.deltaX, y: event.deltaY };
 }
 
-export function applyVerticalWheelToScrollContainer(
+export function canScrollVerticallyInDirection(
   element: VerticalScrollContainer,
   deltaY: number,
 ) {
   if (deltaY === 0) return false;
 
   const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
-  const nextScrollTop = Math.max(0, Math.min(maxScrollTop, element.scrollTop + deltaY));
-  if (nextScrollTop === element.scrollTop) return false;
+  if (maxScrollTop <= 0) return false;
+  if (deltaY < 0) return element.scrollTop > 0;
+  return element.scrollTop < maxScrollTop;
+}
 
-  element.scrollTop = nextScrollTop;
+export function applyVerticalWheelToScrollContainer(
+  element: VerticalScrollContainer,
+  deltaY: number,
+) {
+  if (!canScrollVerticallyInDirection(element, deltaY)) return false;
+
+  const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+  element.scrollTop = Math.max(0, Math.min(maxScrollTop, element.scrollTop + deltaY));
   return true;
+}
+
+/**
+ * Decide whether a capture-phase outer scroller should yield to a nested
+ * scrollable (textarea / overflow container) that can still move in `deltaY`.
+ */
+export function resolveWheelScrollChainTarget(args: {
+  nestedCanScrollInDirection: boolean;
+  outerCanScrollInDirection: boolean;
+}): "nested" | "outer" | "none" {
+  if (args.nestedCanScrollInDirection) return "nested";
+  if (args.outerCanScrollInDirection) return "outer";
+  return "none";
+}
+
+/** Pure composedPath walk used by tests and mirrored by the DOM helper below. */
+export function findNestedScrollableInComposedPath(args: {
+  path: Array<{ id: string; scrollable: boolean; canScrollInDirection: boolean }>;
+  outerId: string;
+}): string | null {
+  for (const node of args.path) {
+    if (node.id === args.outerId) break;
+    if (!node.scrollable) continue;
+    if (node.canScrollInDirection) return node.id;
+  }
+  return null;
 }
 
 function getLineHeight(element: HTMLElement) {
   const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight);
   return Number.isFinite(lineHeight) && lineHeight > 0 ? lineHeight : 16;
+}
+
+function isVerticallyScrollableElement(element: HTMLElement) {
+  if (element instanceof HTMLTextAreaElement) {
+    return element.scrollHeight > element.clientHeight;
+  }
+
+  const overflowY = getComputedStyle(element).overflowY;
+  if (overflowY !== "auto" && overflowY !== "scroll" && overflowY !== "overlay") {
+    return false;
+  }
+  return element.scrollHeight > element.clientHeight;
+}
+
+function findNestedVerticalScrollTarget(
+  outer: HTMLElement,
+  event: WheelEvent,
+  deltaY: number,
+): HTMLElement | null {
+  const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+  for (const node of path) {
+    if (!(node instanceof HTMLElement)) continue;
+    if (node === outer) break;
+    if (!outer.contains(node)) continue;
+    if (!isVerticallyScrollableElement(node)) continue;
+    if (canScrollVerticallyInDirection(node, deltaY)) return node;
+  }
+  return null;
 }
 
 function applyVerticalWheelEvent(element: HTMLElement, event: WheelEvent) {
@@ -76,6 +139,13 @@ function applyVerticalWheelEvent(element: HTMLElement, event: WheelEvent) {
     pageHeight: element.clientHeight,
   });
 
+  const nested = findNestedVerticalScrollTarget(element, event, delta.y);
+  const target = resolveWheelScrollChainTarget({
+    nestedCanScrollInDirection: nested !== null,
+    outerCanScrollInDirection: canScrollVerticallyInDirection(element, delta.y),
+  });
+
+  if (target === "nested" || target === "none") return false;
   return applyVerticalWheelToScrollContainer(element, delta.y);
 }
 

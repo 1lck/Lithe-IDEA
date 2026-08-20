@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   applyVerticalWheelToScrollContainer,
+  canScrollVerticallyInDirection,
+  findNestedScrollableInComposedPath,
   getWheelDeltaPixels,
   isMostlyVerticalWheel,
+  resolveWheelScrollChainTarget,
 } from "./scroll-container-wheel";
 
 describe("scroll container wheel", () => {
@@ -59,5 +62,82 @@ describe("scroll container wheel", () => {
     element.scrollTop = 600;
     expect(applyVerticalWheelToScrollContainer(element, 40)).toBe(false);
     expect(element.scrollTop).toBe(600);
+  });
+
+  test("defers to a nested textarea/overflow scroller that can still move", () => {
+    const nested = {
+      scrollTop: 10,
+      scrollHeight: 400,
+      clientHeight: 100,
+    };
+    const outer = {
+      scrollTop: 0,
+      scrollHeight: 1200,
+      clientHeight: 400,
+    };
+
+    expect(canScrollVerticallyInDirection(nested, 40)).toBe(true);
+    expect(
+      resolveWheelScrollChainTarget({
+        nestedCanScrollInDirection: canScrollVerticallyInDirection(nested, 40),
+        outerCanScrollInDirection: canScrollVerticallyInDirection(outer, 40),
+      }),
+    ).toBe("nested");
+  });
+
+  test("scrolls the outer container when the nested scroller is at its boundary", () => {
+    const nested = {
+      scrollTop: 300,
+      scrollHeight: 400,
+      clientHeight: 100,
+    };
+    const outer = {
+      scrollTop: 0,
+      scrollHeight: 1200,
+      clientHeight: 400,
+    };
+
+    expect(canScrollVerticallyInDirection(nested, 40)).toBe(false);
+    expect(canScrollVerticallyInDirection(outer, 40)).toBe(true);
+    expect(
+      resolveWheelScrollChainTarget({
+        nestedCanScrollInDirection: canScrollVerticallyInDirection(nested, 40),
+        outerCanScrollInDirection: canScrollVerticallyInDirection(outer, 40),
+      }),
+    ).toBe("outer");
+  });
+
+  test("does not capture the wheel when neither nested nor outer can scroll", () => {
+    expect(
+      resolveWheelScrollChainTarget({
+        nestedCanScrollInDirection: false,
+        outerCanScrollInDirection: false,
+      }),
+    ).toBe("none");
+  });
+
+  test("composedPath prefers the nearest nested textarea that can still scroll", () => {
+    expect(
+      findNestedScrollableInComposedPath({
+        outerId: "settings-panel",
+        path: [
+          { id: "textarea", scrollable: true, canScrollInDirection: true },
+          { id: "form-row", scrollable: false, canScrollInDirection: false },
+          { id: "settings-panel", scrollable: true, canScrollInDirection: true },
+        ],
+      }),
+    ).toBe("textarea");
+  });
+
+  test("composedPath skips a nested scroller that is already at its boundary", () => {
+    expect(
+      findNestedScrollableInComposedPath({
+        outerId: "settings-panel",
+        path: [
+          { id: "textarea", scrollable: true, canScrollInDirection: false },
+          { id: "settings-panel", scrollable: true, canScrollInDirection: true },
+        ],
+      }),
+    ).toBeNull();
   });
 });
