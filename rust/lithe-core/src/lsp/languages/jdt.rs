@@ -184,13 +184,18 @@ pub(crate) fn virtual_source_resolve_params(
     provider_id: &str,
     uri: &str,
 ) -> Option<ExecuteCommandParams> {
-    if !is_java_provider(provider_id) || !has_uri_scheme(uri, JDT_URI_SCHEME) {
+    if !is_virtual_source_uri(provider_id, uri) {
         return None;
     }
     Some(ExecuteCommandParams {
         command: JAVA_DECOMPILE_COMMAND.to_string(),
         arguments: vec![json!(uri)],
     })
+}
+
+/// Returns whether a URI names a virtual source document owned by JDT LS.
+pub(crate) fn is_virtual_source_uri(provider_id: &str, uri: &str) -> bool {
+    is_java_provider(provider_id) && has_uri_scheme(uri, JDT_URI_SCHEME)
 }
 
 /// Extracts the text shape returned by JDT LS for `java.decompile`.

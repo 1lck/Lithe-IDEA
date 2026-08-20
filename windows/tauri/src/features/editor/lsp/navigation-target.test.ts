@@ -11,6 +11,7 @@ const range = {
 function createOptions(location: LspLocation, buffers: PaneContent[] = []) {
   const openContent = mock((_spec: OpenContentSpec) => "opened-buffer");
   const setActiveBuffer = mock((_bufferId: string) => undefined);
+  const updateBuffer = mock((_buffer: PaneContent) => undefined);
   const getVirtualDocument = mock(
     async (): Promise<string | null> => "public final class String {}",
   );
@@ -21,12 +22,13 @@ function createOptions(location: LspLocation, buffers: PaneContent[] = []) {
       location,
       sourceFilePath: "C:/work/src/Main.java",
       buffers,
-      actions: { openContent, setActiveBuffer },
+      actions: { openContent, setActiveBuffer, updateBuffer },
       getVirtualDocument,
       readFileContent,
     },
     openContent,
     setActiveBuffer,
+    updateBuffer,
     getVirtualDocument,
     readFileContent,
   };
@@ -83,6 +85,11 @@ describe("LSP navigation targets", () => {
       isVirtual: true,
       readOnly: true,
       language: "java",
+      lspDocument: {
+        documentUri: location.uri,
+        sessionFilePath: "C:/work/src/Main.java",
+        languageId: "java",
+      },
     });
     expect(context.readFileContent).not.toHaveBeenCalled();
   });
@@ -95,6 +102,48 @@ describe("LSP navigation targets", () => {
     expect(await openLspNavigationLocation(context.options)).toBe("existing-buffer");
     expect(context.setActiveBuffer).toHaveBeenCalledWith("existing-buffer");
     expect(context.getVirtualDocument).not.toHaveBeenCalled();
+    expect(context.openContent).not.toHaveBeenCalled();
+  });
+
+  test("rebinds a reused virtual buffer to the current source session", async () => {
+    const uri = "jdt://contents/java.base/java/lang/String.class?=demo";
+    const existing = {
+      id: "existing-buffer",
+      type: "editor",
+      path: uri,
+      name: "String.java",
+      content: "old source",
+      savedContent: "old source",
+      isDirty: false,
+      isVirtual: true,
+      isPinned: false,
+      isPreview: false,
+      isActive: false,
+      readOnly: true,
+      language: "java",
+      lspDocument: {
+        documentUri: uri,
+        sessionFilePath: "C:/work/parent/src/Old.java",
+        languageId: "java",
+      },
+      tokens: [],
+    } satisfies PaneContent;
+    const context = createOptions({ uri, filePath: null, range }, [existing]);
+
+    expect(await openLspNavigationLocation(context.options)).toBe("existing-buffer");
+    expect(context.getVirtualDocument).toHaveBeenCalledWith("C:/work/src/Main.java", uri);
+    expect(context.updateBuffer).toHaveBeenCalledWith({
+      ...existing,
+      content: "public final class String {}",
+      savedContent: "public final class String {}",
+      isActive: false,
+      lspDocument: {
+        documentUri: uri,
+        sessionFilePath: "C:/work/src/Main.java",
+        languageId: "java",
+      },
+    });
+    expect(context.setActiveBuffer).toHaveBeenCalledWith("existing-buffer");
     expect(context.openContent).not.toHaveBeenCalled();
   });
 

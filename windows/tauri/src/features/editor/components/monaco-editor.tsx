@@ -167,7 +167,8 @@ export function MonacoEditor({
   const buffer = activeBuffer && activeBuffer.type === "editor" ? activeBuffer : null;
   const content = buffer?.content ?? "";
   const filePath = buffer?.path ?? "";
-  const languageId = buffer?.languageOverride ?? getLanguageIdFromPath(filePath);
+  const languageId =
+    buffer?.languageOverride ?? buffer?.language ?? getLanguageIdFromPath(filePath);
   const monacoLanguageId = toMonacoLanguageId(languageId);
   const {
     fontFamily,

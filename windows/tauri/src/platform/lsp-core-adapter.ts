@@ -15,6 +15,8 @@ interface Session {
   files: Set<string>;
   running: boolean;
   ready: boolean;
+  features: Set<string>;
+  featuresKnown: boolean;
   recovered: boolean;
   pending: Map<string, { resolve: (value: unknown) => void; reject: (reason: Error) => void }>;
   completed: Map<string, RuntimeEvent>;
@@ -26,6 +28,7 @@ interface StoredSession {
   languageId: string;
   files: string[];
   ready?: boolean;
+  features?: string[];
 }
 
 interface RuntimeError {
@@ -54,6 +57,16 @@ interface RuntimeEvent {
   level?: string;
   message?: string;
   detail?: string;
+  capabilities?: string[];
+}
+
+export interface LspSessionSnapshot {
+  id: string;
+  workspacePath: string;
+  languageId: string;
+  ready: boolean;
+  features: string[];
+  featuresKnown: boolean;
 }
 
 const sessions = new Map<string, Session>();
@@ -95,6 +108,7 @@ function persistSessions(): void {
       languageId: session.languageId,
       files: [...session.files].sort(),
       ready: session.ready,
+      features: [...session.features].sort(),
     }))
     .sort((left, right) =>
       sessionKey(left.workspacePath, left.languageId).localeCompare(
@@ -115,13 +129,20 @@ function persistSessions(): void {
   }
 }
 
-function attachFile(session: Session, filePath: string): void {
+function attachFile(session: Session, filePath: string): Session | null {
   const key = fileKey(filePath);
+  const previous = fileSessions.get(key);
+  if (previous && previous !== session) {
+    for (const existing of previous.files) {
+      if (fileKey(existing) === key) previous.files.delete(existing);
+    }
+  }
   for (const existing of session.files) {
     if (fileKey(existing) === key) session.files.delete(existing);
   }
   session.files.add(filePath);
   fileSessions.set(key, session);
+  return previous && previous !== session ? previous : null;
 }
 
 function detachFile(session: Session, filePath: string): void {
@@ -129,7 +150,7 @@ function detachFile(session: Session, filePath: string): void {
   for (const existing of session.files) {
     if (fileKey(existing) === key) session.files.delete(existing);
   }
-  fileSessions.delete(key);
+  if (fileSessions.get(key) === session) fileSessions.delete(key);
 }
 
 function removeSessionMappings(session: Session): void {
@@ -158,7 +179,10 @@ function restorePersistedSessions(): void {
         typeof stored.languageId !== "string" ||
         !Array.isArray(stored.files) ||
         !stored.files.every((file: unknown) => typeof file === "string") ||
-        (stored.ready !== undefined && typeof stored.ready !== "boolean")
+        (stored.ready !== undefined && typeof stored.ready !== "boolean") ||
+        (stored.features !== undefined &&
+          (!Array.isArray(stored.features) ||
+            !stored.features.every((feature: unknown) => typeof feature === "string")))
       ) {
         continue;
       }
@@ -171,6 +195,8 @@ function restorePersistedSessions(): void {
         running: false,
         // Version-one entries created before this field existed were all ready.
         ready: stored.ready ?? true,
+        features: new Set(stored.features ?? []),
+        featuresKnown: stored.features !== undefined,
         recovered: true,
         pending: new Map(),
         completed: new Map(),
@@ -180,6 +206,9 @@ function restorePersistedSessions(): void {
       if (previous) removeSessionMappings(previous);
       sessions.set(key, session);
       for (const file of stored.files) attachFile(session, file);
+    }
+    for (const session of sessions.values()) {
+      if (session.files.size === 0) removeSessionMappings(session);
     }
   } catch (reason) {
     storage.removeItem(SESSION_STORAGE_KEY);
@@ -203,6 +232,12 @@ function coreData<T>(response: CoreResponse<T>): T {
   const error = new Error(response.error.message) as Error & { code?: string };
   error.code = response.error.code;
   throw error;
+}
+
+function lspAdapterError(code: string, message: string): Error & { code: string } {
+  const error = new Error(message) as Error & { code: string };
+  error.code = code;
+  return error;
 }
 
 async function core<T>(command: string, payload: JsonRecord): Promise<T> {
@@ -255,6 +290,17 @@ async function dispatchRuntimeEvent(event: RuntimeEvent): Promise<void> {
 
 async function dispatchSessionEvent(session: Session, event: RuntimeEvent): Promise<void> {
   await dispatchRuntimeEvent(event);
+  if (event.type === "featuresChanged") {
+    session.features = new Set(event.capabilities ?? []);
+    session.featuresKnown = true;
+    persistSessions();
+    await emit("lsp://features-changed", {
+      sessionId: session.id,
+      workspacePath: session.workspacePath,
+      languageId: session.languageId,
+      features: [...session.features].sort(),
+    });
+  }
   if (event.type !== "requestCompleted" || !event.operationId) return;
   const pending = session.pending.get(event.operationId);
   if (!pending) {
@@ -390,7 +436,9 @@ async function cleanupFailedStart(key: string, session: Session): Promise<void> 
 
 function sessionForFile(filePath: string): Session {
   const session = fileSessions.get(fileKey(filePath));
-  if (!session) throw new Error(`No LSP client for this file: ${filePath}`);
+  if (!session) {
+    throw lspAdapterError("no_session", `No language-server session owns this file: ${filePath}`);
+  }
   return session;
 }
 
@@ -422,6 +470,13 @@ async function recoverSession(session: Session): Promise<Session | null> {
       session.ready = false;
     }
     if (!session.ready) await waitUntilReady(session);
+
+    if (!session.featuresKnown) {
+      await stopAndDestroySession(session);
+      removeSessionMappings(session);
+      persistSessions();
+      return null;
+    }
 
     session.recovered = false;
     session.running = true;
@@ -466,6 +521,8 @@ async function createSession(args: JsonRecord, key: string): Promise<Session> {
     files: new Set(),
     running: false,
     ready: false,
+    features: new Set(),
+    featuresKnown: false,
     recovered: false,
     pending: new Map(),
     completed: new Map(),
@@ -519,8 +576,9 @@ async function start(args: JsonRecord): Promise<void> {
     }
 
     if (filePath) {
-      attachFile(session, filePath);
+      const displaced = attachFile(session, filePath);
       persistSessions();
+      if (displaced && displaced.files.size === 0) await stopSession(displaced);
     }
   } finally {
     if (pendingFileKey && pendingFileSessions.get(pendingFileKey) === key) {
@@ -587,7 +645,7 @@ async function requestOperation(session: Session, payload: JsonRecord): Promise<
   });
 }
 
-const operations: Record<string, string> = {
+export const LSP_OPERATION_BY_COMMAND = {
   lsp_get_completions: "completion",
   lsp_get_hover: "hover",
   lsp_get_definition: "definition",
@@ -600,7 +658,24 @@ const operations: Record<string, string> = {
   lsp_get_inlay_hints: "inlayHints",
   lsp_get_code_lens: "codeLens",
   lsp_get_virtual_document: "virtualDocument",
-};
+} as const;
+
+export const LSP_EXPLICITLY_UNAVAILABLE_COMMANDS = [
+  "lsp_get_semantic_tokens",
+  "lsp_get_document_symbols",
+  "lsp_get_workspace_symbols",
+  "lsp_get_signature_help",
+  "lsp_get_signature_trigger_characters",
+  "lsp_format_range",
+  "lsp_prepare_rename",
+] as const;
+
+const operations: Record<string, string> = LSP_OPERATION_BY_COMMAND;
+const explicitlyUnavailableCommands = new Set<string>(LSP_EXPLICITLY_UNAVAILABLE_COMMANDS);
+
+export function isLspSemanticCommandSupported(command: string): boolean {
+  return command in operations;
+}
 
 function semanticPayload(command: string, args: JsonRecord, session: Session): JsonRecord {
   const payload: JsonRecord = {
@@ -610,7 +685,7 @@ function semanticPayload(command: string, args: JsonRecord, session: Session): J
   if (command === "lsp_get_virtual_document") {
     payload.virtualUri = args.virtualUri;
   } else {
-    payload.uri = fileUri(args.filePath);
+    payload.uri = typeof args.documentUri === "string" ? args.documentUri : fileUri(args.filePath);
   }
   if (typeof args.line === "number") {
     payload.position = { line: args.line, utf16Column: args.character ?? 0 };
@@ -691,9 +766,25 @@ function unwrapResult(command: string, result: any): unknown {
 }
 
 async function semanticRequest(command: string, args: JsonRecord): Promise<unknown> {
-  const session = sessionForFile(args.filePath);
+  const session = sessionForFile(args.sessionFilePath ?? args.filePath);
   const result = await requestOperation(session, semanticPayload(command, args, session));
   return unwrapResult(command, result);
+}
+
+export function getLspSessionSnapshot(args: {
+  filePath: string;
+  sessionFilePath?: string;
+}): LspSessionSnapshot | null {
+  const session = fileSessions.get(fileKey(args.sessionFilePath ?? args.filePath));
+  if (!session) return null;
+  return {
+    id: session.id,
+    workspacePath: session.workspacePath,
+    languageId: session.languageId,
+    ready: session.ready,
+    features: [...session.features].sort(),
+    featuresKnown: session.featuresKnown,
+  };
 }
 
 export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Promise<T> {
@@ -740,7 +831,7 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
     return undefined as T;
   }
   if (command === "lsp_apply_code_action") {
-    const session = sessionForFile(args.filePath);
+    const session = sessionForFile(args.sessionFilePath ?? args.filePath);
     const commandPayload = args.actionPayload?.command ?? args.actionPayload;
     if (!commandPayload?.command) return { applied: true } as T;
     try {
@@ -758,5 +849,11 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
     }
   }
   if (command in operations) return (await semanticRequest(command, args)) as T;
-  throw new Error(`LSP operation is not supported by the shared Core: ${command}`);
+  if (explicitlyUnavailableCommands.has(command)) {
+    throw lspAdapterError(
+      "unsupported_capability",
+      `LSP operation is not available through the shared Core: ${command}`,
+    );
+  }
+  throw lspAdapterError("invalid_request", `Unknown LSP adapter command: ${command}`);
 }

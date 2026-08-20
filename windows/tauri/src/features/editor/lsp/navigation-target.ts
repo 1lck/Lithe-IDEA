@@ -6,6 +6,7 @@ import { getBaseName, normalizePath } from "@/utils/path-helpers";
 interface NavigationBufferActions {
   openContent: (spec: OpenContentSpec) => string;
   setActiveBuffer: (bufferId: string) => void;
+  updateBuffer: (buffer: PaneContent) => void;
 }
 
 interface OpenLspNavigationLocationOptions {
@@ -39,6 +40,11 @@ function virtualDocumentName(location: LspLocation): string {
   );
 }
 
+function physicalPathKey(path: string): string {
+  const normalized = normalizePath(path);
+  return /^(?:[A-Za-z]:\/|\/\/)/.test(normalized) ? normalized.toLowerCase() : normalized;
+}
+
 export async function openLspNavigationLocation({
   location,
   sourceFilePath,
@@ -51,6 +57,30 @@ export async function openLspNavigationLocation({
   const targetPath = filePath ?? location.uri;
   const existingBuffer = buffers.find((buffer) => buffer.path === targetPath);
   if (existingBuffer) {
+    if (
+      !filePath &&
+      existingBuffer.type === "editor" &&
+      (existingBuffer.lspDocument?.documentUri !== location.uri ||
+        physicalPathKey(existingBuffer.lspDocument.sessionFilePath) !==
+          physicalPathKey(sourceFilePath))
+    ) {
+      const content = await getVirtualDocument(sourceFilePath, location.uri);
+      if (content == null) return null;
+      actions.updateBuffer({
+        ...existingBuffer,
+        content,
+        savedContent: content,
+        isDirty: false,
+        isVirtual: true,
+        readOnly: true,
+        language: "java",
+        lspDocument: {
+          documentUri: location.uri,
+          sessionFilePath: sourceFilePath,
+          languageId: "java",
+        },
+      });
+    }
     actions.setActiveBuffer(existingBuffer.id);
     return existingBuffer.id;
   }
@@ -78,6 +108,11 @@ export async function openLspNavigationLocation({
     isVirtual: true,
     readOnly: true,
     language: "java",
+    lspDocument: {
+      documentUri: location.uri,
+      sessionFilePath: sourceFilePath,
+      languageId: "java",
+    },
   });
   actions.setActiveBuffer(bufferId);
   return bufferId;

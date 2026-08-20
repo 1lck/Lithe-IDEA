@@ -11,10 +11,17 @@ export function languageServerUnavailableMessage(args: {
   status: LspStatus;
   lastError?: string;
   hasSession: boolean;
+  ready?: boolean;
+  featuresKnown?: boolean;
+  supportsFeature?: boolean;
+  featureLabel?: string;
 }): string | null {
-  if (args.hasSession && args.status === "connected") return null;
+  if (args.hasSession && args.ready !== false && args.supportsFeature !== false) return null;
 
   const name = languageDisplayName(args.languageId);
+  if (args.hasSession && args.ready && args.featuresKnown && args.supportsFeature === false) {
+    return `${name} language server does not support ${args.featureLabel || "this feature"}.`;
+  }
   if (args.status === "connecting") {
     return `${name} language server is starting.`;
   }
