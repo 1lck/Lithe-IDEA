@@ -375,6 +375,41 @@ struct EditorSyntaxHighlighterTests {
     }
 
     @Test
+    func xmlAttributesAreOnlyHighlightedInsideStartTags() throws {
+        let source = #"""
+        text attr = "not-an-attribute"
+        <!-- <fake attr="comment"> -->
+        <root
+          real="value"
+          enabled = "true">
+          body attr = "still-not-an-attribute"
+        </root>
+        """#
+        let storage = NSTextStorage(string: source)
+
+        SyntaxHighlighter.apply(
+            to: storage,
+            font: .monospacedSystemFont(ofSize: 13, weight: .regular),
+            fileExtension: "xml",
+            isDark: true
+        )
+
+        let text = source as NSString
+        let palette = syntaxPalette(fileExtension: "xml")
+        let outsideAttribute = try color(in: storage, at: text.range(of: "attr").location)
+        let commentAttribute = try color(in: storage, at: text.range(of: "fake attr").location + "fake ".utf16.count)
+        let realAttribute = try color(in: storage, at: text.range(of: "real").location)
+        let enabledAttribute = try color(in: storage, at: text.range(of: "enabled").location)
+        let bodyAttribute = try color(in: storage, at: text.range(of: "body attr").location + "body ".utf16.count)
+
+        #expect(outsideAttribute == palette.text)
+        #expect(commentAttribute == palette.comment)
+        #expect(realAttribute == palette.property)
+        #expect(enabledAttribute == palette.property)
+        #expect(bodyAttribute == palette.text)
+    }
+
+    @Test
     func tomlSyntaxCorpusUsesExpectedTokenColors() throws {
         let source = try syntaxCorpus(named: "toml-syntax-corpus", extension: "toml")
         let storage = NSTextStorage(string: source)
