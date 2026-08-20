@@ -3771,8 +3771,21 @@ struct EditorDocumentTests {
     @Test
     func projectTreeLocatorMatchesStandardizedPathsAndExpandsParents() {
         let root = URL(fileURLWithPath: "/tmp/lithe-tree-locator-tests")
+        let sourcesDirectory = root.appendingPathComponent("Sources")
         let featureDirectory = root.appendingPathComponent("Sources/Feature")
         let fileURL = featureDirectory.appendingPathComponent("Example.swift")
+        let tree = FileNode(
+            url: root,
+            isDirectory: true,
+            children: [
+                FileNode(
+                    url: featureDirectory,
+                    isDirectory: true,
+                    children: [FileNode(url: fileURL, isDirectory: false, children: nil)],
+                    collapsedAncestorPaths: [sourcesDirectory.path]
+                )
+            ]
+        )
 
         let equivalentFile = root.appendingPathComponent("Sources/Nested/../Feature/Example.swift")
         #expect(ProjectTreeLocator.matchingURL(for: equivalentFile, among: [fileURL]) == fileURL)
@@ -3788,6 +3801,27 @@ struct EditorDocumentTests {
             ProjectTreeLocator.matchingURL(
                 for: root.deletingLastPathComponent().appendingPathComponent("Outside.swift"),
                 among: [fileURL]
+            ) == nil
+        )
+        #expect(ProjectTreeLocator.matchingURL(for: featureDirectory, in: tree) == featureDirectory)
+        #expect(ProjectTreeLocator.matchingURL(for: sourcesDirectory, in: tree) == featureDirectory)
+        #expect(ProjectTreeLocator.matchingURL(for: fileURL, in: tree) == fileURL)
+        #expect(
+            ProjectTreeLocator.expandedDirectoryPaths(
+                for: featureDirectory,
+                rootURL: root,
+                includeItem: true
+            ) == Set([
+                root.standardizedFileURL.path,
+                root.appendingPathComponent("Sources").standardizedFileURL.path,
+                featureDirectory.standardizedFileURL.path
+            ])
+        )
+        #expect(ProjectTreeLocator.matchingURL(for: root.appendingPathComponent("Hidden"), in: tree) == nil)
+        #expect(
+            ProjectTreeLocator.matchingURL(
+                for: root.deletingLastPathComponent().appendingPathComponent("Outside"),
+                in: tree
             ) == nil
         )
     }

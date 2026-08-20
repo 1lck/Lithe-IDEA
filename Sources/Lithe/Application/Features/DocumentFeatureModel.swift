@@ -340,8 +340,11 @@ final class DocumentFeatureModel: ObservableObject {
         onDocumentOpened?(document)
     }
 
-    func requestProjectTreeReveal(for fileURL: URL) {
-        projectTreeRevealRequest = ProjectTreeRevealRequest(fileURL: fileURL)
+    func requestProjectTreeReveal(for fileURL: URL, isDirectory: Bool = false) {
+        projectTreeRevealRequest = ProjectTreeRevealRequest(
+            fileURL: fileURL,
+            isDirectory: isDirectory
+        )
     }
 
     func consumeProjectTreeRevealRequest(id: UUID) {
