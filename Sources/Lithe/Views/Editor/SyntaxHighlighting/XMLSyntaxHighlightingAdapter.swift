@@ -2,58 +2,247 @@ import AppKit
 
 /// Performs lightweight XML tag, attribute, value, declaration, and comment highlighting.
 enum XMLSyntaxHighlightingAdapter {
-    private static let declarationExpression = expression(
-        #"<\?(?:[A-Za-z_][A-Za-z0-9_.:-]*)|<!DOCTYPE\b"#,
-        options: [.caseInsensitive]
-    )
-    private static let cdataExpression = expression(#"<!\[CDATA\[[\s\S]*?\]\]>"#)
-    private static let commentExpression = expression(#"<!--[\s\S]*?-->"#)
-
-    static func apply(to storage: NSTextStorage, palette: SyntaxHighlightingPalette, range target: NSRange) {
-        let source = storage.string as NSString
-        apply(declarationExpression, color: palette.annotation, storage: storage, source: source, range: target)
-        apply(cdataExpression, color: palette.string, storage: storage, source: source, range: target)
-        apply(commentExpression, color: palette.comment, storage: storage, source: source, range: target)
-        applyTagsAndAttributes(in: source, storage: storage, palette: palette, target: target)
+    private enum ActiveConstructKind: String {
+        case cdata
+        case comment
+        case doctype
+        case processingInstruction
+        case tag
     }
 
-    private static func applyTagsAndAttributes(
-        in source: NSString,
+    private struct CachedLexicalState: Equatable {
+        let activeKind: ActiveConstructKind?
+        let distanceToStart: Int
+
+        static let normal = CachedLexicalState(activeKind: nil, distanceToStart: 0)
+    }
+
+    private struct Construct {
+        let kind: ActiveConstructKind
+        let end: Int
+        let isTerminated: Bool
+    }
+
+    private struct ScanResult {
+        let lineCount: Int
+        let end: Int
+    }
+
+    private static let lexicalStateAttribute = NSAttributedString.Key("lithe.xml.lexical-state")
+
+    @discardableResult
+    static func apply(to storage: NSTextStorage, palette: SyntaxHighlightingPalette, range target: NSRange) -> Int {
+        let source = storage.string as NSString
+        guard source.length > 0, target.length > 0 else { return 0 }
+        let targetStart = lineRange(containing: target.location, in: source).location
+        let requiredEnd = NSMaxRange(
+            lineRange(containing: max(target.location, NSMaxRange(target) - 1), in: source)
+        )
+        let cachedStateBeforeTarget = cachedLexicalState(at: targetStart - 1, in: storage)
+        let shouldConverge = cachedStateBeforeTarget != nil
+            || cachedLexicalState(afterLineEndingAt: requiredEnd, in: storage) != nil
+        var scanStart = targetStart
+
+        if let cachedStateBeforeTarget, cachedStateBeforeTarget.activeKind != nil {
+            scanStart = max(0, targetStart - cachedStateBeforeTarget.distanceToStart)
+        } else if cachedStateBeforeTarget == nil, targetStart > 0 {
+            scanStart = 0
+        }
+
+        // Cache entries live on line endings and move with NSTextStorage edits. A
+        // normal predecessor makes visible-range highlighting independent of file size.
+        let result = scan(
+            source: source,
+            storage: storage,
+            palette: palette,
+            target: target,
+            from: scanStart,
+            requiredEnd: requiredEnd,
+            shouldConverge: shouldConverge
+        )
+        let propagationStart = NSMaxRange(target)
+        if result.end > propagationStart {
+            let propagationRange = NSRange(
+                location: propagationStart,
+                length: result.end - propagationStart
+            )
+            storage.addAttribute(.foregroundColor, value: palette.text, range: propagationRange)
+            applyColors(
+                source: source,
+                storage: storage,
+                palette: palette,
+                target: propagationRange,
+                from: scanStart,
+                through: result.end
+            )
+        }
+        return result.lineCount
+    }
+
+    private static func scan(
+        source: NSString,
         storage: NSTextStorage,
         palette: SyntaxHighlightingPalette,
-        target: NSRange
-    ) {
-        var cursor = 0
-        while cursor < source.length {
+        target: NSRange,
+        from scanStart: Int,
+        requiredEnd: Int,
+        shouldConverge: Bool
+    ) -> ScanResult {
+        var cursor = scanStart
+        var currentLine = lineRange(containing: scanStart, in: source)
+        var scannedLineCount = 0
+        var scannedEnd = scanStart
+        var stopped = false
+
+        func finishCurrentLine(with state: CachedLexicalState) {
+            let cachedExitState = cachedLexicalState(after: currentLine, in: storage)
+            cache(state, after: currentLine, in: storage)
+            scannedLineCount += 1
+            scannedEnd = NSMaxRange(currentLine)
+            stopped = shouldStop(
+                after: currentLine,
+                requiredEnd: requiredEnd,
+                shouldConverge: shouldConverge,
+                cachedExitState: cachedExitState,
+                state: state
+            )
+
+            let lineEnd = NSMaxRange(currentLine)
+            if !stopped, lineEnd < source.length {
+                currentLine = lineRange(containing: lineEnd, in: source)
+            } else if lineEnd >= source.length {
+                currentLine = NSRange(location: source.length, length: 0)
+            }
+        }
+
+        while cursor < source.length, !stopped {
+            if cursor >= NSMaxRange(currentLine) {
+                finishCurrentLine(with: .normal)
+                continue
+            }
+
             guard source.character(at: cursor) == 60 else {
                 cursor += 1
                 continue
             }
 
-            if hasPrefix("<!--", in: source, at: cursor) {
-                cursor = end(of: "-->", in: source, from: cursor + 4)
-                continue
-            }
-            if hasPrefix("<![CDATA[", in: source, at: cursor) {
-                cursor = end(of: "]]>", in: source, from: cursor + 9)
-                continue
-            }
-            if hasPrefix("<?", in: source, at: cursor) {
-                cursor = end(of: "?>", in: source, from: cursor + 2)
-                continue
-            }
-            if hasPrefix("<!DOCTYPE", in: source, at: cursor, options: [.caseInsensitive]) {
-                cursor = doctypeEnd(in: source, from: cursor + 9)
-                continue
-            }
-
-            guard let tag = tagRange(in: source, from: cursor) else {
+            guard let construct = applyConstruct(
+                at: cursor,
+                in: source,
+                storage: storage,
+                palette: palette,
+                target: target
+            ) else {
                 cursor += 1
                 continue
             }
-            applyTag(tag, in: source, storage: storage, palette: palette, target: target)
-            cursor = NSMaxRange(tag.range)
+
+            while !stopped {
+                let lineEnd = NSMaxRange(currentLine)
+                let remainsActive = construct.isTerminated
+                    ? lineEnd < construct.end
+                    : lineEnd <= construct.end
+                guard remainsActive else { break }
+                finishCurrentLine(
+                    with: CachedLexicalState(
+                        activeKind: construct.kind,
+                        distanceToStart: lineEnd - cursor
+                    )
+                )
+            }
+            cursor = construct.end
         }
+
+        if !stopped, currentLine.length > 0, currentLine.location < source.length {
+            finishCurrentLine(with: .normal)
+        }
+        return ScanResult(lineCount: scannedLineCount, end: scannedEnd)
+    }
+
+    private static func applyColors(
+        source: NSString,
+        storage: NSTextStorage,
+        palette: SyntaxHighlightingPalette,
+        target: NSRange,
+        from scanStart: Int,
+        through scanEnd: Int
+    ) {
+        var cursor = scanStart
+        while cursor < scanEnd {
+            guard source.character(at: cursor) == 60,
+                  let construct = applyConstruct(
+                      at: cursor,
+                      in: source,
+                      storage: storage,
+                      palette: palette,
+                      target: target
+                  ) else {
+                cursor += 1
+                continue
+            }
+            cursor = construct.end
+        }
+    }
+
+    private static func applyConstruct(
+        at start: Int,
+        in source: NSString,
+        storage: NSTextStorage,
+        palette: SyntaxHighlightingPalette,
+        target: NSRange
+    ) -> Construct? {
+        if hasPrefix("<!--", in: source, at: start) {
+            let result = end(of: "-->", in: source, from: start + 4)
+            if result.isTerminated {
+                addColor(
+                    palette.comment,
+                    to: storage,
+                    range: NSRange(location: start, length: result.end - start),
+                    limitedTo: target
+                )
+            }
+            return Construct(kind: .comment, end: result.end, isTerminated: result.isTerminated)
+        }
+        if hasPrefix("<![CDATA[", in: source, at: start) {
+            let result = end(of: "]]>", in: source, from: start + 9)
+            if result.isTerminated {
+                addColor(
+                    palette.string,
+                    to: storage,
+                    range: NSRange(location: start, length: result.end - start),
+                    limitedTo: target
+                )
+            }
+            return Construct(kind: .cdata, end: result.end, isTerminated: result.isTerminated)
+        }
+        if hasPrefix("<?", in: source, at: start) {
+            if let declarationRange = processingInstructionNameRange(in: source, from: start) {
+                addColor(palette.annotation, to: storage, range: declarationRange, limitedTo: target)
+            }
+            let result = end(of: "?>", in: source, from: start + 2)
+            return Construct(
+                kind: .processingInstruction,
+                end: result.end,
+                isTerminated: result.isTerminated
+            )
+        }
+        if hasPrefix("<!DOCTYPE", in: source, at: start, options: [.caseInsensitive]) {
+            let declarationLength = "<!DOCTYPE".utf16.count
+            let boundary = start + declarationLength
+            if boundary >= source.length || !isWordCharacter(source.character(at: boundary)) {
+                addColor(
+                    palette.annotation,
+                    to: storage,
+                    range: NSRange(location: start, length: declarationLength),
+                    limitedTo: target
+                )
+            }
+            let result = doctypeEnd(in: source, from: boundary)
+            return Construct(kind: .doctype, end: result.end, isTerminated: result.isTerminated)
+        }
+        guard let tag = tagRange(in: source, from: start) else { return nil }
+        applyTag(tag, in: source, storage: storage, palette: palette, target: target)
+        return Construct(kind: .tag, end: NSMaxRange(tag.range), isTerminated: true)
     }
 
     private static func applyTag(
@@ -165,7 +354,7 @@ enum XMLSyntaxHighlightingAdapter {
         return limit
     }
 
-    private static func doctypeEnd(in source: NSString, from start: Int) -> Int {
+    private static func doctypeEnd(in source: NSString, from start: Int) -> (end: Int, isTerminated: Bool) {
         var cursor = start
         var quote: unichar = 0
         var bracketDepth = 0
@@ -180,17 +369,32 @@ enum XMLSyntaxHighlightingAdapter {
             } else if character == 93 {
                 bracketDepth = max(0, bracketDepth - 1)
             } else if character == 62 && bracketDepth == 0 {
-                return cursor + 1
+                return (cursor + 1, true)
             }
             cursor += 1
         }
-        return source.length
+        return (source.length, false)
     }
 
-    private static func end(of terminator: String, in source: NSString, from start: Int) -> Int {
+    private static func end(
+        of terminator: String,
+        in source: NSString,
+        from start: Int
+    ) -> (end: Int, isTerminated: Bool) {
         let searchRange = NSRange(location: min(start, source.length), length: max(0, source.length - start))
         let found = source.range(of: terminator, options: [], range: searchRange)
-        return found.location == NSNotFound ? source.length : NSMaxRange(found)
+        guard found.location != NSNotFound else { return (source.length, false) }
+        return (NSMaxRange(found), true)
+    }
+
+    private static func processingInstructionNameRange(in source: NSString, from start: Int) -> NSRange? {
+        var cursor = start + 2
+        guard cursor < source.length, isNameStart(source.character(at: cursor)) else { return nil }
+        cursor += 1
+        while cursor < source.length, isNameCharacter(source.character(at: cursor)) {
+            cursor += 1
+        }
+        return NSRange(location: start, length: cursor - start)
     }
 
     private static func hasPrefix(
@@ -213,6 +417,11 @@ enum XMLSyntaxHighlightingAdapter {
         isNameStart(character) || character == 45 || character == 46 || (character >= 48 && character <= 57)
     }
 
+    private static func isWordCharacter(_ character: unichar) -> Bool {
+        character == 95 || (character >= 48 && character <= 57)
+            || (character >= 65 && character <= 90) || (character >= 97 && character <= 122)
+    }
+
     private static func isWhitespace(_ character: unichar) -> Bool {
         character == 9 || character == 10 || character == 13 || character == 32
     }
@@ -223,24 +432,81 @@ enum XMLSyntaxHighlightingAdapter {
         storage.addAttribute(.foregroundColor, value: color, range: affectedRange)
     }
 
-    private static func apply(
-        _ expression: NSRegularExpression,
-        captureGroup: Int = 0,
-        color: NSColor,
-        storage: NSTextStorage,
-        source: NSString,
-        range: NSRange
+    private static func cache(
+        _ state: CachedLexicalState,
+        after lineRange: NSRange,
+        in storage: NSTextStorage
     ) {
-        expression.enumerateMatches(in: source as String, range: NSRange(location: 0, length: source.length)) { match, _, _ in
-            guard let match else { return }
-            addColor(color, to: storage, range: match.range(at: captureGroup), limitedTo: range)
+        guard lineRange.length > 0 else { return }
+        let value: String
+        if let activeKind = state.activeKind {
+            value = "\(activeKind.rawValue):\(state.distanceToStart)"
+        } else {
+            value = "normal"
         }
+        storage.addAttribute(
+            lexicalStateAttribute,
+            value: value,
+            range: NSRange(location: NSMaxRange(lineRange) - 1, length: 1)
+        )
     }
 
-    private static func expression(
-        _ pattern: String,
-        options: NSRegularExpression.Options = []
-    ) -> NSRegularExpression {
-        try! NSRegularExpression(pattern: pattern, options: options)
+    private static func cachedLexicalState(
+        at location: Int,
+        in storage: NSTextStorage
+    ) -> CachedLexicalState? {
+        guard location >= 0, location < storage.length,
+              let value = storage.attribute(
+                  lexicalStateAttribute,
+                  at: location,
+                  effectiveRange: nil
+              ) as? String else {
+            return nil
+        }
+        guard value != "normal" else { return .normal }
+        let components = value.split(separator: ":", maxSplits: 1)
+        guard components.count == 2,
+              let kind = ActiveConstructKind(rawValue: String(components[0])),
+              let distance = Int(components[1]) else {
+            return nil
+        }
+        return CachedLexicalState(activeKind: kind, distanceToStart: distance)
+    }
+
+    private static func cachedLexicalState(
+        after lineRange: NSRange,
+        in storage: NSTextStorage
+    ) -> CachedLexicalState? {
+        cachedLexicalState(at: NSMaxRange(lineRange) - 1, in: storage)
+    }
+
+    private static func cachedLexicalState(
+        afterLineEndingAt location: Int,
+        in storage: NSTextStorage
+    ) -> CachedLexicalState? {
+        guard location < storage.length else { return nil }
+        let source = storage.string as NSString
+        let nextLine = lineRange(containing: location, in: source)
+        return cachedLexicalState(after: nextLine, in: storage)
+    }
+
+    private static func shouldStop(
+        after lineRange: NSRange,
+        requiredEnd: Int,
+        shouldConverge: Bool,
+        cachedExitState: CachedLexicalState?,
+        state: CachedLexicalState
+    ) -> Bool {
+        let lineEnd = NSMaxRange(lineRange)
+        guard lineEnd >= requiredEnd else { return false }
+        guard shouldConverge else { return true }
+        guard lineRange.location >= requiredEnd else { return false }
+        return cachedExitState == state || (cachedExitState == nil && state == .normal)
+    }
+
+    private static func lineRange(containing location: Int, in source: NSString) -> NSRange {
+        source.lineRange(
+            for: NSRange(location: min(max(0, location), max(0, source.length - 1)), length: 0)
+        )
     }
 }

@@ -395,6 +395,101 @@ struct EditorSyntaxHighlighterTests {
     }
 
     @Test
+    func xmlIncrementalHighlightingPreservesMultilineConstructColors() throws {
+        let source = #"""
+        <root>
+          <!--
+            service configuration
+          -->
+          <![CDATA[
+            candidate <service enabled="false" />
+          ]]>
+          <service
+            environment="production"
+            endpoint="https://example.test/#fragment">
+          </service>
+        </root>
+        """#
+        let fullStorage = NSTextStorage(string: source)
+        let incrementalStorage = NSTextStorage(string: source)
+        let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+
+        SyntaxHighlighter.apply(
+            to: fullStorage,
+            font: font,
+            fileExtension: "xml",
+            isDark: true
+        )
+        SyntaxHighlighter.apply(
+            to: incrementalStorage,
+            font: font,
+            fileExtension: "xml",
+            isDark: true
+        )
+
+        let text = source as NSString
+        for token in ["service configuration", "candidate", "environment", #""production""#] {
+            let tokenRange = text.range(of: token)
+            SyntaxHighlighter.apply(
+                to: incrementalStorage,
+                font: font,
+                fileExtension: "xml",
+                isDark: true,
+                range: tokenRange
+            )
+
+            let expectedColor = try color(in: fullStorage, at: tokenRange.location)
+            let incrementalColor = try color(in: incrementalStorage, at: tokenRange.location)
+            #expect(incrementalColor == expectedColor)
+        }
+    }
+
+    @Test
+    func xmlIncrementalHighlightingRecolorsLinesUntilStateConverges() throws {
+        let original = #"""
+        <root>
+          placeholder
+          <service enabled="true" />
+          -->
+          <after />
+        </root>
+        """#
+        let storage = NSTextStorage(string: original)
+        let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        SyntaxHighlighter.apply(
+            to: storage,
+            font: font,
+            fileExtension: "xml",
+            isDark: true
+        )
+
+        let editRange = (storage.string as NSString).range(of: "placeholder")
+        storage.replaceCharacters(in: editRange, with: "<!--")
+        SyntaxHighlighter.apply(
+            to: storage,
+            font: font,
+            fileExtension: "xml",
+            isDark: true,
+            range: NSRange(location: editRange.location, length: "<!--".utf16.count)
+        )
+
+        let expectedStorage = NSTextStorage(string: storage.string)
+        SyntaxHighlighter.apply(
+            to: expectedStorage,
+            font: font,
+            fileExtension: "xml",
+            isDark: true
+        )
+        let text = storage.string as NSString
+        for token in ["service", "-->", "after"] {
+            let location = text.range(of: token).location
+            let expectedColor = try color(in: expectedStorage, at: location)
+            let incrementalColor = try color(in: storage, at: location)
+            #expect(incrementalColor == expectedColor)
+        }
+    }
+
+    @Test
     func tomlSyntaxCorpusUsesExpectedTokenColors() throws {
         let source = try syntaxCorpus(named: "toml-syntax-corpus", extension: "toml")
         let storage = NSTextStorage(string: source)
@@ -671,7 +766,9 @@ struct SyntaxHighlightingIncrementalPerformanceTests {
         let storage = NSTextStorage(string: source)
         let fullRange = NSRange(location: 0, length: storage.length)
         let palette = performanceTestPalette
+        storage.beginEditing()
         YAMLSyntaxHighlightingAdapter.apply(to: storage, palette: palette, range: fullRange)
+        storage.endEditing()
         let editedRange = (source as NSString).range(of: "tail: true")
         let target = SyntaxHighlighter.targetRange(
             for: editedRange,
@@ -679,11 +776,13 @@ struct SyntaxHighlightingIncrementalPerformanceTests {
             limit: fullRange
         )
 
+        storage.beginEditing()
         let scannedLineCount = YAMLSyntaxHighlightingAdapter.apply(
             to: storage,
             palette: palette,
             range: target
         )
+        storage.endEditing()
 
         #expect(scannedLineCount < 10)
     }
@@ -694,7 +793,9 @@ struct SyntaxHighlightingIncrementalPerformanceTests {
         let storage = NSTextStorage(string: source)
         let fullRange = NSRange(location: 0, length: storage.length)
         let palette = performanceTestPalette
+        storage.beginEditing()
         TOMLSyntaxHighlightingAdapter.apply(to: storage, palette: palette, range: fullRange)
+        storage.endEditing()
         let editedRange = (source as NSString).range(of: "tail = true")
         let target = SyntaxHighlighter.targetRange(
             for: editedRange,
@@ -702,11 +803,40 @@ struct SyntaxHighlightingIncrementalPerformanceTests {
             limit: fullRange
         )
 
+        storage.beginEditing()
         let scannedLineCount = TOMLSyntaxHighlightingAdapter.apply(
             to: storage,
             palette: palette,
             range: target
         )
+        storage.endEditing()
+
+        #expect(scannedLineCount < 10)
+    }
+
+    @Test
+    func xmlIncrementalHighlightingUsesCachedLineStateNearDocumentEnd() {
+        let source = String(repeating: "<entry key=\"value\" />\n", count: 20_000) + "<tail enabled=\"true\" />\n"
+        let storage = NSTextStorage(string: source)
+        let fullRange = NSRange(location: 0, length: storage.length)
+        let palette = performanceTestPalette
+        storage.beginEditing()
+        XMLSyntaxHighlightingAdapter.apply(to: storage, palette: palette, range: fullRange)
+        storage.endEditing()
+        let editedRange = (source as NSString).range(of: #"<tail enabled="true" />"#)
+        let target = SyntaxHighlighter.targetRange(
+            for: editedRange,
+            in: source as NSString,
+            limit: fullRange
+        )
+
+        storage.beginEditing()
+        let scannedLineCount = XMLSyntaxHighlightingAdapter.apply(
+            to: storage,
+            palette: palette,
+            range: target
+        )
+        storage.endEditing()
 
         #expect(scannedLineCount < 10)
     }
