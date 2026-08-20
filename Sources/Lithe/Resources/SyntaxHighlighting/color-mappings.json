@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "instructions": [
+    "Colors accept theme:<token>, #RRGGBB, or #RRGGBBAA values.",
+    "Use {\"light\": \"...\", \"dark\": \"...\"} when appearances need different colors."
+  ],
+  "defaults": {
+    "text": "editor:text",
+    "keyword": "theme:skill",
+    "annotation": "theme:warning",
+    "type": "theme:accent",
+    "property": "#4F94FA",
+    "number": "theme:warning",
+    "string": "theme:success",
+    "comment": "theme:secondaryText"
+  },
+  "formats": {
+    "json": {},
+    "yaml": {},
+    "toml": {},
+    "ini": {},
+    "properties": {},
+    "generic-config": {},
+    "env": {},
+    "xml": {}
+  }
+}

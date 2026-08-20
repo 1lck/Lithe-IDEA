@@ -761,8 +761,12 @@ struct WorkbenchView: View {
                 topPaneHeight = height
                 saveLayout(sidebarWidth: sidebarWidth, topPaneHeight: height)
             },
+            showsBottomToolMinimize: model.isGitLogVisible,
+            onBottomToolMinimize: {
+                model.closeGitLog()
+            },
             sidebar: {
-                activeSidebar
+                activeSidebar(projectTreeRowHeight: settings.projectTreeRowHeight)
             },
             editor: {
                 Group {
@@ -794,11 +798,11 @@ struct WorkbenchView: View {
     }
 
     @ViewBuilder
-    private var activeSidebar: some View {
+    private func activeSidebar(projectTreeRowHeight: CGFloat) -> some View {
         Group {
             switch model.selectedSidebar {
             case .project:
-                ProjectSidebarView()
+                ProjectSidebarView(rowHeight: projectTreeRowHeight)
             case .changes:
                 ChangesSidebarView()
             case .pullRequests:
@@ -849,14 +853,20 @@ struct WorkbenchView: View {
                     let path = document.displayPath ?? model.relativePath(for: document.url)
                     let components = path.split(separator: "/")
                     ForEach(Array(components.enumerated()), id: \.offset) { index, component in
+                        let isFile = index == components.count - 1
                         breadcrumbItem(
                             title: String(component),
-                            iconKind: index == components.count - 1
+                            iconKind: isFile
                                 ? LitheIcons.kind(for: document.url, isDirectory: false)
                                 : nil,
-                            isEmphasized: index == components.count - 1
+                            isEmphasized: isFile
                         ) {
-                            model.selectedSidebar = .project
+                            guard let itemURL = breadcrumbURL(
+                                for: document,
+                                componentIndex: index,
+                                componentCount: components.count
+                            ) else { return }
+                            model.revealInProjectTree(itemURL, isDirectory: !isFile)
                         }
                         if index < components.count - 1 {
                             breadcrumbSeparator
@@ -869,6 +879,23 @@ struct WorkbenchView: View {
                     }
                 }
             }
+        }
+    }
+
+    private func breadcrumbURL(
+        for document: EditorDocument,
+        componentIndex: Int,
+        componentCount: Int
+    ) -> URL? {
+        guard componentIndex >= 0, componentIndex < componentCount else { return nil }
+        if componentIndex == componentCount - 1 {
+            return document.url
+        }
+        guard let workspaceURL = model.workspaceURL else { return nil }
+        return (0...componentIndex).reduce(workspaceURL) { url, index in
+            let path = document.displayPath ?? model.relativePath(for: document.url)
+            let components = path.split(separator: "/")
+            return url.appendingPathComponent(String(components[index]), isDirectory: true)
         }
     }
 
@@ -973,6 +1000,8 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
     let isBottomToolVisible: Bool
     let onSidebarWidthCommitted: (CGFloat) -> Void
     let onTopPaneHeightCommitted: (CGFloat) -> Void
+    let showsBottomToolMinimize: Bool
+    let onBottomToolMinimize: () -> Void
     let sidebar: Sidebar
     let editor: Editor
     let bottomTool: BottomTool
@@ -988,6 +1017,8 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
         isBottomToolVisible: Bool,
         onSidebarWidthCommitted: @escaping (CGFloat) -> Void,
         onTopPaneHeightCommitted: @escaping (CGFloat) -> Void,
+        showsBottomToolMinimize: Bool,
+        onBottomToolMinimize: @escaping () -> Void,
         @ViewBuilder sidebar: () -> Sidebar,
         @ViewBuilder editor: () -> Editor,
         @ViewBuilder bottomTool: () -> BottomTool
@@ -997,6 +1028,8 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
         self.isBottomToolVisible = isBottomToolVisible
         self.onSidebarWidthCommitted = onSidebarWidthCommitted
         self.onTopPaneHeightCommitted = onTopPaneHeightCommitted
+        self.showsBottomToolMinimize = showsBottomToolMinimize
+        self.onBottomToolMinimize = onBottomToolMinimize
         self.sidebar = sidebar()
         self.editor = editor()
         self.bottomTool = bottomTool()
@@ -1033,63 +1066,81 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                 maximum: maximumTopPaneHeight
             )
 
-            VStack(spacing: 0) {
-                HStack(spacing: 0) {
-                    sidebar
-                        .frame(width: resolvedSidebarWidth)
-                    editor
-                }
-                .overlay(alignment: .topLeading) {
-                    SplitHandleView(
-                        axis: .horizontal,
-                        onDragStarted: {
-                            sidebarDragStart = resolvedSidebarWidth
-                        },
-                        onDragChanged: { translation in
-                            liveSidebarWidth = constrained(
-                                sidebarDragStart + translation,
-                                minimum: minimumSidebarWidth,
-                                maximum: maximumSidebarWidth
-                            )
-                        },
-                        onDragEnded: {
-                            liveSidebarWidth = resolvedSidebarWidth
-                            onSidebarWidthCommitted(resolvedSidebarWidth)
-                        }
-                    )
-                    .offset(x: resolvedSidebarWidth - SplitHandleView.thickness / 2)
-                }
-                .padding(.top, 0)
-                .padding(.horizontal, 0)
-                .padding(.bottom, 0)
-                .frame(height: isBottomToolVisible ? resolvedTopPaneHeight : geometry.size.height)
+            ZStack(alignment: .topLeading) {
+                VStack(spacing: 0) {
+                    HStack(spacing: 0) {
+                        sidebar
+                            .frame(width: resolvedSidebarWidth)
+                        editor
+                    }
+                    .overlay(alignment: .topLeading) {
+                        SplitHandleView(
+                            axis: .horizontal,
+                            onDragStarted: {
+                                sidebarDragStart = resolvedSidebarWidth
+                            },
+                            onDragChanged: { translation in
+                                liveSidebarWidth = constrained(
+                                    sidebarDragStart + translation,
+                                    minimum: minimumSidebarWidth,
+                                    maximum: maximumSidebarWidth
+                                )
+                            },
+                            onDragEnded: {
+                                liveSidebarWidth = resolvedSidebarWidth
+                                onSidebarWidthCommitted(resolvedSidebarWidth)
+                            }
+                        )
+                        .offset(x: resolvedSidebarWidth - SplitHandleView.thickness / 2)
+                    }
+                    .frame(height: isBottomToolVisible ? resolvedTopPaneHeight : geometry.size.height)
 
-                if isBottomToolVisible {
-                    SplitHandleView(
-                        axis: .vertical,
-                        onDragStarted: {
-                            topPaneDragStart = resolvedTopPaneHeight
-                        },
-                        onDragChanged: { translation in
-                            liveTopPaneHeight = constrained(
-                                topPaneDragStart + translation,
-                                minimum: minimumTopPaneHeight,
-                                maximum: maximumTopPaneHeight
-                            )
-                        },
-                        onDragEnded: {
-                            liveTopPaneHeight = resolvedTopPaneHeight
-                            onTopPaneHeightCommitted(resolvedTopPaneHeight)
-                        }
-                    )
-                    .padding(.horizontal, 6)
-
-                    bottomTool
+                    if isBottomToolVisible {
+                        SplitHandleView(
+                            axis: .vertical,
+                            onDragStarted: {
+                                topPaneDragStart = resolvedTopPaneHeight
+                            },
+                            onDragChanged: { translation in
+                                liveTopPaneHeight = constrained(
+                                    topPaneDragStart + translation,
+                                    minimum: minimumTopPaneHeight,
+                                    maximum: maximumTopPaneHeight
+                                )
+                            },
+                            onDragEnded: {
+                                liveTopPaneHeight = resolvedTopPaneHeight
+                                onTopPaneHeightCommitted(resolvedTopPaneHeight)
+                            }
+                        )
                         .padding(.horizontal, 6)
-                        .padding(.bottom, 6)
-                        .frame(maxHeight: .infinity)
+
+                        bottomTool
+                            .padding(.horizontal, 6)
+                            .padding(.bottom, 6)
+                            .frame(maxHeight: .infinity)
+                    }
+                }
+
+                if isBottomToolVisible, showsBottomToolMinimize {
+                    Button(action: onBottomToolMinimize) {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .litheIconButton()
+                    .help("Collapse tool window")
+                    .accessibilityLabel("Collapse tool window")
+                    .position(
+                        x: geometry.size.width - ActivityBarMetrics.rightWidth - 20,
+                        y: resolvedTopPaneHeight + SplitHandleView.thickness + 16
+                    )
                 }
             }
+            .frame(
+                width: geometry.size.width,
+                height: geometry.size.height,
+                alignment: .topLeading
+            )
             .background(LitheTheme.titlebar)
             // Keep the workspace as a live view hierarchy. `drawingGroup()`
             // cannot composite AppKit-backed editors, fields, checkboxes, or

@@ -287,9 +287,7 @@ function PullRequestPreviewCard({ buffer }: { buffer: PullRequestContent }) {
       <div className="min-h-0 flex-1 bg-background/40 px-3 py-3">
         <div className="rounded-lg bg-surface/35 px-3 py-2">
           <div className="line-clamp-5 ui-text-sm leading-6 text-subtle-foreground">
-            {details?.body?.trim()
-              ? details.body
-              : t("panes.pullRequestPreviewFallback")}
+            {details?.body?.trim() ? details.body : t("panes.pullRequestPreviewFallback")}
           </div>
         </div>
         <div className="mt-3 rounded-lg bg-surface/35 px-3 py-2 ui-text-sm text-subtle-foreground">
@@ -307,9 +305,7 @@ function WebViewerDisabledState() {
     <Empty className="size-full rounded-none bg-background px-6">
       <EmptyHeader>
         <EmptyTitle>{t("panes.webViewerDisabled")}</EmptyTitle>
-        <EmptyDescription>
-          {t("panes.webViewerDisabledDescription")}
-        </EmptyDescription>
+        <EmptyDescription>{t("panes.webViewerDisabledDescription")}</EmptyDescription>
       </EmptyHeader>
     </Empty>
   );
@@ -373,6 +369,15 @@ export function PaneContainer({ pane }: PaneContainerProps) {
   );
 
   useEffect(() => {
+    if (!isActivePane || !pane.activeBufferId) return;
+
+    const bufferStore = useBufferStore.getState();
+    if (bufferStore.activeBufferId !== pane.activeBufferId) {
+      bufferStore.actions.setActiveBuffer(pane.activeBufferId);
+    }
+  }, [isActivePane, pane.activeBufferId]);
+
+  useEffect(() => {
     const openEditorBufferIds = paneBuffers
       .filter(isStandardEditorBuffer)
       .map((buffer) => buffer.id);
@@ -399,10 +404,8 @@ export function PaneContainer({ pane }: PaneContainerProps) {
   }, [activeBuffer, paneBuffers]);
 
   const handlePaneClick = useCallback(() => {
-    if (!isActivePane) {
-      activatePaneAndSyncBuffer(pane.id);
-    }
-  }, [isActivePane, pane.id]);
+    activatePaneAndSyncBuffer(pane.id);
+  }, [pane.id]);
 
   const handlePaneMouseDownCapture = useCallback(
     (e: React.MouseEvent) => {
@@ -417,11 +420,9 @@ export function PaneContainer({ pane }: PaneContainerProps) {
         return;
       }
 
-      if (!isActivePane) {
-        activatePaneAndSyncBuffer(pane.id);
-      }
+      activatePaneAndSyncBuffer(pane.id);
     },
-    [isActivePane, pane.id],
+    [pane.id],
   );
 
   const handleTabClick = useCallback(

@@ -338,6 +338,10 @@ command fields, and returns `{ operationId }`. Supported operations include
 completion, hover, definition/declaration/type-definition, references,
 implementation, rename, formatting, code actions and resolve, execute command,
 inlay hints, folding ranges, code lens, and provider virtual documents.
+The `virtualDocument` operation accepts `{ sessionId, operation,
+virtualUri }` without a document `uri`. Its terminal `requestCompleted` event
+returns `{ text }`, where `text` is the provider-resolved UTF-8 source for the
+opaque virtual URI.
 
 `lsp.pollEvents` drains events ordered by per-session `sequence`. Event types
 include `stateChanged`, `featuresChanged`, `diagnostics`,

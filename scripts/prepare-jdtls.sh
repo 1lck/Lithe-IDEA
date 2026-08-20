@@ -15,9 +15,16 @@ archive_url="$(manifest_value archiveURL)"
 archive_sha256="$(manifest_value archiveSHA256)"
 license_url="$(manifest_value licenseURL)"
 license_sha256="$(manifest_value licenseSHA256)"
+lombok_url="$(manifest_value lombokURL)"
+lombok_sha256="$(manifest_value lombokSHA256)"
+lombok_license_url="$(manifest_value lombokLicenseURL)"
+lombok_license_sha256="$(manifest_value lombokLicenseSHA256)"
 jdtls_version="$(manifest_value version)"
+lombok_version="$(manifest_value lombokVersion)"
 archive_path="${LITHE_JDTLS_ARCHIVE:-$CACHE_DIR/jdtls-$jdtls_version-$archive_sha256.tar.gz}"
 license_path="$CACHE_DIR/EPL-2.0-$license_sha256.txt"
+lombok_path="$CACHE_DIR/lombok-$lombok_version-$lombok_sha256.jar"
+lombok_license_path="$CACHE_DIR/lombok-MIT-$lombok_version-$lombok_license_sha256.txt"
 
 file_sha256() {
     shasum -a 256 "$1" | awk '{print tolower($1)}'
@@ -60,6 +67,10 @@ validate_output() {
     [[ -d "$OUTPUT_DIR/config_win" ]] || { print -u2 -- "JDTLS Windows configuration is missing: $OUTPUT_DIR"; exit 1; }
     [[ -x "$OUTPUT_DIR/bin/jdtls" ]] || { print -u2 -- "JDTLS launcher is missing: $OUTPUT_DIR/bin/jdtls"; exit 1; }
     [[ -f "$OUTPUT_DIR/bin/jdtls.ps1" ]] || { print -u2 -- "JDTLS Windows launcher is missing: $OUTPUT_DIR"; exit 1; }
+    [[ -f "$OUTPUT_DIR/lombok/lombok.jar" ]] || { print -u2 -- "JDTLS Lombok agent is missing: $OUTPUT_DIR"; exit 1; }
+    [[ -f "$OUTPUT_DIR/lombok/LICENSE-MIT.txt" ]] || { print -u2 -- "JDTLS Lombok license is missing: $OUTPUT_DIR"; exit 1; }
+    grep -Fq -- '-javaagent:' "$OUTPUT_DIR/bin/jdtls" || { print -u2 -- "JDTLS launcher does not load the Lombok agent: $OUTPUT_DIR"; exit 1; }
+    grep -Fq -- '-javaagent:' "$OUTPUT_DIR/bin/jdtls.ps1" || { print -u2 -- "JDTLS Windows launcher does not load the Lombok agent: $OUTPUT_DIR"; exit 1; }
 }
 
 if [[ -n "${LITHE_JDTLS_ROOT:-}" ]]; then
@@ -80,11 +91,16 @@ else
     download_verified_file "$archive_url" "$archive_sha256" "$archive_path" "JDTLS archive"
 fi
 download_verified_file "$license_url" "$license_sha256" "$license_path" "EPL-2.0 license"
+download_verified_file "$lombok_url" "$lombok_sha256" "$lombok_path" "Lombok agent"
+download_verified_file "$lombok_license_url" "$lombok_license_sha256" "$lombok_license_path" "Lombok MIT license"
 
 rm -rf "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR"
 tar -xzf "$archive_path" -C "$OUTPUT_DIR"
 cp "$license_path" "$OUTPUT_DIR/LICENSE-EPL-2.0.txt"
+mkdir -p "$OUTPUT_DIR/lombok"
+cp "$lombok_path" "$OUTPUT_DIR/lombok/lombok.jar"
+cp "$lombok_license_path" "$OUTPUT_DIR/lombok/LICENSE-MIT.txt"
 
 cat > "$OUTPUT_DIR/bin/jdtls" <<'EOF'
 #!/bin/zsh
@@ -97,7 +113,10 @@ if [[ ! -x "$JAVA_EXECUTABLE" ]]; then
     JAVA_EXECUTABLE="${JAVA:-java}"
 fi
 
+LOMBOK_AGENT="$SCRIPT_DIR/../lombok/lombok.jar"
+[[ -f "$LOMBOK_AGENT" ]] || { print -u2 -- "JDTLS Lombok agent was not found: $LOMBOK_AGENT"; exit 1; }
 JVM_ARGUMENTS=(
+    "-javaagent:$LOMBOK_AGENT"
     "--add-modules=ALL-SYSTEM"
     "--add-opens=java.base/java.util=ALL-UNNAMED"
     "--add-opens=java.base/java.lang=ALL-UNNAMED"
@@ -150,7 +169,10 @@ cat > "$OUTPUT_DIR/bin/jdtls.ps1" <<'EOF'
 $ErrorActionPreference = "Stop"
 
 $javaExecutable = if ($env:JAVA_HOME) { Join-Path $env:JAVA_HOME "bin\java.exe" } else { "java" }
+$lombokAgent = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\lombok\lombok.jar"))
+if (-not (Test-Path -LiteralPath $lombokAgent -PathType Leaf)) { throw "JDTLS Lombok agent was not found: $lombokAgent" }
 $jvmArguments = [System.Collections.Generic.List[string]]::new()
+$jvmArguments.Add("-javaagent:$lombokAgent")
 $jvmArguments.Add("--add-modules=ALL-SYSTEM")
 $jvmArguments.Add("--add-opens=java.base/java.util=ALL-UNNAMED")
 $jvmArguments.Add("--add-opens=java.base/java.lang=ALL-UNNAMED")

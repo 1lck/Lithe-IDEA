@@ -23,6 +23,7 @@ export const createPaneContent = (id: string, spec: OpenContentSpec): PaneConten
         isPreview: spec.isPreview ?? false,
         readOnly: spec.readOnly,
         language: spec.language ?? detectLanguageFromFileName(spec.name),
+        lspDocument: spec.lspDocument,
         tokens: [],
       };
     case "terminal": {
