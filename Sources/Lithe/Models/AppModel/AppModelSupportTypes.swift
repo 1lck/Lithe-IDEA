@@ -56,6 +56,7 @@ extension Notification.Name {
 struct ProjectTreeRevealRequest: Equatable {
     let id = UUID()
     let fileURL: URL
+    let isDirectory: Bool
 }
 
 enum ProjectTreeLocator {
@@ -66,9 +67,32 @@ enum ProjectTreeLocator {
         })
     }
 
-    static func expandedDirectoryPaths(for fileURL: URL, rootURL: URL) -> Set<String> {
+    static func matchingURL(for url: URL, in node: FileNode) -> URL? {
+        let standardizedPath = url.standardizedFileURL.path
+        if node.url.standardizedFileURL.path == standardizedPath {
+            return node.url
+        }
+        if node.collapsedAncestorPaths.contains(where: {
+            URL(fileURLWithPath: $0).standardizedFileURL.path == standardizedPath
+        }) {
+            return node.url
+        }
+        for child in node.children ?? [] {
+            if let match = matchingURL(for: url, in: child) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    static func expandedDirectoryPaths(
+        for itemURL: URL,
+        rootURL: URL,
+        includeItem: Bool = false
+    ) -> Set<String> {
         let root = rootURL.standardizedFileURL
-        var directory = fileURL.standardizedFileURL.deletingLastPathComponent()
+        let item = itemURL.standardizedFileURL
+        var directory = includeItem ? item : item.deletingLastPathComponent()
         var paths = Set([root.path])
         while directory.path != root.path, directory.path.hasPrefix(root.path + "/") {
             paths.insert(directory.path)
