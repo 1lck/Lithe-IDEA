@@ -14,6 +14,11 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  # Both platform workflows update the same Release and latest.json asset.
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     name: Build and publish Lithe for Windows
@@ -143,6 +148,23 @@ jobs:
             if ($LASTEXITCODE -ne 0) {
               $existing = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY 2>$null
               if ($LASTEXITCODE -ne 0) { throw "Could not create or find release $env:RELEASE_TAG" }
+            }
+          }
+
+          $existingManifestDirectory = Join-Path $env:RUNNER_TEMP "lithe-existing-update-manifest"
+          New-Item -ItemType Directory -Force -Path $existingManifestDirectory | Out-Null
+          gh release download $env:RELEASE_TAG `
+            --repo $env:GITHUB_REPOSITORY `
+            --pattern "latest.json" `
+            --dir $existingManifestDirectory 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            $existingManifest = Get-Content -LiteralPath (Join-Path $existingManifestDirectory "latest.json") -Raw | ConvertFrom-Json
+            if ($existingManifest.schemaVersion -eq 1) {
+              $windowsManifest = Get-Content -LiteralPath "dist/latest.json" -Raw | ConvertFrom-Json
+              foreach ($property in @("schemaVersion", "releaseURL", "assets")) {
+                $windowsManifest | Add-Member -NotePropertyName $property -NotePropertyValue $existingManifest.$property -Force
+              }
+              $windowsManifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath "dist/latest.json" -Encoding utf8
             }
           }
           gh release upload $env:RELEASE_TAG `

@@ -207,6 +207,9 @@ jobs:
             fi
           done
           ruby -c scripts/update-homebrew-cask.rb
+          ruby -c scripts/create-macos-update-manifest.rb
+          ruby -c scripts/test-macos-update-manifest.rb
+          ruby scripts/test-macos-update-manifest.rb
           plutil -lint Resources/Info.plist
 
       - name: Build release configuration
