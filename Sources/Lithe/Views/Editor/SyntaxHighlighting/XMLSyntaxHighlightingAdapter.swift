@@ -28,7 +28,13 @@ enum XMLSyntaxHighlightingAdapter {
         let end: Int
     }
 
+    private struct CachedCheckpoint {
+        let state: CachedLexicalState
+        let lineEnd: Int
+    }
+
     private static let lexicalStateAttribute = NSAttributedString.Key("lithe.xml.lexical-state")
+    private static let checkpointLineInterval = 256
 
     @discardableResult
     static func apply(to storage: NSTextStorage, palette: SyntaxHighlightingPalette, range target: NSRange) -> Int {
@@ -38,19 +44,27 @@ enum XMLSyntaxHighlightingAdapter {
         let requiredEnd = NSMaxRange(
             lineRange(containing: max(target.location, NSMaxRange(target) - 1), in: source)
         )
-        let cachedStateBeforeTarget = cachedLexicalState(at: targetStart - 1, in: storage)
-        let shouldConverge = cachedStateBeforeTarget != nil
-            || cachedLexicalState(afterLineEndingAt: requiredEnd, in: storage) != nil
-        var scanStart = targetStart
-
-        if let cachedStateBeforeTarget, cachedStateBeforeTarget.activeKind != nil {
-            scanStart = max(0, targetStart - cachedStateBeforeTarget.distanceToStart)
-        } else if cachedStateBeforeTarget == nil, targetStart > 0 {
+        let cacheIsInitialized = cachedLexicalState(
+            after: lineRange(containing: 0, in: source),
+            in: storage
+        ) != nil
+        let checkpoint = cacheIsInitialized
+            ? cachedCheckpoint(before: targetStart, source: source, storage: storage)
+            : nil
+        let shouldConverge = checkpoint != nil
+        let scanStart: Int
+        if let checkpoint {
+            if checkpoint.state.activeKind != nil {
+                scanStart = max(0, checkpoint.lineEnd - checkpoint.state.distanceToStart)
+            } else {
+                scanStart = checkpoint.lineEnd
+            }
+        } else {
             scanStart = 0
         }
 
-        // Cache entries live on line endings and move with NSTextStorage edits. A
-        // normal predecessor makes visible-range highlighting independent of file size.
+        // Sparse line-ending checkpoints move with NSTextStorage edits. They bound
+        // normal rescans without creating one attributed-string run per source line.
         let result = scan(
             source: source,
             storage: storage,
@@ -92,20 +106,29 @@ enum XMLSyntaxHighlightingAdapter {
         var currentLine = lineRange(containing: scanStart, in: source)
         var scannedLineCount = 0
         var scannedEnd = scanStart
+        var linesSinceCheckpoint = 0
         var stopped = false
 
         func finishCurrentLine(with state: CachedLexicalState) {
             let cachedExitState = cachedLexicalState(after: currentLine, in: storage)
-            cache(state, after: currentLine, in: storage)
             scannedLineCount += 1
+            linesSinceCheckpoint += 1
             scannedEnd = NSMaxRange(currentLine)
             stopped = shouldStop(
                 after: currentLine,
                 requiredEnd: requiredEnd,
                 shouldConverge: shouldConverge,
                 cachedExitState: cachedExitState,
-                state: state
+                state: state,
+                sourceLength: source.length
             )
+            if currentLine.location == 0
+                || linesSinceCheckpoint >= checkpointLineInterval
+                || cachedExitState != nil
+                || scannedEnd >= source.length {
+                cache(state, after: currentLine, in: storage)
+                linesSinceCheckpoint = 0
+            }
 
             let lineEnd = NSMaxRange(currentLine)
             if !stopped, lineEnd < source.length {
@@ -451,10 +474,7 @@ enum XMLSyntaxHighlightingAdapter {
         )
     }
 
-    private static func cachedLexicalState(
-        at location: Int,
-        in storage: NSTextStorage
-    ) -> CachedLexicalState? {
+    private static func cachedLexicalState(at location: Int, in storage: NSTextStorage) -> CachedLexicalState? {
         guard location >= 0, location < storage.length,
               let value = storage.attribute(
                   lexicalStateAttribute,
@@ -480,14 +500,22 @@ enum XMLSyntaxHighlightingAdapter {
         cachedLexicalState(at: NSMaxRange(lineRange) - 1, in: storage)
     }
 
-    private static func cachedLexicalState(
-        afterLineEndingAt location: Int,
-        in storage: NSTextStorage
-    ) -> CachedLexicalState? {
-        guard location < storage.length else { return nil }
-        let source = storage.string as NSString
-        let nextLine = lineRange(containing: location, in: source)
-        return cachedLexicalState(after: nextLine, in: storage)
+    private static func cachedCheckpoint(
+        before location: Int,
+        source: NSString,
+        storage: NSTextStorage
+    ) -> CachedCheckpoint? {
+        guard location > 0 else { return nil }
+        var probe = location - 1
+        while probe >= 0 {
+            let lineRange = lineRange(containing: probe, in: source)
+            if let state = cachedLexicalState(after: lineRange, in: storage) {
+                return CachedCheckpoint(state: state, lineEnd: NSMaxRange(lineRange))
+            }
+            guard lineRange.location > 0 else { return nil }
+            probe = lineRange.location - 1
+        }
+        return nil
     }
 
     private static func shouldStop(
@@ -495,13 +523,16 @@ enum XMLSyntaxHighlightingAdapter {
         requiredEnd: Int,
         shouldConverge: Bool,
         cachedExitState: CachedLexicalState?,
-        state: CachedLexicalState
+        state: CachedLexicalState,
+        sourceLength: Int
     ) -> Bool {
         let lineEnd = NSMaxRange(lineRange)
         guard lineEnd >= requiredEnd else { return false }
-        guard shouldConverge else { return true }
+        guard shouldConverge else {
+            return lineEnd >= sourceLength || state == .normal
+        }
         guard lineRange.location >= requiredEnd else { return false }
-        return cachedExitState == state || (cachedExitState == nil && state == .normal)
+        return lineEnd >= sourceLength || cachedExitState == state
     }
 
     private static func lineRange(containing location: Int, in source: NSString) -> NSRange {

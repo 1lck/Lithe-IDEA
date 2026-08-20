@@ -838,7 +838,7 @@ struct SyntaxHighlightingIncrementalPerformanceTests {
         )
         storage.endEditing()
 
-        #expect(scannedLineCount < 10)
+        #expect(scannedLineCount < 400)
     }
 
     private var performanceTestPalette: SyntaxHighlightingPalette {
