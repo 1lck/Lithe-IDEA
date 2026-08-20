@@ -1,0 +1,29 @@
+# root comment
+title = "Lithe # not a comment"
+release = "release#42"
+enabled = true
+port = 8443
+ratio = -1.25e+3
+hexadecimal = 0xCAFE
+octal = 0o755
+binary = 0b1010
+released = 2026-08-19
+published_at = 2026-08-19T12:34:56Z
+local_time = 12:34:56
+multiline_basic = """
+line # remains string text
+number 123 remains string text
+"""
+multiline_literal = '''
+literal # remains string text
+'''
+
+[server.production]
+host = "example.test"
+ports = [8000, 8001, 8002]
+inline = { owner = "Tom", active = true }
+"quoted"."key" = "quoted value" # inline comment
+
+[[products]]
+name = "Hammer"
+sku = 738594937

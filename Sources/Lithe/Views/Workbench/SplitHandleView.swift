@@ -21,6 +21,7 @@ struct SplitHandleView: View {
     @State private var isHovering = false
     @State private var isDragging = false
     @State private var lastTranslation: CGFloat = 0
+    @State private var cursor = SplitHandleCursor()
 
     init(
         axis: LitheSplitAxis,
@@ -57,6 +58,7 @@ struct SplitHandleView: View {
                     if !isDragging {
                         isDragging = true
                         lastTranslation = 0
+                        cursor.update(isResizing: true, cursor: resizeCursor)
                         onDragStarted()
                     }
                     let currentTranslation = axis == .horizontal ? value.translation.width : value.translation.height
@@ -69,17 +71,17 @@ struct SplitHandleView: View {
                 .onEnded { _ in
                     isDragging = false
                     lastTranslation = 0
+                    cursor.update(isResizing: isHovering, cursor: resizeCursor)
                     onDragEnded()
                 }
         )
         .onHover { isInside in
             guard isInside != isHovering else { return }
             isHovering = isInside
-            if isInside {
-                resizeCursor.set()
-            } else {
-                NSCursor.arrow.set()
-            }
+            cursor.update(isResizing: isInside || isDragging, cursor: resizeCursor)
+        }
+        .onDisappear {
+            cursor.update(isResizing: false, cursor: resizeCursor)
         }
         .help(axis == .horizontal ? "Drag left or right to resize" : "Drag up or down to resize")
         .accessibilityLabel(axis == .horizontal ? "Horizontal pane resize handle" : "Vertical pane resize handle")
@@ -125,5 +127,20 @@ struct SplitHandleView: View {
 
     private var resizeCursor: NSCursor {
         axis == .horizontal ? .resizeLeftRight : .resizeUpDown
+    }
+}
+
+private final class SplitHandleCursor {
+    private var isResizing = false
+
+    @MainActor
+    func update(isResizing newValue: Bool, cursor: NSCursor) {
+        guard newValue != isResizing else { return }
+        isResizing = newValue
+        if newValue {
+            cursor.push()
+        } else {
+            NSCursor.pop()
+        }
     }
 }
