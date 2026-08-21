@@ -1,0 +1,128 @@
+name: Lithe PR review
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lithe-pr-review-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+env:
+  LITHE_REVIEW_MODEL: gpt-5.6-sol
+  LITHE_REVIEW_EFFORT: xhigh
+
+jobs:
+  review:
+    if: >-
+      github.event.issue.pull_request != null &&
+      github.event.comment.body == '@lithe review'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    outputs:
+      authorized: ${{ steps.prepare.outputs.authorized }}
+      final_message: ${{ steps.codex.outputs.final-message }}
+      head_sha: ${{ steps.prepare.outputs.head_sha }}
+
+    steps:
+      - name: Check out trusted review tooling
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Test review context builder
+        run: node --test scripts/test-prepare-lithe-pr-review.mjs
+
+      - name: Prepare trusted review context
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LITHE_ALLOWED_REVIEWERS: ${{ vars.LITHE_ALLOWED_REVIEWERS }}
+          LITHE_PROMPT_OUTPUT: ${{ runner.temp }}/lithe-pr-review-prompt.md
+        run: node scripts/prepare-lithe-pr-review.mjs
+
+      - name: Check out the complete pull request head
+        if: steps.prepare.outputs.authorized == 'true'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.prepare.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Run read-only Lithe review
+        if: steps.prepare.outputs.authorized == 'true'
+        id: codex
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.LITHE_OPENAI_API_KEY }}
+          responses-api-endpoint: ${{ secrets.LITHE_OPENAI_RESPONSES_URL }}
+          prompt-file: ${{ runner.temp }}/lithe-pr-review-prompt.md
+          model: ${{ env.LITHE_REVIEW_MODEL }}
+          effort: ${{ env.LITHE_REVIEW_EFFORT }}
+          sandbox: read-only
+          safety-strategy: drop-sudo
+          allow-users: ${{ github.actor }}
+          codex-args: '["--ephemeral"]'
+
+  publish:
+    needs: review
+    if: >-
+      needs.review.outputs.authorized == 'true' &&
+      needs.review.outputs.final_message != ''
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: Publish or update the review
+        uses: actions/github-script@v7
+        env:
+          LITHE_FINAL_MESSAGE: ${{ needs.review.outputs.final_message }}
+          LITHE_HEAD_SHA: ${{ needs.review.outputs.head_sha }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const marker = `<!-- lithe-review:${context.issue.number}:${process.env.LITHE_HEAD_SHA} -->`;
+            const message = process.env.LITHE_FINAL_MESSAGE.trim();
+            const limit = 65_000;
+            const body = `${marker}\n${message}`.slice(0, limit);
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const previous = comments.find((comment) =>
+              comment.user?.login === 'github-actions[bot]' && comment.body?.startsWith(marker)
+            );
+
+            if (previous) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: previous.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
