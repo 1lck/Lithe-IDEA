@@ -8,7 +8,11 @@ import {
 import { LspClient, type LspLocation } from "@/features/editor/lsp/lsp-client";
 import { resolveLombokAccessorDefinition } from "@/features/editor/lsp/lombok-accessor-navigation";
 import { logger } from "@/features/editor/utils/logger";
-import { isEditorGoToDefinitionModifierActive } from "@/features/editor/utils/go-to-definition-gesture";
+import {
+  isEditorGoToDefinitionModifierActive,
+  isEditorGoToDefinitionModifierKey,
+} from "@/features/editor/utils/go-to-definition-gesture";
+import { frontendTrace } from "@/utils/frontend-trace";
 import { DefinitionHoverScheduler } from "./definition-link-scheduler";
 
 const DEFINITION_HOVER_DELAY_MILLISECONDS = 150;
@@ -50,9 +54,22 @@ export function registerMonacoDefinitionLinkGesture({
   enabled = true,
 }: MonacoDefinitionLinkOptions): MonacoDefinitionLinkGesture {
   const decorations = editor.createDecorationsCollection();
+  const lspSupported = isEditorLspTargetSupported(documentTarget);
   const gestureEnabled =
-    enabled && Boolean(documentTarget.filePath) && isEditorLspTargetSupported(documentTarget);
+    enabled && Boolean(documentTarget.filePath) && lspSupported;
+  const isVirtualDocument = Boolean(documentTarget.documentUri);
   let hoveredPosition: Monaco.Position | null = null;
+  let modifierTraceState: "idle" | "active" | "missing-target" = "idle";
+
+  if (isVirtualDocument) {
+    frontendTrace("info", "definition-link", "registered", {
+      enabled: gestureEnabled,
+      requested_enabled: enabled,
+      lsp_supported: lspSupported,
+      language_id: model.getLanguageId(),
+      has_session_file_path: Boolean(documentTarget.sessionFilePath),
+    });
+  }
 
   const requestAtPosition = (position: Monaco.Position): DefinitionWordRequest | null => {
     if (!gestureEnabled || model.isDisposed()) return null;
@@ -72,8 +89,18 @@ export function registerMonacoDefinitionLinkGesture({
     keyOf: definitionWordKey,
     resolve: async (request) => {
       const line = request.lineNumber - 1;
+      if (isVirtualDocument) {
+        frontendTrace("info", "definition-link", "resolve:start", {
+          language_id: model.getLanguageId(),
+        });
+      }
       const locations =
         (await LspClient.getInstance().getDefinition(documentTarget, line, request.character)) ?? [];
+      if (isVirtualDocument) {
+        frontendTrace("info", "definition-link", "resolve:end", {
+          location_count: locations.length,
+        });
+      }
       if (
         locations.length > 0 ||
         model.isDisposed() ||
@@ -114,6 +141,11 @@ export function registerMonacoDefinitionLinkGesture({
           options: { inlineClassName: "goto-definition-link" },
         },
       ]);
+      if (isVirtualDocument) {
+        frontendTrace("info", "definition-link", "decoration:set", {
+          location_count: result.locations.length,
+        });
+      }
     },
     onError: (error) => {
       logger.error("DefinitionLink", "Could not resolve definition link:", error);
@@ -142,11 +174,36 @@ export function registerMonacoDefinitionLinkGesture({
     shiftKey?: boolean;
   }) => {
     if (hoveredPosition && isEditorGoToDefinitionModifierActive(event)) {
+      if (isVirtualDocument && modifierTraceState !== "active") {
+        modifierTraceState = "active";
+        frontendTrace("info", "definition-link", "modifier:active");
+      }
       showLink(hoveredPosition);
     } else {
+      if (
+        isVirtualDocument &&
+        !hoveredPosition &&
+        isEditorGoToDefinitionModifierActive(event) &&
+        modifierTraceState !== "missing-target"
+      ) {
+        modifierTraceState = "missing-target";
+        frontendTrace("info", "definition-link", "modifier:missing-target");
+      } else if (!isEditorGoToDefinitionModifierActive(event)) {
+        modifierTraceState = "idle";
+      }
       clearLink();
     }
   };
+
+  const handleWindowModifierKey = (event: KeyboardEvent) => {
+    if (!isEditorGoToDefinitionModifierKey(event)) return;
+    syncLinkForModifier(event);
+  };
+
+  if (gestureEnabled) {
+    window.addEventListener("keydown", handleWindowModifierKey, true);
+    window.addEventListener("keyup", handleWindowModifierKey, true);
+  }
 
   const disposables = gestureEnabled
     ? [
@@ -174,6 +231,12 @@ export function registerMonacoDefinitionLinkGesture({
           decorations.clear();
         }),
         editor.onDidBlurEditorWidget(clearLink),
+        {
+          dispose() {
+            window.removeEventListener("keydown", handleWindowModifierKey, true);
+            window.removeEventListener("keyup", handleWindowModifierKey, true);
+          },
+        },
       ]
     : [];
 

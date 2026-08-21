@@ -5,6 +5,10 @@ interface EditorGoToDefinitionModifierEvent {
   shiftKey?: boolean;
 }
 
+interface EditorGoToDefinitionModifierKeyEvent extends EditorGoToDefinitionModifierEvent {
+  key?: string;
+}
+
 export function isEditorGoToDefinitionModifierActive(
   event: EditorGoToDefinitionModifierEvent,
 ): boolean {
@@ -15,4 +19,10 @@ export function isEditorGoToDefinitionModifierClick(
   event: EditorGoToDefinitionModifierEvent & { leftButton?: boolean },
 ): boolean {
   return Boolean(event.leftButton && isEditorGoToDefinitionModifierActive(event));
+}
+
+export function isEditorGoToDefinitionModifierKey(
+  event: EditorGoToDefinitionModifierKeyEvent,
+): boolean {
+  return event.key === "Control" || event.key === "Meta";
 }

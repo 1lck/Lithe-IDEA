@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   isEditorGoToDefinitionModifierActive,
   isEditorGoToDefinitionModifierClick,
+  isEditorGoToDefinitionModifierKey,
 } from "./go-to-definition-gesture";
 
 describe("IDEA-style go to definition click", () => {
@@ -32,5 +33,11 @@ describe("IDEA-style go to definition click", () => {
         altKey: true,
       }),
     ).toBe(false);
+  });
+
+  test("recognizes only the Ctrl or Cmd key transition", () => {
+    expect(isEditorGoToDefinitionModifierKey({ key: "Control", ctrlKey: true })).toBe(true);
+    expect(isEditorGoToDefinitionModifierKey({ key: "Meta", metaKey: true })).toBe(true);
+    expect(isEditorGoToDefinitionModifierKey({ key: "a", ctrlKey: true })).toBe(false);
   });
 });
