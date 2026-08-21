@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { EditorContent } from "@/features/panes/types/pane-content.types";
 import {
+  isEditorLspTargetSupported,
   lspDocumentRequestArgs,
   lspDocumentTargetForEditor,
   lspDocumentTargetForEditorPath,
@@ -60,6 +61,17 @@ describe("LSP document targets", () => {
       documentUri: "jdt://contents/java.base/java/lang/String.class?=demo",
     });
     expect(target.languageId).toBe("java");
+    expect(isEditorLspTargetSupported(target)).toBe(true);
+  });
+
+  test("does not infer LSP support from an opaque virtual URI without a source session", () => {
+    expect(
+      isEditorLspTargetSupported({
+        filePath: "jdt://contents/java.base/java/lang/String.class?=demo",
+        documentUri: "jdt://contents/java.base/java/lang/String.class?=demo",
+        languageId: "java",
+      }),
+    ).toBe(false);
   });
 
   test("prefers an explicit language override over the provider binding", () => {
