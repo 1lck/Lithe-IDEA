@@ -4,9 +4,10 @@ import {
   detectJavaFileIconSemanticKind,
   type JavaFileIconSemanticKind,
 } from "@/extensions/icon-themes/java-file-kind";
+import { isUtf8WithinByteLimit } from "@/extensions/icon-themes/utf8-byte-limit";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { getSourceEditorBufferByPath } from "@/features/editor/utils/buffer-index";
-import { readFile } from "@/features/file-system/controllers/platform";
+import { readFileWithinByteLimit } from "@/features/file-system/controllers/bounded-file-read";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { frontendTrace } from "@/utils/frontend-trace";
@@ -24,7 +25,7 @@ interface PendingJavaFileRead {
 }
 
 const MAX_CONCURRENT_JAVA_ICON_READS = 4;
-const MAX_JAVA_ICON_SOURCE_CHARS = 256 * 1024;
+const MAX_JAVA_ICON_SOURCE_BYTES = 256 * 1024;
 const MAX_JAVA_ICON_CACHE_ENTRIES = 512;
 const JAVA_ICON_READ_TIMEOUT_MS = 5_000;
 const JAVA_ICON_RETRY_DELAY_MS = 1_000;
@@ -126,8 +127,7 @@ function isEligibleLocalJavaIconPath(path: string): boolean {
 }
 
 async function readJavaSourceWithinLimit(path: string): Promise<string | null> {
-  const source = await readFile(path);
-  return source.length > MAX_JAVA_ICON_SOURCE_CHARS ? null : source;
+  return readFileWithinByteLimit(path, MAX_JAVA_ICON_SOURCE_BYTES);
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
@@ -271,7 +271,8 @@ export function useJavaFileIconKind(
   );
   const bufferKind = useMemo(
     () =>
-      sourceBufferContent === null || sourceBufferContent.length > MAX_JAVA_ICON_SOURCE_CHARS
+      sourceBufferContent === null ||
+      !isUtf8WithinByteLimit(sourceBufferContent, MAX_JAVA_ICON_SOURCE_BYTES)
         ? null
         : detectJavaFileIconSemanticKind(fileName, sourceBufferContent),
     [fileName, sourceBufferContent],
