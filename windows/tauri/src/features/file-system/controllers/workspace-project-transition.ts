@@ -2,6 +2,7 @@ import { getBufferById } from "@/features/editor/utils/buffer-index";
 import { isEditorContent, type PaneContent } from "@/features/panes/types/pane-content.types";
 import { createTranslator, type DisplayLanguage } from "@/i18n/locale";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { showChoiceDialog } from "@/ui/dialog";
 import { toast } from "sonner";
 
@@ -40,23 +41,26 @@ export const getUnsavedProjectTransitionMessage = (
   });
 };
 
-const saveDirtyEditorBuffers = async (dirtyBuffers: PaneContent[], t: ReturnType<typeof createTranslator>) => {
+const saveDirtyEditorBuffers = async (
+  workspaceId: string,
+  dirtyBuffers: PaneContent[],
+  t: ReturnType<typeof createTranslator>,
+) => {
   const { useBufferStore } = await import("@/features/editor/stores/buffer.store");
   const { useEditorAppStore } = await import("@/features/editor/stores/editor-app.store");
-  const { setActiveBuffer } = useBufferStore.getState().actions;
-  const { handleSave } = useEditorAppStore.getState().actions;
+  const bufferStore = useBufferStore.getStore(workspaceId);
+  const { handleSave } = useEditorAppStore.getStore(workspaceId).getState().actions;
 
   for (const dirtyBuffer of dirtyBuffers) {
-    const currentBuffer = getBufferById(useBufferStore.getState().buffers, dirtyBuffer.id);
+    const currentBuffer = getBufferById(bufferStore.getState().buffers, dirtyBuffer.id);
 
     if (!currentBuffer || !isEditorContent(currentBuffer) || !currentBuffer.isDirty) {
       continue;
     }
 
-    setActiveBuffer(currentBuffer.id);
-    await handleSave();
+    await handleSave(currentBuffer.id);
 
-    const savedBuffer = getBufferById(useBufferStore.getState().buffers, currentBuffer.id);
+    const savedBuffer = getBufferById(bufferStore.getState().buffers, currentBuffer.id);
 
     if (savedBuffer && isEditorContent(savedBuffer) && savedBuffer.isDirty) {
       toast.warning(t("unsavedProjectTransition.saveBeforeContinuing", { file: savedBuffer.name }));
@@ -64,7 +68,7 @@ const saveDirtyEditorBuffers = async (dirtyBuffers: PaneContent[], t: ReturnType
     }
   }
 
-  const remainingDirtyBuffers = getDirtyEditorBuffers(useBufferStore.getState().buffers);
+  const remainingDirtyBuffers = getDirtyEditorBuffers(bufferStore.getState().buffers);
   if (remainingDirtyBuffers.length > 0) {
     toast.warning(
       t("unsavedProjectTransition.saveOrCloseBeforeContinuing", {
@@ -80,6 +84,7 @@ const saveDirtyEditorBuffers = async (dirtyBuffers: PaneContent[], t: ReturnType
 export const prepareProjectTransitionWithUnsavedBuffers = async (
   action: ProjectTransitionAction,
   buffers: PaneContent[],
+  workspaceId = workspaceRuntimeRegistry.getActiveWorkspaceId(),
 ) => {
   const dirtyBuffers = getDirtyEditorBuffers(buffers);
   if (dirtyBuffers.length === 0) {
@@ -121,5 +126,5 @@ export const prepareProjectTransitionWithUnsavedBuffers = async (
     return false;
   }
 
-  return await saveDirtyEditorBuffers(dirtyBuffers, t);
+  return await saveDirtyEditorBuffers(workspaceId, dirtyBuffers, t);
 };

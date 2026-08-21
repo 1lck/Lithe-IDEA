@@ -1,6 +1,7 @@
 import { invoke } from "@/platform/tauri-core";
-import { create } from "zustand";
+import { toast } from "sonner";
 import { immer } from "zustand/middleware/immer";
+import { createStore } from "zustand/vanilla";
 import { extensionRegistry } from "@/extensions/registry/extension-registry";
 import { parseCollaborationNoteBufferPath } from "@/features/collaboration/lib/collaboration-sidebar-model";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
@@ -13,6 +14,7 @@ import {
   type PaneContent,
 } from "@/features/panes/types/pane-content.types";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { createTranslator } from "@/i18n/locale";
 import { createSelectors } from "@/utils/zustand-selectors";
 import { writeFile } from "@/features/file-system/controllers/platform";
@@ -33,98 +35,141 @@ async function recordLocalHistoryBeforeWrite(
   }
 }
 
-async function saveEditorBufferById(bufferId: string): Promise<boolean> {
-  const { buffers } = useBufferStore.getState();
-  const { markBufferDirty, updateBufferContent, updateBufferPath } =
-    useBufferStore.getState().actions;
+export type EditorSaveResult = "saved" | "cancelled" | "failed";
+
+function showSaveFailure(bufferName: string, automatic = false) {
+  const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
+  toast.error(t(automatic ? "editor.autoSaveFailed" : "editor.saveFailed", { name: bufferName }));
+}
+
+function markBufferSavedIfUnchanged(
+  workspaceId: string,
+  bufferId: string,
+  expectedContent: string,
+  savedContent = expectedContent,
+) {
+  const bufferStore = useBufferStore.getStore(workspaceId);
+  const latestBuffer = getBufferById(bufferStore.getState().buffers, bufferId);
+  if (
+    !latestBuffer ||
+    !isEditorContent(latestBuffer) ||
+    latestBuffer.content !== expectedContent
+  ) {
+    return false;
+  }
+
+  if (savedContent !== expectedContent) {
+    bufferStore.getState().actions.updateBufferContent(bufferId, savedContent, false);
+  }
+  bufferStore.getState().actions.markBufferDirty(bufferId, false);
+  return true;
+}
+
+async function saveEditorBufferById(
+  workspaceId: string,
+  bufferId: string,
+): Promise<EditorSaveResult> {
+  const bufferStore = useBufferStore.getStore(workspaceId);
+  const { buffers } = bufferStore.getState();
+  const { markBufferDirty, updateBufferPath } = bufferStore.getState().actions;
   const { updateSettingsFromJSON } = useSettingsStore.getState().actions;
-  const { markPendingSave } = useFileWatcherStore.getState().actions;
+  const { markPendingSave } = useFileWatcherStore.getStore(workspaceId).getState().actions;
   const activeBuffer = getBufferById(buffers, bufferId);
-  if (!activeBuffer || !isEditorContent(activeBuffer)) return false;
-  if (activeBuffer.readOnly) return false;
+  if (!activeBuffer || !isEditorContent(activeBuffer) || activeBuffer.readOnly) return "failed";
 
   const collaborationNoteTarget = parseCollaborationNoteBufferPath(activeBuffer.path);
 
-  if (activeBuffer.path.startsWith("untitled:")) {
-    const { save: saveDialog } = await import("@tauri-apps/plugin-dialog");
-    const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
-    const result = await saveDialog({
-      title: t("ui.save"),
-      defaultPath: activeBuffer.name,
-      filters: [{ name: t("settings.common.allFiles"), extensions: ["*"] }],
-    });
-    if (!result) return false;
+  try {
+    if (activeBuffer.path.startsWith("untitled:")) {
+      const { save: saveDialog } = await import("@tauri-apps/plugin-dialog");
+      const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
+      const result = await saveDialog({
+        title: t("ui.save"),
+        defaultPath: activeBuffer.name,
+        filters: [{ name: t("settings.common.allFiles"), extensions: ["*"] }],
+      });
+      if (!result) return "cancelled";
 
-    await writeFile(result, activeBuffer.content);
-    updateBufferPath(activeBuffer.id, result);
-    markBufferDirty(activeBuffer.id, false);
-    return true;
-  }
+      await writeFile(result, activeBuffer.content);
+      updateBufferPath(activeBuffer.id, result);
+      markBufferDirty(activeBuffer.id, false);
+      return "saved";
+    }
 
-  if (collaborationNoteTarget) {
-    const { updateCollaborationChannelNote } = await import("@/features/window/services/auth-api");
-    const { useAuthStore } = await import("@/features/window/stores/auth.store");
-    const { updateCollaborationNoteFile } =
-      await import("@/features/collaboration/lib/collaboration-sidebar-model");
-    const { subscription, actions } = useAuthStore.getState();
-    const collaboration = subscription?.collaboration;
-    const channelNote = collaboration?.channelNotes.find(
-      (note) => note.channelId === collaborationNoteTarget.channelId,
-    );
+    if (collaborationNoteTarget) {
+      const { updateCollaborationChannelNote } =
+        await import("@/features/window/services/auth-api");
+      const { useAuthStore } = await import("@/features/window/stores/auth.store");
+      const { updateCollaborationNoteFile } =
+        await import("@/features/collaboration/lib/collaboration-sidebar-model");
+      const { subscription, actions } = useAuthStore.getState();
+      const collaboration = subscription?.collaboration;
+      const channelNote = collaboration?.channelNotes.find(
+        (note) => note.channelId === collaborationNoteTarget.channelId,
+      );
 
-    if (!channelNote) {
+      if (!channelNote) {
+        markBufferDirty(activeBuffer.id, true);
+        showSaveFailure(activeBuffer.name);
+        return "failed";
+      }
+
+      const nextCollaboration = await updateCollaborationChannelNote({
+        channelId: collaborationNoteTarget.channelId,
+        contentMarkdown: updateCollaborationNoteFile({
+          contentMarkdown: channelNote.contentMarkdown,
+          path: collaborationNoteTarget.notePath,
+          fileContent: activeBuffer.content,
+        }),
+      });
+      actions.setCollaborationSnapshot(nextCollaboration);
+      markBufferSavedIfUnchanged(
+        workspaceId,
+        activeBuffer.id,
+        activeBuffer.content,
+      );
+      return "saved";
+    }
+
+    if (activeBuffer.isVirtual) {
+      if (activeBuffer.path === "settings://user-settings.json") {
+        const success = updateSettingsFromJSON(activeBuffer.content);
+        markBufferDirty(activeBuffer.id, !success);
+        if (!success) {
+          showSaveFailure(activeBuffer.name);
+          return "failed";
+        }
+        return "saved";
+      }
+
+      markBufferDirty(activeBuffer.id, false);
+      return "saved";
+    }
+
+    if (activeBuffer.path.startsWith("remote://")) {
       markBufferDirty(activeBuffer.id, true);
-      return false;
-    }
+      const pathParts = activeBuffer.path.replace("remote://", "").split("/");
+      const connectionId = pathParts.shift();
+      const remotePath = `/${pathParts.join("/")}`;
 
-    const nextCollaboration = await updateCollaborationChannelNote({
-      channelId: collaborationNoteTarget.channelId,
-      contentMarkdown: updateCollaborationNoteFile({
-        contentMarkdown: channelNote.contentMarkdown,
-        path: collaborationNoteTarget.notePath,
-        fileContent: activeBuffer.content,
-      }),
-    });
-    actions.setCollaborationSnapshot(nextCollaboration);
-    markBufferDirty(activeBuffer.id, false);
-    return true;
-  }
+      if (!connectionId) {
+        showSaveFailure(activeBuffer.name);
+        return "failed";
+      }
 
-  if (activeBuffer.isVirtual) {
-    if (activeBuffer.path === "settings://user-settings.json") {
-      const success = updateSettingsFromJSON(activeBuffer.content);
-      markBufferDirty(activeBuffer.id, !success);
-      return success;
-    }
-
-    markBufferDirty(activeBuffer.id, false);
-    return true;
-  }
-
-  if (activeBuffer.path.startsWith("remote://")) {
-    markBufferDirty(activeBuffer.id, true);
-    const pathParts = activeBuffer.path.replace("remote://", "").split("/");
-    const connectionId = pathParts.shift();
-    const remotePath = `/${pathParts.join("/")}`;
-
-    if (!connectionId) return false;
-
-    try {
       await invoke("ssh_write_file", {
         connectionId,
         filePath: remotePath,
         content: activeBuffer.content,
       });
-      markBufferDirty(activeBuffer.id, false);
-      return true;
-    } catch (error) {
-      console.error("Error saving remote file:", error);
-      markBufferDirty(activeBuffer.id, true);
-      return false;
+      markBufferSavedIfUnchanged(
+        workspaceId,
+        activeBuffer.id,
+        activeBuffer.content,
+      );
+      return "saved";
     }
-  }
 
-  try {
     markPendingSave(activeBuffer.path);
 
     let contentToSave = activeBuffer.content;
@@ -142,53 +187,63 @@ async function saveEditorBufferById(bufferId: string): Promise<boolean> {
 
       if (formatResult.success && formatResult.formattedContent) {
         contentToSave = formatResult.formattedContent;
-        updateBufferContent(activeBuffer.id, contentToSave, false);
       }
     }
 
     await recordLocalHistoryBeforeWrite(activeBuffer.path, "save");
     await writeFile(activeBuffer.path, contentToSave);
-    const { LspClient } = await import("@/features/editor/lsp/lsp-client");
-    await LspClient.getInstance().notifyDocumentSave(activeBuffer.path, contentToSave);
-    markBufferDirty(activeBuffer.id, false);
+    markBufferSavedIfUnchanged(
+      workspaceId,
+      activeBuffer.id,
+      activeBuffer.content,
+      contentToSave,
+    );
 
-    if (settings.lintOnSave) {
-      const { lintContent } = await import("@/features/editor/linter/linter-service");
-      const { convertLintDiagnostic, useDiagnosticsStore } =
-        await import("@/features/diagnostics/stores/diagnostics.store");
-      const languageId = extensionRegistry.getLanguageId(activeBuffer.path);
+    try {
+      const { LspClient } = await import("@/features/editor/lsp/lsp-client");
+      await LspClient.getInstance().notifyDocumentSave(activeBuffer.path, contentToSave);
 
-      const lintResult = await lintContent({
-        filePath: activeBuffer.path,
-        content: contentToSave,
-        languageId: languageId || undefined,
-      });
+      if (settings.lintOnSave) {
+        const { lintContent } = await import("@/features/editor/linter/linter-service");
+        const { convertLintDiagnostic, useDiagnosticsStore } =
+          await import("@/features/diagnostics/stores/diagnostics.store");
+        const languageId = extensionRegistry.getLanguageId(activeBuffer.path);
 
-      if (lintResult.success && lintResult.diagnostics) {
-        useDiagnosticsStore.getState().actions.setDiagnostics(
-          activeBuffer.path,
-          lintResult.diagnostics.map((diagnostic) =>
-            convertLintDiagnostic(activeBuffer.path, diagnostic),
-          ),
-          "linter",
-        );
+        const lintResult = await lintContent({
+          filePath: activeBuffer.path,
+          content: contentToSave,
+          languageId: languageId || undefined,
+        });
+
+        if (lintResult.success && lintResult.diagnostics) {
+          useDiagnosticsStore.getState().actions.setDiagnostics(
+            activeBuffer.path,
+            lintResult.diagnostics.map((diagnostic) =>
+              convertLintDiagnostic(activeBuffer.path, diagnostic),
+            ),
+            "linter",
+          );
+        }
       }
-    }
 
-    const rootFolderPath = useFileSystemStore.getState().rootFolderPath;
-    if (rootFolderPath) {
-      emitGitChanged({
-        repoPath: rootFolderPath,
-        filePath: activeBuffer.path,
-        scopes: ["working-tree"],
-        source: "save",
-      });
+      const rootFolderPath = useFileSystemStore.getStore(workspaceId).getState().rootFolderPath;
+      if (rootFolderPath) {
+        emitGitChanged({
+          repoPath: rootFolderPath,
+          filePath: activeBuffer.path,
+          scopes: ["working-tree"],
+          source: "save",
+        });
+      }
+    } catch (error) {
+      console.warn("Post-save editor services failed:", error);
     }
-    return true;
+    return "saved";
   } catch (error) {
-    console.error("Error saving local file:", error);
+    console.error("Error saving file:", error);
     markBufferDirty(activeBuffer.id, true);
-    return false;
+    showSaveFailure(activeBuffer.name);
+    return "failed";
   }
 }
 
@@ -212,13 +267,14 @@ interface AppState {
 
 interface AppActions {
   handleContentChange: (
+    bufferId: string,
     content: string,
     previousContent?: string,
     previousCursorPosition?: Position,
     previousSelection?: Range,
     options?: EditorContentChangeOptions,
   ) => Promise<void>;
-  handleSave: () => Promise<void>;
+  handleSave: (bufferId?: string) => Promise<EditorSaveResult>;
   handleSaveAll: () => Promise<number>;
   openQuickEdit: (params: {
     text: string;
@@ -228,8 +284,8 @@ interface AppActions {
   cleanup: () => void;
 }
 
-export const useEditorAppStore = createSelectors(
-  create<AppState>()(
+const createEditorAppStore = (workspaceId: string) =>
+  createStore<AppState>()(
     immer((set, get) => ({
       autoSaveTimeoutId: null,
       quickEditState: {
@@ -240,49 +296,52 @@ export const useEditorAppStore = createSelectors(
       },
       actions: {
         handleContentChange: async (
+          bufferId: string,
           content: string,
           previousContent?: string,
           previousCursorPosition?: Position,
           previousSelection?: Range,
           options?: EditorContentChangeOptions,
         ) => {
-          const { activeBufferId, buffers } = useBufferStore.getState();
-          const { updateBufferContent, markBufferDirty } = useBufferStore.getState().actions;
+          const bufferStore = useBufferStore.getStore(workspaceId);
+          const { buffers } = bufferStore.getState();
+          const { updateBufferContent, markBufferDirty } = bufferStore.getState().actions;
           const { settings } = useSettingsStore.getState();
-          const { markPendingSave } = useFileWatcherStore.getState().actions;
+          const { markPendingSave } = useFileWatcherStore.getStore(workspaceId).getState().actions;
           const contentAlreadyApplied = options?.contentAlreadyApplied === true;
 
-          const activeBuffer = getBufferById(buffers, activeBufferId);
+          const activeBuffer = getBufferById(buffers, bufferId);
           if (!activeBuffer || !isEditorContent(activeBuffer)) return;
           const collaborationNoteTarget = parseCollaborationNoteBufferPath(activeBuffer.path);
 
-          if (!contentAlreadyApplied && activeBufferId && (options?.contentChanges?.length || options?.contentChange)) {
+          if (
+            !contentAlreadyApplied &&
+            (options?.contentChanges?.length || options?.contentChange)
+          ) {
             queueEditorViewContentChange(
-              activeBufferId,
+              bufferId,
               activeBuffer.content,
               content,
               options.contentChanges ?? (options.contentChange ? [options.contentChange] : []),
             );
           }
 
-          if (activeBufferId) {
-            trackBufferHistoryChange({
-              bufferId: activeBufferId,
-              currentContent: activeBuffer.content,
-              nextContent: content,
-              previousContent,
-              previousCursorPosition,
-              previousSelection,
-              skipUndoGrouping: options?.skipUndoGrouping,
-              contentChange: options?.contentChange,
-            });
-          }
+          trackBufferHistoryChange({
+            bufferId,
+            currentContent: activeBuffer.content,
+            nextContent: content,
+            previousContent,
+            previousCursorPosition,
+            previousSelection,
+            skipUndoGrouping: options?.skipUndoGrouping,
+            contentChange: options?.contentChange,
+          });
 
           const isRemoteFile = activeBuffer.path.startsWith("remote://");
 
           if (isRemoteFile) {
             if (!contentAlreadyApplied) {
-              updateBufferContent(activeBuffer.id, content, false, undefined, { local: true });
+              updateBufferContent(activeBuffer.id, content, true, undefined, { local: true });
             }
           } else if (collaborationNoteTarget) {
             if (!contentAlreadyApplied) {
@@ -294,7 +353,11 @@ export const useEditorAppStore = createSelectors(
               updateBufferContent(activeBuffer.id, content, true, undefined, { local: true });
             }
 
-            if (!activeBuffer.isVirtual && settings.autoSave) {
+            if (
+              !activeBuffer.isVirtual &&
+              !activeBuffer.path.startsWith("untitled:") &&
+              settings.autoSave
+            ) {
               const { autoSaveTimeoutId } = get();
               if (autoSaveTimeoutId) {
                 clearTimeout(autoSaveTimeoutId);
@@ -305,9 +368,11 @@ export const useEditorAppStore = createSelectors(
                   markPendingSave(activeBuffer.path);
                   await recordLocalHistoryBeforeWrite(activeBuffer.path, "auto-save");
                   await writeFile(activeBuffer.path, content);
-                  markBufferDirty(activeBuffer.id, false);
+                  markBufferSavedIfUnchanged(workspaceId, bufferId, content);
 
-                  const rootFolderPath = useFileSystemStore.getState().rootFolderPath;
+                  const rootFolderPath = useFileSystemStore
+                    .getStore(workspaceId)
+                    .getState().rootFolderPath;
                   if (rootFolderPath) {
                     emitGitChanged({
                       repoPath: rootFolderPath,
@@ -318,7 +383,15 @@ export const useEditorAppStore = createSelectors(
                   }
                 } catch (error) {
                   console.error("Error saving file:", error);
-                  markBufferDirty(activeBuffer.id, true);
+                  const latestBuffer = getBufferById(bufferStore.getState().buffers, bufferId);
+                  if (
+                    latestBuffer &&
+                    isEditorContent(latestBuffer) &&
+                    latestBuffer.content === content
+                  ) {
+                    markBufferDirty(bufferId, true);
+                    showSaveFailure(activeBuffer.name, true);
+                  }
                 }
               }, 150);
 
@@ -329,23 +402,37 @@ export const useEditorAppStore = createSelectors(
           }
         },
 
-        handleSave: async () => {
-          const { activeBufferId, buffers } = useBufferStore.getState();
-          const activeBuffer = getBufferById(buffers, activeBufferId);
-          if (!activeBuffer || !isEditorContent(activeBuffer) || activeBuffer.readOnly) return;
+        handleSave: async (bufferId?: string) => {
+          const bufferStore = useBufferStore.getStore(workspaceId);
+          const { activeBufferId, buffers } = bufferStore.getState();
+          const targetBufferId = bufferId ?? activeBufferId;
+          const activeBuffer = getBufferById(buffers, targetBufferId);
+          if (!activeBuffer || !isEditorContent(activeBuffer) || activeBuffer.readOnly) {
+            return "failed";
+          }
 
-          await saveEditorBufferById(activeBuffer.id);
+          const result = await saveEditorBufferById(workspaceId, activeBuffer.id);
+          if (result !== "saved") return result;
+
+          const savedBuffer = getBufferById(bufferStore.getState().buffers, activeBuffer.id);
+          return savedBuffer && isEditorContent(savedBuffer) && savedBuffer.isDirty
+            ? "failed"
+            : "saved";
         },
 
         handleSaveAll: async () => {
-          const dirtyBufferIds = getDirtyEditorBuffers(useBufferStore.getState().buffers).map(
+          const bufferStore = useBufferStore.getStore(workspaceId);
+          const dirtyBufferIds = getDirtyEditorBuffers(bufferStore.getState().buffers).map(
             (buffer) => buffer.id,
           );
           const saveResults = await Promise.all(
             dirtyBufferIds.map(async (bufferId) => {
-              const saved = await saveEditorBufferById(bufferId);
-              const nextBuffer = getBufferById(useBufferStore.getState().buffers, bufferId);
-              return saved && (!nextBuffer || !isEditorContent(nextBuffer) || !nextBuffer.isDirty);
+              const result = await saveEditorBufferById(workspaceId, bufferId);
+              const nextBuffer = getBufferById(bufferStore.getState().buffers, bufferId);
+              return (
+                result === "saved" &&
+                (!nextBuffer || !isEditorContent(nextBuffer) || !nextBuffer.isDirty)
+              );
             }),
           );
 
@@ -371,5 +458,8 @@ export const useEditorAppStore = createSelectors(
         },
       },
     })),
-  ),
+  );
+
+export const useEditorAppStore = createSelectors(
+  createWorkspaceScopedStore("editor-app", createEditorAppStore),
 );

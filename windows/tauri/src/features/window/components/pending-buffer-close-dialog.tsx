@@ -15,7 +15,10 @@ export function PendingBufferCloseDialog() {
 
   const handleSaveAndClose = useCallback(async () => {
     if (!pendingClose) return;
-    await handleSave();
+
+    const result = await handleSave(pendingClose.bufferId);
+    if (result !== "saved") return;
+
     confirmCloseWithoutSaving();
   }, [confirmCloseWithoutSaving, handleSave, pendingClose]);
 

@@ -560,7 +560,11 @@ const openLocalWorkspace = async (
     if (isReplacingCurrentWorkspace) {
       const currentBuffers = [...bufferStore.getState().buffers];
       if (
-        !(await prepareProjectTransitionWithUnsavedBuffers("switching projects", currentBuffers))
+        !(await prepareProjectTransitionWithUnsavedBuffers(
+          "switching projects",
+          currentBuffers,
+          workspaceId,
+        ))
       ) {
         logWorkspaceOpenStep("end", traceLabel, path, openStartedAt);
         return false;
@@ -2998,6 +3002,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
             !(await prepareProjectTransitionWithUnsavedBuffers(
               "closing this project",
               useBufferStore.getStore(projectId).getState().buffers,
+              projectId,
             ))
           ) {
             return false;
