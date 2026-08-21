@@ -224,8 +224,9 @@ struct ModuleRuntimeTests {
         let runtime = ModuleRuntime()
         try runtime.register(testFactory(id: .database, recorder: recorder))
 
+        let firstReference = WeakReference<TestModule>()
         var first: TestModule? = try #require(try await runtime.activate(.database) as? TestModule)
-        weak let weakFirst = first
+        firstReference.value = first
         #expect(first?.resource?.isModuleResourceActive == true)
         first = nil
         try await runtime.sleep(.database)
@@ -233,11 +234,11 @@ struct ModuleRuntimeTests {
         #expect(recorder.resourceStops == [.database])
         #expect(try runtime.snapshot(for: .database).state == .sleeping)
         #expect(try !runtime.snapshot(for: .database).isInstantiated)
-        #expect(weakFirst == nil)
+        #expect(firstReference.value == nil)
 
         let second = try #require(try await runtime.activate(.database) as? TestModule)
         #expect(recorder.factoryCalls == [.database, .database])
-        #expect(second !== weakFirst)
+        #expect(second !== firstReference.value)
         #expect(try runtime.snapshot(for: .database).state == .active)
     }
 
