@@ -8,6 +8,37 @@ import LitheTerminalModule
 final class LitheTerminalView: LocalProcessTerminalView {
     var onOpenLink: ((String, [String: String]) -> Void)?
 
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = NSMenu()
+        menu.autoenablesItems = true
+
+        let paste = NSMenuItem(
+            title: "Paste",
+            action: #selector(paste(_:)),
+            keyEquivalent: ""
+        )
+        paste.target = self
+        menu.addItem(paste)
+
+        let copy = NSMenuItem(
+            title: "Copy",
+            action: #selector(copy(_:)),
+            keyEquivalent: ""
+        )
+        copy.target = self
+        menu.addItem(copy)
+
+        let selectAll = NSMenuItem(
+            title: "Select All",
+            action: #selector(selectAll(_:)),
+            keyEquivalent: ""
+        )
+        selectAll.target = self
+        menu.addItem(selectAll)
+
+        return menu
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyThemeColors()
