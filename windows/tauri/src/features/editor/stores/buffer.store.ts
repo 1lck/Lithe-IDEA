@@ -1,5 +1,4 @@
 import { invoke } from "@/platform/tauri-core";
-import isEqual from "fast-deep-equal";
 import { immer } from "zustand/middleware/immer";
 import { createStore } from "zustand/vanilla";
 import type { DatabaseType } from "@/features/database/types/provider.types";
@@ -189,6 +188,7 @@ interface BufferActions {
     content: string,
     markDirty?: boolean,
     diffData?: GitDiff | MultiFileDiff,
+    options?: { local?: boolean },
   ) => void;
   updateBufferTokens: (bufferId: string, tokens: TokenEntry[]) => void;
   updateBufferLanguage: (bufferId: string, language: string) => void;
@@ -1403,6 +1403,7 @@ const createBufferStore = (workspaceId: string) => {
           content: string,
           markDirty = true,
           diffData?: GitDiff | MultiFileDiff,
+          options?: { local?: boolean },
         ) => {
           const buffer = getBufferById(get().buffers, bufferId);
           if (!buffer) return;
@@ -1413,11 +1414,15 @@ const createBufferStore = (workspaceId: string) => {
           if (buffer.content === content && !diffData) return;
 
           let promotedPreviewBufferId: string | null = null;
+          const bumpContentRevision = options?.local !== true;
           set((state) => {
             const buf = state.buffers.find((b) => b.id === bufferId);
             if (!buf || !isEditableContent(buf)) return;
 
             buf.content = content;
+            if (bumpContentRevision) {
+              buf.contentRevision = (buf.contentRevision ?? 0) + 1;
+            }
             if (diffData && buf.type === "diff") {
               buf.diffData = diffData;
             }
@@ -1875,7 +1880,7 @@ const createBufferStore = (workspaceId: string) => {
 };
 
 export const useBufferStore = createSelectors(
-  createWorkspaceScopedStore("editor-buffer", createBufferStore, isEqual),
+  createWorkspaceScopedStore("editor-buffer", createBufferStore),
 );
 
 export { clearQueuedWorkspaceSessionSave };

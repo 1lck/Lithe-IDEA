@@ -1,6 +1,8 @@
 //! UTF-16-aware text edit validation and application.
 
-use crate::lsp::interface::{LspPosition, LspPositionResponse, LspRange, LspRangeResponse};
+use crate::lsp::interface::{
+    LspDocumentContentChange, LspPosition, LspPositionResponse, LspRange, LspRangeResponse,
+};
 use crate::protocol::{CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
 
@@ -59,6 +61,82 @@ pub fn apply_text_edits(request: ApplyTextEditsRequest) -> Result<TextResponse, 
         text.replace_range(start..end, &replacement);
     }
     Ok(TextResponse { text })
+}
+
+/// Orders a Monaco-style change batch for sequential LSP replay.
+///
+/// Monaco's `onDidChangeModelContent` ranges are all relative to the pre-event
+/// document. LSP `contentChanges` apply in array order with each range based on
+/// the prior result. Sorting by original start descending makes sequential apply
+/// match simultaneous end-to-start edits, so Core document text and the wire
+/// payload stay aligned.
+///
+/// Returns `None` when incremental replay is unsafe (missing range or overlap)
+/// so the caller can fall back to a full-document `didChange`.
+pub(crate) fn order_incremental_changes_for_replay(
+    text: &str,
+    changes: &[LspDocumentContentChange],
+) -> Result<Option<Vec<LspDocumentContentChange>>, CoreError> {
+    if changes.is_empty() {
+        return Ok(Some(Vec::new()));
+    }
+    if changes.iter().any(|change| change.range.is_none()) {
+        return Ok(None);
+    }
+
+    let mut keyed = Vec::with_capacity(changes.len());
+    for change in changes {
+        let range = change.range.expect("ranges checked above");
+        let start = utf16_position_to_byte_offset(text, range.start)?;
+        let end = utf16_position_to_byte_offset(text, range.end)?;
+        if end < start {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Language server returned an invalid text range.",
+            )
+            .with_details("invalidRange"));
+        }
+        keyed.push((start, end, change.clone()));
+    }
+
+    let mut ascending: Vec<(usize, usize)> =
+        keyed.iter().map(|(start, end, _)| (*start, *end)).collect();
+    ascending.sort_by_key(|(start, _)| *start);
+    for pair in ascending.windows(2) {
+        if pair[0].1 > pair[1].0 {
+            return Ok(None);
+        }
+    }
+
+    keyed.sort_by_key(|(start, _, _)| std::cmp::Reverse(*start));
+    Ok(Some(
+        keyed.into_iter().map(|(_, _, change)| change).collect(),
+    ))
+}
+
+/// Applies ranged content changes sequentially in the given order.
+pub(crate) fn apply_content_changes_sequential(
+    text: &str,
+    changes: &[LspDocumentContentChange],
+) -> Result<String, CoreError> {
+    let mut text = text.to_string();
+    for change in changes {
+        let Some(range) = change.range else {
+            text = change.text.clone();
+            continue;
+        };
+        let start = utf16_position_to_byte_offset(&text, range.start)?;
+        let end = utf16_position_to_byte_offset(&text, range.end)?;
+        if end < start {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Language server returned an invalid text range.",
+            )
+            .with_details("invalidRange"));
+        }
+        text.replace_range(start..end, &change.text);
+    }
+    Ok(text)
 }
 
 pub(super) fn utf16_position_to_byte_offset(

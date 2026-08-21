@@ -12,6 +12,7 @@ use tauri::{AppHandle, Manager};
 const JAVA_PROVIDER_ID: &str = "java";
 const MIN_JDTLS_JAVA_MAJOR_VERSION: u32 = 17;
 const JDTLS_EXECUTABLE_NAMES: &[&str] = &["jdtls.bat", "jdtls.cmd", "jdtls.exe", "jdtls"];
+const MAX_CURRENT_EXE_JDTLS_WALK_DEPTH: usize = 12;
 
 /// Launch plan for the built-in Java language server on this machine.
 #[derive(Debug, Clone, Serialize)]
@@ -86,7 +87,7 @@ fn resolve_java_lsp_launch(
 ) -> Result<JavaLspResolution, String> {
     let executable =
         find_jdtls_executable(path_env, bundled_root, extra_roots).ok_or_else(|| {
-            "Could not find jdtls. Install Eclipse JDT Language Server and add it to PATH."
+            "Could not find jdtls. Install Eclipse JDT Language Server and add it to PATH, or use a Lithe build that includes the bundled Java language server."
                 .to_string()
         })?;
     let java_home = resolve_java_home(java_home_override)?;
@@ -142,6 +143,12 @@ fn jdtls_search_roots(project_root: Option<&Path>) -> Vec<PathBuf> {
     if let Ok(home) = std::env::var("JDTLS_HOME") {
         roots.push(PathBuf::from(home));
     }
+    if let Ok(root) = std::env::var("LITHE_JDTLS_ROOT") {
+        let trimmed = root.trim();
+        if !trimmed.is_empty() {
+            roots.push(PathBuf::from(trimmed));
+        }
+    }
     for key in ["LOCALAPPDATA", "ProgramFiles", "ProgramFiles(x86)"] {
         if let Ok(base) = std::env::var(key) {
             let base = PathBuf::from(base);
@@ -169,10 +176,41 @@ fn jdtls_search_roots(project_root: Option<&Path>) -> Vec<PathBuf> {
 }
 
 fn bundled_jdtls_root(app: &AppHandle) -> Option<PathBuf> {
-    app.path()
-        .resource_dir()
-        .ok()
-        .map(|directory| directory.join("LanguageServers").join("jdtls"))
+    select_bundled_jdtls_root(
+        app.path().resource_dir().ok().as_deref(),
+        std::env::current_exe().ok().as_deref(),
+    )
+}
+
+fn is_jdtls_root(root: &Path) -> bool {
+    JDTLS_EXECUTABLE_NAMES
+        .iter()
+        .any(|name| root.join(name).is_file() || root.join("bin").join(name).is_file())
+}
+
+/// NSIS bundles JDTLS under the resource directory. Unbundled `cargo`/`build-windows`
+/// executables do not, so also look next to the exe and walk up to repo `.artifacts/jdtls`.
+fn select_bundled_jdtls_root(
+    resource_dir: Option<&Path>,
+    current_exe: Option<&Path>,
+) -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(directory) = resource_dir {
+        candidates.push(directory.join("LanguageServers").join("jdtls"));
+    }
+    if let Some(exe) = current_exe {
+        if let Some(exe_dir) = exe.parent() {
+            candidates.push(exe_dir.join("LanguageServers").join("jdtls"));
+            let mut cursor = exe_dir.to_path_buf();
+            for _ in 0..MAX_CURRENT_EXE_JDTLS_WALK_DEPTH {
+                candidates.push(cursor.join(".artifacts").join("jdtls"));
+                if !cursor.pop() {
+                    break;
+                }
+            }
+        }
+    }
+    candidates.into_iter().find(|root| is_jdtls_root(root))
 }
 
 fn resolve_java_home(java_home_override: Option<&str>) -> Result<PathBuf, String> {
@@ -353,6 +391,61 @@ mod tests {
         let error = resolve_java_lsp_launch(None, None, &[missing.clone()], None).unwrap_err();
         assert!(error.contains("jdtls"), "{error}");
         fs::remove_dir_all(missing).ok();
+    }
+
+    #[test]
+    fn bundled_root_prefers_resource_dir_when_it_contains_jdtls() {
+        let resource_dir = temp_dir();
+        let bundled = resource_dir
+            .join("LanguageServers")
+            .join("jdtls")
+            .join("bin");
+        fs::create_dir_all(&bundled).expect("bundled bin");
+        fs::write(bundled.join("jdtls.bat"), "@echo off\n").expect("jdtls");
+
+        let found = select_bundled_jdtls_root(Some(&resource_dir), None).expect("found");
+        assert_eq!(found, resource_dir.join("LanguageServers").join("jdtls"));
+        fs::remove_dir_all(resource_dir).ok();
+    }
+
+    #[test]
+    fn bundled_root_walks_from_unbundled_exe_to_repo_artifacts() {
+        let repo = temp_dir();
+        let artifacts_bin = repo.join(".artifacts").join("jdtls").join("bin");
+        fs::create_dir_all(&artifacts_bin).expect("artifacts bin");
+        fs::write(artifacts_bin.join("jdtls.bat"), "@echo off\n").expect("jdtls");
+
+        let exe_dir = repo
+            .join("windows")
+            .join("tauri")
+            .join("src-tauri")
+            .join("target")
+            .join("release");
+        fs::create_dir_all(&exe_dir).expect("exe dir");
+        let exe = exe_dir.join("lithe-windows.exe");
+        fs::write(&exe, []).expect("exe");
+
+        let empty_resource = repo.join("empty-resource");
+        fs::create_dir_all(empty_resource.join("LanguageServers").join("jdtls"))
+            .expect("empty resource");
+
+        let found = select_bundled_jdtls_root(Some(&empty_resource), Some(&exe)).expect("found");
+        assert_eq!(found, repo.join(".artifacts").join("jdtls"));
+        fs::remove_dir_all(repo).ok();
+    }
+
+    #[test]
+    fn bundled_root_uses_language_servers_next_to_the_exe() {
+        let exe_dir = temp_dir();
+        let bundled_bin = exe_dir.join("LanguageServers").join("jdtls").join("bin");
+        fs::create_dir_all(&bundled_bin).expect("exe bundled bin");
+        fs::write(bundled_bin.join("jdtls.bat"), "@echo off\n").expect("jdtls");
+        let exe = exe_dir.join("lithe-windows.exe");
+        fs::write(&exe, []).expect("exe");
+
+        let found = select_bundled_jdtls_root(None, Some(&exe)).expect("found");
+        assert_eq!(found, exe_dir.join("LanguageServers").join("jdtls"));
+        fs::remove_dir_all(exe_dir).ok();
     }
 
     #[test]

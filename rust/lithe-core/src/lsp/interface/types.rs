@@ -81,6 +81,30 @@ pub struct LspPositionResponse {
     pub utf16_column: i64,
 }
 
+#[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// LSP `TextDocumentSyncKind` advertised by the server.
+pub enum LspTextDocumentSyncKind {
+    /// The server does not want document change notifications.
+    None,
+    /// The server expects complete document text on every change.
+    #[default]
+    Full,
+    /// The server accepts range-based incremental `didChange` payloads.
+    Incremental,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// One LSP `textDocument/didChange` content change.
+pub struct LspDocumentContentChange {
+    /// Inclusive start / exclusive end range; omitted for a full-document replacement.
+    #[serde(default)]
+    pub range: Option<LspRange>,
+    #[serde(default)]
+    pub text: String,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// Pure client protocol state carried between JSON command invocations.
@@ -93,6 +117,9 @@ pub struct LspClientState {
     pub shutdown_requested: bool,
     #[serde(default)]
     pub server_capabilities: Vec<String>,
+    #[serde(default)]
+    /// Server `TextDocumentSyncKind`, used to choose full or incremental `didChange`.
+    pub text_document_sync: LspTextDocumentSyncKind,
     #[serde(default)]
     pub open_documents: BTreeMap<String, LspClientDocument>,
     #[serde(default)]
@@ -110,6 +137,7 @@ impl Default for LspClientState {
             initialized: false,
             shutdown_requested: false,
             server_capabilities: Vec::new(),
+            text_document_sync: LspTextDocumentSyncKind::Full,
             open_documents: BTreeMap::new(),
             pending_requests: BTreeMap::new(),
             diagnostics: BTreeMap::new(),
@@ -189,12 +217,15 @@ pub struct ClientOpenDocumentRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-/// Inputs for replacing a synchronized document's complete contents.
+/// Inputs for replacing a synchronized document's contents.
 pub struct ClientChangeDocumentRequest {
     #[serde(default)]
     pub state: LspClientState,
     pub uri: String,
+    #[serde(default)]
     pub text: String,
+    #[serde(default)]
+    pub content_changes: Vec<LspDocumentContentChange>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

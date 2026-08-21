@@ -1385,7 +1385,20 @@ export class LspClient {
     }
   }
 
-  async notifyDocumentChange(filePath: string, content: string, version: number): Promise<void> {
+  async notifyDocumentChange(
+    filePath: string,
+    content: string | undefined,
+    version: number,
+    contentChanges?: Array<{
+      rangeOffset: number;
+      rangeLength: number;
+      text: string;
+      startLine?: number;
+      startColumn?: number;
+      endLine?: number;
+      endColumn?: number;
+    }>,
+  ): Promise<void> {
     try {
       this.openDocuments.add(filePath);
       this.documentVersions.set(filePath, version);
@@ -1393,6 +1406,7 @@ export class LspClient {
         filePath,
         content,
         version,
+        contentChanges,
       });
     } catch (error) {
       logger.error("LSPClient", "LSP document change error:", error);

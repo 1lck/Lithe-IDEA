@@ -96,7 +96,8 @@ Primary files:
   cross-platform process abstraction.
 - Move stdin/stdout/stderr, partial-frame buffering, and malformed-frame
   failure handling into the Rust session.
-- Add an event queue drained through `lsp.pollEvents`.
+- Add an event queue drained through `lsp.pollEvents` or waited on through
+  `lsp.waitEvents`.
 - Implement initialize, request, and shutdown deadlines; fail every pending
   request exactly once on timeout, cancellation, crash, stop, or restart.
 
