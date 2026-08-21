@@ -80,7 +80,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.plugins == 'true'
     runs-on: macos-14
-    timeout-minutes: 25
+    timeout-minutes: 35
 
     steps:
       - name: Check out source
@@ -124,8 +124,13 @@ jobs:
       - name: Verify required jobs
         env:
           CHANGES_RESULT: ${{ needs.changes.result }}
+          PLUGIN_SELECTED: ${{ needs.changes.outputs.plugins }}
           PLUGIN_RESULT: ${{ needs.plugin-tests.result }}
         shell: bash
         run: |
           [[ "$CHANGES_RESULT" == "success" ]]
-          [[ "$PLUGIN_RESULT" == "success" || "$PLUGIN_RESULT" == "skipped" ]]
+          if [[ "$PLUGIN_SELECTED" == "true" ]]; then
+            [[ "$PLUGIN_RESULT" == "success" ]]
+          else
+            [[ "$PLUGIN_RESULT" == "skipped" ]]
+          fi

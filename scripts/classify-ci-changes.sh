@@ -239,6 +239,9 @@ while IFS=$'\t' read -r status first_path _; do
             ;;
         rust/lithe-db-mcp/*|rust/lithe-db-sidecar/*)
             rust_database=true
+            # Database helpers are shipped as macOS executables, so Linux crate
+            # tests are not sufficient to validate their production target.
+            macos_release=true
             ;;
         rust/*)
             # Unknown Rust workspace paths fail closed across all Rust-backed
@@ -283,7 +286,7 @@ while IFS=$'\t' read -r status first_path _; do
         scripts/database-sidecar-smoke.sh|scripts/database-validation-smoke.sh)
             rust_database=true
             ;;
-        scripts/build-macos.sh|scripts/verify-macos-app-build-safety.sh|scripts/macos13sdkcompatibility.h|scripts/ld-macos13-compat.sh|scripts/package-app.sh|scripts/preview.sh|scripts/stamp-macos-app-build-info.sh|scripts/create-dmg.sh|scripts/create-macos-update-manifest.rb|scripts/test-macos-update-manifest.rb|scripts/prepare-jdtls.sh)
+        scripts/build-macos.sh|scripts/verify-macos-app-build-safety.sh|scripts/verify-macos-package.sh|scripts/macos13sdkcompatibility.h|scripts/ld-macos13-compat.sh|scripts/package-app.sh|scripts/preview.sh|scripts/stamp-macos-app-build-info.sh|scripts/create-dmg.sh|scripts/create-macos-update-manifest.rb|scripts/test-macos-update-manifest.rb|scripts/prepare-jdtls.sh)
             macos_release=true
             ;;
         scripts/build-windows.ps1|scripts/verify-windows-boundaries.ps1|scripts/verify-windows-boundaries.sh|scripts/prepare-jdtls.ps1|scripts/package-windows.ps1|scripts/create-windows-updater-manifest.ps1|scripts/test-windows-updater-manifest.ps1)

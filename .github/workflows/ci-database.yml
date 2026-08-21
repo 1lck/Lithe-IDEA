@@ -153,11 +153,21 @@ jobs:
       - name: Verify required jobs
         env:
           CHANGES_RESULT: ${{ needs.changes.result }}
+          SWIFT_DATABASE_SELECTED: ${{ needs.changes.outputs.swift_database }}
+          RUST_DATABASE_SELECTED: ${{ needs.changes.outputs.rust_database }}
           SWIFT_DATABASE_RESULT: ${{ needs.swift-database-tests.result }}
           RUST_DATABASE_RESULT: ${{ needs.rust-database-tests.result }}
         shell: bash
         run: |
           [[ "$CHANGES_RESULT" == "success" ]]
-          for result in "$SWIFT_DATABASE_RESULT" "$RUST_DATABASE_RESULT"; do
-            [[ "$result" == "success" || "$result" == "skipped" ]]
-          done
+          require_selected_job() {
+            local selected="$1"
+            local result="$2"
+            if [[ "$selected" == "true" ]]; then
+              [[ "$result" == "success" ]]
+            else
+              [[ "$result" == "skipped" ]]
+            fi
+          }
+          require_selected_job "$SWIFT_DATABASE_SELECTED" "$SWIFT_DATABASE_RESULT"
+          require_selected_job "$RUST_DATABASE_SELECTED" "$RUST_DATABASE_RESULT"

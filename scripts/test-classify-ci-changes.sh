@@ -36,6 +36,7 @@ printf '%s\n' '//! Test module.' 'pub fn value() -> u8 { 1 }' > rust/lithe-core/
 printf '%s\n' '#[test]' 'fn source_test() { assert_eq!(1, 1); }' > rust/lithe-core/src/lsp/tests.rs
 printf '%s\n' '#[test]' 'fn value_is_one() { assert_eq!(1, 1); }' > rust/lithe-core/tests/value.rs
 printf '%s\n' 'fn main() {}' > rust/lithe-db-sidecar/src/main.rs
+printf '%s\n' '#!/bin/zsh' 'print -- package' > scripts/verify-macos-package.sh
 printf '%s\n' 'struct App {}' > Sources/Lithe/App.swift
 printf '%s\n' 'struct PluginManager {}' > Sources/Lithe/Platform/MacOS/Plugins/MacPluginManager.swift
 printf '%s\n' 'struct LinuxDoCommunityView {}' > Sources/Lithe/Views/Community/LinuxDoCommunityView.swift
@@ -110,6 +111,7 @@ modify_rust_code() { printf '%s\n' '//! Test module.' 'pub fn value() -> u8 { 2 
 modify_rust_test() { printf '%s\n' '#[test]' 'fn value_is_two() { assert_eq!(2, 2); }' > rust/lithe-core/tests/value.rs; }
 modify_rust_source_test() { printf '%s\n' '#[test]' 'fn source_test() { assert_eq!(2, 2); }' > rust/lithe-core/src/lsp/tests.rs; }
 modify_database_rust() { printf '%s\n' 'fn main() { println!("updated"); }' > rust/lithe-db-sidecar/src/main.rs; }
+modify_macos_package_verifier() { printf '%s\n' '#!/bin/zsh' 'print -- updated-package' > scripts/verify-macos-package.sh; }
 modify_swift_source() { printf '%s\n' 'struct UpdatedApp {}' > Sources/Lithe/App.swift; }
 modify_swift_test() { printf '%s\n' 'struct UpdatedAppTests {}' > Tests/LitheTests/AppTests.swift; }
 modify_plugin_manifest() { printf '%s\n' '{"id":"dev.lithe.go-support","version":"2.0.0"}' > Plugins/Official/GoSupport/plugin.json; }
@@ -155,8 +157,11 @@ assert_classification rust-source-test \
     "$(classification false false false true false false false false false false)" \
     modify_rust_source_test
 assert_classification database-rust \
-    "$(classification false false false false true false false false false false)" \
+    "$(classification false false false false true true false false false false)" \
     modify_database_rust
+assert_classification macos-package-verifier \
+    "$(classification false false false false false true false false false false)" \
+    modify_macos_package_verifier
 assert_classification swift-source \
     "$(classification true false false false false true false false false false)" \
     modify_swift_source

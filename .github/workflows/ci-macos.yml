@@ -115,7 +115,7 @@ jobs:
             echo "| --- | --- |"
             echo "| Swift tests | $SWIFT |"
             echo "| Rust Core tests | $RUST_CORE |"
-            echo "| Release build | $MACOS_RELEASE |"
+            echo "| Release package verification | $MACOS_RELEASE |"
             echo "| Rust comment verification | $RUST_COMMENTS |"
             echo "| Metadata validation | $METADATA |"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -193,11 +193,11 @@ jobs:
         run: ./scripts/verify-rust-core.sh
 
   release-build:
-    name: Release configuration
+    name: Release package verification
     needs: changes
     if: needs.changes.outputs.macos_release == 'true'
     runs-on: macos-14
-    timeout-minutes: 20
+    timeout-minutes: 40
 
     steps:
       - name: Check out source
@@ -230,16 +230,6 @@ jobs:
             ~/.cargo/registry
           key: cargo-dependencies-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock') }}
 
-      - name: Resolve host architecture
-        shell: zsh {0}
-        run: |
-          case "$(uname -m)" in
-            arm64) swift_triple="arm64-apple-macosx" ;;
-            x86_64) swift_triple="x86_64-apple-macosx" ;;
-            *) print -u2 -- "Unsupported host architecture: $(uname -m)"; exit 1 ;;
-          esac
-          print -r -- "LITHE_SWIFT_TRIPLE=$swift_triple" >> "$GITHUB_ENV"
-
       - name: Check packaging scripts and metadata
         shell: zsh {0}
         run: |
@@ -254,8 +244,8 @@ jobs:
           ruby scripts/test-macos-update-manifest.rb
           plutil -lint Resources/Info.plist
 
-      - name: Build release configuration
-        run: ./scripts/build-macos.sh --configuration release --triple "$LITHE_SWIFT_TRIPLE"
+      - name: Build and verify host architecture package
+        run: ./scripts/verify-macos-package.sh
 
   gate:
     name: macOS CI gate
@@ -273,13 +263,22 @@ jobs:
           CHANGES_RESULT: ${{ needs.changes.result }}
           SWIFT_RESULT: ${{ needs.swift-tests.result }}
           RUST_CORE_RESULT: ${{ needs.rust-core-tests.result }}
+          SWIFT_SELECTED: ${{ needs.changes.outputs.swift }}
+          RUST_CORE_SELECTED: ${{ needs.changes.outputs.rust_core }}
+          RELEASE_SELECTED: ${{ needs.changes.outputs.macos_release }}
           RELEASE_RESULT: ${{ needs.release-build.result }}
         shell: bash
         run: |
           [[ "$CHANGES_RESULT" == "success" ]]
-          for result in \
-            "$SWIFT_RESULT" \
-            "$RUST_CORE_RESULT" \
-            "$RELEASE_RESULT"; do
-            [[ "$result" == "success" || "$result" == "skipped" ]]
-          done
+          require_selected_job() {
+            local selected="$1"
+            local result="$2"
+            if [[ "$selected" == "true" ]]; then
+              [[ "$result" == "success" ]]
+            else
+              [[ "$result" == "skipped" ]]
+            fi
+          }
+          require_selected_job "$SWIFT_SELECTED" "$SWIFT_RESULT"
+          require_selected_job "$RUST_CORE_SELECTED" "$RUST_CORE_RESULT"
+          require_selected_job "$RELEASE_SELECTED" "$RELEASE_RESULT"

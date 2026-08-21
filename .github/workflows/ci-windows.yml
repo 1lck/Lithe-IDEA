@@ -147,8 +147,15 @@ jobs:
       - name: Verify required jobs
         env:
           CHANGES_RESULT: ${{ needs.changes.result }}
+          WINDOWS_SELECTED: ${{ needs.changes.outputs.windows }}
+          RUST_CORE_SELECTED: ${{ needs.changes.outputs.rust_core }}
+          WINDOWS_RUST_SELECTED: ${{ needs.changes.outputs.windows_rust }}
           VALIDATE_RESULT: ${{ needs.validate.result }}
         shell: bash
         run: |
           [[ "$CHANGES_RESULT" == "success" ]]
-          [[ "$VALIDATE_RESULT" == "success" || "$VALIDATE_RESULT" == "skipped" ]]
+          if [[ "$WINDOWS_SELECTED" == "true" || "$RUST_CORE_SELECTED" == "true" || "$WINDOWS_RUST_SELECTED" == "true" ]]; then
+            [[ "$VALIDATE_RESULT" == "success" ]]
+          else
+            [[ "$VALIDATE_RESULT" == "skipped" ]]
+          fi
