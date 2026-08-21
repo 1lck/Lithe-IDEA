@@ -68,10 +68,157 @@ fileprivate struct CodeEditorPalette {
 }
 
 private enum EditorLayoutMetrics {
-    static let standardGutterWidth: CGFloat = 45
+    static let standardGutterWidth = EditorGutterLayout.standardWidth
     static let leadingInset: CGFloat = 0
     static let lineFragmentPadding: CGFloat = 4
     static let caretWidth: CGFloat = 2
+}
+
+enum EditorGutterHitTarget: Equatable {
+    case breakpoint
+    case implementation
+    case lineNumber
+    case fold
+    case gitChange
+}
+
+enum EditorGutterLayout {
+    static let standardWidth: CGFloat = 80
+    static let breakpointRange: Range<CGFloat> = 0..<14
+    static let implementationRange: Range<CGFloat> = 14..<34
+    static let lineNumberRange: Range<CGFloat> = 34..<62
+    static let foldRange: Range<CGFloat> = 62..<77
+    static let gitChangeRange: Range<CGFloat> = 77..<80
+
+    static func width(of range: Range<CGFloat>) -> CGFloat {
+        range.upperBound - range.lowerBound
+    }
+
+    static func hitTarget(at x: CGFloat, hasGitChange: Bool) -> EditorGutterHitTarget? {
+        guard x >= 0, x < standardWidth else { return nil }
+        if hasGitChange, gitChangeRange.contains(x) { return .gitChange }
+        if foldRange.contains(x) { return .fold }
+        if implementationRange.contains(x) { return .implementation }
+        if breakpointRange.contains(x) { return .breakpoint }
+        if lineNumberRange.contains(x) { return .lineNumber }
+        return nil
+    }
+}
+
+enum EditorOverlayLayout {
+    static let inlayHintVerticalPadding: CGFloat = 4
+
+    static func inlayHintBoxHeight(
+        fontAscender: CGFloat,
+        fontDescender: CGFloat,
+        fontLeading: CGFloat
+    ) -> CGFloat {
+        ceil(fontAscender - fontDescender + fontLeading + inlayHintVerticalPadding)
+    }
+
+    static func centeredBoxOriginY(
+        textContainerOriginY: CGFloat,
+        lineOriginY: CGFloat,
+        lineHeight: CGFloat,
+        boxHeight: CGFloat
+    ) -> CGFloat {
+        textContainerOriginY
+            + lineOriginY
+            + (lineHeight - boxHeight) / 2
+    }
+
+    static func boxOriginYAlignedToTextCenter(
+        textContainerOriginY: CGFloat,
+        lineOriginY: CGFloat,
+        baselineOffsetY: CGFloat,
+        textAscender: CGFloat,
+        textDescender: CGFloat,
+        boxHeight: CGFloat
+    ) -> CGFloat {
+        let baselineY = lineOriginY + baselineOffsetY
+        let textCenterY = baselineY - (textAscender + textDescender) / 2
+        return textContainerOriginY + textCenterY - boxHeight / 2
+    }
+
+    static func centeredFontOriginY(
+        textContainerOriginY: CGFloat,
+        lineOriginY: CGFloat,
+        lineHeight: CGFloat,
+        overlayBaselineOffset: CGFloat,
+        overlayAscender: CGFloat,
+        overlayDescender: CGFloat
+    ) -> CGFloat {
+        let overlayFontCenterFromTop = overlayBaselineOffset
+            - (overlayAscender + overlayDescender) / 2
+        return textContainerOriginY
+            + lineOriginY
+            + lineHeight / 2
+            - overlayFontCenterFromTop
+    }
+
+    static func codeVisionAnchorCharacterOffset(
+        lineStart: Int,
+        contentEnd: Int,
+        utf16Column: Int
+    ) -> Int? {
+        guard contentEnd > lineStart else { return nil }
+        return min(max(lineStart + utf16Column, lineStart), contentEnd - 1)
+    }
+}
+
+struct EditorOverlayUpdatePlan: Equatable {
+    let updateInlayHints: Bool
+    let updateCodeVision: Bool
+
+    init(codeVisionChanged: Bool, inlayHintsChanged: Bool, layoutChanged: Bool) {
+        updateInlayHints = inlayHintsChanged || layoutChanged
+        updateCodeVision = codeVisionChanged || inlayHintsChanged || layoutChanged
+    }
+}
+
+private final class InlayHintLabelView: NSView {
+    let title: String
+    let font: NSFont
+    let textColor: NSColor
+
+    init(title: String) {
+        self.title = title
+        font = .systemFont(ofSize: 10.5, weight: .medium)
+        textColor = NSColor(white: 0.61, alpha: 1)
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor(white: 0.23, alpha: 0.88).cgColor
+        layer?.cornerRadius = 3
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    var intrinsicTitleWidth: CGFloat {
+        ceil((title as NSString).size(withAttributes: [.font: font]).width)
+    }
+
+    var intrinsicContentHeight: CGFloat {
+        EditorOverlayLayout.inlayHintBoxHeight(
+            fontAscender: font.ascender,
+            fontDescender: font.descender,
+            fontLeading: font.leading
+        )
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: textColor
+        ]
+        let titleSize = (title as NSString).size(withAttributes: attributes)
+        let origin = NSPoint(
+            x: (bounds.width - titleSize.width) / 2,
+            y: (bounds.height - titleSize.height) / 2
+        )
+        (title as NSString).draw(at: origin, withAttributes: attributes)
+    }
 }
 
 struct EditorViewportState: Equatable {
@@ -393,6 +540,8 @@ struct CodeEditorView: NSViewRepresentable {
         private var appliedReadOnly: Bool?
         private var appliedCodeVisionHints: [JavaCodeVisionHint]?
         private var appliedInlayHints: [JavaInlayHint]?
+        private var editorOverlayLayoutRevision = 0
+        private var appliedEditorOverlayLayoutRevision = -1
         private var appliedBlameVisible = false
         private var appliedBlameLines: [GitBlameLine] = []
         private var appliedDebugBreakpointLines = Set<Int>()
@@ -756,7 +905,22 @@ struct CodeEditorView: NSViewRepresentable {
             if appliedFontSize != fontSize {
                 textView.font = LitheTheme.editorFont(size: fontSize)
                 textView.defaultParagraphStyle = LitheTheme.editorParagraphStyle
+                if let textStorage = textView.textStorage, textStorage.length > 0 {
+                    textStorage.addAttributes(
+                        [
+                            .font: textView.font ?? LitheTheme.editorFont(size: fontSize),
+                            .paragraphStyle: textView.defaultParagraphStyle
+                                ?? LitheTheme.editorParagraphStyle
+                        ],
+                        range: NSRange(location: 0, length: textStorage.length)
+                    )
+                }
+                textView.layoutManager?.invalidateLayout(
+                    forCharacterRange: NSRange(location: 0, length: textView.string.utf16.count),
+                    actualCharacterRange: nil
+                )
                 appliedFontSize = fontSize
+                editorOverlayLayoutRevision &+= 1
                 changed = true
             }
             if let codeTextView = textView as? CodeTextView {
@@ -940,7 +1104,22 @@ struct CodeEditorView: NSViewRepresentable {
             guard let document, let model else { return }
             let url = document.url.standardizedFileURL
             let hints = model.settings.showCodeVision ? model.javaCodeVisionHints[url] ?? [] : []
-            if appliedCodeVisionHints != hints {
+            let inlayHints = model.javaInlayHints[url] ?? []
+            let overlayLayoutChanged = appliedEditorOverlayLayoutRevision != editorOverlayLayoutRevision
+            let updatePlan = EditorOverlayUpdatePlan(
+                codeVisionChanged: appliedCodeVisionHints != hints,
+                inlayHintsChanged: appliedInlayHints != inlayHints,
+                layoutChanged: overlayLayoutChanged
+            )
+
+            // Inlay hints reserve horizontal space in the text layout. Apply
+            // that input first, then position Code Vision from the final glyph
+            // geometry so the overlays cannot drift when wrapping changes.
+            if updatePlan.updateInlayHints {
+                appliedInlayHints = inlayHints
+                inlayHintOverlay?.update(hints: inlayHints)
+            }
+            if updatePlan.updateCodeVision {
                 appliedCodeVisionHints = hints
                 codeVisionOverlay?.update(
                     hints: hints,
@@ -955,11 +1134,7 @@ struct CodeEditorView: NSViewRepresentable {
                     onAuthor: { [weak model] in model?.showBlame(for: url) }
                 )
             }
-            let inlayHints = model.javaInlayHints[url] ?? []
-            if appliedInlayHints != inlayHints {
-                appliedInlayHints = inlayHints
-                inlayHintOverlay?.update(hints: inlayHints)
-            }
+            appliedEditorOverlayLayoutRevision = editorOverlayLayoutRevision
 
             let isBlameVisible = model.blameVisibleURL == url
             let blameLines = model.gitBlameLines[url] ?? []
@@ -3083,7 +3258,13 @@ final class LineNumberGutterView: NSView {
         let size = label.size(withAttributes: attributes)
         let centeredY = y + max(0, (height - size.height) / 2)
         label.draw(
-            at: NSPoint(x: (bounds.width - size.width) / 2, y: centeredY),
+            at: NSPoint(
+                x: max(
+                    EditorGutterLayout.lineNumberRange.lowerBound,
+                    EditorGutterLayout.lineNumberRange.upperBound - size.width - 3
+                ),
+                y: centeredY
+            ),
             withAttributes: attributes
         )
     }
@@ -3093,23 +3274,24 @@ final class LineNumberGutterView: NSView {
         let centerY = y + height / 2
         if isHovered {
             let hoverRect = NSRect(
-                x: 1,
+                x: EditorGutterLayout.foldRange.lowerBound,
                 y: y + max(0, (height - 17) / 2),
-                width: 18,
+                width: EditorGutterLayout.width(of: EditorGutterLayout.foldRange),
                 height: 17
             )
             palette.foldHover.setFill()
             NSBezierPath(roundedRect: hoverRect, xRadius: 3, yRadius: 3).fill()
         }
         let path = NSBezierPath()
+        let centerX = EditorGutterLayout.foldRange.lowerBound
         if collapsedFoldIDs.contains(region.id) {
-            path.move(to: NSPoint(x: 6, y: centerY - 4))
-            path.line(to: NSPoint(x: 11, y: centerY))
-            path.line(to: NSPoint(x: 6, y: centerY + 4))
+            path.move(to: NSPoint(x: centerX + 4, y: centerY - 4))
+            path.line(to: NSPoint(x: centerX + 9, y: centerY))
+            path.line(to: NSPoint(x: centerX + 4, y: centerY + 4))
         } else {
-            path.move(to: NSPoint(x: 5, y: centerY - 2))
-            path.line(to: NSPoint(x: 9, y: centerY + 3))
-            path.line(to: NSPoint(x: 13, y: centerY - 2))
+            path.move(to: NSPoint(x: centerX + 3, y: centerY - 2))
+            path.line(to: NSPoint(x: centerX + 7, y: centerY + 3))
+            path.line(to: NSPoint(x: centerX + 11, y: centerY - 2))
         }
         path.close()
         (isHovered ? palette.foldIndicatorHover : palette.foldIndicator).setFill()
@@ -3117,10 +3299,17 @@ final class LineNumberGutterView: NSView {
     }
 
     private func drawImplementationMarker(_ marker: JavaImplementationMarker, y: CGFloat, height: CGFloat) {
-        let rect = NSRect(x: 18, y: y + max(0, (height - 13) / 2), width: 13, height: 13)
+        let markerSize: CGFloat = 15
+        let rect = NSRect(
+            x: EditorGutterLayout.implementationRange.lowerBound
+                + (EditorGutterLayout.width(of: EditorGutterLayout.implementationRange) - markerSize) / 2,
+            y: y + max(0, (height - markerSize) / 2),
+            width: markerSize,
+            height: markerSize
+        )
         if let image = LitheIcons.implementationMarkerImage(
             pointingDown: marker.direction == .down,
-            size: 13
+            size: markerSize
         ) {
             image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
             return
@@ -3133,9 +3322,16 @@ final class LineNumberGutterView: NSView {
     }
 
     private func drawDebugBreakpoint(y: CGFloat, height: CGFloat) {
+        let markerSize: CGFloat = 9
         NSColor(red: 0.92, green: 0.28, blue: 0.30, alpha: 0.96).setFill()
         NSBezierPath(
-            ovalIn: NSRect(x: 29, y: y + max(0, (height - 8) / 2), width: 8, height: 8)
+            ovalIn: NSRect(
+                x: EditorGutterLayout.breakpointRange.lowerBound
+                    + (EditorGutterLayout.width(of: EditorGutterLayout.breakpointRange) - markerSize) / 2,
+                y: y + max(0, (height - markerSize) / 2),
+                width: markerSize,
+                height: markerSize
+            )
         ).fill()
     }
 
@@ -3154,9 +3350,9 @@ final class LineNumberGutterView: NSView {
         let markerHeight = marker.kind == .deleted ? 3 : max(4, height - 2)
         NSBezierPath(
             roundedRect: NSRect(
-                x: bounds.width - 4,
+                x: EditorGutterLayout.gitChangeRange.lowerBound,
                 y: y + max(1, (height - markerHeight) / 2),
-                width: 3,
+                width: EditorGutterLayout.width(of: EditorGutterLayout.gitChangeRange),
                 height: markerHeight
             ),
             xRadius: 1.5,
@@ -3175,9 +3371,9 @@ final class LineNumberGutterView: NSView {
             .font: NSFont.systemFont(ofSize: 10.5),
             .foregroundColor: palette.blameText
         ]
-        (blame.date as NSString).draw(at: NSPoint(x: 8, y: y), withAttributes: attributes)
+        (blame.date as NSString).draw(at: NSPoint(x: 84, y: y), withAttributes: attributes)
         (blame.authorName as NSString).draw(
-            in: NSRect(x: 76, y: y, width: max(0, bounds.width - 128), height: 16),
+            in: NSRect(x: 148, y: y, width: max(0, bounds.width - 152), height: 16),
             withAttributes: attributes
         )
     }
@@ -3205,7 +3401,7 @@ final class LineNumberGutterView: NSView {
     }
 
     private func foldRegion(at point: NSPoint) -> JavaFoldRegion? {
-        guard point.x <= 18,
+        guard EditorGutterLayout.foldRange.contains(point.x),
               let textView,
               let scrollView,
               let layoutManager = textView.layoutManager,
@@ -3242,26 +3438,32 @@ final class LineNumberGutterView: NSView {
         let source = textView.string as NSString
         let line = (textView as? CodeTextView)?.lineNumber(at: characterIndex, in: source)
             ?? source.substring(to: min(characterIndex, source.length)).reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
-        if point.x >= bounds.width - 8, let marker = gitLineChangeMarkersByLine[line] {
+        let gitMarker = gitLineChangeMarkersByLine[line]
+        switch EditorGutterLayout.hitTarget(at: point.x, hasGitChange: gitMarker != nil) {
+        case .gitChange:
+            guard let marker = gitMarker else { return }
             onShowGitLineChange?(marker)
-        } else if point.x <= 16, let region = foldRegions.first(where: { $0.startLine == line }) {
+        case .fold:
+            guard let region = foldRegions.first(where: { $0.startLine == line }) else { return }
             onToggleFold?(region)
-        } else if point.x <= 34,
-                  let marker = implementationMarkers.first(where: { $0.line == line }) {
+        case .implementation:
+            guard let marker = implementationMarkers.first(where: { $0.line == line }) else { return }
             onSelectImplementation?(marker)
-        } else if !isBlameVisible, point.x <= 52 {
+        case .breakpoint where !isBlameVisible:
             onToggleDebugBreakpoint?(line)
-        } else if isBlameVisible, let blame = blameByLine[line] {
-            onSelectBlame?(blame)
-        } else {
-            textView.window?.makeFirstResponder(textView)
-            textView.setSelectedRange(NSRange(location: characterIndex, length: 0))
+        case .lineNumber, .breakpoint, nil:
+            if isBlameVisible, let blame = blameByLine[line] {
+                onSelectBlame?(blame)
+            } else {
+                textView.window?.makeFirstResponder(textView)
+                textView.setSelectedRange(NSRange(location: characterIndex, length: 0))
+            }
         }
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
-        guard point.x >= bounds.width - 10,
+        guard EditorGutterLayout.gitChangeRange.contains(point.x),
               let line = editorLine(at: point),
               let marker = gitLineChangeMarkersByLine[line] else {
             return super.menu(for: event)
@@ -3366,19 +3568,32 @@ final class CodeVisionOverlayController {
                 location: lineRange.location,
                 length: contentEnd - lineRange.location
             )
-            let glyphRange = layoutManager.glyphRange(
+            let contentGlyphRange = layoutManager.glyphRange(
                 forCharacterRange: contentRange,
                 actualCharacterRange: nil
             )
-            guard glyphRange.length > 0 else { continue }
+            guard contentGlyphRange.length > 0,
+                  let anchorCharacter = EditorOverlayLayout.codeVisionAnchorCharacterOffset(
+                    lineStart: lineRange.location,
+                    contentEnd: contentEnd,
+                    utf16Column: hint.utf16Column
+                  ) else { continue }
+            let anchorGlyph = layoutManager.glyphIndexForCharacter(at: anchorCharacter)
+            var anchorVisualLineGlyphRange = NSRange()
+            let lineRect = layoutManager.lineFragmentRect(
+                forGlyphAt: anchorGlyph,
+                effectiveRange: &anchorVisualLineGlyphRange
+            )
+            let anchorContentGlyphRange = NSIntersectionRange(
+                contentGlyphRange,
+                anchorVisualLineGlyphRange
+            )
+            guard anchorContentGlyphRange.length > 0 else { continue }
             let contentRect = layoutManager.boundingRect(
-                forGlyphRange: glyphRange,
+                forGlyphRange: anchorContentGlyphRange,
                 in: textContainer
             )
-            let lastGlyph = max(glyphRange.location, NSMaxRange(glyphRange) - 1)
-            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: lastGlyph, effectiveRange: nil)
             let x = textView.textContainerOrigin.x + contentRect.maxX + 8
-            let y = lineRect.minY + textView.textContainerOrigin.y - 1
 
             let requiredWidth = buttonWidth(for: hint)
             guard x + requiredWidth <= textView.bounds.maxX - 8 else { continue }
@@ -3386,7 +3601,19 @@ final class CodeVisionOverlayController {
             let usageButton = makeButton(title: "\(hint.usageCount) usage\(hint.usageCount == 1 ? "" : "s")") {
                 onUsages(hint)
             }
-            usageButton.frame = NSRect(x: x, y: y, width: 70, height: 18)
+            let buttonHeight: CGFloat = 18
+            usageButton.frame = NSRect(x: 0, y: 0, width: 70, height: buttonHeight)
+            usageButton.layoutSubtreeIfNeeded()
+            let overlayFont = usageButton.font ?? .systemFont(ofSize: 10.5)
+            let y = EditorOverlayLayout.centeredFontOriginY(
+                textContainerOriginY: textView.textContainerOrigin.y,
+                lineOriginY: lineRect.minY,
+                lineHeight: lineRect.height,
+                overlayBaselineOffset: usageButton.firstBaselineOffsetFromTop,
+                overlayAscender: overlayFont.ascender,
+                overlayDescender: overlayFont.descender
+            )
+            usageButton.frame.origin = NSPoint(x: x, y: y)
             textView.addSubview(usageButton)
             buttons.append(usageButton)
 
@@ -3397,7 +3624,12 @@ final class CodeVisionOverlayController {
                     onImplementations(hint)
                 }
                 let width = max(108, CGFloat(title.count) * 5.8 + 16)
-                implementationButton.frame = NSRect(x: nextX, y: y, width: width, height: 18)
+                implementationButton.frame = NSRect(
+                    x: nextX,
+                    y: y,
+                    width: width,
+                    height: buttonHeight
+                )
                 textView.addSubview(implementationButton)
                 buttons.append(implementationButton)
                 nextX += width + 2
@@ -3407,7 +3639,12 @@ final class CodeVisionOverlayController {
                 let authorButton = makeButton(title: authorName, systemImage: "person") {
                     onAuthor()
                 }
-                authorButton.frame = NSRect(x: nextX, y: y, width: 112, height: 18)
+                authorButton.frame = NSRect(
+                    x: nextX,
+                    y: y,
+                    width: 112,
+                    height: buttonHeight
+                )
                 textView.addSubview(authorButton)
                 buttons.append(authorButton)
             }
@@ -3464,7 +3701,7 @@ final class CodeVisionOverlayController {
 @MainActor
 final class JavaInlayHintOverlayController {
     private weak var textView: NSTextView?
-    private var labels: [NSTextField] = []
+    private var labels: [InlayHintLabelView] = []
     private var currentHints: [JavaInlayHint] = []
 
     init(textView: NSTextView) {
@@ -3481,21 +3718,14 @@ final class JavaInlayHintOverlayController {
         labels = []
         let fullRange = NSRange(location: 0, length: textView.string.utf16.count)
         let source = textView.string as NSString
-        var placements: [(hint: JavaInlayHint, location: Int, label: NSTextField, width: CGFloat)] = []
+        var placements: [(hint: JavaInlayHint, location: Int, label: InlayHintLabelView, width: CGFloat)] = []
 
         for hint in hints {
             let lineStart = characterOffset(forLine: hint.line, in: source)
             let location = min(source.length, lineStart + hint.utf16Column)
             guard location > 0, location < source.length else { continue }
-            let label = NSTextField(labelWithString: normalizedLabel(hint.label))
-            label.font = .systemFont(ofSize: 10.5, weight: .medium)
-            label.textColor = NSColor(white: 0.61, alpha: 1)
-            label.alignment = .center
-            label.wantsLayer = true
-            label.layer?.backgroundColor = NSColor(white: 0.23, alpha: 0.88).cgColor
-            label.layer?.cornerRadius = 3
-            label.sizeToFit()
-            let width = label.frame.width + 9
+            let label = InlayHintLabelView(title: normalizedLabel(hint.label))
+            let width = label.intrinsicTitleWidth + 9
             placements.append((hint, location, label, width))
         }
 
@@ -3517,11 +3747,25 @@ final class JavaInlayHintOverlayController {
             let point = layoutManager.location(forGlyphAt: glyph)
             let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
             let label = placement.label
+            let labelHeight = min(lineRect.height, label.intrinsicContentHeight)
+            let textFont = textStorage.attribute(
+                .font,
+                at: placement.location,
+                effectiveRange: nil
+            ) as? NSFont ?? textView.font ?? LitheTheme.editorFont(size: 13)
+            let y = EditorOverlayLayout.boxOriginYAlignedToTextCenter(
+                textContainerOriginY: textView.textContainerOrigin.y,
+                lineOriginY: lineRect.minY,
+                baselineOffsetY: point.y,
+                textAscender: textFont.ascender,
+                textDescender: textFont.descender,
+                boxHeight: labelHeight
+            )
             label.frame = NSRect(
                 x: textView.textContainerOrigin.x + point.x - placement.width - 3,
-                y: textView.textContainerOrigin.y + lineRect.minY + 1,
+                y: y,
                 width: placement.width,
-                height: max(16, lineRect.height - 2)
+                height: labelHeight
             )
             label.setAccessibilityLabel("Parameter \(placement.hint.label)")
             textView.addSubview(label)
