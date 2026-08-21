@@ -87,6 +87,25 @@ pub struct GitCommandResponse {
     pub stash_restore: Option<GitStashRestoreResponse>,
 }
 
+/// Raw Git process streams kept separate for machine-readable consumers.
+struct GitProcessOutput {
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    exit_code: i32,
+}
+
+impl GitProcessOutput {
+    fn into_command_response(self) -> GitCommandResponse {
+        let mut output = String::from_utf8_lossy(&self.stdout).to_string();
+        output.push_str(&String::from_utf8_lossy(&self.stderr));
+        GitCommandResponse {
+            output,
+            exit_code: self.exit_code,
+            stash_restore: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// Recovery context when restoring a stash produces conflicts.
@@ -527,6 +546,16 @@ fn execute_git_with_options(
     input: Option<String>,
     disable_optional_locks: bool,
 ) -> Result<GitCommandResponse, CoreError> {
+    capture_git_with_options(root, arguments, input, disable_optional_locks)
+        .map(GitProcessOutput::into_command_response)
+}
+
+fn capture_git_with_options(
+    root: &str,
+    arguments: &[String],
+    input: Option<String>,
+    disable_optional_locks: bool,
+) -> Result<GitProcessOutput, CoreError> {
     crate::protocol::cancellation::check()?;
     let mut process = git_process();
     process.args(arguments).current_dir(root);
@@ -592,12 +621,10 @@ fn execute_git_with_options(
     };
     let stdout = stdout_reader.join().unwrap_or_default();
     let stderr = stderr_reader.join().unwrap_or_default();
-    let mut text = String::from_utf8_lossy(&stdout).to_string();
-    text.push_str(&String::from_utf8_lossy(&stderr));
-    Ok(GitCommandResponse {
-        output: text,
+    Ok(GitProcessOutput {
+        stdout,
+        stderr,
         exit_code: status.code().unwrap_or(1),
-        stash_restore: None,
     })
 }
 
@@ -676,18 +703,21 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
     }
     arguments.extend(request.pathspecs);
 
-    let command_response = readonly_command(GitCommandRequest {
-        root: request.root,
-        arguments,
-        input: None,
-    })?;
-    let patch = command_response.output;
+    let root = validate_root(&request.root)?;
+    let output = capture_git_with_options(&root, &arguments, None, true)?;
+    Ok(structured_diff_from_output(output))
+}
+
+fn structured_diff_from_output(output: GitProcessOutput) -> GitDiffResponse {
+    // Diff is a machine-readable stdout protocol. Git diagnostics on stderr
+    // must never become synthetic file lines in the parsed patch.
+    let patch = String::from_utf8_lossy(&output.stdout).to_string();
     let document = parse_diff(&patch);
-    Ok(GitDiffResponse {
+    GitDiffResponse {
         patch,
         rows: document.0,
         hunks: document.1,
-    })
+    }
 }
 
 /// Applies a validated patch using the requested index or working-tree mode.
@@ -2832,13 +2862,37 @@ fn relative_or_absolute(path: &Path, root: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{line_similarity, pair_diff_entries, parse_diff, DiffEntry, MAX_ALIGNMENT_CELLS};
+    use super::{
+        line_similarity, pair_diff_entries, parse_diff, structured_diff_from_output, DiffEntry,
+        GitProcessOutput, MAX_ALIGNMENT_CELLS,
+    };
     use serde_json::Value;
 
     #[cfg(target_os = "windows")]
     #[test]
     fn background_git_processes_do_not_create_windows_console() {
         assert_eq!(super::git_process_creation_flags(), 0x08000000);
+    }
+
+    #[test]
+    fn structured_diff_does_not_parse_git_stderr_as_file_content() {
+        let output = GitProcessOutput {
+            stdout: b"diff --git a/c.txt b/c.txt\n--- /dev/null\n+++ b/c.txt\n@@ -0,0 +1,3 @@\n+c\n+cc\n+ccc\n".to_vec(),
+            stderr: b"warning: CRLF will be replaced by LF\n".to_vec(),
+            exit_code: 1,
+        };
+
+        let diff = structured_diff_from_output(output);
+
+        assert!(!diff.patch.contains("warning:"));
+        assert!(diff
+            .rows
+            .iter()
+            .any(|row| row.right.as_deref() == Some("ccc")));
+        assert!(!diff.rows.iter().any(|row| row
+            .right
+            .as_deref()
+            .is_some_and(|line| line.contains("warning:"))));
     }
 
     fn entries(texts: &[&str]) -> Vec<DiffEntry> {

@@ -20,6 +20,7 @@ const DiffHunkHeader = memo(
   ({
     hunk,
     stats,
+    hasInvisibleChanges,
     hiddenLineCount,
     isCollapsed,
     onToggleCollapse,
@@ -116,6 +117,14 @@ const DiffHunkHeader = memo(
             </span>
             {isUnchangedGap && headerInfo?.context ? (
               <span className="min-w-0 truncate text-subtle-foreground">{headerInfo.context}</span>
+            ) : null}
+            {hasInvisibleChanges ? (
+              <span
+                className="shrink-0 rounded bg-warning/10 px-1.5 font-sans ui-text-caption text-warning"
+                title={t("git.diff.lineEndingChanges")}
+              >
+                {t("git.diff.lineEndingChanges")}
+              </span>
             ) : null}
           </div>
 
