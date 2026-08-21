@@ -1,4 +1,7 @@
-import type { PaneContent } from "@/features/panes/types/pane-content.types";
+import type {
+  EditorLspDocumentBinding,
+  PaneContent,
+} from "@/features/panes/types/pane-content.types";
 import { getBufferById } from "@/features/editor/utils/buffer-index";
 
 export interface EditorBufferSurface {
@@ -7,7 +10,9 @@ export interface EditorBufferSurface {
   type: PaneContent["type"];
   isPreview: boolean;
   isVirtual: boolean;
+  language?: string;
   languageOverride?: string;
+  lspDocument?: EditorLspDocumentBinding;
   contentRevision: number;
 }
 
@@ -29,7 +34,9 @@ export function getEditorBufferSurface(
     type: buffer.type,
     isPreview: buffer.isPreview,
     isVirtual: buffer.type === "editor" ? buffer.isVirtual : false,
+    language: buffer.type === "editor" ? buffer.language : undefined,
     languageOverride: buffer.type === "editor" ? buffer.languageOverride : undefined,
+    lspDocument: buffer.type === "editor" ? buffer.lspDocument : undefined,
     contentRevision: getBufferContentRevision(buffer),
   };
 }
@@ -53,7 +60,11 @@ export function editorBufferSurfacesEqual(
     left.type === right.type &&
     left.isPreview === right.isPreview &&
     left.isVirtual === right.isVirtual &&
+    left.language === right.language &&
     left.languageOverride === right.languageOverride &&
+    left.lspDocument?.documentUri === right.lspDocument?.documentUri &&
+    left.lspDocument?.sessionFilePath === right.lspDocument?.sessionFilePath &&
+    left.lspDocument?.languageId === right.lspDocument?.languageId &&
     left.contentRevision === right.contentRevision
   );
 }

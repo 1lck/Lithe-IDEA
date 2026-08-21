@@ -1,6 +1,9 @@
 import { getBufferByPath } from "@/features/editor/utils/buffer-index";
 import type { EditorContent, PaneContent } from "@/features/panes/types/pane-content.types";
-import { languageIdForEditorFile } from "./built-in-language-support";
+import {
+  isEditorLspSupported,
+  languageIdForEditorFile,
+} from "./built-in-language-support";
 
 export interface LspDocumentTarget {
   filePath: string;
@@ -11,11 +14,16 @@ export interface LspDocumentTarget {
 
 export type LspDocumentTargetInput = string | LspDocumentTarget;
 
+type EditorLspDocumentSource = Pick<
+  EditorContent,
+  "path" | "language" | "languageOverride" | "lspDocument"
+>;
+
 export function normalizeLspDocumentTarget(target: LspDocumentTargetInput): LspDocumentTarget {
   return typeof target === "string" ? { filePath: target } : target;
 }
 
-export function lspDocumentTargetForEditor(buffer: EditorContent): LspDocumentTarget {
+export function lspDocumentTargetForEditor(buffer: EditorLspDocumentSource): LspDocumentTarget {
   return {
     filePath: buffer.path,
     documentUri: buffer.lspDocument?.documentUri,
@@ -48,4 +56,8 @@ export function lspDocumentRequestArgs(target: LspDocumentTargetInput) {
 export function lspSessionFilePath(target: LspDocumentTargetInput): string {
   const document = normalizeLspDocumentTarget(target);
   return document.sessionFilePath ?? document.filePath;
+}
+
+export function isEditorLspTargetSupported(target: LspDocumentTargetInput): boolean {
+  return isEditorLspSupported(lspSessionFilePath(target));
 }
