@@ -4,7 +4,7 @@ import Testing
 struct EditorLayoutMetricsTests {
     @Test
     func blameGutterKeepsTheStandardEditorGutterBesideCompactMetadata() {
-        #expect(EditorLayoutMetrics.blameGutterWidth == 205)
+        #expect(EditorLayoutMetrics.blameGutterWidth == 220)
         #expect(
             abs(
                 EditorLayoutMetrics.blameGutterWidth
@@ -15,19 +15,22 @@ struct EditorLayoutMetricsTests {
     }
 
     @Test
-    func standardGutterUsesDistinctMarkerLineNumberAndFoldColumns() {
-        #expect(EditorLayoutMetrics.markerColumnWidth == 16)
-        #expect(EditorLayoutMetrics.lineNumberWidth == 36)
-        #expect(EditorLayoutMetrics.foldIndicatorWidth == 13)
+    func standardGutterUsesDistinctBreakpointImplementationLineNumberAndFoldColumns() {
+        let layout = EditorGutterLayout(lineNumberTextWidth: 0)
+        #expect(layout.breakpointRange.upperBound == layout.implementationRange.lowerBound)
+        #expect(layout.implementationRange.upperBound == layout.lineNumberRange.lowerBound)
+        #expect(layout.lineNumberRange.upperBound == layout.foldRange.lowerBound)
+        #expect(layout.foldRange.upperBound == layout.gitChangeRange.lowerBound)
+        #expect(layout.gitChangeRange.upperBound == EditorLayoutMetrics.standardGutterWidth)
+    }
+
+    @Test
+    func lineNumberFontTracksTheEditorFontSize() {
+        let smallEditorFont = LitheTheme.editorFont(size: 11)
+        let largeEditorFont = LitheTheme.editorFont(size: 20)
         #expect(
-            abs(
-                EditorLayoutMetrics.standardGutterWidth
-                    - (
-                        EditorLayoutMetrics.markerColumnWidth
-                            + EditorLayoutMetrics.lineNumberWidth
-                            + EditorLayoutMetrics.foldIndicatorWidth
-                    )
-            ) < 0.001
+            EditorGutterLayout.lineNumberFont(for: largeEditorFont).pointSize
+                > EditorGutterLayout.lineNumberFont(for: smallEditorFont).pointSize
         )
     }
 
