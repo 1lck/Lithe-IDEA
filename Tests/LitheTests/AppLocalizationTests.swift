@@ -51,6 +51,32 @@ struct AppLocalizationTests {
     }
 
     @Test
+    func simplifiedChineseResourcesCoverUpdateFailures() throws {
+        let translations = try simplifiedChineseTranslations()
+        let requiredKeys = [
+            "GitHub rejected the update request because a shared API limit was reached. Open the Release page or try again after the limit resets.",
+            "The update server returned HTTP %@. Open the Release page to download the update manually, or try again later.",
+            "The update request timed out. Check your proxy or VPN connection and try again.",
+            "A secure connection to GitHub could not be established. Check TLS inspection, proxy, VPN, or system certificate settings.",
+            "GitHub could not be reached. Check your internet, proxy, or VPN connection and try again.",
+            "The update server returned an unexpected response. Open the Release page and download the update manually.",
+            "The published update manifest is invalid and cannot be trusted. Open the Release page and download the update manually.",
+            "This version of Lithe cannot read update manifest schema %@. Open the Release page and update manually.",
+            "No update package is available for this Mac architecture. Open the Release page to check available downloads.",
+            "The downloaded update failed its SHA-256 verification. Do not install it; retry or use the Release page.",
+            "The update package could not be downloaded. Check your internet, proxy, or VPN connection and try again.",
+            "Self-update is only available when Lithe is running from a packaged Lithe.app.",
+            "The downloaded disk image does not contain Lithe.app.",
+            "macOS could not prepare the update disk image. Open the Release page and install it manually.",
+            "There is no published GitHub Release to check yet."
+        ]
+
+        for key in requiredKeys {
+            #expect(translations[key] != nil, "Missing update translation: \(key)")
+        }
+    }
+
+    @Test
     func simplifiedChineseResourcesCoverGitHubPullRequests() throws {
         let translations = try simplifiedChineseTranslations()
 

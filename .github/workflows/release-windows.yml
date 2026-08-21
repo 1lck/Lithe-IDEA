@@ -14,6 +14,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-windows-${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     name: Build and publish Lithe for Windows
@@ -145,6 +149,7 @@ jobs:
               if ($LASTEXITCODE -ne 0) { throw "Could not create or find release $env:RELEASE_TAG" }
             }
           }
+
           gh release upload $env:RELEASE_TAG `
             "dist/Lithe-$env:LITHE_VERSION-windows-x64.exe" `
             "dist/Lithe-$env:LITHE_VERSION-windows-x64.exe.sha256" `

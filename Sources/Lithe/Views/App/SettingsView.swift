@@ -1102,9 +1102,10 @@ struct SettingsView: View {
         case .noRelease:
             Text("No published release is available yet.")
                 .foregroundStyle(LitheTheme.secondaryText)
-        case .failed:
-            Label("Could not check for updates.", systemImage: "exclamationmark.triangle")
+        case .failed(let message):
+            Label(message, systemImage: "exclamationmark.triangle")
                 .foregroundStyle(LitheTheme.warning)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
