@@ -50,16 +50,33 @@ struct EditorGutterLayoutTests {
 
     @Test
     func columnsHaveDistinctHitTargets() {
-        #expect(EditorGutterLayout.hitTarget(at: 6, hasGitChange: false) == .breakpoint)
-        #expect(EditorGutterLayout.hitTarget(at: 22, hasGitChange: false) == .implementation)
-        #expect(EditorGutterLayout.hitTarget(at: 45, hasGitChange: false) == .lineNumber)
-        #expect(EditorGutterLayout.hitTarget(at: 68, hasGitChange: false) == .fold)
-        #expect(EditorGutterLayout.hitTarget(at: 78, hasGitChange: true) == .gitChange)
+        let layout = EditorGutterLayout(lineNumberTextWidth: 24)
+        #expect(layout.hitTarget(at: 6, hasGitChange: false) == .breakpoint)
+        #expect(layout.hitTarget(at: 22, hasGitChange: false) == .implementation)
+        #expect(layout.hitTarget(at: 45, hasGitChange: false) == .lineNumber)
+        #expect(layout.hitTarget(at: 68, hasGitChange: false) == .fold)
+        #expect(layout.hitTarget(at: 78, hasGitChange: true) == .gitChange)
     }
 
     @Test
     func gitColumnDoesNotConsumeClicksWithoutAChange() {
-        #expect(EditorGutterLayout.hitTarget(at: 78, hasGitChange: false) == nil)
+        let layout = EditorGutterLayout(lineNumberTextWidth: 24)
+        #expect(layout.hitTarget(at: 78, hasGitChange: false) == nil)
+    }
+
+    @Test
+    func lineNumberColumnExpandsWithoutOverlappingFollowingColumns() {
+        let layout = EditorGutterLayout(lineNumberTextWidth: 34)
+        #expect(layout.lineNumberRange.upperBound - layout.lineNumberRange.lowerBound == 37)
+        #expect(layout.lineNumberRange.upperBound == layout.foldRange.lowerBound)
+        #expect(layout.foldRange.upperBound == layout.gitChangeRange.lowerBound)
+        #expect(layout.gitChangeRange.upperBound == layout.width)
+    }
+
+    @Test
+    func overlayRelayoutOnlyDependsOnEditorWidth() {
+        #expect(!EditorOverlayLayout.requiresRelayout(previousWidth: 640, newWidth: 640))
+        #expect(EditorOverlayLayout.requiresRelayout(previousWidth: 640, newWidth: 520))
     }
 
     @Test

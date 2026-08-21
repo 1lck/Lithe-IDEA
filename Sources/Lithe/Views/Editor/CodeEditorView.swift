@@ -82,20 +82,40 @@ enum EditorGutterHitTarget: Equatable {
     case gitChange
 }
 
-enum EditorGutterLayout {
-    static let standardWidth: CGFloat = 80
-    static let breakpointRange: Range<CGFloat> = 0..<14
-    static let implementationRange: Range<CGFloat> = 14..<34
-    static let lineNumberRange: Range<CGFloat> = 34..<62
-    static let foldRange: Range<CGFloat> = 62..<77
-    static let gitChangeRange: Range<CGFloat> = 77..<80
+struct EditorGutterLayout: Equatable {
+    static let lineNumberFont = NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .regular)
+    static let lineNumberTrailingPadding: CGFloat = 3
+    static let minimumLineNumberWidth: CGFloat = 28
+    static let standardWidth = EditorGutterLayout(lineNumberTextWidth: 0).width
+
+    let breakpointRange: Range<CGFloat>
+    let implementationRange: Range<CGFloat>
+    let lineNumberRange: Range<CGFloat>
+    let foldRange: Range<CGFloat>
+    let gitChangeRange: Range<CGFloat>
+    let width: CGFloat
+
+    init(lineNumberTextWidth: CGFloat) {
+        breakpointRange = 0..<14
+        implementationRange = breakpointRange.upperBound..<34
+        let requiredLineNumberWidth = max(
+            Self.minimumLineNumberWidth,
+            ceil(lineNumberTextWidth) + Self.lineNumberTrailingPadding
+        )
+        lineNumberRange = implementationRange.upperBound..<(
+            implementationRange.upperBound + requiredLineNumberWidth
+        )
+        foldRange = lineNumberRange.upperBound..<(lineNumberRange.upperBound + 15)
+        gitChangeRange = foldRange.upperBound..<(foldRange.upperBound + 3)
+        width = gitChangeRange.upperBound
+    }
 
     static func width(of range: Range<CGFloat>) -> CGFloat {
         range.upperBound - range.lowerBound
     }
 
-    static func hitTarget(at x: CGFloat, hasGitChange: Bool) -> EditorGutterHitTarget? {
-        guard x >= 0, x < standardWidth else { return nil }
+    func hitTarget(at x: CGFloat, hasGitChange: Bool) -> EditorGutterHitTarget? {
+        guard x >= 0, x < width else { return nil }
         if hasGitChange, gitChangeRange.contains(x) { return .gitChange }
         if foldRange.contains(x) { return .fold }
         if implementationRange.contains(x) { return .implementation }
@@ -163,6 +183,10 @@ enum EditorOverlayLayout {
     ) -> Int? {
         guard contentEnd > lineStart else { return nil }
         return min(max(lineStart + utf16Column, lineStart), contentEnd - 1)
+    }
+
+    static func requiresRelayout(previousWidth: CGFloat, newWidth: CGFloat) -> Bool {
+        previousWidth != newWidth
     }
 }
 
@@ -394,19 +418,28 @@ struct CodeEditorView: NSViewRepresentable {
         textView.onTerminalTabDrop = { [weak coordinator = context.coordinator] sessionID in
             coordinator?.moveTerminalToEditor(sessionID) ?? false
         }
+        textView.onLayoutGeometryChanged = { [weak coordinator = context.coordinator] in
+            coordinator?.scheduleEditorOverlayRelayout()
+        }
 
         scrollView.documentView = textView
+        container.scrollView = scrollView
+        container.gutter = gutter
+        container.gutterWidthConstraint = gutterWidthConstraint
+        context.coordinator.textView = textView
+        context.coordinator.gutter = gutter
+        context.coordinator.container = container
+        gutter.onStandardWidthChange = { [weak coordinator = context.coordinator] width in
+            coordinator?.updateStandardGutterWidth(width)
+        }
         gutter.attach(textView: textView, scrollView: scrollView)
         gutter.applyAppearance(palette)
         context.coordinator.attachMarkdownScrollSync(to: scrollView)
         context.coordinator.attachViewportTracking(to: scrollView)
 
-        context.coordinator.textView = textView
-        context.coordinator.gutter = gutter
         textView.onCaretPresentationChanged = { [weak gutter] in
             gutter?.needsDisplay = true
         }
-        context.coordinator.container = container
         context.coordinator.attachMarkdownImagePasteMonitor(to: scrollView)
         context.coordinator.codeVisionOverlay = CodeVisionOverlayController(textView: textView)
         context.coordinator.inlayHintOverlay = JavaInlayHintOverlayController(textView: textView)
@@ -416,9 +449,6 @@ struct CodeEditorView: NSViewRepresentable {
         textView.updateCaretDecorations()
         context.coordinator.scheduleFoldRefresh(useDefaultImportFold: true)
         context.coordinator.scheduleCaretUpdate()
-        container.scrollView = scrollView
-        container.gutter = gutter
-        container.gutterWidthConstraint = gutterWidthConstraint
         context.coordinator.updateCodeVisionAndBlame()
         context.coordinator.updateGitLineChanges()
         context.coordinator.updateDiagnostics()
@@ -472,6 +502,7 @@ struct CodeEditorView: NSViewRepresentable {
             let selection = textView.selectedRange()
             textView.string = document.text
             (textView as? CodeTextView)?.rebuildLineIndex()
+            container.gutter?.refreshLineNumberLayout()
             textView.setSelectedRange(NSRange(location: min(selection.location, document.text.utf16.count), length: 0))
             context.coordinator.resetHighlightCache()
             context.coordinator.highlight()
@@ -542,6 +573,8 @@ struct CodeEditorView: NSViewRepresentable {
         private var appliedInlayHints: [JavaInlayHint]?
         private var editorOverlayLayoutRevision = 0
         private var appliedEditorOverlayLayoutRevision = -1
+        private var editorOverlayRelayoutTask: Task<Void, Never>?
+        private var standardGutterWidth = EditorLayoutMetrics.standardGutterWidth
         private var appliedBlameVisible = false
         private var appliedBlameLines: [GitBlameLine] = []
         private var appliedDebugBreakpointLines = Set<Int>()
@@ -579,6 +612,7 @@ struct CodeEditorView: NSViewRepresentable {
             documentChangeTask?.cancel()
             caretUpdateTask?.cancel()
             findStateUpdateTask?.cancel()
+            editorOverlayRelayoutTask?.cancel()
             visibleHighlightTask?.cancel()
             if let markdownImagePasteMonitor {
                 NSEvent.removeMonitor(markdownImagePasteMonitor)
@@ -841,6 +875,7 @@ struct CodeEditorView: NSViewRepresentable {
             } else {
                 codeTextView?.rebuildLineIndex()
             }
+            gutter?.refreshLineNumberLayout()
             isApplyingEditorChange = true
             document?.applyLiveEditorText(textView.string)
             if let document {
@@ -1153,13 +1188,31 @@ struct CodeEditorView: NSViewRepresentable {
                 appliedDebugBreakpointLines = debugBreakpointLines
                 container?.gutterWidthConstraint?.constant = isBlameVisible
                     ? 224
-                    : EditorLayoutMetrics.standardGutterWidth
+                    : standardGutterWidth
                 gutter?.update(blameLines: blameLines, isVisible: isBlameVisible) { [weak model] blame in
                     Task { await model?.showGitCommit(blame.commitHash) }
                 }
                 gutter?.updateDebugBreakpointLines(debugBreakpointLines) { [weak model] line in
                     model?.toggleDebugBreakpoint(fileURL: url, line: line)
                 }
+            }
+        }
+
+        func scheduleEditorOverlayRelayout() {
+            editorOverlayRelayoutTask?.cancel()
+            editorOverlayRelayoutTask = Task { @MainActor [weak self] in
+                await Task.yield()
+                guard !Task.isCancelled, let self else { return }
+                self.editorOverlayLayoutRevision &+= 1
+                self.updateCodeVisionAndBlame()
+            }
+        }
+
+        func updateStandardGutterWidth(_ width: CGFloat) {
+            guard standardGutterWidth != width else { return }
+            standardGutterWidth = width
+            if !appliedBlameVisible {
+                container?.gutterWidthConstraint?.constant = width
             }
         }
 
@@ -1378,6 +1431,7 @@ private struct TextLineIndex {
 
 final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     var onCaretPresentationChanged: (() -> Void)?
+    var onLayoutGeometryChanged: (() -> Void)?
     var indentationWidth = 4
     var isLanguageNavigationEnabled = false
     var isLanguageIntelligenceEnabled = false
@@ -1428,6 +1482,17 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     nonisolated(unsafe) private var windowResignObserver: NSObjectProtocol?
     private var caretVisible = true
     private var caretPresentationGeneration = 0
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let previousWidth = frame.width
+        super.setFrameSize(newSize)
+        if EditorOverlayLayout.requiresRelayout(
+            previousWidth: previousWidth,
+            newWidth: newSize.width
+        ) {
+            onLayoutGeometryChanged?()
+        }
+    }
 
     fileprivate func applyAppearance(_ palette: CodeEditorPalette) {
         guard appliedDarkAppearance != palette.isDark
@@ -2932,6 +2997,7 @@ final class EditorContainerView: NSView {
 
 @MainActor
 final class LineNumberGutterView: NSView {
+    var onStandardWidthChange: ((CGFloat) -> Void)?
     private weak var textView: NSTextView?
     private weak var scrollView: NSScrollView?
     nonisolated(unsafe) private var boundsObserver: NSObjectProtocol?
@@ -2956,6 +3022,7 @@ final class LineNumberGutterView: NSView {
     private var onUnstageGitLineChange: ((GitLineChangeMarker) -> Void)?
     private var onDiscardGitLineChange: ((GitLineChangeMarker) -> Void)?
     private var contextGitLineChange: GitLineChangeMarker?
+    private var gutterLayout = EditorGutterLayout(lineNumberTextWidth: 0)
 
     override var isFlipped: Bool { true }
 
@@ -2979,6 +3046,7 @@ final class LineNumberGutterView: NSView {
         self.scrollView = scrollView
         wantsLayer = true
         layer?.backgroundColor = palette.gutterBackground.cgColor
+        refreshLineNumberLayout()
         scrollView.contentView.postsBoundsChangedNotifications = true
         boundsObserver = NotificationCenter.default.addObserver(
             forName: NSView.boundsDidChangeNotification,
@@ -2989,6 +3057,19 @@ final class LineNumberGutterView: NSView {
                 self?.scheduleScrollRefresh()
             }
         }
+    }
+
+    func refreshLineNumberLayout() {
+        guard let textView else { return }
+        let maximumLineNumber = max(1, (textView as? CodeTextView)?.lineCount() ?? 1)
+        let textWidth = (String(maximumLineNumber) as NSString).size(
+            withAttributes: [.font: EditorGutterLayout.lineNumberFont]
+        ).width
+        let nextLayout = EditorGutterLayout(lineNumberTextWidth: textWidth)
+        guard gutterLayout != nextLayout else { return }
+        gutterLayout = nextLayout
+        onStandardWidthChange?(nextLayout.width)
+        needsDisplay = true
     }
 
     fileprivate func applyAppearance(_ palette: CodeEditorPalette) {
@@ -3252,7 +3333,7 @@ final class LineNumberGutterView: NSView {
     private func drawLineNumber(_ number: Int, y: CGFloat, height: CGFloat) {
         let label = String(number) as NSString
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .regular),
+            .font: EditorGutterLayout.lineNumberFont,
             .foregroundColor: palette.lineNumber
         ]
         let size = label.size(withAttributes: attributes)
@@ -3260,8 +3341,10 @@ final class LineNumberGutterView: NSView {
         label.draw(
             at: NSPoint(
                 x: max(
-                    EditorGutterLayout.lineNumberRange.lowerBound,
-                    EditorGutterLayout.lineNumberRange.upperBound - size.width - 3
+                    gutterLayout.lineNumberRange.lowerBound,
+                    gutterLayout.lineNumberRange.upperBound
+                        - size.width
+                        - EditorGutterLayout.lineNumberTrailingPadding
                 ),
                 y: centeredY
             ),
@@ -3274,16 +3357,16 @@ final class LineNumberGutterView: NSView {
         let centerY = y + height / 2
         if isHovered {
             let hoverRect = NSRect(
-                x: EditorGutterLayout.foldRange.lowerBound,
+                x: gutterLayout.foldRange.lowerBound,
                 y: y + max(0, (height - 17) / 2),
-                width: EditorGutterLayout.width(of: EditorGutterLayout.foldRange),
+                width: EditorGutterLayout.width(of: gutterLayout.foldRange),
                 height: 17
             )
             palette.foldHover.setFill()
             NSBezierPath(roundedRect: hoverRect, xRadius: 3, yRadius: 3).fill()
         }
         let path = NSBezierPath()
-        let centerX = EditorGutterLayout.foldRange.lowerBound
+        let centerX = gutterLayout.foldRange.lowerBound
         if collapsedFoldIDs.contains(region.id) {
             path.move(to: NSPoint(x: centerX + 4, y: centerY - 4))
             path.line(to: NSPoint(x: centerX + 9, y: centerY))
@@ -3301,8 +3384,8 @@ final class LineNumberGutterView: NSView {
     private func drawImplementationMarker(_ marker: JavaImplementationMarker, y: CGFloat, height: CGFloat) {
         let markerSize: CGFloat = 15
         let rect = NSRect(
-            x: EditorGutterLayout.implementationRange.lowerBound
-                + (EditorGutterLayout.width(of: EditorGutterLayout.implementationRange) - markerSize) / 2,
+            x: gutterLayout.implementationRange.lowerBound
+                + (EditorGutterLayout.width(of: gutterLayout.implementationRange) - markerSize) / 2,
             y: y + max(0, (height - markerSize) / 2),
             width: markerSize,
             height: markerSize
@@ -3326,8 +3409,8 @@ final class LineNumberGutterView: NSView {
         NSColor(red: 0.92, green: 0.28, blue: 0.30, alpha: 0.96).setFill()
         NSBezierPath(
             ovalIn: NSRect(
-                x: EditorGutterLayout.breakpointRange.lowerBound
-                    + (EditorGutterLayout.width(of: EditorGutterLayout.breakpointRange) - markerSize) / 2,
+                x: gutterLayout.breakpointRange.lowerBound
+                    + (EditorGutterLayout.width(of: gutterLayout.breakpointRange) - markerSize) / 2,
                 y: y + max(0, (height - markerSize) / 2),
                 width: markerSize,
                 height: markerSize
@@ -3350,9 +3433,9 @@ final class LineNumberGutterView: NSView {
         let markerHeight = marker.kind == .deleted ? 3 : max(4, height - 2)
         NSBezierPath(
             roundedRect: NSRect(
-                x: EditorGutterLayout.gitChangeRange.lowerBound,
+                x: gutterLayout.gitChangeRange.lowerBound,
                 y: y + max(1, (height - markerHeight) / 2),
-                width: EditorGutterLayout.width(of: EditorGutterLayout.gitChangeRange),
+                width: EditorGutterLayout.width(of: gutterLayout.gitChangeRange),
                 height: markerHeight
             ),
             xRadius: 1.5,
@@ -3371,9 +3454,17 @@ final class LineNumberGutterView: NSView {
             .font: NSFont.systemFont(ofSize: 10.5),
             .foregroundColor: palette.blameText
         ]
-        (blame.date as NSString).draw(at: NSPoint(x: 84, y: y), withAttributes: attributes)
+        (blame.date as NSString).draw(
+            at: NSPoint(x: gutterLayout.width + 4, y: y),
+            withAttributes: attributes
+        )
         (blame.authorName as NSString).draw(
-            in: NSRect(x: 148, y: y, width: max(0, bounds.width - 152), height: 16),
+            in: NSRect(
+                x: gutterLayout.width + 68,
+                y: y,
+                width: max(0, bounds.width - gutterLayout.width - 72),
+                height: 16
+            ),
             withAttributes: attributes
         )
     }
@@ -3401,7 +3492,7 @@ final class LineNumberGutterView: NSView {
     }
 
     private func foldRegion(at point: NSPoint) -> JavaFoldRegion? {
-        guard EditorGutterLayout.foldRange.contains(point.x),
+        guard gutterLayout.foldRange.contains(point.x),
               let textView,
               let scrollView,
               let layoutManager = textView.layoutManager,
@@ -3439,7 +3530,7 @@ final class LineNumberGutterView: NSView {
         let line = (textView as? CodeTextView)?.lineNumber(at: characterIndex, in: source)
             ?? source.substring(to: min(characterIndex, source.length)).reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
         let gitMarker = gitLineChangeMarkersByLine[line]
-        switch EditorGutterLayout.hitTarget(at: point.x, hasGitChange: gitMarker != nil) {
+        switch gutterLayout.hitTarget(at: point.x, hasGitChange: gitMarker != nil) {
         case .gitChange:
             guard let marker = gitMarker else { return }
             onShowGitLineChange?(marker)
@@ -3463,7 +3554,7 @@ final class LineNumberGutterView: NSView {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
-        guard EditorGutterLayout.gitChangeRange.contains(point.x),
+        guard gutterLayout.gitChangeRange.contains(point.x),
               let line = editorLine(at: point),
               let marker = gitLineChangeMarkersByLine[line] else {
             return super.menu(for: event)
