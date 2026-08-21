@@ -11,10 +11,6 @@ concurrency:
   group: lithe-pr-review-${{ github.event.issue.number }}
   cancel-in-progress: true
 
-env:
-  LITHE_REVIEW_MODEL: gpt-5.6-sol
-  LITHE_REVIEW_EFFORT: xhigh
-
 jobs:
   prepare:
     if: >-
@@ -104,12 +100,14 @@ jobs:
     needs: prepare
     if: needs.prepare.outputs.authorized == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 27
+    timeout-minutes: 25
     permissions:
       contents: read
+      issues: read
+      pull-requests: read
     outputs:
-      codex_outcome: ${{ steps.diagnostics.outputs.codex_outcome }}
-      final_message: ${{ steps.codex.outputs.final-message }}
+      review_outcome: ${{ steps.diagnostics.outputs.review_outcome }}
+      final_message: ${{ steps.result.outputs.final_message }}
 
     steps:
       - name: Check out trusted review tooling
@@ -118,15 +116,6 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
           persist-credentials: false
-
-      - name: Install trusted Codex watchdog
-        env:
-          LITHE_WRAPPER_DIRECTORY: ${{ runner.temp }}/lithe-codex-bin
-        run: |
-          set -euo pipefail
-          mkdir -p "$LITHE_WRAPPER_DIRECTORY"
-          install -m 755 scripts/run-lithe-codex-with-timeout.sh "$LITHE_WRAPPER_DIRECTORY/codex"
-          echo "$LITHE_WRAPPER_DIRECTORY" >> "$GITHUB_PATH"
 
       - name: Download trusted review input
         uses: actions/download-artifact@v4
@@ -163,55 +152,108 @@ jobs:
           echo "[lithe-review] diff_summary=$(git diff --shortstat "${LITHE_BASE_SHA}...${LITHE_HEAD_SHA}" || true)"
           echo "[lithe-review] git_objects=$(git count-objects -vH | tr '\n' ';')"
 
-      - name: Run read-only Lithe review
-        id: codex
-        continue-on-error: true
-        uses: openai/codex-action@v1
+      - name: Validate Claude configuration
         env:
-          LITHE_CODEX_EVENTS_FILE: ${{ runner.temp }}/lithe-review-events.jsonl
-          LITHE_CODEX_STDERR_FILE: ${{ runner.temp }}/lithe-review-codex.stderr.log
-          LITHE_CODEX_TIMEOUT: 20m
+          LITHE_ANTHROPIC_API_KEY: ${{ secrets.LITHE_ANTHROPIC_API_KEY }}
+          LITHE_ANTHROPIC_BASE_URL: ${{ secrets.LITHE_ANTHROPIC_BASE_URL }}
+          LITHE_CLAUDE_MODEL: ${{ vars.LITHE_CLAUDE_MODEL }}
+        run: |
+          set -euo pipefail
+          if [ -z "$LITHE_ANTHROPIC_API_KEY" ]; then
+            echo "LITHE_ANTHROPIC_API_KEY is not configured" >&2
+            exit 1
+          fi
+          if [ -z "$LITHE_ANTHROPIC_BASE_URL" ]; then
+            echo "LITHE_ANTHROPIC_BASE_URL is not configured" >&2
+            exit 1
+          fi
+          if [ -z "$LITHE_CLAUDE_MODEL" ]; then
+            echo "LITHE_CLAUDE_MODEL is not configured" >&2
+            exit 1
+          fi
+          echo "[lithe-review] Claude model=${LITHE_CLAUDE_MODEL}"
+
+      - name: Load trusted Claude prompt
+        id: prompt
+        env:
+          LITHE_PROMPT_FILE: ${{ runner.temp }}/lithe-review-input/lithe-pr-review-prompt.md
+        run: |
+          node <<'NODE'
+          const { randomUUID } = require('node:crypto');
+          const { appendFileSync, readFileSync } = require('node:fs');
+          const delimiter = `lithe_${randomUUID()}`;
+          const prompt = readFileSync(process.env.LITHE_PROMPT_FILE, 'utf8');
+          appendFileSync(process.env.GITHUB_OUTPUT, `content<<${delimiter}\n${prompt}\n${delimiter}\n`);
+          NODE
+
+      - name: Run read-only Lithe review with Claude
+        id: claude
+        continue-on-error: true
+        uses: anthropics/claude-code-action@v1
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.LITHE_ANTHROPIC_BASE_URL }}
         with:
-          openai-api-key: ${{ secrets.LITHE_OPENAI_API_KEY }}
-          responses-api-endpoint: ${{ secrets.LITHE_OPENAI_RESPONSES_URL }}
-          prompt-file: ${{ runner.temp }}/lithe-review-input/lithe-pr-review-prompt.md
-          model: ${{ env.LITHE_REVIEW_MODEL }}
-          effort: ${{ env.LITHE_REVIEW_EFFORT }}
-          sandbox: read-only
-          safety-strategy: drop-sudo
-          allow-users: ${{ github.actor }}
-          output-file: ${{ runner.temp }}/lithe-review-final.md
-          codex-args: '["--ephemeral", "--json"]'
+          anthropic_api_key: ${{ secrets.LITHE_ANTHROPIC_API_KEY }}
+          prompt: ${{ steps.prompt.outputs.content }}
+          include_fix_links: false
+          display_report: false
+          show_full_output: false
+          claude_args: |
+            --model "${{ vars.LITHE_CLAUDE_MODEL }}"
+            --max-turns 30
+            --allowedTools "Bash(git status:*),Bash(git diff:*),Bash(git show:*),Bash(git log:*),Bash(git grep:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git cat-file:*),Read,Glob,Grep"
+            --json-schema '{"type":"object","properties":{"review_markdown":{"type":"string"}},"required":["review_markdown"],"additionalProperties":false}'
+
+      - name: Extract Claude review
+        if: steps.claude.outcome == 'success'
+        id: result
+        env:
+          LITHE_STRUCTURED_OUTPUT: ${{ steps.claude.outputs.structured_output }}
+          LITHE_FINAL_MESSAGE_FILE: ${{ runner.temp }}/lithe-review-final.md
+        run: |
+          node <<'NODE'
+          const { randomUUID } = require('node:crypto');
+          const { appendFileSync, writeFileSync } = require('node:fs');
+          const parsed = JSON.parse(process.env.LITHE_STRUCTURED_OUTPUT || '{}');
+          const message = String(parsed.review_markdown || '').trim();
+          if (!message) {
+            throw new Error('Claude returned an empty review_markdown');
+          }
+          writeFileSync(process.env.LITHE_FINAL_MESSAGE_FILE, `${message}\n`, { mode: 0o600 });
+          const delimiter = `lithe_${randomUUID()}`;
+          appendFileSync(process.env.GITHUB_OUTPUT, `final_message<<${delimiter}\n${message}\n${delimiter}\n`);
+          NODE
 
       - name: Record review diagnostics
         if: always()
         id: diagnostics
         env:
-          CODEX_OUTCOME: ${{ steps.codex.outcome }}
+          CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
+          EXTRACT_OUTCOME: ${{ steps.result.outcome }}
           DIAGNOSTICS_FILE: ${{ runner.temp }}/lithe-review-diagnostics.txt
-          EVENTS_FILE: ${{ runner.temp }}/lithe-review-events.jsonl
-          STDERR_FILE: ${{ runner.temp }}/lithe-review-codex.stderr.log
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
           FINAL_MESSAGE_FILE: ${{ runner.temp }}/lithe-review-final.md
+          LITHE_CLAUDE_MODEL: ${{ vars.LITHE_CLAUDE_MODEL }}
           LITHE_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
           LITHE_HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
         run: |
           set -euo pipefail
-          event_lines=0
-          event_bytes=0
-          stderr_bytes=0
+          execution_file_exists=false
+          execution_file_bytes=0
           final_message_exists=false
           final_message_bytes=0
+          review_outcome=failure
 
-          if [ -f "$EVENTS_FILE" ]; then
-            event_lines="$(wc -l < "$EVENTS_FILE" | tr -d ' ')"
-            event_bytes="$(wc -c < "$EVENTS_FILE" | tr -d ' ')"
-          fi
-          if [ -f "$STDERR_FILE" ]; then
-            stderr_bytes="$(wc -c < "$STDERR_FILE" | tr -d ' ')"
+          if [ -n "$EXECUTION_FILE" ] && [ -f "$EXECUTION_FILE" ]; then
+            execution_file_exists=true
+            execution_file_bytes="$(wc -c < "$EXECUTION_FILE" | tr -d ' ')"
           fi
           if [ -f "$FINAL_MESSAGE_FILE" ]; then
             final_message_exists=true
             final_message_bytes="$(wc -c < "$FINAL_MESSAGE_FILE" | tr -d ' ')"
+          fi
+          if [ "$CLAUDE_OUTCOME" = success ] && [ "$EXTRACT_OUTCOME" = success ]; then
+            review_outcome=success
           fi
 
           {
@@ -221,28 +263,18 @@ jobs:
             echo "pull_request=${{ github.event.issue.number }}"
             echo "base_sha=${LITHE_BASE_SHA}"
             echo "head_sha=${LITHE_HEAD_SHA}"
-            echo "model=${LITHE_REVIEW_MODEL}"
-            echo "effort=${LITHE_REVIEW_EFFORT}"
-            echo "codex_outcome=${CODEX_OUTCOME}"
-            echo "event_lines=${event_lines}"
-            echo "event_bytes=${event_bytes}"
-            echo "stderr_bytes=${stderr_bytes}"
+            echo "provider=claude"
+            echo "model=${LITHE_CLAUDE_MODEL}"
+            echo "claude_outcome=${CLAUDE_OUTCOME}"
+            echo "extract_outcome=${EXTRACT_OUTCOME}"
+            echo "review_outcome=${review_outcome}"
+            echo "execution_file_exists=${execution_file_exists}"
+            echo "execution_file_bytes=${execution_file_bytes}"
             echo "final_message_exists=${final_message_exists}"
             echo "final_message_bytes=${final_message_bytes}"
           } | tee "$DIAGNOSTICS_FILE"
 
-          if [ -s "$EVENTS_FILE" ]; then
-            echo "::group::Last 50 Codex JSONL events"
-            tail -n 50 "$EVENTS_FILE"
-            echo "::endgroup::"
-          fi
-          if [ -s "$STDERR_FILE" ]; then
-            echo "::group::Last 100 Codex stderr lines"
-            tail -n 100 "$STDERR_FILE"
-            echo "::endgroup::"
-          fi
-
-          echo "codex_outcome=${CODEX_OUTCOME}" >> "$GITHUB_OUTPUT"
+          echo "review_outcome=${review_outcome}" >> "$GITHUB_OUTPUT"
 
       - name: Upload review diagnostics
         if: always()
@@ -251,18 +283,18 @@ jobs:
           name: lithe-review-diagnostics-${{ github.event.issue.number }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/lithe-review-diagnostics.txt
-            ${{ runner.temp }}/lithe-review-events.jsonl
-            ${{ runner.temp }}/lithe-review-codex.stderr.log
+            ${{ steps.claude.outputs.execution_file }}
             ${{ runner.temp }}/lithe-review-final.md
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
 
-      - name: Report Codex execution failure
-        if: always() && steps.codex.outcome != 'success'
+      - name: Report Claude execution failure
+        if: always() && steps.diagnostics.outputs.review_outcome != 'success'
         env:
-          CODEX_OUTCOME: ${{ steps.codex.outcome }}
+          CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
+          EXTRACT_OUTCOME: ${{ steps.result.outcome }}
         run: |
-          echo "Codex review did not complete successfully: ${CODEX_OUTCOME}" >&2
+          echo "Claude review did not complete successfully: claude=${CLAUDE_OUTCOME}, extract=${EXTRACT_OUTCOME}" >&2
           exit 1
 
   publish:
@@ -282,7 +314,7 @@ jobs:
         env:
           LITHE_FINAL_MESSAGE: ${{ needs.review.outputs.final_message }}
           LITHE_HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
-          LITHE_CODEX_OUTCOME: ${{ needs.review.outputs.codex_outcome }}
+          LITHE_REVIEW_OUTCOME: ${{ needs.review.outputs.review_outcome }}
           LITHE_REVIEW_JOB_RESULT: ${{ needs.review.result }}
           LITHE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         with:
@@ -296,7 +328,7 @@ jobs:
               '',
               '**结论：** ❓ 审查未完成',
               '',
-              `模型执行状态：\`${process.env.LITHE_CODEX_OUTCOME || process.env.LITHE_REVIEW_JOB_RESULT}\`。`,
+              `模型执行状态：\`${process.env.LITHE_REVIEW_OUTCOME || process.env.LITHE_REVIEW_JOB_RESULT}\`。`,
               `请查看[本次 Actions 日志与诊断附件](${process.env.LITHE_RUN_URL})后重新召唤。`,
             ].join('\n');
             const body = `${marker}\n${message || failureMessage}`.slice(0, limit);
