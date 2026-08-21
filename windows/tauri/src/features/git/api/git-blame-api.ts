@@ -11,7 +11,7 @@ export interface ResolvedGitBlame {
 export const getResolvedGitBlame = async (
   rootPath: string,
   filePath: string,
-  content: string,
+  operationId?: string,
 ): Promise<ResolvedGitBlame | null> => {
   try {
     const resolved = await resolveRepositoryForFile(rootPath, filePath);
@@ -22,7 +22,7 @@ export const getResolvedGitBlame = async (
     const blame = await tauriInvoke<GitBlame>("git_blame_file", {
       rootPath: resolved.repoPath,
       filePath: resolved.filePath,
-      content,
+      operationId,
     });
     return {
       blame,
@@ -40,7 +40,6 @@ export const getResolvedGitBlame = async (
 export const getGitBlame = async (
   rootPath: string,
   filePath: string,
-  content: string,
 ): Promise<GitBlame | null> => {
-  return (await getResolvedGitBlame(rootPath, filePath, content))?.blame ?? null;
+  return (await getResolvedGitBlame(rootPath, filePath))?.blame ?? null;
 };

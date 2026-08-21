@@ -21,7 +21,7 @@ const DEFAULT_AI_AUTOCOMPLETE_CUSTOM_BASE_URL = "";
 
 export const defaultSettings: Settings = {
   // General
-  autoSave: false,
+  autoSave: true,
   quickOpenPreview: true,
   // Editor
   fontFamily: DEFAULT_MONO_FONT_FAMILY,

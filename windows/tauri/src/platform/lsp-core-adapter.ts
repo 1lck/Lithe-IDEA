@@ -229,8 +229,12 @@ if (import.meta.hot) {
 
 function coreData<T>(response: CoreResponse<T>): T {
   if (response.ok) return response.data;
-  const error = new Error(response.error.message) as Error & { code?: string };
+  const error = new Error(response.error.message) as Error & {
+    code?: string;
+    details?: string;
+  };
   error.code = response.error.code;
+  error.details = response.error.details;
   throw error;
 }
 
@@ -290,6 +294,16 @@ async function dispatchRuntimeEvent(event: RuntimeEvent): Promise<void> {
 
 async function dispatchSessionEvent(session: Session, event: RuntimeEvent): Promise<void> {
   await dispatchRuntimeEvent(event);
+  if (event.type === "stateChanged" && (event.state === "failed" || event.state === "stopped")) {
+    const error = new Error(`Language server entered ${event.state} state`) as Error & {
+      code?: string;
+    };
+    error.code = event.state === "failed" ? "sessionFailed" : "sessionStopped";
+    for (const pending of session.pending.values()) pending.reject(error);
+    session.pending.clear();
+    session.running = false;
+    session.ready = false;
+  }
   if (event.type === "featuresChanged") {
     session.features = new Set(event.capabilities ?? []);
     session.featuresKnown = true;
@@ -319,9 +333,13 @@ async function dispatchSessionEvent(session: Session, event: RuntimeEvent): Prom
   }
 }
 
-async function poll(session: Session): Promise<RuntimeEvent[]> {
-  const response = await core<{ events: RuntimeEvent[] }>("lsp.pollEvents", {
+async function poll(
+  session: Session,
+  timeoutMilliseconds = 30_000,
+): Promise<RuntimeEvent[]> {
+  const response = await core<{ events: RuntimeEvent[] }>("lsp.waitEvents", {
     sessionId: session.id,
+    timeoutMilliseconds,
   });
   for (const event of response.events) await dispatchSessionEvent(session, event);
   return response.events;
@@ -355,19 +373,23 @@ async function runEventPump(session: Session): Promise<void> {
       for (const pending of session.pending.values()) pending.reject(error);
       session.pending.clear();
       session.running = false;
+      session.ready = false;
       removeSessionMappings(session);
       persistSessions();
-      await emit("lsp://server-crashed", {});
+      const details = String((error as Error & { details?: string }).details ?? "");
+      // waitEvents returns process_failed/sessionStopped after an intentional stop.
+      if (details !== "sessionStopped") {
+        await emit("lsp://server-crashed", {});
+      }
       return;
     }
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   }
 }
 
 async function waitUntilReady(session: Session): Promise<void> {
   const deadline = Date.now() + INITIALIZE_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    const events = await poll(session);
+    const events = await poll(session, 200);
     const state = [...events].reverse().find((event) => event.type === "stateChanged")?.state;
     if (state === "ready") {
       session.ready = true;
@@ -393,7 +415,6 @@ async function waitUntilReady(session: Session): Promise<void> {
       error.details = detail || failure?.stage;
       throw error;
     }
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   }
   const error = new Error("Language server initialization timed out") as Error & { code?: string };
   error.code = "timed_out";
@@ -413,7 +434,11 @@ async function stopAndDestroySession(session: Session): Promise<void> {
     } catch {
       // A graceful stop is asynchronous; keep draining events until Core is terminal.
     }
-    await poll(session);
+    try {
+      await poll(session, POLL_INTERVAL_MS);
+    } catch {
+      // Terminal waitEvents errors mean the session is already stopped.
+    }
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   }
 
@@ -444,7 +469,7 @@ function sessionForFile(filePath: string): Session {
 
 async function recoverSession(session: Session): Promise<Session | null> {
   try {
-    const events = await poll(session);
+    const events = await poll(session, 200);
     const state = [...events].reverse().find((event) => event.type === "stateChanged")?.state;
     if (state === "failed" || state === "stopped" || state === "stopping") {
       try {
@@ -811,17 +836,57 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
     }
     return undefined as T;
   }
-  if (
-    command === "lsp_document_open" ||
-    command === "lsp_document_change" ||
-    command === "lsp_document_save"
-  ) {
+  if (command === "lsp_document_open") {
     const session = sessionForFile(args.filePath);
     await core("lsp.syncDocument", {
       sessionId: session.id,
       uri: fileUri(args.filePath),
       languageId: args.languageId ?? session.languageId,
-      text: args.content,
+      text: args.content ?? "",
+    });
+    return undefined as T;
+  }
+  if (command === "lsp_document_change") {
+    const session = sessionForFile(args.filePath);
+    const contentChanges = Array.isArray(args.contentChanges)
+      ? args.contentChanges
+          .map((change: JsonRecord) => {
+            if (
+              typeof change.startLine !== "number" ||
+              typeof change.startColumn !== "number" ||
+              typeof change.endLine !== "number" ||
+              typeof change.endColumn !== "number"
+            ) {
+              return null;
+            }
+            return {
+              range: {
+                start: { line: change.startLine, utf16Column: change.startColumn },
+                end: { line: change.endLine, utf16Column: change.endColumn },
+              },
+              text: String(change.text ?? ""),
+            };
+          })
+          .filter(Boolean)
+      : [];
+    await core("lsp.syncDocument", {
+      sessionId: session.id,
+      uri: fileUri(args.filePath),
+      languageId: args.languageId ?? session.languageId,
+      // Prefer ranged changes when present, but keep full text so Core can
+      // fall back to a full-document didChange for unsafe multi-change batches.
+      text: args.content ?? "",
+      ...(contentChanges.length > 0 ? { contentChanges } : {}),
+    });
+    return undefined as T;
+  }
+  if (command === "lsp_document_save") {
+    const session = sessionForFile(args.filePath);
+    await core("lsp.syncDocument", {
+      sessionId: session.id,
+      uri: fileUri(args.filePath),
+      languageId: args.languageId ?? session.languageId,
+      text: args.content ?? "",
     });
     return undefined as T;
   }

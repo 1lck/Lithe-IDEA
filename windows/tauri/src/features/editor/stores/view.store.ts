@@ -3,13 +3,15 @@ import { createWithEqualityFn } from "zustand/traditional";
 import { isEditorContent } from "@/features/panes/types/pane-content.types";
 import { createSelectors } from "@/utils/zustand-selectors";
 import type { EditorTextChange } from "../types/editor.types";
-import { createSparseLineArray, getLargeEditorModeInfo } from "../utils/large-file";
+import { createSparseLineArray, applyEditorTextChangeToLargeEditorModeInfo, applyIncrementalLargeEditorModeInfo, getLargeEditorModeInfo, type LargeEditorModeInfo } from "../utils/large-file";
+import { sortEditorTextChangesForOriginalDocument } from "../utils/editor-text-change";
 import { useBufferStore } from "./buffer.store";
 
 interface EditorViewState {
   // Computed views of the active buffer
   lines: string[];
   lineCount: number;
+  tooLargeForEditorServices: boolean;
 
   // Actions
   actions: {
@@ -25,6 +27,7 @@ export const useEditorViewStore = createSelectors(
       // These will be computed from the active buffer
       lines: [""],
       lineCount: 1,
+      tooLargeForEditorServices: false,
 
       actions: {
         getLines: () => {
@@ -50,6 +53,7 @@ let previousActiveBufferSnapshot: {
   id: string;
   content: string;
   lines: string[];
+  largeEditorInfo: LargeEditorModeInfo;
 } | null = null;
 
 const INCREMENTAL_LINE_EDIT_THRESHOLD = 1000;
@@ -142,11 +146,8 @@ export function applyIncrementalLineEdit(
           `${insertedLines[insertedLines.length - 1]}${lineSuffix}`,
         ];
 
-  return [
-    ...previousLines.slice(0, start.line),
-    ...replacement,
-    ...previousLines.slice(end.line + 1),
-  ];
+  previousLines.splice(start.line, end.line - start.line + 1, ...replacement);
+  return previousLines;
 }
 
 export function applyEditorTextChangeToLines(
@@ -192,17 +193,14 @@ export function applyEditorTextChangeToLines(
           `${insertedLines[insertedLines.length - 1]}${lineSuffix}`,
         ];
 
-  return [
-    ...previousLines.slice(0, startLine),
-    ...replacement,
-    ...previousLines.slice(endLine + 1),
-  ];
+  previousLines.splice(startLine, endLine - startLine + 1, ...replacement);
+  return previousLines;
 }
 
 interface PendingEditorViewContentChange {
   previousContent: string;
   nextContent: string;
-  change: EditorTextChange;
+  changes: EditorTextChange[];
 }
 
 const pendingEditorViewContentChanges = new Map<string, PendingEditorViewContentChange>();
@@ -211,12 +209,13 @@ export function queueEditorViewContentChange(
   bufferId: string,
   previousContent: string,
   nextContent: string,
-  change: EditorTextChange,
+  change: EditorTextChange | EditorTextChange[],
 ): void {
+  const changes = Array.isArray(change) ? change : [change];
   pendingEditorViewContentChanges.set(bufferId, {
     previousContent,
     nextContent,
-    change,
+    changes,
   });
 }
 
@@ -224,62 +223,108 @@ export function queueEditorViewContentChange(
 useBufferStore.subscribe((state) => {
   const activeBuffer = state.actions.getActiveBuffer();
   if (activeBuffer && isEditorContent(activeBuffer)) {
+    const bufferContent = typeof activeBuffer.content === "string" ? activeBuffer.content : "";
     const previousSnapshot = previousActiveBufferSnapshot;
 
     if (
       previousSnapshot &&
       previousSnapshot.id === activeBuffer.id &&
-      previousSnapshot.content === activeBuffer.content
+      previousSnapshot.content === bufferContent
     ) {
       return;
     }
 
-    const largeEditorInfo = getLargeEditorModeInfo(activeBuffer.content);
+    const pendingContentChange = pendingEditorViewContentChanges.get(activeBuffer.id);
+    pendingEditorViewContentChanges.delete(activeBuffer.id);
+    const canApplyQueuedChange =
+      previousSnapshot?.id === activeBuffer.id &&
+      pendingContentChange?.previousContent === previousSnapshot.content &&
+      pendingContentChange.nextContent === bufferContent;
+
+    let largeEditorInfo: LargeEditorModeInfo | null = null;
+    if (canApplyQueuedChange && previousSnapshot && pendingContentChange) {
+      largeEditorInfo = previousSnapshot.largeEditorInfo;
+      for (const change of sortEditorTextChangesForOriginalDocument(pendingContentChange.changes)) {
+        const nextInfo = applyEditorTextChangeToLargeEditorModeInfo(
+          largeEditorInfo,
+          change,
+          bufferContent.length,
+        );
+        if (!nextInfo) {
+          largeEditorInfo = null;
+          break;
+        }
+        largeEditorInfo = nextInfo;
+      }
+    }
+    if (!largeEditorInfo && previousSnapshot?.id === activeBuffer.id) {
+      largeEditorInfo = applyIncrementalLargeEditorModeInfo(
+        previousSnapshot.content,
+        bufferContent,
+        previousSnapshot.largeEditorInfo,
+      );
+    }
+    largeEditorInfo ??= getLargeEditorModeInfo(bufferContent);
+
     if (largeEditorInfo.largeContentMode) {
       const lines: string[] = [];
       previousActiveBufferSnapshot = {
         id: activeBuffer.id,
-        content: activeBuffer.content,
+        content: bufferContent,
         lines,
+        largeEditorInfo,
       };
       useEditorViewStore.setState({
         lines,
         lineCount: largeEditorInfo.lineCount,
+        tooLargeForEditorServices: true,
       });
       return;
     }
 
-    const previousLines = previousSnapshot?.id === activeBuffer.id ? previousSnapshot.lines : [""];
-    const pendingContentChange = pendingEditorViewContentChanges.get(activeBuffer.id);
-    pendingEditorViewContentChanges.delete(activeBuffer.id);
-    const changedLines =
-      previousSnapshot?.id === activeBuffer.id &&
-      pendingContentChange?.previousContent === previousSnapshot.content &&
-      pendingContentChange.nextContent === activeBuffer.content
-        ? applyEditorTextChangeToLines(previousLines, pendingContentChange.change)
-        : null;
+    const previousLines =
+      previousSnapshot?.id === activeBuffer.id ? previousSnapshot.lines.slice() : [""];
+    let changedLines: string[] | null = null;
+    if (canApplyQueuedChange && pendingContentChange) {
+      changedLines = previousLines;
+      for (const change of sortEditorTextChangesForOriginalDocument(pendingContentChange.changes)) {
+        const nextLines = applyEditorTextChangeToLines(changedLines, change);
+        if (!nextLines) {
+          changedLines = null;
+          break;
+        }
+        changedLines = nextLines;
+      }
+    }
     const lines =
       previousSnapshot?.id === activeBuffer.id
         ? (changedLines ??
-          applyIncrementalLineEdit(previousSnapshot.content, activeBuffer.content, previousLines) ??
-          activeBuffer.content.split("\n"))
-        : activeBuffer.content.split("\n");
+          applyIncrementalLineEdit(
+            previousSnapshot.content,
+            bufferContent,
+            previousSnapshot.lines.slice(),
+          ) ??
+          bufferContent.split("\n"))
+        : bufferContent.split("\n");
 
     previousActiveBufferSnapshot = {
       id: activeBuffer.id,
-      content: activeBuffer.content,
+      content: bufferContent,
       lines,
+      largeEditorInfo,
     };
 
     useEditorViewStore.setState({
       lines,
       lineCount: lines.length,
+      tooLargeForEditorServices: largeEditorInfo.largeContentMode,
     });
   } else {
     previousActiveBufferSnapshot = null;
     useEditorViewStore.setState({
       lines: [""],
       lineCount: 1,
+      tooLargeForEditorServices: false,
     });
   }
 });

@@ -256,12 +256,12 @@ export const useEditorAppStore = createSelectors(
           if (!activeBuffer || !isEditorContent(activeBuffer)) return;
           const collaborationNoteTarget = parseCollaborationNoteBufferPath(activeBuffer.path);
 
-          if (!contentAlreadyApplied && activeBufferId && options?.contentChange) {
+          if (!contentAlreadyApplied && activeBufferId && (options?.contentChanges?.length || options?.contentChange)) {
             queueEditorViewContentChange(
               activeBufferId,
               activeBuffer.content,
               content,
-              options.contentChange,
+              options.contentChanges ?? (options.contentChange ? [options.contentChange] : []),
             );
           }
 
@@ -282,16 +282,16 @@ export const useEditorAppStore = createSelectors(
 
           if (isRemoteFile) {
             if (!contentAlreadyApplied) {
-              updateBufferContent(activeBuffer.id, content, false);
+              updateBufferContent(activeBuffer.id, content, false, undefined, { local: true });
             }
           } else if (collaborationNoteTarget) {
             if (!contentAlreadyApplied) {
-              updateBufferContent(activeBuffer.id, content, true);
+              updateBufferContent(activeBuffer.id, content, true, undefined, { local: true });
             }
             markBufferDirty(activeBuffer.id, content !== activeBuffer.savedContent);
           } else {
             if (!contentAlreadyApplied) {
-              updateBufferContent(activeBuffer.id, content, true);
+              updateBufferContent(activeBuffer.id, content, true, undefined, { local: true });
             }
 
             if (!activeBuffer.isVirtual && settings.autoSave) {
