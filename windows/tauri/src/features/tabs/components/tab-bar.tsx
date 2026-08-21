@@ -29,12 +29,10 @@ import { findPaneGroup } from "@/features/panes/utils/pane-tree";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import type { PaneContent } from "@/features/panes/types/pane-content.types";
-import { useEditorAppStore } from "@/features/editor/stores/editor-app.store";
 import { getChromeNavigationIndex } from "@/features/layout/utils/chrome-keyboard";
 import { useSidebarStore } from "@/features/layout/stores/sidebar.store";
 import { useTerminalStore } from "@/features/terminal/stores/terminal.store";
 import { useWebViewerNavigationStore } from "@/features/viewer/web/stores/web-viewer-navigation.store";
-import UnsavedChangesDialog from "@/features/window/components/unsaved-changes-dialog";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { Button } from "@/ui/button";
 import { ContextMenu, ContextMenuTrigger } from "@/ui/context-menu";
@@ -50,6 +48,7 @@ import {
 } from "../utils/internal-tab-drag";
 import TabBarItem from "./tab-bar-item";
 import TabContextMenu from "./tab-context-menu";
+import { tabChromeBuffersEqual, toTabChromeBuffer } from "../utils/tab-chrome-buffer";
 
 interface TabBarProps {
   paneId?: string;
@@ -65,7 +64,6 @@ const TabBar = ({
   useJavaFileIconCacheLifecycle();
   const { t } = useTranslation();
   // Get everything from stores
-  const pendingClose = useBufferStore.use.pendingClose();
   const paneRoot = usePaneStore.use.root();
   const bottomRoot = usePaneStore.use.bottomRoot();
   const fullscreenPaneId = usePaneStore.use.fullscreenPaneId();
@@ -81,12 +79,15 @@ const TabBar = ({
   const paneBufferIdSet = useMemo(() => {
     return pane ? new Set(pane.bufferIds) : null;
   }, [pane?.bufferIds]);
-  const buffers = useBufferStore((state) => {
-    const visibleBuffers = paneBufferIdSet
-      ? state.buffers.filter((buffer) => paneBufferIdSet.has(buffer.id))
-      : state.buffers;
-    return visibleBuffers.filter((buffer) => buffer.type !== "newTab");
-  });
+  const buffers = useBufferStore(
+    (state) => {
+      const visibleBuffers = paneBufferIdSet
+        ? state.buffers.filter((buffer) => paneBufferIdSet.has(buffer.id))
+        : state.buffers;
+      return visibleBuffers.filter((buffer) => buffer.type !== "newTab").map(toTabChromeBuffer);
+    },
+    tabChromeBuffersEqual,
+  );
   const globalActiveBufferId = useBufferStore((state) => (pane ? null : state.activeBufferId));
   const activeBufferCandidate = pane ? pane.activeBufferId : globalActiveBufferId;
   const {
@@ -97,12 +98,9 @@ const TabBar = ({
     handleCloseAllTabs,
     handleCloseTabsToRight,
     reorderBuffers,
-    confirmCloseWithoutSaving,
-    cancelPendingClose,
     convertPreviewToDefinite,
     showNewTabView,
   } = useBufferStore.use.actions();
-  const { handleSave } = useEditorAppStore.use.actions();
   const horizontalTabScroll = useSettingsStore((state) => state.settings.horizontalTabScroll);
   const maxOpenTabs = useSettingsStore((state) => state.settings.maxOpenTabs);
   const updateActivePath = useSidebarStore.use.actions().updateActivePath;
@@ -402,27 +400,6 @@ const TabBar = ({
     },
     [rootFolderPath],
   );
-
-  const handleSaveAndClose = useCallback(async () => {
-    if (!pendingClose) return;
-
-    const buffer = bufferById.get(pendingClose.bufferId);
-    if (!buffer) return;
-
-    // Save the file
-    await handleSave();
-
-    // Then proceed with closing
-    confirmCloseWithoutSaving();
-  }, [pendingClose, bufferById, handleSave, confirmCloseWithoutSaving]);
-
-  const handleDiscardAndClose = useCallback(() => {
-    confirmCloseWithoutSaving();
-  }, [confirmCloseWithoutSaving]);
-
-  const handleCancelClose = useCallback(() => {
-    cancelPendingClose();
-  }, [cancelPendingClose]);
 
   const closeTab = useCallback(
     (bufferId: string) => {
@@ -871,15 +848,6 @@ const TabBar = ({
           </div>
         </TabBarSurface>
       </TabDndContext>
-
-      {pendingClose && (
-        <UnsavedChangesDialog
-          fileName={bufferById.get(pendingClose.bufferId)?.name || ""}
-          onSave={handleSaveAndClose}
-          onDiscard={handleDiscardAndClose}
-          onCancel={handleCancelClose}
-        />
-      )}
 
       {/* Screen reader live region for announcements */}
       <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">

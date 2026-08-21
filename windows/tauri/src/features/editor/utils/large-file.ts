@@ -151,11 +151,15 @@ export function shouldUseLargeEditorMode(content: string): boolean {
   return false;
 }
 
-export function getLargeEditorModeInfo(content: string): LargeEditorModeInfo {
+export function getLargeEditorModeInfo(
+  content: string,
+  options?: { includeLineOffsets?: boolean },
+): LargeEditorModeInfo {
   if (content.length === 0) {
     return { lineCount: 1, largeContentMode: false };
   }
 
+  const includeLineOffsets = options?.includeLineOffsets === true;
   let lineCount = 1;
   let crossedResponsiveLineThreshold = false;
   let lineOffsets: number[] | undefined;
@@ -166,6 +170,7 @@ export function getLargeEditorModeInfo(content: string): LargeEditorModeInfo {
 
     if (lineCount >= RESPONSIVE_LARGE_FILE_LINE_THRESHOLD) {
       crossedResponsiveLineThreshold = true;
+      if (!includeLineOffsets) continue;
       if (lineOffsets) {
         lineOffsets.push(index + 1);
       } else {
@@ -181,7 +186,7 @@ export function getLargeEditorModeInfo(content: string): LargeEditorModeInfo {
     crossedResponsiveLineThreshold ||
     isTooLargeForEditorServices({ contentLength: content.length, lineCount });
 
-  if (largeContentMode && !lineOffsets) {
+  if (includeLineOffsets && largeContentMode && !lineOffsets) {
     lineOffsets = buildLineOffsets(content);
   }
 
@@ -226,29 +231,36 @@ export function applyIncrementalLargeEditorModeInfo(
       contentLength: nextContent.length,
       lineCount,
     });
-  let lineOffsets: number[] | undefined;
-
-  if (largeContentMode) {
-    if (previousInfo.lineOffsets) {
-      lineOffsets = updateLineOffsetsForEdit(
-        previousInfo.lineOffsets,
-        prefixLength,
-        previousEndOffset,
-        insertedText,
-        nextContent.length - previousContent.length,
-      );
-      if (lineOffsets.length !== lineCount) {
-        return null;
-      }
-    } else {
-      lineOffsets = buildLineOffsets(nextContent);
-    }
-  }
 
   return {
     lineCount,
     largeContentMode,
-    lineOffsets,
+  };
+}
+
+export function applyEditorTextChangeToLargeEditorModeInfo(
+  previousInfo: LargeEditorModeInfo,
+  change: { text: string; startLine?: number; endLine?: number },
+  nextContentLength: number,
+): LargeEditorModeInfo | null {
+  if (change.startLine === undefined || change.endLine === undefined) {
+    return null;
+  }
+  if (change.startLine < 0 || change.endLine < change.startLine) {
+    return null;
+  }
+
+  const insertedNewlines = countNewlines(change.text);
+  const removedNewlines = change.endLine - change.startLine;
+  const lineCount = Math.max(1, previousInfo.lineCount + insertedNewlines - removedNewlines);
+  return {
+    lineCount,
+    largeContentMode:
+      previousInfo.largeContentMode ||
+      isTooLargeForEditorServices({
+        contentLength: nextContentLength,
+        lineCount,
+      }),
   };
 }
 

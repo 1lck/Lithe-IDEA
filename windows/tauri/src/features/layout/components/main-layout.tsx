@@ -22,9 +22,11 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { frontendTrace } from "@/utils/frontend-trace";
 import { recordStartupMilestone } from "@/features/bootstrap/startup-performance";
 import { getInternalTabDragData } from "@/features/tabs/utils/internal-tab-drag";
+import { PendingBufferCloseDialog } from "@/features/window/components/pending-buffer-close-dialog";
 import TitleBarWithSettings from "../../window/components/title-bar/title-bar";
 import { ProjectTabBar } from "../../window/components/project-tab-bar";
 import Footer from "./footer/footer";
+import { WorkbenchErrorBoundary } from "./workbench-error-boundary";
 import { ResizablePane } from "./resizable-pane";
 import {
   COLLAPSED_ACTIVITY_RAIL_WIDTH,
@@ -282,7 +284,9 @@ export function MainLayout() {
 
               <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                 <div className="lithe-glass-island relative min-h-0 flex-1 overflow-hidden rounded-xl border-border border-l bg-background">
-                  <CachedWorkspaceSplitViews />
+                  <WorkbenchErrorBoundary>
+                    <CachedWorkspaceSplitViews />
+                  </WorkbenchErrorBoundary>
                 </div>
                 {terminalWidthMode === "editor" && deferredSurfacesReady && (
                   <Suspense fallback={null}>
@@ -308,6 +312,8 @@ export function MainLayout() {
       ) : (
         <WelcomeScreen />
       )}
+
+      <PendingBufferCloseDialog />
 
       {/* Global modals and overlays */}
       {deferredSurfacesReady ? (
