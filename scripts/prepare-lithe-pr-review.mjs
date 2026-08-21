@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createHash } from "node:crypto";
 import { appendFile, readFile, writeFile } from "node:fs/promises";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
@@ -177,6 +178,8 @@ class GitHubClient {
     }
 
     async request(path, options = {}) {
+        const method = options.method ?? "GET";
+        const startedAt = performance.now();
         const response = await fetch(`${this.apiUrl}${path}`, {
             ...options,
             headers: {
@@ -186,6 +189,8 @@ class GitHubClient {
                 ...options.headers,
             },
         });
+        const elapsedMilliseconds = Math.round(performance.now() - startedAt);
+        console.log(`[lithe-review] GitHub API ${method} ${path} -> ${response.status} (${elapsedMilliseconds} ms)`);
         if (!response.ok) {
             const detail = await response.text();
             throw new Error(`GitHub API ${response.status} for ${path}: ${detail}`);
@@ -253,11 +258,25 @@ async function main() {
     const allowedReviewers = parseAllowedReviewers(process.env.LITHE_ALLOWED_REVIEWERS, owner);
     const actor = event.comment.user?.login ?? "";
     if (!actor || !isAuthorizedReviewer(actor, allowedReviewers)) {
+        console.warn(`[lithe-review] Ignoring unauthorized trigger from ${actor || "unknown"}`);
         await writeOutput("authorized", "false");
         return;
     }
 
+    console.log(`[lithe-review] Accepted trigger from ${actor} for PR #${event.issue.number}`);
+
     const client = new GitHubClient({ token: process.env.GH_TOKEN, apiUrl: process.env.GITHUB_API_URL });
+    try {
+        await client.request(`/repos/${owner}/${repository}/issues/comments/${event.comment.id}/reactions`, {
+            method: "POST",
+            body: JSON.stringify({ content: "eyes" }),
+            headers: { "Content-Type": "application/json" },
+        });
+        console.log("[lithe-review] Added acknowledgement reaction");
+    } catch (error) {
+        console.warn(`[lithe-review] Could not add acknowledgement reaction: ${error.message}`);
+    }
+
     const pullRequestNumber = event.issue.number;
     const pullRequest = await client.request(`/repos/${owner}/${repository}/pulls/${pullRequestNumber}`);
 
@@ -309,16 +328,6 @@ async function main() {
     );
     const issueContexts = possibleIssueContexts.filter((context) => context && !context.issue.pull_request);
 
-    try {
-        await client.request(`/repos/${owner}/${repository}/issues/comments/${event.comment.id}/reactions`, {
-            method: "POST",
-            body: JSON.stringify({ content: "eyes" }),
-            headers: { "Content-Type": "application/json" },
-        });
-    } catch (error) {
-        console.warn(`Could not add acknowledgement reaction: ${error.message}`);
-    }
-
     const promptPath = new URL("../.github/lithe-review/review-prompt.md", import.meta.url);
     const instructions = await readFile(promptPath, "utf8");
     const prompt = buildReviewPrompt({
@@ -333,6 +342,19 @@ async function main() {
         checks: checkResult.check_runs ?? [],
     });
     await writeFile(process.env.LITHE_PROMPT_OUTPUT, prompt, { mode: 0o600 });
+    const promptDigest = createHash("sha256").update(prompt).digest("hex");
+    console.log(`[lithe-review] Context summary ${JSON.stringify({
+        base: `${pullRequest.base.ref}@${pullRequest.base.sha}`,
+        head: `${pullRequest.head.ref}@${pullRequest.head.sha}`,
+        conversationComments: conversationComments.length,
+        reviews: reviews.length,
+        reviewComments: reviewComments.length,
+        relatedIssues: issueContexts.length,
+        checks: checkResult.check_runs?.length ?? 0,
+        promptBytes: Buffer.byteLength(prompt),
+        promptLines: prompt.split("\n").length,
+        promptSha256: promptDigest,
+    })}`);
     await writeOutput("authorized", "true");
     await writeOutput("base_sha", pullRequest.base.sha);
     await writeOutput("head_sha", pullRequest.head.sha);
