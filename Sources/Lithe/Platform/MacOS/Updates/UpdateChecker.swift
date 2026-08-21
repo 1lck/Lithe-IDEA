@@ -2,40 +2,6 @@ import AppKit
 import CryptoKit
 import Foundation
 
-struct GitHubReleaseAsset: Decodable, Sendable {
-    let name: String
-    let browserDownloadURL: URL
-    let digest: String?
-
-    enum CodingKeys: String, CodingKey {
-        case name
-        case browserDownloadURL = "browser_download_url"
-        case digest
-    }
-}
-
-struct GitHubRelease: Decodable, Sendable {
-    let tagName: String
-    let htmlURL: URL
-    let name: String?
-    let prerelease: Bool
-    let draft: Bool
-    let assets: [GitHubReleaseAsset]
-
-    var displayVersion: String {
-        tagName.hasPrefix("v") ? String(tagName.dropFirst()) : tagName
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case tagName = "tag_name"
-        case htmlURL = "html_url"
-        case name
-        case prerelease
-        case draft
-        case assets
-    }
-}
-
 struct UpdateNotice: Identifiable {
     let id = UUID()
     let title: String
@@ -93,7 +59,35 @@ enum UpdateStatus: Equatable {
     case installing(version: String)
     case upToDate(version: String)
     case noRelease
-    case failed
+    case failed(message: String)
+}
+
+struct UpdateEndpointConfiguration: Equatable {
+    static let productionManifestURL = URL(
+        string: "https://github.com/1lck/Lithe-IDEA/releases/latest/download/latest-macos.json"
+    )!
+
+    let manifestURL: URL
+    let allowsLocalHTTP: Bool
+
+    static let production = UpdateEndpointConfiguration(
+        manifestURL: productionManifestURL,
+        allowsLocalHTTP: false
+    )
+
+    init(manifestURL: URL, allowsLocalHTTP: Bool = false) {
+        self.manifestURL = manifestURL
+        self.allowsLocalHTTP = allowsLocalHTTP
+    }
+
+    static func isLoopbackHost(_ host: String) -> Bool {
+        switch host.lowercased() {
+        case "localhost", "127.0.0.1", "::1":
+            return true
+        default:
+            return false
+        }
+    }
 }
 
 @MainActor
@@ -104,17 +98,44 @@ final class UpdateChecker: ObservableObject {
     @Published private(set) var updatePrompt: UpdatePrompt?
     @Published private(set) var status: UpdateStatus = .idle
 
-    private static let latestReleaseURL = URL(string: "https://api.github.com/repos/1lck/Lithe-IDEA/releases/latest")!
     private static let automaticCheckInterval: TimeInterval = 24 * 60 * 60
     private static let lastAutomaticCheckKey = "lithe.update.lastAutomaticCheck"
+    private static let releasePageURL = URL(string: "https://github.com/1lck/Lithe-IDEA/releases/latest")!
 
     let currentVersion: String
     var isBusy: Bool { isChecking || isInstalling }
 
-    private var latestRelease: GitHubRelease?
+    private let transport: any UpdateNetworkTransport
+    private let preferences: UserDefaults
+    private let now: () -> Date
+    private let architecture: UpdateArchitecture?
+    private let endpoint: UpdateEndpointConfiguration
+    private var availableManifest: UpdateManifest?
+    private var availableAsset: UpdateManifestAsset?
 
     init(bundle: Bundle = .main) {
         currentVersion = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
+        transport = MacUpdateNetworkTransport()
+        preferences = .standard
+        now = Date.init
+        architecture = .current
+        endpoint = .production
+    }
+
+    init(
+        currentVersion: String,
+        transport: any UpdateNetworkTransport,
+        preferences: UserDefaults,
+        now: @escaping () -> Date = Date.init,
+        architecture: UpdateArchitecture? = .current,
+        endpoint: UpdateEndpointConfiguration = .production
+    ) {
+        self.currentVersion = currentVersion
+        self.transport = transport
+        self.preferences = preferences
+        self.now = now
+        self.architecture = architecture
+        self.endpoint = endpoint
     }
 
     func checkForUpdates(manual: Bool = false) async {
@@ -123,29 +144,29 @@ final class UpdateChecker: ObservableObject {
 
         isChecking = true
         status = .checking
-        latestRelease = nil
+        availableManifest = nil
+        availableAsset = nil
         updatePrompt = nil
         if manual { notice = nil }
         defer { isChecking = false }
 
-        if !manual {
-            UserDefaults.standard.set(Date(), forKey: Self.lastAutomaticCheckKey)
-        }
-
         do {
-            let release = try await fetchLatestRelease()
-            guard !release.draft, !release.prerelease else {
-                status = .noRelease
-                return
+            let manifest = try await fetchLatestManifest()
+            guard let architecture else { throw UpdateCheckError.noCompatibleAsset }
+            let asset = try manifest.asset(for: architecture)
+
+            if !manual {
+                preferences.set(now(), forKey: Self.lastAutomaticCheckKey)
             }
 
-            if isNewer(release.displayVersion, than: currentVersion) {
-                latestRelease = release
-                status = .available(version: release.displayVersion, url: release.htmlURL)
+            if UpdateVersion.isNewer(manifest.version, than: currentVersion) {
+                availableManifest = manifest
+                availableAsset = asset
+                status = .available(version: manifest.version, url: manifest.releaseURL)
                 updatePrompt = UpdatePrompt(
-                    title: "Lithe \(release.displayVersion) is available",
+                    title: "Lithe \(manifest.version) is available",
                     message: "Lithe will download the update and restart after replacing the current app.",
-                    releaseURL: release.htmlURL
+                    releaseURL: manifest.releaseURL
                 )
             } else if manual {
                 status = .upToDate(version: currentVersion)
@@ -167,12 +188,13 @@ final class UpdateChecker: ObservableObject {
                 )
             }
         } catch {
-            status = .failed
+            let updateError = normalizedError(error)
+            status = .failed(message: updateError.userMessage)
             if manual {
                 notice = UpdateNotice(
                     title: "Could not check for updates",
-                    message: "Check your internet connection and try again later.",
-                    action: .dismiss
+                    message: updateError.userMessage,
+                    action: .open(Self.releasePageURL)
                 )
             }
         }
@@ -180,7 +202,8 @@ final class UpdateChecker: ObservableObject {
 
     func installAvailableUpdate() async {
         guard !isBusy,
-              let release = latestRelease,
+              let manifest = availableManifest,
+              let asset = availableAsset,
               case .available(let version, _) = status else { return }
 
         isInstalling = true
@@ -190,114 +213,30 @@ final class UpdateChecker: ObservableObject {
         defer { isInstalling = false }
 
         do {
-            let asset = try updateAsset(for: release)
-            let downloadedURL: URL
+            var request = URLRequest(url: asset.url)
+            request.setValue("Lithe/\(currentVersion)", forHTTPHeaderField: "User-Agent")
             let updateChecker = self
-            do {
-                downloadedURL = try await Self.downloadUpdate(
-                    from: asset.browserDownloadURL,
-                    userAgent: "Lithe/\(currentVersion)",
-                    progress: { progress in
-                        await MainActor.run {
-                            updateChecker.status = .downloading(version: version, progress: progress)
-                        }
+            let downloadedURL = try await transport.download(
+                request,
+                progress: { progress in
+                    await MainActor.run {
+                        updateChecker.status = .downloading(version: version, progress: progress)
                     }
-                )
-            } catch {
-                if error is UpdateCheckError {
-                    throw error
                 }
-                throw UpdateCheckError.downloadFailed
-            }
+            )
+            defer { try? FileManager.default.removeItem(at: downloadedURL) }
 
             try verify(downloadedFile: downloadedURL, against: asset)
             status = .installing(version: version)
             try scheduleReplacement(with: downloadedURL, version: version)
         } catch {
-            status = .failed
+            let updateError = normalizedError(error, fallback: .downloadFailed)
+            status = .failed(message: updateError.userMessage)
             notice = UpdateNotice(
                 title: "Could not install update",
-                message: userMessage(for: error),
-                action: .dismiss
+                message: updateError.userMessage,
+                action: .open(manifest.releaseURL)
             )
-        }
-    }
-
-    private nonisolated static func downloadUpdate(
-        from url: URL,
-        userAgent: String,
-        progress: @escaping @Sendable (UpdateDownloadProgress) async -> Void
-    ) async throws -> URL {
-        var request = URLRequest(url: url)
-        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-
-        let bytes: URLSession.AsyncBytes
-        let response: URLResponse
-        do {
-            (bytes, response) = try await URLSession.shared.bytes(for: request)
-        } catch {
-            throw UpdateCheckError.downloadFailed
-        }
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw UpdateCheckError.invalidResponse
-        }
-        guard (200..<300).contains(httpResponse.statusCode) else {
-            throw UpdateCheckError.httpStatus(httpResponse.statusCode)
-        }
-
-        let totalBytes = response.expectedContentLength > 0
-            ? response.expectedContentLength
-            : nil
-        let destination = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-update-\(UUID().uuidString).dmg")
-        FileManager.default.createFile(atPath: destination.path, contents: nil)
-
-        do {
-            let handle = try FileHandle(forWritingTo: destination)
-            defer { try? handle.close() }
-
-            var buffer = Data()
-            buffer.reserveCapacity(64 * 1024)
-            var downloadedBytes: Int64 = 0
-            var lastProgressUpdate = Date.distantPast
-
-            for try await byte in bytes {
-                buffer.append(byte)
-                downloadedBytes += 1
-
-                if buffer.count >= 64 * 1024 {
-                    try handle.write(contentsOf: buffer)
-                    buffer.removeAll(keepingCapacity: true)
-                    let now = Date()
-                    if now.timeIntervalSince(lastProgressUpdate) >= 0.05 {
-                        lastProgressUpdate = now
-                        await progress(
-                            UpdateDownloadProgress(
-                                downloadedBytes: downloadedBytes,
-                                totalBytes: totalBytes
-                            )
-                        )
-                    }
-                }
-            }
-
-            if !buffer.isEmpty {
-                try handle.write(contentsOf: buffer)
-            }
-            await progress(
-                UpdateDownloadProgress(
-                    downloadedBytes: downloadedBytes,
-                    totalBytes: totalBytes
-                )
-            )
-            return destination
-        } catch {
-            try? FileManager.default.removeItem(at: destination)
-            if error is UpdateCheckError {
-                throw error
-            }
-            throw UpdateCheckError.downloadFailed
         }
     }
 
@@ -312,55 +251,46 @@ final class UpdateChecker: ObservableObject {
         updatePrompt = nil
     }
 
-    private static let releasePageURL = URL(string: "https://github.com/1lck/Lithe-IDEA/releases/latest")!
-
-    private func fetchLatestRelease() async throws -> GitHubRelease {
-        var request = URLRequest(url: Self.latestReleaseURL)
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+    private func fetchLatestManifest() async throws -> UpdateManifest {
+        var request = URLRequest(url: endpoint.manifestURL)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("Lithe/\(currentVersion)", forHTTPHeaderField: "User-Agent")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw UpdateCheckError.invalidResponse
-        }
-        if httpResponse.statusCode == 404 {
+        let response = try await transport.fetch(request)
+        if response.statusCode == 404 {
             throw UpdateCheckError.noPublishedRelease
         }
-        guard (200..<300).contains(httpResponse.statusCode) else {
-            throw UpdateCheckError.httpStatus(httpResponse.statusCode)
+        if response.statusCode == 403, isRateLimited(response) {
+            throw UpdateCheckError.rateLimited
         }
-        return try JSONDecoder().decode(GitHubRelease.self, from: data)
+        guard (200..<300).contains(response.statusCode) else {
+            throw UpdateCheckError.httpStatus(response.statusCode)
+        }
+        do {
+            return try JSONDecoder().decode(UpdateManifest.self, from: response.body)
+                .validated(allowingLocalHTTP: endpoint.allowsLocalHTTP)
+        } catch let error as UpdateCheckError {
+            throw error
+        } catch {
+            throw UpdateCheckError.invalidManifest
+        }
     }
 
-    private func updateAsset(for release: GitHubRelease) throws -> GitHubReleaseAsset {
-        let version = release.displayVersion
-        let architectureAssetName = "Lithe-\(version)-\(currentArchitecture).dmg"
-        let universalAssetName = "Lithe-\(version).dmg"
-
-        if let asset = release.assets.first(where: { $0.name == architectureAssetName }) {
-            return asset
+    private func isRateLimited(_ response: UpdateHTTPResponse) -> Bool {
+        if response.header(named: "X-RateLimit-Remaining") == "0" {
+            return true
         }
-        if let asset = release.assets.first(where: { $0.name == universalAssetName }) {
-            return asset
-        }
-        throw UpdateCheckError.noCompatibleAsset
+        let body = String(data: response.body, encoding: .utf8)?.lowercased() ?? ""
+        return body.contains("rate limit")
     }
 
-    private func verify(downloadedFile: URL, against asset: GitHubReleaseAsset) throws {
-        guard let rawDigest = asset.digest else {
-            throw UpdateCheckError.missingChecksum
-        }
-
-        let expectedDigest = rawDigest
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "sha256:", with: "")
-            .lowercased()
+    private func verify(downloadedFile: URL, against asset: UpdateManifestAsset) throws {
         let data = try Data(contentsOf: downloadedFile, options: .mappedIfSafe)
         let actualDigest = SHA256.hash(data: data)
             .map { String(format: "%02x", $0) }
             .joined()
 
-        guard actualDigest == expectedDigest else {
+        guard actualDigest == asset.normalizedSHA256 else {
             throw UpdateCheckError.checksumMismatch
         }
     }
@@ -513,96 +443,49 @@ final class UpdateChecker: ObservableObject {
         }
     }
 
-    private var currentArchitecture: String {
-        #if arch(arm64)
-        return "arm64"
-        #elseif arch(x86_64)
-        return "x86_64"
-        #else
-        return "unknown"
-        #endif
-    }
-
-    private func userMessage(for error: Error) -> String {
-        guard let updateError = error as? UpdateCheckError else {
-            return "The update could not be installed. Download the release manually and try again."
-        }
-        return updateError.userMessage
-    }
-
     private func shouldPerformAutomaticCheck() -> Bool {
-        guard let lastCheck = UserDefaults.standard.object(forKey: Self.lastAutomaticCheckKey) as? Date else {
+        guard let lastCheck = preferences.object(forKey: Self.lastAutomaticCheckKey) as? Date else {
             return true
         }
-        return Date().timeIntervalSince(lastCheck) >= Self.automaticCheckInterval
+        return now().timeIntervalSince(lastCheck) >= Self.automaticCheckInterval
     }
 
-    private func isNewer(_ candidate: String, than current: String) -> Bool {
-        guard let candidateComponents = versionComponents(candidate),
-              let currentComponents = versionComponents(current) else {
-            return false
+    private func normalizedError(
+        _ error: Error,
+        fallback: UpdateCheckError = .connectionFailed
+    ) -> UpdateCheckError {
+        if let updateError = error as? UpdateCheckError {
+            return updateError
+        }
+        if error is UpdateTransportError {
+            return .invalidResponse
+        }
+        guard let urlError = error as? URLError else {
+            return fallback
         }
 
-        let count = max(candidateComponents.count, currentComponents.count)
-        for index in 0..<count {
-            let candidateValue = index < candidateComponents.count ? candidateComponents[index] : 0
-            let currentValue = index < currentComponents.count ? currentComponents[index] : 0
-            if candidateValue != currentValue {
-                return candidateValue > currentValue
-            }
-        }
-        return false
-    }
-
-    private func versionComponents(_ version: String) -> [Int]? {
-        let normalized = version
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "^v", with: "", options: .regularExpression)
-            .split(separator: "-", maxSplits: 1, omittingEmptySubsequences: true)
-            .first
-            .map(String.init) ?? ""
-        let components = normalized.split(separator: ".", omittingEmptySubsequences: true)
-        guard !components.isEmpty else { return nil }
-
-        var values: [Int] = []
-        for component in components {
-            guard let value = Int(component) else { return nil }
-            values.append(value)
-        }
-        return values
-    }
-}
-
-private enum UpdateCheckError: Error {
-    case noPublishedRelease
-    case invalidResponse
-    case httpStatus(Int)
-    case noCompatibleAsset
-    case missingChecksum
-    case checksumMismatch
-    case downloadFailed
-    case notAppBundle
-    case appNotFoundInDiskImage
-    case toolFailed(String)
-
-    var userMessage: String {
-        switch self {
-        case .noCompatibleAsset:
-            return "No update package is available for this Mac. Download the release manually."
-        case .missingChecksum:
-            return "The update package has no checksum and cannot be verified."
-        case .checksumMismatch:
-            return "The downloaded update failed its checksum verification."
-        case .downloadFailed:
-            return "The update package could not be downloaded. Check your internet connection and try again."
-        case .notAppBundle:
-            return "Self-update is only available when Lithe is running from a packaged Lithe.app."
-        case .appNotFoundInDiskImage:
-            return "The downloaded disk image does not contain Lithe.app."
-        case .toolFailed:
-            return "macOS could not prepare the update disk image. Download the release manually and try again."
-        case .noPublishedRelease, .invalidResponse, .httpStatus:
-            return "The update could not be installed. Download the release manually and try again."
+        switch urlError.code {
+        case .timedOut:
+            return .timedOut
+        case .secureConnectionFailed,
+             .serverCertificateHasBadDate,
+             .serverCertificateUntrusted,
+             .serverCertificateHasUnknownRoot,
+             .serverCertificateNotYetValid,
+             .clientCertificateRejected,
+             .clientCertificateRequired,
+             .appTransportSecurityRequiresSecureConnection:
+            return .tlsOrProxyFailure
+        case .cannotConnectToHost,
+             .cannotFindHost,
+             .dnsLookupFailed,
+             .networkConnectionLost,
+             .notConnectedToInternet,
+             .internationalRoamingOff,
+             .dataNotAllowed:
+            return .connectionFailed
+        default:
+            return fallback
         }
     }
 }

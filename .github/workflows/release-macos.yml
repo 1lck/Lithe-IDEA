@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-macos-${{ github.ref }}
+  group: release-macos-${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -177,7 +177,18 @@ jobs:
             (cd dist && shasum -a 256 -c "Lithe-${LITHE_VERSION}-${architecture}.dmg.sha256")
           done
 
-      - name: Create GitHub Release
+      - name: Generate macOS update manifest
+        env:
+          LITHE_VERSION: ${{ needs.prepare.outputs.version }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          ruby scripts/create-macos-update-manifest.rb \
+            --version "$LITHE_VERSION" \
+            --repository "$GITHUB_REPOSITORY" \
+            --release-tag "$RELEASE_TAG"
+          ruby -rjson -e 'manifest = JSON.parse(File.read("dist/latest-macos.json")); abort "Invalid schema" unless manifest["schemaVersion"] == 1'
+
+      - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
@@ -185,24 +196,32 @@ jobs:
         shell: bash
         run: |
           notes_file="docs/releases/v${LITHE_VERSION}.md"
-          release_args=(
+          create_args=(
             "$RELEASE_TAG"
-            "dist/Lithe-${LITHE_VERSION}-arm64.dmg"
-            "dist/Lithe-${LITHE_VERSION}-arm64.dmg.sha256"
-            "dist/Lithe-${LITHE_VERSION}-x86_64.dmg"
-            "dist/Lithe-${LITHE_VERSION}-x86_64.dmg.sha256"
             --repo "$GITHUB_REPOSITORY"
             --target "$GITHUB_SHA"
             --title "Lithe $RELEASE_TAG"
           )
+          upload_args=(
+            "dist/Lithe-${LITHE_VERSION}-arm64.dmg"
+            "dist/Lithe-${LITHE_VERSION}-arm64.dmg.sha256"
+            "dist/Lithe-${LITHE_VERSION}-x86_64.dmg"
+            "dist/Lithe-${LITHE_VERSION}-x86_64.dmg.sha256"
+            "dist/latest-macos.json"
+          )
 
           if [[ -f "$notes_file" ]]; then
-            release_args+=(--notes-file "$notes_file")
+            create_args+=(--notes-file "$notes_file")
           else
-            release_args+=(--generate-notes)
+            create_args+=(--generate-notes)
           fi
 
-          gh release create "${release_args[@]}"
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "${create_args[@]}" || \
+              gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+          fi
+          gh release upload "$RELEASE_TAG" "${upload_args[@]}" \
+            --repo "$GITHUB_REPOSITORY" --clobber
 
   update-cask:
     name: Update Homebrew Cask

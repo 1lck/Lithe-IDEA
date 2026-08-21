@@ -49,7 +49,7 @@ struct RootView: View {
                 return Alert(
                     title: Text(LocalizedStringKey(notice.title)),
                     message: Text(LocalizedStringKey(notice.message)),
-                    primaryButton: .default(Text("Download")) {
+                    primaryButton: .default(Text("Open Release Page")) {
                         updateChecker.openRelease(url)
                     },
                     secondaryButton: .cancel()
