@@ -2,51 +2,35 @@ name: Windows CI
 
 on:
   pull_request:
-    paths:
-      - "windows/**"
-      - "rust/**"
-      - "shared/**"
-      - "scripts/build-windows.ps1"
-      - "scripts/classify-ci-changes.sh"
-      - "scripts/test-classify-ci-changes.sh"
-      - "scripts/verify-windows-boundaries.ps1"
-      - ".github/workflows/ci-windows.yml"
   push:
     branches:
       - main
-    paths:
-      - "windows/**"
-      - "rust/**"
-      - "shared/**"
-      - "scripts/build-windows.ps1"
-      - "scripts/classify-ci-changes.sh"
-      - "scripts/test-classify-ci-changes.sh"
-      - "scripts/verify-windows-boundaries.ps1"
-      - ".github/workflows/ci-windows.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: windows-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   changes:
     name: Classify changes
     runs-on: ubuntu-latest
     outputs:
-      full: ${{ steps.classify.outputs.full }}
+      windows: ${{ steps.classify.outputs.windows }}
+      rust_core: ${{ steps.classify.outputs.rust_core }}
+      windows_rust: ${{ steps.classify.outputs.windows_rust }}
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Test CI change classifier
-        shell: bash
-        run: ./scripts/test-classify-ci-changes.sh
-
-      - name: Classify changed content
-        id: classify
+      - name: Resolve comparison base
+        id: base
         env:
           EVENT_NAME: ${{ github.event_name }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -54,7 +38,7 @@ jobs:
         shell: bash
         run: |
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            echo "full=true" >> "$GITHUB_OUTPUT"
+            echo "manual=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -62,18 +46,55 @@ jobs:
           if [[ "$EVENT_NAME" == "pull_request" ]]; then
             base_sha="$PR_BASE_SHA"
           fi
+          {
+            echo "manual=false"
+            echo "base_sha=$base_sha"
+          } >> "$GITHUB_OUTPUT"
 
-          ./scripts/classify-ci-changes.sh "$base_sha" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+      - name: Classify changed paths
+        id: classify
+        env:
+          MANUAL: ${{ steps.base.outputs.manual }}
+          BASE_SHA: ${{ steps.base.outputs.base_sha }}
+        shell: bash
+        run: |
+          if [[ "$MANUAL" == "true" ]]; then
+            {
+              echo "rust_core=true"
+              echo "windows=true"
+              echo "windows_rust=true"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
-  build:
+          ./scripts/classify-ci-changes.sh "$BASE_SHA" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Summarize selected lanes
+        shell: bash
+        env:
+          WINDOWS: ${{ steps.classify.outputs.windows }}
+          RUST_CORE: ${{ steps.classify.outputs.rust_core }}
+          WINDOWS_RUST: ${{ steps.classify.outputs.windows_rust }}
+        run: |
+          {
+            echo "### Windows CI lanes"
+            echo "| Lane | Run |"
+            echo "| --- | --- |"
+            echo "| Windows build | $WINDOWS |"
+            echo "| Shared Rust Core tests | $RUST_CORE |"
+            echo "| Windows Rust tests | $WINDOWS_RUST |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  validate:
     name: Build and test Windows implementation
     needs: changes
-    if: needs.changes.outputs.full == 'true'
+    if: needs.changes.outputs.windows == 'true' || needs.changes.outputs.rust_core == 'true' || needs.changes.outputs.windows_rust == 'true'
     runs-on: windows-latest
+    timeout-minutes: 45
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -81,20 +102,53 @@ jobs:
           targets: x86_64-pc-windows-msvc
 
       - name: Set up Bun
+        if: needs.changes.outputs.windows == 'true'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.12"
 
+      - name: Restore Cargo dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+          key: cargo-dependencies-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock', 'windows/tauri/src-tauri/Cargo.lock') }}
+
       - name: Build Windows Tauri application
+        if: needs.changes.outputs.windows == 'true'
         shell: pwsh
         run: ./scripts/build-windows.ps1 -Configuration Release
 
       - name: Verify Windows boundaries
+        if: needs.changes.outputs.windows == 'true'
         shell: pwsh
         run: ./scripts/verify-windows-boundaries.ps1
 
-      - name: Run Rust tests
+      - name: Test shared Rust Core
+        if: needs.changes.outputs.rust_core == 'true'
         shell: pwsh
+        run: cargo test --manifest-path rust/Cargo.toml -p lithe-core
+
+      - name: Test Windows Rust host
+        if: needs.changes.outputs.windows_rust == 'true'
+        shell: pwsh
+        run: cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml
+
+  gate:
+    name: Windows CI gate
+    needs:
+      - changes
+      - validate
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Verify required jobs
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+        shell: bash
         run: |
-          cargo test --manifest-path rust/Cargo.toml
-          cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml
+          [[ "$CHANGES_RESULT" == "success" ]]
+          [[ "$VALIDATE_RESULT" == "success" || "$VALIDATE_RESULT" == "skipped" ]]

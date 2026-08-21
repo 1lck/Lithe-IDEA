@@ -1,0 +1,131 @@
+name: Plugin CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: plugin-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Classify changes
+    runs-on: ubuntu-latest
+    outputs:
+      plugins: ${{ steps.classify.outputs.plugins }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Resolve comparison base
+        id: base
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+        shell: bash
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo "manual=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          base_sha="$PUSH_BASE_SHA"
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            base_sha="$PR_BASE_SHA"
+          fi
+          {
+            echo "manual=false"
+            echo "base_sha=$base_sha"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Classify changed paths
+        id: classify
+        env:
+          MANUAL: ${{ steps.base.outputs.manual }}
+          BASE_SHA: ${{ steps.base.outputs.base_sha }}
+        shell: bash
+        run: |
+          if [[ "$MANUAL" == "true" ]]; then
+            echo "plugins=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          ./scripts/classify-ci-changes.sh "$BASE_SHA" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Summarize selected lanes
+        shell: bash
+        env:
+          PLUGINS: ${{ steps.classify.outputs.plugins }}
+        run: |
+          {
+            echo "### Plugin CI lanes"
+            echo "| Lane | Run |"
+            echo "| --- | --- |"
+            echo "| Plugin tests and package verification | $PLUGINS |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  plugin-tests:
+    name: Plugin tests and package verification
+    needs: changes
+    if: needs.changes.outputs.plugins == 'true'
+    runs-on: macos-14
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.2"
+
+      - name: Restore SwiftPM dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            .build/checkouts
+            .build/repositories
+            ~/.cache/org.swift.swiftpm
+          key: swiftpm-${{ runner.os }}-6.2-${{ hashFiles('Package.resolved') }}
+
+      - name: Run plugin-focused Swift tests
+        timeout-minutes: 12
+        run: ./scripts/test-macos.sh --filter '([Pp]lugin|LitheGoSupportModuleTests|LinuxDo)'
+
+      - name: Run plugin WebKit lifecycle integration tests
+        timeout-minutes: 3
+        run: ./scripts/test-macos.sh --skip-build --filter WebKitIntegrationTests
+
+      - name: Build and verify official plugin packages
+        timeout-minutes: 10
+        run: ./scripts/verify-official-plugins.sh
+
+  gate:
+    name: Plugin CI gate
+    needs:
+      - changes
+      - plugin-tests
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Verify required jobs
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          PLUGIN_RESULT: ${{ needs.plugin-tests.result }}
+        shell: bash
+        run: |
+          [[ "$CHANGES_RESULT" == "success" ]]
+          [[ "$PLUGIN_RESULT" == "success" || "$PLUGIN_RESULT" == "skipped" ]]

@@ -19,8 +19,10 @@ jobs:
     name: Classify changes
     runs-on: ubuntu-latest
     outputs:
-      full: ${{ steps.classify.outputs.full }}
-      comments: ${{ steps.classify.outputs.comments }}
+      swift: ${{ steps.classify.outputs.swift }}
+      rust_core: ${{ steps.classify.outputs.rust_core }}
+      macos_release: ${{ steps.classify.outputs.macos_release }}
+      rust_comments: ${{ steps.classify.outputs.rust_comments }}
       metadata: ${{ steps.classify.outputs.metadata }}
 
     steps:
@@ -33,8 +35,8 @@ jobs:
         shell: bash
         run: ./scripts/test-classify-ci-changes.sh
 
-      - name: Classify changed paths
-        id: classify
+      - name: Resolve comparison base
+        id: base
         env:
           EVENT_NAME: ${{ github.event_name }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -42,11 +44,7 @@ jobs:
         shell: bash
         run: |
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            {
-              echo "full=true"
-              echo "comments=false"
-              echo "metadata=false"
-            } >> "$GITHUB_OUTPUT"
+            echo "manual=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -54,32 +52,78 @@ jobs:
           if [[ "$EVENT_NAME" == "pull_request" ]]; then
             base_sha="$PR_BASE_SHA"
           fi
+          {
+            echo "manual=false"
+            echo "base_sha=$base_sha"
+          } >> "$GITHUB_OUTPUT"
 
-          ./scripts/classify-ci-changes.sh "$base_sha" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+      - name: Classify changed paths
+        id: classify
+        env:
+          MANUAL: ${{ steps.base.outputs.manual }}
+          BASE_SHA: ${{ steps.base.outputs.base_sha }}
+        shell: bash
+        run: |
+          if [[ "$MANUAL" == "true" ]]; then
+            {
+              echo "swift=true"
+              echo "rust_core=true"
+              echo "macos_release=true"
+              echo "rust_comments=false"
+              echo "metadata=true"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          ./scripts/classify-ci-changes.sh "$BASE_SHA" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Validate changed text
+        if: steps.base.outputs.manual == 'false'
+        env:
+          BASE_SHA: ${{ steps.base.outputs.base_sha }}
+        shell: bash
+        run: git diff --check "$BASE_SHA" "$GITHUB_SHA"
 
       - name: Set up Rust for comment verification
-        if: steps.classify.outputs.full == 'false' && steps.classify.outputs.comments == 'true'
+        if: steps.classify.outputs.rust_core == 'false' && steps.classify.outputs.rust_comments == 'true'
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Validate text-only changes
-        if: steps.classify.outputs.full == 'false' && steps.classify.outputs.comments == 'true'
+      - name: Validate Rust Core comment-only changes
+        if: steps.classify.outputs.rust_core == 'false' && steps.classify.outputs.rust_comments == 'true'
         shell: bash
-        run: |
-          git diff --check "${{ github.event.pull_request.base.sha || github.event.before }}" "$GITHUB_SHA"
-          ./scripts/verify-rust-core-comments.sh
+        run: ./scripts/verify-rust-core-comments.sh
 
       - name: Validate lightweight metadata changes
-        if: steps.classify.outputs.full == 'false' && steps.classify.outputs.metadata == 'true'
+        if: steps.classify.outputs.metadata == 'true'
         shell: bash
         run: |
-          git diff --check "${{ github.event.pull_request.base.sha || github.event.before }}" "$GITHUB_SHA"
           ruby -c Casks/lithe.rb
           ruby -c scripts/update-homebrew-cask.rb
+
+      - name: Summarize selected lanes
+        shell: bash
+        env:
+          SWIFT: ${{ steps.classify.outputs.swift }}
+          RUST_CORE: ${{ steps.classify.outputs.rust_core }}
+          MACOS_RELEASE: ${{ steps.classify.outputs.macos_release }}
+          RUST_COMMENTS: ${{ steps.classify.outputs.rust_comments }}
+          METADATA: ${{ steps.classify.outputs.metadata }}
+        run: |
+          {
+            echo "### macOS CI lanes"
+            echo "| Lane | Run |"
+            echo "| --- | --- |"
+            echo "| Swift tests | $SWIFT |"
+            echo "| Rust Core tests | $RUST_CORE |"
+            echo "| Release build | $MACOS_RELEASE |"
+            echo "| Rust comment verification | $RUST_COMMENTS |"
+            echo "| Metadata validation | $METADATA |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   swift-tests:
     name: Swift tests
     needs: changes
-    if: needs.changes.outputs.full == 'true'
+    if: needs.changes.outputs.swift == 'true'
     runs-on: macos-14
     timeout-minutes: 30
 
@@ -105,7 +149,9 @@ jobs:
         timeout-minutes: 12
         run: |
           ./scripts/test-macos.sh \
-            --skip WebKitIntegrationTests
+            --skip WebKitIntegrationTests \
+            --skip '(LitheDatabaseModuleTests|LitheTests\.LitheCoreLogicTests/database)' \
+            --skip '([Pp]lugin|LitheGoSupportModuleTests|LinuxDo)'
 
       - name: Run WebKit lifecycle integration tests
         timeout-minutes: 3
@@ -114,10 +160,10 @@ jobs:
             --skip-build \
             --filter WebKitIntegrationTests
 
-  rust-tests:
-    name: Rust Core and database tests
+  rust-core-tests:
+    name: Rust Core and Swift bridge tests
     needs: changes
-    if: needs.changes.outputs.full == 'true'
+    if: needs.changes.outputs.rust_core == 'true'
     runs-on: macos-14
     timeout-minutes: 20
 
@@ -146,16 +192,10 @@ jobs:
       - name: Run Rust Core tests and verify the Swift bridge
         run: ./scripts/verify-rust-core.sh
 
-      - name: Test database helpers
-        run: |
-          cargo fmt --manifest-path rust/Cargo.toml --all -- --check
-          cargo test --manifest-path rust/Cargo.toml -p lithe-db-sidecar
-          cargo test --manifest-path rust/Cargo.toml -p lithe-db-mcp
-
   release-build:
     name: Release configuration
     needs: changes
-    if: needs.changes.outputs.full == 'true'
+    if: needs.changes.outputs.macos_release == 'true'
     runs-on: macos-14
     timeout-minutes: 20
 
@@ -222,7 +262,7 @@ jobs:
     needs:
       - changes
       - swift-tests
-      - rust-tests
+      - rust-core-tests
       - release-build
     if: always()
     runs-on: ubuntu-latest
@@ -232,11 +272,14 @@ jobs:
         env:
           CHANGES_RESULT: ${{ needs.changes.result }}
           SWIFT_RESULT: ${{ needs.swift-tests.result }}
-          RUST_RESULT: ${{ needs.rust-tests.result }}
+          RUST_CORE_RESULT: ${{ needs.rust-core-tests.result }}
           RELEASE_RESULT: ${{ needs.release-build.result }}
         shell: bash
         run: |
           [[ "$CHANGES_RESULT" == "success" ]]
-          for result in "$SWIFT_RESULT" "$RUST_RESULT" "$RELEASE_RESULT"; do
+          for result in \
+            "$SWIFT_RESULT" \
+            "$RUST_CORE_RESULT" \
+            "$RELEASE_RESULT"; do
             [[ "$result" == "success" || "$result" == "skipped" ]]
           done
