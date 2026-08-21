@@ -50,7 +50,9 @@ html:is(.platform-macos, .platform-windows):not([data-window-transparency="disab
 html:is(.platform-macos, .platform-windows):not([data-window-transparency="disabled"])
   .lithe-resizable-pane,
 html:is(.platform-macos, .platform-windows):not([data-window-transparency="disabled"])
-  .lithe-sidebar-rail {
+  .lithe-sidebar-rail,
+html:is(.platform-macos, .platform-windows):not([data-window-transparency="disabled"])
+  .lithe-plugin-activity-rail {
   background: transparent !important;
 }
 

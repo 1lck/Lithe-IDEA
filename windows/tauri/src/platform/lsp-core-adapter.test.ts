@@ -87,7 +87,7 @@ const executeCore = mock(
         data: { sessionId },
       };
     }
-    if (request.command === "lsp.pollEvents") {
+    if (request.command === "lsp.waitEvents") {
       pollCount += 1;
       const sessionId = String(request.payload?.sessionId ?? "java-session");
       const sessionPollCount = (sessionPollCounts.get(sessionId) ?? 0) + 1;
@@ -324,7 +324,7 @@ describe("Rust Core LSP adapter failures", () => {
     expect(emit).toHaveBeenCalledWith("lsp://server-crashed", {});
     expect(commands).toEqual([
       "lsp.startServer",
-      "lsp.pollEvents",
+      "lsp.waitEvents",
       "lsp.stopServer",
       "lsp.destroyServer",
     ]);

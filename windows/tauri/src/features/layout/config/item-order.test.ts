@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   FOOTER_TRAILING_ITEM_IDS,
+  SIDEBAR_ACTIVITY_ITEM_IDS,
   SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS,
   normalizeItemOrder,
 } from "./item-order";
@@ -22,6 +23,10 @@ describe("footer item order", () => {
 });
 
 describe("sidebar activity order", () => {
+  test("does not expose an unavailable Database placeholder", () => {
+    expect([...SIDEBAR_ACTIVITY_ITEM_IDS]).not.toContain("database");
+  });
+
   test("places Run, Terminal, Diagnostics, Git Log, then Settings", () => {
     expect([...SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS]).toEqual([
       "run",

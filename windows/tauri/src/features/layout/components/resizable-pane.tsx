@@ -185,6 +185,8 @@ export function ResizablePane({
       className={cn(
         "lithe-resizable-pane relative flex h-full min-w-0 shrink-0 overflow-visible bg-transparent",
         hidden && "pointer-events-none",
+        !hidden && position === "left" && "mr-(--lithe-workbench-gap)",
+        !hidden && position === "right" && "ml-(--lithe-workbench-gap)",
         className,
       )}
       aria-hidden={hidden}
@@ -198,11 +200,9 @@ export function ResizablePane({
       >
         <div
           className={cn(
-            "lithe-glass-island flex min-h-0 flex-1 flex-col overflow-hidden border-border/70 border-y bg-background",
-            position === "left" && "border-l border-r",
-            position === "right" && "border-r",
-            !hidden && position === "left" && "rounded-l-xl",
-            !hidden && position === "right" && outerEdge && "rounded-r-xl",
+            "lithe-glass-island flex min-h-0 flex-1 flex-col overflow-hidden bg-background",
+            !hidden && "rounded-xl border-border border-x",
+            position === "right" && !outerEdge && "rounded-r-none border-r-0",
           )}
         >
           {children}
