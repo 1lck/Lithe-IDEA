@@ -2116,7 +2116,7 @@ const catalogs = {
       "Configure the JDK used only to run the bundled Java language server.",
     "settings.editor.jdtlsJdk": "JDTLS Runtime JDK",
     "settings.editor.jdtlsJdkDescription":
-      "Automatically detect JDK 17 or newer, or select a separate JDK without changing project run settings.",
+      "Automatically detect JDK 17–23 for the bundled JDTLS, or select a separate JDK without changing project run settings.",
     "settings.editor.jdtlsJdkMode": "JDTLS JDK selection mode",
     "settings.editor.jdtlsJdkAutomatic": "Automatic",
     "settings.editor.jdtlsJdkManual": "Manual",
@@ -6165,7 +6165,7 @@ const catalogs = {
     "settings.editor.jdtlsSectionDescription": "配置仅用于运行内置 Java 语言服务器的 JDK。",
     "settings.editor.jdtlsJdk": "JDTLS 运行 JDK",
     "settings.editor.jdtlsJdkDescription":
-      "自动检测 JDK 17 或更高版本，或选择独立 JDK；不会改变项目运行设置。",
+      "自动检测 JDK 17–23（适配内置 JDTLS），或选择独立 JDK；不会改变项目运行设置。",
     "settings.editor.jdtlsJdkMode": "JDTLS JDK 选择模式",
     "settings.editor.jdtlsJdkAutomatic": "自动",
     "settings.editor.jdtlsJdkManual": "手动",

@@ -153,7 +153,7 @@ export interface Settings {
   lintOnSave: boolean;
   autoCompletion: boolean;
   parameterHints: boolean;
-  /** Empty uses automatic JDK 17+ discovery for JDTLS. */
+  /** Empty uses automatic JDK 17–23 discovery for JDTLS. */
   jdtlsJavaHomePath: string;
   // External Editor
   externalEditor: "none" | "nvim" | "helix" | "vim" | "custom";
