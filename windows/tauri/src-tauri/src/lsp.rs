@@ -10,7 +10,9 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
 const JAVA_PROVIDER_ID: &str = "java";
+/// Bundled Eclipse JDTLS 1.38 runs on JDK 17–23; newer majors (e.g. 25) fail at startup.
 const MIN_JDTLS_JAVA_MAJOR_VERSION: u32 = 17;
+const MAX_JDTLS_JAVA_MAJOR_VERSION: u32 = 23;
 const JDTLS_EXECUTABLE_NAMES: &[&str] = &["jdtls.bat", "jdtls.cmd", "jdtls.exe", "jdtls"];
 const MAX_CURRENT_EXE_JDTLS_WALK_DEPTH: usize = 12;
 
@@ -225,8 +227,9 @@ fn resolve_java_home(java_home_override: Option<&str>) -> Result<PathBuf, String
     select_compatible_java_runtime(run::discover_toolchains(None).java)
         .map(|runtime| PathBuf::from(runtime.home_path))
         .ok_or_else(|| {
-            "Could not find JDK 17 or newer for JDTLS. Install a compatible JDK or select one in Settings > Editor."
-                .to_string()
+            format!(
+                "Could not find JDK {MIN_JDTLS_JAVA_MAJOR_VERSION}–{MAX_JDTLS_JAVA_MAJOR_VERSION} for JDTLS. Install a compatible JDK or select one in Settings > Editor."
+            )
         })
 }
 
@@ -256,21 +259,24 @@ fn ensure_supported_java_runtime(runtime: run::JavaRuntime) -> Result<run::JavaR
             runtime.home_path
         )
     })?;
-    if major_version < MIN_JDTLS_JAVA_MAJOR_VERSION {
+    if !is_jdtls_compatible_java_major(major_version) {
         return Err(format!(
-            "JDTLS requires JDK 17 or newer; the selected JDK is version {}.",
+            "JDTLS requires JDK {MIN_JDTLS_JAVA_MAJOR_VERSION}–{MAX_JDTLS_JAVA_MAJOR_VERSION}; the selected JDK is version {}.",
             runtime.version
         ));
     }
     Ok(runtime)
 }
 
+fn is_jdtls_compatible_java_major(major_version: u32) -> bool {
+    (MIN_JDTLS_JAVA_MAJOR_VERSION..=MAX_JDTLS_JAVA_MAJOR_VERSION).contains(&major_version)
+}
+
 fn select_compatible_java_runtime(runtimes: Vec<run::JavaRuntime>) -> Option<run::JavaRuntime> {
     runtimes
         .into_iter()
         .filter(|runtime| {
-            java_major_version(&runtime.version)
-                .is_some_and(|major| major >= MIN_JDTLS_JAVA_MAJOR_VERSION)
+            java_major_version(&runtime.version).is_some_and(is_jdtls_compatible_java_major)
         })
         .max_by(|left, right| {
             java_major_version(&left.version)
@@ -457,7 +463,7 @@ mod tests {
     }
 
     #[test]
-    fn automatic_jdtls_runtime_ignores_old_jdks_and_prefers_the_newest() {
+    fn automatic_jdtls_runtime_ignores_old_jdks_and_prefers_the_newest_compatible() {
         let selected = select_compatible_java_runtime(vec![
             java_runtime("C:/jdk-11", "11.0.26"),
             java_runtime("C:/jdk-17", "17.0.18"),
@@ -469,12 +475,52 @@ mod tests {
     }
 
     #[test]
+    fn automatic_jdtls_runtime_skips_jdk_25_when_a_compatible_jdk_exists() {
+        // Regression for #214: highest installed JDK must not win when it is outside 17–23.
+        let selected = select_compatible_java_runtime(vec![
+            java_runtime("C:/jdk-25", "25.0.1"),
+            java_runtime("C:/jdk-21", "21.0.10"),
+            java_runtime("C:/jdk-17", "17.0.18"),
+        ])
+        .expect("compatible runtime");
+
+        assert_eq!(selected.home_path, "C:/jdk-21");
+    }
+
+    #[test]
+    fn automatic_jdtls_runtime_returns_none_when_only_incompatible_jdks_exist() {
+        let selected = select_compatible_java_runtime(vec![
+            java_runtime("C:/jdk-11", "11.0.26"),
+            java_runtime("C:/jdk-25", "25"),
+        ]);
+
+        assert!(selected.is_none());
+    }
+
+    #[test]
     fn configured_jdtls_runtime_rejects_java_older_than_17() {
         let error =
             ensure_supported_java_runtime(java_runtime("C:/jdk-11", "11.0.26")).unwrap_err();
 
-        assert!(error.contains("JDK 17 or newer"), "{error}");
+        assert!(error.contains("JDK 17–23"), "{error}");
         assert!(error.contains("11.0.26"), "{error}");
+    }
+
+    #[test]
+    fn configured_jdtls_runtime_rejects_java_newer_than_23() {
+        let error =
+            ensure_supported_java_runtime(java_runtime("C:/jdk-25", "25.0.1")).unwrap_err();
+
+        assert!(error.contains("JDK 17–23"), "{error}");
+        assert!(error.contains("25.0.1"), "{error}");
+    }
+
+    #[test]
+    fn configured_jdtls_runtime_accepts_jdk_within_supported_range() {
+        let runtime =
+            ensure_supported_java_runtime(java_runtime("C:/jdk-21", "21.0.10")).expect("accepted");
+
+        assert_eq!(runtime.home_path, "C:/jdk-21");
     }
 
     #[test]
