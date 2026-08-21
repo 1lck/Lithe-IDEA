@@ -3882,6 +3882,9 @@ const catalogs = {
     "editor.preferences": "Editor preferences",
     "editor.minimap": "Minimap",
     "editor.inlineGitBlame": "Inline Git Blame",
+    "editor.largeFileServicesDisabled":
+      "Language intelligence, Git blame, Code Lens, and semantic highlighting are off for this large file.",
+    "editor.enableLargeFileServices": "Enable anyway",
     "editor.selectAll": "Select All",
     "editor.duplicateLine": "Duplicate Line",
     "editor.addSelectionToNextMatch": "Add Selection to Next Match",
@@ -7881,6 +7884,9 @@ const catalogs = {
     "editor.preferences": "编辑器首选项",
     "editor.minimap": "缩略图",
     "editor.inlineGitBlame": "行内 Git Blame",
+    "editor.largeFileServicesDisabled":
+      "此大文件已关闭语言智能、Git Blame、代码镜头和语义高亮。",
+    "editor.enableLargeFileServices": "仍然启用",
     "editor.selectAll": "全选",
     "editor.duplicateLine": "复制行",
     "editor.addSelectionToNextMatch": "将所选添加到下一处匹配",

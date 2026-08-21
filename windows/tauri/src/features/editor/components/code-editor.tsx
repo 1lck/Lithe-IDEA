@@ -14,6 +14,10 @@ import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
 import { useLspIntegration } from "@/features/editor/hooks/use-lsp-integration";
 import { useEditorScroll } from "@/features/editor/hooks/use-scroll";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import {
+  editorBufferSurfacesEqual,
+  selectEditorBufferSurface,
+} from "@/features/editor/stores/buffer-metadata";
 import { useEditorSettingsStore } from "@/features/editor/stores/settings.store";
 import { useEditorStateStore } from "@/features/editor/stores/state.store";
 import { useEditorViewStore } from "@/features/editor/stores/view.store";
@@ -157,7 +161,11 @@ const CodeEditor = ({
   const activeBufferId = useBufferStore((state) => propBufferId ?? state.activeBufferId);
   const zoomLevel = useZoomStore.use.editorZoomLevel();
   const activeBuffer = useBufferStore(
-    useCallback((state) => getBufferById(state.buffers, activeBufferId), [activeBufferId]),
+    useCallback(
+      (state) => selectEditorBufferSurface(state.buffers, activeBufferId),
+      [activeBufferId],
+    ),
+    editorBufferSurfacesEqual,
   );
   const editorViewKey = paneId && activeBufferId ? `${paneId}:${activeBufferId}` : activeBufferId;
   const { handleContentChange } = useEditorAppStore.use.actions();
@@ -169,20 +177,50 @@ const CodeEditor = ({
   const zoomedFontSize = editorFontSize * zoomLevel;
   const zoomedLineHeight = calculateLineHeight(zoomedFontSize, editorLineHeight);
 
-  // Extract values from active buffer or use defaults
-  const value = activeBuffer && hasTextContent(activeBuffer) ? activeBuffer.content : "";
-  valueRef.current = value;
   const filePath = activeBuffer?.path || "";
+  const needsLiveNotebookContent = isPythonScriptFile(filePath) || isRMarkdownFile(filePath);
+  const notebookContent = useBufferStore((state) => {
+    if (!needsLiveNotebookContent) return "";
+    const buffer = getBufferById(state.buffers, activeBufferId);
+    return buffer && hasTextContent(buffer) ? buffer.content : "";
+  });
   const onChange = activeBuffer
     ? (onContentChange ?? (isActiveSurface ? handleContentChange : () => {}))
     : () => {};
+  const handleEditorContentChange = useCallback(
+    (
+      content: string,
+      previousContent?: string,
+      previousCursorPosition?: Position,
+      previousSelection?: Range,
+      options?: EditorContentChangeOptions,
+    ) => {
+      valueRef.current = content;
+      onChange(content, previousContent, previousCursorPosition, previousSelection, options);
+    },
+    [onChange],
+  );
   const isPreviewBuffer = activeBuffer?.isPreview ?? false;
   const showNotebookEditor =
     activeBuffer?.type === "editor" && filePath.toLowerCase().endsWith(".ipynb");
+  const [forceExpensiveServices, setForceExpensiveServices] = useState(false);
+  const tooLargeForEditorServices = useEditorViewStore(
+    (state) => state.tooLargeForEditorServices === true,
+  );
   const enableInteractiveServices =
     isActiveSurface && !isPreviewBuffer && !readOnly && !showNotebookEditor;
-  const enableRichEditorServices = enableInteractiveServices;
+  const enableRichEditorServices =
+    enableInteractiveServices && (!tooLargeForEditorServices || forceExpensiveServices);
   const enableCodeLens = enableRichEditorServices && codeLensEnabled;
+
+  useLayoutEffect(() => {
+    const buffer = getBufferById(useBufferStore.getState().buffers, activeBufferId);
+    valueRef.current = buffer && hasTextContent(buffer) ? buffer.content : "";
+  }, [activeBufferId, activeBuffer?.contentRevision]);
+
+  useEffect(() => {
+    setForceExpensiveServices(false);
+  }, [activeBufferId]);
 
   const showMarkdownPreview = activeBuffer?.type === "markdownPreview";
   const showHtmlPreview = activeBuffer?.type === "htmlPreview";
@@ -297,7 +335,7 @@ const CodeEditor = ({
   useLspIntegration({
     enabled: enableRichEditorServices,
     filePath,
-    value,
+    contentRevision: activeBuffer?.contentRevision ?? 0,
   });
 
   // Rename symbol support
@@ -305,8 +343,10 @@ const CodeEditor = ({
 
   const pythonScriptCells = useMemo(
     () =>
-      enableInteractiveServices && isPythonScriptFile(filePath) ? getPythonScriptCells(value) : [],
-    [enableInteractiveServices, filePath, value],
+      enableInteractiveServices && isPythonScriptFile(filePath)
+        ? getPythonScriptCells(notebookContent)
+        : [],
+    [enableInteractiveServices, filePath, notebookContent],
   );
   const pythonScriptCellLenses = useMemo<CodeLensItem[]>(
     () =>
@@ -319,8 +359,11 @@ const CodeEditor = ({
     [pythonScriptCells, t],
   );
   const rMarkdownChunks = useMemo(
-    () => (enableInteractiveServices && isRMarkdownFile(filePath) ? getRMarkdownChunks(value) : []),
-    [enableInteractiveServices, filePath, value],
+    () =>
+      enableInteractiveServices && isRMarkdownFile(filePath)
+        ? getRMarkdownChunks(notebookContent)
+        : [],
+    [enableInteractiveServices, filePath, notebookContent],
   );
   const rMarkdownChunkLenses = useMemo<CodeLensItem[]>(
     () =>
@@ -387,7 +430,7 @@ const CodeEditor = ({
         if (!chunk) return;
 
         if (!rMarkdownChunkShouldEvaluate(chunk)) {
-          onChange(clearRMarkdownChunkOutput(valueRef.current, chunk));
+          handleEditorContentChange(clearRMarkdownChunkOutput(valueRef.current, chunk));
           toast.success(t("notebook.rChunkSkippedEvalFalse"));
           return;
         }
@@ -402,7 +445,7 @@ const CodeEditor = ({
             const currentChunk = getRMarkdownChunks(currentValue)[chunkIndex] ?? chunk;
             const semanticResult = applyRMarkdownChunkOptionSemantics(result, currentChunk);
             if (rMarkdownChunkShouldPersistOutput(currentChunk)) {
-              onChange(
+              handleEditorContentChange(
                 updateRMarkdownChunkOutput(
                   currentValue,
                   currentChunk,
@@ -410,7 +453,7 @@ const CodeEditor = ({
                 ),
               );
             } else {
-              onChange(clearRMarkdownChunkOutput(currentValue, currentChunk));
+              handleEditorContentChange(clearRMarkdownChunkOutput(currentValue, currentChunk));
             }
 
             if (result.timedOut) {
@@ -442,7 +485,7 @@ const CodeEditor = ({
         return;
       }
     },
-    [filePath, onChange, pythonScriptCells, rMarkdownChunks],
+    [filePath, handleEditorContentChange, pythonScriptCells, rMarkdownChunks, t],
   );
 
   // Keep app-owned overlays aligned with Monaco's scroll position.
@@ -522,6 +565,19 @@ const CodeEditor = ({
           />
         )}
 
+        {tooLargeForEditorServices && enableInteractiveServices && !forceExpensiveServices && (
+          <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground">
+            <span>{t("editor.largeFileServicesDisabled")}</span>
+            <button
+              type="button"
+              className="shrink-0 font-medium text-foreground underline-offset-2 hover:underline"
+              onClick={() => setForceExpensiveServices(true)}
+            >
+              {t("editor.enableLargeFileServices")}
+            </button>
+          </div>
+        )}
+
         <div
           ref={editorRef}
           className={`editor-container relative min-h-0 flex-1 overflow-hidden ${className || ""}`}
@@ -591,6 +647,7 @@ const CodeEditor = ({
                 viewStateKey={editorViewKey ?? undefined}
                 isActiveSurface={isActiveSurface}
                 isPreviewMode={isPreviewBuffer}
+                enableExpensiveServices={enableRichEditorServices}
                 readOnly={readOnly}
                 scrollable={scrollable}
                 backgroundLayer={backgroundLayer}
@@ -599,7 +656,7 @@ const CodeEditor = ({
                 currentHighlightIndex={currentHighlightIndex}
                 lineNumberStart={lineNumberStart}
                 lineNumberMap={lineNumberMap}
-                onContentChange={onChange}
+                onContentChange={handleEditorContentChange}
                 onScrollOffsetChange={syncLspOverlayTransform}
                 onModelPositionResolverChange={handleModelPositionResolverChange}
               />

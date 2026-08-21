@@ -6,6 +6,7 @@ import { createSelectors, type WithSelectors } from "@/utils/zustand-selectors";
 
 type WorkspaceStoreHook<T> = UseBoundStore<StoreApi<T>> & {
   getStore: (workspaceId: string) => StoreApi<T>;
+  <U>(selector: (state: T) => U, equalityFn?: (left: U, right: U) => boolean): U;
 };
 
 export type WorkspaceScopedStore<T extends object> = WithSelectors<WorkspaceStoreHook<T>>;
@@ -34,7 +35,10 @@ export function createWorkspaceScopedStore<T extends object>(
 ): WorkspaceScopedStore<T> {
   workspaceRuntimeRegistry.registerStore(key, factory);
 
-  const useWorkspaceStore = (<U>(selector?: (state: T) => U): U => {
+  const useWorkspaceStore = (<U>(
+    selector?: (state: T) => U,
+    compare?: EqualityFn,
+  ): U => {
     const scopedWorkspaceId = useWorkspaceStoreScopeId();
     const getScopedWorkspaceId = useMemo(
       () => () => scopedWorkspaceId ?? workspaceRuntimeRegistry.getActiveWorkspaceId(),
@@ -49,7 +53,7 @@ export function createWorkspaceScopedStore<T extends object>(
     return useStoreWithEqualityFn(
       store,
       selector ?? ((state: T) => state as unknown as U),
-      equalityFn,
+      compare ?? equalityFn,
     );
   }) as WorkspaceStoreHook<T>;
 
