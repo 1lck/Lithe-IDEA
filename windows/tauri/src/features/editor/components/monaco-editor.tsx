@@ -59,6 +59,7 @@ import { toggleCaseText } from "../utils/text-operations";
 import { editorAPI } from "../extensions/api";
 import type { EditorModelPositionResolver } from "../view-model/view-layout";
 import { syncContainedEditorFontOptions } from "../engines/monaco/contained-editors";
+import { registerMonacoDefinitionLinkGesture } from "../engines/monaco/definition-link";
 import {
   consumeLocalContentSnapshot,
   rememberLocalContentSnapshot,
@@ -721,6 +722,14 @@ export function MonacoEditor({
     requestAnimationFrame(syncNestedEditorFonts);
 
     editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyA, selectEntireModel);
+    const definitionLinkGesture = registerMonacoDefinitionLinkGesture({
+      editor,
+      model,
+      filePath,
+      workspaceRoot: rootFolderPath,
+      enabled: enableExpensiveServices,
+    });
+    let definitionClickIntent = 0;
 
     const handleWindowSelectAllShortcut = (event: KeyboardEvent) => {
       const isSelectAllShortcut =
@@ -835,7 +844,26 @@ export function MonacoEditor({
           mouseSelectingRef.current = false;
           editor.setPosition(event.target.position);
           syncCursorAndSelection();
-          void keymapRegistry.executeCommand("editor.goToDefinition");
+          const clickedPosition = event.target.position;
+          const clickIntent = ++definitionClickIntent;
+          if (!definitionLinkGesture.enabled) {
+            void keymapRegistry.executeCommand("editor.goToDefinition");
+            return;
+          }
+          void definitionLinkGesture.resolveForClick(clickedPosition).then((definitionHint) => {
+            if (clickIntent !== definitionClickIntent || !definitionHint || model.isDisposed()) {
+              return;
+            }
+            const currentPosition = editor.getPosition();
+            if (
+              !currentPosition ||
+              currentPosition.lineNumber !== clickedPosition.lineNumber ||
+              currentPosition.column !== clickedPosition.column
+            ) {
+              return;
+            }
+            void keymapRegistry.executeCommand("editor.goToDefinition", { definitionHint });
+          });
           return;
         }
         if (mouseEvent.leftButton) mouseSelectingRef.current = true;
@@ -849,6 +877,7 @@ export function MonacoEditor({
         syncCursorAndSelection();
         scheduleInlineGitBlameRender();
       }),
+      definitionLinkGesture,
       editor.onDidScrollChange((event) => {
         const viewKey = viewStateKey ?? activeBufferId ?? null;
         setScrollForBuffer(viewKey, event.scrollTop, event.scrollLeft);
@@ -992,6 +1021,7 @@ export function MonacoEditor({
     readOnly,
     renderIndentGuides,
     renderWhitespace,
+    rootFolderPath,
     scrollable,
     scheduleInlineGitBlameRender,
     selectEntireModel,
