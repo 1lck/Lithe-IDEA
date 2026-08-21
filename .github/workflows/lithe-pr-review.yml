@@ -1,0 +1,258 @@
+name: Lithe PR review
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lithe-pr-review-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+env:
+  LITHE_REVIEW_MODEL: gpt-5.6-sol
+  LITHE_REVIEW_EFFORT: xhigh
+
+jobs:
+  review:
+    if: >-
+      github.event.issue.pull_request != null &&
+      github.event.comment.body == '@lithe review'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    outputs:
+      authorized: ${{ steps.prepare.outputs.authorized }}
+      codex_outcome: ${{ steps.diagnostics.outputs.codex_outcome }}
+      final_message: ${{ steps.codex.outputs.final-message }}
+      head_sha: ${{ steps.prepare.outputs.head_sha }}
+
+    steps:
+      - name: Check out trusted review tooling
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Test review context builder
+        run: node --test scripts/test-prepare-lithe-pr-review.mjs
+
+      - name: Prepare trusted review context
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LITHE_ALLOWED_REVIEWERS: ${{ vars.LITHE_ALLOWED_REVIEWERS }}
+          LITHE_PROMPT_OUTPUT: ${{ runner.temp }}/lithe-pr-review-prompt.md
+        run: node scripts/prepare-lithe-pr-review.mjs
+
+      - name: Publish review acknowledgement
+        if: steps.prepare.outputs.authorized == 'true'
+        uses: actions/github-script@v7
+        env:
+          LITHE_HEAD_SHA: ${{ steps.prepare.outputs.head_sha }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const marker = `<!-- lithe-review:${context.issue.number}:${process.env.LITHE_HEAD_SHA} -->`;
+            const body = `${marker}\n## Lithe Review\n\n⏳ 正在审查当前提交，完成或失败后会更新本评论。`;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const previous = comments.find((comment) =>
+              comment.user?.login === 'github-actions[bot]' && comment.body?.startsWith(marker)
+            );
+
+            if (previous) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: previous.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: Check out the complete pull request head
+        if: steps.prepare.outputs.authorized == 'true'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.prepare.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Inspect checked-out repository
+        if: steps.prepare.outputs.authorized == 'true'
+        env:
+          LITHE_BASE_SHA: ${{ steps.prepare.outputs.base_sha }}
+          LITHE_HEAD_SHA: ${{ steps.prepare.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          actual_head="$(git rev-parse HEAD)"
+          if [ "$actual_head" != "$LITHE_HEAD_SHA" ]; then
+            echo "Checked-out HEAD ${actual_head} does not match expected ${LITHE_HEAD_SHA}" >&2
+            exit 1
+          fi
+          git cat-file -e "${LITHE_BASE_SHA}^{commit}"
+
+          echo "[lithe-review] repository=${GITHUB_REPOSITORY}"
+          echo "[lithe-review] base_sha=${LITHE_BASE_SHA}"
+          echo "[lithe-review] head_sha=${LITHE_HEAD_SHA}"
+          echo "[lithe-review] commit_count=$(git rev-list --count HEAD)"
+          echo "[lithe-review] tracked_files=$(git ls-files | wc -l | tr -d ' ')"
+          echo "[lithe-review] changed_files=$(git diff --name-only "${LITHE_BASE_SHA}...${LITHE_HEAD_SHA}" | wc -l | tr -d ' ')"
+          echo "[lithe-review] diff_summary=$(git diff --shortstat "${LITHE_BASE_SHA}...${LITHE_HEAD_SHA}" || true)"
+          echo "[lithe-review] git_objects=$(git count-objects -vH | tr '\n' ';')"
+
+      - name: Run read-only Lithe review
+        if: steps.prepare.outputs.authorized == 'true'
+        id: codex
+        continue-on-error: true
+        timeout-minutes: 25
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.LITHE_OPENAI_API_KEY }}
+          responses-api-endpoint: ${{ secrets.LITHE_OPENAI_RESPONSES_URL }}
+          prompt-file: ${{ runner.temp }}/lithe-pr-review-prompt.md
+          model: ${{ env.LITHE_REVIEW_MODEL }}
+          effort: ${{ env.LITHE_REVIEW_EFFORT }}
+          sandbox: read-only
+          safety-strategy: drop-sudo
+          allow-users: ${{ github.actor }}
+          output-file: ${{ runner.temp }}/lithe-review-final.md
+          codex-args: '["--ephemeral", "--json"]'
+
+      - name: Record review diagnostics
+        if: always() && steps.prepare.outputs.authorized == 'true'
+        id: diagnostics
+        env:
+          CODEX_OUTCOME: ${{ steps.codex.outcome }}
+          DIAGNOSTICS_FILE: ${{ runner.temp }}/lithe-review-diagnostics.txt
+          FINAL_MESSAGE_FILE: ${{ runner.temp }}/lithe-review-final.md
+          LITHE_BASE_SHA: ${{ steps.prepare.outputs.base_sha }}
+          LITHE_HEAD_SHA: ${{ steps.prepare.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          final_message_exists=false
+          final_message_bytes=0
+          if [ -f "$FINAL_MESSAGE_FILE" ]; then
+            final_message_exists=true
+            final_message_bytes="$(wc -c < "$FINAL_MESSAGE_FILE" | tr -d ' ')"
+          fi
+
+          {
+            echo "recorded_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "pull_request=${{ github.event.issue.number }}"
+            echo "base_sha=${LITHE_BASE_SHA}"
+            echo "head_sha=${LITHE_HEAD_SHA}"
+            echo "model=${LITHE_REVIEW_MODEL}"
+            echo "effort=${LITHE_REVIEW_EFFORT}"
+            echo "codex_outcome=${CODEX_OUTCOME}"
+            echo "final_message_exists=${final_message_exists}"
+            echo "final_message_bytes=${final_message_bytes}"
+          } | tee "$DIAGNOSTICS_FILE"
+
+          echo "codex_outcome=${CODEX_OUTCOME}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload review diagnostics
+        if: always() && steps.prepare.outputs.authorized == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lithe-review-diagnostics-${{ github.event.issue.number }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/lithe-review-diagnostics.txt
+            ${{ runner.temp }}/lithe-review-final.md
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Report Codex execution failure
+        if: >-
+          always() &&
+          steps.prepare.outputs.authorized == 'true' &&
+          steps.codex.outcome != 'success'
+        env:
+          CODEX_OUTCOME: ${{ steps.codex.outcome }}
+        run: |
+          echo "Codex review did not complete successfully: ${CODEX_OUTCOME}" >&2
+          exit 1
+
+  publish:
+    needs: review
+    if: >-
+      always() &&
+      needs.review.outputs.authorized == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: Publish or update the review
+        uses: actions/github-script@v7
+        env:
+          LITHE_FINAL_MESSAGE: ${{ needs.review.outputs.final_message }}
+          LITHE_HEAD_SHA: ${{ needs.review.outputs.head_sha }}
+          LITHE_CODEX_OUTCOME: ${{ needs.review.outputs.codex_outcome }}
+          LITHE_REVIEW_JOB_RESULT: ${{ needs.review.result }}
+          LITHE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const marker = `<!-- lithe-review:${context.issue.number}:${process.env.LITHE_HEAD_SHA} -->`;
+            const message = process.env.LITHE_FINAL_MESSAGE.trim();
+            const limit = 65_000;
+            const failureMessage = [
+              '## Lithe Review',
+              '',
+              '**结论：** ❓ 审查未完成',
+              '',
+              `模型执行状态：\`${process.env.LITHE_CODEX_OUTCOME || process.env.LITHE_REVIEW_JOB_RESULT}\`。`,
+              `请查看[本次 Actions 日志与诊断附件](${process.env.LITHE_RUN_URL})后重新召唤。`,
+            ].join('\n');
+            const body = `${marker}\n${message || failureMessage}`.slice(0, limit);
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const previous = comments.find((comment) =>
+              comment.user?.login === 'github-actions[bot]' && comment.body?.startsWith(marker)
+            );
+
+            if (previous) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: previous.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
