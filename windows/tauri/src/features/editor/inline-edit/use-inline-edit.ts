@@ -44,7 +44,13 @@ interface UseInlineEditOptions {
   enabled?: boolean;
   viewKey?: string | null;
   inputRef?: React.RefObject<HTMLTextAreaElement | null>;
-  buffer: { id: string; content: string; path: string; language: string } | undefined;
+  buffer: {
+    id: string;
+    content: string;
+    path: string;
+    language: string;
+    getContent?: () => string;
+  } | undefined;
   selection: Range | undefined;
   fontSize: number;
   fontFamily: string;
@@ -353,9 +359,10 @@ export function useInlineEdit({
       return;
     }
 
+    const documentContent = buffer.getContent?.() ?? buffer.content;
     const startOffset = targetRange.start.offset;
     const endOffset = targetRange.end.offset;
-    const selectedText = buffer.content.slice(startOffset, endOffset);
+    const selectedText = documentContent.slice(startOffset, endOffset);
 
     const provider = getProviderById(aiProviderId);
 
@@ -406,8 +413,8 @@ export function useInlineEdit({
       return;
     }
 
-    const beforeSelection = buffer.content.slice(Math.max(0, startOffset - 12000), startOffset);
-    const afterSelection = buffer.content.slice(endOffset, endOffset + 12000);
+    const beforeSelection = documentContent.slice(Math.max(0, startOffset - 12000), startOffset);
+    const afterSelection = documentContent.slice(endOffset, endOffset + 12000);
 
     setInlineEditError(null);
     setIsInlineEditRunning(true);
@@ -432,7 +439,7 @@ export function useInlineEdit({
         return;
       }
 
-      const newContent = `${buffer.content.slice(0, startOffset)}${editedText}${buffer.content.slice(
+      const newContent = `${documentContent.slice(0, startOffset)}${editedText}${documentContent.slice(
         endOffset,
       )}`;
       const newCursorOffset = startOffset + editedText.length;

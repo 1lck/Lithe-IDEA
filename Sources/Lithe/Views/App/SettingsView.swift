@@ -3,31 +3,41 @@ import LitheCoreContracts
 import LitheGitModule
 import LitheModuleAPI
 
+@MainActor
+final class SettingsViewState: ObservableObject {
+    @Published var selection: SettingsCategory
+    @Published var searchQuery = ""
+    @Published var hiddenDirectoriesDraft = ""
+    @Published var hiddenFilePatternsDraft = ""
+    @Published var aiAPIKeyDraft = ""
+    @Published var isFormatPickerPresented = false
+
+    init(initialCategory: SettingsCategory) {
+        selection = initialCategory
+    }
+}
+
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var updateChecker: UpdateChecker
     @ObservedObject var settings: AppSettings
-    @State private var selection: SettingsCategory
-    @State private var searchQuery = ""
-    @State private var hiddenDirectoriesDraft = ""
-    @State private var hiddenFilePatternsDraft = ""
-    @State private var aiAPIKeyDraft = ""
-    @State private var isFormatPickerPresented = false
+    @ObservedObject var viewState: SettingsViewState
     let initialCategory: SettingsCategory
     private let onDismiss: (() -> Void)?
     private static let footerActionLabelWidth: CGFloat = 52
 
     init(
         settings: AppSettings,
+        viewState: SettingsViewState,
         initialCategory: SettingsCategory = .general,
         onDismiss: (() -> Void)? = nil
     ) {
         self.settings = settings
+        self.viewState = viewState
         self.initialCategory = initialCategory
         self.onDismiss = onDismiss
-        _selection = State(initialValue: initialCategory)
     }
 
     var body: some View {
@@ -41,7 +51,10 @@ struct SettingsView: View {
             footer
         }
         .frame(minWidth: 820, minHeight: 620)
-        .background(LitheTheme.settingsSurface)
+        .background {
+            LitheTheme.settingsSurface
+                .ignoresSafeArea()
+        }
         .onAppear {
             syncVisibilityDrafts()
             model.refreshAIConfigurations()
@@ -51,13 +64,13 @@ struct SettingsView: View {
         .onChange(of: settings.hiddenFilePatterns) { _ in syncVisibilityDrafts() }
         .onChange(of: settings.commitMessageAI.activeProviderID) { _ in syncAIProviderDraft() }
         .onChange(of: initialCategory) { category in
-            searchQuery = ""
-            selection = category
+            viewState.searchQuery = ""
+            viewState.selection = category
         }
-        .onChange(of: searchQuery) { _ in
-            guard !filteredCategories.contains(selection),
+        .onChange(of: viewState.searchQuery) { _ in
+            guard !filteredCategories.contains(viewState.selection),
                   let firstMatch = filteredCategories.first else { return }
-            selection = firstMatch
+            viewState.selection = firstMatch
         }
         .environment(\.locale, settings.language.locale)
     }
@@ -89,6 +102,7 @@ struct SettingsView: View {
                 }
                 .padding(8)
             }
+            .litheScrollViewChrome(alwaysShowVertical: true, usesCompactScrollers: true)
         }
         .frame(width: 244)
         .frame(maxHeight: .infinity)
@@ -96,42 +110,13 @@ struct SettingsView: View {
     }
 
     private var settingsSearchField: some View {
-        HStack(spacing: 7) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(LitheTheme.tertiaryText)
-
-            TextField("Search settings", text: $searchQuery)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12.5))
-
-            if !searchQuery.isEmpty {
-                Button {
-                    searchQuery = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 11))
-                        .foregroundStyle(LitheTheme.tertiaryText)
-                }
-                .buttonStyle(.plain)
-                .lithePointer()
-                .help("Clear search")
-            }
-        }
-        .padding(.horizontal, 9)
-        .frame(height: 28)
-        .background(LitheTheme.inputBackground)
-        .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
-        .overlay {
-            RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                .stroke(LitheTheme.inputBorder, lineWidth: 1)
-        }
+        LitheSettingsSearchField("Search settings", text: $viewState.searchQuery)
     }
 
     private func categoryButton(_ category: SettingsCategory) -> some View {
-        let isSelected = selection == category
+        let isSelected = viewState.selection == category
         return Button {
-            selection = category
+            viewState.selection = category
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: category.icon)
@@ -144,7 +129,7 @@ struct SettingsView: View {
             .padding(.horizontal, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: LitheTheme.Metrics.treeRowHeight)
-            .background(isSelected ? LitheTheme.selection : .clear)
+            .background(isSelected ? LitheTheme.settingsSelection : .clear)
             .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius))
             .contentShape(Rectangle())
         }
@@ -153,7 +138,7 @@ struct SettingsView: View {
     }
 
     private var filteredCategories: [SettingsCategory] {
-        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = viewState.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return SettingsCategory.allCases }
 
         return SettingsCategory.allCases.filter { category in
@@ -204,10 +189,10 @@ struct SettingsView: View {
             }
             .foregroundStyle(LitheTheme.secondaryText)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if selection == .lsp {
+        } else if viewState.selection == .lsp {
             LSPControlCenterView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if selection == .keymap {
+        } else if viewState.selection == .keymap {
             KeyboardShortcutSettingsView(
                 feature: model.keyboardShortcutFeature,
                 language: settings.language
@@ -216,12 +201,12 @@ struct SettingsView: View {
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(LocalizedStringKey(selection.rawValue))
+                    Text(LocalizedStringKey(viewState.selection.rawValue))
                         .font(.system(size: 22, weight: .semibold))
                         .foregroundStyle(LitheTheme.primaryText)
                         .padding(.bottom, 8)
 
-                    switch selection {
+                    switch viewState.selection {
                     case .general: generalSettings
                     case .editor: editorSettings
                     case .keymap: EmptyView()
@@ -235,6 +220,7 @@ struct SettingsView: View {
                 .padding(.vertical, 22)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .litheScrollViewChrome(alwaysShowVertical: true, usesCompactScrollers: true)
         }
     }
 
@@ -339,7 +325,7 @@ struct SettingsView: View {
 
                 Text("Directories")
                     .font(.system(size: 11.5, weight: .medium))
-                TextEditor(text: $hiddenDirectoriesDraft)
+                TextEditor(text: $viewState.hiddenDirectoriesDraft)
                     .font(.system(size: 12, design: .monospaced))
                     .frame(height: 66)
                     .padding(5)
@@ -351,7 +337,7 @@ struct SettingsView: View {
 
                 Text("File patterns")
                     .font(.system(size: 11.5, weight: .medium))
-                TextEditor(text: $hiddenFilePatternsDraft)
+                TextEditor(text: $viewState.hiddenFilePatternsDraft)
                     .font(.system(size: 12, design: .monospaced))
                     .frame(height: 52)
                     .padding(5)
@@ -364,7 +350,10 @@ struct SettingsView: View {
                 HStack {
                     Spacer()
                     Button("Apply") { applyVisibilityDrafts() }
-                        .buttonStyle(LithePrimaryButtonStyle())
+                        .buttonStyle(LithePrimaryButtonStyle(
+                            backgroundColor: LitheTheme.settingsPrimaryAction,
+                            restingOpacity: 1
+                        ))
                 }
             }
 
@@ -591,11 +580,11 @@ struct SettingsView: View {
                         .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
 
                     HStack(spacing: 8) {
-                        SecureField("API key or token", text: $aiAPIKeyDraft)
+                        SecureField("API key or token", text: $viewState.aiAPIKeyDraft)
                             .litheSettingsTextField()
                             .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
                         Button("Save Key") {
-                            model.saveActiveCommitMessageAPIKey(aiAPIKeyDraft)
+                            model.saveActiveCommitMessageAPIKey(viewState.aiAPIKeyDraft)
                         }
                         .buttonStyle(LitheSecondaryButtonStyle())
                         .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
@@ -642,7 +631,10 @@ struct SettingsView: View {
                                         syncAIProviderDraft()
                                     }
                                 }
-                                .buttonStyle(LithePrimaryButtonStyle())
+                                .buttonStyle(LithePrimaryButtonStyle(
+                                    backgroundColor: LitheTheme.settingsPrimaryAction,
+                                    restingOpacity: 1
+                                ))
                             }
                             .padding(10)
                             .background(LitheTheme.inputBackground)
@@ -833,16 +825,16 @@ struct SettingsView: View {
                         Image(systemName: "chevron.down")
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(LitheTheme.secondaryText)
-                            .rotationEffect(.degrees(isFormatPickerPresented ? 180 : 0))
-                            .animation(formatPickerAnimation, value: isFormatPickerPresented)
+                            .rotationEffect(.degrees(viewState.isFormatPickerPresented ? 180 : 0))
+                            .animation(formatPickerAnimation, value: viewState.isFormatPickerPresented)
                     }
                     .padding(.horizontal, 10)
                     .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-                    .background(isFormatPickerPresented ? LitheTheme.inputBackground.opacity(0.9) : LitheTheme.inputBackground)
+                    .background(viewState.isFormatPickerPresented ? LitheTheme.inputBackground.opacity(0.9) : LitheTheme.inputBackground)
                     .overlay {
                         RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
                             .stroke(
-                                isFormatPickerPresented ? LitheTheme.inputFocusBorder : LitheTheme.inputBorder,
+                                viewState.isFormatPickerPresented ? LitheTheme.inputFocusBorder : LitheTheme.inputBorder,
                                 lineWidth: 1
                             )
                     }
@@ -850,7 +842,7 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
                 .lithePointer()
-                .popover(isPresented: $isFormatPickerPresented, arrowEdge: .bottom) {
+                .popover(isPresented: $viewState.isFormatPickerPresented, arrowEdge: .bottom) {
                     formatPickerPopover
                 }
 
@@ -875,7 +867,7 @@ struct SettingsView: View {
                 Spacer(minLength: 8)
 
                 Button {
-                    isFormatPickerPresented = false
+                    viewState.isFormatPickerPresented = false
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 10, weight: .semibold))
@@ -1002,14 +994,14 @@ struct SettingsView: View {
 
     private func toggleFormatPicker() {
         withAnimation(formatPickerAnimation) {
-            isFormatPickerPresented.toggle()
+            viewState.isFormatPickerPresented.toggle()
         }
     }
 
     private func selectFormat(_ format: CommitMessageFormat) {
         withAnimation(formatPickerAnimation) {
             settings.commitMessageAI.format = format
-            isFormatPickerPresented = false
+            viewState.isFormatPickerPresented = false
         }
     }
 
@@ -1038,7 +1030,10 @@ struct SettingsView: View {
                             systemImage: "arrow.clockwise"
                         )
                     }
-                    .buttonStyle(LithePrimaryButtonStyle())
+                    .buttonStyle(LithePrimaryButtonStyle(
+                        backgroundColor: LitheTheme.settingsPrimaryAction,
+                        restingOpacity: 1
+                    ))
                     .disabled(updateChecker.isBusy)
 
                     if case .available(let version, _) = updateChecker.status {
@@ -1140,7 +1135,7 @@ struct SettingsView: View {
     }
 
     private func syncAIProviderDraft() {
-        aiAPIKeyDraft = model.activeCommitMessageAPIKey
+        viewState.aiAPIKeyDraft = model.activeCommitMessageAPIKey
     }
 
     private func providerTitle(_ id: UUID) -> String {
@@ -1209,7 +1204,10 @@ struct SettingsView: View {
                     Text("OK")
                         .frame(minWidth: Self.footerActionLabelWidth)
                 }
-                    .buttonStyle(LithePrimaryButtonStyle())
+                    .buttonStyle(LithePrimaryButtonStyle(
+                        backgroundColor: LitheTheme.settingsPrimaryAction,
+                        restingOpacity: 1
+                    ))
                     .keyboardShortcut(.defaultAction)
             }
         }
@@ -1219,13 +1217,13 @@ struct SettingsView: View {
     }
 
     private func syncVisibilityDrafts() {
-        hiddenDirectoriesDraft = settings.hiddenDirectoryNames.joined(separator: "\n")
-        hiddenFilePatternsDraft = settings.hiddenFilePatterns.joined(separator: "\n")
+        viewState.hiddenDirectoriesDraft = settings.hiddenDirectoryNames.joined(separator: "\n")
+        viewState.hiddenFilePatternsDraft = settings.hiddenFilePatterns.joined(separator: "\n")
     }
 
     private func applyVisibilityDrafts() {
-        settings.hiddenDirectoryNames = entries(from: hiddenDirectoriesDraft)
-        settings.hiddenFilePatterns = entries(from: hiddenFilePatternsDraft)
+        settings.hiddenDirectoryNames = entries(from: viewState.hiddenDirectoriesDraft)
+        settings.hiddenFilePatterns = entries(from: viewState.hiddenFilePatternsDraft)
     }
 
     private func entries(from text: String) -> [String] {
