@@ -19,34 +19,35 @@
 <line x1="115" y1="112.00" x2="1135" y2="112.00" stroke="#e5e7eb" stroke-width="1" stroke-dasharray="4 8"/>
 <text x="97.00" y="118.00" text-anchor="end" font-size="17" fill="#4b5563">500</text>
 <text x="115.00" y="575.00" text-anchor="middle" font-size="18" fill="#111111">Aug 02</text>
-<text x="341.67" y="575.00" text-anchor="middle" font-size="18" fill="#111111">Aug 06</text>
-<text x="625.00" y="575.00" text-anchor="middle" font-size="18" fill="#111111">Aug 11</text>
-<text x="908.33" y="575.00" text-anchor="middle" font-size="18" fill="#111111">Aug 16</text>
-<text x="1135.00" y="575.00" text-anchor="middle" font-size="18" fill="#111111">Aug 20</text>
-<path d="M 115.00,535.00 L 115.00,535.00 C 133.89,535.00 152.78,535.00 171.67,535.00 C 190.56,535.00 209.44,487.38 228.33,483.39 C 247.22,479.41 266.11,478.36 285.00,476.63 C 303.89,474.89 322.78,474.71 341.67,472.40 C 360.56,470.08 379.44,462.70 398.33,452.94 C 417.22,443.17 436.11,403.16 455.00,393.72 C 473.89,384.28 492.78,381.31 511.67,375.11 C 530.56,368.90 549.44,364.03 568.33,356.49 C 587.22,348.96 606.11,332.73 625.00,327.73 C 643.89,322.73 662.78,321.64 681.67,317.58 C 700.56,313.52 719.44,307.93 738.33,302.35 C 757.22,296.77 776.11,287.05 795.00,283.74 C 813.89,280.43 832.78,279.23 851.67,276.97 C 870.56,274.71 889.44,272.59 908.33,270.20 C 927.22,267.81 946.11,265.13 965.00,262.59 C 983.89,260.05 1002.78,257.19 1021.67,254.97 C 1040.56,252.75 1059.44,250.24 1078.33,249.05 C 1097.22,247.87 1116.11,247.36 1135.00,246.51 L 1135.00,535.00 Z" fill="#e34b2d" fill-opacity="0.10" stroke="none"/>
-<path d="M 115.00,535.00 C 133.89,535.00 152.78,535.00 171.67,535.00 C 190.56,535.00 209.44,487.38 228.33,483.39 C 247.22,479.41 266.11,478.36 285.00,476.63 C 303.89,474.89 322.78,474.71 341.67,472.40 C 360.56,470.08 379.44,462.70 398.33,452.94 C 417.22,443.17 436.11,403.16 455.00,393.72 C 473.89,384.28 492.78,381.31 511.67,375.11 C 530.56,368.90 549.44,364.03 568.33,356.49 C 587.22,348.96 606.11,332.73 625.00,327.73 C 643.89,322.73 662.78,321.64 681.67,317.58 C 700.56,313.52 719.44,307.93 738.33,302.35 C 757.22,296.77 776.11,287.05 795.00,283.74 C 813.89,280.43 832.78,279.23 851.67,276.97 C 870.56,274.71 889.44,272.59 908.33,270.20 C 927.22,267.81 946.11,265.13 965.00,262.59 C 983.89,260.05 1002.78,257.19 1021.67,254.97 C 1040.56,252.75 1059.44,250.24 1078.33,249.05 C 1097.22,247.87 1116.11,247.36 1135.00,246.51" fill="none" stroke="#e34b2d" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="383.42" y="575.00" text-anchor="middle" font-size="18" fill="#111111">Aug 07</text>
+<text x="651.84" y="575.00" text-anchor="middle" font-size="18" fill="#111111">Aug 12</text>
+<text x="920.26" y="575.00" text-anchor="middle" font-size="18" fill="#111111">Aug 17</text>
+<text x="1135.00" y="575.00" text-anchor="middle" font-size="18" fill="#111111">Aug 21</text>
+<path d="M 115.00,535.00 L 115.00,535.00 C 132.89,535.00 150.79,535.00 168.68,535.00 C 186.58,535.00 204.47,487.38 222.37,483.39 C 240.26,479.41 258.16,478.36 276.05,476.63 C 293.95,474.89 311.84,474.71 329.74,472.40 C 347.63,470.08 365.53,462.70 383.42,452.94 C 401.32,443.17 419.21,403.16 437.11,393.72 C 455.00,384.28 472.89,381.31 490.79,375.11 C 508.68,368.90 526.58,364.03 544.47,356.49 C 562.37,348.96 580.26,332.73 598.16,327.73 C 616.05,322.73 633.95,321.64 651.84,317.58 C 669.74,313.52 687.63,307.93 705.53,302.35 C 723.42,296.77 741.32,287.05 759.21,283.74 C 777.11,280.43 795.00,279.23 812.89,276.97 C 830.79,274.71 848.68,272.59 866.58,270.20 C 884.47,267.81 902.37,265.13 920.26,262.59 C 938.16,260.05 956.05,257.19 973.95,254.97 C 991.84,252.75 1009.74,250.24 1027.63,249.05 C 1045.53,247.87 1063.42,247.64 1081.32,246.51 C 1099.21,245.39 1117.11,243.13 1135.00,241.44 L 1135.00,535.00 Z" fill="#e34b2d" fill-opacity="0.10" stroke="none"/>
+<path d="M 115.00,535.00 C 132.89,535.00 150.79,535.00 168.68,535.00 C 186.58,535.00 204.47,487.38 222.37,483.39 C 240.26,479.41 258.16,478.36 276.05,476.63 C 293.95,474.89 311.84,474.71 329.74,472.40 C 347.63,470.08 365.53,462.70 383.42,452.94 C 401.32,443.17 419.21,403.16 437.11,393.72 C 455.00,384.28 472.89,381.31 490.79,375.11 C 508.68,368.90 526.58,364.03 544.47,356.49 C 562.37,348.96 580.26,332.73 598.16,327.73 C 616.05,322.73 633.95,321.64 651.84,317.58 C 669.74,313.52 687.63,307.93 705.53,302.35 C 723.42,296.77 741.32,287.05 759.21,283.74 C 777.11,280.43 795.00,279.23 812.89,276.97 C 830.79,274.71 848.68,272.59 866.58,270.20 C 884.47,267.81 902.37,265.13 920.26,262.59 C 938.16,260.05 956.05,257.19 973.95,254.97 C 991.84,252.75 1009.74,250.24 1027.63,249.05 C 1045.53,247.87 1063.42,247.64 1081.32,246.51 C 1099.21,245.39 1117.11,243.13 1135.00,241.44" fill="none" stroke="#e34b2d" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
 <circle cx="115.00" cy="535.00" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="171.67" cy="535.00" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="228.33" cy="483.39" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="285.00" cy="476.63" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="341.67" cy="472.40" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="398.33" cy="452.94" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="455.00" cy="393.72" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="511.67" cy="375.11" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="568.33" cy="356.49" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="625.00" cy="327.73" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="681.67" cy="317.58" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="738.33" cy="302.35" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="795.00" cy="283.74" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="851.67" cy="276.97" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="908.33" cy="270.20" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="965.00" cy="262.59" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="1021.67" cy="254.97" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="1078.33" cy="249.05" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="1135.00" cy="246.51" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="1135.00" cy="246.51" r="10" fill="none" stroke="#e34b2d" stroke-opacity="0.24" stroke-width="5"/>
-<rect x="1041.00" y="201.51" width="76" height="26" rx="13" fill="#ffffff" stroke="#e34b2d" stroke-width="1.5"/>
-<text x="1079.00" y="219.51" text-anchor="middle" font-size="15" font-weight="700" fill="#111111">341 stars</text>
+<circle cx="168.68" cy="535.00" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="222.37" cy="483.39" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="276.05" cy="476.63" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="329.74" cy="472.40" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="383.42" cy="452.94" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="437.11" cy="393.72" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="490.79" cy="375.11" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="544.47" cy="356.49" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="598.16" cy="327.73" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="651.84" cy="317.58" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="705.53" cy="302.35" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="759.21" cy="283.74" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="812.89" cy="276.97" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="866.58" cy="270.20" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="920.26" cy="262.59" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="973.95" cy="254.97" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="1027.63" cy="249.05" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="1081.32" cy="246.51" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="1135.00" cy="241.44" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="1135.00" cy="241.44" r="10" fill="none" stroke="#e34b2d" stroke-opacity="0.24" stroke-width="5"/>
+<rect x="1041.00" y="196.44" width="76" height="26" rx="13" fill="#ffffff" stroke="#e34b2d" stroke-width="1.5"/>
+<text x="1079.00" y="214.44" text-anchor="middle" font-size="15" font-weight="700" fill="#111111">347 stars</text>
 <rect x="135" y="130" width="300" height="58" rx="12" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.5"/>
 <circle cx="158" cy="159" r="6" fill="#e34b2d"/>
 <text x="179.00" y="165.00" font-size="19" font-weight="600" fill="#111111">1lck/Lithe-IDEA</text>
