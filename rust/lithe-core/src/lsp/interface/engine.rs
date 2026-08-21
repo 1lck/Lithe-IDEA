@@ -3,16 +3,18 @@
 use super::process::{LspProcessHandle, LspProcessLauncher, LspProcessSpec, SystemProcessLauncher};
 use super::{
     client_apply_server_message, client_change_document, client_close_document,
-    client_feature_request_canonical, client_initialize, client_open_document, client_shutdown,
-    frame_message, parse_server_messages, ClientApplyServerMessageRequest,
-    ClientChangeDocumentRequest, ClientCloseDocumentRequest, ClientFeatureRequest,
-    ClientInitializeRequest, ClientOpenDocumentRequest, ClientShutdownRequest, FrameMessageRequest,
-    LspClientDiagnostic, LspClientDocument, LspClientState, LspPosition, LspRange,
+    client_feature_request_canonical, client_initialize, client_open_document,
+    client_provider_document_feature_request_canonical, client_shutdown, frame_message,
+    parse_server_messages, ClientApplyServerMessageRequest, ClientChangeDocumentRequest,
+    ClientCloseDocumentRequest, ClientFeatureRequest, ClientInitializeRequest,
+    ClientOpenDocumentRequest, ClientShutdownRequest, FrameMessageRequest, LspClientDiagnostic,
+    LspClientDocument, LspClientState, LspDocumentContentChange, LspPosition, LspRange,
     ParseServerMessagesRequest,
 };
 use crate::lsp::languages::jdt::{
-    adapt_start, initialized_notification, virtual_source_content, virtual_source_resolve_params,
-    workspace_configuration, JdtStartContext, WorkspaceConfigurationItem,
+    adapt_initialization_options, adapt_start, initialized_notification, is_virtual_source_uri,
+    normalize_location, virtual_source_content, virtual_source_resolve_params,
+    workspace_configuration, JdtStartContext, ProviderLocation, WorkspaceConfigurationItem,
 };
 use crate::protocol::{CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
@@ -21,7 +23,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -96,12 +98,17 @@ pub struct SessionRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-/// Complete document contents to open or update in a session.
+/// Complete document contents or incremental edits to open or update in a session.
 pub struct SyncDocumentRequest {
     pub session_id: String,
     pub uri: String,
     pub language_id: String,
+    /// Full document text. Required for `didOpen`; optional for incremental `didChange`.
+    #[serde(default)]
     pub text: String,
+    /// Range-based edits used when the server advertised Incremental `textDocumentSync`.
+    #[serde(default)]
+    pub content_changes: Vec<LspDocumentContentChange>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -200,6 +207,20 @@ pub struct CancelOperationRequest {
 /// Ordered events drained from a session since the previous poll.
 pub struct PollEventsResponse {
     pub events: Vec<LspRuntimeEvent>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// Request that waits until queued events exist or the timeout elapses.
+pub struct WaitEventsRequest {
+    pub session_id: String,
+    /// Upper bound for blocking on the session event channel, in milliseconds.
+    #[serde(default = "default_wait_events_timeout")]
+    pub timeout_milliseconds: u64,
+}
+
+fn default_wait_events_timeout() -> u64 {
+    30_000
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -329,6 +350,7 @@ struct RuntimeSession {
     #[cfg(test)]
     root_uri: String,
     state: Mutex<SessionState>,
+    event_signal: Condvar,
     process: Arc<dyn LspProcessHandle>,
     active: AtomicBool,
 }
@@ -402,6 +424,15 @@ pub fn cancel_operation(request: CancelOperationRequest) -> Result<(), CoreError
 pub fn poll_events(request: SessionRequest) -> Result<PollEventsResponse, CoreError> {
     Ok(PollEventsResponse {
         events: engine().session(&request.session_id)?.poll_events()?,
+    })
+}
+
+/// Waits until queued events exist or the supplied timeout elapses.
+pub fn wait_events(request: WaitEventsRequest) -> Result<PollEventsResponse, CoreError> {
+    Ok(PollEventsResponse {
+        events: engine()
+            .session(&request.session_id)?
+            .wait_events(Duration::from_millis(request.timeout_milliseconds))?,
     })
 }
 
@@ -483,7 +514,10 @@ impl LspEngine {
             state: LspClientState::default(),
             root_uri: request.root_uri.clone(),
             process_id: Some(std::process::id() as i64),
-            initialization_options: request.initialization_options,
+            initialization_options: adapt_initialization_options(
+                &request.provider_id,
+                request.initialization_options,
+            ),
         })?;
         let request_id = (initialize.state.next_request_id - 1).to_string();
         let now = Instant::now();
@@ -516,6 +550,7 @@ impl LspEngine {
                 shutdown_timeout,
                 terminal_event_emitted: false,
             }),
+            event_signal: Condvar::new(),
             process: process.handle,
             active: AtomicBool::new(true),
         });
@@ -599,6 +634,7 @@ impl RuntimeSession {
                         state: state.client.clone(),
                         uri: uri.clone(),
                         text: request.text,
+                        content_changes: request.content_changes,
                     })?
                 } else {
                     client_open_document(ClientOpenDocumentRequest {
@@ -740,18 +776,19 @@ impl RuntimeSession {
                             "This language-server operation requires a document URI.",
                         )
                     })?;
-                    if !state
+                    let document_is_open = state
                         .client
                         .open_documents
                         .get(&uri)
-                        .is_some_and(|document| document.version > 0)
-                    {
+                        .is_some_and(|document| document.version > 0);
+                    let provider_owns_document = is_virtual_source_uri(&self.provider_id, &uri);
+                    if !document_is_open && !provider_owns_document {
                         return Err(CoreError::new(
                             ErrorCode::InvalidRequest,
                             "The document is not open in the language server.",
                         ));
                     }
-                    client_feature_request_canonical(ClientFeatureRequest {
+                    let feature_request = ClientFeatureRequest {
                         state: state.client.clone(),
                         uri,
                         method: method.to_string(),
@@ -762,7 +799,12 @@ impl RuntimeSession {
                         completion_item: request.completion_item,
                         code_action: request.code_action,
                         command: request.command,
-                    })?
+                    };
+                    if provider_owns_document {
+                        client_provider_document_feature_request_canonical(feature_request)?
+                    } else {
+                        client_feature_request_canonical(feature_request)?
+                    }
                 }
             };
             let request_id = (response.state.next_request_id - 1).to_string();
@@ -912,6 +954,50 @@ impl RuntimeSession {
     fn poll_events(&self) -> Result<Vec<LspRuntimeEvent>, CoreError> {
         let mut state = self.lock_state()?;
         Ok(state.events.drain(..).collect())
+    }
+
+    fn wait_events(&self, timeout: Duration) -> Result<Vec<LspRuntimeEvent>, CoreError> {
+        let mut state = self.lock_state()?;
+        let deadline = Instant::now() + timeout;
+        loop {
+            crate::protocol::cancellation::check()?;
+            if !state.events.is_empty() {
+                return Ok(state.events.drain(..).collect());
+            }
+            if matches!(
+                state.lifecycle,
+                LspLifecycleState::Stopped | LspLifecycleState::Failed
+            ) {
+                // Returning Ok([]) here would let frontend pumps spin on Core IPC
+                // forever after the terminal stateChanged event was drained.
+                let details = match state.lifecycle {
+                    LspLifecycleState::Failed => "sessionFailed",
+                    _ => "sessionStopped",
+                };
+                return Err(CoreError::new(
+                    ErrorCode::ProcessFailed,
+                    "Language-server session is no longer running.",
+                )
+                .with_details(details));
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Ok(Vec::new());
+            }
+            let (guard, wait_result) =
+                self.event_signal
+                    .wait_timeout(state, remaining)
+                    .map_err(|_| {
+                        CoreError::new(
+                            ErrorCode::Unknown,
+                            "Language-server event wait lock was poisoned.",
+                        )
+                    })?;
+            state = guard;
+            if wait_result.timed_out() && state.events.is_empty() {
+                return Ok(Vec::new());
+            }
+        }
     }
 
     #[cfg(test)]
@@ -1136,12 +1222,16 @@ impl RuntimeSession {
                                         None,
                                     )
                                 });
+                            let result = normalize_provider_navigation_result(
+                                &self.provider_id,
+                                event.and_then(|event| event.result.clone()),
+                            );
                             push_request_event(
                                 self,
                                 &mut state,
                                 operation_id,
                                 &pending.method,
-                                event.and_then(|event| event.result.clone()),
+                                result,
                                 error,
                             );
                         }
@@ -1748,6 +1838,15 @@ fn parse_server_info(message: &Value) -> Option<LspServerInfo> {
     })
 }
 
+fn enqueue_runtime_event(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    event: LspRuntimeEvent,
+) {
+    state.events.push_back(event);
+    session.event_signal.notify_all();
+}
+
 fn transition_locked(
     session: &RuntimeSession,
     state: &mut SessionState,
@@ -1756,25 +1855,29 @@ fn transition_locked(
 ) {
     state.lifecycle = lifecycle;
     let sequence = take_sequence(state);
-    state.events.push_back(LspRuntimeEvent {
-        kind: "stateChanged".to_string(),
-        sequence,
-        provider_id: session.provider_id.clone(),
-        session_id: session.id.clone(),
-        state: Some(lifecycle),
-        operation_id: None,
-        method: None,
-        uri: None,
-        version: None,
-        diagnostics: None,
-        result: None,
-        error,
-        capabilities: None,
-        server_info: None,
-        level: None,
-        message: None,
-        detail: None,
-    });
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "stateChanged".to_string(),
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: Some(lifecycle),
+            operation_id: None,
+            method: None,
+            uri: None,
+            version: None,
+            diagnostics: None,
+            result: None,
+            error,
+            capabilities: None,
+            server_info: None,
+            level: None,
+            message: None,
+            detail: None,
+        },
+    );
 }
 
 fn push_request_event(
@@ -1786,25 +1889,70 @@ fn push_request_event(
     error: Option<LspRuntimeError>,
 ) {
     let sequence = take_sequence(state);
-    state.events.push_back(LspRuntimeEvent {
-        kind: "requestCompleted".to_string(),
-        sequence,
-        provider_id: session.provider_id.clone(),
-        session_id: session.id.clone(),
-        state: None,
-        operation_id: Some(operation_id.to_string()),
-        method: Some(method.to_string()),
-        uri: None,
-        version: None,
-        diagnostics: None,
-        result,
-        error,
-        capabilities: None,
-        server_info: None,
-        level: None,
-        message: None,
-        detail: None,
-    });
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "requestCompleted".to_string(),
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: None,
+            operation_id: Some(operation_id.to_string()),
+            method: Some(method.to_string()),
+            uri: None,
+            version: None,
+            diagnostics: None,
+            result,
+            error,
+            capabilities: None,
+            server_info: None,
+            level: None,
+            message: None,
+            detail: None,
+        },
+    );
+}
+
+fn normalize_provider_navigation_result(
+    provider_id: &str,
+    mut result: Option<Value>,
+) -> Option<Value> {
+    let locations = result
+        .as_mut()
+        .and_then(|result| result.get_mut("locations"))
+        .and_then(Value::as_array_mut);
+    let Some(locations) = locations else {
+        return result;
+    };
+
+    for location in locations {
+        let Some(uri) = location
+            .get("uri")
+            .and_then(Value::as_str)
+            .map(ToString::to_string)
+        else {
+            continue;
+        };
+        let normalized = normalize_location(
+            provider_id,
+            ProviderLocation {
+                uri,
+                is_read_only: location
+                    .get("isReadOnly")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                display_path: location
+                    .get("displayPath")
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string),
+            },
+        );
+        location["isReadOnly"] = Value::Bool(normalized.is_read_only);
+        location["displayPath"] = normalized.display_path.map_or(Value::Null, Value::String);
+    }
+
+    result
 }
 
 fn push_diagnostics_event(
@@ -1815,25 +1963,29 @@ fn push_diagnostics_event(
     diagnostics: Vec<LspClientDiagnostic>,
 ) {
     let sequence = take_sequence(state);
-    state.events.push_back(LspRuntimeEvent {
-        kind: "diagnostics".to_string(),
-        sequence,
-        provider_id: session.provider_id.clone(),
-        session_id: session.id.clone(),
-        state: None,
-        operation_id: None,
-        method: None,
-        uri: Some(uri.to_string()),
-        version,
-        diagnostics: Some(diagnostics),
-        result: None,
-        error: None,
-        capabilities: None,
-        server_info: None,
-        level: None,
-        message: None,
-        detail: None,
-    });
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "diagnostics".to_string(),
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: None,
+            operation_id: None,
+            method: None,
+            uri: Some(uri.to_string()),
+            version,
+            diagnostics: Some(diagnostics),
+            result: None,
+            error: None,
+            capabilities: None,
+            server_info: None,
+            level: None,
+            message: None,
+            detail: None,
+        },
+    );
 }
 
 fn push_features_event(
@@ -1842,48 +1994,56 @@ fn push_features_event(
     capabilities: Vec<String>,
 ) {
     let sequence = take_sequence(state);
-    state.events.push_back(LspRuntimeEvent {
-        kind: "featuresChanged".to_string(),
-        sequence,
-        provider_id: session.provider_id.clone(),
-        session_id: session.id.clone(),
-        state: None,
-        operation_id: None,
-        method: None,
-        uri: None,
-        version: None,
-        diagnostics: None,
-        result: None,
-        error: None,
-        capabilities: Some(capabilities),
-        server_info: None,
-        level: None,
-        message: None,
-        detail: None,
-    });
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "featuresChanged".to_string(),
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: None,
+            operation_id: None,
+            method: None,
+            uri: None,
+            version: None,
+            diagnostics: None,
+            result: None,
+            error: None,
+            capabilities: Some(capabilities),
+            server_info: None,
+            level: None,
+            message: None,
+            detail: None,
+        },
+    );
 }
 
 fn push_server_info_event(session: &RuntimeSession, state: &mut SessionState, info: LspServerInfo) {
     let sequence = take_sequence(state);
-    state.events.push_back(LspRuntimeEvent {
-        kind: "serverInfoChanged".to_string(),
-        sequence,
-        provider_id: session.provider_id.clone(),
-        session_id: session.id.clone(),
-        state: None,
-        operation_id: None,
-        method: None,
-        uri: None,
-        version: None,
-        diagnostics: None,
-        result: None,
-        error: None,
-        capabilities: None,
-        server_info: Some(info),
-        level: None,
-        message: None,
-        detail: None,
-    });
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "serverInfoChanged".to_string(),
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: None,
+            operation_id: None,
+            method: None,
+            uri: None,
+            version: None,
+            diagnostics: None,
+            result: None,
+            error: None,
+            capabilities: None,
+            server_info: Some(info),
+            level: None,
+            message: None,
+            detail: None,
+        },
+    );
 }
 
 fn push_log_event(
@@ -1894,25 +2054,29 @@ fn push_log_event(
     detail: Option<String>,
 ) {
     let sequence = take_sequence(state);
-    state.events.push_back(LspRuntimeEvent {
-        kind: "log".to_string(),
-        sequence,
-        provider_id: session.provider_id.clone(),
-        session_id: session.id.clone(),
-        state: None,
-        operation_id: None,
-        method: None,
-        uri: None,
-        version: None,
-        diagnostics: None,
-        result: None,
-        error: None,
-        capabilities: None,
-        server_info: None,
-        level: Some(level.to_string()),
-        message: Some(message.to_string()),
-        detail: detail.filter(|value| !value.is_empty()),
-    });
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "log".to_string(),
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: None,
+            operation_id: None,
+            method: None,
+            uri: None,
+            version: None,
+            diagnostics: None,
+            result: None,
+            error: None,
+            capabilities: None,
+            server_info: None,
+            level: Some(level.to_string()),
+            message: Some(message.to_string()),
+            detail: detail.filter(|value| !value.is_empty()),
+        },
+    );
 }
 
 fn take_sequence(state: &mut SessionState) -> u64 {
@@ -2146,6 +2310,7 @@ mod tests {
                     uri: uri.to_string(),
                     language_id: "go".to_string(),
                     text: text.to_string(),
+                    content_changes: Vec::new(),
                 })
                 .expect("syncing a document should succeed");
         }
@@ -2184,6 +2349,145 @@ mod tests {
                 .messages()
                 .into_iter()
                 .find(|message| message.get("method").and_then(Value::as_str) == Some(method))
+        }
+    }
+
+    /// Owns an opt-in real-process smoke session and removes every temporary
+    /// resource even when the smoke test unwinds after a failed assertion.
+    struct RealSmokeCleanup<'a> {
+        engine: &'a LspEngine,
+        session_id: String,
+        root: PathBuf,
+    }
+
+    impl Drop for RealSmokeCleanup<'_> {
+        fn drop(&mut self) {
+            if let Ok(session) = self.engine.session(&self.session_id) {
+                let _ = session.stop();
+                let deadline = Instant::now() + Duration::from_secs(10);
+                while Instant::now() < deadline {
+                    let terminal = session.snapshot().is_ok_and(|snapshot| {
+                        matches!(
+                            snapshot.state,
+                            LspLifecycleState::Stopped | LspLifecycleState::Failed
+                        )
+                    });
+                    if terminal {
+                        break;
+                    }
+                    let _ = session.poll_events();
+                    thread::sleep(Duration::from_millis(20));
+                }
+                if session.snapshot().is_ok_and(|snapshot| {
+                    !matches!(
+                        snapshot.state,
+                        LspLifecycleState::Stopped | LspLifecycleState::Failed
+                    )
+                }) {
+                    session.kill_process();
+                }
+            }
+            let _ = self.engine.destroy(&self.session_id);
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn await_real_smoke_ready(
+        session: &Arc<RuntimeSession>,
+    ) -> Result<Vec<LspRuntimeEvent>, String> {
+        let deadline = Instant::now() + Duration::from_secs(90);
+        let mut events = Vec::new();
+        while Instant::now() < deadline {
+            events.extend(session.poll_events().map_err(|error| error.message)?);
+            let snapshot = session.snapshot().map_err(|error| error.message)?;
+            match snapshot.state {
+                LspLifecycleState::Ready => {
+                    events.extend(session.poll_events().map_err(|error| error.message)?);
+                    return Ok(events);
+                }
+                LspLifecycleState::Failed => {
+                    return Err(format!("JDTLS failed during initialization: {events:?}"));
+                }
+                _ => thread::sleep(Duration::from_millis(20)),
+            }
+        }
+        Err(format!(
+            "JDTLS did not become ready before the smoke timeout: {events:?}"
+        ))
+    }
+
+    fn real_smoke_request(
+        engine: &LspEngine,
+        session: &Arc<RuntimeSession>,
+        operation: LspSemanticOperation,
+        uri: Option<&str>,
+        virtual_uri: Option<&str>,
+        position: Option<LspPosition>,
+    ) -> Result<Value, String> {
+        let operation_id = engine.next_operation_id();
+        session
+            .request(
+                SemanticRequest {
+                    session_id: session.id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    operation,
+                    uri: uri.map(str::to_string),
+                    virtual_uri: virtual_uri.map(str::to_string),
+                    position,
+                    new_name: None,
+                    range: None,
+                    diagnostics: Vec::new(),
+                    completion_item: None,
+                    code_action: None,
+                    command: None,
+                },
+                operation_id.clone(),
+            )
+            .map_err(|error| error.message)?;
+
+        let deadline = Instant::now() + Duration::from_secs(35);
+        while Instant::now() < deadline {
+            for event in session.poll_events().map_err(|error| error.message)? {
+                if event.operation_id.as_deref() != Some(operation_id.as_str()) {
+                    continue;
+                }
+                if let Some(error) = event.error {
+                    return Err(format!(
+                        "JDTLS smoke request {} failed: {error:?}",
+                        semantic_method(operation)
+                    ));
+                }
+                return event.result.ok_or_else(|| {
+                    format!(
+                        "JDTLS smoke request {} returned no result",
+                        semantic_method(operation)
+                    )
+                });
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        Err(format!(
+            "JDTLS smoke request {} timed out",
+            semantic_method(operation)
+        ))
+    }
+
+    fn real_smoke_locations(result: &Value) -> &[Value] {
+        result
+            .get("locations")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+    }
+
+    fn real_smoke_token_position(text: &str, marker: &str, token_offset: usize) -> LspPosition {
+        let marker_index = text.find(marker).expect("smoke marker should exist") + token_offset;
+        let prefix = &text[..marker_index];
+        let line = prefix.bytes().filter(|byte| *byte == b'\n').count() as i64;
+        let line_prefix = prefix.rsplit_once('\n').map_or(prefix, |(_, tail)| tail);
+        LspPosition {
+            line,
+            utf16_column: line_prefix.encode_utf16().count() as i64,
         }
     }
 
@@ -2541,6 +2845,7 @@ mod tests {
                 uri: "file:///workspace/main.go".to_string(),
                 language_id: "go".to_string(),
                 text: "package main".to_string(),
+                content_changes: Vec::new(),
             })
             .expect_err("a broken pipe must surface to the caller");
         assert!(matches!(error.code, ErrorCode::ProcessFailed));
@@ -2925,6 +3230,7 @@ mod tests {
                 uri: uri.to_string(),
                 language_id: "go".to_string(),
                 text: "package main".to_string(),
+                content_changes: Vec::new(),
             })
             .unwrap();
         old_server.send(json!({
@@ -2986,6 +3292,7 @@ mod tests {
                 uri: uri.to_string(),
                 language_id: "go".to_string(),
                 text: "package main".to_string(),
+                content_changes: Vec::new(),
             })
             .is_err());
     }
@@ -3044,6 +3351,67 @@ mod tests {
             .expect("the command should reach the language server");
         assert_eq!(request["params"]["command"], "source.fix");
         assert!(request["params"].get("textDocument").is_none());
+    }
+
+    #[test]
+    fn java_start_enables_and_normalizes_class_file_navigation() {
+        let cache = std::env::temp_dir().join("lithe-core-java-navigation-tests");
+        let mut harness = Harness::start(|request| {
+            request.provider_id = "java".to_string();
+            request.cache_directory = Some(cache.to_string_lossy().into_owned());
+            request.initialization_options = Some(json!({
+                "extendedClientCapabilities": { "customCapability": true }
+            }));
+        });
+        let initialize = harness
+            .server
+            .messages()
+            .into_iter()
+            .find(|message| message["method"] == "initialize")
+            .expect("the initialize request should reach JDT LS");
+        assert_eq!(
+            initialize["params"]["initializationOptions"]["extendedClientCapabilities"]
+                ["classFileContentsSupport"],
+            true
+        );
+        assert_eq!(
+            initialize["params"]["initializationOptions"]["extendedClientCapabilities"]
+                ["customCapability"],
+            true
+        );
+
+        harness
+            .server
+            .complete_initialize(json!({ "definitionProvider": true }));
+        harness.await_state(LspLifecycleState::Ready);
+        let uri = "file:///workspace/Main.java";
+        harness.sync(uri, "class Main { String value; }");
+        let operation_id = harness.request(LspSemanticOperation::Definition, uri);
+        let request_id = harness
+            .server
+            .await_request("textDocument/definition")
+            .expect("the definition request should reach JDT LS");
+        let virtual_uri = "jdt://contents/java.base/java/lang/String.class?=demo";
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": [{
+                "uri": virtual_uri,
+                "range": {
+                    "start": { "line": 10, "character": 4 },
+                    "end": { "line": 10, "character": 10 }
+                }
+            }]
+        }));
+        let event = harness
+            .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()))
+            .clone();
+        let location = &event.result.as_ref().unwrap()["locations"][0];
+        assert_eq!(location["uri"], virtual_uri);
+        assert_eq!(location["isReadOnly"], true);
+        assert_eq!(location["displayPath"], "java.base/java/lang/String.java");
+
+        let _ = std::fs::remove_dir_all(cache);
     }
 
     #[test]
@@ -3108,6 +3476,418 @@ mod tests {
             }))
         );
         assert!(event.error.is_none());
+    }
+
+    #[test]
+    fn wait_events_returns_queued_events_without_waiting_the_timeout() {
+        let harness = Harness::start(|_| {});
+        let started = Instant::now();
+        let events = harness
+            .session()
+            .wait_events(Duration::from_secs(2))
+            .expect("waiting should succeed");
+        assert!(
+            !events.is_empty(),
+            "starting a session should enqueue at least one lifecycle event"
+        );
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "queued events must not wait out the timeout"
+        );
+    }
+
+    #[test]
+    fn wait_events_times_out_with_an_empty_queue() {
+        let mut harness = Harness::ready();
+        harness.poll();
+        let started = Instant::now();
+        let events = harness
+            .session()
+            .wait_events(Duration::from_millis(40))
+            .expect("waiting should succeed");
+        assert!(events.is_empty());
+        assert!(started.elapsed() >= Duration::from_millis(30));
+    }
+
+    #[test]
+    fn wait_events_wakes_when_the_session_enqueues_a_lifecycle_event() {
+        let mut harness = Harness::ready();
+        harness.poll();
+        let session = harness.session();
+        let waiter = thread::spawn({
+            let session = Arc::clone(&session);
+            move || {
+                session
+                    .wait_events(Duration::from_secs(2))
+                    .expect("waiting should succeed")
+            }
+        });
+        thread::sleep(Duration::from_millis(30));
+        session.stop().expect("the session should stop");
+        let events = waiter.join().expect("the waiter thread should finish");
+        assert!(
+            events.iter().any(|event| event.kind == "stateChanged"),
+            "stop should wake waiters with a lifecycle event, got {events:?}"
+        );
+    }
+
+    #[test]
+    fn wait_events_errors_after_terminal_state_events_are_drained() {
+        let mut harness = Harness::ready();
+        harness.poll();
+        harness.session().stop().unwrap();
+        let shutdown_id = harness
+            .server
+            .await_request("shutdown")
+            .expect("stop should request shutdown");
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": shutdown_id,
+            "result": null
+        }));
+        assert!(
+            harness.server.await_notification("exit"),
+            "exit must follow the shutdown response"
+        );
+        harness.server.exit(Some(0));
+        harness.await_state(LspLifecycleState::Stopped);
+
+        // Drain any remaining lifecycle events from the stop transition.
+        loop {
+            let events = match harness.session().wait_events(Duration::from_millis(20)) {
+                Ok(events) => events,
+                Err(error) => {
+                    assert!(matches!(error.code, ErrorCode::ProcessFailed));
+                    assert_eq!(error.details.as_deref(), Some("sessionStopped"));
+                    return;
+                }
+            };
+            if events.is_empty() {
+                break;
+            }
+        }
+
+        let error = harness
+            .session()
+            .wait_events(Duration::from_millis(50))
+            .expect_err("drained terminal sessions must not return empty Ok");
+        assert!(matches!(error.code, ErrorCode::ProcessFailed));
+        assert_eq!(error.details.as_deref(), Some("sessionStopped"));
+    }
+
+    #[test]
+    fn java_virtual_semantics_bypass_did_open_without_weakening_physical_ownership() {
+        let mut harness = Harness::start(|request| {
+            request.provider_id = "java".to_string();
+            request.cache_directory = Some("/tmp/lithe-lsp-engine-tests".to_string());
+        });
+        harness.server.complete_initialize(json!({
+            "referencesProvider": true
+        }));
+        harness.await_state(LspLifecycleState::Ready);
+        let virtual_uri = "jdt://contents/java.base/java/lang/String.class?=smoke";
+        let operation_id = harness.request(LspSemanticOperation::References, virtual_uri);
+        let request_id = harness
+            .server
+            .await_request("textDocument/references")
+            .expect("virtual references should reach JDT LS without didOpen");
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": []
+        }));
+        let event = harness
+            .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()));
+        assert!(event.error.is_none());
+
+        let physical_operation_id = harness.engine.next_operation_id();
+        let error = harness
+            .session()
+            .request(
+                SemanticRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(physical_operation_id.clone()),
+                    operation: LspSemanticOperation::References,
+                    uri: Some("file:///workspace/Unopened.java".to_string()),
+                    virtual_uri: None,
+                    position: Some(LspPosition {
+                        line: 0,
+                        utf16_column: 0,
+                    }),
+                    new_name: None,
+                    range: None,
+                    diagnostics: Vec::new(),
+                    completion_item: None,
+                    code_action: None,
+                    command: None,
+                },
+                physical_operation_id,
+            )
+            .expect_err("an unopened physical document must remain rejected");
+        assert_eq!(
+            error.message,
+            "The document is not open in the language server."
+        );
+    }
+
+    #[test]
+    fn real_jdtls_routes_physical_and_virtual_references() {
+        let Ok(executable_path) = std::env::var("LITHE_JDTLS_SMOKE_EXECUTABLE") else {
+            return;
+        };
+        let java_path = std::env::var("LITHE_JDTLS_SMOKE_JAVA")
+            .expect("LITHE_JDTLS_SMOKE_JAVA must accompany the JDTLS smoke executable");
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should follow the Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "lithe-real-jdtls-smoke-{}-{stamp}",
+            std::process::id()
+        ));
+        let workspace = root.join("workspace");
+        let source_directory = workspace
+            .join("src")
+            .join("main")
+            .join("java")
+            .join("smoke");
+        let dependency_source_directory = root.join("dependency-source").join("dependency");
+        let dependency_classes = root.join("dependency-classes");
+        let dependency_jar = workspace.join("lib").join("smoke-dependency.jar");
+        std::fs::create_dir_all(&source_directory).expect("smoke source directory should exist");
+        std::fs::create_dir_all(&dependency_source_directory)
+            .expect("smoke dependency source directory should exist");
+        std::fs::create_dir_all(&dependency_classes)
+            .expect("smoke dependency classes directory should exist");
+        std::fs::create_dir_all(
+            dependency_jar
+                .parent()
+                .expect("dependency JAR should have a parent"),
+        )
+        .expect("smoke dependency library directory should exist");
+        let java_home = PathBuf::from(&java_path)
+            .parent()
+            .and_then(Path::parent)
+            .expect("smoke Java executable should be inside a JDK bin directory")
+            .to_path_buf();
+        let executable_suffix = if cfg!(windows) { ".exe" } else { "" };
+        let dependency_source = dependency_source_directory.join("Widget.java");
+        std::fs::write(
+            &dependency_source,
+            "package dependency; public class Widget { public String value() { return \"widget\"; } }\n",
+        )
+        .expect("smoke dependency source should be written");
+        let javac_status = std::process::Command::new(
+            java_home
+                .join("bin")
+                .join(format!("javac{executable_suffix}")),
+        )
+        .arg("-d")
+        .arg(&dependency_classes)
+        .arg(&dependency_source)
+        .status()
+        .expect("smoke javac should start");
+        assert!(javac_status.success(), "smoke dependency should compile");
+        let jar_status = std::process::Command::new(
+            java_home
+                .join("bin")
+                .join(format!("jar{executable_suffix}")),
+        )
+        .arg("--create")
+        .arg("--file")
+        .arg(&dependency_jar)
+        .arg("-C")
+        .arg(&dependency_classes)
+        .arg(".")
+        .status()
+        .expect("smoke jar should start");
+        assert!(
+            jar_status.success(),
+            "smoke dependency JAR should be created"
+        );
+        std::fs::write(
+            workspace.join("pom.xml"),
+            r#"<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>smoke</groupId>
+  <artifactId>lithe-jdtls-smoke</artifactId>
+  <version>1.0.0</version>
+  <properties><maven.compiler.release>17</maven.compiler.release></properties>
+  <dependencies>
+    <dependency>
+      <groupId>smoke</groupId>
+      <artifactId>dependency</artifactId>
+      <version>1.0.0</version>
+      <scope>system</scope>
+      <systemPath>${project.basedir}/lib/smoke-dependency.jar</systemPath>
+    </dependency>
+  </dependencies>
+</project>
+"#,
+        )
+        .expect("smoke pom should be written");
+        let source = r#"package smoke;
+
+import dependency.Widget;
+
+public class Main {
+  private Widget widget;
+  public Widget read() { return widget; }
+  public void write(Widget replacement) { widget = replacement; }
+}
+"#;
+        let source_path = source_directory.join("Main.java");
+        std::fs::write(&source_path, source).expect("smoke source should be written");
+
+        let root_uri = url::Url::from_directory_path(&workspace)
+            .expect("workspace should convert to a file URI")
+            .to_string();
+        let source_uri = url::Url::from_file_path(&source_path)
+            .expect("source should convert to a file URI")
+            .to_string();
+        let engine = LspEngine::new();
+        let started = engine
+            .start_server(StartServerRequest {
+                provider_id: "java".to_string(),
+                executable_path,
+                arguments: Vec::new(),
+                environment: BTreeMap::from([(
+                    "JAVA_HOME".to_string(),
+                    java_home.to_string_lossy().into_owned(),
+                )]),
+                root_uri,
+                working_directory: workspace.to_string_lossy().into_owned(),
+                initialization_options: None,
+                runtime_executable_path: Some(java_path),
+                cache_directory: Some(root.join("cache").to_string_lossy().into_owned()),
+                initialize_timeout_milliseconds: 90_000,
+                request_timeout_milliseconds: 30_000,
+                shutdown_timeout_milliseconds: 10_000,
+            })
+            .expect("real JDTLS should start");
+        let _cleanup = RealSmokeCleanup {
+            engine: &engine,
+            session_id: started.session_id.clone(),
+            root,
+        };
+        let session = engine
+            .session(&started.session_id)
+            .expect("real JDTLS session should be registered");
+        let mut ready_events =
+            await_real_smoke_ready(&session).unwrap_or_else(|error| panic!("{error}"));
+        let capability_deadline = Instant::now() + Duration::from_secs(30);
+        let capabilities = loop {
+            if let Some(capabilities) = ready_events.iter().find_map(|event| {
+                event
+                    .capabilities
+                    .as_ref()
+                    .filter(|capabilities| {
+                        ["definition", "references", "executeCommand"]
+                            .iter()
+                            .all(|required| capabilities.iter().any(|feature| feature == required))
+                    })
+                    .cloned()
+            }) {
+                break capabilities;
+            }
+            assert!(
+                Instant::now() < capability_deadline,
+                "real JDTLS should dynamically publish capabilities: {ready_events:?}"
+            );
+            ready_events.extend(
+                session
+                    .poll_events()
+                    .expect("real JDTLS capability events should poll"),
+            );
+            thread::sleep(Duration::from_millis(20));
+        };
+        for required in ["definition", "references", "executeCommand"] {
+            assert!(
+                capabilities.iter().any(|feature| feature == required),
+                "real JDTLS did not negotiate {required}: {capabilities:?}"
+            );
+        }
+
+        session
+            .sync_document(SyncDocumentRequest {
+                session_id: started.session_id.clone(),
+                uri: source_uri.clone(),
+                language_id: "java".to_string(),
+                text: source.to_string(),
+                content_changes: Vec::new(),
+            })
+            .expect("smoke source should synchronize");
+
+        let field_position = real_smoke_token_position(source, "Widget widget", "Widget ".len());
+        let physical_deadline = Instant::now() + Duration::from_secs(30);
+        let physical_references = loop {
+            let result = real_smoke_request(
+                &engine,
+                &session,
+                LspSemanticOperation::References,
+                Some(&source_uri),
+                None,
+                Some(field_position),
+            )
+            .unwrap_or_else(|error| panic!("{error}"));
+            if real_smoke_locations(&result).len() >= 3 {
+                break result;
+            }
+            assert!(
+                Instant::now() < physical_deadline,
+                "real JDTLS did not index physical references: {result}"
+            );
+            thread::sleep(Duration::from_millis(250));
+        };
+        assert!(real_smoke_locations(&physical_references).len() >= 3);
+
+        let widget_position = real_smoke_token_position(source, "Widget widget", 1);
+        let definition = real_smoke_request(
+            &engine,
+            &session,
+            LspSemanticOperation::Definition,
+            Some(&source_uri),
+            None,
+            Some(widget_position),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        let virtual_uri = real_smoke_locations(&definition)
+            .iter()
+            .find_map(|location| location.get("uri").and_then(Value::as_str))
+            .filter(|uri| uri.starts_with("jdt://"))
+            .expect("Widget definition should resolve to a JDT virtual URI")
+            .to_string();
+        let virtual_document = real_smoke_request(
+            &engine,
+            &session,
+            LspSemanticOperation::VirtualDocument,
+            None,
+            Some(&virtual_uri),
+            None,
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        let virtual_source = virtual_document
+            .get("text")
+            .and_then(Value::as_str)
+            .filter(|text| !text.is_empty())
+            .expect("JDTLS should return decompiled Widget source");
+        let virtual_position =
+            real_smoke_token_position(virtual_source, "class Widget", "class ".len());
+        let virtual_references = real_smoke_request(
+            &engine,
+            &session,
+            LspSemanticOperation::References,
+            Some(&virtual_uri),
+            None,
+            Some(virtual_position),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        assert!(
+            real_smoke_locations(&virtual_references).iter().any(|location| {
+                location.get("uri").and_then(Value::as_str) == Some(source_uri.as_str())
+            }),
+            "virtual Widget references should include the synchronized project source: {virtual_references}"
+        );
     }
 
     #[test]

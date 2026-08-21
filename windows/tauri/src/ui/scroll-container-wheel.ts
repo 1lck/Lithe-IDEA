@@ -1,8 +1,8 @@
 const DOM_DELTA_LINE = 1;
 const DOM_DELTA_PAGE = 2;
 
-// Chromium/WebView2 can latch wheel events onto overflow:hidden tree rows
-// instead of the sidebar scroller. Apply the delta to the real container.
+// Chromium/WebView2 can latch wheel events onto overflow:hidden descendants
+// instead of the intended scroller. Apply the delta to the real container.
 
 export const SIDEBAR_SCROLL_CONTAINER_SELECTOR =
   "[data-slot='scroll-area-viewport'], [data-scroll-container], .file-tree-container";

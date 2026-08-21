@@ -408,7 +408,6 @@ struct LitheApp: App {
             .environmentObject(settings)
             .environmentObject(updateChecker)
             .environment(\.locale, settings.language.locale)
-            .preferredColorScheme(settings.themePreference.preferredColorScheme)
         }
         .defaultSize(width: 1040, height: 720)
         .windowResizability(.contentMinSize)
@@ -439,18 +438,31 @@ private struct SettingsWindow: View {
     @ObservedObject var model: AppModel
     @ObservedObject var settings: AppSettings
     @StateObject private var windowReference = SettingsWindowReference()
+    @StateObject private var viewState: SettingsViewState
+
+    init(model: AppModel, settings: AppSettings) {
+        self.model = model
+        self.settings = settings
+        _viewState = StateObject(wrappedValue: SettingsViewState(
+            initialCategory: model.requestedSettingsCategory
+        ))
+    }
 
     var body: some View {
-        SettingsView(
-            settings: settings,
-            initialCategory: model.requestedSettingsCategory,
-            onDismiss: close
-        )
-        .environmentObject(model)
+        SettingsAppearanceContainer(themePreference: settings.themePreference) {
+            SettingsView(
+                settings: settings,
+                viewState: viewState,
+                initialCategory: model.requestedSettingsCategory,
+                onDismiss: close
+            )
+            .environmentObject(model)
+        }
         .background(
             SettingsWindowAccessor(
                 reference: windowReference,
-                title: settingsWindowTitle(for: settings.language)
+                title: settingsWindowTitle(for: settings.language),
+                themePreference: settings.themePreference
             )
         )
         .onDisappear {
@@ -464,23 +476,63 @@ private struct SettingsWindow: View {
     }
 }
 
+struct SettingsAppearanceContainer<Content: View>: View {
+    let themePreference: AppThemePreference
+    let content: Content
+
+    init(
+        themePreference: AppThemePreference,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.themePreference = themePreference
+        self.content = content()
+    }
+
+    var body: some View {
+        content.preferredColorScheme(themePreference.preferredColorScheme)
+    }
+}
+
 @MainActor
 private final class SettingsWindowReference: ObservableObject {
     weak var window: NSWindow?
 }
 
+private final class SettingsTitlebarBackgroundView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+private final class SettingsWindowProbe: NSView {
+    var onEffectiveAppearanceChange: (() -> Void)?
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        onEffectiveAppearanceChange?()
+    }
+}
+
 private struct SettingsWindowAccessor: NSViewRepresentable {
     let reference: SettingsWindowReference
     let title: String
+    let themePreference: AppThemePreference
 
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: .zero)
+    func makeNSView(context: Context) -> SettingsWindowProbe {
+        let view = SettingsWindowProbe(frame: .zero)
+        bindAppearanceUpdates(to: view)
         configureWindow(for: view)
         return view
     }
 
-    func updateNSView(_ view: NSView, context: Context) {
+    func updateNSView(_ view: SettingsWindowProbe, context: Context) {
+        bindAppearanceUpdates(to: view)
         configureWindow(for: view)
+    }
+
+    private func bindAppearanceUpdates(to view: SettingsWindowProbe) {
+        view.onEffectiveAppearanceChange = { [weak view] in
+            guard let view else { return }
+            configureWindow(for: view)
+        }
     }
 
     private func configureWindow(for view: NSView) {
@@ -488,12 +540,59 @@ private struct SettingsWindowAccessor: NSViewRepresentable {
             guard let window = view.window else { return }
             reference.window = window
             window.title = title
+            let windowAppearance = themePreference.windowAppearance
+            if window.appearance?.name != windowAppearance?.name {
+                window.appearance = windowAppearance
+            }
+            if window.contentView?.appearance?.name != windowAppearance?.name {
+                window.contentView?.appearance = windowAppearance
+            }
+            window.styleMask.insert(.fullSizeContentView)
             window.titlebarAppearsTransparent = true
             window.titleVisibility = .visible
-            window.backgroundColor = NSColor(LitheTheme.settingsSurface)
+            window.titlebarSeparatorStyle = .none
+            window.isOpaque = true
+            let settingsSurface = LitheTheme.settingsSurfaceNSColor(
+                for: window.effectiveAppearance
+            )
+            window.backgroundColor = settingsSurface
+            applySettingsSurface(toTitlebarOf: window, color: settingsSurface)
             window.standardWindowButton(.miniaturizeButton)?.isEnabled = false
             window.standardWindowButton(.zoomButton)?.isEnabled = true
         }
+    }
+
+    private func applySettingsSurface(toTitlebarOf window: NSWindow, color: NSColor) {
+        // AppKit places the titlebar in multiple nested views. Styling only
+        // the close-button's immediate superview leaves the opaque theme
+        // frame above it untouched, which is the extra strip seen in the
+        // settings window. Apply the same surface to each titlebar ancestor.
+        var view = window.standardWindowButton(.closeButton)?.superview
+        var titlebarHost: NSView?
+        while let current = view, current !== window.contentView {
+            current.wantsLayer = true
+            current.layer?.backgroundColor = color.cgColor
+            if current.bounds.width >= window.frame.width * 0.8,
+               current.bounds.height <= 100 {
+                titlebarHost = current
+            }
+            view = current.superview
+        }
+
+        guard let titlebarHost else { return }
+        let backgroundView: SettingsTitlebarBackgroundView
+        if let existing = titlebarHost.subviews.first(where: {
+            $0 is SettingsTitlebarBackgroundView
+        }) as? SettingsTitlebarBackgroundView {
+            backgroundView = existing
+        } else {
+            backgroundView = SettingsTitlebarBackgroundView(frame: titlebarHost.bounds)
+            titlebarHost.addSubview(backgroundView, positioned: .below, relativeTo: nil)
+        }
+        backgroundView.frame = titlebarHost.bounds
+        backgroundView.autoresizingMask = [.width, .height]
+        backgroundView.wantsLayer = true
+        backgroundView.layer?.backgroundColor = color.cgColor
     }
 }
 
@@ -506,6 +605,14 @@ private func settingsWindowTitle(for language: AppLanguage) -> String {
 }
 
 private extension AppThemePreference {
+    var windowAppearance: NSAppearance? {
+        switch self {
+        case .system: nil
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
+        }
+    }
+
     var preferredColorScheme: ColorScheme? {
         switch self {
         case .system: nil

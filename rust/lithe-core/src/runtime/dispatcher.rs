@@ -656,6 +656,21 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspWaitEvents => {
+            match serde_json::from_value::<crate::lsp::WaitEventsRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid LSP wait-events request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::wait_events)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("LSP wait-events response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::LspDestroyServer => {
             match serde_json::from_value::<crate::lsp::SessionRequest>(parsed.payload)
                 .map_err(|error| {
@@ -1267,6 +1282,10 @@ mod tests {
             }),
             json!({
                 "command": "lsp.pollEvents",
+                "payload": { "sessionId": unknown_session }
+            }),
+            json!({
+                "command": "lsp.waitEvents",
                 "payload": { "sessionId": unknown_session }
             }),
             json!({

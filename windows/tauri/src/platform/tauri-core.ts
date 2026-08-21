@@ -42,6 +42,7 @@ const nativeCommands = new Set([
   "open_file_external",
   "read_file_custom",
   "read_local_file",
+  "read_local_file_bounded",
   "record_startup_milestone",
   "read_lithe_log",
   "remove_secure_secret",

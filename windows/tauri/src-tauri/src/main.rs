@@ -103,6 +103,7 @@ fn main() {
             host::validate_font,
             host::get_bundled_extensions_path,
             host::read_local_file,
+            host::read_local_file_bounded,
             host::read_file_custom,
             host::write_file,
             host::move_file,

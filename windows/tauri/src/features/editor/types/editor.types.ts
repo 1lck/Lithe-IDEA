@@ -30,6 +30,7 @@ export interface EditorContentChangeOptions {
   contentAlreadyApplied?: boolean;
   skipUndoGrouping?: boolean;
   contentChange?: EditorTextChange;
+  contentChanges?: EditorTextChange[];
 }
 
 export interface Cursor {

@@ -54,7 +54,7 @@ export function SidebarToolbar({ children, className, ...props }: ComponentProps
   return (
     <div
       className={cn(
-        "font-sans ui-text-chrome flex h-(--lithe-pane-header-height) min-w-0 shrink-0 select-none items-center gap-(--lithe-chrome-gap) border-border/70 border-b px-3",
+        "font-sans ui-text-chrome flex h-(--lithe-pane-header-height) min-w-0 shrink-0 select-none items-center gap-(--lithe-chrome-gap) border-border/70 border-b bg-background px-3",
         className,
       )}
       {...props}
@@ -90,7 +90,7 @@ export function SidebarHeader({
   return (
     <div
       className={cn(
-        "ui-text-chrome sticky top-0 z-20 flex h-(--lithe-sidebar-header-height) min-w-0 shrink-0 select-none items-center gap-(--lithe-chrome-gap) bg-background/92 px-0 py-1 backdrop-blur-sm",
+        "ui-text-chrome sticky top-0 z-20 flex h-(--lithe-sidebar-header-height) min-w-0 shrink-0 select-none items-center gap-(--lithe-chrome-gap) bg-background px-0 py-1",
         className,
       )}
       {...props}
@@ -240,7 +240,8 @@ export function SidebarListItem({
         "font-sans ui-text-chrome flex min-h-(--lithe-tab-height) w-full min-w-0 items-center gap-(--lithe-chrome-gap-loose) rounded-(--lithe-chrome-radius) px-2 py-1 text-left text-subtle-foreground transition-[background-color,color]",
         "hover:bg-accent/70 hover:text-foreground focus-visible:bg-accent/70 focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20",
         "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-subtle-foreground",
-        active && "bg-accent/80 text-foreground",
+        active && !iconOnly && "bg-selected text-foreground",
+        active && iconOnly && "bg-accent text-foreground",
         iconOnly && "justify-center gap-0 px-0",
         className,
       )}

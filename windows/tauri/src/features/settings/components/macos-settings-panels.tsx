@@ -1,5 +1,7 @@
 import { getVersion } from "@tauri-apps/api/app";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { themeRegistry } from "@/extensions/themes/theme-registry";
+import { useRegisteredThemes } from "@/extensions/themes/use-registered-themes";
 import { useUpdater } from "@/features/settings/hooks/use-updater";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import {
@@ -27,7 +29,7 @@ const controlClassName =
 
 export function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="overflow-hidden rounded-md border border-border bg-surface/35">
+    <section className="overflow-clip rounded-md border border-border bg-surface/35">
       <h3 className="border-border border-b px-3 py-2 ui-text-sm font-medium text-subtle-foreground">
         {title}
       </h3>
@@ -65,6 +67,7 @@ function GeneralPanel() {
   const settings = useSettingsStore((state) => state.settings);
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
   const projectPlacement = getProjectOpenPreference(settings);
+  const registeredThemes = useRegisteredThemes();
   const [gitPolicy, setGitPolicy] = useState("ask");
   const [directoryPatterns, setDirectoryPatterns] = useState(
     settings.hiddenDirectoryPatterns.join("\n"),
@@ -76,6 +79,38 @@ function GeneralPanel() {
     : settings.theme.includes("light")
       ? "light"
       : "dark";
+
+  const themeOptions = useMemo(
+    () =>
+      registeredThemes.map((theme) => ({
+        value: theme.id,
+        label: theme.name,
+      })),
+    [registeredThemes],
+  );
+
+  const normalizedThemeOptions = useMemo(() => {
+    if (themeOptions.some((option) => option.value === settings.theme)) {
+      return themeOptions;
+    }
+
+    const fallbackTheme = themeRegistry.getTheme(settings.theme);
+    if (!fallbackTheme) {
+      return themeOptions;
+    }
+
+    return [{ value: fallbackTheme.id, label: fallbackTheme.name }, ...themeOptions];
+  }, [themeOptions, settings.theme]);
+
+  const handleThemeChange = (themeId: string) => {
+    const theme = themeRegistry.getTheme(themeId);
+    if (!settings.syncSystemTheme || !theme) {
+      void updateSetting("theme", themeId);
+      return;
+    }
+
+    void updateSetting(theme.isDark ? "autoThemeDark" : "autoThemeLight", themeId);
+  };
 
   const applyVisibilityPatterns = () => {
     const parse = (value: string) =>
@@ -91,8 +126,16 @@ function GeneralPanel() {
     <div className="flex flex-col gap-4">
       <SettingsGroup title={t("settings.mac.appearance")}>
         <SettingsRow label={t("settings.mac.colorTheme")}>
-          <select className={`${controlClassName} w-36`} value="lithe" disabled>
-            <option value="lithe">Lithe</option>
+          <select
+            className={`${controlClassName} w-40`}
+            value={settings.theme}
+            onChange={(event) => handleThemeChange(event.target.value)}
+          >
+            {normalizedThemeOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </select>
         </SettingsRow>
         <SettingsRow

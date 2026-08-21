@@ -74,10 +74,11 @@ function createMonacoThemeData(
     colors: {
       "editor.background": background,
       "editor.foreground": foreground,
+      "editorLink.activeForeground": accent,
       "editorCursor.foreground": cursor,
       "editor.selectionBackground": selection,
-      "editor.inactiveSelectionBackground": selected,
-      "editor.lineHighlightBackground": selected,
+      "editor.inactiveSelectionBackground": border,
+      "editor.lineHighlightBackground": secondaryBackground,
       "editorLineNumber.foreground": subtleForeground,
       "editorLineNumber.activeForeground": foreground,
       "editorIndentGuide.background1": border,

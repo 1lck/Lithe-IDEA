@@ -27,6 +27,7 @@ struct LSPControlCenterView: View {
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .litheScrollViewChrome(alwaysShowVertical: true, usesCompactScrollers: true)
             .background(LitheTheme.settingsSurface)
         }
         .background(LitheTheme.settingsSurface)

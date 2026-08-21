@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- service configuration -->
+<services environment="test">
+  <service id="gateway" enabled="true">
+    <endpoint url="https://example.test/#fragment"><![CDATA[release <candidate> 123]]></endpoint>
+  </service>
+</services>

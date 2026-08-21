@@ -1,14 +1,15 @@
 import type React from "react";
 import { memo } from "react";
+import type { FileIconSemanticKind } from "@/extensions/icon-themes/file-icon-semantics";
 import type { FileTreeGitStatusDecoration } from "@/features/file-explorer/lib/file-tree-git-status";
+import { FILE_TREE_BASE_INDENT } from "@/features/file-explorer/lib/file-tree-row";
+import { useJavaFileIconKind } from "@/extensions/icon-themes/hooks/use-java-file-icon-kind";
 import type { FileEntry } from "@/features/file-system/types/app.types";
 import { InlineRenameInput } from "@/ui/input";
 import { SidebarTreeDisclosure, SidebarTreeRow } from "@/features/sidebar/components/sidebar-tree";
 import { cn } from "@/utils/cn";
 import { ThemedFileIcon } from "@/extensions/icon-themes/components/themed-file-icon";
 import { useTranslation } from "@/i18n/locale-provider";
-
-const FILE_TREE_BASE_INDENT = 10;
 
 export interface FileTreeGuideTarget {
   path: string;
@@ -49,6 +50,8 @@ interface FileExplorerTreeItemProps {
   showIndentGuides: boolean;
   isExpanded: boolean;
   isActive: boolean;
+  isRoot: boolean;
+  semanticKind?: FileIconSemanticKind;
   isCut: boolean;
   isDragOver: boolean;
   isDragging: boolean;
@@ -94,6 +97,8 @@ function FileExplorerTreeItemComponent({
   showIndentGuides,
   isExpanded,
   isActive,
+  isRoot,
+  semanticKind,
   isCut,
   isDragOver,
   isDragging,
@@ -106,6 +111,8 @@ function FileExplorerTreeItemComponent({
   rowId,
 }: FileExplorerTreeItemProps) {
   const { t } = useTranslation();
+  const javaSemanticKind = useJavaFileIconKind(file.path, file.name, file.isDir, showIcon);
+  const resolvedSemanticKind = semanticKind ?? javaSemanticKind;
   const paddingLeft = FILE_TREE_BASE_INDENT + depth * indentSize;
   const gitStatusDecoration = getGitStatusDecoration(file);
   const guideLevels = Array.from({ length: depth }, (_, level) => level);
@@ -143,7 +150,7 @@ function FileExplorerTreeItemComponent({
       <div className="file-tree-item w-full" data-depth={depth}>
         {renderTreeGuides()}
         <div
-          className="file-tree-row flex w-full items-center rounded-lg gap-1.5 px-1.5 py-1 ui-text-sm leading-row"
+          className="file-tree-edit-row file-tree-row flex w-full items-center gap-1.5 px-1.5 py-1 ui-text-sm leading-row"
           style={{
             paddingLeft: `${paddingLeft}px`,
           }}
@@ -154,7 +161,7 @@ function FileExplorerTreeItemComponent({
               fileName={file.isDir ? "folder" : "file"}
               isDir={file.isDir}
               isExpanded={false}
-              className="relative z-1 shrink-0 text-subtle-foreground"
+              className="file-tree-node-icon relative z-1 shrink-0 text-subtle-foreground"
             />
           ) : null}
           <InlineRenameInput
@@ -208,6 +215,7 @@ function FileExplorerTreeItemComponent({
       data-file-path={file.path}
       data-is-dir={file.isDir}
       data-path={file.path}
+      data-root={isRoot ? "true" : undefined}
       title={
         file.isSymlink && file.symlinkTarget
           ? t("files.symlinkTo", { target: file.symlinkTarget })
@@ -227,12 +235,18 @@ function FileExplorerTreeItemComponent({
             isDir={file.isDir}
             isExpanded={isExpanded}
             isSymlink={file.isSymlink}
-            className="relative z-1 shrink-0 text-subtle-foreground"
+            semanticKind={resolvedSemanticKind}
+            className="file-tree-node-icon relative z-1 shrink-0 text-subtle-foreground"
           />
         ) : null
       }
       label={
-        <span className={cn("select-none whitespace-nowrap", gitStatusDecoration?.colorClassName)}>
+        <span
+          className={cn(
+            "file-tree-node-label select-none whitespace-nowrap",
+            gitStatusDecoration?.colorClassName,
+          )}
+        >
           {renderHighlightedLabel(displayName ?? file.name, searchQuery)}
         </span>
       }
@@ -254,6 +268,8 @@ export const FileExplorerTreeItem = memo(
     prev.showIndentGuides === next.showIndentGuides &&
     prev.isExpanded === next.isExpanded &&
     prev.isActive === next.isActive &&
+    prev.isRoot === next.isRoot &&
+    prev.semanticKind === next.semanticKind &&
     prev.isCut === next.isCut &&
     prev.isDragOver === next.isDragOver &&
     prev.isDragging === next.isDragging &&

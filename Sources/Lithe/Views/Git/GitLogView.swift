@@ -315,17 +315,9 @@ struct GitLogView: View {
             .help("Git tool window actions")
 
             Spacer(minLength: 12)
-
-            Button {
-                model.closeGitLog()
-            } label: {
-                Image(systemName: "minus")
-            }
-            .litheIconButton()
-            .help("Hide Git tool window")
         }
         .padding(.leading, 12)
-        .padding(.trailing, 7)
+        .padding(.trailing, 42)
         .frame(height: 32)
         .background(LitheTheme.toolHeader)
         .overlay(alignment: .bottom) {

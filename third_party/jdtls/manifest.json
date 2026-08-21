@@ -4,5 +4,10 @@
   "archiveSHA256": "ba697788a19f2ba57b16302aba6b343c649928c95f76b0d170494ac12d17ac78",
   "licenseURL": "https://www.eclipse.org/org/documents/epl-2.0/EPL-2.0.txt",
   "licenseSHA256": "0becf16567beb77fa252b7664631dd177c8f9a1889e48995b45379c7130e5303",
+  "lombokVersion": "1.18.46",
+  "lombokURL": "https://repo.maven.apache.org/maven2/org/projectlombok/lombok/1.18.46/lombok-1.18.46.jar",
+  "lombokSHA256": "01f7b1a015e33e2b62d5f5f37053306357ab1415fd181fcba7794f5d198c1126",
+  "lombokLicenseURL": "https://raw.githubusercontent.com/projectlombok/lombok/v1.18.46/LICENSE",
+  "lombokLicenseSHA256": "76479448741d7a7a3a97b6afd9ab9699d95621faafc65a1b8e9149342ea00feb",
   "minimumJavaVersion": 17
 }

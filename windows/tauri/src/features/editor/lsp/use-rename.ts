@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { editorAPI } from "@/features/editor/extensions/api";
+import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useEditorStateStore } from "@/features/editor/stores/state.store";
 import { getLineTextFromContent } from "@/features/editor/utils/position";
+import { lspDocumentTargetForEditorPath } from "./lsp-document-target";
 import { LspClient } from "./lsp-client";
-import { applyWorkspaceEdit, isWorkspaceEdit, offsetFromPosition } from "./workspace-edit";
+import { applyWorkspaceEdit, isWorkspaceEdit } from "./workspace-edit";
 import { logger } from "../utils/logger";
 
 interface RenameState {
@@ -19,18 +21,6 @@ function getWordUnderCursor(line: string, column: number): string {
   return (before?.[0] || "") + (after?.[0]?.slice(1) || "");
 }
 
-function getTextForRange(
-  content: string,
-  range: {
-    start: { line: number; character: number };
-    end: { line: number; character: number };
-  },
-): string {
-  const start = offsetFromPosition(content, range.start);
-  const end = offsetFromPosition(content, range.end);
-  return content.slice(start, end);
-}
-
 export const useRename = (filePath: string | undefined) => {
   const [renameState, setRenameState] = useState<RenameState | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -42,20 +32,9 @@ export const useRename = (filePath: string | undefined) => {
     const content = editorAPI.getContent();
     const currentLine = getLineTextFromContent(content, cursorPosition.line);
     const lspClient = LspClient.getInstance();
-    const prepared = await lspClient.prepareRename(
-      filePath,
-      cursorPosition.line,
-      cursorPosition.column,
-    );
-    const preparedRange = prepared?.range
-      ? prepared.range
-      : prepared?.start && prepared?.end
-        ? { start: prepared.start, end: prepared.end }
-        : null;
-    const symbol =
-      prepared?.placeholder ||
-      (preparedRange ? getTextForRange(content, preparedRange) : "") ||
-      getWordUnderCursor(currentLine, cursorPosition.column);
+    const target = lspDocumentTargetForEditorPath(useBufferStore.getState().buffers, filePath);
+    if (!target || !lspClient.getDocumentAvailability(target, "rename").available) return;
+    const symbol = getWordUnderCursor(currentLine, cursorPosition.column);
 
     if (!symbol) return;
 
@@ -91,8 +70,10 @@ export const useRename = (filePath: string | undefined) => {
 
       try {
         const lspClient = LspClient.getInstance();
+        const target = lspDocumentTargetForEditorPath(useBufferStore.getState().buffers, filePath);
+        if (!target || !lspClient.getDocumentAvailability(target, "rename").available) return;
         const result = await lspClient.rename(
-          filePath,
+          target,
           renameState.line,
           renameState.column,
           trimmed,

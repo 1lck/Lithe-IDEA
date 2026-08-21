@@ -3,7 +3,6 @@ export const SIDEBAR_ACTIVITY_ITEM_IDS = [
   "files",
   "git",
   "search",
-  "database",
   "run",
   "terminal",
   "diagnostics",
