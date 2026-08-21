@@ -170,6 +170,10 @@ export function countSplitDiffStats(splitHunks: GitDiffSplitRow[][]): {
   return { additions, deletions };
 }
 
+export function hasInvisibleDiffChanges(rows: GitDiffSplitRow[]): boolean {
+  return rows.some((row) => row.is_invisible_change === true);
+}
+
 export function countDiffStats(diffs: GitDiff[]): { additions: number; deletions: number } {
   let additions = 0;
   let deletions = 0;

@@ -97,6 +97,7 @@ describe("git single-file diff adaptation", () => {
           new_line_number: 2,
           old_content: "aa",
           new_content: "aa",
+          is_invisible_change: true,
         },
         {
           kind: "addition",
@@ -112,6 +113,51 @@ describe("git single-file diff adaptation", () => {
       deletions: 0,
     });
     expect(diff.lines.some((line) => line.content.includes("No newline"))).toBe(false);
+  });
+
+  test("marks carriage-return-only rows as invisible line-ending changes", () => {
+    const patch = `diff --git a/a.txt b/a.txt
+--- a/a.txt
++++ b/a.txt
+@@ -1 +1 @@
+-same
++same
+`;
+    const diff = adaptCoreResult(
+      "git_diff_file",
+      { repoPath: "C:/work", filePath: "a.txt" },
+      {
+        patch,
+        rows: [
+          { kind: "information", left: "@@ -1 +1 @@", hunkId: "hunk-0" },
+          {
+            kind: "changed",
+            oldLine: 1,
+            newLine: 1,
+            left: "same",
+            right: "same\r",
+            hunkId: "hunk-0",
+          },
+        ],
+      },
+    ) as GitDiff;
+
+    expect(diff.split_hunks).toEqual([
+      [
+        {
+          kind: "context",
+          old_line_number: 1,
+          new_line_number: 1,
+          old_content: "same",
+          new_content: "same\r",
+          is_invisible_change: true,
+        },
+      ],
+    ]);
+    expect({ additions: diff.additions, deletions: diff.deletions }).toEqual({
+      additions: 0,
+      deletions: 0,
+    });
   });
 
   test("uses semantic stats when an unchanged EOF line is paired", () => {

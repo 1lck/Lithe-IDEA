@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { DiffLineWithIndex } from "../types/git-diff.types";
-import { countSplitDiffStats, createFallbackSplitRows } from "./git-diff-helpers";
+import {
+  countSplitDiffStats,
+  createFallbackSplitRows,
+  hasInvisibleDiffChanges,
+} from "./git-diff-helpers";
 
 describe("split diff fallback alignment", () => {
   test("pairs removals and additions into shared visual rows", () => {
@@ -57,5 +61,31 @@ describe("split diff fallback alignment", () => {
       },
     ]);
     expect(countSplitDiffStats([rows])).toEqual({ additions: 1, deletions: 0 });
+  });
+});
+
+describe("invisible diff changes", () => {
+  test("detects rows that only differ in line termination", () => {
+    expect(
+      hasInvisibleDiffChanges([
+        {
+          kind: "context",
+          old_line_number: 1,
+          new_line_number: 1,
+          old_content: "same",
+          new_content: "same",
+          is_invisible_change: true,
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      hasInvisibleDiffChanges([
+        {
+          kind: "changed",
+          old_content: "before",
+          new_content: "after",
+        },
+      ]),
+    ).toBe(false);
   });
 });

@@ -18,6 +18,7 @@ import {
   countSplitDiffStats,
   getSkippedUnchangedLineCount,
   groupLinesIntoHunks,
+  hasInvisibleDiffChanges,
 } from "../../utils/git-diff-helpers";
 import {
   planSplitDiffLayout,
@@ -312,6 +313,7 @@ const TextDiffViewer = memo(
                 <DiffHunkHeader
                   hunk={hunk}
                   stats={countSplitDiffStats([splitRows])}
+                  hasInvisibleChanges={hasInvisibleDiffChanges(splitRows)}
                   hiddenLineCount={hiddenLineCount}
                   isCollapsed={isCollapsed}
                   onToggleCollapse={() => toggleHunkCollapse(hunk.id)}
@@ -429,6 +431,7 @@ const TextDiffViewer = memo(
                 <DiffHunkHeader
                   hunk={hunk}
                   stats={countSplitDiffStats([splitRows])}
+                  hasInvisibleChanges={hasInvisibleDiffChanges(splitRows)}
                   hiddenLineCount={hiddenLineCount}
                   isCollapsed={isCollapsed}
                   onToggleCollapse={() => toggleHunkCollapse(hunk.id)}
