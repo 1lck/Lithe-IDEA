@@ -12,7 +12,16 @@ import { useReferencesStore } from "@/features/references/stores/references.stor
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { languageIdForEditorFile } from "@/features/editor/lsp/built-in-language-support";
 import { languageServerUnavailableMessage } from "@/features/editor/lsp/language-server-navigation";
+import { resolveLombokAccessorDefinition } from "@/features/editor/lsp/lombok-accessor-navigation";
+import { openLspNavigationLocation } from "@/features/editor/lsp/navigation-target";
+import {
+  lspDocumentTargetForEditor,
+  type LspDocumentTarget,
+  type LspDocumentTargetInput,
+} from "@/features/editor/lsp/lsp-document-target";
+import type { LspDocumentAvailability, LspLocation } from "@/features/editor/lsp/lsp-client";
 import { useLspStore } from "@/features/editor/lsp/stores/lsp.store";
+import type { EditorContent } from "@/features/panes/types/pane-content.types";
 import { useSpringStore } from "@/features/spring/stores/spring.store";
 import type { SpringNavigationLocation } from "@/features/spring/types/spring.types";
 import {
@@ -20,35 +29,34 @@ import {
   resolveSpringReferences,
 } from "@/features/spring/utils/spring-navigation";
 import { useUIState } from "@/features/window/stores/ui-state.store";
+import { useProjectStore } from "@/features/window/stores/project.store";
 import { createTranslator } from "@/i18n/locale";
-import { getBaseName, normalizePath } from "@/utils/path-helpers";
+import { logger } from "@/features/editor/utils/logger";
+import { normalizePath } from "@/utils/path-helpers";
 import { showPromptDialog } from "@/ui/dialog";
 import { toast } from "sonner";
 
-type LspNavigationLocation = {
-  uri: string;
-  range: {
-    start: { line: number; character: number };
-    end: { line: number; character: number };
-  };
-};
-
 type LspNavigationClient = {
   getDefinition: (
-    filePath: string,
+    target: LspDocumentTargetInput,
     line: number,
     character: number,
-  ) => Promise<LspNavigationLocation[] | null>;
+  ) => Promise<LspLocation[] | null>;
   getImplementation: (
-    filePath: string,
+    target: LspDocumentTargetInput,
     line: number,
     character: number,
-  ) => Promise<LspNavigationLocation[] | null>;
+  ) => Promise<LspLocation[] | null>;
   getTypeDefinition: (
-    filePath: string,
+    target: LspDocumentTargetInput,
     line: number,
     character: number,
-  ) => Promise<LspNavigationLocation[] | null>;
+  ) => Promise<LspLocation[] | null>;
+  getDocumentAvailability: (
+    target: LspDocumentTargetInput,
+    feature?: string,
+  ) => LspDocumentAvailability;
+  getVirtualDocument: (filePath: string, virtualUri: string) => Promise<string | null>;
 };
 
 const getCurrentTranslator = () =>
@@ -65,7 +73,9 @@ function translateNavigationLabel(label: string): string {
 
 function activeEditorNavigationContext() {
   const bufferStore = useBufferStore.getState();
-  const activeBuffer = bufferStore.buffers.find((buffer) => buffer.id === bufferStore.activeBufferId);
+  const activeBuffer = bufferStore.buffers.find(
+    (buffer) => buffer.id === bufferStore.activeBufferId,
+  );
   const editorState = useEditorStateStore.getState();
   if (!activeBuffer || activeBuffer.type !== "editor" || !activeBuffer.path) return null;
   return { bufferStore, activeBuffer, editorState };
@@ -81,20 +91,36 @@ function isCurrentNavigationTarget(
   targetPath: string,
   targetLine: number,
 ): boolean {
-  return canonicalizeEditorPath(filePath) === canonicalizeEditorPath(targetPath) && line === targetLine;
+  return (
+    canonicalizeEditorPath(filePath) === canonicalizeEditorPath(targetPath) && line === targetLine
+  );
 }
 
-function unavailableLanguageServerToast(filePath: string, lspClient: { hasSessionForFile(path: string): boolean }): string | null {
-  const status = useLspStore.getState().lspStatus;
+function unavailableLanguageServerToast(
+  buffer: EditorContent,
+  feature: string,
+  lspClient: Pick<LspNavigationClient, "getDocumentAvailability">,
+): string | null {
+  const availability = lspClient.getDocumentAvailability(
+    lspDocumentTargetForEditor(buffer),
+    feature,
+  );
+  const globalStatus = useLspStore.getState().lspStatus;
   return languageServerUnavailableMessage({
-    languageId: languageIdForEditorFile(filePath),
-    status: status.status,
-    lastError: status.lastError,
-    hasSession: lspClient.hasSessionForFile(filePath),
+    languageId: availability.languageId,
+    status: availability.hasSession ? availability.status : globalStatus.status,
+    lastError: availability.hasSession ? undefined : globalStatus.lastError,
+    hasSession: availability.hasSession,
+    ready: availability.ready,
+    featuresKnown: availability.featuresKnown,
+    supportsFeature: availability.supportsFeature,
+    featureLabel: feature,
   });
 }
 
-function springLocationsForActiveFile(kind: "definition" | "references"): SpringNavigationLocation[] {
+function springLocationsForActiveFile(
+  kind: "definition" | "references",
+): SpringNavigationLocation[] {
   const context = activeEditorNavigationContext();
   const springState = useSpringStore.getState();
   if (!context || !springState.root) return [];
@@ -193,16 +219,15 @@ async function goToActiveLspLocation(
   label: string,
   resolveLocations: (
     lspClient: LspNavigationClient,
-    filePath: string,
+    target: LspDocumentTarget,
     line: number,
     character: number,
-  ) => Promise<LspNavigationLocation[] | null>,
-  options: { requireLanguageServer?: boolean } = {},
+  ) => Promise<LspLocation[] | null>,
+  options: { requireLanguageServer?: boolean; feature?: string } = {},
 ): Promise<void> {
-  const [{ LspClient }, { readFileContent }, { filePathFromUri }] = await Promise.all([
+  const [{ LspClient }, { readFileContent }] = await Promise.all([
     import("@/features/editor/lsp/lsp-client"),
     import("@/features/file-system/controllers/file-operations"),
-    import("@/features/editor/lsp/workspace-edit"),
   ]);
 
   const lspClient = LspClient.getInstance();
@@ -212,21 +237,48 @@ async function goToActiveLspLocation(
   const cursorPosition = editorState.cursorPosition;
 
   if (!activeBuffer || activeBuffer.type !== "editor" || !activeBuffer.path) return;
+  const documentTarget = lspDocumentTargetForEditor(activeBuffer);
 
   if (options.requireLanguageServer !== false) {
-    const unavailable = unavailableLanguageServerToast(activeBuffer.path, lspClient);
+    const unavailable = unavailableLanguageServerToast(
+      activeBuffer,
+      options.feature ?? label,
+      lspClient,
+    );
     if (unavailable) {
       toast.error(unavailable);
       return;
     }
   }
 
-  const locations = await resolveLocations(
+  let locations = await resolveLocations(
     lspClient,
-    activeBuffer.path,
+    documentTarget,
     cursorPosition.line,
     cursorPosition.column,
   );
+
+  if (
+    (!locations || locations.length === 0) &&
+    label === "definition" &&
+    documentTarget.languageId === "java"
+  ) {
+    const workspaceRoot = useProjectStore.getState().rootFolderPath;
+    if (workspaceRoot) {
+      try {
+        const fallback = await resolveLombokAccessorDefinition({
+          source: activeBuffer.content,
+          sourceFilePath: activeBuffer.path,
+          workspaceRoot,
+          line: cursorPosition.line,
+          character: cursorPosition.column,
+        });
+        if (fallback) locations = [fallback];
+      } catch (error) {
+        logger.error("LombokNavigation", "Could not resolve generated accessor:", error);
+      }
+    }
+  }
 
   if (!locations || locations.length === 0) {
     toast.info(
@@ -248,16 +300,22 @@ async function goToActiveLspLocation(
   });
 
   const target = locations[0];
-  const filePath = target.uri.includes("://") ? filePathFromUri(target.uri) : target.uri;
-  const existingBuffer = bufferStore.buffers.find((b) => b.path === filePath);
-
-  if (existingBuffer) {
-    bufferStore.actions.setActiveBuffer(existingBuffer.id);
-  } else {
-    const content = await readFileContent(filePath);
-    const fileName = getBaseName(filePath);
-    const bufferId = bufferStore.actions.openBuffer(filePath, fileName, content);
-    bufferStore.actions.setActiveBuffer(bufferId);
+  const openedBufferId = await openLspNavigationLocation({
+    location: target,
+    sourceFilePath: documentTarget.sessionFilePath ?? documentTarget.filePath,
+    buffers: bufferStore.buffers,
+    actions: bufferStore.actions,
+    getVirtualDocument: (filePath, virtualUri) =>
+      lspClient.getVirtualDocument(filePath, virtualUri),
+    readFileContent,
+  });
+  if (!openedBufferId) {
+    toast.info(
+      getCurrentTranslator()("navigation.noTargetFound", {
+        target: translateNavigationLabel(label),
+      }),
+    );
+    return;
   }
 
   setTimeout(() => {
@@ -315,20 +373,26 @@ export async function goToDefinition(): Promise<void> {
     await presentSpringReferences(springLocations, springLocations[0]?.symbol || "Spring");
     return;
   }
-  await goToActiveLspLocation("definition", (lspClient, filePath, line, character) =>
-    lspClient.getDefinition(filePath, line, character),
+  await goToActiveLspLocation(
+    "definition",
+    (lspClient, target, line, character) => lspClient.getDefinition(target, line, character),
+    { feature: "definition" },
   );
 }
 
 export async function goToImplementation(): Promise<void> {
-  await goToActiveLspLocation("implementation", (lspClient, filePath, line, character) =>
-    lspClient.getImplementation(filePath, line, character),
+  await goToActiveLspLocation(
+    "implementation",
+    (lspClient, target, line, character) => lspClient.getImplementation(target, line, character),
+    { feature: "implementation" },
   );
 }
 
 export async function goToTypeDefinition(): Promise<void> {
-  await goToActiveLspLocation("type definition", (lspClient, filePath, line, character) =>
-    lspClient.getTypeDefinition(filePath, line, character),
+  await goToActiveLspLocation(
+    "type definition",
+    (lspClient, target, line, character) => lspClient.getTypeDefinition(target, line, character),
+    { feature: "typeDefinition" },
   );
 }
 
@@ -364,7 +428,9 @@ export async function goToReferences(): Promise<void> {
     return;
   }
 
-  const unavailable = unavailableLanguageServerToast(activeBuffer.path, lspClient);
+  if (activeBuffer.type !== "editor") return;
+  const documentTarget = lspDocumentTargetForEditor(activeBuffer);
+  const unavailable = unavailableLanguageServerToast(activeBuffer, "references", lspClient);
   if (unavailable) {
     toast.error(unavailable);
     return;
@@ -376,7 +442,7 @@ export async function goToReferences(): Promise<void> {
   const symbol = (wordMatch?.[0] || "") + (wordEnd?.[0]?.slice(1) || "");
 
   const references = await lspClient.getReferences(
-    activeBuffer.path,
+    documentTarget,
     cursorPosition.line,
     cursorPosition.column,
   );

@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "formats": [
+    {
+      "id": "properties",
+      "displayName": "Java Properties",
+      "fileExtensions": ["properties"],
+      "adapter": "properties"
+    },
+    {
+      "id": "yaml",
+      "displayName": "YAML",
+      "fileExtensions": ["yml", "yaml"],
+      "adapter": "yaml"
+    },
+    {
+      "id": "json",
+      "displayName": "JSON",
+      "fileExtensions": ["json"],
+      "adapter": "json"
+    },
+    {
+      "id": "toml",
+      "displayName": "TOML",
+      "fileExtensions": ["toml"],
+      "adapter": "toml"
+    },
+    {
+      "id": "ini",
+      "displayName": "INI",
+      "fileExtensions": ["ini", "cfg", "cnf"],
+      "fileNames": [".gitconfig", ".editorconfig"],
+      "adapter": "ini"
+    },
+    {
+      "id": "xml",
+      "displayName": "XML",
+      "fileExtensions": ["xml"],
+      "adapter": "xml"
+    },
+    {
+      "id": "generic-config",
+      "displayName": "Generic Configuration",
+      "fileExtensions": ["conf", "config"],
+      "adapter": "config"
+    },
+    {
+      "id": "env",
+      "displayName": "ENV",
+      "fileExtensions": ["env"],
+      "fileNames": [".env"],
+      "fileNamePrefixes": [".env."],
+      "adapter": "envFile"
+    }
+  ]
+}

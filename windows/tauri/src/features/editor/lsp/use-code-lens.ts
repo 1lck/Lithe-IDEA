@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { isEditorLspSupported } from "./built-in-language-support";
+import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { LspClient } from "./lsp-client";
+import { lspDocumentTargetForEditorPath } from "./lsp-document-target";
 import { useLspStore } from "./stores/lsp.store";
 
 export interface CodeLensItem {
@@ -19,19 +20,24 @@ export const useCodeLens = (filePath: string | undefined, enabled: boolean) => {
   });
 
   const fetchLenses = useCallback(async () => {
-    if (!filePath || !enabled || !isEditorLspSupported(filePath)) {
+    if (!filePath || !enabled) {
       setLenses([]);
       return;
     }
 
     const id = ++requestIdRef.current;
     const lspClient = LspClient.getInstance();
-    if (!lspClient.getActiveServerEntryForFile(filePath) || !lspClient.isDocumentOpen(filePath)) {
+    const target = lspDocumentTargetForEditorPath(useBufferStore.getState().buffers, filePath);
+    if (
+      !target ||
+      !lspClient.getDocumentAvailability(target, "codeLens").available ||
+      (!target.documentUri && !lspClient.isDocumentOpen(target.filePath))
+    ) {
       setLenses([]);
       return;
     }
 
-    const result = await lspClient.getCodeLens(filePath);
+    const result = await lspClient.getCodeLens(target);
 
     if (id !== requestIdRef.current) return;
     setLenses(result);
