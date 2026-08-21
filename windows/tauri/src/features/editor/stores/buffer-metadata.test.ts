@@ -39,6 +39,54 @@ describe("editor buffer surface", () => {
     expect(editorBufferSurfacesEqual(before, after)).toBe(false);
   });
 
+  test("preserves virtual document language and LSP binding metadata", () => {
+    const surface = getEditorBufferSurface(
+      editorBuffer({
+        path: "jdt://contents/java.base/java/lang/String.class?=demo",
+        language: "java",
+        lspDocument: {
+          documentUri: "jdt://contents/java.base/java/lang/String.class?=demo",
+          sessionFilePath: "C:/work/Main.java",
+          languageId: "java",
+        },
+      }),
+    );
+
+    expect(surface).toMatchObject({
+      language: "java",
+      lspDocument: {
+        documentUri: "jdt://contents/java.base/java/lang/String.class?=demo",
+        sessionFilePath: "C:/work/Main.java",
+        languageId: "java",
+      },
+    });
+  });
+
+  test("treats virtual document binding changes as a new surface", () => {
+    const before = getEditorBufferSurface(
+      editorBuffer({
+        language: "java",
+        lspDocument: {
+          documentUri: "jdt://contents/java.base/java/lang/String.class?=demo",
+          sessionFilePath: "C:/work/Old.java",
+          languageId: "java",
+        },
+      }),
+    );
+    const after = getEditorBufferSurface(
+      editorBuffer({
+        language: "java",
+        lspDocument: {
+          documentUri: "jdt://contents/java.base/java/lang/String.class?=demo",
+          sessionFilePath: "C:/work/New.java",
+          languageId: "java",
+        },
+      }),
+    );
+
+    expect(editorBufferSurfacesEqual(before, after)).toBe(false);
+  });
+
   test("treats a missing buffer as a null surface without throwing", () => {
     expect(getEditorBufferSurface(null)).toBeNull();
     expect(editorBufferSurfacesEqual(null, getEditorBufferSurface(editorBuffer()))).toBe(false);

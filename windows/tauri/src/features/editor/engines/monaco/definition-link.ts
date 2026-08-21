@@ -1,7 +1,10 @@
 import { editor as monacoEditor, Range as MonacoRange } from "monaco-editor";
 import type * as Monaco from "monaco-editor";
-import { isEditorLspSupported } from "@/features/editor/lsp/built-in-language-support";
 import type { DefinitionNavigationHint } from "@/features/editor/lsp/definition-navigation-hint";
+import {
+  isEditorLspTargetSupported,
+  type LspDocumentTarget,
+} from "@/features/editor/lsp/lsp-document-target";
 import { LspClient, type LspLocation } from "@/features/editor/lsp/lsp-client";
 import { resolveLombokAccessorDefinition } from "@/features/editor/lsp/lombok-accessor-navigation";
 import { logger } from "@/features/editor/utils/logger";
@@ -13,7 +16,7 @@ const DEFINITION_HOVER_DELAY_MILLISECONDS = 150;
 interface MonacoDefinitionLinkOptions {
   editor: Monaco.editor.IStandaloneCodeEditor;
   model: Monaco.editor.ITextModel;
-  filePath: string;
+  documentTarget: LspDocumentTarget;
   workspaceRoot?: string;
   enabled?: boolean;
 }
@@ -42,12 +45,13 @@ function definitionWordKey(request: DefinitionWordRequest): string {
 export function registerMonacoDefinitionLinkGesture({
   editor,
   model,
-  filePath,
+  documentTarget,
   workspaceRoot,
   enabled = true,
 }: MonacoDefinitionLinkOptions): MonacoDefinitionLinkGesture {
   const decorations = editor.createDecorationsCollection();
-  const gestureEnabled = enabled && Boolean(filePath) && isEditorLspSupported(filePath);
+  const gestureEnabled =
+    enabled && Boolean(documentTarget.filePath) && isEditorLspTargetSupported(documentTarget);
   let hoveredPosition: Monaco.Position | null = null;
 
   const requestAtPosition = (position: Monaco.Position): DefinitionWordRequest | null => {
@@ -69,11 +73,12 @@ export function registerMonacoDefinitionLinkGesture({
     resolve: async (request) => {
       const line = request.lineNumber - 1;
       const locations =
-        (await LspClient.getInstance().getDefinition(filePath, line, request.character)) ?? [];
+        (await LspClient.getInstance().getDefinition(documentTarget, line, request.character)) ?? [];
       if (
         locations.length > 0 ||
         model.isDisposed() ||
         model.getLanguageId() !== "java" ||
+        documentTarget.documentUri ||
         !workspaceRoot
       ) {
         return { locations };
@@ -82,7 +87,7 @@ export function registerMonacoDefinitionLinkGesture({
       try {
         const lombokDefinition = await resolveLombokAccessorDefinition({
           source: model.getValue(),
-          sourceFilePath: filePath,
+          sourceFilePath: documentTarget.filePath,
           workspaceRoot,
           line,
           character: request.character,
@@ -182,7 +187,7 @@ export function registerMonacoDefinitionLinkGesture({
         return null;
       }
       return {
-        sourceFilePath: filePath,
+        sourceFilePath: documentTarget.filePath,
         sourceLine: request.lineNumber - 1,
         sourceStartCharacter: request.startColumn - 1,
         sourceEndCharacter: request.endColumn - 1,

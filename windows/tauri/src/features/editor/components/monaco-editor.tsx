@@ -52,6 +52,7 @@ import type { EditorContentChangeOptions, EditorTextChange, Position, Range } fr
 import { getBufferById } from "../utils/buffer-index";
 import { applyEditorTextChangesToContent } from "../utils/editor-text-change";
 import { queueLspDocumentChanges } from "../lsp/pending-document-changes";
+import { lspDocumentTargetForEditor } from "../lsp/lsp-document-target";
 import { fileOpenBenchmark } from "../utils/file-open-benchmark";
 import { isEditorGoToDefinitionModifierClick } from "../utils/go-to-definition-gesture";
 import { getLanguageIdFromPath } from "../utils/language-id";
@@ -185,7 +186,11 @@ export function MonacoEditor({
     return current && current.type === "editor" ? (current.content ?? "") : "";
   }, [contentRevision, editorBufferId]);
   const filePath = editorBuffer?.path ?? "";
-  const languageId = editorBuffer?.languageOverride ?? getLanguageIdFromPath(filePath);
+  const documentTarget = useMemo(
+    () => (editorBuffer ? lspDocumentTargetForEditor(editorBuffer) : { filePath }),
+    [editorBuffer, filePath],
+  );
+  const languageId = documentTarget.languageId ?? getLanguageIdFromPath(filePath);
   const monacoLanguageId = toMonacoLanguageId(languageId);
   const {
     fontFamily,
@@ -725,7 +730,7 @@ export function MonacoEditor({
     const definitionLinkGesture = registerMonacoDefinitionLinkGesture({
       editor,
       model,
-      filePath,
+      documentTarget,
       workspaceRoot: rootFolderPath,
       enabled: enableExpensiveServices,
     });
@@ -1003,6 +1008,7 @@ export function MonacoEditor({
     editorSmoothScrolling,
     editorStickyScroll,
     enableExpensiveServices,
+    documentTarget,
     inlayHints,
     setContextMenuPosition,
     filePath,

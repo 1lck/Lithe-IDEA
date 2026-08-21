@@ -12,6 +12,7 @@ import { useFileSystemStore } from "@/features/file-system/stores/file-system.st
 import { useCommandShortcut } from "@/features/keymaps/hooks/use-command-shortcut";
 import { setSyntaxHighlightingFilePath } from "@/features/editor/extensions/builtin/syntax-highlighting";
 import { LspClient } from "@/features/editor/lsp/lsp-client";
+import { lspDocumentTargetForEditor } from "@/features/editor/lsp/lsp-document-target";
 import { type LspStatus, useLspStore } from "@/features/editor/lsp/stores/lsp.store";
 import type { Position } from "@/features/editor/types/editor.types";
 import { getBufferById } from "@/features/editor/utils/buffer-index";
@@ -228,7 +229,9 @@ export function EditorStatusActions({ bufferId }: EditorStatusActionsProps = {})
             id: buffer.id,
             path: buffer.path,
             type: buffer.type,
+            language: buffer.type === "editor" ? buffer.language : undefined,
             languageOverride: buffer.type === "editor" ? buffer.languageOverride : undefined,
+            lspDocument: buffer.type === "editor" ? buffer.lspDocument : undefined,
           }
         : null;
     }),
@@ -238,13 +241,13 @@ export function EditorStatusActions({ bufferId }: EditorStatusActionsProps = {})
   const isBulkLspBusy = bulkLspAction !== null;
   const canRunBulkLspAction =
     activeServerEntries.length > 0 && !isBulkLspBusy && !isRestartingCurrent && !busyServerKey;
-  const currentFileLanguageId =
-    activeBuffer?.type === "editor" && activeBuffer.languageOverride
-      ? activeBuffer.languageOverride
-      : activeBuffer?.path
-        ? getLanguageIdFromPath(activeBuffer.path) ||
-          extensionRegistry.getLanguageId(activeBuffer.path)
-        : null;
+  const currentFileLanguageId = activeBuffer?.path
+    ? (activeBuffer.type === "editor"
+        ? lspDocumentTargetForEditor(activeBuffer).languageId
+        : undefined) ||
+      getLanguageIdFromPath(activeBuffer.path) ||
+      extensionRegistry.getLanguageId(activeBuffer.path)
+    : null;
   const currentServerEntry = activeBuffer?.path
     ? lspClient.getActiveServerEntryForFile(activeBuffer.path, currentFileLanguageId || undefined)
     : null;
