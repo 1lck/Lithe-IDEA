@@ -10,8 +10,7 @@
 - `LITHE_ANTHROPIC_BASE_URL`：Anthropic Messages 兼容的 Base URL。它不是
   OpenAI `/v1/responses` 地址，是否包含 `/v1` 以服务商说明为准。
 
-还需创建 Actions 仓库变量 `LITHE_CLAUDE_MODEL`，值为服务商支持的准确 Claude
-模型 ID。模型名不在工作流中硬编码，以便适配官方 Anthropic 和兼容中转站。
+审查固定使用 `claude-opus-5` 模型和 `high` 思考强度，无需额外配置模型变量。
 
 默认只有仓库所有者能够触发审查。如需指定白名单，请创建 Actions 仓库变量
 `LITHE_ALLOWED_REVIEWERS`，值为 GitHub 用户名组成的 JSON 数组：
