@@ -133,7 +133,7 @@ struct UpdateCheckerTests {
 
         let requests = await recorder.requests
         #expect(requests.count == 1)
-        #expect(requests.first?.url?.absoluteString == "https://github.com/1lck/Lithe-IDEA/releases/latest/download/latest.json")
+        #expect(requests.first?.url?.absoluteString == "https://github.com/1lck/Lithe-IDEA/releases/latest/download/latest-macos.json")
         #expect(requests.first?.url?.host == "github.com")
         #expect(checker.status == .available(
             version: "0.3.1",

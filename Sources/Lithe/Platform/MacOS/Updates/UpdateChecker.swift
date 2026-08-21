@@ -64,7 +64,7 @@ enum UpdateStatus: Equatable {
 
 struct UpdateEndpointConfiguration: Equatable {
     static let productionManifestURL = URL(
-        string: "https://github.com/1lck/Lithe-IDEA/releases/latest/download/latest.json"
+        string: "https://github.com/1lck/Lithe-IDEA/releases/latest/download/latest-macos.json"
     )!
 
     let manifestURL: URL

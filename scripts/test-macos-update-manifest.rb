@@ -19,7 +19,7 @@ Dir.mktmpdir("lithe-macos-manifest-") do |directory|
     output.join("#{asset.basename}.sha256").write("#{Digest::SHA256.file(asset).hexdigest}  #{asset.basename}\n")
   end
 
-  existing_manifest = output.join("windows.json")
+  existing_manifest = output.join("latest.json")
   existing_manifest.write(JSON.generate(
     "version" => version,
     "notes" => "Windows release notes",
@@ -32,21 +32,21 @@ Dir.mktmpdir("lithe-macos-manifest-") do |directory|
   ))
 
   relative_output = output.relative_path_from(root).to_s
-  relative_merge = existing_manifest.relative_path_from(root).to_s
   stdout, stderr, status = Open3.capture3(
     generator.to_s,
     "--version", version,
     "--repository", "example/Lithe-IDEA",
     "--output-directory", relative_output,
-    "--merge-manifest", relative_merge,
     chdir: root.to_s
   )
   abort "Generator failed: #{stdout}#{stderr}" unless status.success?
 
-  manifest = JSON.parse(output.join("latest.json").read)
+  manifest = JSON.parse(output.join("latest-macos.json").read)
   raise "Schema version is incorrect" unless manifest["schemaVersion"] == 1
   raise "Release URL is incorrect" unless manifest["releaseURL"] == "https://github.com/example/Lithe-IDEA/releases/tag/v#{version}"
-  raise "Windows metadata was not preserved" unless manifest.dig("platforms", "windows-x86_64", "signature") == "test-signature"
+  windows_manifest = JSON.parse(existing_manifest.read)
+  raise "Windows manifest was modified" unless windows_manifest.dig("platforms", "windows-x86_64", "signature") == "test-signature"
+  raise "macOS manifest contains Windows metadata" if manifest.key?("platforms")
 
   %w[arm64 x86_64].each do |architecture|
     asset = output.join("Lithe-#{version}-#{architecture}.dmg")

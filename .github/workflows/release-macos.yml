@@ -15,8 +15,7 @@ permissions:
   contents: read
 
 concurrency:
-  # Both platform workflows update the same Release and latest.json asset.
-  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref }}
+  group: release-macos-${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -180,25 +179,14 @@ jobs:
 
       - name: Generate macOS update manifest
         env:
-          GH_TOKEN: ${{ github.token }}
           LITHE_VERSION: ${{ needs.prepare.outputs.version }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         run: |
-          merge_args=()
-          existing_dir="$RUNNER_TEMP/existing-update-manifest"
-          mkdir -p "$existing_dir"
-          if gh release download "$RELEASE_TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --pattern "latest.json" \
-            --dir "$existing_dir" >/dev/null 2>&1; then
-            merge_args+=(--merge-manifest "$existing_dir/latest.json")
-          fi
           ruby scripts/create-macos-update-manifest.rb \
             --version "$LITHE_VERSION" \
             --repository "$GITHUB_REPOSITORY" \
-            --release-tag "$RELEASE_TAG" \
-            "${merge_args[@]}"
-          ruby -rjson -e 'manifest = JSON.parse(File.read("dist/latest.json")); abort "Invalid schema" unless manifest["schemaVersion"] == 1'
+            --release-tag "$RELEASE_TAG"
+          ruby -rjson -e 'manifest = JSON.parse(File.read("dist/latest-macos.json")); abort "Invalid schema" unless manifest["schemaVersion"] == 1'
 
       - name: Create or update GitHub Release
         env:
@@ -219,7 +207,7 @@ jobs:
             "dist/Lithe-${LITHE_VERSION}-arm64.dmg.sha256"
             "dist/Lithe-${LITHE_VERSION}-x86_64.dmg"
             "dist/Lithe-${LITHE_VERSION}-x86_64.dmg.sha256"
-            "dist/latest.json"
+            "dist/latest-macos.json"
           )
 
           if [[ -f "$notes_file" ]]; then

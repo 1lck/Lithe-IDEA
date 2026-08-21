@@ -8,8 +8,7 @@ require "pathname"
 
 options = {
   output_directory: "dist",
-  release_tag: nil,
-  merge_manifest: nil
+  release_tag: nil
 }
 
 OptionParser.new do |parser|
@@ -18,7 +17,6 @@ OptionParser.new do |parser|
   parser.on("--repository OWNER/REPO") { |value| options[:repository] = value }
   parser.on("--release-tag TAG") { |value| options[:release_tag] = value }
   parser.on("--output-directory PATH") { |value| options[:output_directory] = value }
-  parser.on("--merge-manifest PATH") { |value| options[:merge_manifest] = value }
 end.parse!
 
 version = options[:version]
@@ -52,21 +50,14 @@ assets = {}
   }
 end
 
-manifest = if options[:merge_manifest]
-             merge_path = root.join(options[:merge_manifest]).cleanpath
-             JSON.parse(merge_path.read)
-           else
-             {}
-           end
-
-manifest.merge!(
+manifest = {
   "schemaVersion" => 1,
   "version" => version,
   "releaseURL" => "https://github.com/#{repository}/releases/tag/#{release_tag}",
   "assets" => assets
-)
+}
 
 output_directory.mkpath
-manifest_path = output_directory.join("latest.json")
+manifest_path = output_directory.join("latest-macos.json")
 manifest_path.write("#{JSON.pretty_generate(manifest)}\n")
 puts "macOS update manifest created: #{manifest_path}"
