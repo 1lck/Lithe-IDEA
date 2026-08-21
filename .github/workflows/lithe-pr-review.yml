@@ -158,8 +158,8 @@ jobs:
 
       - name: Validate Claude configuration
         env:
-          LITHE_ANTHROPIC_API_KEY: ${{ secrets.LITHE_ANTHROPIC_API_KEY }}
-          LITHE_ANTHROPIC_BASE_URL: ${{ secrets.LITHE_ANTHROPIC_BASE_URL }}
+          LITHE_ANTHROPIC_API_KEY: ${{ secrets.LITHE_ANTHROPIC_API_KEY || secrets.LITHE_OPENAI_API_KEY }}
+          LITHE_ANTHROPIC_BASE_URL: ${{ secrets.LITHE_ANTHROPIC_BASE_URL || secrets.LITHE_OPENAI_RESPONSES_URL }}
         run: |
           set -euo pipefail
           if [ -z "$LITHE_ANTHROPIC_API_KEY" ]; then
@@ -170,6 +170,18 @@ jobs:
             echo "LITHE_ANTHROPIC_BASE_URL is not configured" >&2
             exit 1
           fi
+          node <<'NODE'
+          const { appendFileSync } = require('node:fs');
+          const baseUrl = new URL(process.env.LITHE_ANTHROPIC_BASE_URL);
+          const normalizedPath = baseUrl.pathname.replace(/\/$/, '');
+          if (normalizedPath === '/v1/responses') {
+            baseUrl.pathname = '/';
+            baseUrl.search = '';
+            baseUrl.hash = '';
+          }
+          const normalizedBaseUrl = baseUrl.toString().replace(/\/$/, '');
+          appendFileSync(process.env.GITHUB_ENV, `ANTHROPIC_BASE_URL=${normalizedBaseUrl}\n`);
+          NODE
           echo "[lithe-review] Claude model=${LITHE_CLAUDE_MODEL}"
           echo "[lithe-review] Claude effort=${LITHE_CLAUDE_EFFORT}"
 
@@ -190,10 +202,8 @@ jobs:
         id: claude
         continue-on-error: true
         uses: anthropics/claude-code-action@v1
-        env:
-          ANTHROPIC_BASE_URL: ${{ secrets.LITHE_ANTHROPIC_BASE_URL }}
         with:
-          anthropic_api_key: ${{ secrets.LITHE_ANTHROPIC_API_KEY }}
+          anthropic_api_key: ${{ secrets.LITHE_ANTHROPIC_API_KEY || secrets.LITHE_OPENAI_API_KEY }}
           prompt: ${{ steps.prompt.outputs.content }}
           include_fix_links: false
           display_report: false
