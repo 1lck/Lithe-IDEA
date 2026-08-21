@@ -1,6 +1,8 @@
 import { useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
+import { IDEA_ICON_THEME_ID } from "@/extensions/icon-themes/file-icon-semantics";
 import { getFileTreeRowHeight } from "@/features/file-explorer/lib/file-tree-row";
+import { buildMavenDirectorySemantics } from "@/features/file-explorer/lib/maven-file-tree-semantics";
 import {
   buildVisibleFileTreeRows,
   type VisibleFileTreeRow,
@@ -11,6 +13,7 @@ import { useSettingsStore } from "@/features/settings/stores/settings.store";
 
 interface UseFileExplorerVisibleRowsOptions {
   files: FileEntry[];
+  semanticFiles?: FileEntry[];
   expandedPathsOverride?: ReadonlySet<string>;
   rootFolderPath?: string;
 }
@@ -21,28 +24,42 @@ export function getVisibleFileTreeRowKey(rows: readonly VisibleFileTreeRow[], in
 
 export function useFileExplorerVisibleRows({
   files,
+  semanticFiles,
   expandedPathsOverride,
   rootFolderPath,
 }: UseFileExplorerVisibleRowsOptions) {
   const expandedPaths = useFileTreeStore((state) => state.expandedPaths);
-  const { compactFolders, hideRootFolder, sortOrder, uiFontSize } = useSettingsStore(
-    useShallow((state) => ({
-      compactFolders: state.settings.compactFoldersInFileTree,
-      hideRootFolder: state.settings.hideRootFolderInFileTree,
-      sortOrder: state.settings.fileTreeSortOrder,
-      uiFontSize: state.settings.uiFontSize,
-    })),
-  );
+  const { compactFolders, hideRootFolder, iconTheme, showFileIcons, sortOrder, uiFontSize } =
+    useSettingsStore(
+      useShallow((state) => ({
+        compactFolders: state.settings.compactFoldersInFileTree,
+        hideRootFolder: state.settings.hideRootFolderInFileTree,
+        iconTheme: state.settings.iconTheme,
+        showFileIcons: state.settings.showFileIconsInFileTree,
+        sortOrder: state.settings.fileTreeSortOrder,
+        uiFontSize: state.settings.uiFontSize,
+      })),
+    );
   const rowHeight = getFileTreeRowHeight(uiFontSize);
+  const semanticPresentationEnabled = showFileIcons && iconTheme === IDEA_ICON_THEME_ID;
+  const directorySemantics = useMemo(
+    () =>
+      semanticPresentationEnabled
+        ? buildMavenDirectorySemantics(semanticFiles ?? files)
+        : new Map(),
+    [files, semanticFiles, semanticPresentationEnabled],
+  );
 
   const visibleRows = useMemo(() => {
     return buildVisibleFileTreeRows(files, expandedPathsOverride ?? expandedPaths, {
       compactFolders,
+      directorySemantics,
       hiddenRootPath: hideRootFolder ? rootFolderPath : undefined,
       sortOrder,
     });
   }, [
     compactFolders,
+    directorySemantics,
     expandedPaths,
     expandedPathsOverride,
     files,

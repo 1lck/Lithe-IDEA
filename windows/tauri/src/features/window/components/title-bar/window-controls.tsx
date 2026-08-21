@@ -1,14 +1,16 @@
 import type { Window as TauriWindow } from "@tauri-apps/api/window";
 import {
-  CornersInIcon as CornersIn,
-  CornersOutIcon as CornersOut,
+  CopyIcon as Restore,
   MinusIcon as Minus,
+  SquareIcon as Square,
   XIcon as X,
 } from "@/ui/icons";
 import { requestWindowClose } from "@/features/window/utils/request-window-close";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import { ChromeGroup } from "@/ui/chrome";
+import { cn } from "@/utils/cn";
+import { IS_WINDOWS } from "@/utils/platform";
 
 interface WindowControlsProps {
   currentWindow: TauriWindow | null;
@@ -47,11 +49,11 @@ export function WindowControls({
   };
 
   return (
-    <ChromeGroup gap="tight">
+    <ChromeGroup gap={IS_WINDOWS ? "none" : "tight"} className={cn(IS_WINDOWS && "h-(--lithe-title-bar-height)")}>
       <Button
         onClick={handleMinimize}
         variant="ghost"
-        className="pointer-events-auto"
+        className={cn("pointer-events-auto", IS_WINDOWS && "h-full w-11 rounded-none")}
         size="icon-xs"
         tooltip={t("window.minimize")}
         tooltipSide="bottom"
@@ -62,18 +64,21 @@ export function WindowControls({
       <Button
         onClick={handleToggleMaximize}
         variant="ghost"
-        className="pointer-events-auto"
+        className={cn("pointer-events-auto", IS_WINDOWS && "h-full w-11 rounded-none")}
         size="icon-xs"
         tooltip={isMaximized ? t("window.restore") : t("window.maximize")}
         tooltipSide="bottom"
         aria-label={isMaximized ? t("window.restore") : t("window.maximize")}
       >
-        {isMaximized ? <CornersIn weight="duotone" /> : <CornersOut weight="duotone" />}
+        {isMaximized ? <Restore /> : <Square />}
       </Button>
       <Button
         onClick={handleClose}
         variant="danger"
-        className="pointer-events-auto group hover:text-white"
+        className={cn(
+          "pointer-events-auto group hover:text-white",
+          IS_WINDOWS && "h-full w-11 rounded-none hover:bg-destructive",
+        )}
         size="icon-xs"
         tooltip={t("window.close")}
         tooltipSide="bottom"

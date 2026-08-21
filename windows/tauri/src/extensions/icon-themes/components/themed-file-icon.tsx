@@ -5,6 +5,7 @@ import { getDefaultSetting, useSettingsStore } from "@/features/settings/stores/
 import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
 import { iconThemeRegistry } from "../icon-theme-registry";
+import { getSemanticFileIconLookupName, type FileIconSemanticKind } from "../file-icon-semantics";
 
 const THEMED_FILE_ICON_CACHE_KEY = import.meta.env.DEV ? Date.now().toString(36) : "";
 
@@ -18,6 +19,7 @@ interface ThemedFileIconProps {
   isDir: boolean;
   isExpanded?: boolean;
   isSymlink?: boolean;
+  semanticKind?: FileIconSemanticKind | null;
   className?: string;
 }
 
@@ -26,6 +28,7 @@ export function ThemedFileIcon({
   isDir,
   isExpanded = false,
   isSymlink = false,
+  semanticKind,
   className = "text-subtle-foreground",
 }: ThemedFileIconProps) {
   const { t } = useTranslation();
@@ -43,10 +46,11 @@ export function ThemedFileIcon({
   const iconTheme =
     iconThemeRegistry.getTheme(iconThemeId) ??
     iconThemeRegistry.getTheme(getDefaultSetting("iconTheme"));
+  const lookupFileName = getSemanticFileIconLookupName(iconThemeId, fileName, semanticKind);
 
   const iconResult = useMemo(
-    () => iconTheme?.getFileIcon(fileName, isDir, isExpanded, isSymlink) ?? null,
-    [fileName, iconTheme, isDir, isExpanded, isSymlink, colorThemeId],
+    () => iconTheme?.getFileIcon(lookupFileName, isDir, isExpanded, isSymlink) ?? null,
+    [lookupFileName, iconTheme, isDir, isExpanded, isSymlink, colorThemeId],
   );
   const sanitizedSvg = useMemo(
     () =>

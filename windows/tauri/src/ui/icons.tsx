@@ -10,6 +10,8 @@ import {
   type SVGProps,
 } from "react";
 import { CircleHelp, icons as lucideIcons } from "lucide-react";
+import { ideaIconAssets } from "./icons/idea-assets.generated";
+import "./icons.css";
 
 const legacyIconCompatibility: Record<string, ComponentType<any>> = {
   AiLoading: lucideIcons.LoaderCircle,
@@ -162,6 +164,48 @@ function createIconComponent(IconComponent: ComponentType<any>, displayName: str
           transform: [style?.transform, "scaleX(-1)"].filter(Boolean).join(" "),
         } as CSSProperties)
       : style;
+
+    // IntelliJ assets are fixed-color SVGs with light/dark variants; render
+    // both as <image> children of a real <svg> root and let CSS pick the
+    // active one, so theme switches need no rerender. The svg root keeps the
+    // same sizing contract as lucide icons (width/height attrs overridable by
+    // CSS like [&_svg]:size-*), and weight/strokeWidth are no-ops (fixed art).
+    const asset = ideaIconAssets[displayName];
+    if (asset) {
+      const { className, ...svgProps } = iconProps;
+      return createElement(
+        "svg",
+        {
+          ...svgProps,
+          ref,
+          className: ["lithe-idea-icon", className].filter(Boolean).join(" "),
+          viewBox: "0 0 16 16",
+          width: size,
+          height: size,
+          fill: "none",
+          style: nextStyle,
+          role: title ?? alt ? "img" : undefined,
+          "aria-label": title ?? alt,
+          "aria-hidden": title ?? alt ? undefined : true,
+        },
+        createElement("image", {
+          href: asset.light,
+          className: "lithe-idea-icon-light",
+          x: 0,
+          y: 0,
+          width: 16,
+          height: 16,
+        }),
+        createElement("image", {
+          href: asset.dark,
+          className: "lithe-idea-icon-dark",
+          x: 0,
+          y: 0,
+          width: 16,
+          height: 16,
+        }),
+      );
+    }
 
     return createElement(IconComponent, {
       ...iconProps,

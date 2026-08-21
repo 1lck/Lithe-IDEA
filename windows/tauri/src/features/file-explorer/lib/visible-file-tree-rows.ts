@@ -1,5 +1,7 @@
 import type { FileEntry } from "@/features/file-system/types/app.types";
+import type { FileIconSemanticKind } from "@/extensions/icon-themes/file-icon-semantics";
 import { getCompactFolderChild } from "@/features/file-system/controllers/file-tree-utils";
+import { buildMavenDirectorySemantics } from "@/features/file-explorer/lib/maven-file-tree-semantics";
 import type { FileTreeSortOrder } from "@/features/settings/types/settings.types";
 import { getBaseName, getRelativePath, joinPath, pathStartsWithRoot } from "@/utils/path-helpers";
 
@@ -8,11 +10,13 @@ export interface VisibleFileTreeRow {
   depth: number;
   isExpanded: boolean;
   displayName?: string;
+  semanticKind?: FileIconSemanticKind;
   guideAncestors?: Array<VisibleFileTreeRow | null>;
 }
 
 export interface BuildVisibleFileTreeRowsOptions {
   compactFolders?: boolean;
+  directorySemantics?: ReadonlyMap<string, FileIconSemanticKind>;
   hiddenRootPath?: string;
   sortOrder?: FileTreeSortOrder;
 }
@@ -136,6 +140,7 @@ export function buildVisibleFileTreeRows(
   options: BuildVisibleFileTreeRowsOptions = {},
 ): VisibleFileTreeRow[] {
   const rows: VisibleFileTreeRow[] = [];
+  const directorySemantics = options.directorySemantics ?? buildMavenDirectorySemantics(files);
   const compactFolders = options.compactFolders === true;
   const hiddenRootPath = options.hiddenRootPath;
   const sortOrder = options.sortOrder ?? "folders-first";
@@ -162,8 +167,16 @@ export function buildVisibleFileTreeRows(
 
       if (compactFolders) {
         while (expandedPaths.has(rowFile.path)) {
+          const currentSemanticKind = directorySemantics.get(rowFile.path);
+          if (currentSemanticKind && currentSemanticKind !== "folder.package") break;
+
           const child = getCompactFolderChild(rowFile);
           if (!child) break;
+          const childSemanticKind = directorySemantics.get(child.path);
+          if (currentSemanticKind === "folder.package" && childSemanticKind !== "folder.package") {
+            break;
+          }
+          if (childSemanticKind && childSemanticKind !== "folder.package") break;
 
           rowFile = child;
           displayNameParts.push(child.name);
@@ -171,11 +184,16 @@ export function buildVisibleFileTreeRows(
       }
 
       const isExpanded = rowFile.isDir && expandedPaths.has(rowFile.path);
+      const semanticKind = directorySemantics.get(rowFile.path);
       const row: VisibleFileTreeRow = {
         file: rowFile,
         depth,
         isExpanded,
-        displayName: displayNameParts.length > 1 ? displayNameParts.join("/") : undefined,
+        displayName:
+          displayNameParts.length > 1
+            ? displayNameParts.join(semanticKind === "folder.package" ? "." : "/")
+            : undefined,
+        semanticKind,
         guideAncestors,
       };
       rows.push(row);

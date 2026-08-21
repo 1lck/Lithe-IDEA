@@ -16,6 +16,7 @@ import {
 import { memo, useCallback, useEffect, useState } from "react";
 import type { RefCallback } from "react";
 import { ThemedFileIcon } from "@/extensions/icon-themes/components/themed-file-icon";
+import { useJavaFileIconKind } from "@/extensions/icon-themes/hooks/use-java-file-icon-kind";
 import { getSingletonToolBufferTitleKey } from "@/features/panes/constants/tool-buffers";
 import type { PaneContent } from "@/features/panes/types/pane-content.types";
 import { shouldShowTabCloseButton } from "@/features/settings/lib/ui-preferences";
@@ -75,6 +76,12 @@ const TabBarItem = memo(function TabBarItem({
   const [faviconError, setFaviconError] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
   const showTabIcons = useSettingsStore((state) => state.settings.showTabIcons);
+  const javaSemanticKind = useJavaFileIconKind(
+    buffer.path,
+    buffer.name,
+    false,
+    showTabIcons && buffer.type === "editor" && !buffer.isVirtual,
+  );
   const tabCloseButtonVisibility = useSettingsStore(
     (state) => state.settings.tabCloseButtonVisibility,
   );
@@ -239,6 +246,7 @@ const TabBarItem = memo(function TabBarItem({
               <ThemedFileIcon
                 fileName={getDiffIconName() ?? buffer.name}
                 isDir={false}
+                semanticKind={javaSemanticKind}
                 className="text-subtle-foreground"
               />
             )}

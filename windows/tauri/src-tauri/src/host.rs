@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::fs;
-use std::path::PathBuf;
+use std::fs::{self, File};
+use std::io::{self, Read};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, Theme, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
@@ -32,6 +33,13 @@ pub struct SymlinkInfo {
     is_symlink: bool,
     target: Option<String>,
     is_dir: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BoundedFileRead {
+    bytes: Vec<u8>,
+    truncated: bool,
 }
 
 pub struct PendingCliOpenRequests(Mutex<Vec<Value>>);
@@ -299,11 +307,28 @@ pub async fn create_app_window(app: AppHandle, request: Option<Value>) -> Result
 #[cfg(test)]
 mod tests {
     use super::{
-        cli_payloads, copy_path, create_app_window, unique_destination, WINDOW_TASKBAR_ICON,
+        cli_payloads, copy_path, create_app_window, read_bounded, read_local_file_bounded,
+        unique_destination, WINDOW_TASKBAR_ICON,
     };
     use std::fs;
     use std::future::Future;
+    use std::io::Read;
     use std::path::PathBuf;
+
+    struct CountingReader {
+        bytes_read: usize,
+        bytes_remaining: usize,
+    }
+
+    impl Read for CountingReader {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            let count = buffer.len().min(self.bytes_remaining);
+            buffer[..count].fill(b'x');
+            self.bytes_read += count;
+            self.bytes_remaining -= count;
+            Ok(count)
+        }
+    }
 
     fn assert_async_window_command<F, Fut>(_command: F)
     where
@@ -351,6 +376,41 @@ mod tests {
         assert_eq!(unique_destination(destination), target.join("source copy"));
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn bounded_reader_consumes_only_one_sentinel_byte_beyond_the_payload_limit() {
+        let limit = 16;
+        let mut reader = CountingReader {
+            bytes_read: 0,
+            bytes_remaining: limit + 32,
+        };
+
+        let result = read_bounded(&mut reader, limit).unwrap();
+
+        assert!(result.truncated);
+        assert_eq!(reader.bytes_read, limit + 1);
+        assert_eq!(result.bytes.len(), limit);
+    }
+
+    #[test]
+    fn bounded_local_file_omits_oversized_content_from_the_ipc_payload() {
+        let limit = 16;
+        let path = std::env::temp_dir().join(format!(
+            "lithe-host-bounded-read-{}-{}",
+            std::process::id(),
+            super::WINDOW_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        fs::write(&path, vec![b'x'; limit + 32]).unwrap();
+
+        let result = read_local_file_bounded(path.clone(), limit).unwrap();
+        let payload = serde_json::to_value(&result).unwrap();
+
+        assert!(result.truncated);
+        assert!(result.bytes.is_empty());
+        assert!(payload["bytes"].as_array().unwrap().len() <= limit);
+
+        fs::remove_file(path).unwrap();
     }
 
     #[test]
@@ -543,6 +603,37 @@ pub fn get_bundled_extensions_path(app: AppHandle) -> Result<String, String> {
 #[tauri::command]
 pub fn read_local_file(path: PathBuf) -> Result<Vec<u8>, String> {
     fs::read(path).map_err(|error| error.to_string())
+}
+
+fn read_bounded(reader: &mut impl Read, max_bytes: usize) -> io::Result<BoundedFileRead> {
+    let sentinel_limit = max_bytes
+        .checked_add(1)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Byte limit is too large"))?;
+    let read_limit = u64::try_from(sentinel_limit)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Byte limit is too large"))?;
+    let mut bytes = Vec::new();
+    reader.take(read_limit).read_to_end(&mut bytes)?;
+    let truncated = bytes.len() > max_bytes;
+    bytes.truncate(max_bytes);
+    Ok(BoundedFileRead { bytes, truncated })
+}
+
+fn read_local_file_bounded_from_path(path: &Path, max_bytes: usize) -> io::Result<BoundedFileRead> {
+    let mut file = File::open(path)?;
+    let max_bytes_u64 = u64::try_from(max_bytes).unwrap_or(u64::MAX);
+    // Metadata avoids reading known oversized files; the sentinel byte below covers later growth.
+    if file.metadata()?.len() > max_bytes_u64 {
+        return Ok(BoundedFileRead {
+            bytes: Vec::new(),
+            truncated: true,
+        });
+    }
+    read_bounded(&mut file, max_bytes)
+}
+
+#[tauri::command]
+pub fn read_local_file_bounded(path: PathBuf, max_bytes: usize) -> Result<BoundedFileRead, String> {
+    read_local_file_bounded_from_path(&path, max_bytes).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
