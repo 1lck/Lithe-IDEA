@@ -396,6 +396,12 @@ package final class LanguageToolingSessionManager: ObservableObject {
         rootURL: URL,
         completion: @escaping (Result<[LanguageServerLocation], Error>) -> Void
     ) throws {
+        // A document can remain in the editor while the language server is
+        // restarted. Re-sync it before navigation so the server owns the URI
+        // before handling definition, implementation, or reference requests.
+        if readyLanguageServerSession(for: fileURL) != nil {
+            try synchronizeLanguageServer(for: fileURL, text: text, rootURL: rootURL)
+        }
         let context = featureContext(
             fileURL: fileURL,
             text: text,
