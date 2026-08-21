@@ -19,6 +19,7 @@ import {
   type LspDocumentTarget,
   type LspDocumentTargetInput,
 } from "@/features/editor/lsp/lsp-document-target";
+import { definitionLocationsFromCommandArgs } from "@/features/editor/lsp/definition-navigation-hint";
 import type { LspDocumentAvailability, LspLocation } from "@/features/editor/lsp/lsp-client";
 import { useLspStore } from "@/features/editor/lsp/stores/lsp.store";
 import type { EditorContent } from "@/features/panes/types/pane-content.types";
@@ -223,7 +224,7 @@ async function goToActiveLspLocation(
     line: number,
     character: number,
   ) => Promise<LspLocation[] | null>,
-  options: { requireLanguageServer?: boolean; feature?: string } = {},
+  options: { requireLanguageServer?: boolean; feature?: string; commandArgs?: unknown } = {},
 ): Promise<void> {
   const [{ LspClient }, { readFileContent }] = await Promise.all([
     import("@/features/editor/lsp/lsp-client"),
@@ -251,17 +252,24 @@ async function goToActiveLspLocation(
     }
   }
 
-  let locations = await resolveLocations(
-    lspClient,
-    documentTarget,
-    cursorPosition.line,
-    cursorPosition.column,
-  );
+  const preResolvedLocations =
+    label === "definition"
+      ? definitionLocationsFromCommandArgs(options.commandArgs, {
+          filePath: activeBuffer.path,
+          line: cursorPosition.line,
+          character: cursorPosition.column,
+        })
+      : undefined;
+  const hasPreResolvedLocations = preResolvedLocations !== undefined;
+  let locations = hasPreResolvedLocations
+    ? preResolvedLocations
+    : await resolveLocations(lspClient, documentTarget, cursorPosition.line, cursorPosition.column);
 
   if (
     (!locations || locations.length === 0) &&
     label === "definition" &&
-    documentTarget.languageId === "java"
+    documentTarget.languageId === "java" &&
+    !hasPreResolvedLocations
   ) {
     const workspaceRoot = useProjectStore.getState().rootFolderPath;
     if (workspaceRoot) {
@@ -363,7 +371,7 @@ export function openOutlineSidebar(): void {
   uiState.setActiveView("outline");
 }
 
-export async function goToDefinition(): Promise<void> {
+export async function goToDefinition(args?: unknown): Promise<void> {
   const springLocations = springLocationsForActiveFile("definition");
   if (springLocations.length === 1) {
     await navigateToSpringLocation(springLocations[0]);
@@ -376,7 +384,7 @@ export async function goToDefinition(): Promise<void> {
   await goToActiveLspLocation(
     "definition",
     (lspClient, target, line, character) => lspClient.getDefinition(target, line, character),
-    { feature: "definition" },
+    { feature: "definition", commandArgs: args },
   );
 }
 

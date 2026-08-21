@@ -52,6 +52,7 @@ import type { EditorContentChangeOptions, EditorTextChange, Position, Range } fr
 import { getBufferById } from "../utils/buffer-index";
 import { applyEditorTextChangesToContent } from "../utils/editor-text-change";
 import { queueLspDocumentChanges } from "../lsp/pending-document-changes";
+import { lspDocumentTargetForEditor } from "../lsp/lsp-document-target";
 import { fileOpenBenchmark } from "../utils/file-open-benchmark";
 import { isEditorGoToDefinitionModifierClick } from "../utils/go-to-definition-gesture";
 import { getLanguageIdFromPath } from "../utils/language-id";
@@ -59,6 +60,7 @@ import { toggleCaseText } from "../utils/text-operations";
 import { editorAPI } from "../extensions/api";
 import type { EditorModelPositionResolver } from "../view-model/view-layout";
 import { syncContainedEditorFontOptions } from "../engines/monaco/contained-editors";
+import { registerMonacoDefinitionLinkGesture } from "../engines/monaco/definition-link";
 import {
   consumeLocalContentSnapshot,
   rememberLocalContentSnapshot,
@@ -184,7 +186,11 @@ export function MonacoEditor({
     return current && current.type === "editor" ? (current.content ?? "") : "";
   }, [contentRevision, editorBufferId]);
   const filePath = editorBuffer?.path ?? "";
-  const languageId = editorBuffer?.languageOverride ?? getLanguageIdFromPath(filePath);
+  const documentTarget = useMemo(
+    () => (editorBuffer ? lspDocumentTargetForEditor(editorBuffer) : { filePath }),
+    [editorBuffer, filePath],
+  );
+  const languageId = documentTarget.languageId ?? getLanguageIdFromPath(filePath);
   const monacoLanguageId = toMonacoLanguageId(languageId);
   const {
     fontFamily,
@@ -721,6 +727,14 @@ export function MonacoEditor({
     requestAnimationFrame(syncNestedEditorFonts);
 
     editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyA, selectEntireModel);
+    const definitionLinkGesture = registerMonacoDefinitionLinkGesture({
+      editor,
+      model,
+      documentTarget,
+      workspaceRoot: rootFolderPath,
+      enabled: enableExpensiveServices,
+    });
+    let definitionClickIntent = 0;
 
     const handleWindowSelectAllShortcut = (event: KeyboardEvent) => {
       const isSelectAllShortcut =
@@ -835,7 +849,26 @@ export function MonacoEditor({
           mouseSelectingRef.current = false;
           editor.setPosition(event.target.position);
           syncCursorAndSelection();
-          void keymapRegistry.executeCommand("editor.goToDefinition");
+          const clickedPosition = event.target.position;
+          const clickIntent = ++definitionClickIntent;
+          if (!definitionLinkGesture.enabled) {
+            void keymapRegistry.executeCommand("editor.goToDefinition");
+            return;
+          }
+          void definitionLinkGesture.resolveForClick(clickedPosition).then((definitionHint) => {
+            if (clickIntent !== definitionClickIntent || !definitionHint || model.isDisposed()) {
+              return;
+            }
+            const currentPosition = editor.getPosition();
+            if (
+              !currentPosition ||
+              currentPosition.lineNumber !== clickedPosition.lineNumber ||
+              currentPosition.column !== clickedPosition.column
+            ) {
+              return;
+            }
+            void keymapRegistry.executeCommand("editor.goToDefinition", { definitionHint });
+          });
           return;
         }
         if (mouseEvent.leftButton) mouseSelectingRef.current = true;
@@ -849,6 +882,7 @@ export function MonacoEditor({
         syncCursorAndSelection();
         scheduleInlineGitBlameRender();
       }),
+      definitionLinkGesture,
       editor.onDidScrollChange((event) => {
         const viewKey = viewStateKey ?? activeBufferId ?? null;
         setScrollForBuffer(viewKey, event.scrollTop, event.scrollLeft);
@@ -974,6 +1008,7 @@ export function MonacoEditor({
     editorSmoothScrolling,
     editorStickyScroll,
     enableExpensiveServices,
+    documentTarget,
     inlayHints,
     setContextMenuPosition,
     filePath,
@@ -992,6 +1027,7 @@ export function MonacoEditor({
     readOnly,
     renderIndentGuides,
     renderWhitespace,
+    rootFolderPath,
     scrollable,
     scheduleInlineGitBlameRender,
     selectEntireModel,
