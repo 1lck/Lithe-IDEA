@@ -74,6 +74,7 @@ function createMonacoThemeData(
     colors: {
       "editor.background": background,
       "editor.foreground": foreground,
+      "editorLink.activeForeground": accent,
       "editorCursor.foreground": cursor,
       "editor.selectionBackground": selection,
       "editor.inactiveSelectionBackground": border,
