@@ -16,20 +16,19 @@ env:
   LITHE_REVIEW_EFFORT: xhigh
 
 jobs:
-  review:
+  prepare:
     if: >-
       github.event.issue.pull_request != null &&
       github.event.comment.body == '@lithe review'
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 5
     permissions:
       contents: read
       issues: write
       pull-requests: write
     outputs:
       authorized: ${{ steps.prepare.outputs.authorized }}
-      codex_outcome: ${{ steps.diagnostics.outputs.codex_outcome }}
-      final_message: ${{ steps.codex.outputs.final-message }}
+      base_sha: ${{ steps.prepare.outputs.base_sha }}
       head_sha: ${{ steps.prepare.outputs.head_sha }}
 
     steps:
@@ -92,19 +91,60 @@ jobs:
               });
             }
 
-      - name: Check out the complete pull request head
+      - name: Upload trusted review input
         if: steps.prepare.outputs.authorized == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lithe-review-input-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/lithe-pr-review-prompt.md
+          if-no-files-found: error
+          retention-days: 1
+
+  review:
+    needs: prepare
+    if: needs.prepare.outputs.authorized == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 27
+    permissions:
+      contents: read
+    outputs:
+      codex_outcome: ${{ steps.diagnostics.outputs.codex_outcome }}
+      final_message: ${{ steps.codex.outputs.final-message }}
+
+    steps:
+      - name: Check out trusted review tooling
         uses: actions/checkout@v7
         with:
-          ref: ${{ steps.prepare.outputs.head_sha }}
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install trusted Codex watchdog
+        env:
+          LITHE_WRAPPER_DIRECTORY: ${{ runner.temp }}/lithe-codex-bin
+        run: |
+          set -euo pipefail
+          mkdir -p "$LITHE_WRAPPER_DIRECTORY"
+          install -m 755 scripts/run-lithe-codex-with-timeout.sh "$LITHE_WRAPPER_DIRECTORY/codex"
+          echo "$LITHE_WRAPPER_DIRECTORY" >> "$GITHUB_PATH"
+
+      - name: Download trusted review input
+        uses: actions/download-artifact@v4
+        with:
+          name: lithe-review-input-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/lithe-review-input
+
+      - name: Check out the complete pull request head
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.head_sha }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Inspect checked-out repository
-        if: steps.prepare.outputs.authorized == 'true'
         env:
-          LITHE_BASE_SHA: ${{ steps.prepare.outputs.base_sha }}
-          LITHE_HEAD_SHA: ${{ steps.prepare.outputs.head_sha }}
+          LITHE_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
+          LITHE_HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
         run: |
           set -euo pipefail
           actual_head="$(git rev-parse HEAD)"
@@ -124,15 +164,17 @@ jobs:
           echo "[lithe-review] git_objects=$(git count-objects -vH | tr '\n' ';')"
 
       - name: Run read-only Lithe review
-        if: steps.prepare.outputs.authorized == 'true'
         id: codex
         continue-on-error: true
-        timeout-minutes: 25
         uses: openai/codex-action@v1
+        env:
+          LITHE_CODEX_EVENTS_FILE: ${{ runner.temp }}/lithe-review-events.jsonl
+          LITHE_CODEX_STDERR_FILE: ${{ runner.temp }}/lithe-review-codex.stderr.log
+          LITHE_CODEX_TIMEOUT: 20m
         with:
           openai-api-key: ${{ secrets.LITHE_OPENAI_API_KEY }}
           responses-api-endpoint: ${{ secrets.LITHE_OPENAI_RESPONSES_URL }}
-          prompt-file: ${{ runner.temp }}/lithe-pr-review-prompt.md
+          prompt-file: ${{ runner.temp }}/lithe-review-input/lithe-pr-review-prompt.md
           model: ${{ env.LITHE_REVIEW_MODEL }}
           effort: ${{ env.LITHE_REVIEW_EFFORT }}
           sandbox: read-only
@@ -142,18 +184,31 @@ jobs:
           codex-args: '["--ephemeral", "--json"]'
 
       - name: Record review diagnostics
-        if: always() && steps.prepare.outputs.authorized == 'true'
+        if: always()
         id: diagnostics
         env:
           CODEX_OUTCOME: ${{ steps.codex.outcome }}
           DIAGNOSTICS_FILE: ${{ runner.temp }}/lithe-review-diagnostics.txt
+          EVENTS_FILE: ${{ runner.temp }}/lithe-review-events.jsonl
+          STDERR_FILE: ${{ runner.temp }}/lithe-review-codex.stderr.log
           FINAL_MESSAGE_FILE: ${{ runner.temp }}/lithe-review-final.md
-          LITHE_BASE_SHA: ${{ steps.prepare.outputs.base_sha }}
-          LITHE_HEAD_SHA: ${{ steps.prepare.outputs.head_sha }}
+          LITHE_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
+          LITHE_HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
         run: |
           set -euo pipefail
+          event_lines=0
+          event_bytes=0
+          stderr_bytes=0
           final_message_exists=false
           final_message_bytes=0
+
+          if [ -f "$EVENTS_FILE" ]; then
+            event_lines="$(wc -l < "$EVENTS_FILE" | tr -d ' ')"
+            event_bytes="$(wc -c < "$EVENTS_FILE" | tr -d ' ')"
+          fi
+          if [ -f "$STDERR_FILE" ]; then
+            stderr_bytes="$(wc -c < "$STDERR_FILE" | tr -d ' ')"
+          fi
           if [ -f "$FINAL_MESSAGE_FILE" ]; then
             final_message_exists=true
             final_message_bytes="$(wc -c < "$FINAL_MESSAGE_FILE" | tr -d ' ')"
@@ -169,28 +224,41 @@ jobs:
             echo "model=${LITHE_REVIEW_MODEL}"
             echo "effort=${LITHE_REVIEW_EFFORT}"
             echo "codex_outcome=${CODEX_OUTCOME}"
+            echo "event_lines=${event_lines}"
+            echo "event_bytes=${event_bytes}"
+            echo "stderr_bytes=${stderr_bytes}"
             echo "final_message_exists=${final_message_exists}"
             echo "final_message_bytes=${final_message_bytes}"
           } | tee "$DIAGNOSTICS_FILE"
 
+          if [ -s "$EVENTS_FILE" ]; then
+            echo "::group::Last 50 Codex JSONL events"
+            tail -n 50 "$EVENTS_FILE"
+            echo "::endgroup::"
+          fi
+          if [ -s "$STDERR_FILE" ]; then
+            echo "::group::Last 100 Codex stderr lines"
+            tail -n 100 "$STDERR_FILE"
+            echo "::endgroup::"
+          fi
+
           echo "codex_outcome=${CODEX_OUTCOME}" >> "$GITHUB_OUTPUT"
 
       - name: Upload review diagnostics
-        if: always() && steps.prepare.outputs.authorized == 'true'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: lithe-review-diagnostics-${{ github.event.issue.number }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/lithe-review-diagnostics.txt
+            ${{ runner.temp }}/lithe-review-events.jsonl
+            ${{ runner.temp }}/lithe-review-codex.stderr.log
             ${{ runner.temp }}/lithe-review-final.md
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
 
       - name: Report Codex execution failure
-        if: >-
-          always() &&
-          steps.prepare.outputs.authorized == 'true' &&
-          steps.codex.outcome != 'success'
+        if: always() && steps.codex.outcome != 'success'
         env:
           CODEX_OUTCOME: ${{ steps.codex.outcome }}
         run: |
@@ -198,11 +266,12 @@ jobs:
           exit 1
 
   publish:
-    needs: review
+    needs: [prepare, review]
     if: >-
       always() &&
-      needs.review.outputs.authorized == 'true'
+      needs.prepare.outputs.authorized == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       issues: write
       pull-requests: write
@@ -212,7 +281,7 @@ jobs:
         uses: actions/github-script@v7
         env:
           LITHE_FINAL_MESSAGE: ${{ needs.review.outputs.final_message }}
-          LITHE_HEAD_SHA: ${{ needs.review.outputs.head_sha }}
+          LITHE_HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
           LITHE_CODEX_OUTCOME: ${{ needs.review.outputs.codex_outcome }}
           LITHE_REVIEW_JOB_RESULT: ${{ needs.review.result }}
           LITHE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -220,7 +289,7 @@ jobs:
           github-token: ${{ github.token }}
           script: |
             const marker = `<!-- lithe-review:${context.issue.number}:${process.env.LITHE_HEAD_SHA} -->`;
-            const message = process.env.LITHE_FINAL_MESSAGE.trim();
+            const message = (process.env.LITHE_FINAL_MESSAGE ?? '').trim();
             const limit = 65_000;
             const failureMessage = [
               '## Lithe Review',
