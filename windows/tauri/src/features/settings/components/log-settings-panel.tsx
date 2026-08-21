@@ -24,7 +24,7 @@ import { writeClipboardText } from "@/utils/clipboard";
 
 function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="overflow-hidden rounded-md border border-border bg-surface/35">
+    <section className="overflow-clip rounded-md border border-border bg-surface/35">
       <h3 className="border-border border-b px-3 py-2 ui-text-sm font-medium text-subtle-foreground">
         {title}
       </h3>
