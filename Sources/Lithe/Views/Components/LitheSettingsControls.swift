@@ -1,5 +1,57 @@
 import SwiftUI
 
+struct LitheSettingsSearchField: View {
+    private let placeholder: LocalizedStringKey
+    @Binding private var text: String
+    private let onTextChanged: ((String) -> Void)?
+
+    init(
+        _ placeholder: LocalizedStringKey,
+        text: Binding<String>,
+        onTextChanged: ((String) -> Void)? = nil
+    ) {
+        self.placeholder = placeholder
+        _text = text
+        self.onTextChanged = onTextChanged
+    }
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(LitheTheme.tertiaryText)
+
+            TextField(placeholder, text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12.5))
+
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                }
+                .buttonStyle(.plain)
+                .lithePointer()
+                .help("Clear search")
+            }
+        }
+        .padding(.horizontal, 9)
+        .frame(height: 28)
+        .background(Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
+        .overlay {
+            RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
+                .stroke(LitheTheme.inputBorder, lineWidth: 1)
+        }
+        .onChange(of: text) { value in
+            onTextChanged?(value)
+        }
+    }
+}
+
 struct LitheSettingsSelect<Value: Hashable>: View {
     @Binding private var selection: Value
     private let options: [Value]
@@ -43,7 +95,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
             .frame(width: width, height: 30, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                    .fill(LitheTheme.inputBackground)
+                    .fill(LitheTheme.settingsControlBackground)
             )
             .overlay {
                 RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
@@ -126,7 +178,7 @@ struct LitheSettingsSegmentedControl<Value: Hashable>: View {
                         .litheRowHover(
                             isActive: selection == option,
                             cornerRadius: LitheTheme.Metrics.cornerRadius,
-                            activeBackground: LitheTheme.selection
+                            activeBackground: LitheTheme.settingsSelection
                         )
                 }
                 .buttonStyle(LitheTreeRowButtonStyle())
@@ -137,7 +189,7 @@ struct LitheSettingsSegmentedControl<Value: Hashable>: View {
         .frame(width: width, height: 30)
         .background(
             RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                .fill(LitheTheme.inputBackground)
+                .fill(LitheTheme.settingsControlBackground)
         )
         .overlay {
             RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)

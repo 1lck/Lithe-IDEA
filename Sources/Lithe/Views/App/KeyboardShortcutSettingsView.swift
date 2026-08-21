@@ -41,8 +41,9 @@ struct KeyboardShortcutSettingsView: View {
                 .padding(.horizontal, 24)
                 .padding(.bottom, 24)
             }
+            .litheScrollViewChrome(alwaysShowVertical: true, usesCompactScrollers: true)
         }
-        .background(LitheTheme.window)
+        .background(LitheTheme.settingsSurface)
     }
 
     private var header: some View {
@@ -65,12 +66,10 @@ struct KeyboardShortcutSettingsView: View {
                 .lithePointer()
             }
 
-            TextField("Search actions or shortcuts", text: $query)
-                .textFieldStyle(.roundedBorder)
-                .onChange(of: query) { _ in
+            LitheSettingsSearchField("Search actions or shortcuts", text: $query) { _ in
                     editingTarget = nil
                     validationIssue = nil
-                }
+            }
         }
         .foregroundStyle(LitheTheme.primaryText)
         .padding(24)
@@ -203,7 +202,7 @@ struct KeyboardShortcutSettingsView: View {
         }
         .padding(.horizontal, 7)
         .frame(height: 24)
-        .background(LitheTheme.inputBackground)
+        .background(LitheTheme.settingsControlBackground)
         .clipShape(RoundedRectangle(cornerRadius: 4))
         .overlay {
             RoundedRectangle(cornerRadius: 4)
