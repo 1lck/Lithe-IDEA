@@ -25,6 +25,16 @@ struct EditorLayoutMetricsTests {
     }
 
     @Test
+    func lineNumberFontTracksTheEditorFontSize() {
+        let smallEditorFont = LitheTheme.editorFont(size: 11)
+        let largeEditorFont = LitheTheme.editorFont(size: 20)
+        #expect(
+            EditorGutterLayout.lineNumberFont(for: largeEditorFont).pointSize
+                > EditorGutterLayout.lineNumberFont(for: smallEditorFont).pointSize
+        )
+    }
+
+    @Test
     func blameMetadataAppearsAtVisibleAndCommitBoundaries() {
         #expect(EditorLayoutMetrics.showsBlameMetadata(
             line: 12,

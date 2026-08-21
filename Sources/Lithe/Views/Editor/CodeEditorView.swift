@@ -985,6 +985,7 @@ struct CodeEditorView: NSViewRepresentable {
                     forCharacterRange: NSRange(location: 0, length: textView.string.utf16.count),
                     actualCharacterRange: nil
                 )
+                gutter?.refreshLineNumberLayout()
                 appliedFontSize = fontSize
                 editorOverlayLayoutRevision &+= 1
                 changed = true
@@ -3098,10 +3099,6 @@ final class LineNumberGutterView: NSView {
         isBlameVisible ? EditorLayoutMetrics.blameMetadataWidth : 0
     }
 
-    private var foldIndicatorX: CGFloat {
-        editorGutterOriginX + gutterLayout.foldRange.lowerBound
-    }
-
     override var isFlipped: Bool { true }
 
     override func updateTrackingAreas() {
@@ -3548,7 +3545,8 @@ final class LineNumberGutterView: NSView {
         // narrower chevron geometry chosen for the gutter.
         let symbolSize = max(6, lineNumberFont.capHeight - 1)
         let symbolWidth = symbolSize * 0.55
-        let leftX = foldIndicatorX + 4
+        let leftX = editorGutterOriginX + gutterLayout.foldRange.lowerBound
+            + (EditorGutterLayout.width(of: gutterLayout.foldRange) - symbolWidth) / 2
         let rightX = leftX + symbolWidth
         let path = NSBezierPath()
         if collapsedFoldIDs.contains(region.id) {
@@ -3987,7 +3985,7 @@ final class CodeVisionOverlayController {
                 height: Self.buttonHeight
             )
             alignmentButton.layoutSubtreeIfNeeded()
-            let overlayFont = alignmentButton.font ?? .systemFont(ofSize: 10.5)
+            let overlayFont = alignmentButton.font ?? .systemFont(ofSize: 10.5, weight: .medium)
             let y = EditorOverlayLayout.centeredFontOriginY(
                 textContainerOriginY: textView.textContainerOrigin.y,
                 lineOriginY: lineRect.minY,
@@ -4037,6 +4035,7 @@ final class CodeVisionOverlayController {
             action: action
         )
         button.isBordered = false
+        button.font = .systemFont(ofSize: 10.5, weight: .medium)
         button.contentTintColor = NSColor(white: 0.52, alpha: 1)
         button.alignment = .center
         button.setAccessibilityElement(true)
