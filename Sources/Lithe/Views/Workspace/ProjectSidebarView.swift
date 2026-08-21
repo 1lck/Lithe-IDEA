@@ -24,7 +24,9 @@ struct ProjectSidebarView: View {
                 GeometryReader { geometry in
                     ScrollViewReader { proxy in
                         ScrollView([.vertical, .horizontal]) {
-                            LazyVStack(alignment: .leading, spacing: 1) {
+                            // The recursive tree is one scroll-content child. An eager stack
+                            // must measure its full height so AppKit receives a real scroll range.
+                            VStack(alignment: .leading, spacing: 1) {
                                 ProjectFileTreeContent(
                                     root: root,
                                     availableWidth: geometry.size.width,
