@@ -45,7 +45,7 @@ test("extracts local closing and mentioned Issues without treating the PR as an 
 
 test("builds a prompt with complete revision and Issue context", () => {
     const prompt = buildReviewPrompt({
-        instructions: "Review instructions.",
+        instructions: "Review instructions. Return review_markdown.",
         repository: "1lck/Lithe-IDEA",
         pullRequest: {
             number: 456,
@@ -80,4 +80,5 @@ test("builds a prompt with complete revision and Issue context", () => {
     assert.match(prompt, /Issue #123: Old output is delivered/);
     assert.match(prompt, /Expected behavior/);
     assert.match(prompt, /macOS CI: success/);
+    assert.match(prompt, /review_markdown/);
 });
