@@ -225,7 +225,7 @@ struct ModuleRuntimeTests {
         try runtime.register(testFactory(id: .database, recorder: recorder))
 
         var first: TestModule? = try #require(try await runtime.activate(.database) as? TestModule)
-        weak var weakFirst = first
+        weak let weakFirst = first
         #expect(first?.resource?.isModuleResourceActive == true)
         first = nil
         try await runtime.sleep(.database)
@@ -512,25 +512,22 @@ struct ModuleRuntimeTests {
         let recorder = ModuleTestRecorder()
         let runtime = ModuleRuntime()
         let manifest = ModuleManifest(id: .search, displayName: "Search", scope: .workspace)
-        var module: FailingActivationModule? = FailingActivationModule(
-            manifest: manifest,
-            recorder: recorder
-        )
-        weak var weakModule = module
+        let moduleReference = WeakReference<FailingActivationModule>()
         try runtime.register(ModuleFactory(manifest: manifest) {
-            try #require(module)
+            let module = FailingActivationModule(manifest: manifest, recorder: recorder)
+            moduleReference.value = module
+            return module
         })
 
         await #expect(throws: TestActivationError.failed) {
             _ = try await runtime.activate(.search)
         }
-        module = nil
 
         #expect(recorder.shutdowns == [.search])
         #expect(recorder.resourceStops == [.search])
         #expect(try runtime.snapshot(for: .search).activity.activeResourceCount == 0)
         #expect(try !runtime.snapshot(for: .search).isInstantiated)
-        #expect(weakModule == nil)
+        #expect(moduleReference.value == nil)
     }
 
     @Test
@@ -782,6 +779,11 @@ struct ModuleRuntimeTests {
             return TestModule(manifest: manifest, recorder: recorder)
         }
     }
+}
+
+@MainActor
+private final class WeakReference<Value: AnyObject> {
+    weak var value: Value?
 }
 
 @MainActor

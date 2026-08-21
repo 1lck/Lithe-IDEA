@@ -101,16 +101,18 @@ jobs:
             ~/.cache/org.swift.swiftpm
           key: swiftpm-${{ runner.os }}-6.2-${{ hashFiles('Package.resolved') }}
 
-      - name: Run Swift tests
-        id: swift-tests-primary
-        continue-on-error: true
+      - name: Run Swift unit tests
         timeout-minutes: 12
-        run: ./scripts/test-macos.sh
+        run: |
+          ./scripts/test-macos.sh \
+            --skip WebKitIntegrationTests
 
-      - name: Retry Swift tests after a failed attempt
-        if: steps.swift-tests-primary.outcome == 'failure'
-        timeout-minutes: 12
-        run: ./scripts/test-macos.sh --skip-build
+      - name: Run WebKit lifecycle integration tests
+        timeout-minutes: 3
+        run: |
+          ./scripts/test-macos.sh \
+            --skip-build \
+            --filter WebKitIntegrationTests
 
   rust-tests:
     name: Rust Core and database tests
