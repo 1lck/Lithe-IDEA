@@ -13,6 +13,14 @@ import LitheTerminalModule
 @Suite("Lithe core logic")
 struct LitheCoreLogicTests {
     @Test
+    func javaInterfaceSymbolAcceptsUnicodeIdentifiers() {
+        #expect(
+            LitheIcons.javaSymbolKind(fromSourcePrefix: "public interface 用户服务 {}")
+                == .javaInterface
+        )
+    }
+
+    @Test
     @MainActor
     func closingAWorkspaceWindowClosesTheProjectInsteadOfTheWindow() {
         let sessions = TestProjectWindowSessions(hasActiveProject: true)

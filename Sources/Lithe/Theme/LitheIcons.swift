@@ -249,7 +249,7 @@ enum LitheIcons {
     /// 只看首个类型声明，读不出来就回退 .javaGeneric。
     static func javaSymbolKind(fromSourcePrefix prefix: String) -> LitheIconKind {
         let stripped = strippingCommentsAndStrings(prefix)
-        let pattern = #"\b(class|interface|enum|record)\s+[A-Za-z_$]"#
+        let pattern = #"\b(class|interface|enum|record)\s+[\p{L}_$]"#
         guard let expression = try? NSRegularExpression(pattern: pattern) else { return .javaGeneric }
         let range = NSRange(stripped.startIndex..<stripped.endIndex, in: stripped)
         guard let match = expression.firstMatch(in: stripped, range: range),

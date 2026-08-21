@@ -1251,6 +1251,35 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func navigationResynchronizesAnOpenDocumentAfterLanguageServerRestart() async throws {
+        let harness = makeLanguageServerHarness()
+        let secondSource = harness.root.appendingPathComponent("Other.swift")
+
+        try harness.manager.synchronizeLanguageServer(
+            for: harness.source,
+            text: "struct App {}\n",
+            rootURL: harness.root
+        )
+        harness.core.enqueueReady(capabilities: ["definition"])
+        #expect(await Self.waitForMainActorCondition {
+            harness.manager.languageServerStates["swift"] == .ready
+        })
+
+        try harness.manager.navigate(
+            method: "textDocument/definition",
+            fileURL: secondSource,
+            text: "struct Other {}\n",
+            position: LanguageServerPosition(line: 0, utf16Column: 7),
+            rootURL: harness.root
+        ) { _ in }
+
+        #expect(harness.core.syncCalls.map(\.fileURL) == [
+            harness.source.standardizedFileURL,
+            secondSource.standardizedFileURL
+        ])
+    }
+
+    @Test
     func initializeErrorNeverActivatesLanguageServer() async throws {
         let harness = makeLanguageServerHarness()
 
