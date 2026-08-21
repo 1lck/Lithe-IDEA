@@ -1,5 +1,5 @@
 import { ScrollArea as ScrollAreaPrimitive } from "@base-ui/react/scroll-area";
-import { useLayoutEffect, useState } from "react";
+import { useCallback, useLayoutEffect, useState } from "react";
 import type * as React from "react";
 import {
   bindOverlayWheelToScrollContainer,
@@ -46,14 +46,17 @@ function ScrollArea({
     return bindOverlayWheelToScrollContainer(rootNode, () => viewportNode);
   }, [rootNode, viewportNode]);
 
-  const setViewportRef = (node: HTMLDivElement | null) => {
-    setViewportNode(node);
-    if (typeof viewportRef === "function") {
-      viewportRef(node);
-    } else if (viewportRef) {
-      viewportRef.current = node;
-    }
-  };
+  const setViewportRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      setViewportNode(node);
+      if (typeof viewportRef === "function") {
+        viewportRef(node);
+      } else if (viewportRef) {
+        viewportRef.current = node;
+      }
+    },
+    [viewportRef],
+  );
 
   return (
     <ScrollAreaPrimitive.Root
