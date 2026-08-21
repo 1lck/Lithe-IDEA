@@ -33,6 +33,11 @@ import {
   type LspDocumentTargetInput,
 } from "./lsp-document-target";
 import {
+  clearLanguageServerFailure,
+  isLanguageServerFailureCoolingDown,
+  recordLanguageServerFailure,
+} from "./language-server-failure-cooldown";
+import {
   applyWorkspaceEdit,
   applyTextEditsToContent,
   filePathFromUri,
@@ -174,7 +179,8 @@ export class LspClient {
   private activeLanguageServers = new Set<string>(); // workspace:language format
   private activeLanguages = new Set<string>(); // Track active language IDs for status
   private activeServerFiles = new Map<string, Set<string>>(); // workspace:language -> tracked files
-  private failedLanguageServers = new Set<string>(); // workspace:language format
+  /** workspace:language -> failure timestamp (ms); expired after a short cooldown. */
+  private failedLanguageServers = new Map<string, number>();
   private repairLanguageServerPromises = new Map<string, Promise<boolean>>();
   private openDocuments = new Set<string>();
   private documentVersions = new Map<string, number>();
@@ -657,12 +663,12 @@ export class LspClient {
 
       const serverKey = `${workspacePath}:${languageId}`;
       if (options.forceRetry) {
-        this.failedLanguageServers.delete(serverKey);
+        clearLanguageServerFailure(this.failedLanguageServers, serverKey);
       }
-      if (this.failedLanguageServers.has(serverKey)) {
+      if (isLanguageServerFailureCoolingDown(this.failedLanguageServers, serverKey, Date.now())) {
         logger.debug(
           "LSPClient",
-          `Skipping LSP restart for ${languageId} in ${workspacePath} after a previous startup failure`,
+          `Skipping LSP restart for ${languageId} in ${workspacePath} during startup failure cooldown`,
         );
         throw new Error(
           `${this.getLanguageDisplayName(languageId)} language server previously failed to start.`,
@@ -692,13 +698,13 @@ export class LspClient {
           cacheDirectory: launch.cacheDirectory || null,
           environment: launch.environment || null,
         });
-        this.failedLanguageServers.delete(serverKey);
+        clearLanguageServerFailure(this.failedLanguageServers, serverKey);
         this.activeLanguageServers.add(serverKey);
         this.addTrackedFile(serverKey, filePath);
         this.activeLanguages.add(this.getLanguageDisplayName(languageId));
         this.updateLspStatus();
       } catch (error) {
-        this.failedLanguageServers.add(serverKey);
+        recordLanguageServerFailure(this.failedLanguageServers, serverKey, Date.now());
         if (!options.repairAttempted && this.isRepairableStartupError(error)) {
           const repaired = await this.repairLanguageServerForFile(filePath, languageId);
           if (repaired) {
@@ -815,7 +821,7 @@ export class LspClient {
           if (!stillActiveForServer) {
             this.activeLanguageServers.delete(activeKey);
           }
-          this.failedLanguageServers.delete(activeKey);
+          clearLanguageServerFailure(this.failedLanguageServers, activeKey);
         }
 
         const displayName = this.getLanguageDisplayName(languageId);
