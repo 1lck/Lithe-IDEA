@@ -39,7 +39,9 @@ private struct TerminalNativeSurface: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> TerminalSurfaceHostView {
-        TerminalSurfaceHostView(frame: .zero)
+        let hostView = TerminalSurfaceHostView(frame: .zero)
+        hostView.attach(nativeView)
+        return hostView
     }
 
     func updateNSView(_ hostView: TerminalSurfaceHostView, context: Context) {
@@ -67,13 +69,28 @@ private final class TerminalSurfaceHostView: NSView {
     private weak var terminalView: NSView?
 
     func attach(_ view: NSView) {
-        guard terminalView !== view || view.superview !== self else { return }
-        terminalView?.removeFromSuperview()
+        // A source host can receive one last update after the persistent
+        // terminal view has already moved to its destination. Do not let that
+        // stale host reclaim the view or detach it while switching sessions.
+        if terminalView === view {
+            guard view.superview === self else { return }
+            view.frame = bounds
+            return
+        }
+        if let terminalView, terminalView.superview === self {
+            terminalView.removeFromSuperview()
+        }
         view.removeFromSuperview()
         terminalView = view
         view.frame = bounds
         view.autoresizingMask = [.width, .height]
         addSubview(view)
+    }
+
+    override func layout() {
+        super.layout()
+        guard let terminalView, terminalView.superview === self else { return }
+        terminalView.frame = bounds
     }
 
     func detachCurrentView() {
