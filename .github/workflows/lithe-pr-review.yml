@@ -104,10 +104,9 @@ jobs:
     needs: prepare
     if: needs.prepare.outputs.authorized == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 60
     permissions:
       contents: read
-      id-token: write
       issues: read
       pull-requests: read
     outputs:
@@ -205,6 +204,7 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.LITHE_ANTHROPIC_API_KEY || secrets.LITHE_OPENAI_API_KEY }}
+          github_token: ${{ github.token }}
           prompt: ${{ steps.prompt.outputs.content }}
           include_fix_links: false
           display_report: false
