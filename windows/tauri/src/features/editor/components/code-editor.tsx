@@ -84,6 +84,8 @@ interface CodeEditorProps {
   ) => void;
 }
 
+const noopContentChange: NonNullable<CodeEditorProps["onContentChange"]> = () => {};
+
 export interface CodeEditorRef {
   editor: HTMLDivElement | null;
   textarea: HTMLDivElement | null;
@@ -169,6 +171,22 @@ const CodeEditor = ({
   );
   const editorViewKey = paneId && activeBufferId ? `${paneId}:${activeBufferId}` : activeBufferId;
   const { handleContentChange } = useEditorAppStore.use.actions();
+  const handleBufferContentChange = useCallback<
+    NonNullable<CodeEditorProps["onContentChange"]>
+  >(
+    (content, previousContent, previousCursorPosition, previousSelection, options) => {
+      if (!activeBufferId) return;
+      void handleContentChange(
+        activeBufferId,
+        content,
+        previousContent,
+        previousCursorPosition,
+        previousSelection,
+        options,
+      );
+    },
+    [activeBufferId, handleContentChange],
+  );
   const editorFontSize = useSettingsStore((state) => state.settings.fontSize);
   const editorLineHeight = useSettingsStore((state) => state.settings.editorLineHeight);
   const codeLensEnabled = useSettingsStore((state) => state.settings.codeLens);
@@ -185,8 +203,8 @@ const CodeEditor = ({
     return buffer && hasTextContent(buffer) ? buffer.content : "";
   });
   const onChange = activeBuffer
-    ? (onContentChange ?? (isActiveSurface ? handleContentChange : () => {}))
-    : () => {};
+    ? (onContentChange ?? (isActiveSurface ? handleBufferContentChange : noopContentChange))
+    : noopContentChange;
   const handleEditorContentChange = useCallback(
     (
       content: string,

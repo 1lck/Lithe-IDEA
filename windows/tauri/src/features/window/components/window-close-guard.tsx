@@ -2,20 +2,21 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
-import { getBufferById } from "@/features/editor/utils/buffer-index";
 import { useEditorAppStore } from "@/features/editor/stores/editor-app.store";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { isEditorContent } from "@/features/panes/types/pane-content.types";
 import UnsavedChangesDialog from "@/features/window/components/unsaved-changes-dialog";
 import { REQUEST_WINDOW_CLOSE_EVENT } from "@/features/window/utils/request-window-close";
+import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
 
 interface PendingWindowClose {
   bufferId: string;
   fileName: string;
 }
 
-function getBlockingDirtyBuffer(discardedBufferIds: Set<string>) {
+function getBlockingDirtyBuffer(workspaceId: string, discardedBufferIds: Set<string>) {
   return useBufferStore
+    .getStore(workspaceId)
     .getState()
     .buffers.find(
       (buffer) => isEditorContent(buffer) && buffer.isDirty && !discardedBufferIds.has(buffer.id),
@@ -23,21 +24,21 @@ function getBlockingDirtyBuffer(discardedBufferIds: Set<string>) {
 }
 
 export function WindowCloseGuard() {
+  const workspaceId = useActiveWorkspaceId();
   const [pendingClose, setPendingClose] = useState<PendingWindowClose | null>(null);
   const closeInProgressRef = useRef(false);
   const discardedBufferIdsRef = useRef(new Set<string>());
   const persistActiveProjectSession = useFileSystemStore(
     (state) => state.persistActiveProjectSession,
   );
-  const { setActiveBuffer } = useBufferStore.use.actions();
   const { handleSave } = useEditorAppStore.use.actions();
 
   const persistSessionSnapshot = useCallback(() => {
-    useFileSystemStore.getState().persistActiveProjectSession();
-  }, []);
+    useFileSystemStore.getStore(workspaceId).getState().persistActiveProjectSession();
+  }, [workspaceId]);
 
   const continueCloseOrPrompt = useCallback(async () => {
-    const dirtyBuffer = getBlockingDirtyBuffer(discardedBufferIdsRef.current);
+    const dirtyBuffer = getBlockingDirtyBuffer(workspaceId, discardedBufferIdsRef.current);
 
     if (dirtyBuffer) {
       setPendingClose({
@@ -50,7 +51,7 @@ export function WindowCloseGuard() {
     persistSessionSnapshot();
     closeInProgressRef.current = true;
     await getCurrentWindow().close();
-  }, [persistSessionSnapshot]);
+  }, [persistSessionSnapshot, workspaceId]);
 
   useEffect(() => {
     let disposed = false;
@@ -68,7 +69,7 @@ export function WindowCloseGuard() {
           return;
         }
 
-        const dirtyBuffer = getBlockingDirtyBuffer(discardedBufferIdsRef.current);
+        const dirtyBuffer = getBlockingDirtyBuffer(workspaceId, discardedBufferIdsRef.current);
         if (!dirtyBuffer) {
           persistSessionSnapshot();
           return;
@@ -108,23 +109,17 @@ export function WindowCloseGuard() {
       window.removeEventListener("beforeunload", persistActiveProjectSession);
       window.removeEventListener(REQUEST_WINDOW_CLOSE_EVENT, continueCloseOrPrompt);
     };
-  }, [continueCloseOrPrompt, persistActiveProjectSession, persistSessionSnapshot]);
+  }, [continueCloseOrPrompt, persistActiveProjectSession, persistSessionSnapshot, workspaceId]);
 
   const handleSaveAndContinue = useCallback(async () => {
     if (!pendingClose) return;
 
-    setActiveBuffer(pendingClose.bufferId);
-    await handleSave();
-
-    const pendingBuffer = getBufferById(useBufferStore.getState().buffers, pendingClose.bufferId);
-
-    if (pendingBuffer && isEditorContent(pendingBuffer) && pendingBuffer.isDirty) {
-      return;
-    }
+    const result = await handleSave(pendingClose.bufferId);
+    if (result !== "saved") return;
 
     setPendingClose(null);
     await continueCloseOrPrompt();
-  }, [continueCloseOrPrompt, handleSave, pendingClose, setActiveBuffer]);
+  }, [continueCloseOrPrompt, handleSave, pendingClose]);
 
   const handleDiscardAndContinue = useCallback(async () => {
     if (!pendingClose) return;
