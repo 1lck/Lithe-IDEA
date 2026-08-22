@@ -2,6 +2,7 @@
 param(
     [ValidateSet("Debug", "Release")]
     [string]$Configuration = "Release",
+    [string]$RustTarget = "x86_64-pc-windows-msvc",
     [string]$Version = "0.0.0",
     [string]$OutputDirectory = "dist",
     [string]$CertificateThumbprint = $env:LITHE_WINDOWS_CERTIFICATE_THUMBPRINT,
@@ -15,6 +16,7 @@ param(
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $windowsApp = Join-Path $root "windows/tauri"
+$bundledExtensionsSource = [System.IO.Path]::GetFullPath((Join-Path $windowsApp "src/extensions/bundled"))
 $output = Join-Path $root $OutputDirectory
 $taskTempRoot = if ([string]::IsNullOrWhiteSpace($env:RUNNER_TEMP)) {
     [System.IO.Path]::GetTempPath()
@@ -22,6 +24,15 @@ $taskTempRoot = if ([string]::IsNullOrWhiteSpace($env:RUNNER_TEMP)) {
     $env:RUNNER_TEMP
 }
 $versionConfig = Join-Path $taskTempRoot "lithe-tauri-version.json"
+
+if (-not (Test-Path -LiteralPath $bundledExtensionsSource -PathType Container)) {
+    throw "Bundled extensions source directory is missing: $bundledExtensionsSource"
+}
+foreach ($relativePath in @("icon-themes", "themes", "icon-themes/idea/extension.json")) {
+    if (-not (Test-Path -LiteralPath (Join-Path $bundledExtensionsSource $relativePath))) {
+        throw "Bundled extensions source is incomplete: $relativePath"
+    }
+}
 
 & (Join-Path $root "scripts/prepare-jdtls.ps1") | Out-Null
 
@@ -64,24 +75,38 @@ if ($RequireUpdaterArtifacts) {
 
 $versionOverrides | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 $versionConfig
 Set-Location $windowsApp
-& bun install --frozen-lockfile
-if ($LASTEXITCODE -ne 0) { throw "Windows frontend dependency installation failed" }
+& rustup target add $RustTarget
+if ($LASTEXITCODE -ne 0) { throw "Could not install Rust target $RustTarget" }
+
+& (Join-Path $root "scripts/install-windows-frontend-dependencies.ps1")
+
+& bun run typecheck
+if ($LASTEXITCODE -ne 0) { throw "Windows frontend type check failed" }
 
 $tauriArgs = @(
     "tauri", "build",
     "--config", "src-tauri/tauri.windows.conf.json",
     "--config", "src-tauri/tauri.jdtls.conf.json",
     "--config", $versionConfig,
+    "--target", $RustTarget,
     "--bundles", "nsis"
 )
 if ($Configuration -eq "Debug") { $tauriArgs += "--debug" }
-& bunx @tauriArgs
-if ($LASTEXITCODE -ne 0) { throw "Tauri NSIS packaging failed" }
+& (Join-Path $root "scripts/invoke-windows-tauri-build.ps1") `
+    -TauriArguments $tauriArgs `
+    -FailureMessage "Tauri NSIS packaging failed"
 
-$bundleDirectory = Join-Path $windowsApp "src-tauri/target/release/bundle/nsis"
-if ($Configuration -eq "Debug") {
-    $bundleDirectory = Join-Path $windowsApp "src-tauri/target/debug/bundle/nsis"
+$profileName = if ($Configuration -eq "Debug") { "debug" } else { "release" }
+$cargoTargetRoot = [System.IO.Path]::GetFullPath((Join-Path $windowsApp "src-tauri/target"))
+$profileRoot = [System.IO.Path]::GetFullPath(
+    (Join-Path (Join-Path $cargoTargetRoot $RustTarget) $profileName)
+)
+$trimCharacters = [char[]]@([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+$targetPrefix = $cargoTargetRoot.TrimEnd($trimCharacters) + [System.IO.Path]::DirectorySeparatorChar
+if (-not $profileRoot.StartsWith($targetPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Windows Cargo target profile must stay inside $cargoTargetRoot"
 }
+$bundleDirectory = Join-Path $profileRoot "bundle/nsis"
 $bundle = Get-ChildItem -LiteralPath $bundleDirectory -Filter "*.exe" -File |
     Select-Object -First 1
 if ($null -eq $bundle) { throw "Tauri NSIS installer was not found in $bundleDirectory" }
