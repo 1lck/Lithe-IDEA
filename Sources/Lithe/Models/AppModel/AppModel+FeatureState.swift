@@ -102,11 +102,12 @@ extension AppModel {
 
         switch item {
         case .document(let documentID):
-            guard openDocuments.contains(where: { $0.id == documentID }) else {
+            guard let document = openDocuments.first(where: { $0.id == documentID }) else {
                 editorTabOrderFeature.remove(item)
                 return
             }
             documentFeature.reorderDocuments(orderedIDs: editorTabOrderFeature.documentIDs)
+            selectEditorDocument(document)
         case .terminal(let sessionID):
             guard let session = terminalSessions.first(where: { $0.id == sessionID }) else {
                 editorTabOrderFeature.remove(item)
@@ -119,9 +120,7 @@ extension AppModel {
             terminalPlacementFeature.reorderEditorSessions(
                 orderedIDs: editorTabOrderFeature.terminalIDs
             )
-            if !wasAlreadyInEditor {
-                _ = terminalFeature?.selectSession(session)
-            }
+            selectEditorTerminalSession(session)
         }
     }
     var pendingCloseDocument: EditorDocument? { documentFeature.pendingCloseDocument }

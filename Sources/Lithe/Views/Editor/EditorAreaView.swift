@@ -271,14 +271,18 @@ struct EditorAreaView: View {
                             targetWidth: geometry.size.width,
                             dragSessionID: dragSessionID,
                             dropTargetRevision: dropTargetRevision,
-                            updateTarget: { target, sessionID, revision in
+                            updateTarget: { target, sessionID, revision, settlesDrop in
                                 guard tabDragState.sessionID == sessionID,
                                       tabDragState.dropTargetRevision == revision,
                                       let source = tabDragState.draggedItem,
-                                      source != .document(target.documentID),
-                                      tabDragState.dropTarget != target else { return }
+                                      source != .document(target.documentID) else { return }
+                                if tabDragState.dropTarget != target {
+                                    withAnimation(tabAnimation) {
+                                        tabDragState.updateTarget(target)
+                                    }
+                                }
+                                guard settlesDrop else { return }
                                 withAnimation(tabAnimation) {
-                                    tabDragState.updateTarget(target)
                                     if target.side == .after {
                                         model.moveEditorTab(
                                             source,
@@ -498,33 +502,7 @@ struct EditorAreaView: View {
             && model.activeDocumentID == document.id
 
         return HStack(spacing: 0) {
-            HStack(spacing: 7) {
-                LitheIcon(
-                    kind: LitheIcons.kind(for: document.url, isDirectory: false),
-                    size: 13
-                )
-                editorTabTitle(document)
-                EditorTabDirtyIndicator(document: document)
-            }
-            .foregroundStyle(isActive ? LitheTheme.primaryText : LitheTheme.secondaryText)
-            .padding(.leading, 11)
-            .frame(height: LitheTheme.Metrics.tabHeight)
-            .contentShape(Rectangle())
-            // Keep the drag source on a plain view. On macOS a nested Button
-            // can win the mouse gesture before a parent drag gesture starts.
-            .onTapGesture {
-                model.selectEditorDocument(document)
-            }
-            .highPriorityGesture(
-                horizontalTabDragGesture(for: .document(document.id))
-            )
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(document.displayName)
-            .accessibilityAddTraits(.isButton)
-            .accessibilityAction {
-                model.selectEditorDocument(document)
-            }
-            .lithePointer()
+            editorDocumentTabDragSource(document, isActive: isActive)
 
             Button {
                 model.requestCloseDocument(document)
@@ -569,6 +547,57 @@ struct EditorAreaView: View {
     }
 
     @ViewBuilder
+    private func editorDocumentTabDragSource(
+        _ document: EditorDocument,
+        isActive: Bool
+    ) -> some View {
+        let label = HStack(spacing: 7) {
+            LitheIcon(
+                kind: LitheIcons.kind(for: document.url, isDirectory: false),
+                size: 13
+            )
+            editorTabTitle(document)
+            EditorTabDirtyIndicator(document: document)
+        }
+        .foregroundStyle(isActive ? LitheTheme.primaryText : LitheTheme.secondaryText)
+        .padding(.leading, 11)
+        .frame(height: LitheTheme.Metrics.tabHeight)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            model.selectEditorDocument(document)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(document.displayName)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction {
+            model.selectEditorDocument(document)
+        }
+        .lithePointer()
+
+        if settings.editorTabLayoutMode == .multipleRows {
+            // Native dragging carries the tab between flow-layout rows. The
+            // custom single-line gesture intentionally remains horizontal.
+            label
+                .contentShape(
+                    .dragPreview,
+                    RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius)
+                )
+                .onDrag {
+                    beginTabDrag(.document(document.id))
+                    return EditorTabDragPayload.provider(for: document.id)
+                } preview: {
+                    editorTabDragPreview(document)
+                }
+        } else {
+            // Keep the drag source on a plain view. On macOS a nested Button
+            // can win the mouse gesture before a parent drag gesture starts.
+            label.highPriorityGesture(
+                horizontalTabDragGesture(for: .document(document.id))
+            )
+        }
+    }
+
+    @ViewBuilder
     private func editorTabTitle(_ document: EditorDocument) -> some View {
         if settings.editorTabLayoutMode == .multipleRows {
             Text(document.displayName)
@@ -589,6 +618,37 @@ struct EditorAreaView: View {
             .frame(width: 3)
             .shadow(color: LitheTheme.accent.opacity(0.7), radius: 4)
             .transition(.opacity.combined(with: .scale))
+    }
+
+    private func editorTabDragPreview(_ document: EditorDocument) -> some View {
+        HStack(spacing: 7) {
+            LitheIcon(
+                kind: LitheIcons.kind(for: document.url, isDirectory: false),
+                size: 13
+            )
+            .foregroundStyle(LitheTheme.accent)
+
+            Text(document.displayName)
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(LitheTheme.primaryText)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: 240, alignment: .leading)
+
+            if document.isDirty {
+                Circle()
+                    .fill(LitheTheme.primaryText)
+                    .frame(width: 6, height: 6)
+            }
+        }
+        .padding(.leading, 11)
+        .padding(.trailing, 9)
+        .fixedSize(horizontal: true, vertical: false)
+        .frame(height: LitheTheme.Metrics.tabHeight, alignment: .leading)
+        .background(LitheTheme.activeTabBackground)
+        .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius))
+        .shadow(color: .black.opacity(0.42), radius: 10, y: 6)
+        .compositingGroup()
     }
 
     private var tabAnimation: Animation? {
@@ -1167,7 +1227,7 @@ private struct EditorTabDropDelegate: DropDelegate {
     let targetWidth: CGFloat
     let dragSessionID: UUID?
     let dropTargetRevision: UInt
-    let updateTarget: (EditorTabDropTarget, UUID?, UInt) -> Void
+    let updateTarget: (EditorTabDropTarget, UUID?, UInt, Bool) -> Void
     let clearTarget: (UUID, UUID?, UInt) -> Void
     let updateTerminalTarget: (EditorTabReorderTarget) -> Void
     let clearTerminalTarget: (EditorTabItem) -> Void
@@ -1252,7 +1312,8 @@ private struct EditorTabDropDelegate: DropDelegate {
                 side: side
             ),
             dragSessionID,
-            dropTargetRevision
+            dropTargetRevision,
+            settlesDrop
         )
     }
 
@@ -1298,8 +1359,9 @@ private struct EditorTerminalTabDropDelegate: DropDelegate {
     }
 
     func dropExited(info: DropInfo) {
-        guard draggedItem == nil,
-              !info.itemProviders(for: [TerminalTabDragPayload.type]).isEmpty else { return }
+        guard !info.itemProviders(
+            for: [EditorTabDragPayload.type, TerminalTabDragPayload.type]
+        ).isEmpty else { return }
         clearTerminalTarget(.terminal(targetSessionID))
     }
 
@@ -1359,6 +1421,13 @@ private struct EditorTerminalTabDropDelegate: DropDelegate {
             ) else { return }
             side = hoverSide
         }
+        updateTerminalTarget(
+            EditorTabReorderTarget(
+                item: .terminal(targetSessionID),
+                side: side
+            )
+        )
+        guard settlesDrop else { return }
         if side == .after {
             moveItemAfter(draggedItem)
         } else {
