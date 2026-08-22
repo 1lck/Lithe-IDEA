@@ -36,9 +36,10 @@ jobs:
           targets: x86_64-pc-windows-msvc
 
       - name: Set up Bun
+        id: bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.14"
+          bun-version-file: windows/tauri/package.json
 
       - name: Configure isolated dependency caches
         shell: pwsh
@@ -94,9 +95,9 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: .artifacts/bun-cache
-          key: lithe-${{ runner.os }}-${{ runner.arch }}-bun-1.3.14-v1-${{ hashFiles('windows/tauri/bun.lock') }}
+          key: lithe-${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.bun.outputs.bun-version }}-v1-${{ hashFiles('windows/tauri/bun.lock') }}
           restore-keys: |
-            lithe-${{ runner.os }}-${{ runner.arch }}-bun-1.3.14-v1-
+            lithe-${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.bun.outputs.bun-version }}-v1-
 
       - name: Restore JDTLS downloads
         id: jdtls-download-cache

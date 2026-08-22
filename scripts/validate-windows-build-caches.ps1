@@ -68,10 +68,15 @@ $validatorArguments = @(
     "--cargo-lock", (Join-Path $root "windows/tauri/src-tauri/Cargo.lock")
 )
 if ($IncludeWindowsAssets) {
+    $package = Get-Content -Raw -LiteralPath (Join-Path $root "windows/tauri/package.json") | ConvertFrom-Json
+    $bunVersion = ([string]$package.packageManager) -replace '^bun@', ''
+    if ([string]::IsNullOrWhiteSpace($bunVersion)) {
+        throw "windows/tauri/package.json must declare packageManager as bun@<version>."
+    }
     $validatorArguments += @(
         "--jdtls-cache", $jdtlsCache,
         "--jdtls-manifest", (Join-Path $root "third_party/jdtls/manifest.json"),
-        "--bun-version", "1.3.14",
+        "--bun-version", $bunVersion,
         "--bun-lock", (Join-Path $root "windows/tauri/bun.lock"),
         "--bun-cache", $bunCache
     )
