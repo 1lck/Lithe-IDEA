@@ -11,6 +11,10 @@ concurrency:
   group: lithe-pr-review-${{ github.event.issue.number }}
   cancel-in-progress: true
 
+env:
+  LITHE_CLAUDE_MODEL: claude-opus-5
+  LITHE_CLAUDE_EFFORT: high
+
 jobs:
   prepare:
     if: >-
@@ -100,7 +104,7 @@ jobs:
     needs: prepare
     if: needs.prepare.outputs.authorized == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 60
     permissions:
       contents: read
       issues: read
@@ -154,9 +158,8 @@ jobs:
 
       - name: Validate Claude configuration
         env:
-          LITHE_ANTHROPIC_API_KEY: ${{ secrets.LITHE_ANTHROPIC_API_KEY }}
-          LITHE_ANTHROPIC_BASE_URL: ${{ secrets.LITHE_ANTHROPIC_BASE_URL }}
-          LITHE_CLAUDE_MODEL: ${{ vars.LITHE_CLAUDE_MODEL }}
+          LITHE_ANTHROPIC_API_KEY: ${{ secrets.LITHE_ANTHROPIC_API_KEY || secrets.LITHE_OPENAI_API_KEY }}
+          LITHE_ANTHROPIC_BASE_URL: ${{ secrets.LITHE_ANTHROPIC_BASE_URL || secrets.LITHE_OPENAI_RESPONSES_URL }}
         run: |
           set -euo pipefail
           if [ -z "$LITHE_ANTHROPIC_API_KEY" ]; then
@@ -167,11 +170,20 @@ jobs:
             echo "LITHE_ANTHROPIC_BASE_URL is not configured" >&2
             exit 1
           fi
-          if [ -z "$LITHE_CLAUDE_MODEL" ]; then
-            echo "LITHE_CLAUDE_MODEL is not configured" >&2
-            exit 1
-          fi
+          node <<'NODE'
+          const { appendFileSync } = require('node:fs');
+          const baseUrl = new URL(process.env.LITHE_ANTHROPIC_BASE_URL);
+          const normalizedPath = baseUrl.pathname.replace(/\/$/, '');
+          if (normalizedPath === '/v1/responses') {
+            baseUrl.pathname = '/';
+            baseUrl.search = '';
+            baseUrl.hash = '';
+          }
+          const normalizedBaseUrl = baseUrl.toString().replace(/\/$/, '');
+          appendFileSync(process.env.GITHUB_ENV, `ANTHROPIC_BASE_URL=${normalizedBaseUrl}\n`);
+          NODE
           echo "[lithe-review] Claude model=${LITHE_CLAUDE_MODEL}"
+          echo "[lithe-review] Claude effort=${LITHE_CLAUDE_EFFORT}"
 
       - name: Load trusted Claude prompt
         id: prompt
@@ -190,16 +202,16 @@ jobs:
         id: claude
         continue-on-error: true
         uses: anthropics/claude-code-action@v1
-        env:
-          ANTHROPIC_BASE_URL: ${{ secrets.LITHE_ANTHROPIC_BASE_URL }}
         with:
-          anthropic_api_key: ${{ secrets.LITHE_ANTHROPIC_API_KEY }}
+          anthropic_api_key: ${{ secrets.LITHE_ANTHROPIC_API_KEY || secrets.LITHE_OPENAI_API_KEY }}
+          github_token: ${{ github.token }}
           prompt: ${{ steps.prompt.outputs.content }}
           include_fix_links: false
           display_report: false
           show_full_output: false
           claude_args: |
-            --model "${{ vars.LITHE_CLAUDE_MODEL }}"
+            --model "${{ env.LITHE_CLAUDE_MODEL }}"
+            --effort "${{ env.LITHE_CLAUDE_EFFORT }}"
             --max-turns 30
             --allowedTools "Bash(git status:*),Bash(git diff:*),Bash(git show:*),Bash(git log:*),Bash(git grep:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git cat-file:*),Read,Glob,Grep"
             --json-schema '{"type":"object","properties":{"review_markdown":{"type":"string"}},"required":["review_markdown"],"additionalProperties":false}'
@@ -233,7 +245,6 @@ jobs:
           DIAGNOSTICS_FILE: ${{ runner.temp }}/lithe-review-diagnostics.txt
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
           FINAL_MESSAGE_FILE: ${{ runner.temp }}/lithe-review-final.md
-          LITHE_CLAUDE_MODEL: ${{ vars.LITHE_CLAUDE_MODEL }}
           LITHE_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
           LITHE_HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
         run: |
@@ -265,6 +276,7 @@ jobs:
             echo "head_sha=${LITHE_HEAD_SHA}"
             echo "provider=claude"
             echo "model=${LITHE_CLAUDE_MODEL}"
+            echo "effort=${LITHE_CLAUDE_EFFORT}"
             echo "claude_outcome=${CLAUDE_OUTCOME}"
             echo "extract_outcome=${EXTRACT_OUTCOME}"
             echo "review_outcome=${review_outcome}"
