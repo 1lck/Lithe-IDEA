@@ -26,8 +26,13 @@ function parseArguments(argv) {
   const options = {
     cargoCache: path.join(REPOSITORY_ROOT, ".artifacts", "cargo-home", "registry", "cache"),
     cargoLocks: [],
+    skipCargo: false,
     jdtlsCache: null,
     jdtlsManifest: null,
+    swiftpmCache: null,
+    swiftpmResolved: null,
+    swiftVersion: null,
+    writeSwiftpmManifest: false,
     bunVersion: null,
     bunLock: null,
     bunCache: null,
@@ -40,6 +45,14 @@ function parseArguments(argv) {
       options.writeBunManifest = true;
       continue;
     }
+    if (option === "--write-swiftpm-manifest") {
+      options.writeSwiftpmManifest = true;
+      continue;
+    }
+    if (option === "--skip-cargo") {
+      options.skipCargo = true;
+      continue;
+    }
     const value = argv[index + 1];
     if (!value) throw new Error(`${option} requires a value`);
     index += 1;
@@ -47,6 +60,9 @@ function parseArguments(argv) {
     else if (option === "--cargo-lock") options.cargoLocks.push(value);
     else if (option === "--jdtls-cache") options.jdtlsCache = value;
     else if (option === "--jdtls-manifest") options.jdtlsManifest = value;
+    else if (option === "--swiftpm-cache") options.swiftpmCache = value;
+    else if (option === "--swiftpm-resolved") options.swiftpmResolved = value;
+    else if (option === "--swift-version") options.swiftVersion = value;
     else if (option === "--bun-version") options.bunVersion = value;
     else if (option === "--bun-lock") options.bunLock = value;
     else if (option === "--bun-cache") options.bunCache = value;
@@ -190,6 +206,229 @@ async function verifyJdtlsCache(cacheRoot, manifestPath) {
   process.stdout.write(`JDTLS download cache verified: ${verified} artifact(s), ${removed} rejected.\n`);
 }
 
+function runGit(repository, argumentList) {
+  const result = spawnSync(
+    "git",
+    ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-C", repository, ...argumentList],
+    { encoding: "utf8" },
+  );
+  if (result.status !== 0) {
+    throw new Error((result.stderr || result.stdout || result.error || "git command failed").toString().trim());
+  }
+  return result.stdout.trim();
+}
+
+function normalizeRepositoryURL(value) {
+  return String(value).trim().replace(/\.git\/?$/i, "").replace(/\/$/, "").toLowerCase();
+}
+
+async function expectedSwiftRepositories(resolvedPath) {
+  const resolved = JSON.parse(await fs.readFile(resolvedPath, "utf8"));
+  const expected = new Map();
+  for (const pin of resolved.pins ?? []) {
+    if (pin.kind !== "remoteSourceControl" || !pin.location || !pin.state?.revision) continue;
+    const normalizedURL = normalizeRepositoryURL(pin.location);
+    if (expected.has(normalizedURL)) throw new Error(`Duplicate SwiftPM repository in Package.resolved: ${pin.location}`);
+    expected.set(normalizedURL, {
+      identity: pin.identity,
+      location: pin.location,
+      revision: pin.state.revision.toLowerCase(),
+      version: pin.state.version ?? null,
+    });
+  }
+  return expected;
+}
+
+async function findUnsafeRepositoryEntry(repository) {
+  const pending = [repository];
+  while (pending.length > 0) {
+    const directory = pending.pop();
+    for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+      const candidate = path.join(directory, entry.name);
+      if (entry.isSymbolicLink()) return `symbolic link ${candidate}`;
+      if (entry.isDirectory()) pending.push(candidate);
+      else if (!entry.isFile()) return `unsupported filesystem entry ${candidate}`;
+    }
+  }
+  return null;
+}
+
+function verifySafeGitConfiguration(repository) {
+  const allowedKeys = new Set([
+    "core.repositoryformatversion",
+    "core.filemode",
+    "core.bare",
+    "core.ignorecase",
+    "core.precomposeunicode",
+    "core.symlinks",
+    "core.fsmonitor",
+    "core.longpaths",
+    "remote.origin.url",
+    "remote.origin.tagopt",
+    "remote.origin.fetch",
+    "remote.origin.mirror",
+  ]);
+  const keys = runGit(repository, ["config", "--local", "--name-only", "--list"])
+    .split("\n")
+    .filter(Boolean);
+  const unsafeKey = keys.find((key) => !allowedKeys.has(key.toLowerCase()));
+  if (unsafeKey) throw new Error(`unsafe Git configuration key ${unsafeKey}`);
+  if (keys.some((key) => key.toLowerCase() === "core.fsmonitor")) {
+    const fsmonitor = runGit(repository, ["config", "--local", "--get", "core.fsmonitor"]);
+    if (fsmonitor !== "false") throw new Error("core.fsmonitor must be disabled");
+  }
+}
+
+async function verifySafeGitHooks(repository) {
+  const hooksDirectory = path.join(repository, "hooks");
+  if (!(await exists(hooksDirectory))) return;
+  for (const entry of await fs.readdir(hooksDirectory, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith(".sample")) {
+      throw new Error(`unsafe Git hook entry ${path.join(hooksDirectory, entry.name)}`);
+    }
+  }
+}
+
+async function cacheFilesForManifest(cacheRoot, manifestName) {
+  return (await collectFiles(cacheRoot))
+    .filter((filePath) => path.relative(cacheRoot, filePath).split(path.sep).join("/") !== manifestName)
+    .sort((left, right) => left.localeCompare(right));
+}
+
+async function clearSwiftpmCache(cacheRoot, reason) {
+  warn("SwiftPM cache rejected", `${reason}; dependencies will be downloaded normally.`);
+  await fs.rm(cacheRoot, { force: true, recursive: true });
+  await fs.mkdir(cacheRoot, { recursive: true });
+}
+
+async function swiftpmIdentity(resolvedPath, swiftVersion) {
+  return {
+    resolvedSha256: await sha256(resolvedPath),
+    swiftVersion,
+  };
+}
+
+async function verifySwiftpmManifest(cacheRoot, repositoriesRoot, identity) {
+  const manifestName = ".lithe-integrity.json";
+  const manifestPath = path.join(cacheRoot, manifestName);
+  const actualFiles = await cacheFilesForManifest(repositoriesRoot, manifestName);
+  if (!(await exists(manifestPath))) {
+    if (actualFiles.length > 0) {
+      await clearSwiftpmCache(cacheRoot, "integrity manifest is missing");
+      return false;
+    }
+    return true;
+  }
+  let manifest;
+  try {
+    manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+  } catch (error) {
+    await clearSwiftpmCache(cacheRoot, `integrity manifest is invalid (${error.message})`);
+    return false;
+  }
+  if (manifest.schemaVersion !== 1 || !manifest.files || typeof manifest.files !== "object") {
+    await clearSwiftpmCache(cacheRoot, "integrity manifest has an unsupported schema");
+    return false;
+  }
+  if (manifest.swiftVersion !== identity.swiftVersion) {
+    await clearSwiftpmCache(cacheRoot, "Swift version does not match the current build");
+    return false;
+  }
+  const expectedNames = Object.keys(manifest.files).sort((left, right) => left.localeCompare(right));
+  const actualNames = actualFiles.map((filePath) => path.relative(repositoriesRoot, filePath).split(path.sep).join("/"));
+  if (expectedNames.length !== actualNames.length || expectedNames.some((name, index) => name !== actualNames[index])) {
+    await clearSwiftpmCache(cacheRoot, "file set does not match the integrity manifest");
+    return false;
+  }
+  for (let index = 0; index < actualFiles.length; index += 1) {
+    if ((await sha256(actualFiles[index])) !== manifest.files[actualNames[index]]) {
+      await clearSwiftpmCache(cacheRoot, `${actualNames[index]} has a SHA-256 mismatch`);
+      return false;
+    }
+  }
+  if (manifest.resolvedSha256 !== identity.resolvedSha256) {
+    warn(
+      "SwiftPM dependency graph changed",
+      "Package.resolved SHA-256 changed; verified repositories will be filtered against the current pinned revisions.",
+    );
+  }
+  return true;
+}
+
+async function verifySwiftpmRepositories(cacheRoot, expected, requireAll) {
+  const matched = new Set();
+  let removed = 0;
+  if (!(await exists(cacheRoot))) await fs.mkdir(cacheRoot, { recursive: true });
+  const rootStatus = await fs.lstat(cacheRoot);
+  if (rootStatus.isSymbolicLink() || !rootStatus.isDirectory()) {
+    throw new Error(`SwiftPM cache root must be a real directory: ${cacheRoot}`);
+  }
+  for (const entry of await fs.readdir(cacheRoot, { withFileTypes: true })) {
+    if (entry.name === ".lithe-integrity.json") continue;
+    const repository = path.join(cacheRoot, entry.name);
+    try {
+      if (entry.isSymbolicLink() || !entry.isDirectory()) throw new Error(`unsafe cache entry ${repository}`);
+      const unsafeEntry = await findUnsafeRepositoryEntry(repository);
+      if (unsafeEntry) throw new Error(unsafeEntry);
+      await verifySafeGitHooks(repository);
+      verifySafeGitConfiguration(repository);
+      if (runGit(repository, ["rev-parse", "--is-bare-repository"]) !== "true") {
+        throw new Error(`${repository} is not a bare Git repository`);
+      }
+      const remoteURL = runGit(repository, ["remote", "get-url", "origin"]);
+      const normalizedURL = normalizeRepositoryURL(remoteURL);
+      const pin = expected.get(normalizedURL);
+      if (!pin) throw new Error(`${remoteURL} is not referenced by Package.resolved`);
+      if (matched.has(normalizedURL)) throw new Error(`duplicate cached repository ${remoteURL}`);
+      runGit(repository, ["fsck", "--full", "--no-dangling"]);
+      runGit(repository, ["cat-file", "-e", `${pin.revision}^{commit}`]);
+      matched.add(normalizedURL);
+    } catch (error) {
+      warn("SwiftPM cache entry rejected", `${entry.name}: ${error.message}; SwiftPM will fetch it normally.`);
+      await fs.rm(repository, { force: true, recursive: true });
+      removed += 1;
+    }
+  }
+  if (requireAll) {
+    const missing = [...expected.keys()].filter((repositoryURL) => !matched.has(repositoryURL));
+    if (missing.length > 0) throw new Error(`SwiftPM cache is missing ${missing.length} pinned repository/repositories`);
+  }
+  return { verified: matched.size, removed };
+}
+
+async function writeSwiftpmManifest(cacheRoot, repositoriesRoot, identity) {
+  const manifestName = ".lithe-integrity.json";
+  const files = {};
+  for (const filePath of await cacheFilesForManifest(repositoriesRoot, manifestName)) {
+    const relative = path.relative(repositoriesRoot, filePath).split(path.sep).join("/");
+    files[relative] = await sha256(filePath);
+  }
+  await fs.writeFile(
+    path.join(cacheRoot, manifestName),
+    `${JSON.stringify({ schemaVersion: 1, ...identity, files })}\n`,
+    { encoding: "utf8", mode: 0o600 },
+  );
+  process.stdout.write(`SwiftPM dependency cache sealed: ${Object.keys(files).length} file(s).\n`);
+}
+
+async function verifySwiftpmCache(cacheRoot, resolvedPath, swiftVersion, writeManifest) {
+  if (!cacheRoot || !resolvedPath || !swiftVersion) return;
+  const identity = await swiftpmIdentity(resolvedPath, swiftVersion);
+  await fs.mkdir(cacheRoot, { recursive: true });
+  const repositoriesRoot = path.join(cacheRoot, "repositories");
+  await fs.mkdir(repositoriesRoot, { recursive: true });
+  if (!writeManifest && !(await verifySwiftpmManifest(cacheRoot, repositoriesRoot, identity))) return;
+  const expected = await expectedSwiftRepositories(resolvedPath);
+  try {
+    const result = await verifySwiftpmRepositories(repositoriesRoot, expected, writeManifest);
+    if (writeManifest) await writeSwiftpmManifest(cacheRoot, repositoriesRoot, identity);
+    else process.stdout.write(`SwiftPM dependency cache verified: ${result.verified} repository/repositories, ${result.removed} rejected.\n`);
+  } catch (error) {
+    await clearSwiftpmCache(cacheRoot, error.message);
+    if (writeManifest) throw error;
+  }
+}
+
 async function verifyBunIdentity(expectedVersion, lockPath) {
   if (!expectedVersion || !lockPath) return;
   const result = spawnSync("bun", ["--version"], { encoding: "utf8" });
@@ -299,10 +538,18 @@ async function verifyBunCache(cacheRoot, identity) {
 
 async function main() {
   const options = parseArguments(process.argv.slice(2));
-  await verifyCargoCache(path.resolve(options.cargoCache), options.cargoLocks.map((item) => path.resolve(item)));
+  if (!options.skipCargo) {
+    await verifyCargoCache(path.resolve(options.cargoCache), options.cargoLocks.map((item) => path.resolve(item)));
+  }
   await verifyJdtlsCache(
     options.jdtlsCache ? path.resolve(options.jdtlsCache) : null,
     options.jdtlsManifest ? path.resolve(options.jdtlsManifest) : null,
+  );
+  await verifySwiftpmCache(
+    options.swiftpmCache ? path.resolve(options.swiftpmCache) : null,
+    options.swiftpmResolved ? path.resolve(options.swiftpmResolved) : null,
+    options.swiftVersion,
+    options.writeSwiftpmManifest,
   );
   const bunIdentity = await verifyBunIdentity(
     options.bunVersion,

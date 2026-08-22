@@ -8,12 +8,18 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
-const verifier = path.join(scriptDirectory, "verify-windows-download-cache.mjs");
+const verifier = path.join(scriptDirectory, "verify-download-cache.mjs");
 const emptySha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 const testRoot = await fs.mkdtemp(path.join(os.tmpdir(), "lithe-cache-verifier-"));
 
 function verify(argumentsList, environment = process.env) {
   return spawnSync(process.execPath, [verifier, ...argumentsList], { encoding: "utf8", env: environment });
+}
+
+function run(command, argumentsList, workingDirectory = testRoot) {
+  const result = spawnSync(command, argumentsList, { cwd: workingDirectory, encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  return result.stdout.trim();
 }
 
 try {
@@ -108,7 +114,67 @@ try {
   assert.match(result.stderr, /SHA-256 mismatch/);
   await assert.rejects(fs.access(cachedPackage));
 
-  process.stdout.write("Windows download cache verifier tests passed.\n");
+  const swiftSource = path.join(testRoot, "swift-source");
+  const swiftpmCache = path.join(testRoot, "swiftpm-cache");
+  const swiftRepositoryRoot = path.join(swiftpmCache, "repositories");
+  const swiftRepository = path.join(swiftRepositoryRoot, "fixture-dependency-deadbeef");
+  const swiftResolved = path.join(testRoot, "Package.resolved");
+  const swiftRemote = "https://github.com/example/fixture-dependency.git";
+  await fs.mkdir(swiftSource, { recursive: true });
+  run("git", ["init", "--quiet"], swiftSource);
+  run("git", ["config", "user.name", "Cache Test"], swiftSource);
+  run("git", ["config", "user.email", "cache-test@example.invalid"], swiftSource);
+  await fs.writeFile(path.join(swiftSource, "Package.swift"), "// swift-tools-version: 6.2\n");
+  run("git", ["add", "Package.swift"], swiftSource);
+  run("git", ["commit", "--quiet", "-m", "fixture"], swiftSource);
+  const swiftRevision = run("git", ["rev-parse", "HEAD"], swiftSource);
+  await fs.mkdir(swiftRepositoryRoot, { recursive: true });
+  run("git", ["clone", "--quiet", "--mirror", swiftSource, swiftRepository]);
+  run("git", ["remote", "set-url", "origin", swiftRemote], swiftRepository);
+  await fs.writeFile(
+    swiftResolved,
+    JSON.stringify({
+      originHash: "fixture",
+      pins: [{
+        identity: "fixture-dependency",
+        kind: "remoteSourceControl",
+        location: swiftRemote,
+        state: { revision: swiftRevision, version: "1.0.0" },
+      }],
+      version: 3,
+    }),
+  );
+  const swiftpmArguments = [
+    "--skip-cargo",
+    "--swiftpm-cache",
+    swiftpmCache,
+    "--swiftpm-resolved",
+    swiftResolved,
+    "--swift-version",
+    "6.2",
+  ];
+  result = verify([...swiftpmArguments, "--write-swiftpm-manifest"]);
+  assert.equal(result.status, 0, result.stderr);
+  await fs.access(path.join(swiftpmCache, ".lithe-integrity.json"));
+  result = verify(swiftpmArguments);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /SwiftPM dependency cache verified: 1 repository/);
+
+  const changedResolved = JSON.parse(await fs.readFile(swiftResolved, "utf8"));
+  changedResolved.originHash = "changed-fixture";
+  await fs.writeFile(swiftResolved, JSON.stringify(changedResolved));
+  result = verify(swiftpmArguments);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /Package\.resolved SHA-256 changed/);
+  await fs.access(swiftRepository);
+
+  await fs.writeFile(path.join(swiftRepository, "tampered"), "tampered\n");
+  result = verify(swiftpmArguments);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /SHA-256 mismatch|file set does not match/);
+  await assert.rejects(fs.access(swiftRepository));
+
+  process.stdout.write("Download cache verifier tests passed.\n");
 } finally {
   await fs.rm(testRoot, { force: true, recursive: true });
 }

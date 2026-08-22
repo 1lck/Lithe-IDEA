@@ -105,6 +105,13 @@ while IFS=$'\t' read -r status first_path _; do
         .github/workflows/release-windows.yml|.github/workflows/release-preview-windows.yml)
             windows=true
             ;;
+        .github/actions/prepare-macos-dependency-cache/*)
+            swift=true
+            plugins=true
+            swift_database=true
+            rust_core=true
+            macos_release=true
+            ;;
         .github/*|docs/*|.agents/*|.idea/*|.gitignore|license)
             ;;
         package.swift|package.resolved)
@@ -289,9 +296,25 @@ while IFS=$'\t' read -r status first_path _; do
         scripts/build-macos.sh|scripts/verify-macos-app-build-safety.sh|scripts/verify-macos-package.sh|scripts/macos13sdkcompatibility.h|scripts/ld-macos13-compat.sh|scripts/package-app.sh|scripts/preview.sh|scripts/stamp-macos-app-build-info.sh|scripts/create-dmg.sh|scripts/create-macos-update-manifest.rb|scripts/test-macos-update-manifest.rb|scripts/prepare-jdtls.sh)
             macos_release=true
             ;;
-        scripts/verify-windows-download-cache.mjs|scripts/test-verify-windows-download-cache.mjs|scripts/validate-windows-build-caches.ps1|scripts/invoke-cargo-with-cache-fallback.ps1)
+        scripts/verify-download-cache.mjs|scripts/test-verify-download-cache.mjs)
+            swift=true
+            plugins=true
+            swift_database=true
+            rust_core=true
+            macos_release=true
             windows=true
             windows_rust=true
+            ;;
+        scripts/validate-windows-build-caches.ps1|scripts/invoke-cargo-with-cache-fallback.ps1)
+            windows=true
+            windows_rust=true
+            ;;
+        scripts/validate-macos-dependency-caches.sh|scripts/prepare-macos-dependencies.sh)
+            swift=true
+            plugins=true
+            swift_database=true
+            rust_core=true
+            macos_release=true
             ;;
         scripts/build-windows.ps1|scripts/verify-windows-boundaries.ps1|scripts/verify-windows-boundaries.sh|scripts/prepare-jdtls.ps1|scripts/package-windows.ps1|scripts/install-windows-frontend-dependencies.ps1|scripts/invoke-windows-tauri-build.ps1|scripts/create-windows-updater-manifest.ps1|scripts/test-windows-updater-manifest.ps1)
             windows=true

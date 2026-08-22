@@ -46,7 +46,7 @@ try {
 
     if ($env:LITHE_BUN_CACHE_VERIFIED -ne "true" -or
         -not (Test-Path -LiteralPath (Join-Path $bunCache ".lithe-integrity.json") -PathType Leaf)) {
-        & node (Join-Path $root "scripts/verify-windows-download-cache.mjs") `
+        & node (Join-Path $root "scripts/verify-download-cache.mjs") `
             --cargo-cache (Join-Path $root ".artifacts/cargo-home/registry/cache") `
             --cargo-lock (Join-Path $root "rust/Cargo.lock") `
             --cargo-lock (Join-Path $root "windows/tauri/src-tauri/Cargo.lock") `

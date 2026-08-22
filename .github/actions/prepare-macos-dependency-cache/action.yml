@@ -1,0 +1,139 @@
+name: Prepare verified macOS dependency caches
+description: Restore, validate, and safely fall back from repository-scoped macOS dependency caches.
+
+inputs:
+  swiftpm:
+    description: Restore and resolve SwiftPM dependency repositories.
+    required: false
+    default: "false"
+  cargo:
+    description: Restore Cargo crate archives.
+    required: false
+    default: "false"
+  jdtls:
+    description: Restore JDTLS and Lombok downloads.
+    required: false
+    default: "false"
+  restore-only:
+    description: Restore caches without saving them at the end of the job.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Configure isolated dependency caches
+      shell: zsh {0}
+      run: |
+        mkdir -p "$GITHUB_WORKSPACE/.artifacts"
+        {
+          echo "CARGO_HOME=$GITHUB_WORKSPACE/.artifacts/cargo-home"
+          echo "LITHE_SWIFTPM_CACHE_PATH=$GITHUB_WORKSPACE/.artifacts/swiftpm-cache"
+        } >> "$GITHUB_ENV"
+
+    - name: Restore SwiftPM repositories
+      id: swiftpm_cache
+      if: inputs.swiftpm == 'true' && inputs.restore-only != 'true'
+      continue-on-error: true
+      uses: actions/cache@v6
+      with:
+        path: |
+          .artifacts/swiftpm-cache/repositories
+          .artifacts/swiftpm-cache/.lithe-integrity.json
+        key: macos-swiftpm-repositories-${{ runner.os }}-6.2-${{ hashFiles('Package.resolved') }}
+        restore-keys: |
+          macos-swiftpm-repositories-${{ runner.os }}-6.2-
+
+    - name: Restore SwiftPM repositories without saving
+      id: swiftpm_restore
+      if: inputs.swiftpm == 'true' && inputs.restore-only == 'true'
+      continue-on-error: true
+      uses: actions/cache/restore@v6
+      with:
+        path: |
+          .artifacts/swiftpm-cache/repositories
+          .artifacts/swiftpm-cache/.lithe-integrity.json
+        key: macos-swiftpm-repositories-${{ runner.os }}-6.2-${{ hashFiles('Package.resolved') }}
+        restore-keys: |
+          macos-swiftpm-repositories-${{ runner.os }}-6.2-
+
+    - name: Restore Cargo crate archives
+      id: cargo_cache
+      if: inputs.cargo == 'true' && inputs.restore-only != 'true'
+      continue-on-error: true
+      uses: actions/cache@v6
+      with:
+        path: .artifacts/cargo-home/registry/cache
+        key: macos-cargo-crates-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock') }}
+        restore-keys: |
+          macos-cargo-crates-${{ runner.os }}-
+
+    - name: Restore Cargo crate archives without saving
+      id: cargo_restore
+      if: inputs.cargo == 'true' && inputs.restore-only == 'true'
+      continue-on-error: true
+      uses: actions/cache/restore@v6
+      with:
+        path: .artifacts/cargo-home/registry/cache
+        key: macos-cargo-crates-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock') }}
+        restore-keys: |
+          macos-cargo-crates-${{ runner.os }}-
+
+    - name: Restore JDTLS downloads
+      id: jdtls_cache
+      if: inputs.jdtls == 'true' && inputs.restore-only != 'true'
+      continue-on-error: true
+      uses: actions/cache@v6
+      with:
+        path: .artifacts/jdtls-downloads
+        key: macos-jdtls-downloads-${{ runner.os }}-${{ hashFiles('third_party/jdtls/manifest.json') }}
+        restore-keys: |
+          macos-jdtls-downloads-${{ runner.os }}-
+
+    - name: Restore JDTLS downloads without saving
+      id: jdtls_restore
+      if: inputs.jdtls == 'true' && inputs.restore-only == 'true'
+      continue-on-error: true
+      uses: actions/cache/restore@v6
+      with:
+        path: .artifacts/jdtls-downloads
+        key: macos-jdtls-downloads-${{ runner.os }}-${{ hashFiles('third_party/jdtls/manifest.json') }}
+        restore-keys: |
+          macos-jdtls-downloads-${{ runner.os }}-
+
+    - name: Validate restored caches or fall back
+      shell: zsh {0}
+      env:
+        RESTORE_ONLY: ${{ inputs.restore-only }}
+        SWIFTPM_CACHE_OUTCOME: ${{ steps.swiftpm_cache.outcome }}
+        SWIFTPM_CACHE_HIT: ${{ steps.swiftpm_cache.outputs.cache-hit }}
+        SWIFTPM_RESTORE_OUTCOME: ${{ steps.swiftpm_restore.outcome }}
+        SWIFTPM_RESTORE_HIT: ${{ steps.swiftpm_restore.outputs.cache-hit }}
+        CARGO_CACHE_OUTCOME: ${{ steps.cargo_cache.outcome }}
+        CARGO_RESTORE_OUTCOME: ${{ steps.cargo_restore.outcome }}
+        JDTLS_CACHE_OUTCOME: ${{ steps.jdtls_cache.outcome }}
+        JDTLS_RESTORE_OUTCOME: ${{ steps.jdtls_restore.outcome }}
+      run: |
+        swiftpm_outcome="$SWIFTPM_CACHE_OUTCOME"
+        swiftpm_hit="$SWIFTPM_CACHE_HIT"
+        cargo_outcome="$CARGO_CACHE_OUTCOME"
+        jdtls_outcome="$JDTLS_CACHE_OUTCOME"
+        if [[ "$RESTORE_ONLY" == "true" ]]; then
+          swiftpm_outcome="$SWIFTPM_RESTORE_OUTCOME"
+          swiftpm_hit="$SWIFTPM_RESTORE_HIT"
+          cargo_outcome="$CARGO_RESTORE_OUTCOME"
+          jdtls_outcome="$JDTLS_RESTORE_OUTCOME"
+        fi
+        "$GITHUB_WORKSPACE/scripts/validate-macos-dependency-caches.sh" \
+          --swiftpm-enabled "${{ inputs.swiftpm }}" \
+          --swiftpm-outcome "${swiftpm_outcome:-skipped}" \
+          --swiftpm-hit "${swiftpm_hit:-}" \
+          --cargo-enabled "${{ inputs.cargo }}" \
+          --cargo-outcome "${cargo_outcome:-skipped}" \
+          --jdtls-enabled "${{ inputs.jdtls }}" \
+          --jdtls-outcome "${jdtls_outcome:-skipped}"
+
+    - name: Resolve SwiftPM dependencies with fallback
+      if: inputs.swiftpm == 'true'
+      shell: zsh {0}
+      run: "$GITHUB_WORKSPACE/scripts/prepare-macos-dependencies.sh"

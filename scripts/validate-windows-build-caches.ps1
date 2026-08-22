@@ -62,7 +62,7 @@ if ($JdtlsOutcome -eq "failure") {
 }
 
 $validatorArguments = @(
-    (Join-Path $root "scripts/verify-windows-download-cache.mjs"),
+    (Join-Path $root "scripts/verify-download-cache.mjs"),
     "--cargo-cache", (Join-Path $cargoHome "registry/cache"),
     "--cargo-lock", (Join-Path $root "rust/Cargo.lock"),
     "--cargo-lock", (Join-Path $root "windows/tauri/src-tauri/Cargo.lock")
