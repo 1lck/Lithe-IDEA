@@ -8,6 +8,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
+const repositoryRoot = path.resolve(scriptDirectory, "..");
 const verifier = path.join(scriptDirectory, "verify-download-cache.mjs");
 const emptySha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 const testRoot = await fs.mkdtemp(path.join(os.tmpdir(), "lithe-cache-verifier-"));
@@ -22,7 +23,37 @@ function run(command, argumentsList, workingDirectory = testRoot) {
   return result.stdout.trim();
 }
 
+async function assertWindowsBunCacheConfiguration() {
+  const workflowPaths = [
+    ".github/workflows/ci-windows.yml",
+    ".github/workflows/release-preview-windows.yml",
+    ".github/workflows/release-windows.yml",
+  ];
+  for (const relativePath of workflowPaths) {
+    const contents = await fs.readFile(path.join(repositoryRoot, relativePath), "utf8");
+    assert.match(contents, /^\s*path: \.artifacts\/bun-cache$/m, `${relativePath} must cache Bun's isolated path`);
+    assert.match(contents, /BUN_INSTALL_CACHE_DIR=.*\.artifacts\/bun-cache/, `${relativePath} must configure the isolated Bun cache`);
+    assert.match(contents, /BUN_TMPDIR=.*\.artifacts\/bun-tmp/, `${relativePath} must keep Bun temp files on the cache volume`);
+    assert.match(contents, /BUN_FEATURE_FLAG_DISABLE_INSTALL_INDEX=1/, `${relativePath} must omit Bun's Windows junction index`);
+    assert.match(contents, /bun-\$\{\{ steps\.bun\.outputs\.bun-version \}\}-v2-/, `${relativePath} must isolate the same-volume Bun cache format`);
+  }
+
+  const installer = await fs.readFile(path.join(repositoryRoot, "scripts/install-windows-frontend-dependencies.ps1"), "utf8");
+  assert.match(installer, /\.artifacts\/bun-cache/, "Windows dependency installation must use the isolated Bun cache");
+  assert.match(installer, /\.artifacts\/bun-tmp/, "Windows dependency installation must use a repository temp directory");
+  assert.match(installer, /GetPathRoot\(\$bunCache\)/, "Windows dependency installation must resolve the cache volume");
+  assert.match(installer, /GetPathRoot\(\$bunTemp\)/, "Windows dependency installation must resolve the temp volume");
+  assert.match(installer, /\$env:BUN_TMPDIR = \$bunTemp/, "Windows dependency installation must enforce the same-volume temp directory");
+  assert.match(installer, /\$env:BUN_FEATURE_FLAG_DISABLE_INSTALL_INDEX = "1"/, "Windows dependency installation must reject Bun's junction index");
+  assert.doesNotMatch(installer, /throw "Could not seal the Bun download cache/, "Bun cache sealing failures must not fail the build");
+
+  const validator = await fs.readFile(path.join(repositoryRoot, "scripts/validate-windows-build-caches.ps1"), "utf8");
+  assert.match(validator, /\$bunCache = Join-Path \$artifactsRoot "bun-cache"/, "Windows cache validation must use the isolated Bun cache");
+}
+
 try {
+  await assertWindowsBunCacheConfiguration();
+
   const cargoCache = path.join(testRoot, "cargo-cache", "registry");
   const cargoLock = path.join(testRoot, "Cargo.lock");
   const crate = path.join(cargoCache, "fixture-1.0.0.crate");

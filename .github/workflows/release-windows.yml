@@ -45,7 +45,12 @@ jobs:
         shell: pwsh
         run: |
           "CARGO_HOME=$(Join-Path $env:GITHUB_WORKSPACE '.artifacts/cargo-home')" >> $env:GITHUB_ENV
+          # Bun's cache and temp directory must share a Windows volume so
+          # lifecycle shims such as node-gyp.cmd are added to the correct PATH.
           "BUN_INSTALL_CACHE_DIR=$(Join-Path $env:GITHUB_WORKSPACE '.artifacts/bun-cache')" >> $env:GITHUB_ENV
+          "BUN_TMPDIR=$(Join-Path $env:GITHUB_WORKSPACE '.artifacts/bun-tmp')" >> $env:GITHUB_ENV
+          # The verified cache rejects links, so omit Bun's junction-only index.
+          "BUN_FEATURE_FLAG_DISABLE_INSTALL_INDEX=1" >> $env:GITHUB_ENV
 
       - name: Resolve Rust cache identity
         id: rust-cache
@@ -95,9 +100,9 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: .artifacts/bun-cache
-          key: lithe-${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.bun.outputs.bun-version }}-v1-${{ hashFiles('windows/tauri/bun.lock') }}
+          key: lithe-${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.bun.outputs.bun-version }}-v2-${{ hashFiles('windows/tauri/bun.lock') }}
           restore-keys: |
-            lithe-${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.bun.outputs.bun-version }}-v1-
+            lithe-${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.bun.outputs.bun-version }}-v2-
 
       - name: Restore JDTLS downloads
         id: jdtls-download-cache

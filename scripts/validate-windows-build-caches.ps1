@@ -18,10 +18,11 @@ $jdtlsCache = Join-Path $artifactsRoot "jdtls-downloads"
 function Write-CacheWarning {
     param([string]$Title, [string]$Message)
 
-    Write-Warning "$Title`: $Message"
     if ($env:GITHUB_ACTIONS -eq "true") {
         $escaped = $Message.Replace("%", "%25").Replace("`r", "%0D").Replace("`n", "%0A")
         Write-Output "::warning title=$Title::$escaped"
+    } else {
+        Write-Warning "$Title`: $Message"
     }
 }
 
