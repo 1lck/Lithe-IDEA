@@ -3621,6 +3621,9 @@ struct EditorDocumentTests {
 
         model.reorderDocuments(orderedPaths: urls.reversed().map(\.path))
         #expect(model.openDocuments.map(\.url.lastPathComponent) == ["C.swift", "B.swift", "A.swift"])
+
+        model.reorderDocuments(orderedIDs: [ids[0], ids[2], ids[1]])
+        #expect(model.openDocuments.map(\.url.lastPathComponent) == ["A.swift", "C.swift", "B.swift"])
     }
 
     @Test

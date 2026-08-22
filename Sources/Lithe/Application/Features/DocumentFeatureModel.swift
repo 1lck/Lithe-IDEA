@@ -413,6 +413,19 @@ final class DocumentFeatureModel: ObservableObject {
         onDocumentCollectionChanged?()
     }
 
+    func reorderDocuments(orderedIDs: [UUID]) {
+        let documentsByID = Dictionary(uniqueKeysWithValues: openDocuments.map { ($0.id, $0) })
+        var includedIDs: Set<UUID> = []
+        var next = orderedIDs.compactMap { id -> EditorDocument? in
+            guard includedIDs.insert(id).inserted else { return nil }
+            return documentsByID[id]
+        }
+        next.append(contentsOf: openDocuments.filter { !includedIDs.contains($0.id) })
+        guard next.map(\.id) != openDocuments.map(\.id) else { return }
+        openDocuments = next
+        onDocumentCollectionChanged?()
+    }
+
     func requestCloseDocument(_ document: EditorDocument) {
         isPendingProjectClose = false
         pendingCloseQueue = []
