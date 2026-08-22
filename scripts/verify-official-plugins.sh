@@ -11,12 +11,21 @@ case "$(uname -m)" in
     *) print -u2 -- "Unsupported host architecture: $(uname -m)"; exit 1 ;;
 esac
 
-swift build --triple "$TRIPLE"
+SWIFT_BUILD_ARGS=(
+    --triple "$TRIPLE"
+    -Xswiftc -Xfrontend
+    -Xswiftc -disable-round-trip-debug-types
+)
+
+# The package verifier only needs the plugin API and contract modules. Building
+# every product also recompiles the macOS application and exposes this focused
+# check to unrelated Swift compiler failures.
+swift build "${SWIFT_BUILD_ARGS[@]}" --product LitheOfficialPluginVerifier
 PLUGIN_ROOT=$(scripts/build-official-plugins.sh \
     --configuration debug \
     --triple "$TRIPLE")
 plugins=("$PLUGIN_ROOT"/*(/N))
 for plugin in "${plugins[@]}"; do
-    swift run --triple "$TRIPLE" LitheOfficialPluginVerifier "$plugin"
+    swift run "${SWIFT_BUILD_ARGS[@]}" --skip-build LitheOfficialPluginVerifier "$plugin"
 done
 print "Verified ${#plugins[@]} released official native plugin package(s)"
