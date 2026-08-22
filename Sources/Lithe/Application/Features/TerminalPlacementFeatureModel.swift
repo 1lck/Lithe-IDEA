@@ -51,6 +51,17 @@ final class TerminalPlacementFeatureModel: ObservableObject {
         activeEditorSessionID = nil
     }
 
+    func reorderEditorSessions(orderedIDs: [UUID]) {
+        let editorIDs = Set(editorSessionIDs)
+        var includedIDs: Set<UUID> = []
+        var next = orderedIDs.filter { id in
+            editorIDs.contains(id) && includedIDs.insert(id).inserted
+        }
+        next.append(contentsOf: editorSessionIDs.filter { !includedIDs.contains($0) })
+        guard next != editorSessionIDs else { return }
+        editorSessionIDs = next
+    }
+
     func removeSession(_ sessionID: UUID) {
         toolSessionIDs.removeAll { $0 == sessionID }
         editorSessionIDs.removeAll { $0 == sessionID }

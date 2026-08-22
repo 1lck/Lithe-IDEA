@@ -64,14 +64,34 @@ struct EditorTabLayoutTests {
     }
 
     @Test
-    func terminalTabDragPayloadOnlyOffersItsPrivateSessionIdentifier() throws {
+    func terminalTabDragPayloadOffersAConcreteItemAndPrivateSessionIdentifier() throws {
         let sessionID = UUID()
         let provider = TerminalTabDragPayload.provider(for: sessionID)
         let encoded = Data(sessionID.uuidString.utf8)
 
+        #expect(!provider.registeredTypeIdentifiers.contains(EditorTabDragPayload.type.identifier))
         #expect(provider.registeredTypeIdentifiers.contains(TerminalTabDragPayload.type.identifier))
-        #expect(!provider.registeredTypeIdentifiers.contains(UTType.utf8PlainText.identifier))
+        #expect(provider.registeredTypeIdentifiers.contains(UTType.utf8PlainText.identifier))
         #expect(TerminalTabDragPayload.sessionID(from: encoded) == sessionID)
+    }
+
+    @Test
+    func terminalDragUsesTheSharedEditorTabState() {
+        var state = EditorTabDragState.idle
+        let sessionID = UUID()
+
+        state.begin(item: .terminal(sessionID))
+
+        #expect(state.draggedItem == .terminal(sessionID))
+        #expect(state.draggedDocumentID == nil)
+    }
+
+    @Test
+    func liveTabDropKeepsADeadZoneAroundTheMidpoint() {
+        #expect(EditorTabDropGeometry.hoverSide(locationX: 39, width: 100) == .before)
+        #expect(EditorTabDropGeometry.hoverSide(locationX: 50, width: 100) == nil)
+        #expect(EditorTabDropGeometry.hoverSide(locationX: 61, width: 100) == .after)
+        #expect(EditorTabDropGeometry.finalSide(locationX: 51, width: 100) == .after)
     }
 
     @Test

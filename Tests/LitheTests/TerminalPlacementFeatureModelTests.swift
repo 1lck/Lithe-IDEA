@@ -56,6 +56,21 @@ struct TerminalPlacementFeatureModelTests {
     }
 
     @Test
+    func reconcilesEditorTerminalOrderWithTheMixedTabProjection() {
+        let model = TerminalPlacementFeatureModel()
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+        [first, second, third].forEach(model.registerSession)
+        [first, second, third].forEach(model.moveToEditor)
+
+        model.reorderEditorSessions(orderedIDs: [third, first, second])
+
+        #expect(model.editorSessionIDs == [third, first, second])
+        #expect(model.activeEditorSessionID == third)
+    }
+
+    @Test
     func movingPresentationNeverStopsOrRecreatesTheTerminalTransport() {
         let transport = PlacementTestTerminalTransport()
         let terminalFeature = TerminalFeatureModel(terminalFactory: { transport })

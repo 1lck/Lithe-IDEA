@@ -9,6 +9,16 @@ struct TerminalView: View {
             terminalToolbar
             terminalCanvas
         }
+        .contentShape(Rectangle())
+        .onDrop(
+            of: [TerminalTabDragPayload.type],
+            delegate: TerminalBarDropDelegate { sessionID in
+                guard model.editorTerminalSessions.contains(where: { $0.id == sessionID }) else {
+                    return
+                }
+                model.moveTerminalToTool(sessionID)
+            }
+        )
         .background(LitheTheme.editor)
     }
 

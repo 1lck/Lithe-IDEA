@@ -444,9 +444,6 @@ struct CodeEditorView: NSViewRepresentable {
         textView.onPasteImage = { [weak coordinator = context.coordinator] in
             coordinator?.pasteMarkdownImage() ?? false
         }
-        textView.onTerminalTabDrop = { [weak coordinator = context.coordinator] sessionID in
-            coordinator?.moveTerminalToEditor(sessionID) ?? false
-        }
         textView.onLayoutGeometryChanged = { [weak coordinator = context.coordinator] in
             coordinator?.scheduleEditorOverlayRelayout()
         }
@@ -877,15 +874,6 @@ struct CodeEditorView: NSViewRepresentable {
                     model.showNotification("Could not paste image: \(error.localizedDescription)")
                 }
             }
-            return true
-        }
-
-        func moveTerminalToEditor(_ sessionID: UUID) -> Bool {
-            guard let model,
-                  model.terminalSessions.contains(where: { $0.id == sessionID }) else {
-                return false
-            }
-            model.moveTerminalToEditor(sessionID)
             return true
         }
 
@@ -1486,7 +1474,6 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     var onFormatRequested: (() -> Void)?
     var onCodeActionsRequested: ((Int, Int) -> Void)?
     var onPasteImage: (() -> Bool)?
-    var onTerminalTabDrop: ((UUID) -> Bool)?
 
     private var findMatchRanges: [NSRange] = []
     private var currentFindMatchIndex = 0
@@ -1556,43 +1543,29 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        guard isTerminalTabDrag(sender) else { return super.draggingEntered(sender) }
-        return terminalTabDragOperation(sender)
+        guard !isTerminalTabDrag(sender) else { return [] }
+        return super.draggingEntered(sender)
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        guard isTerminalTabDrag(sender) else { return super.draggingUpdated(sender) }
-        return terminalTabDragOperation(sender)
+        guard !isTerminalTabDrag(sender) else { return [] }
+        return super.draggingUpdated(sender)
     }
 
     override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard isTerminalTabDrag(sender) else { return super.prepareForDragOperation(sender) }
-        return onTerminalTabDrop != nil
+        guard !isTerminalTabDrag(sender) else { return false }
+        return super.prepareForDragOperation(sender)
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard isTerminalTabDrag(sender) else { return super.performDragOperation(sender) }
-        return performTerminalTabDrop(from: sender.draggingPasteboard)
-    }
-
-    func performTerminalTabDrop(from pasteboard: NSPasteboard) -> Bool {
-        guard let sessionID = TerminalTabDragPayload.sessionID(from: pasteboard),
-              let onTerminalTabDrop else { return false }
-        return onTerminalTabDrop(sessionID)
+        guard !isTerminalTabDrag(sender) else { return false }
+        return super.performDragOperation(sender)
     }
 
     private func isTerminalTabDrag(_ sender: NSDraggingInfo) -> Bool {
         sender.draggingPasteboard.availableType(
             from: [TerminalTabDragPayload.pasteboardType]
         ) != nil
-    }
-
-    private func terminalTabDragOperation(_ sender: NSDraggingInfo) -> NSDragOperation {
-        guard onTerminalTabDrop != nil else { return [] }
-        let sourceMask = sender.draggingSourceOperationMask
-        if sourceMask.contains(.move) { return .move }
-        if sourceMask.contains(.copy) { return .copy }
-        return []
     }
 
     override func setSelectedRange(_ charRange: NSRange) {
@@ -2998,7 +2971,6 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         let textStorage = NSTextStorage()
         textStorage.addLayoutManager(layoutManager)
         super.init(frame: frameRect, textContainer: textContainer)
-        registerForDraggedTypes([TerminalTabDragPayload.pasteboardType])
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleFindQueryChanged(_:)),
