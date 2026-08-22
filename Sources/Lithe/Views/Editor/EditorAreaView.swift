@@ -2,6 +2,8 @@ import SwiftUI
 import LitheGitModule
 import LitheTerminalModule
 
+private let editorTabCoordinateSpaceName = "lithe.editor-tab-strip"
+
 private enum MarkdownViewMode: String, CaseIterable, Identifiable, Equatable {
     case editor
     case split
@@ -32,6 +34,11 @@ struct EditorAreaView: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @State private var hoveredTabID: UUID?
     @State private var tabDragState = EditorTabDragState.idle
+    @State private var editorTabFrames: [EditorTabItem: CGRect] = [:]
+    @State private var tabDragStartFrames: [EditorTabItem: CGRect] = [:]
+    @State private var tabDragOffsetX: CGFloat = 0
+    @State private var tabReorderTarget: EditorTabReorderTarget?
+    @State private var isTerminalTabBarDropTargeted = false
     @State private var splitDocumentID: UUID?
     @State private var markdownViewModes: [UUID: MarkdownViewMode] = [:]
     @State private var markdownScrollPositions: [UUID: MarkdownScrollPosition] = [:]
@@ -57,7 +64,7 @@ struct EditorAreaView: View {
                     DiffReviewView(change: selectedChange)
                 } else {
                     VStack(spacing: 0) {
-                        if model.openDocuments.isEmpty && model.editorTerminalSessions.isEmpty {
+                        if model.editorTabItems.isEmpty {
                             emptyState
                         } else {
                             editorWorkspace
@@ -81,12 +88,16 @@ struct EditorAreaView: View {
             markdownViewModes = markdownViewModes.filter { ids.contains($0.key) }
             markdownScrollPositions = markdownScrollPositions.filter { ids.contains($0.key) }
             editorViewportStore.retain(documentIDs: Set(ids))
-            if let draggedDocumentID = tabDragState.draggedDocumentID,
-               !ids.contains(draggedDocumentID) {
+        }
+        .onChange(of: model.editorTabItems) { items in
+            isTerminalTabBarDropTargeted = false
+            if let draggedItem = tabDragState.draggedItem,
+               !items.contains(draggedItem) {
                 finishTabDrag()
             }
         }
         .onDisappear {
+            isTerminalTabBarDropTargeted = false
             finishTabDrag()
         }
         .onChange(of: settings.editorTabLayoutMode) { _ in
@@ -135,7 +146,40 @@ struct EditorAreaView: View {
             }
         }
         .frame(minHeight: LitheTheme.Metrics.tabHeight, alignment: .top)
-        .background(LitheTheme.sidebar)
+        .contentShape(Rectangle())
+        .background(
+            isTerminalTabBarDropTargeted
+                ? LitheTheme.accent.opacity(0.08)
+                : LitheTheme.sidebar
+        )
+        .onDrop(
+            of: [TerminalTabDragPayload.type],
+            delegate: EditorTabBarDropDelegate(
+                setTargeted: { isTerminalTabBarDropTargeted = $0 },
+                updateTarget: { location in
+                    updateTerminalTabBarDropTarget(at: location)
+                },
+                clearTarget: { clearTerminalTabBarDropTarget() },
+                resolveTarget: { location in
+                    terminalTabBarDropTarget(at: location)
+                },
+                finish: { finishTabDrag() },
+                receiveTerminal: { sessionID, target in
+                    guard let target,
+                          model.editorTabItems.contains(target.item) else {
+                        if !model.editorTerminalSessions.contains(where: { $0.id == sessionID }) {
+                            model.moveTerminalToEditor(sessionID)
+                        }
+                        return
+                    }
+                    if target.side == .after {
+                        model.moveEditorTab(.terminal(sessionID), after: target.item)
+                    } else {
+                        model.moveEditorTab(.terminal(sessionID), before: target.item)
+                    }
+                }
+            )
+        )
     }
 
     @ViewBuilder
@@ -153,18 +197,13 @@ struct EditorAreaView: View {
                 multipleRowsEditorTabLayout
             }
         }
-        // A live flow-layout reorder can leave the pointer in the empty area
-        // next to the last tab. In that case no individual tab receives
-        // performDrop, so the tab bar itself must finish the session.
-        .onDrop(
-            of: [EditorTabDragPayload.type, TerminalTabDragPayload.type],
-            delegate: EditorTabBarDropDelegate(
-                finish: { finishTabDrag() },
-                receiveTerminal: { sessionID in
-                    model.moveTerminalToEditor(sessionID)
-                }
-            )
-        )
+        .coordinateSpace(name: editorTabCoordinateSpaceName)
+        .onPreferenceChange(EditorTabFramePreferenceKey.self) { frames in
+            guard tabDragState.draggedItem == nil else { return }
+            editorTabFrames = frames
+        }
+        .clipped()
+        .animation(tabAnimation, value: model.editorTabItems)
     }
 
     private var multipleRowsEditorTabLayout: some View {
@@ -178,20 +217,30 @@ struct EditorAreaView: View {
 
     @ViewBuilder
     private var editorTabItems: some View {
-        ForEach(Array(model.openDocuments.enumerated()), id: \.element.id) { index, document in
-            editorTab(document, at: index)
-        }
-        ForEach(model.editorTerminalSessions) { session in
-            editorTerminalTab(session)
+        ForEach(model.editorTabItems) { item in
+            switch item {
+            case .document(let documentID):
+                if let index = model.openDocuments.firstIndex(where: { $0.id == documentID }) {
+                    editorTab(model.openDocuments[index], at: index)
+                }
+            case .terminal(let sessionID):
+                if let session = model.terminalSessions.first(where: { $0.id == sessionID }) {
+                    editorTerminalTab(session)
+                }
+            }
         }
     }
 
     private func editorTab(_ document: EditorDocument, at index: Int) -> some View {
+        let tabItem = EditorTabItem.document(document.id)
         let dropSide: EditorTabDropSide? = {
+            if tabReorderTarget?.item == tabItem {
+                return tabReorderTarget?.side
+            }
             guard tabDragState.dropTarget?.documentID == document.id else { return nil }
             return tabDragState.dropTarget?.side
         }()
-        let isDragged = tabDragState.draggedDocumentID == document.id
+        let isDragged = tabDragState.draggedItem == tabItem
         let dragSessionID = tabDragState.sessionID
         let dropTargetRevision = tabDragState.dropTargetRevision
 
@@ -217,7 +266,7 @@ struct EditorAreaView: View {
                     .onDrop(
                         of: [EditorTabDragPayload.type, TerminalTabDragPayload.type],
                         delegate: EditorTabDropDelegate(
-                            draggedDocumentID: tabDragState.draggedDocumentID,
+                            draggedItem: tabDragState.draggedItem,
                             targetDocumentID: document.id,
                             targetWidth: geometry.size.width,
                             dragSessionID: dragSessionID,
@@ -225,15 +274,21 @@ struct EditorAreaView: View {
                             updateTarget: { target, sessionID, revision in
                                 guard tabDragState.sessionID == sessionID,
                                       tabDragState.dropTargetRevision == revision,
-                                      let source = tabDragState.draggedDocumentID,
-                                      source != target.documentID,
+                                      let source = tabDragState.draggedItem,
+                                      source != .document(target.documentID),
                                       tabDragState.dropTarget != target else { return }
                                 withAnimation(tabAnimation) {
                                     tabDragState.updateTarget(target)
                                     if target.side == .after {
-                                        model.moveOpenDocument(source, after: target.documentID)
+                                        model.moveEditorTab(
+                                            source,
+                                            after: .document(target.documentID)
+                                        )
                                     } else {
-                                        model.moveOpenDocument(source, before: target.documentID)
+                                        model.moveEditorTab(
+                                            source,
+                                            before: .document(target.documentID)
+                                        )
                                     }
                                 }
                             },
@@ -249,21 +304,51 @@ struct EditorAreaView: View {
                                     )
                                 }
                             },
+                            updateTerminalTarget: { target in
+                                updateTerminalTabBarDropTarget(target)
+                            },
+                            clearTerminalTarget: { item in
+                                clearTerminalTabBarDropTarget(matching: item)
+                            },
+                            resolveTerminalSide: { proposedSide in
+                                resolveTerminalDropSide(
+                                    proposedSide,
+                                    target: .document(document.id)
+                                )
+                            },
                             finish: { finishTabDrag() },
-                            receiveTerminal: { sessionID in
-                                model.moveTerminalToEditor(sessionID)
+                            receiveTerminal: { sessionID, side in
+                                if side == .after {
+                                    model.moveEditorTab(
+                                        .terminal(sessionID),
+                                        after: .document(document.id)
+                                    )
+                                } else {
+                                    model.moveEditorTab(
+                                        .terminal(sessionID),
+                                        before: .document(document.id)
+                                    )
+                                }
                             }
                         )
                     )
             }
         }
-        .opacity(isDragged ? 0.34 : 1)
-        .scaleEffect(isDragged ? 0.98 : 1)
+        .background {
+            editorTabFrameReader(for: tabItem)
+        }
+        .opacity(isDragged ? 0.92 : 1)
+        .scaleEffect(isDragged ? 0.99 : 1)
+        .offset(x: isDragged ? tabDragOffsetX : 0)
+        .zIndex(isDragged ? 1 : 0)
         .animation(tabAnimation, value: isDragged)
     }
 
     private func editorTerminalTab(_ session: TerminalSession) -> some View {
         let isActive = model.activeEditorTerminalSession?.id == session.id
+        let tabItem = EditorTabItem.terminal(session.id)
+        let isDragged = tabDragState.draggedItem == tabItem
+        let dropSide = tabReorderTarget?.item == tabItem ? tabReorderTarget?.side : nil
 
         return HStack(spacing: 0) {
             HStack(spacing: 7) {
@@ -279,18 +364,22 @@ struct EditorAreaView: View {
             .padding(.leading, 11)
             .frame(height: LitheTheme.Metrics.tabHeight)
             .contentShape(Rectangle())
-            .contentShape(
-                .dragPreview,
-                RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius)
-            )
             .onTapGesture {
                 model.selectEditorTerminalSession(session)
                 session.focus()
             }
+            // Keep a compact native marker for cross-container drops without
+            // bringing back the free-floating tab card. The clipped tab strip
+            // provides the horizontal snap feedback.
             .onDrag {
                 TerminalTabDragPayload.provider(for: session.id)
             } preview: {
-                editorTerminalDragPreview(session)
+                Image(systemName: "terminal")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(LitheTheme.accent)
+                    .frame(width: 20, height: 20)
+                    .background(LitheTheme.activeTabBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(model.terminalTitle(for: session))
@@ -316,10 +405,28 @@ struct EditorAreaView: View {
             .allowsHitTesting(isActive || hoveredTabID == session.id)
             .padding(.trailing, 4)
         }
-        .background(isActive ? LitheTheme.activeTabBackground : LitheTheme.inactiveTabBackground)
+        .background(
+            isActive
+                ? LitheTheme.activeTabBackground
+                : (dropSide == nil
+                    ? LitheTheme.inactiveTabBackground
+                    : LitheTheme.accent.opacity(0.13))
+        )
         .overlay(alignment: .bottom) {
             if isActive {
                 Rectangle().fill(LitheTheme.accent).frame(height: 2)
+            }
+        }
+        .overlay(alignment: .leading) {
+            if dropSide == .some(.before) {
+                tabDropInsertionIndicator
+                    .padding(.vertical, 5)
+            }
+        }
+        .overlay(alignment: .trailing) {
+            if dropSide == .some(.after) {
+                tabDropInsertionIndicator
+                    .padding(.vertical, 5)
             }
         }
         .background {
@@ -327,28 +434,47 @@ struct EditorAreaView: View {
                 Color.clear
                     .contentShape(Rectangle())
                     .onDrop(
-                        of: [TerminalTabDragPayload.type],
+                        of: [EditorTabDragPayload.type, TerminalTabDragPayload.type],
                         delegate: EditorTerminalTabDropDelegate(
+                            draggedItem: tabDragState.draggedItem,
                             targetSessionID: session.id,
                             targetWidth: geometry.size.width,
-                            moveBefore: { sourceID in
+                            moveItemBefore: { item in
+                                model.moveEditorTab(item, before: tabItem)
+                            },
+                            moveItemAfter: { item in
+                                model.moveEditorTab(item, after: tabItem)
+                            },
+                            moveTerminalBefore: { sourceID in
                                 model.moveTerminalToEditor(sourceID, before: session.id)
                             },
-                            moveAfter: { sourceID in
+                            moveTerminalAfter: { sourceID in
                                 model.moveTerminalToEditor(sourceID, after: session.id)
-                            }
+                            },
+                            updateTerminalTarget: { target in
+                                updateTerminalTabBarDropTarget(target)
+                            },
+                            clearTerminalTarget: { item in
+                                clearTerminalTabBarDropTarget(matching: item)
+                            },
+                            resolveTerminalSide: { proposedSide in
+                                resolveTerminalDropSide(
+                                    proposedSide,
+                                    target: .terminal(session.id)
+                                )
+                            },
+                            finish: { finishTabDrag() }
                         )
                     )
             }
+        }
+        .background {
+            editorTabFrameReader(for: tabItem)
         }
         .onHover { isHovering in
             hoveredTabID = isHovering ? session.id : nil
         }
         .contextMenu {
-            Button("Move to Terminal") {
-                model.moveTerminalToTool(session.id)
-            }
-            Divider()
             Button("Interrupt", action: session.interrupt)
             Button("Restart", action: session.restart)
             Button("Clear", action: session.clear)
@@ -357,23 +483,11 @@ struct EditorAreaView: View {
                 model.closeTerminalSession(session)
             }
         }
-    }
-
-    private func editorTerminalDragPreview(_ session: TerminalSession) -> some View {
-        HStack(spacing: 7) {
-            Image(systemName: "terminal")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(LitheTheme.accent)
-            Text(model.terminalTitle(for: session))
-                .font(.system(size: 12.5, weight: .medium))
-                .foregroundStyle(LitheTheme.primaryText)
-                .lineLimit(1)
-        }
-        .padding(.horizontal, 11)
-        .frame(height: LitheTheme.Metrics.tabHeight)
-        .background(LitheTheme.activeTabBackground)
-        .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius))
-        .shadow(color: .black.opacity(0.42), radius: 10, y: 6)
+        .opacity(isDragged ? 0.92 : 1)
+        .scaleEffect(isDragged ? 0.99 : 1)
+        .offset(x: isDragged ? tabDragOffsetX : 0)
+        .zIndex(isDragged ? 1 : 0)
+        .animation(tabAnimation, value: isDragged)
     }
 
     private func editorTabContent(
@@ -396,22 +510,14 @@ struct EditorAreaView: View {
             .padding(.leading, 11)
             .frame(height: LitheTheme.Metrics.tabHeight)
             .contentShape(Rectangle())
-            .contentShape(
-                .dragPreview,
-                RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius)
-            )
             // Keep the drag source on a plain view. On macOS a nested Button
-            // can win the mouse gesture before a parent onDrag creates a
-            // dragging session.
+            // can win the mouse gesture before a parent drag gesture starts.
             .onTapGesture {
                 model.selectEditorDocument(document)
             }
-            .onDrag {
-                beginTabDrag(document.id)
-                return EditorTabDragPayload.provider(for: document.id)
-            } preview: {
-                editorTabDragPreview(document)
-            }
+            .highPriorityGesture(
+                horizontalTabDragGesture(for: .document(document.id))
+            )
             .accessibilityElement(children: .combine)
             .accessibilityLabel(document.displayName)
             .accessibilityAddTraits(.isButton)
@@ -485,52 +591,223 @@ struct EditorAreaView: View {
             .transition(.opacity.combined(with: .scale))
     }
 
-    private func editorTabDragPreview(_ document: EditorDocument) -> some View {
-        HStack(spacing: 7) {
-            LitheIcon(
-                kind: LitheIcons.kind(for: document.url, isDirectory: false),
-                size: 13
-            )
-            .foregroundStyle(LitheTheme.accent)
-
-            Text(document.displayName)
-                .font(.system(size: 12.5, weight: .medium))
-                .foregroundStyle(LitheTheme.primaryText)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(maxWidth: 240, alignment: .leading)
-
-            if document.isDirty {
-                Circle()
-                    .fill(LitheTheme.primaryText)
-                    .frame(width: 6, height: 6)
-            }
-        }
-        .padding(.leading, 11)
-        .padding(.trailing, 9)
-        .fixedSize(horizontal: true, vertical: false)
-        .frame(height: LitheTheme.Metrics.tabHeight, alignment: .leading)
-        .background(LitheTheme.activeTabBackground)
-        .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius))
-        .shadow(color: .black.opacity(0.42), radius: 10, y: 6)
-        .compositingGroup()
-    }
-
     private var tabAnimation: Animation? {
-        accessibilityReduceMotion ? nil : .easeOut(duration: 0.14)
+        accessibilityReduceMotion
+            ? nil
+            : .interactiveSpring(response: 0.22, dampingFraction: 0.86, blendDuration: 0.10)
     }
 
-    private func beginTabDrag(_ documentID: UUID) {
+    private func editorTabFrameReader(for item: EditorTabItem) -> some View {
+        GeometryReader { geometry in
+            Color.clear.preference(
+                key: EditorTabFramePreferenceKey.self,
+                value: [
+                    item: geometry.frame(in: .named(editorTabCoordinateSpaceName))
+                ]
+            )
+        }
+    }
+
+    private func horizontalTabDragGesture(for item: EditorTabItem) -> some Gesture {
+        DragGesture(
+            minimumDistance: 8,
+            coordinateSpace: .named(editorTabCoordinateSpaceName)
+        )
+        .onChanged { value in
+            if tabDragState.draggedItem != item {
+                beginTabDrag(item)
+            }
+            updateHorizontalTabDrag(item, translationX: value.translation.width)
+        }
+        .onEnded { value in
+            finishHorizontalTabDrag(item, translationX: value.translation.width)
+        }
+    }
+
+    private func beginTabDrag(_ item: EditorTabItem) {
+        tabDragStartFrames = editorTabFrames
+        tabDragOffsetX = 0
+        tabReorderTarget = nil
         withAnimation(tabAnimation) {
-            tabDragState.begin(documentID: documentID)
+            tabDragState.begin(item: item)
+        }
+    }
+
+    private func updateHorizontalTabDrag(
+        _ item: EditorTabItem,
+        translationX: CGFloat
+    ) {
+        guard tabDragState.draggedItem == item,
+              let plan = horizontalTabDragPlan(for: item, translationX: translationX) else { return }
+        tabDragOffsetX = plan.offset
+        guard tabReorderTarget != plan.target else { return }
+        withAnimation(tabAnimation) {
+            tabReorderTarget = plan.target
+        }
+    }
+
+    private func finishHorizontalTabDrag(
+        _ item: EditorTabItem,
+        translationX: CGFloat
+    ) {
+        guard tabDragState.draggedItem == item else {
+            finishTabDrag()
+            return
+        }
+        let target = horizontalTabDragPlan(for: item, translationX: translationX)?.target
+        withAnimation(tabAnimation) {
+            if let target {
+                if target.side == .after {
+                    model.moveEditorTab(item, after: target.item)
+                } else {
+                    model.moveEditorTab(item, before: target.item)
+                }
+            }
+            tabDragOffsetX = 0
+            tabReorderTarget = nil
+            tabDragState.finish()
+        }
+        tabDragStartFrames = [:]
+    }
+
+    private func horizontalTabDragPlan(
+        for item: EditorTabItem,
+        translationX: CGFloat
+    ) -> (offset: CGFloat, target: EditorTabReorderTarget?)? {
+        guard let sourceFrame = tabDragStartFrames[item] else { return nil }
+        let rowFrames = tabDragStartFrames.filter { _, frame in
+            frame.maxY > sourceFrame.minY && frame.minY < sourceFrame.maxY
+        }
+        guard let rowMinX = rowFrames.values.map(\.minX).min(),
+              let rowMaxX = rowFrames.values.map(\.maxX).max() else { return nil }
+
+        let offset = min(
+            max(translationX, rowMinX - sourceFrame.minX),
+            rowMaxX - sourceFrame.maxX
+        )
+        let candidates = rowFrames.filter { $0.key != item }
+        let target: EditorTabReorderTarget?
+
+        if offset > 0 {
+            let probeX = sourceFrame.maxX + offset
+            target = candidates
+                .filter { _, frame in
+                    frame.midX > sourceFrame.midX
+                        && probeX > frame.midX
+                            + frame.width * EditorTabDropGeometry.hoverDeadZoneRatio
+                }
+                .max { $0.value.midX < $1.value.midX }
+                .map { EditorTabReorderTarget(item: $0.key, side: .after) }
+        } else if offset < 0 {
+            let probeX = sourceFrame.minX + offset
+            target = candidates
+                .filter { _, frame in
+                    frame.midX < sourceFrame.midX
+                        && probeX < frame.midX
+                            - frame.width * EditorTabDropGeometry.hoverDeadZoneRatio
+                }
+                .min { $0.value.midX < $1.value.midX }
+                .map { EditorTabReorderTarget(item: $0.key, side: .before) }
+        } else {
+            target = nil
+        }
+
+        return (offset, target)
+    }
+
+    private func updateTerminalTabBarDropTarget(at location: CGPoint) {
+        guard let target = terminalTabBarDropTarget(at: location) else {
+            clearTerminalTabBarDropTarget()
+            return
+        }
+        updateTerminalTabBarDropTarget(target)
+    }
+
+    private func terminalTabBarDropTarget(at location: CGPoint) -> EditorTabReorderTarget? {
+        let activeTerminalItem = TerminalTabDragPayload.activeSessionID.map {
+            EditorTabItem.terminal($0)
+        }
+        if let activeTerminalItem,
+           let sourceFrame = editorTabFrames[activeTerminalItem],
+           sourceFrame.contains(location) {
+            return nil
+        }
+        let candidates = editorTabFrames.filter { item, _ in
+            item != tabDragState.draggedItem && item != activeTerminalItem
+        }
+        guard let nearest = candidates.min(by: { lhs, rhs in
+            tabDropDistance(from: location, to: lhs.value)
+                < tabDropDistance(from: location, to: rhs.value)
+        }) else { return nil }
+
+        let frame = nearest.value
+        let side: EditorTabDropSide
+        if let activeTerminalItem,
+           let sourceIndex = model.editorTabItems.firstIndex(of: activeTerminalItem),
+           let targetIndex = model.editorTabItems.firstIndex(of: nearest.key) {
+            side = targetIndex < sourceIndex ? .before : .after
+        } else if location.x <= frame.minX {
+            side = .before
+        } else if location.x >= frame.maxX {
+            side = .after
+        } else {
+            side = EditorTabDropGeometry.finalSide(
+                locationX: location.x - frame.minX,
+                width: frame.width
+            )
+        }
+        return EditorTabReorderTarget(item: nearest.key, side: side)
+    }
+
+    private func updateTerminalTabBarDropTarget(_ target: EditorTabReorderTarget) {
+        guard tabReorderTarget != target else { return }
+        withAnimation(tabAnimation) {
+            tabReorderTarget = target
+        }
+    }
+
+    private func resolveTerminalDropSide(
+        _ proposedSide: EditorTabDropSide,
+        target: EditorTabItem
+    ) -> EditorTabDropSide {
+        guard let sessionID = TerminalTabDragPayload.activeSessionID,
+              let sourceIndex = model.editorTabItems.firstIndex(of: .terminal(sessionID)),
+              let targetIndex = model.editorTabItems.firstIndex(of: target) else {
+            return proposedSide
+        }
+        return targetIndex < sourceIndex ? .before : .after
+    }
+
+    private func tabDropDistance(from location: CGPoint, to frame: CGRect) -> CGFloat {
+        let horizontalDistance = max(
+            max(frame.minX - location.x, location.x - frame.maxX),
+            0
+        )
+        let verticalDistance = max(
+            max(frame.minY - location.y, location.y - frame.maxY),
+            0
+        )
+        return horizontalDistance * horizontalDistance + verticalDistance * verticalDistance
+    }
+
+    private func clearTerminalTabBarDropTarget(matching item: EditorTabItem? = nil) {
+        guard let currentTarget = tabReorderTarget,
+              item == nil || currentTarget.item == item else { return }
+        withAnimation(tabAnimation) {
+            tabReorderTarget = nil
         }
     }
 
     private func finishTabDrag() {
-        guard tabDragState != .idle else { return }
+        guard tabDragState != .idle
+            || tabReorderTarget != nil
+            || tabDragOffsetX != 0 else { return }
         withAnimation(tabAnimation) {
+            tabDragOffsetX = 0
+            tabReorderTarget = nil
             tabDragState.finish()
         }
+        tabDragStartFrames = [:]
     }
 
     private var markdownModePicker: some View {
@@ -615,13 +892,6 @@ struct EditorAreaView: View {
                 activeEditor
             }
         }
-        .contentShape(Rectangle())
-        .onDrop(
-            of: [TerminalTabDragPayload.type],
-            delegate: EditorTerminalDropDelegate { sessionID in
-                model.moveTerminalToEditor(sessionID)
-            }
-        )
     }
 
     @ViewBuilder
@@ -832,76 +1102,124 @@ struct EditorAreaView: View {
                 .foregroundStyle(LitheTheme.secondaryText)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .contentShape(Rectangle())
-        .onDrop(
-            of: [TerminalTabDragPayload.type],
-            delegate: EditorTerminalDropDelegate { sessionID in
-                model.moveTerminalToEditor(sessionID)
-            }
-        )
     }
 
 }
 
+private struct EditorTabFramePreferenceKey: PreferenceKey {
+    static let defaultValue: [EditorTabItem: CGRect] = [:]
+
+    static func reduce(
+        value: inout [EditorTabItem: CGRect],
+        nextValue: () -> [EditorTabItem: CGRect]
+    ) {
+        value.merge(nextValue()) { _, next in next }
+    }
+}
+
 private struct EditorTabBarDropDelegate: DropDelegate {
+    let setTargeted: (Bool) -> Void
+    let updateTarget: (CGPoint) -> Void
+    let clearTarget: () -> Void
+    let resolveTarget: (CGPoint) -> EditorTabReorderTarget?
     let finish: () -> Void
-    let receiveTerminal: @MainActor (UUID) -> Void
+    let receiveTerminal: @MainActor (UUID, EditorTabReorderTarget?) -> Void
+
+    func dropEntered(info: DropInfo) {
+        setTargeted(true)
+        updateTarget(info.location)
+    }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
+        setTargeted(true)
+        updateTarget(info.location)
+        return DropProposal(operation: .move)
+    }
+
+    func dropExited(info: DropInfo) {
+        setTargeted(false)
+        clearTarget()
     }
 
     func performDrop(info: DropInfo) -> Bool {
+        setTargeted(false)
+        updateTarget(info.location)
         let terminalProviders = info.itemProviders(for: [TerminalTabDragPayload.type])
         if !terminalProviders.isEmpty {
+            let target = resolveTarget(info.location)
             finish()
-            return TerminalTabDragPayload.loadSessionID(
-                from: terminalProviders,
-                completion: receiveTerminal
-            )
+            return TerminalTabDragPayload.loadSessionID(from: terminalProviders) { sessionID in
+                receiveTerminal(sessionID, target)
+            }
         }
         finish()
         return true
     }
 
     func validateDrop(info: DropInfo) -> Bool {
-        !info.itemProviders(for: [EditorTabDragPayload.type, TerminalTabDragPayload.type]).isEmpty
+        !info.itemProviders(for: [TerminalTabDragPayload.type]).isEmpty
     }
 }
 
 private struct EditorTabDropDelegate: DropDelegate {
-    let draggedDocumentID: UUID?
+    let draggedItem: EditorTabItem?
     let targetDocumentID: UUID
     let targetWidth: CGFloat
     let dragSessionID: UUID?
     let dropTargetRevision: UInt
     let updateTarget: (EditorTabDropTarget, UUID?, UInt) -> Void
     let clearTarget: (UUID, UUID?, UInt) -> Void
+    let updateTerminalTarget: (EditorTabReorderTarget) -> Void
+    let clearTerminalTarget: (EditorTabItem) -> Void
+    let resolveTerminalSide: (EditorTabDropSide) -> EditorTabDropSide
     let finish: () -> Void
-    let receiveTerminal: @MainActor (UUID) -> Void
+    let receiveTerminal: @MainActor (UUID, EditorTabDropSide) -> Void
 
     func dropEntered(info: DropInfo) {
+        updateTerminalTargetIfNeeded(using: info)
         updateTargetIfNeeded(using: info)
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
+        updateTerminalTargetIfNeeded(using: info)
         updateTargetIfNeeded(using: info)
         return DropProposal(operation: .move)
     }
 
     func dropExited(info: DropInfo) {
+        if draggedItem == nil,
+           !info.itemProviders(for: [TerminalTabDragPayload.type]).isEmpty {
+            clearTerminalTarget(.document(targetDocumentID))
+        }
         guard !info.itemProviders(for: [EditorTabDragPayload.type]).isEmpty else { return }
         clearTarget(targetDocumentID, dragSessionID, dropTargetRevision)
     }
 
     func performDrop(info: DropInfo) -> Bool {
+        if draggedItem != nil,
+           !info.itemProviders(for: [EditorTabDragPayload.type]).isEmpty {
+            updateTargetIfNeeded(using: info, settlesDrop: true)
+            finish()
+            return true
+        }
         let terminalProviders = info.itemProviders(for: [TerminalTabDragPayload.type])
         if !terminalProviders.isEmpty {
-            finish()
-            return TerminalTabDragPayload.loadSessionID(
-                from: terminalProviders,
-                completion: receiveTerminal
+            let side = resolveTerminalSide(
+                EditorTabDropGeometry.finalSide(
+                    locationX: info.location.x,
+                    width: targetWidth
+                )
             )
+            updateTerminalTarget(
+                EditorTabReorderTarget(
+                    item: .document(targetDocumentID),
+                    side: side
+                )
+            )
+            finish()
+            return TerminalTabDragPayload.loadSessionID(from: terminalProviders) { sessionID in
+                receiveTerminal(sessionID, side)
+            }
         }
         finish()
         return true
@@ -911,66 +1229,157 @@ private struct EditorTabDropDelegate: DropDelegate {
         !info.itemProviders(for: [EditorTabDragPayload.type, TerminalTabDragPayload.type]).isEmpty
     }
 
-    private func updateTargetIfNeeded(using info: DropInfo) {
-        guard let draggedDocumentID,
-              draggedDocumentID != targetDocumentID,
+    private func updateTargetIfNeeded(using info: DropInfo, settlesDrop: Bool = false) {
+        guard let draggedItem,
+              draggedItem != .document(targetDocumentID),
               !info.itemProviders(for: [EditorTabDragPayload.type]).isEmpty else { return }
+        let side: EditorTabDropSide
+        if settlesDrop {
+            side = EditorTabDropGeometry.finalSide(
+                locationX: info.location.x,
+                width: targetWidth
+            )
+        } else {
+            guard let hoverSide = EditorTabDropGeometry.hoverSide(
+                locationX: info.location.x,
+                width: targetWidth
+            ) else { return }
+            side = hoverSide
+        }
         updateTarget(
             EditorTabDropTarget(
                 documentID: targetDocumentID,
-                side: targetWidth > 0 && info.location.x > targetWidth / 2 ? .after : .before
+                side: side
             ),
             dragSessionID,
             dropTargetRevision
         )
     }
-}
 
-private struct EditorTerminalDropDelegate: DropDelegate {
-    let receive: @MainActor (UUID) -> Void
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
-    }
-
-    func validateDrop(info: DropInfo) -> Bool {
-        !info.itemProviders(for: [TerminalTabDragPayload.type]).isEmpty
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        TerminalTabDragPayload.loadSessionID(
-            from: info.itemProviders(for: [TerminalTabDragPayload.type]),
-            completion: receive
+    private func updateTerminalTargetIfNeeded(using info: DropInfo) {
+        guard draggedItem == nil,
+              !info.itemProviders(for: [TerminalTabDragPayload.type]).isEmpty else { return }
+        updateTerminalTarget(
+            EditorTabReorderTarget(
+                item: .document(targetDocumentID),
+                side: resolveTerminalSide(
+                    EditorTabDropGeometry.finalSide(
+                        locationX: info.location.x,
+                        width: targetWidth
+                    )
+                )
+            )
         )
     }
 }
 
 private struct EditorTerminalTabDropDelegate: DropDelegate {
+    let draggedItem: EditorTabItem?
     let targetSessionID: UUID
     let targetWidth: CGFloat
-    let moveBefore: @MainActor (UUID) -> Void
-    let moveAfter: @MainActor (UUID) -> Void
+    let moveItemBefore: @MainActor (EditorTabItem) -> Void
+    let moveItemAfter: @MainActor (EditorTabItem) -> Void
+    let moveTerminalBefore: @MainActor (UUID) -> Void
+    let moveTerminalAfter: @MainActor (UUID) -> Void
+    let updateTerminalTarget: (EditorTabReorderTarget) -> Void
+    let clearTerminalTarget: (EditorTabItem) -> Void
+    let resolveTerminalSide: (EditorTabDropSide) -> EditorTabDropSide
+    let finish: () -> Void
+
+    func dropEntered(info: DropInfo) {
+        updateTerminalTargetIfNeeded(using: info)
+        moveItemIfNeeded(using: info)
+    }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
+        updateTerminalTargetIfNeeded(using: info)
+        moveItemIfNeeded(using: info)
+        return DropProposal(operation: .move)
+    }
+
+    func dropExited(info: DropInfo) {
+        guard draggedItem == nil,
+              !info.itemProviders(for: [TerminalTabDragPayload.type]).isEmpty else { return }
+        clearTerminalTarget(.terminal(targetSessionID))
     }
 
     func validateDrop(info: DropInfo) -> Bool {
-        !info.itemProviders(for: [TerminalTabDragPayload.type]).isEmpty
+        !info.itemProviders(for: [EditorTabDragPayload.type, TerminalTabDragPayload.type]).isEmpty
     }
 
     func performDrop(info: DropInfo) -> Bool {
-        let insertAfter = info.location.x >= targetWidth / 2
-        return TerminalTabDragPayload.loadSessionID(
-            from: info.itemProviders(for: [TerminalTabDragPayload.type])
-        ) { sourceSessionID in
+        if draggedItem != nil,
+           !info.itemProviders(for: [EditorTabDragPayload.type]).isEmpty {
+            moveItemIfNeeded(using: info, settlesDrop: true)
+            finish()
+            return true
+        }
+        let terminalProviders = info.itemProviders(for: [TerminalTabDragPayload.type])
+        guard !terminalProviders.isEmpty else {
+            finish()
+            return !info.itemProviders(for: [EditorTabDragPayload.type]).isEmpty
+        }
+        let side = resolveTerminalSide(
+            EditorTabDropGeometry.finalSide(
+                locationX: info.location.x,
+                width: targetWidth
+            )
+        )
+        updateTerminalTarget(
+            EditorTabReorderTarget(
+                item: .terminal(targetSessionID),
+                side: side
+            )
+        )
+        finish()
+        return TerminalTabDragPayload.loadSessionID(from: terminalProviders) { sourceSessionID in
             guard sourceSessionID != targetSessionID else { return }
-            if insertAfter {
-                moveAfter(sourceSessionID)
+            if side == .after {
+                moveTerminalAfter(sourceSessionID)
             } else {
-                moveBefore(sourceSessionID)
+                moveTerminalBefore(sourceSessionID)
             }
         }
+    }
+
+    private func moveItemIfNeeded(using info: DropInfo, settlesDrop: Bool = false) {
+        guard let draggedItem,
+              draggedItem != .terminal(targetSessionID),
+              !info.itemProviders(for: [EditorTabDragPayload.type]).isEmpty else { return }
+        let side: EditorTabDropSide
+        if settlesDrop {
+            side = EditorTabDropGeometry.finalSide(
+                locationX: info.location.x,
+                width: targetWidth
+            )
+        } else {
+            guard let hoverSide = EditorTabDropGeometry.hoverSide(
+                locationX: info.location.x,
+                width: targetWidth
+            ) else { return }
+            side = hoverSide
+        }
+        if side == .after {
+            moveItemAfter(draggedItem)
+        } else {
+            moveItemBefore(draggedItem)
+        }
+    }
+
+    private func updateTerminalTargetIfNeeded(using info: DropInfo) {
+        guard draggedItem == nil,
+              !info.itemProviders(for: [TerminalTabDragPayload.type]).isEmpty else { return }
+        updateTerminalTarget(
+            EditorTabReorderTarget(
+                item: .terminal(targetSessionID),
+                side: resolveTerminalSide(
+                    EditorTabDropGeometry.finalSide(
+                        locationX: info.location.x,
+                        width: targetWidth
+                    )
+                )
+            )
+        )
     }
 }
 
