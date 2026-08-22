@@ -2143,36 +2143,10 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
-    func codeEditorRegistersThePrivateTerminalTabDropType() {
+    func codeEditorDoesNotRegisterThePrivateTerminalTabDropType() {
         let textView = CodeTextView(frame: .zero)
 
-        #expect(textView.registeredDraggedTypes.contains(TerminalTabDragPayload.pasteboardType))
-    }
-
-    @Test
-    @MainActor
-    func codeEditorRoutesPrivateTerminalTabDropsWithoutChangingText() {
-        let sessionID = UUID()
-        let textView = CodeTextView(frame: .zero)
-        let pasteboard = NSPasteboard(
-            name: .init("lithe-code-editor-terminal-tab-\(UUID().uuidString)")
-        )
-        pasteboard.clearContents()
-        pasteboard.setData(
-            Data(sessionID.uuidString.utf8),
-            forType: TerminalTabDragPayload.pasteboardType
-        )
-        defer { pasteboard.clearContents() }
-        textView.string = "before"
-        var receivedSessionID: UUID?
-        textView.onTerminalTabDrop = { droppedSessionID in
-            receivedSessionID = droppedSessionID
-            return true
-        }
-
-        #expect(textView.performTerminalTabDrop(from: pasteboard))
-        #expect(receivedSessionID == sessionID)
-        #expect(textView.string == "before")
+        #expect(!textView.registeredDraggedTypes.contains(TerminalTabDragPayload.pasteboardType))
     }
 
     @Test
