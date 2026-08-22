@@ -130,6 +130,11 @@ modify_mixed_core_logic_test() { printf '%s\n' 'struct UpdatedLitheCoreLogicTest
 modify_shared_fixture() { printf '%s\n' '{"operation":"updated"}' > shared/fixtures/core/test.json; }
 modify_windows_frontend() { printf '%s\n' 'export const value = 2;' > windows/tauri/src/value.ts; }
 modify_windows_rust() { printf '%s\n' 'fn main() { println!("updated"); }' > windows/tauri/src-tauri/src/main.rs; }
+modify_download_cache_validator() { printf '%s\n' 'console.log("updated");' > scripts/verify-download-cache.mjs; }
+modify_macos_cache_action() {
+    mkdir -p .github/actions/prepare-macos-dependency-cache
+    printf '%s\n' 'name: updated' > .github/actions/prepare-macos-dependency-cache/action.yml
+}
 modify_metadata() { printf '%s\n' 'cask "lithe" do' '  version "1.0.0"' 'end' > Casks/lithe.rb; }
 modify_classifier() { printf '%s\n' '# classifier test change' >> scripts/classify-ci-changes.sh; }
 modify_swift_and_database() {
@@ -219,6 +224,12 @@ assert_classification windows-frontend \
 assert_classification windows-rust \
     "$(classification false false false false false false true true false false)" \
     modify_windows_rust
+assert_classification download-cache-validator \
+    "$(classification true true true true false true true true false false)" \
+    modify_download_cache_validator
+assert_classification macos-cache-action \
+    "$(classification true true true true false true false false false false)" \
+    modify_macos_cache_action
 assert_classification metadata \
     "$(classification false false false false false false false false false true)" \
     modify_metadata

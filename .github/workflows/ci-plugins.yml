@@ -91,14 +91,10 @@ jobs:
         with:
           swift-version: "6.2"
 
-      - name: Restore SwiftPM dependencies
-        uses: actions/cache@v6
+      - name: Prepare verified SwiftPM cache
+        uses: ./.github/actions/prepare-macos-dependency-cache
         with:
-          path: |
-            .build/checkouts
-            .build/repositories
-            ~/.cache/org.swift.swiftpm
-          key: swiftpm-${{ runner.os }}-6.2-${{ hashFiles('Package.resolved') }}
+          swiftpm: "true"
 
       - name: Run plugin-focused Swift tests
         timeout-minutes: 12

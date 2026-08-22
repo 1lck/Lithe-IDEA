@@ -136,14 +136,10 @@ jobs:
         with:
           swift-version: "6.2"
 
-      - name: Restore SwiftPM dependencies
-        uses: actions/cache@v6
+      - name: Prepare verified SwiftPM cache
+        uses: ./.github/actions/prepare-macos-dependency-cache
         with:
-          path: |
-            .build/checkouts
-            .build/repositories
-            ~/.cache/org.swift.swiftpm
-          key: swiftpm-${{ runner.os }}-6.2-${{ hashFiles('Package.resolved') }}
+          swiftpm: "true"
 
       - name: Run Swift unit tests
         timeout-minutes: 12
@@ -181,13 +177,11 @@ jobs:
         with:
           components: rustfmt
 
-      - name: Restore Cargo dependencies
-        uses: actions/cache@v6
+      - name: Prepare verified dependency caches
+        uses: ./.github/actions/prepare-macos-dependency-cache
         with:
-          path: |
-            ~/.cargo/git
-            ~/.cargo/registry
-          key: cargo-dependencies-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock') }}
+          swiftpm: "true"
+          cargo: "true"
 
       - name: Run Rust Core tests and verify the Swift bridge
         run: ./scripts/verify-rust-core.sh
@@ -213,22 +207,11 @@ jobs:
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
-      - name: Restore SwiftPM dependencies
-        uses: actions/cache@v6
+      - name: Prepare verified dependency caches
+        uses: ./.github/actions/prepare-macos-dependency-cache
         with:
-          path: |
-            .build/checkouts
-            .build/repositories
-            ~/.cache/org.swift.swiftpm
-          key: swiftpm-${{ runner.os }}-6.2-${{ hashFiles('Package.resolved') }}
-
-      - name: Restore Cargo dependencies
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/git
-            ~/.cargo/registry
-          key: cargo-dependencies-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock') }}
+          swiftpm: "true"
+          cargo: "true"
 
       - name: Check packaging scripts and metadata
         shell: zsh {0}

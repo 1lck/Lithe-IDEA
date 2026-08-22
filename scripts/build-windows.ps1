@@ -29,8 +29,7 @@ if ($null -eq (Get-Command bun -ErrorAction SilentlyContinue)) {
 & rustup target add $RustTarget
 if ($LASTEXITCODE -ne 0) { throw "Could not install Rust target $RustTarget" }
 
-& bun install --frozen-lockfile
-if ($LASTEXITCODE -ne 0) { throw "Windows frontend dependency installation failed" }
+& (Join-Path $root "scripts/install-windows-frontend-dependencies.ps1")
 
 & bun run typecheck
 if ($LASTEXITCODE -ne 0) { throw "Windows frontend type check failed" }
@@ -46,8 +45,9 @@ if ($Configuration -eq "Debug") {
 } else {
     $tauriArgs += @("--config", "src-tauri/tauri.jdtls.conf.json")
 }
-& bunx @tauriArgs
-if ($LASTEXITCODE -ne 0) { throw "Windows Tauri build failed" }
+& (Join-Path $root "scripts/invoke-windows-tauri-build.ps1") `
+    -TauriArguments $tauriArgs `
+    -FailureMessage "Windows Tauri build failed"
 
 $profileName = if ($Configuration -eq "Debug") { "debug" } else { "release" }
 $cargoTargetRoot = [System.IO.Path]::GetFullPath((Join-Path $windowsApp "src-tauri/target"))
