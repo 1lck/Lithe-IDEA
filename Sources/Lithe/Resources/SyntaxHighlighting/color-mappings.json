@@ -10,9 +10,21 @@
     "annotation": {"light": "#a15c00", "dark": "#b3ae60"},
     "type": {"light": "#4169a8", "dark": "#bcbec4"},
     "property": {"light": "#075e9e", "dark": "#c77dbb"},
+    "boolean": {"light": "#b83280", "dark": "#cf8e6d"},
+    "constant": {"light": "#a15c00", "dark": "#c77dbb"},
+    "documentationComment": {"light": "#68717d", "dark": "#7a7e85"},
+    "field": {"light": "#075e9e", "dark": "#c77dbb"},
+    "functionCall": {"light": "#14777d", "dark": "#56a8f5"},
+    "functionDeclaration": {"light": "#14777d", "dark": "#56a8f5"},
+    "null": {"light": "#7656a8", "dark": "#cf8e6d"},
     "number": {"light": "#a15c00", "dark": "#2aacb8"},
+    "operator": {"light": "#b83280", "dark": "#bcbec4"},
+    "parameter": {"light": "#7656a8", "dark": "#bcbec4"},
+    "punctuation": {"light": "#59636f", "dark": "#bcbec4"},
     "string": {"light": "#287d3c", "dark": "#6aab73"},
-    "comment": {"light": "#68717d", "dark": "#7a7e85"}
+    "comment": {"light": "#68717d", "dark": "#7a7e85"},
+    "typeParameter": {"light": "#4169a8", "dark": "#bcbec4"},
+    "variable": {"light": "#7656a8", "dark": "#bcbec4"}
   },
   "formats": {
     "json": {},

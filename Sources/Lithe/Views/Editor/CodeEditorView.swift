@@ -176,6 +176,24 @@ enum EditorOverlayLayout {
             + (lineHeight - boxHeight) / 2
     }
 
+    static func inlayHintOriginY(
+        textView: NSTextView,
+        layoutManager: NSLayoutManager,
+        glyphIndex: Int,
+        boxHeight: CGFloat
+    ) -> CGFloat {
+        let lineRect = layoutManager.lineFragmentRect(
+            forGlyphAt: glyphIndex,
+            effectiveRange: nil
+        )
+        return centeredBoxOriginY(
+            textContainerOriginY: textView.textContainerOrigin.y,
+            lineOriginY: lineRect.minY,
+            lineHeight: lineRect.height,
+            boxHeight: boxHeight
+        )
+    }
+
     static func boxOriginYAlignedToTextCenter(
         textContainerOriginY: CGFloat,
         lineOriginY: CGFloat,
@@ -1147,6 +1165,13 @@ struct CodeEditorView: NSViewRepresentable {
             if useDefaultImportFold,
                let imports = foldRegions.first(where: { $0.kind == .imports }) {
                 collapsedFoldIDs.insert(imports.id)
+            }
+            if let textStorage = textView?.textStorage {
+                SyntaxHighlighter.applyJavaSemanticHighlights(
+                    structure.syntaxHighlights,
+                    to: textStorage,
+                    isDark: isDarkAppearance
+                )
             }
             applyFoldState()
         }
@@ -4147,17 +4172,10 @@ final class JavaInlayHintOverlayController {
             let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
             let label = placement.label
             let labelHeight = min(lineRect.height, label.intrinsicContentHeight)
-            let textFont = textStorage.attribute(
-                .font,
-                at: placement.location,
-                effectiveRange: nil
-            ) as? NSFont ?? textView.font ?? LitheTheme.editorFont(size: 13)
-            let y = EditorOverlayLayout.boxOriginYAlignedToTextCenter(
-                textContainerOriginY: textView.textContainerOrigin.y,
-                lineOriginY: lineRect.minY,
-                baselineOffsetY: point.y,
-                textAscender: textFont.ascender,
-                textDescender: textFont.descender,
+            let y = EditorOverlayLayout.inlayHintOriginY(
+                textView: textView,
+                layoutManager: layoutManager,
+                glyphIndex: glyph,
                 boxHeight: labelHeight
             )
             label.frame = NSRect(

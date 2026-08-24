@@ -73,6 +73,12 @@ struct JavaWorkspacePolicyResult: Sendable {
 struct JavaStructureResult: Sendable {
     let foldRegions: [JavaFoldRegion]
     let inlayHints: [JavaInlayHint]
+    let syntaxHighlights: [JavaSyntaxHighlight]
+}
+
+struct JavaSyntaxHighlight: Sendable, Equatable {
+    let range: NSRange
+    let role: String
 }
 
 struct JavaCodeVisionValue: Sendable {
@@ -253,7 +259,8 @@ struct RustJavaMavenOperations: JavaMavenOperations, Sendable {
         ) else { return nil }
         return JavaStructureResult(
             foldRegions: payload.makeFoldRegions(),
-            inlayHints: payload.makeInlayHints()
+            inlayHints: payload.makeInlayHints(),
+            syntaxHighlights: payload.makeSyntaxHighlights()
         )
     }
 

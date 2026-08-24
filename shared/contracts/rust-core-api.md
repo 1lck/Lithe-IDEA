@@ -109,7 +109,7 @@ stable error code and a user-facing message:
 | `java.className` | Resolve a Java source package and simple name into a runtime class name |
 | `java.sourceDefinition` | Locate a Java type, method, or field declaration in source text |
 | `java.serverPort` | Parse Spring server port settings from properties or YAML text |
-| `java.structure` | Parse Java editor folds and inlay hints |
+| `java.structure` | Parse Java editor folds, inlay hints, and portable syntax roles |
 | `spring.index` | Build a deterministic Spring configuration, bean, injection, and endpoint index |
 | `runConfig.inspect` | Inspect `.lithe` run documents, versions, and staleness without writing files |
 | `runConfig.generate` | Generate deterministic Java/Maven configurations and toolchain requirements |
@@ -542,10 +542,14 @@ name.
 when no declaration is found.
 
 `java.structure` accepts Java `source` and optional `declarationSources`. It
-returns `foldRegions` and `inlayHints`. Line numbers
-are zero-based because these values are editor offsets; UTF-16 columns and
-hidden ranges match the native text editor coordinate system. The parser is
-platform-independent and does not start a Java process or contact JDT.
+returns `foldRegions`, `inlayHints`, and
+`syntaxHighlights`. Line numbers are zero-based because these values are editor
+offsets; UTF-16 columns and hidden ranges match the native text editor coordinate
+system. Syntax highlights contain document-relative `utf16Start`,
+`utf16Length`, and a role from the shared editor syntax-theme contract. They
+are sorted and non-overlapping, so native renderers can apply semantic colors
+without maintaining another Java parser. The parser is platform-independent
+and does not start a Java process or contact JDT.
 
 `spring.index` accepts `root`, workspace-relative `paths`, optional trusted
 absolute `metadataRepositories` (and the legacy singular `metadataRepository`),

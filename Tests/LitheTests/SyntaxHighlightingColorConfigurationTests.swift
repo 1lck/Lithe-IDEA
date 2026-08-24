@@ -41,6 +41,11 @@ struct SyntaxHighlightingColorConfigurationTests {
         #expect(rgba(dark.number) == [42, 172, 184, 255])
         #expect(rgba(dark.string) == [106, 171, 115, 255])
         #expect(rgba(dark.comment) == [122, 126, 133, 255])
+        #expect(rgba(dark.field) == [199, 125, 187, 255])
+        #expect(rgba(dark.functionDeclaration) == [86, 168, 245, 255])
+        #expect(rgba(dark.functionCall) == [86, 168, 245, 255])
+        #expect(rgba(dark.parameter) == [188, 190, 196, 255])
+        #expect(rgba(dark.operator) == [188, 190, 196, 255])
     }
 
     @Test

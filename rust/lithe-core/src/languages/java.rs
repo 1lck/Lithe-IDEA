@@ -130,6 +130,7 @@ pub fn structure(request: JavaStructureRequest) -> Result<JavaStructureResponse,
     Ok(JavaStructureResponse {
         fold_regions: fold_regions(&source),
         inlay_hints: parameter_hints(&source, &request.declaration_sources),
+        syntax_highlights: super::java_syntax::syntax_highlights(&source),
     })
 }
 

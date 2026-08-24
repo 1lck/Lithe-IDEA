@@ -740,11 +740,29 @@ struct RustCoreBridge: Sendable {
             }
         }
 
+        struct SyntaxHighlight: Decodable, Sendable {
+            let utf16Start: Int
+            let utf16Length: Int
+            let role: String
+
+            func makeModel() -> JavaSyntaxHighlight? {
+                guard utf16Start >= 0, utf16Length > 0 else { return nil }
+                return JavaSyntaxHighlight(
+                    range: NSRange(location: utf16Start, length: utf16Length),
+                    role: role
+                )
+            }
+        }
+
         let foldRegions: [FoldRegion]
         let inlayHints: [InlayHint]
+        let syntaxHighlights: [SyntaxHighlight]
 
         func makeFoldRegions() -> [JavaFoldRegion] { foldRegions.compactMap { $0.makeModel() } }
         func makeInlayHints() -> [JavaInlayHint] { inlayHints.map { $0.makeModel() } }
+        func makeSyntaxHighlights() -> [JavaSyntaxHighlight] {
+            syntaxHighlights.compactMap { $0.makeModel() }
+        }
     }
 
     struct GitCommandPayload: Decodable, Sendable {

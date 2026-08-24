@@ -334,7 +334,7 @@ fn java_core_commands_return_shared_runtime_and_structure_data() {
         "id": "java-structure",
         "command": "java.structure",
         "payload": {
-            "source": "import a.A;\nimport b.B;\ninterface Service {}\n"
+            "source": "import a.A;\nimport b.B;\ninterface Service { String call(String value); }\n"
         }
     });
     let structure_response: Value = serde_json::from_str(&execute_json(
@@ -349,6 +349,26 @@ fn java_core_commands_return_shared_runtime_and_structure_data() {
     assert!(structure_response["data"]
         .get("implementationMarkers")
         .is_none());
+    let syntax_highlights = structure_response["data"]["syntaxHighlights"]
+        .as_array()
+        .expect("Java structure should return syntax highlights");
+    assert!(syntax_highlights
+        .iter()
+        .any(|highlight| highlight["role"] == "keyword"));
+    for role in ["functionDeclaration", "parameter", "punctuation", "type"] {
+        assert!(
+            syntax_highlights
+                .iter()
+                .any(|highlight| highlight["role"] == role),
+            "Java structure should include the {role} role"
+        );
+    }
+    assert!(syntax_highlights.iter().all(|highlight| {
+        highlight["utf16Start"].as_u64().is_some()
+            && highlight["utf16Length"]
+                .as_u64()
+                .is_some_and(|length| length > 0)
+    }));
     let swift_structure = serde_json::json!({
         "id": "swift-structure",
         "command": "java.structure",

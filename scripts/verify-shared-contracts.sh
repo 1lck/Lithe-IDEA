@@ -159,9 +159,21 @@ fi
     "annotation" => "annotation",
     "type" => "type",
     "property" => "property",
+    "boolean" => "boolean",
+    "constant" => "constant",
+    "documentationComment" => "documentationComment",
+    "field" => "field",
+    "functionCall" => "functionCall",
+    "functionDeclaration" => "functionDeclaration",
+    "null" => "null",
     "number" => "number",
+    "operator" => "operator",
+    "parameter" => "parameter",
+    "punctuation" => "punctuation",
     "string" => "string",
-    "comment" => "comment"
+    "comment" => "comment",
+    "typeParameter" => "typeParameter",
+    "variable" => "variable"
   }
   macos_defaults = macos.fetch("defaults")
   abort "macOS syntax roles differ from the shared subset" unless macos_defaults.keys.sort == macos_role_sources.keys.sort

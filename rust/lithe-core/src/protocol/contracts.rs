@@ -299,12 +299,25 @@ pub struct JavaInlayHintResponse {
     pub label: String,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// One non-overlapping Java token range with a portable editor-theme role.
+pub struct JavaSyntaxHighlightResponse {
+    /// Document-relative start measured in UTF-16 code units.
+    pub utf16_start: usize,
+    /// Token length measured in UTF-16 code units.
+    pub utf16_length: usize,
+    /// Semantic role defined by the shared editor syntax-theme contract.
+    pub role: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// Lightweight structural features derived from one Java source document.
 pub struct JavaStructureResponse {
     pub fold_regions: Vec<JavaFoldRegionResponse>,
     pub inlay_hints: Vec<JavaInlayHintResponse>,
+    pub syntax_highlights: Vec<JavaSyntaxHighlightResponse>,
 }
 
 #[derive(Debug, Clone, Serialize)]

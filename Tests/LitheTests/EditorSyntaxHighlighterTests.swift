@@ -6,6 +6,52 @@ import Testing
 @Suite("Editor syntax highlighting")
 struct EditorSyntaxHighlighterTests {
     @Test
+    func javaSemanticHighlightsOverrideGenericIdentifierColors() throws {
+        let source = "class Demo { String field; void run(String value) { call(value); } }"
+        let storage = NSTextStorage(string: source)
+        SyntaxHighlighter.apply(
+            to: storage,
+            font: .monospacedSystemFont(ofSize: 13, weight: .regular),
+            fileExtension: "java",
+            isDark: true
+        )
+        let text = source as NSString
+        let fieldRange = text.range(of: "field")
+        let declarationRange = text.range(of: "run")
+        let parameterRange = text.range(of: "value")
+        let callRange = text.range(of: "call")
+
+        SyntaxHighlighter.applyJavaSemanticHighlights(
+            [
+                JavaSyntaxHighlight(range: fieldRange, role: "field"),
+                JavaSyntaxHighlight(range: declarationRange, role: "functionDeclaration"),
+                JavaSyntaxHighlight(range: parameterRange, role: "parameter"),
+                JavaSyntaxHighlight(range: callRange, role: "functionCall")
+            ],
+            to: storage,
+            isDark: true
+        )
+        let palette = syntaxPalette(fileExtension: "java")
+
+        #expect(try color(in: storage, at: fieldRange.location) == palette.field)
+        #expect(try color(in: storage, at: declarationRange.location) == palette.functionDeclaration)
+        #expect(try color(in: storage, at: parameterRange.location) == palette.parameter)
+        #expect(try color(in: storage, at: callRange.location) == palette.functionCall)
+    }
+
+    @Test
+    func javaStructurePayloadDecodesPortableUtf16Highlights() throws {
+        let payload = try JSONDecoder().decode(
+            RustCoreBridge.JavaStructurePayload.self,
+            from: Data(#"{"foldRegions":[],"implementationMarkers":[],"inlayHints":[],"syntaxHighlights":[{"utf16Start":7,"utf16Length":4,"role":"field"}]}"#.utf8)
+        )
+
+        #expect(payload.makeSyntaxHighlights() == [
+            JavaSyntaxHighlight(range: NSRange(location: 7, length: 4), role: "field")
+        ])
+    }
+
+    @Test
     func jsonPropertyKeysUseADifferentColorFromStringValues() throws {
         let source = #"{"name":"Lithe","nested":{"escaped\"key":"name"}}"#
         let storage = NSTextStorage(string: source)
