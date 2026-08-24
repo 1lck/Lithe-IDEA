@@ -65,5 +65,6 @@ export const MONACO_HIGHLIGHT_LANGUAGE_IDS = new Set(
 
 export function toMonacoLanguageId(languageId: string | null | undefined): string {
   if (!languageId) return "plaintext";
+  if (languageId === "text") return "plaintext";
   return MONACO_LANGUAGE_BY_LITHE_ID[languageId] ?? languageId;
 }

@@ -3,7 +3,6 @@ import SwiftUI
 struct LSPControlCenterView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var settings: AppSettings
-    @State private var configuredProviderID: String?
 
     private var usesChinese: Bool { settings.language == .simplifiedChinese }
 
@@ -31,9 +30,6 @@ struct LSPControlCenterView: View {
             .background(LitheTheme.settingsSurface)
         }
         .background(LitheTheme.settingsSurface)
-        .task {
-            await model.refreshJavaLanguageServerJDKs()
-        }
     }
 
     private var header: some View {
@@ -81,22 +77,6 @@ struct LSPControlCenterView: View {
                         .lineLimit(2)
                 }
                 Spacer(minLength: 12)
-                if hasConfiguration(for: descriptor) {
-                    Button {
-                        configuredProviderID = configuredProviderID == descriptor.id
-                            ? nil
-                            : descriptor.id
-                    } label: {
-                        LitheSystemIcon(systemImage: "gearshape")
-                    }
-                    .litheIconButton()
-                    .help(usesChinese
-                        ? "配置 \(descriptor.displayName) 语言服务器"
-                        : "Configure \(descriptor.displayName) language server")
-                    .accessibilityLabel(Text(usesChinese
-                        ? "配置 \(descriptor.displayName) 语言服务器"
-                        : "Configure \(descriptor.displayName) language server"))
-                }
                 LitheSettingsCheckbox(
                     isOn: Binding(
                         get: { isEnabled },
@@ -108,87 +88,6 @@ struct LSPControlCenterView: View {
                 )
             }
 
-            if configuredProviderID == descriptor.id, descriptor.id == "java" {
-                Divider().overlay(LitheTheme.divider)
-                VStack(alignment: .leading, spacing: 7) {
-                    Text(usesChinese ? "LSP 运行 JDK" : "LSP Runtime JDK")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                    Menu {
-                        Button {
-                            model.useAutomaticJavaLanguageServerJDK()
-                        } label: {
-                            if model.javaLanguageServerJDKPath.isEmpty {
-                                Label(usesChinese ? "自动检测" : "Automatic", systemImage: "checkmark")
-                            } else {
-                                Text(usesChinese ? "自动检测" : "Automatic")
-                            }
-                        }
-                        Divider()
-                        if model.detectedJavaLanguageServerJDKs.isEmpty {
-                            Text(usesChinese ? "未检测到 JDK 17+" : "No JDK 17+ detected")
-                        } else {
-                            ForEach(model.detectedJavaLanguageServerJDKs) { runtime in
-                                Button {
-                                    model.selectJavaLanguageServerJDK(runtime)
-                                } label: {
-                                    if isSelectedJavaRuntime(runtime) {
-                                        Label(javaRuntimeTitle(runtime), systemImage: "checkmark")
-                                    } else {
-                                        Text(javaRuntimeTitle(runtime))
-                                    }
-                                }
-                            }
-                        }
-                        Divider()
-                        Button(usesChinese ? "重新检测" : "Detect Again") {
-                            Task { await model.refreshJavaLanguageServerJDKs() }
-                        }
-                        Button(usesChinese ? "选择其他目录…" : "Choose Other Directory…") {
-                            model.chooseJavaLanguageServerJDK()
-                        }
-                    } label: {
-                        HStack(spacing: 8) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(selectedJavaRuntime.map(javaRuntimeTitle) ?? javaJDKDisplayPath)
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(model.javaLanguageServerJDKPath.isEmpty
-                                        ? LitheTheme.secondaryText
-                                        : LitheTheme.primaryText)
-                                if !model.javaLanguageServerJDKPath.isEmpty {
-                                    Text(model.javaLanguageServerJDKPath)
-                                        .font(.system(size: 9.5, design: .monospaced))
-                                        .foregroundStyle(LitheTheme.secondaryText)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                }
-                            }
-                            Spacer(minLength: 8)
-                            Image(systemName: "chevron.up.chevron.down")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(LitheTheme.secondaryText)
-                        }
-                        .padding(.horizontal, 9)
-                        .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
-                        .background(
-                            RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                                .fill(LitheTheme.inputBackground)
-                        )
-                        .overlay {
-                            RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                                .stroke(LitheTheme.inputBorder, lineWidth: 1)
-                        }
-                    }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .lithePointer()
-                    Text(usesChinese
-                        ? "自动检测 JDK 17+，或选择仅用于 Java 语言服务器的 JDK；不影响项目 JDK。"
-                        : "Automatically detects JDK 17+, or uses a JDK only for the Java language server; project JDK settings are unchanged.")
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                }
-            }
         }
         .padding(14)
         .background(
@@ -230,34 +129,6 @@ struct LSPControlCenterView: View {
             .filter { descriptor in
                 model.projectFiles.contains { descriptor.handles(fileURL: $0) }
             }
-    }
-
-    private func hasConfiguration(for descriptor: LanguageProviderDescriptor) -> Bool {
-        descriptor.id == "java"
-    }
-
-    private var javaJDKDisplayPath: String {
-        let path = model.javaLanguageServerJDKPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !path.isEmpty { return path }
-        if let runtime = model.detectedJavaLanguageServerJDKs.first {
-            return (usesChinese ? "自动：" : "Automatic: ") + javaRuntimeTitle(runtime)
-        }
-        return usesChinese ? "自动检测" : "Automatic"
-    }
-
-    private var selectedJavaRuntime: JavaRuntimeCandidate? {
-        model.detectedJavaLanguageServerJDKs.first(where: isSelectedJavaRuntime)
-    }
-
-    private func isSelectedJavaRuntime(_ runtime: JavaRuntimeCandidate) -> Bool {
-        let selectedPath = model.javaLanguageServerJDKPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !selectedPath.isEmpty else { return false }
-        return URL(fileURLWithPath: runtime.homePath).standardizedFileURL.path
-            == URL(fileURLWithPath: selectedPath).standardizedFileURL.path
-    }
-
-    private func javaRuntimeTitle(_ runtime: JavaRuntimeCandidate) -> String {
-        runtime.displayName
     }
 
     private func serverStatus(for descriptor: LanguageProviderDescriptor) -> LSPServerStatus {

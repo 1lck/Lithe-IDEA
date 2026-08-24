@@ -1,13 +1,25 @@
 import type { EditorContent, PaneContent } from "@/features/panes/types/pane-content.types";
+import { normalizePath } from "@/utils/path-helpers";
 
 interface BufferIndexes {
   byId: Map<string, PaneContent>;
   byPath: Map<string, PaneContent>;
+  byComparablePath: Map<string, PaneContent>;
   indexById: Map<string, number>;
   sourceEditorByPath: Map<string, EditorContent>;
 }
 
 const indexCache = new WeakMap<readonly PaneContent[], BufferIndexes>();
+
+function comparablePath(path: string): string {
+  const normalized = normalizePath(path).replace(/^\/([A-Za-z]:)/, "$1");
+  return /^(?:[A-Za-z]:\/|\/\/)/.test(normalized) ? normalized.toLowerCase() : normalized;
+}
+
+/** Compares buffer identities without treating Windows path spelling as semantic. */
+export function areBufferPathsEqual(left: string, right: string): boolean {
+  return left === right || comparablePath(left) === comparablePath(right);
+}
 
 function getBufferIndexes(buffers: readonly PaneContent[]): BufferIndexes {
   const cached = indexCache.get(buffers);
@@ -15,6 +27,7 @@ function getBufferIndexes(buffers: readonly PaneContent[]): BufferIndexes {
 
   const byId = new Map<string, PaneContent>();
   const byPath = new Map<string, PaneContent>();
+  const byComparablePath = new Map<string, PaneContent>();
   const indexById = new Map<string, number>();
   const sourceEditorByPath = new Map<string, EditorContent>();
 
@@ -25,12 +38,16 @@ function getBufferIndexes(buffers: readonly PaneContent[]): BufferIndexes {
     if (!byPath.has(buffer.path)) {
       byPath.set(buffer.path, buffer);
     }
+    const pathKey = comparablePath(buffer.path);
+    if (!byComparablePath.has(pathKey)) {
+      byComparablePath.set(pathKey, buffer);
+    }
     if (buffer.type === "editor" && !buffer.isVirtual && !sourceEditorByPath.has(buffer.path)) {
       sourceEditorByPath.set(buffer.path, buffer);
     }
   }
 
-  const indexes = { byId, byPath, indexById, sourceEditorByPath };
+  const indexes = { byId, byPath, byComparablePath, indexById, sourceEditorByPath };
   indexCache.set(buffers, indexes);
   return indexes;
 }
@@ -48,7 +65,8 @@ export function getBufferByPath(
   path: string | null | undefined,
 ): PaneContent | null {
   if (!path) return null;
-  return getBufferIndexes(buffers).byPath.get(path) ?? null;
+  const indexes = getBufferIndexes(buffers);
+  return indexes.byPath.get(path) ?? indexes.byComparablePath.get(comparablePath(path)) ?? null;
 }
 
 export function getBufferIndexById(buffers: readonly PaneContent[], bufferId: string): number {

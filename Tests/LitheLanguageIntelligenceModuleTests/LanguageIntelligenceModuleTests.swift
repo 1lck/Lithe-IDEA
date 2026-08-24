@@ -110,6 +110,241 @@ struct LanguageIntelligenceModuleTests {
         #expect(factory.standardRequests.isEmpty)
     }
 
+    @Test
+    func javaWorkspaceResetUsesTheFingerprintFromTheActiveSession() throws {
+        let root = URL(fileURLWithPath: "/workspace/java", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.java")
+        let descriptor = try #require(
+            LanguageProviderCatalog.compatibilityFallback.provider(for: source)
+        )
+        let session = WorkspaceStateLanguageServerSession()
+        let runtime = WorkspaceStateLanguageProviderRuntime(
+            descriptor: descriptor,
+            session: session
+        )
+        var resetRoot: URL?
+        var resetFingerprint: String?
+        let manager = LanguageToolingSessionManager(
+            catalog: .compatibilityFallback,
+            runtimes: [runtime],
+            workspaceFingerprintProvider: { _, _ in "active-fingerprint" },
+            workspaceStateResetter: { _, rootURL, fingerprint in
+                resetRoot = rootURL
+                resetFingerprint = fingerprint
+            }
+        )
+
+        try manager.synchronizeLanguageServer(
+            for: source,
+            text: "class Main {}",
+            rootURL: root
+        )
+        try manager.rebuildWorkspaceState(providerID: "java", rootURL: root)
+
+        #expect(session.startedFingerprint == "active-fingerprint")
+        #expect(session.stopCallCount == 1)
+        #expect(resetRoot == root.standardizedFileURL)
+        #expect(resetFingerprint == "active-fingerprint")
+    }
+
+    @Test
+    func languageServerLifecycleLogsAndCallbacksRetainTheOperationID() throws {
+        let root = URL(fileURLWithPath: "/workspace/java", isDirectory: true)
+        let source = root.appendingPathComponent("Main.java")
+        let descriptor = try #require(
+            LanguageProviderCatalog.compatibilityFallback.provider(for: source)
+        )
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(
+            catalog: .compatibilityFallback,
+            runtimes: [WorkspaceStateLanguageProviderRuntime(
+                descriptor: descriptor,
+                session: session
+            )]
+        )
+        let operationID = UUID()
+        var callbacks: [(LanguageServerSessionState, UUID?)] = []
+        manager.onLanguageServerStateChange = { providerID, state, callbackOperationID in
+            guard providerID == "java" else { return }
+            callbacks.append((state, callbackOperationID))
+        }
+
+        try manager.startLanguageServer(
+            providerID: "java",
+            rootURL: root,
+            operationID: operationID
+        )
+        session.publish(.ready)
+        manager.stopLanguageServer(providerID: "java")
+
+        #expect(manager.languageServerLogs.contains {
+            $0.operationID == operationID.uuidString && $0.message == "Language server ready"
+        })
+        #expect(manager.languageServerLogs.contains {
+            $0.operationID == operationID.uuidString && $0.message == "Stopping language server"
+        })
+        #expect(callbacks.contains { $0.0 == .ready && $0.1 == operationID })
+        #expect(callbacks.contains { $0.0 == .stopped && $0.1 == operationID })
+        #expect(manager.languageServerOperationIDs["java"] == nil)
+    }
+
+    @Test
+    func languageServerStartTimeoutIsLoggedWithTheOperationID() throws {
+        let root = URL(fileURLWithPath: "/workspace/java", isDirectory: true)
+        let source = root.appendingPathComponent("Main.java")
+        let descriptor = try #require(
+            LanguageProviderCatalog.compatibilityFallback.provider(for: source)
+        )
+        let session = WorkspaceStateLanguageServerSession()
+        let timeoutFailure = LanguageServerSessionFailure(
+            code: "timed_out",
+            stage: "initialize",
+            message: WorkspaceStateSessionError.timedOut.localizedDescription
+        )
+        session.startError = LanguageServerSessionStartError(failure: timeoutFailure)
+        let manager = LanguageToolingSessionManager(
+            catalog: .compatibilityFallback,
+            runtimes: [WorkspaceStateLanguageProviderRuntime(
+                descriptor: descriptor,
+                session: session
+            )]
+        )
+        let operationID = UUID()
+
+        #expect(throws: LanguageServerSessionStartError.self) {
+            try manager.startLanguageServer(
+                providerID: "java",
+                rootURL: root,
+                operationID: operationID
+            )
+        }
+
+        #expect(manager.languageServerLogs.contains {
+            $0.operationID == operationID.uuidString
+                && $0.message == "Language server start timed out"
+        })
+        #expect(manager.languageServerStates["java"] == .failed(timeoutFailure))
+    }
+
+    @Test
+    func workspaceCacheCleanupLogsTheLanguageServerOperationID() throws {
+        let root = URL(fileURLWithPath: "/workspace/java", isDirectory: true)
+        let source = root.appendingPathComponent("Main.java")
+        let descriptor = try #require(
+            LanguageProviderCatalog.compatibilityFallback.provider(for: source)
+        )
+        let session = WorkspaceStateLanguageServerSession()
+        var cleanedFingerprint: String?
+        let manager = LanguageToolingSessionManager(
+            catalog: .compatibilityFallback,
+            runtimes: [WorkspaceStateLanguageProviderRuntime(
+                descriptor: descriptor,
+                session: session
+            )],
+            workspaceFingerprintProvider: { _, _ in "active-fingerprint" },
+            workspaceStateCleaner: { _, cleanedRoot, fingerprint in
+                #expect(cleanedRoot == root.standardizedFileURL)
+                cleanedFingerprint = fingerprint
+                return 2
+            }
+        )
+        let operationID = UUID()
+
+        try manager.startLanguageServer(
+            providerID: "java",
+            rootURL: root,
+            operationID: operationID
+        )
+
+        #expect(cleanedFingerprint == "active-fingerprint")
+        #expect(manager.languageServerLogs.contains {
+            $0.operationID == operationID.uuidString
+                && $0.message == "Language server cache cleanup started"
+        })
+        #expect(manager.languageServerLogs.contains {
+            $0.operationID == operationID.uuidString
+                && $0.message == "Language server cache cleanup succeeded"
+                && $0.detail == "removedCount=2"
+        })
+    }
+
+    @Test
+    func workspaceFingerprintFailureIsLoggedAndBlocksStartup() throws {
+        let root = URL(fileURLWithPath: "/workspace/java", isDirectory: true)
+        let source = root.appendingPathComponent("Main.java")
+        let descriptor = try #require(
+            LanguageProviderCatalog.compatibilityFallback.provider(for: source)
+        )
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(
+            catalog: .compatibilityFallback,
+            runtimes: [WorkspaceStateLanguageProviderRuntime(
+                descriptor: descriptor,
+                session: session
+            )],
+            workspaceFingerprintProvider: { _, _ in
+                throw WorkspaceStateSessionError.unexpectedOperation
+            }
+        )
+        let operationID = UUID()
+
+        #expect(throws: WorkspaceStateSessionError.self) {
+            try manager.startLanguageServer(
+                providerID: "java",
+                rootURL: root,
+                operationID: operationID
+            )
+        }
+
+        #expect(!session.isRunning)
+        #expect(manager.languageServerLogs.contains {
+            $0.operationID == operationID.uuidString
+                && $0.level == .error
+                && $0.message == "Language server workspace fingerprint failed"
+        })
+        #expect(manager.languageServerStates["java"] == .failed(LanguageServerSessionFailure(
+            code: "workspace_fingerprint_failed",
+            stage: "workspaceFingerprint",
+            message: WorkspaceStateSessionError.unexpectedOperation.localizedDescription
+        )))
+    }
+
+    @Test
+    func workspaceCacheCleanupFailureIsLoggedAndDoesNotBlockStartup() throws {
+        let root = URL(fileURLWithPath: "/workspace/java", isDirectory: true)
+        let source = root.appendingPathComponent("Main.java")
+        let descriptor = try #require(
+            LanguageProviderCatalog.compatibilityFallback.provider(for: source)
+        )
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(
+            catalog: .compatibilityFallback,
+            runtimes: [WorkspaceStateLanguageProviderRuntime(
+                descriptor: descriptor,
+                session: session
+            )],
+            workspaceFingerprintProvider: { _, _ in "active-fingerprint" },
+            workspaceStateCleaner: { _, _, _ in
+                throw WorkspaceStateSessionError.unexpectedOperation
+            }
+        )
+        let operationID = UUID()
+
+        try manager.startLanguageServer(
+            providerID: "java",
+            rootURL: root,
+            operationID: operationID
+        )
+
+        #expect(session.isRunning)
+        #expect(session.startedFingerprint == "active-fingerprint")
+        #expect(manager.languageServerLogs.contains {
+            $0.operationID == operationID.uuidString
+                && $0.level == .warning
+                && $0.message == "Language server cache cleanup failed"
+        })
+    }
+
     private func makeModule(recorder: Recorder) -> LanguageIntelligenceModule {
         LanguageIntelligenceModule(makeGraph: {
             recorder.graphCalls += 1
@@ -212,6 +447,149 @@ private final class TestLanguageProviderRuntimeFactory: LanguageProviderRuntimeF
 private final class TestLanguageProviderRuntime: LanguageProviderRuntime {
     let descriptor: LanguageProviderDescriptor
     init(descriptor: LanguageProviderDescriptor) { self.descriptor = descriptor }
+}
+
+@MainActor
+private final class WorkspaceStateLanguageProviderRuntime: LanguageProviderRuntime {
+    let descriptor: LanguageProviderDescriptor
+    let session: WorkspaceStateLanguageServerSession
+    var supportsLanguageServerSession: Bool { true }
+
+    init(
+        descriptor: LanguageProviderDescriptor,
+        session: WorkspaceStateLanguageServerSession
+    ) {
+        self.descriptor = descriptor
+        self.session = session
+    }
+
+    func makeLanguageServerSession() -> (any LanguageServerSession)? { session }
+}
+
+@MainActor
+private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
+    var isRunning = false
+    var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)?
+    var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)?
+    var onStateChange: ((LanguageServerSessionState) -> Void)?
+    var features: LanguageServerFeatureSet = []
+    var onFeaturesChange: ((LanguageServerFeatureSet) -> Void)?
+    var serverInfo: LanguageServerInfo?
+    var onServerInfoChange: ((LanguageServerInfo?) -> Void)?
+    private(set) var startedFingerprint: String?
+    private(set) var stopCallCount = 0
+    var startError: Error?
+
+    func start(rootURL _: URL, workspaceFingerprint: String?) throws {
+        if let startError { throw startError }
+        startedFingerprint = workspaceFingerprint
+        isRunning = true
+    }
+
+    func publish(_ state: LanguageServerSessionState) {
+        onStateChange?(state)
+    }
+
+    func synchronize(fileURL _: URL, text _: String, languageID _: String) throws {}
+    func closeDocument(_: URL) {}
+
+    func completions(
+        fileURL _: URL,
+        position _: LanguageServerPosition,
+        completion _: @escaping (Result<[LanguageServerCompletionItem], Error>) -> Void
+    ) throws {
+        throw WorkspaceStateSessionError.unexpectedOperation
+    }
+
+    func hover(
+        fileURL _: URL,
+        position _: LanguageServerPosition,
+        completion _: @escaping (Result<LanguageServerHover?, Error>) -> Void
+    ) throws {
+        throw WorkspaceStateSessionError.unexpectedOperation
+    }
+
+    func navigate(
+        method _: String,
+        fileURL _: URL,
+        position _: LanguageServerPosition,
+        completion _: @escaping (Result<[LanguageServerLocation], Error>) -> Void
+    ) throws {
+        throw WorkspaceStateSessionError.unexpectedOperation
+    }
+
+    func rename(
+        fileURL _: URL,
+        position _: LanguageServerPosition,
+        newName _: String,
+        completion _: @escaping (Result<LanguageServerWorkspaceEdit, Error>) -> Void
+    ) throws {
+        throw WorkspaceStateSessionError.unexpectedOperation
+    }
+
+    func format(
+        fileURL _: URL,
+        completion _: @escaping (Result<[LanguageServerTextEdit], Error>) -> Void
+    ) throws {
+        throw WorkspaceStateSessionError.unexpectedOperation
+    }
+
+    func codeActions(
+        fileURL _: URL,
+        range _: LanguageServerRange,
+        diagnostics _: [LanguageServerDiagnostic],
+        completion _: @escaping (Result<[LanguageServerCodeAction], Error>) -> Void
+    ) throws {
+        throw WorkspaceStateSessionError.unexpectedOperation
+    }
+
+    func resolveCompletion(
+        _: LanguageServerCompletionItem,
+        fileURL _: URL,
+        completion _: @escaping (Result<LanguageServerCompletionItem, Error>) -> Void
+    ) throws {
+        throw WorkspaceStateSessionError.unexpectedOperation
+    }
+
+    func resolveCodeAction(
+        _: LanguageServerCodeAction,
+        fileURL _: URL,
+        completion _: @escaping (Result<LanguageServerCodeAction, Error>) -> Void
+    ) throws {
+        throw WorkspaceStateSessionError.unexpectedOperation
+    }
+
+    func execute(
+        _: LanguageServerCommand,
+        fileURL _: URL,
+        completion _: @escaping (Result<Void, Error>) -> Void
+    ) throws {
+        throw WorkspaceStateSessionError.unexpectedOperation
+    }
+
+    func resolveVirtualDocument(
+        uri _: String,
+        completion _: @escaping (Result<String, Error>) -> Void
+    ) throws {
+        throw WorkspaceStateSessionError.unexpectedOperation
+    }
+
+    func stop() {
+        stopCallCount += 1
+        isRunning = false
+    }
+}
+
+private enum WorkspaceStateSessionError: LocalizedError {
+    case unexpectedOperation
+    case timedOut
+
+    var errorDescription: String? {
+        switch self {
+        case .unexpectedOperation: "Unexpected language-server operation."
+        case .timedOut: "Language server initialization timed out."
+        }
+    }
 }
 
 @MainActor

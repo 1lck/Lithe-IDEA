@@ -396,13 +396,46 @@ package enum LanguageServerOperation: String, Equatable, Sendable {
     case virtualDocument
 }
 
+package struct LanguageServerSessionFailure: Equatable, Sendable {
+    package let code: String?
+    package let stage: String?
+    package let exitCode: Int32?
+    package let message: String?
+
+    package init(
+        code: String? = nil,
+        stage: String? = nil,
+        exitCode: Int32? = nil,
+        message: String? = nil
+    ) {
+        self.code = code
+        self.stage = stage
+        self.exitCode = exitCode
+        self.message = message
+    }
+
+    package var isTimedOut: Bool { code == "timed_out" }
+}
+
+package struct LanguageServerSessionStartError: LocalizedError, Sendable {
+    package let failure: LanguageServerSessionFailure
+
+    package init(failure: LanguageServerSessionFailure) {
+        self.failure = failure
+    }
+
+    package var errorDescription: String? {
+        failure.message ?? "Language server failed to start."
+    }
+}
+
 package enum LanguageServerSessionState: Equatable, Sendable {
     case startingProcess
     case initializing
     case ready
     case stopping
     case stopped
-    case failed(exitCode: Int32?, message: String?)
+    case failed(LanguageServerSessionFailure)
 }
 
 package struct LanguageServerInfo: Equatable, Sendable {
@@ -419,6 +452,7 @@ package struct LanguageServerLogEntry: Identifiable, Equatable, Sendable {
     package let id: UUID
     package let timestamp: Date
     package let providerID: String
+    package let operationID: String?
     package let level: LanguageServerLogLevel
     package let message: String
     package let detail: String?
@@ -427,6 +461,7 @@ package struct LanguageServerLogEntry: Identifiable, Equatable, Sendable {
         id: UUID = UUID(),
         timestamp: Date = Date(),
         providerID: String,
+        operationID: String? = nil,
         level: LanguageServerLogLevel,
         message: String,
         detail: String? = nil
@@ -434,6 +469,7 @@ package struct LanguageServerLogEntry: Identifiable, Equatable, Sendable {
         self.id = id
         self.timestamp = timestamp
         self.providerID = providerID
+        self.operationID = operationID
         self.level = level
         self.message = message
         self.detail = detail
@@ -489,14 +525,20 @@ package struct LanguageServerCodeAction: Identifiable, Equatable, Sendable {
 package protocol LanguageServerSession: AnyObject {
     var isRunning: Bool { get }
     var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)? { get set }
-    var onLog: ((LanguageServerLogLevel, String, String?) -> Void)? { get set }
+    var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)? { get set }
     var onStateChange: ((LanguageServerSessionState) -> Void)? { get set }
     var features: LanguageServerFeatureSet { get }
     var onFeaturesChange: ((LanguageServerFeatureSet) -> Void)? { get set }
     var serverInfo: LanguageServerInfo? { get }
     var onServerInfoChange: ((LanguageServerInfo?) -> Void)? { get set }
-    func start(rootURL: URL) throws
+    /// Start the language server for the given workspace root.
+    /// - Parameter workspaceFingerprint: An opaque digest of the workspace's
+    ///   build-system structure. When non-nil, JDT LS uses a per-fingerprint
+    ///   state directory so structural changes (add/remove module, edit root
+    ///   pom.xml) never reuse a stale project model.
+    func start(rootURL: URL, workspaceFingerprint: String?) throws
     func synchronize(fileURL: URL, text: String, languageID: String) throws
+    func notifyWorkspaceFilesChanged(_ changes: [LanguageServerWorkspaceFileChange]) throws
     func closeDocument(_ fileURL: URL)
     func completions(
         fileURL: URL,
@@ -549,6 +591,15 @@ package protocol LanguageServerSession: AnyObject {
         uri: String,
         completion: @escaping (Result<String, Error>) -> Void
     ) throws
+    func javaNavigationMarkers(
+        fileURL: URL,
+        completion: @escaping (Result<[JavaNavigationMarker], Error>) -> Void
+    ) throws
+    func resolveJavaNavigation(
+        fileURL: URL,
+        marker: JavaNavigationMarker,
+        completion: @escaping (Result<[LanguageServerLocation], Error>) -> Void
+    ) throws
     func stop()
 }
 
@@ -558,7 +609,7 @@ package extension LanguageServerSession {
         get { nil }
         set {}
     }
-    var onLog: ((LanguageServerLogLevel, String, String?) -> Void)? {
+    var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)? {
         get { nil }
         set {}
     }
@@ -572,6 +623,26 @@ package extension LanguageServerSession {
         set {}
     }
     func closeDocument(_: URL) {}
+    func notifyWorkspaceFilesChanged(_: [LanguageServerWorkspaceFileChange]) throws {}
+    func javaNavigationMarkers(
+        fileURL _: URL,
+        completion: @escaping (Result<[JavaNavigationMarker], Error>) -> Void
+    ) throws {
+        completion(.failure(LanguageServerFeatureUnavailable.javaNavigation))
+    }
+    func resolveJavaNavigation(
+        fileURL _: URL,
+        marker _: JavaNavigationMarker,
+        completion: @escaping (Result<[LanguageServerLocation], Error>) -> Void
+    ) throws {
+        completion(.failure(LanguageServerFeatureUnavailable.javaNavigation))
+    }
+}
+
+private enum LanguageServerFeatureUnavailable: LocalizedError {
+    case javaNavigation
+
+    var errorDescription: String? { "Java navigation is not supported by this language server." }
 }
 
 @MainActor

@@ -429,13 +429,36 @@ enum LitheIcons {
         render(key: "\(kind):\(size)", content: LitheIcon(kind: kind, size: size))
     }
 
-    /// gutter 的实现/重写标记：绿色圆形 + 向下/向上箭头。
+    /// Renders the four IDEA Java gutter variants from relationship and direction.
     @MainActor
-    static func implementationMarkerImage(pointingDown: Bool, size: CGFloat) -> NSImage? {
-        render(
-            key: "impl:\(pointingDown):\(size)",
-            content: ImplementationMarkerIcon(pointingDown: pointingDown, size: size)
+    static func implementationMarkerImage(
+        isInterface: Bool,
+        pointingDown: Bool,
+        size: CGFloat
+    ) -> NSImage? {
+        let assetPath = implementationMarkerAssetPath(
+            isInterface: isInterface,
+            pointingDown: pointingDown
         )
+        let cacheKey = "idea:\(assetPath):\(size)"
+        if let cached = ImageCache.shared.storage[cacheKey] { return cached }
+        guard let source = ideaImage(resourcePath: assetPath),
+              let image = source.copy() as? NSImage else { return nil }
+        image.size = NSSize(width: size, height: size)
+        ImageCache.shared.storage[cacheKey] = image
+        return image
+    }
+
+    static func implementationMarkerAssetPath(
+        isInterface: Bool,
+        pointingDown: Bool
+    ) -> String {
+        switch (isInterface, pointingDown) {
+        case (true, true): "gutter/implementedMethod.svg"
+        case (true, false): "gutter/implementingMethod.svg"
+        case (false, true): "gutter/overridenMethod.svg"
+        case (false, false): "gutter/overridingMethod.svg"
+        }
     }
 
     static func appLogo(size: CGFloat = 42) -> LitheLogo {
@@ -709,48 +732,6 @@ private struct FolderShape: Shape {
 }
 
 // MARK: - gutter 实现标记
-
-struct ImplementationMarkerIcon: View {
-    let pointingDown: Bool
-    var size: CGFloat = 13
-
-    private var color: Color {
-        pointingDown
-            ? Color(red: 0.36, green: 0.74, blue: 0.48)
-            : Color(red: 0.42, green: 0.66, blue: 0.90)
-    }
-
-    var body: some View {
-        ZStack {
-            Circle()
-                .fill(color.opacity(0.18))
-            Circle()
-                .strokeBorder(color.opacity(0.88), lineWidth: max(1, size / 13))
-            ArrowShape(pointingDown: pointingDown)
-                .stroke(color, style: StrokeStyle(lineWidth: max(1.2, size / 9), lineCap: .round, lineJoin: .round))
-                .frame(width: size * 0.40, height: size * 0.48)
-        }
-        .frame(width: size, height: size)
-    }
-}
-
-private struct ArrowShape: Shape {
-    let pointingDown: Bool
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let tipY = pointingDown ? rect.maxY : rect.minY
-        let tailY = pointingDown ? rect.minY : rect.maxY
-        let headY = pointingDown ? rect.maxY - rect.height * 0.42 : rect.minY + rect.height * 0.42
-
-        path.move(to: CGPoint(x: rect.midX, y: tailY))
-        path.addLine(to: CGPoint(x: rect.midX, y: tipY))
-        path.move(to: CGPoint(x: rect.minX, y: headY))
-        path.addLine(to: CGPoint(x: rect.midX, y: tipY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: headY))
-        return path
-    }
-}
 
 // MARK: - 应用 Logo
 

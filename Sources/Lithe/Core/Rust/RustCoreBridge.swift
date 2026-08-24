@@ -730,23 +730,6 @@ struct RustCoreBridge: Sendable {
             }
         }
 
-        struct ImplementationMarker: Decodable, Sendable {
-            let line: Int
-            let utf16Column: Int
-            let implementationCount: Int
-            let direction: String
-
-            func makeModel() -> JavaImplementationMarker? {
-                guard let direction = JavaImplementationDirection(rawValue: direction) else { return nil }
-                return JavaImplementationMarker(
-                    line: line,
-                    utf16Column: utf16Column,
-                    implementationCount: implementationCount,
-                    direction: direction
-                )
-            }
-        }
-
         struct InlayHint: Decodable, Sendable {
             let line: Int
             let utf16Column: Int
@@ -757,15 +740,29 @@ struct RustCoreBridge: Sendable {
             }
         }
 
+        struct SyntaxHighlight: Decodable, Sendable {
+            let utf16Start: Int
+            let utf16Length: Int
+            let role: String
+
+            func makeModel() -> JavaSyntaxHighlight? {
+                guard utf16Start >= 0, utf16Length > 0 else { return nil }
+                return JavaSyntaxHighlight(
+                    range: NSRange(location: utf16Start, length: utf16Length),
+                    role: role
+                )
+            }
+        }
+
         let foldRegions: [FoldRegion]
-        let implementationMarkers: [ImplementationMarker]
         let inlayHints: [InlayHint]
+        let syntaxHighlights: [SyntaxHighlight]
 
         func makeFoldRegions() -> [JavaFoldRegion] { foldRegions.compactMap { $0.makeModel() } }
-        func makeImplementationMarkers() -> [JavaImplementationMarker] {
-            implementationMarkers.compactMap { $0.makeModel() }
-        }
         func makeInlayHints() -> [JavaInlayHint] { inlayHints.map { $0.makeModel() } }
+        func makeSyntaxHighlights() -> [JavaSyntaxHighlight] {
+            syntaxHighlights.compactMap { $0.makeModel() }
+        }
     }
 
     struct GitCommandPayload: Decodable, Sendable {
@@ -1321,6 +1318,63 @@ struct RustCoreBridge: Sendable {
         let processId: Int32?
     }
 
+    private struct JdtWorkspaceKeyRequest: Encodable {
+        let workspaceRoot: String
+        let workspaceFingerprint: String?
+    }
+
+    private struct JdtWorkspaceKeyPayload: Decodable {
+        let workspaceKey: String
+    }
+
+    struct JdtBuildFileObservation: Encodable, Equatable, Sendable {
+        let path: String
+        let modifiedUnixMilliseconds: UInt64
+        let sizeBytes: UInt64
+    }
+
+    private struct JdtWorkspaceFingerprintRequest: Encodable {
+        let buildFiles: [JdtBuildFileObservation]
+        let directMavenModules: [String]
+        let jdtlsVersion: String
+    }
+
+    private struct JdtWorkspaceFingerprintPayload: Decodable {
+        let workspaceFingerprint: String
+    }
+
+    struct JdtCacheEntry: Encodable, Sendable {
+        let workspaceKey: String
+        let lastModifiedUnixSeconds: UInt64
+    }
+
+    private struct JdtCacheRetentionRequest: Encodable {
+        let nowUnixSeconds: UInt64
+        let activeWorkspaceKey: String?
+        let entries: [JdtCacheEntry]
+    }
+
+    struct JdtCacheRetentionPayload: Decodable, Sendable {
+        let retentionDays: UInt64
+        let expiredWorkspaceKeys: [String]
+    }
+
+    private struct JavaWorkspacePolicyRequest: Encodable {
+        let workspacePaths: [String]
+        let changedPaths: [String]
+    }
+
+    struct JavaWorkspacePolicyPayload: Decodable, Sendable {
+        struct Change: Decodable, Sendable {
+            let path: String
+            let kind: String
+        }
+
+        let shouldStart: Bool
+        let representativeJavaPath: String?
+        let changes: [Change]
+    }
+
     private struct LspStartServerRequest: Encodable {
         let providerId: String
         let executablePath: String
@@ -1331,6 +1385,7 @@ struct RustCoreBridge: Sendable {
         let initializationOptions: ToolingJSONValue?
         let runtimeExecutablePath: String?
         let cacheDirectory: String?
+        let workspaceFingerprint: String?
         let initializeTimeoutMilliseconds: Int
         let requestTimeoutMilliseconds: Int
         let shutdownTimeoutMilliseconds: Int
@@ -1345,6 +1400,37 @@ struct RustCoreBridge: Sendable {
         let uri: String
         let languageId: String
         let text: String
+    }
+
+    private struct LspWorkspaceFilesChangedRequest: Encodable {
+        struct Change: Encodable {
+            let uri: String
+            let kind: String
+        }
+
+        let sessionId: String
+        let changes: [Change]
+    }
+
+    struct LspSyncDocumentPayload: Decodable, Sendable {
+        let documentVersion: Int
+        let changed: Bool
+    }
+
+    private struct JavaNavigationMarkersRequest: Encodable {
+        let sessionId: String
+        let uri: String
+        let documentVersion: Int
+    }
+
+    private struct JavaResolveNavigationRequest: Encodable {
+        let sessionId: String
+        let uri: String
+        let line: Int
+        let utf16Column: Int
+        let direction: String
+        let relation: String
+        let documentVersion: Int
     }
 
     private struct LspCloseDocumentRequest: Encodable {
@@ -2725,6 +2811,69 @@ struct RustCoreBridge: Sendable {
 
     // MARK: - Language-server runtime
 
+    /// Resolves the exact JDT LS directory key used by the Rust runtime.
+    func jdtWorkspaceKey(
+        workspaceRootURL: URL,
+        workspaceFingerprint: String?
+    ) -> Result<String, CoreCallError> {
+        let result: Result<JdtWorkspaceKeyPayload, CoreCallError> = executeResult(
+            command: "lsp.jdtWorkspaceKey",
+            payload: JdtWorkspaceKeyRequest(
+                workspaceRoot: workspaceRootURL.standardizedFileURL.path,
+                workspaceFingerprint: workspaceFingerprint
+            )
+        )
+        return result.map(\.workspaceKey)
+    }
+
+    /// Reduces platform filesystem observations to the shared JDT LS
+    /// workspace-fingerprint representation owned by Rust Core.
+    func jdtWorkspaceFingerprint(
+        buildFiles: [JdtBuildFileObservation],
+        directMavenModules: [String],
+        jdtlsVersion: String
+    ) -> Result<String, CoreCallError> {
+        let result: Result<JdtWorkspaceFingerprintPayload, CoreCallError> = executeResult(
+            command: "java.jdtWorkspaceFingerprint",
+            payload: JdtWorkspaceFingerprintRequest(
+                buildFiles: buildFiles,
+                directMavenModules: directMavenModules,
+                jdtlsVersion: jdtlsVersion
+            )
+        )
+        return result.map(\.workspaceFingerprint)
+    }
+
+    /// Applies the shared retention policy to filesystem metadata collected by
+    /// a platform adapter. Rust Core selects keys but never deletes directories.
+    func jdtCacheRetention(
+        nowUnixSeconds: UInt64,
+        activeWorkspaceKey: String?,
+        entries: [JdtCacheEntry]
+    ) -> Result<JdtCacheRetentionPayload, CoreCallError> {
+        executeResult(
+            command: "java.jdtCacheRetention",
+            payload: JdtCacheRetentionRequest(
+                nowUnixSeconds: nowUnixSeconds,
+                activeWorkspaceKey: activeWorkspaceKey,
+                entries: entries
+            )
+        )
+    }
+
+    func javaWorkspacePolicy(
+        workspacePaths: [String],
+        changedPaths: [String]
+    ) -> JavaWorkspacePolicyPayload? {
+        execute(
+            command: "java.workspacePolicy",
+            payload: JavaWorkspacePolicyRequest(
+                workspacePaths: workspacePaths,
+                changedPaths: changedPaths
+            )
+        )
+    }
+
     /// Starts a language server and returns its opaque session ID. Rust spawns
     /// and owns the process; nothing about it crosses back except this ID.
     func lspStartServer(
@@ -2737,6 +2886,7 @@ struct RustCoreBridge: Sendable {
         initializationOptions: ToolingJSONValue? = nil,
         runtimeExecutableURL: URL? = nil,
         cacheDirectoryURL: URL? = nil,
+        workspaceFingerprint: String? = nil,
         initializeTimeout: TimeInterval = 60,
         requestTimeout: TimeInterval = 30,
         shutdownTimeout: TimeInterval = 2
@@ -2753,6 +2903,7 @@ struct RustCoreBridge: Sendable {
                 initializationOptions: initializationOptions,
                 runtimeExecutablePath: runtimeExecutableURL?.standardizedFileURL.path,
                 cacheDirectory: cacheDirectoryURL?.standardizedFileURL.path,
+                workspaceFingerprint: workspaceFingerprint,
                 initializeTimeoutMilliseconds: Self.milliseconds(initializeTimeout),
                 requestTimeoutMilliseconds: Self.milliseconds(requestTimeout),
                 shutdownTimeoutMilliseconds: Self.milliseconds(shutdownTimeout)
@@ -2776,14 +2927,32 @@ struct RustCoreBridge: Sendable {
         fileURL: URL,
         languageID: String,
         text: String
-    ) -> Result<Void, CoreCallError> {
-        executeVoid(
+    ) -> Result<LspSyncDocumentPayload, CoreCallError> {
+        executeResult(
             command: "lsp.syncDocument",
             payload: LspSyncDocumentRequest(
                 sessionId: sessionID,
                 uri: fileURL.standardizedFileURL.absoluteString,
                 languageId: languageID,
                 text: text
+            )
+        )
+    }
+
+    func lspWorkspaceFilesChanged(
+        sessionID: String,
+        changes: [LanguageServerWorkspaceFileChange]
+    ) -> Result<Void, CoreCallError> {
+        executeVoid(
+            command: "lsp.workspaceFilesChanged",
+            payload: LspWorkspaceFilesChangedRequest(
+                sessionId: sessionID,
+                changes: changes.map {
+                    LspWorkspaceFilesChangedRequest.Change(
+                        uri: $0.fileURL.standardizedFileURL.absoluteString,
+                        kind: $0.kind.rawValue
+                    )
+                }
             )
         )
     }
@@ -2829,6 +2998,41 @@ struct RustCoreBridge: Sendable {
                 completionItem: completionItem.map(Self.makeCompletionItemRequest),
                 codeAction: codeAction.map(Self.makeCodeActionRequest),
                 command: command.map(Self.makeCommandRequest)
+            )
+        )
+    }
+
+    func lspJavaNavigationMarkers(
+        sessionID: String,
+        fileURL: URL,
+        documentVersion: Int
+    ) -> Result<LspOperationPayload, CoreCallError> {
+        executeResult(
+            command: "java.navigationMarkers",
+            payload: JavaNavigationMarkersRequest(
+                sessionId: sessionID,
+                uri: fileURL.standardizedFileURL.absoluteString,
+                documentVersion: documentVersion
+            )
+        )
+    }
+
+    func lspResolveJavaNavigation(
+        sessionID: String,
+        fileURL: URL,
+        marker: JavaNavigationMarker,
+        documentVersion: Int
+    ) -> Result<LspOperationPayload, CoreCallError> {
+        executeResult(
+            command: "java.resolveNavigation",
+            payload: JavaResolveNavigationRequest(
+                sessionId: sessionID,
+                uri: fileURL.standardizedFileURL.absoluteString,
+                line: marker.line,
+                utf16Column: marker.utf16Column,
+                direction: marker.direction.rawValue,
+                relation: marker.relation.rawValue,
+                documentVersion: documentVersion
             )
         )
     }
@@ -2992,13 +3196,15 @@ struct RustCoreBridge: Sendable {
         return outcome.map { _ in () }
     }
 
-    private func executeResult<Payload: Encodable, Data: Decodable>(
+    func executeResult<Payload: Encodable, Data: Decodable>(
         command: String,
-        payload: Payload
+        payload: Payload,
+        operationID: String? = nil
     ) -> Result<Data, CoreCallError> {
         let outcome: Result<Envelope<Data>, CoreCallError> = decodeEnvelope(
             command: command,
-            payload: payload
+            payload: payload,
+            operationID: operationID
         )
         return outcome.flatMap { envelope in
             guard let value = envelope.data else {
@@ -3016,7 +3222,8 @@ struct RustCoreBridge: Sendable {
     /// payload is required is the caller's business.
     private func decodeEnvelope<Payload: Encodable, Data: Decodable>(
         command: String,
-        payload: Payload
+        payload: Payload,
+        operationID: String? = nil
     ) -> Result<Envelope<Data>, CoreCallError> {
         guard isAvailable else {
             return .failure(CoreCallError(
@@ -3025,7 +3232,7 @@ struct RustCoreBridge: Sendable {
                 details: nil
             ))
         }
-        let requestID = UUID().uuidString
+        let requestID = operationID ?? UUID().uuidString
         guard let requestData = try? JSONEncoder().encode(
             Request(
                 id: requestID,

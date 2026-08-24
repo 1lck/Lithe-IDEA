@@ -72,6 +72,7 @@ stable error code and a user-facing message:
 | `workspace.replacePreview` | Return deterministic replacement lines and complete replacement text |
 | `file.read` | Read a UTF-8 file using a workspace-relative path |
 | `file.write` | Write a UTF-8 file using a workspace-relative path |
+| `document.lifecycle` | Reduce a shared document save, external-change, or conflict event without reading text or disk |
 | `history.record` | Store a versioned text snapshot and metadata |
 | `history.entries` | List valid history entries for one file or a workspace |
 | `history.content` | Read a stored history snapshot by relative storage path |
@@ -86,10 +87,17 @@ stable error code and a user-facing message:
 | `lsp.builtinHover` | Return lightweight current-symbol hover text |
 | `lsp.builtinNavigation` | Return lightweight current-file definition/reference locations |
 | `lsp.startServer` | Start one Rust-owned process/session and begin initialization |
+| `lsp.jdtWorkspaceKey` | Derive the deterministic JDT LS workspace-state directory key |
+| `java.workspacePolicy` | Decide Java workspace activation and classify changed paths |
+| `java.jdtWorkspaceFingerprint` | Reduce platform build-file observations to the portable JDT LS workspace fingerprint |
+| `java.jdtCacheRetention` | Select expired inactive JDT LS workspace-state keys from platform metadata |
 | `lsp.stopServer` | Gracefully shut down a session, with a bounded force-stop fallback |
 | `lsp.syncDocument` | Open a document or apply a full-text or incremental `didChange` with monotonic versions |
+| `lsp.workspaceFilesChanged` | Publish normalized created, changed, or deleted workspace files to one session |
 | `lsp.closeDocument` | Close a document and clear its diagnostics |
 | `lsp.request` | Submit a typed semantic request and return an opaque operation ID |
+| `java.navigationMarkers` | Resolve versioned Java gutter markers from bounded JDT LS semantic requests |
+| `java.resolveNavigation` | Resolve one Java gutter marker to normalized parent or implementation locations |
 | `lsp.cancelOperation` | Cancel one pending semantic operation |
 | `lsp.pollEvents` | Drain ordered typed lifecycle/feature/diagnostic/result/log events |
 | `lsp.waitEvents` | Block until queued events exist or a timeout elapses, then drain them |
@@ -101,7 +109,7 @@ stable error code and a user-facing message:
 | `java.className` | Resolve a Java source package and simple name into a runtime class name |
 | `java.sourceDefinition` | Locate a Java type, method, or field declaration in source text |
 | `java.serverPort` | Parse Spring server port settings from properties or YAML text |
-| `java.structure` | Parse Java editor structure, implementation candidates, and inlay hints |
+| `java.structure` | Parse Java editor folds, inlay hints, and portable syntax roles |
 | `spring.index` | Build a deterministic Spring configuration, bean, injection, and endpoint index |
 | `runConfig.inspect` | Inspect `.lithe` run documents, versions, and staleness without writing files |
 | `runConfig.generate` | Generate deterministic Java/Maven configurations and toolchain requirements |
@@ -142,6 +150,15 @@ Java processes, and runtime discovery remain platform adapters.
 
 The protocol version is currently `1`. Add a fixture under `shared/fixtures/`
 before changing a response shape or search rule.
+
+`document.lifecycle` accepts a discriminated `state` (`clean`, `dirty`,
+`saving`, or `conflict`) and one typed `event`. It returns the next state plus
+one platform effect such as `writeToDisk`, `reloadFromDisk`, or
+`showConflict`. `saving` carries the snapshot revision and `operationId`, so a
+stale completion cannot clear newer edits. Live text, editor models, selections,
+watchers, and native file I/O stay platform-owned; local keystrokes update the
+same revision semantics in-process and never cross the Rust boundary. The
+portable examples are in `shared/fixtures/documents/lifecycle-v1.json`.
 
 GitHub command shapes, authorization behavior, and supported pull-request
 operations are documented in [`github.md`](github.md). Rust Core performs no
@@ -326,18 +343,88 @@ The `lsp.*Server`, `lsp.*Document`, `lsp.request`, `lsp.pollEvents`, and
 `lsp.waitEvents`
 commands are the semantic LSP runtime boundary. `lsp.startServer` accepts the
 provider ID, selected executable/arguments/environment, root URI, working
-directory, initialization options, optional runtime executable and cache
-directory, plus initialize/request/shutdown deadlines. Rust owns the returned
+directory, initialization options, optional runtime executable, cache
+directory, and `workspaceFingerprint`, plus initialize/request/shutdown
+deadlines. Rust owns the returned
 session's child process, stdin/stdout/stderr, framing buffer, JSON-RPC request
 IDs, document versions, pending deadlines, capabilities, diagnostics, and
 graceful/forced termination.
+
+For JDT LS, platform adapters observe root Maven/Gradle descriptor timestamps
+and sizes, names of direct Maven module directories, and the selected JDT LS
+version. They submit those raw observations to `java.jdtWorkspaceFingerprint`;
+Rust Core validates, sorts, de-duplicates, and constructs the sole portable
+fingerprint representation. Core then hashes the normalized workspace identity
+followed by a null separator and that opaque fingerprint to select
+`cacheDirectory/jdtls/<workspaceKey>`.
+Omitting the fingerprint preserves the legacy path-only key for older clients.
+Changing structure selects a new directory without deleting the old one, so a
+later switch back can reuse it.
+
+`java.jdtWorkspaceFingerprint` accepts
+`{ buildFiles, directMavenModules, jdtlsVersion }`. Each build-file observation
+contains a workspace-relative `path`, `modifiedUnixMilliseconds`, and
+`sizeBytes`. It returns `{ workspaceFingerprint }`; platforms must not recreate
+or parse this opaque string. Compatibility cases are in
+`shared/fixtures/lsp/jdt-workspace-fingerprint-v1.json`.
+
+`lsp.jdtWorkspaceKey` accepts `{ workspaceRoot, workspaceFingerprint? }` and
+returns `{ workspaceKey }` through the same normalization and SHA-256 algorithm
+used by `lsp.startServer`. Platform cache-maintenance actions use it to remove
+only the current workspace/fingerprint directory; they do not clear sibling
+workspaces or older structural states.
+
+`java.workspacePolicy` accepts `workspacePaths` and `changedPaths` as
+workspace-relative paths. It starts Java tooling when any non-ignored `.java`
+source exists, regardless of Maven or Gradle metadata, chooses one deterministic
+representative source, and classifies changes as `ignored`, `source`,
+`buildConfiguration`, or `other`. The compatibility examples are in
+`shared/fixtures/lsp/java-workspace-policy-v1.json`.
+
+`java.jdtCacheRetention` accepts platform-observed cache directory metadata as
+`{ nowUnixSeconds, activeWorkspaceKey?, entries }`. Each entry contains a
+lowercase 64-character SHA-256 `workspaceKey` and
+`lastModifiedUnixSeconds`. Core ignores invalid candidate names, de-duplicates
+observations using the newest timestamp, never selects the active key, and
+returns deterministically sorted `expiredWorkspaceKeys` older than the fixed
+30-day retention period. Platform adapters own the last-used marker, directory
+enumeration, revalidation, deletion, and error logging; Core performs no cache
+filesystem I/O. See `shared/fixtures/lsp/jdt-cache-retention-v1.json`.
 
 `lsp.syncDocument` accepts `{ sessionId, uri, languageId, text?, contentChanges? }`.
 The first sync emits `didOpen` at version 1. Later syncs emit `didChange` with
 increasing versions. When the server advertised incremental `textDocumentSync`
 and `contentChanges` includes LSP ranges, the notification carries those
 range-based edits and does not require a full document `text` field. Otherwise
-the change is a full-text replacement. `lsp.request` accepts a semantic `operation` plus
+the change is a full-text replacement. The response is
+`{ documentVersion, changed }`; submitting identical full text returns
+`changed: false`, preserves the version, and emits no LSP notification.
+
+`lsp.workspaceFilesChanged` accepts a session ID and ordered file URI changes
+whose `kind` is `created`, `changed`, or `deleted`. It emits one
+`workspace/didChangeWatchedFiles` notification. Open documents remain owned by
+versioned `lsp.syncDocument`; adapters must not duplicate those edits as watcher
+events.
+
+`java.navigationMarkers` accepts
+`{ sessionId, operationId?, uri, documentVersion? }` and completes with
+`{ documentVersion, markers }`. Rust combines JDT LS implementation CodeLens,
+`textDocument/implementation`, and `java/findLinks` results with parser-selected
+Java declaration candidates. Work is capped at 64 semantic tasks, individual
+task failures preserve other verified markers, stale document versions cancel
+the batch, and the latest completed version is cached per URI. Markers are
+sorted by line, UTF-16 column, and relation. A marker contains `direction`
+(`up` or `down`) and `relation` (`interface` or `inheritance`); zero-target
+declarations are omitted. The cross-platform examples are in
+`shared/fixtures/lsp/java-navigation-v1.json`.
+
+`java.resolveNavigation` accepts the marker position, direction, relation, and
+document version. Downward markers use `textDocument/implementation`; upward
+markers use JDT LS `java/findLinks` with `superImplementation`. Its terminal
+result is `{ documentVersion, locations }`, using the same normalized physical
+and virtual-location representation as ordinary navigation.
+
+`lsp.request` accepts a semantic `operation` plus
 the operation-specific URI, position, range, diagnostics, item, action, or
 command fields, and returns `{ operationId }`. Supported operations include
 completion, hover, definition/declaration/type-definition, references,
@@ -455,10 +542,14 @@ name.
 when no declaration is found.
 
 `java.structure` accepts Java `source` and optional `declarationSources`. It
-returns `foldRegions`, `implementationMarkers`, and `inlayHints`. Line numbers
-are zero-based because these values are editor offsets; UTF-16 columns and
-hidden ranges match the native text editor coordinate system. The parser is
-platform-independent and does not start a Java process or contact JDT.
+returns `foldRegions`, `inlayHints`, and
+`syntaxHighlights`. Line numbers are zero-based because these values are editor
+offsets; UTF-16 columns and hidden ranges match the native text editor coordinate
+system. Syntax highlights contain document-relative `utf16Start`,
+`utf16Length`, and a role from the shared editor syntax-theme contract. They
+are sorted and non-overlapping, so native renderers can apply semantic colors
+without maintaining another Java parser. The parser is platform-independent
+and does not start a Java process or contact JDT.
 
 `spring.index` accepts `root`, workspace-relative `paths`, optional trusted
 absolute `metadataRepositories` (and the legacy singular `metadataRepository`),

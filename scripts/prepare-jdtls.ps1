@@ -116,6 +116,7 @@ if (Test-Path -LiteralPath $output) { Remove-Item -Recurse -Force -LiteralPath $
 New-Item -ItemType Directory -Force -Path $output | Out-Null
 tar.exe -xzf $archive -C $output
 Copy-Item -LiteralPath $license -Destination (Join-Path $output "LICENSE-EPL-2.0.txt") -Force
+Copy-Item -LiteralPath $manifestPath -Destination (Join-Path $output "manifest.json") -Force
 $lombokOutput = Join-Path $output "lombok"
 New-Item -ItemType Directory -Force -Path $lombokOutput | Out-Null
 Copy-Item -LiteralPath $lombok -Destination (Join-Path $lombokOutput "lombok.jar") -Force

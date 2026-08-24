@@ -18,6 +18,17 @@ import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-w
 import { createTranslator } from "@/i18n/locale";
 import { createSelectors } from "@/utils/zustand-selectors";
 import { writeFile } from "@/features/file-system/controllers/platform";
+import {
+  beginDocumentSave,
+  completeDocumentSave,
+  failDocumentSave,
+  mergeGrantedDocumentSave,
+  mergeTerminalDocumentSave,
+  traceDocumentSaveCancellation,
+  traceDocumentSaveFailure,
+  type DocumentSaveContext,
+} from "@/features/editor/services/document-save-lifecycle";
+import { restoreDocumentLifecycle } from "@/platform/document-lifecycle";
 import type { EditorContentChangeOptions, Position, Range } from "../types/editor.types";
 import { getBufferById } from "../utils/buffer-index";
 import { trackBufferHistoryChange } from "./buffer-history-tracking";
@@ -36,6 +47,130 @@ async function recordLocalHistoryBeforeWrite(
 }
 
 export type EditorSaveResult = "saved" | "cancelled" | "failed";
+
+interface ClaimedDocumentSave {
+  context: DocumentSaveContext;
+}
+
+async function claimDocumentSave(
+  workspaceId: string,
+  buffer: EditorContent,
+  operationId: string = crypto.randomUUID(),
+): Promise<ClaimedDocumentSave | null> {
+  const context: DocumentSaveContext = {
+    bufferId: buffer.id,
+    path: buffer.path,
+    operationId,
+  };
+  const current = restoreDocumentLifecycle(
+    buffer.documentLifecycle,
+    buffer.contentRevision ?? 0,
+    buffer.isDirty,
+  );
+  const decision = await beginDocumentSave(current, context);
+  if (!decision) return null;
+  const bufferStore = useBufferStore.getStore(workspaceId);
+  const latest = getBufferById(bufferStore.getState().buffers, buffer.id);
+  if (!latest || !isEditorContent(latest)) {
+    traceDocumentSaveCancellation(context, "buffer-closed-before-claim");
+    return null;
+  }
+  const saving = mergeGrantedDocumentSave(
+    decision,
+    restoreDocumentLifecycle(
+      latest.documentLifecycle,
+      latest.contentRevision ?? 0,
+      latest.isDirty,
+    ),
+  );
+  if (!saving) {
+    traceDocumentSaveCancellation(context, "lifecycle-changed-before-claim");
+    return null;
+  }
+  bufferStore.getState().actions.applyDocumentLifecycle(buffer.id, saving);
+  return { context };
+}
+
+async function finishDocumentSave(
+  workspaceId: string,
+  claim: ClaimedDocumentSave,
+  savedContent: string,
+) {
+  const bufferStore = useBufferStore.getStore(workspaceId);
+  const latest = getBufferById(bufferStore.getState().buffers, claim.context.bufferId);
+  if (!latest || !isEditorContent(latest)) return;
+  const current = restoreDocumentLifecycle(
+    latest.documentLifecycle,
+    latest.contentRevision ?? 0,
+    latest.isDirty,
+  );
+  const decision = await completeDocumentSave(current, claim.context);
+  const latestAfterDecision = getBufferById(
+    bufferStore.getState().buffers,
+    claim.context.bufferId,
+  );
+  if (!latestAfterDecision || !isEditorContent(latestAfterDecision)) return;
+  const completed = mergeTerminalDocumentSave(
+    decision,
+    restoreDocumentLifecycle(
+      latestAfterDecision.documentLifecycle,
+      latestAfterDecision.contentRevision ?? 0,
+      latestAfterDecision.isDirty,
+    ),
+    claim.context,
+    latestAfterDecision.content === savedContent,
+  );
+  if (!completed) {
+    traceDocumentSaveCancellation(claim.context, "stale-success-result");
+    return;
+  }
+  bufferStore
+    .getState()
+    .actions.recordSuccessfulBufferSave(claim.context.bufferId, savedContent, completed);
+}
+
+async function rejectDocumentSave(
+  workspaceId: string,
+  claim: ClaimedDocumentSave,
+  error: unknown,
+) {
+  const bufferStore = useBufferStore.getStore(workspaceId);
+  const latest = getBufferById(bufferStore.getState().buffers, claim.context.bufferId);
+  if (!latest || !isEditorContent(latest)) return;
+  const current = restoreDocumentLifecycle(
+    latest.documentLifecycle,
+    latest.contentRevision ?? 0,
+    latest.isDirty,
+  );
+  try {
+    const decision = await failDocumentSave(current, claim.context, error);
+    const latestAfterDecision = getBufferById(
+      bufferStore.getState().buffers,
+      claim.context.bufferId,
+    );
+    if (!latestAfterDecision || !isEditorContent(latestAfterDecision)) return;
+    const failed = mergeTerminalDocumentSave(
+      decision,
+      restoreDocumentLifecycle(
+        latestAfterDecision.documentLifecycle,
+        latestAfterDecision.contentRevision ?? 0,
+        latestAfterDecision.isDirty,
+      ),
+      claim.context,
+      latestAfterDecision.content === latestAfterDecision.savedContent,
+    );
+    if (failed) {
+      bufferStore.getState().actions.applyDocumentLifecycle(claim.context.bufferId, failed);
+    } else {
+      traceDocumentSaveCancellation(claim.context, "stale-failure-result");
+    }
+  } catch (lifecycleError) {
+    traceDocumentSaveFailure(claim.context, lifecycleError);
+    // Preserve text as dirty if the reducer itself is unavailable so the
+    // document never remains owned by an unfinishable save operation.
+    bufferStore.getState().actions.markBufferDirty(claim.context.bufferId, true);
+  }
+}
 
 function showSaveFailure(bufferName: string, automatic = false) {
   const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
@@ -78,6 +213,7 @@ async function saveEditorBufferById(
   if (!activeBuffer || !isEditorContent(activeBuffer) || activeBuffer.readOnly) return "failed";
 
   const collaborationNoteTarget = parseCollaborationNoteBufferPath(activeBuffer.path);
+  let claimedSave: ClaimedDocumentSave | null = null;
 
   try {
     if (activeBuffer.path.startsWith("untitled:")) {
@@ -170,8 +306,6 @@ async function saveEditorBufferById(
       return "saved";
     }
 
-    markPendingSave(activeBuffer.path);
-
     let contentToSave = activeBuffer.content;
     const { settings } = useSettingsStore.getState();
 
@@ -190,14 +324,18 @@ async function saveEditorBufferById(
       }
     }
 
+    if (contentToSave !== activeBuffer.content) {
+      bufferStore.getState().actions.updateBufferContent(activeBuffer.id, contentToSave, true);
+    }
+    const saveBuffer = getBufferById(bufferStore.getState().buffers, activeBuffer.id);
+    if (!saveBuffer || !isEditorContent(saveBuffer)) return "cancelled";
+    claimedSave = await claimDocumentSave(workspaceId, saveBuffer);
+    if (!claimedSave) return "cancelled";
+    markPendingSave(activeBuffer.path);
+
     await recordLocalHistoryBeforeWrite(activeBuffer.path, "save");
     await writeFile(activeBuffer.path, contentToSave);
-    markBufferSavedIfUnchanged(
-      workspaceId,
-      activeBuffer.id,
-      activeBuffer.content,
-      contentToSave,
-    );
+    await finishDocumentSave(workspaceId, claimedSave, contentToSave);
 
     try {
       const { LspClient } = await import("@/features/editor/lsp/lsp-client");
@@ -241,7 +379,11 @@ async function saveEditorBufferById(
     return "saved";
   } catch (error) {
     console.error("Error saving file:", error);
-    markBufferDirty(activeBuffer.id, true);
+    if (claimedSave) {
+      await rejectDocumentSave(workspaceId, claimedSave, error);
+    } else {
+      markBufferDirty(activeBuffer.id, true);
+    }
     showSaveFailure(activeBuffer.name);
     return "failed";
   }
@@ -255,7 +397,10 @@ function getDirtyEditorBuffers(buffers: PaneContent[]): EditorContent[] {
 }
 
 interface AppState {
-  autoSaveTimeoutId: NodeJS.Timeout | null;
+  autoSaveTasks: Record<
+    string,
+    { timeoutId: ReturnType<typeof setTimeout>; context: DocumentSaveContext }
+  >;
   quickEditState: {
     isOpen: boolean;
     selectedText: string;
@@ -287,7 +432,7 @@ interface AppActions {
 const createEditorAppStore = (workspaceId: string) =>
   createStore<AppState>()(
     immer((set, get) => ({
-      autoSaveTimeoutId: null,
+      autoSaveTasks: {},
       quickEditState: {
         isOpen: false,
         selectedText: "",
@@ -341,16 +486,16 @@ const createEditorAppStore = (workspaceId: string) =>
 
           if (isRemoteFile) {
             if (!contentAlreadyApplied) {
-              updateBufferContent(activeBuffer.id, content, true, undefined, { local: true });
+              updateBufferContent(activeBuffer.id, content, true);
             }
           } else if (collaborationNoteTarget) {
             if (!contentAlreadyApplied) {
-              updateBufferContent(activeBuffer.id, content, true, undefined, { local: true });
+              updateBufferContent(activeBuffer.id, content, true);
             }
             markBufferDirty(activeBuffer.id, content !== activeBuffer.savedContent);
           } else {
             if (!contentAlreadyApplied) {
-              updateBufferContent(activeBuffer.id, content, true, undefined, { local: true });
+              updateBufferContent(activeBuffer.id, content, true);
             }
 
             if (
@@ -358,17 +503,41 @@ const createEditorAppStore = (workspaceId: string) =>
               !activeBuffer.path.startsWith("untitled:") &&
               settings.autoSave
             ) {
-              const { autoSaveTimeoutId } = get();
-              if (autoSaveTimeoutId) {
-                clearTimeout(autoSaveTimeoutId);
+              const previousAutoSave = get().autoSaveTasks[bufferId];
+              if (previousAutoSave) {
+                clearTimeout(previousAutoSave.timeoutId);
+                traceDocumentSaveCancellation(previousAutoSave.context, "superseded-by-edit");
               }
-
-              const newTimeoutId = setTimeout(async () => {
+              const autoSaveContext: DocumentSaveContext = {
+                bufferId,
+                path: activeBuffer.path,
+                operationId: crypto.randomUUID(),
+              };
+              const timeoutId = setTimeout(async () => {
+                let claim: ClaimedDocumentSave | null = null;
                 try {
+                  const latestBeforeSave = getBufferById(
+                    bufferStore.getState().buffers,
+                    bufferId,
+                  );
+                  if (
+                    !latestBeforeSave ||
+                    !isEditorContent(latestBeforeSave) ||
+                    latestBeforeSave.content !== content
+                  ) {
+                    traceDocumentSaveCancellation(autoSaveContext, "stale-content");
+                    return;
+                  }
+                  claim = await claimDocumentSave(
+                    workspaceId,
+                    latestBeforeSave,
+                    autoSaveContext.operationId,
+                  );
+                  if (!claim) return;
                   markPendingSave(activeBuffer.path);
                   await recordLocalHistoryBeforeWrite(activeBuffer.path, "auto-save");
                   await writeFile(activeBuffer.path, content);
-                  markBufferSavedIfUnchanged(workspaceId, bufferId, content);
+                  await finishDocumentSave(workspaceId, claim, content);
 
                   const rootFolderPath = useFileSystemStore
                     .getStore(workspaceId)
@@ -383,20 +552,23 @@ const createEditorAppStore = (workspaceId: string) =>
                   }
                 } catch (error) {
                   console.error("Error saving file:", error);
-                  const latestBuffer = getBufferById(bufferStore.getState().buffers, bufferId);
-                  if (
-                    latestBuffer &&
-                    isEditorContent(latestBuffer) &&
-                    latestBuffer.content === content
-                  ) {
-                    markBufferDirty(bufferId, true);
-                    showSaveFailure(activeBuffer.name, true);
-                  }
+                  if (claim) await rejectDocumentSave(workspaceId, claim, error);
+                  else markBufferDirty(bufferId, true);
+                  showSaveFailure(activeBuffer.name, true);
+                } finally {
+                  set((state) => {
+                    if (
+                      state.autoSaveTasks[bufferId]?.context.operationId ===
+                      autoSaveContext.operationId
+                    ) {
+                      delete state.autoSaveTasks[bufferId];
+                    }
+                  });
                 }
               }, 150);
 
               set((state) => {
-                state.autoSaveTimeoutId = newTimeoutId;
+                state.autoSaveTasks[bufferId] = { timeoutId, context: autoSaveContext };
               });
             }
           }
@@ -451,10 +623,14 @@ const createEditorAppStore = (workspaceId: string) =>
         },
 
         cleanup: () => {
-          const { autoSaveTimeoutId } = get();
-          if (autoSaveTimeoutId) {
-            clearTimeout(autoSaveTimeoutId);
+          const { autoSaveTasks } = get();
+          for (const task of Object.values(autoSaveTasks)) {
+            clearTimeout(task.timeoutId);
+            traceDocumentSaveCancellation(task.context, "workspace-cleanup");
           }
+          set((state) => {
+            state.autoSaveTasks = {};
+          });
         },
       },
     })),

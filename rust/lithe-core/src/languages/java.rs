@@ -3,9 +3,9 @@
 use crate::protocol::{CoreError, ErrorCode};
 use crate::protocol::{
     JavaClassNameResponse, JavaCodeVisionHintResponse, JavaCodeVisionResponse,
-    JavaFoldRegionResponse, JavaImplementationMarkerResponse, JavaInlayHintResponse,
-    JavaMainClassResponse, JavaRunConfigurationResponse, JavaRunConfigurationsResponse,
-    JavaServerPortResponse, JavaStructureResponse,
+    JavaFoldRegionResponse, JavaInlayHintResponse, JavaMainClassResponse,
+    JavaRunConfigurationResponse, JavaRunConfigurationsResponse, JavaServerPortResponse,
+    JavaStructureResponse,
 };
 use regex::Regex;
 use serde::Deserialize;
@@ -129,8 +129,8 @@ pub fn structure(request: JavaStructureRequest) -> Result<JavaStructureResponse,
     let source = request.source;
     Ok(JavaStructureResponse {
         fold_regions: fold_regions(&source),
-        implementation_markers: implementation_markers(&source),
         inlay_hints: parameter_hints(&source, &request.declaration_sources),
+        syntax_highlights: super::java_syntax::syntax_highlights(&source),
     })
 }
 
@@ -487,99 +487,6 @@ fn classify(prefix: &str) -> String {
     }
 }
 
-fn implementation_markers(source: &str) -> Vec<JavaImplementationMarkerResponse> {
-    let mut markers = Vec::new();
-    if let Ok(expression) = Regex::new(
-        r"(?m)^[ \t]*(?:(?:public|protected|private|abstract|sealed|non-sealed)\s+)*interface\s+[A-Za-z_$][A-Za-z0-9_$]*",
-    ) {
-        for matched in expression.find_iter(source) {
-            let location = source[matched.start()..matched.end()]
-                .find("interface")
-                .map(|value| matched.start() + value)
-                .unwrap_or(matched.start());
-            markers.push(JavaImplementationMarkerResponse {
-                line: line_number(source, location),
-                utf16_column: utf16_offset(source, location)
-                    .saturating_sub(utf16_offset(source, line_start(source, location))),
-                implementation_count: 0,
-                direction: "down".to_string(),
-            });
-        }
-    }
-    if let Ok(expression) = Regex::new(
-        r"(?m)^[ \t]*(?:(?:public|protected|private|abstract|static|default|final|native|synchronized|strictfp)\s+)*(?:<[^>\n]+>\s+)?(?:[A-Za-z_$][A-Za-z0-9_$<>,.?\[\]]*\s+)+[A-Za-z_$][A-Za-z0-9_$]*\s*\([^;{}\n]*\)\s*(?:throws\s+[^;]+)?;\s*$",
-    ) {
-        for matched in expression.find_iter(source) {
-            let location = method_name_location(source, matched.start(), matched.end());
-            markers.push(JavaImplementationMarkerResponse {
-                line: line_number(source, location),
-                utf16_column: utf16_offset(source, location)
-                    .saturating_sub(utf16_offset(source, line_start(source, location))),
-                implementation_count: 0,
-                direction: if has_override_annotation(source, line_number(source, location)) {
-                    "up"
-                } else {
-                    "down"
-                }
-                .to_string(),
-            });
-        }
-    }
-    if let Ok(method_expression) = Regex::new(
-        r"(?:(?:public|protected|private|abstract|static|default|final|native|synchronized|strictfp)\s+)*(?:<[^>\n]+>\s+)?(?:[A-Za-z_$][A-Za-z0-9_$<>,.?\[\]]*\s+)+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(",
-    ) {
-        let lines = source.split('\n').collect::<Vec<_>>();
-        for (line_index, line) in lines.iter().enumerate() {
-            if line.contains("@Override") {
-                let mut candidate_line = line_index;
-                if !line.contains('(') {
-                    for next_line in (line_index + 1)..lines.len().min(line_index + 4) {
-                        if lines[next_line].contains('(') {
-                            candidate_line = next_line;
-                            break;
-                        }
-                    }
-                }
-                let candidate_start = lines[..candidate_line]
-                    .iter()
-                    .map(|value| value.len() + 1)
-                    .sum::<usize>();
-                if let Some(matched) = method_expression.find(lines[candidate_line]) {
-                    let name_start = method_expression
-                        .captures(lines[candidate_line])
-                        .and_then(|captures| captures.get(1).map(|value| value.start()))
-                        .unwrap_or(matched.start());
-                    let location = candidate_start + name_start;
-                    markers.push(JavaImplementationMarkerResponse {
-                        line: candidate_line,
-                        utf16_column: utf16_offset(source, location)
-                            .saturating_sub(utf16_offset(source, line_start(source, location))),
-                        implementation_count: 0,
-                        direction: "up".to_string(),
-                    });
-                }
-            }
-        }
-    }
-    deduplicate_markers(markers)
-}
-
-fn deduplicate_markers(
-    values: Vec<JavaImplementationMarkerResponse>,
-) -> Vec<JavaImplementationMarkerResponse> {
-    let mut seen = HashSet::new();
-    let mut values = values
-        .into_iter()
-        .filter(|value| seen.insert((value.line, value.utf16_column, value.direction.clone())))
-        .collect::<Vec<_>>();
-    values.sort_by(|left, right| {
-        left.line
-            .cmp(&right.line)
-            .then_with(|| left.utf16_column.cmp(&right.utf16_column))
-    });
-    values
-}
-
 fn parameter_hints(source: &str, declaration_sources: &[String]) -> Vec<JavaInlayHintResponse> {
     let declaration_pattern =
         Regex::new(r"\b([A-Za-z_$][A-Za-z0-9_$]*)[ \t]*\(([^(){};]*)\)[ \t]*(?:throws[^{]+)?\{")
@@ -770,30 +677,6 @@ fn first_non_whitespace(source: &str, start: usize, end: usize) -> Option<usize>
         .char_indices()
         .find(|(_, character)| !character.is_whitespace())
         .map(|(offset, _)| start + offset)
-}
-
-fn method_name_location(source: &str, start: usize, end: usize) -> usize {
-    let opening = source[start..end]
-        .find('(')
-        .map(|value| start + value)
-        .unwrap_or(start);
-    let before = &source[start..opening];
-    before
-        .char_indices()
-        .rev()
-        .skip_while(|(_, value)| value.is_whitespace())
-        .take_while(|(_, value)| value.is_ascii_alphanumeric() || *value == '_' || *value == '$')
-        .last()
-        .map(|(offset, _)| start + offset)
-        .unwrap_or(start)
-}
-
-fn has_override_annotation(source: &str, line: usize) -> bool {
-    let lines = source.split('\n').collect::<Vec<_>>();
-    let start = line.saturating_sub(3);
-    lines[start..line.min(lines.len())]
-        .iter()
-        .any(|value| value.contains("@Override"))
 }
 
 fn existing_root(value: &str) -> Result<PathBuf, CoreError> {

@@ -16,11 +16,11 @@
     {
       "command": "java.structure",
       "payload": {
-        "source": "import a.A;\nimport b.B;\ninterface Service {}\n"
+        "source": "import a.A;\nimport b.B;\ninterface Service { String call(String value); }\n"
       },
       "expected": {
         "foldKind": "imports",
-        "implementationDirection": "down"
+        "syntaxRoles": ["functionDeclaration", "keyword", "parameter", "punctuation", "type"]
       }
     }
   ]

@@ -89,6 +89,17 @@ describe("LSP document targets", () => {
     expect(target.languageId).toBe("kotlin");
   });
 
+  test("keeps the document binding unchanged across local content revisions", () => {
+    const before = lspDocumentTargetForEditor(
+      editor({ content: "class Main {}", contentRevision: 1 }),
+    );
+    const after = lspDocumentTargetForEditor(
+      editor({ content: "class Main { int value; }", contentRevision: 2, isDirty: true }),
+    );
+
+    expect(after).toEqual(before);
+  });
+
   test("resolves the provider target from the backing virtual editor buffer", () => {
     const virtual = editor({
       path: "jdt://contents/java.base/java/lang/String.class?=demo",

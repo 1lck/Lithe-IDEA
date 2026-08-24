@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
-import { LspClient } from "./lsp-client";
+import { isDocumentFeatureAvailable, LspClient } from "./lsp-client";
 import { lspDocumentTargetForEditorPath } from "./lsp-document-target";
 import { useLspStore } from "./stores/lsp.store";
 
@@ -30,7 +30,7 @@ export const useCodeLens = (filePath: string | undefined, enabled: boolean) => {
     const target = lspDocumentTargetForEditorPath(useBufferStore.getState().buffers, filePath);
     if (
       !target ||
-      !lspClient.getDocumentAvailability(target, "codeLens").available ||
+      !isDocumentFeatureAvailable(lspClient.getDocumentAvailability(target, "codeLens")) ||
       (!target.documentUri && !lspClient.isDocumentOpen(target.filePath))
     ) {
       setLenses([]);

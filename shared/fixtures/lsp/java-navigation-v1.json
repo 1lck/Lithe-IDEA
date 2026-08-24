@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "four-marker-variants-use-deterministic-ordering",
+      "request": {
+        "sessionId": "session-1",
+        "uri": "file:///workspace/src/Service.java",
+        "documentVersion": 7
+      },
+      "expectedResult": {
+        "documentVersion": 7,
+        "markers": [
+          {
+            "line": 2,
+            "utf16Column": 9,
+            "implementationCount": 1,
+            "direction": "up",
+            "relation": "interface"
+          },
+          {
+            "line": 2,
+            "utf16Column": 9,
+            "implementationCount": 2,
+            "direction": "down",
+            "relation": "interface"
+          },
+          {
+            "line": 8,
+            "utf16Column": 16,
+            "implementationCount": 1,
+            "direction": "up",
+            "relation": "inheritance"
+          },
+          {
+            "line": 8,
+            "utf16Column": 16,
+            "implementationCount": 3,
+            "direction": "down",
+            "relation": "inheritance"
+          }
+        ]
+      }
+    },
+    {
+      "name": "zero-target-declarations-are-omitted",
+      "request": {
+        "sessionId": "session-1",
+        "uri": "file:///workspace/src/Unused.java",
+        "documentVersion": 3
+      },
+      "expectedResult": {
+        "documentVersion": 3,
+        "markers": []
+      }
+    }
+  ]
+}

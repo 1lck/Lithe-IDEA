@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "clean-external-change-reloads-disk",
+      "state": { "status": "clean", "revision": 2 },
+      "event": { "type": "externalChanged" },
+      "expected": {
+        "state": { "status": "clean", "revision": 2 },
+        "action": "reloadFromDisk"
+      }
+    },
+    {
+      "name": "dirty-external-change-preserves-editor",
+      "state": { "status": "dirty", "revision": 4, "savedRevision": 2 },
+      "event": { "type": "externalChanged" },
+      "expected": {
+        "state": { "status": "conflict", "revision": 4, "savedRevision": 2 },
+        "action": "showConflict"
+      }
+    },
+    {
+      "name": "save-completion-cleans-matching-revision",
+      "state": {
+        "status": "saving",
+        "revision": 5,
+        "savedRevision": 3,
+        "saveRevision": 5,
+        "operationId": "save-1"
+      },
+      "event": { "type": "saveSucceeded", "operationId": "save-1" },
+      "expected": {
+        "state": { "status": "clean", "revision": 5 },
+        "action": "none"
+      }
+    },
+    {
+      "name": "stale-save-completion-is-ignored",
+      "state": {
+        "status": "saving",
+        "revision": 7,
+        "savedRevision": 3,
+        "saveRevision": 6,
+        "operationId": "save-new"
+      },
+      "event": { "type": "saveSucceeded", "operationId": "save-old" },
+      "expected": {
+        "state": {
+          "status": "saving",
+          "revision": 7,
+          "savedRevision": 3,
+          "saveRevision": 6,
+          "operationId": "save-new"
+        },
+        "action": "ignoreStaleResult"
+      }
+    }
+  ]
+}

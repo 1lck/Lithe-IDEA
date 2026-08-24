@@ -36,7 +36,7 @@ struct LSPControlCenterPresentationTests {
         ) == .stopped)
         #expect(LSPControlCenterPresenter.serverStatus(
             isDisabled: false,
-            sessionState: .failed(exitCode: 1, message: "crashed")
+            sessionState: .failed(LanguageServerSessionFailure(exitCode: 1, message: "crashed"))
         ) == .error)
     }
 

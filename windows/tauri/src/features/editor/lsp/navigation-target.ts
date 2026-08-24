@@ -1,5 +1,6 @@
 import type { LspLocation } from "./lsp-client";
 import { filePathFromUri } from "./workspace-edit";
+import { getBufferByPath } from "@/features/editor/utils/buffer-index";
 import type { OpenContentSpec, PaneContent } from "@/features/panes/types/pane-content.types";
 import { getBaseName, normalizePath } from "@/utils/path-helpers";
 
@@ -28,7 +29,39 @@ function physicalPath(location: LspLocation): string | null {
   if (!path) return null;
 
   const normalized = normalizePath(path);
-  return /^\/[A-Za-z]:\//.test(normalized) ? normalized.slice(1) : normalized;
+  const withoutLeadingSlash = /^\/[A-Za-z]:\//.test(normalized)
+    ? normalized.slice(1)
+    : normalized;
+
+  // Some servers return locations whose path still contains `..` segments.
+  // Leaving them in produces buffer names like `../C:/…`, so resolve them.
+  return resolvePathSegments(withoutLeadingSlash);
+}
+
+/**
+ * Collapses `.` and `..` segments in an already forward-slashed path.
+ * Preserves a drive prefix (`C:/`) or UNC prefix (`//host/`) when present.
+ */
+function resolvePathSegments(path: string): string {
+  if (!path.includes("..") && !path.includes("./")) return path;
+
+  const driveMatch = path.match(/^([A-Za-z]:\/)/);
+  const uncMatch = path.match(/^(\/\/[^/]+\/)/);
+  const prefix = driveMatch?.[1] ?? uncMatch?.[1] ?? (path.startsWith("/") ? "/" : "");
+  const remainder = path.slice(prefix.length);
+
+  const resolved: string[] = [];
+  for (const segment of remainder.split("/")) {
+    if (segment === "" || segment === ".") continue;
+    if (segment === "..") {
+      // A `..` that would escape an absolute root is meaningless; drop it.
+      if (resolved.length > 0) resolved.pop();
+      continue;
+    }
+    resolved.push(segment);
+  }
+
+  return prefix + resolved.join("/");
 }
 
 function virtualDocumentName(location: LspLocation): string {
@@ -55,7 +88,7 @@ export async function openLspNavigationLocation({
 }: OpenLspNavigationLocationOptions): Promise<string | null> {
   const filePath = physicalPath(location);
   const targetPath = filePath ?? location.uri;
-  const existingBuffer = buffers.find((buffer) => buffer.path === targetPath);
+  const existingBuffer = getBufferByPath(buffers, targetPath);
   if (existingBuffer) {
     if (
       !filePath &&

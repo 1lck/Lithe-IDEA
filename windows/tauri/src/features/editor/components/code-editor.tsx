@@ -21,7 +21,7 @@ import {
 import { useEditorSettingsStore } from "@/features/editor/stores/settings.store";
 import { useEditorStateStore } from "@/features/editor/stores/state.store";
 import { useEditorViewStore } from "@/features/editor/stores/view.store";
-import { getBufferById } from "@/features/editor/utils/buffer-index";
+import { areBufferPathsEqual, getBufferById } from "@/features/editor/utils/buffer-index";
 import { calculateLineHeight, splitLines } from "@/features/editor/utils/lines";
 import { resolveGoToLineTarget } from "@/features/editor/utils/go-to-line";
 import type { EditorModelPositionResolver } from "@/features/editor/view-model/view-layout";
@@ -54,6 +54,7 @@ import { ScrollDebugOverlay } from "./debug/scroll-debug-overlay";
 import { HtmlPreview } from "./html/html-preview";
 import { MonacoEditor } from "./monaco-editor";
 import { EditorStylesheet } from "./stylesheet";
+import { ExternalConflictBanner } from "./external-conflict-banner";
 import Breadcrumb, { type BreadcrumbProps } from "./toolbar/breadcrumb";
 
 interface CodeEditorProps {
@@ -549,13 +550,18 @@ const CodeEditor = ({
       const lineNumber = event.detail?.line;
       const columnNumber = event.detail?.column;
       const targetPath = event.detail?.path;
-      if (targetPath && targetPath !== filePath) return;
+      if (targetPath && !areBufferPathsEqual(targetPath, filePath)) return;
       if (!lineNumber) return;
 
-      // Try immediately, then retry if content not ready yet
-      if (!goToLine(lineNumber, columnNumber)) {
-        setTimeout(() => goToLine(lineNumber, columnNumber), 150);
-      }
+      // Newly opened buffers mount their editor asynchronously (slower still in
+      // debug builds), so keep retrying until the editor accepts the position.
+      let attempts = 0;
+      const tryGoToLine = () => {
+        if (goToLine(lineNumber, columnNumber)) return;
+        attempts += 1;
+        if (attempts < 10) setTimeout(tryGoToLine, 150);
+      };
+      tryGoToLine();
     };
 
     window.addEventListener("menu-go-to-line", handleGoToLine as EventListener);
@@ -582,6 +588,8 @@ const CodeEditor = ({
             showFilePath={breadcrumbProps?.showFilePath ?? false}
           />
         )}
+
+        {activeBufferId && <ExternalConflictBanner bufferId={activeBufferId} />}
 
         {tooLargeForEditorServices && enableInteractiveServices && !forceExpensiveServices && (
           <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground">

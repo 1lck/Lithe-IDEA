@@ -841,6 +841,11 @@
 "Starting Java navigation..." = "正在启动 Java 导航…";
 "Java navigation is idle" = "Java 导航空闲";
 "Starting Java language server..." = "正在启动 Java 语言服务器…";
+"Java service is preparing" = "Java 服务正在准备";
+"Java service is ready" = "Java 服务已就绪";
+"Java service preparation timed out" = "Java 服务准备超时";
+"Java service failed to start: %@" = "Java 服务启动失败：%@";
+"Java service failed to start" = "Java 服务启动失败";
 "Java navigation ready" = "Java 导航已就绪";
 "This document is read-only" = "此文档为只读";
 "This file cannot be displayed as text" = "此文件无法以文本形式显示";
@@ -1191,3 +1196,5 @@
 "Enabled" = "已启用";
 "Disabled" = "已禁用";
 "Running" = "运行中";
+"Java: Rebuild Index" = "Java：重建索引";
+"Clear the current project's Java index and rebuild it on next use" = "清除当前项目的 Java 索引，并在下次使用时重建";

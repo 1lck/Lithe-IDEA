@@ -1,5 +1,7 @@
 //! Deterministic application services shared by the macOS and Windows hosts.
 
+use std::path::Path;
+
 mod community;
 mod execution;
 mod git;
@@ -26,6 +28,14 @@ pub fn execute_json(request: &str) -> String {
 /// using the stable `lithe_core_cancel` C ABI.
 pub fn cancel_operation(operation_id: &str) -> bool {
     protocol::cancellation::cancel(operation_id)
+}
+
+/// Derives the shared directory key for one JDT LS workspace state.
+///
+/// Platform hosts use this when clearing the same cache directory that the
+/// Rust-owned language-server runtime selected during startup.
+pub fn jdt_workspace_key(workspace_root: &Path, workspace_fingerprint: Option<&str>) -> String {
+    lsp::workspace_key(workspace_root, workspace_fingerprint)
 }
 
 #[cfg(test)]

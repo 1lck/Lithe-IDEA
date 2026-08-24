@@ -44,6 +44,28 @@ async function flushPromises() {
 }
 
 describe("definition hover scheduler", () => {
+  test("publishes immediate feedback before delayed semantic resolution", () => {
+    const timers = timerHarness();
+    const events: string[] = [];
+    const scheduler = new DefinitionHoverScheduler<TestRequest, string>({
+      delayMilliseconds: 150,
+      keyOf: (request) => request.key,
+      resolve: async () => {
+        events.push("resolve");
+        return "target";
+      },
+      onActiveRequest: () => events.push("active"),
+      onActiveResult: () => events.push("result"),
+      scheduleTimer: (callback) => timers.schedule(callback),
+      cancelTimer: (id) => timers.cancel(id as number),
+    });
+
+    scheduler.activate({ key: "symbol" });
+
+    expect(events).toEqual(["active"]);
+    expect(timers.count()).toBe(1);
+  });
+
   test("debounces hover and resolves only the latest word", async () => {
     const timers = timerHarness();
     const resolveRequest = mock(async (request: TestRequest) => `target:${request.key}`);

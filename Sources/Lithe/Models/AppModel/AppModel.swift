@@ -124,10 +124,7 @@ final class AppModel: ObservableObject, Identifiable {
     @Published var isImplementationChooserVisible = false
     var languageProviderCatalog: LanguageProviderCatalog { languageToolingFeature.catalog }
     var languageProviderCatalogSnapshot: LanguageProviderCatalogSnapshot { languageToolingFeature.catalogSnapshot }
-    @Published var languageNavigationProviderID: String?
-    @Published var languageNavigationLocations: [LanguageNavigationLocation] = []
-    @Published var languageNavigationResultKind: LanguageNavigationResultKind = .definitions
-    @Published var isLoadingLanguageNavigation = false
+    @Published var languageNavigationState: LanguageNavigationState = .idle
     var editorCaret: EditorCaret? {
         get { editorChrome.caret }
         set { editorChrome.update(caret: newValue) }
@@ -301,8 +298,6 @@ final class AppModel: ObservableObject, Identifiable {
     private var navigationHistoryFeatureObservation: AnyCancellable?
     private var isObjectWillChangeRelayScheduled = false
     private var languageToolingObservation: AnyCancellable?
-    var javaLanguageServerRuntimePreparationTask: Task<Void, Never>?
-    var javaLanguageServerRuntimePreparationPath: String?
     private var recentProjectsStore: RecentProjectsStore { services.recentProjectsStore }
     private var workbenchLayoutStore: WorkbenchLayoutStore { services.workbenchLayoutStore }
 
@@ -381,14 +376,12 @@ final class AppModel: ObservableObject, Identifiable {
         languageToolingFeature = LanguageToolingFeatureModel(
             catalogSource: services.languageProviderCatalogSource,
             catalogSnapshot: services.languageProviderCatalogSnapshot,
-            sessionsProvider: { nil },
-            runtimeFeature: runtimeFeature,
-            settings: settings,
-            projectRuntimeService: services.projectRuntimeService
+            sessionsProvider: { nil }
         )
         debugLaunchConfigurationResolver = services.debugLaunchConfigurationResolver
         documentFeature = DocumentFeatureModel(
             operations: services.workspaceOperations,
+            documentLifecycleDecider: services.documentLifecycleDecider,
             fileOperations: services.fileOperations,
             fileStorage: services.fileStorage,
             binaryFileViewerRegistry: services.binaryFileViewerRegistry
@@ -503,6 +496,9 @@ final class AppModel: ObservableObject, Identifiable {
                 let conflict = self.documentFeature.processExternalChanges(paths)
                 self.withHistoryModule { $0.recordExternalChanges(paths) }
                 return conflict
+            },
+            notifyWorkspaceFileChanges: { [weak self] changes in
+                self?.handleJavaWorkspaceFileChanges(changes)
             },
             reloadProjectServices: { [weak self] in
                 guard let self, let workspaceURL = self.workspaceURL else { return }
@@ -758,6 +754,10 @@ final class AppModel: ObservableObject, Identifiable {
     /// Loads build-system and run state at the workspace boundary. The generic
     /// run lifecycle is intentionally not owned by JavaFeatureModel.
     func loadProjectServices(at workspaceURL: URL, files: [URL]) async {
+        prepareJavaLanguageServerForWorkspaceIfNeeded(
+            at: workspaceURL,
+            files: files
+        )
         await springFeature.load(
             workspaceURL: workspaceURL,
             files: files,
@@ -821,6 +821,7 @@ final class AppModel: ObservableObject, Identifiable {
     func restartLanguageServers() {
         languageToolingSessionsIfActive?.stopAllLanguageServers()
         languageToolingFeature.resetWorkspaceState()
+        cancelJavaLanguageServerPreparation()
         let didStart = activateCurrentDocumentLanguageServerIfAvailable()
         showNotification(
             didStart
@@ -925,6 +926,7 @@ final class AppModel: ObservableObject, Identifiable {
         // every provider session before replacing the catalog or clearing the
         // document projection so no old-root documents, diagnostics, or
         // responses can survive into the next workspace.
+        cancelJavaLanguageServerPreparation()
         languageToolingSessionsIfActive?.stopAll()
         reloadLanguageProviderCatalog(for: normalizedURL)
         stopTerminalSessions()
@@ -997,6 +999,7 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     private func performCloseProject() {
+        cancelJavaLanguageServerPreparation()
         Task { [weak self] in
             guard let self else { return }
             await self.services.moduleRuntime.shutdownAll()
@@ -1310,8 +1313,11 @@ final class AppModel: ObservableObject, Identifiable {
     func activateLanguageServerIfAvailable(for document: EditorDocument) -> Bool {
         guard let workspaceURL,
               let descriptor = languageProviderCatalog.provider(for: document.url) else { return false }
-        if descriptor.id == "java", !prepareJavaLanguageServerRuntimeIfNeeded(for: document) {
-            return false
+        if descriptor.id == "java" {
+            switch prepareJavaLanguageServerRuntimeIfNeeded(for: document) {
+            case .ready: break
+            case .preparing: return false
+            }
         }
         if let ownership = services.pluginCatalog.languageSupport(for: document.url),
            ownership.declaration.languageServerModuleID != nil {
@@ -1355,17 +1361,7 @@ final class AppModel: ObservableObject, Identifiable {
                 do {
                     let value = try await self.services.moduleRuntime.activateCapability(.languageIntelligence)
                     guard let capability = value as? LitheLanguageIntelligenceModule.LanguageIntelligenceCapability else { return }
-                    self.cacheModuleCapability(capability, id: .languageIntelligence, moduleID: .languageIntelligence)
-                    self.observeModuleFeature(.languageIntelligence, observation: capability.sessions.objectWillChange.sink { [weak self] _ in
-                        self?.handleLanguageSessionChange()
-                    })
-                    capability.tools.onCandidatesChanged = { [weak self] providerID in
-                        guard let self,
-                              self.languageToolingFeature.shouldRetryCandidate(providerID: providerID),
-                              let document = self.activeDocument,
-                              self.languageProviderCatalog.provider(for: document.url)?.id == providerID else { return }
-                        _ = self.activateLanguageServerIfAvailable(for: document)
-                    }
+                    self.bindLanguageIntelligenceCapability(capability)
                     _ = self.activateLanguageServerIfAvailable(for: document)
                 } catch {
                     self.languageToolingFeature.markActivationFailed(

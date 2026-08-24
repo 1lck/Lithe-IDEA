@@ -94,6 +94,24 @@ package struct DirectoryChangeBatch: Equatable, Sendable {
     }
 }
 
+/// A coalesced filesystem change projected after the workspace snapshot has
+/// identified whether the path was previously known.
+package struct WorkspaceFileChange: Equatable, Sendable {
+    package enum Kind: String, Equatable, Sendable {
+        case created
+        case changed
+        case deleted
+    }
+
+    package let fileURL: URL
+    package let kind: Kind
+
+    package init(fileURL: URL, kind: Kind) {
+        self.fileURL = fileURL.standardizedFileURL
+        self.kind = kind
+    }
+}
+
 package protocol DirectoryChangeSource: AnyObject, Sendable {
     func start()
     func stop()

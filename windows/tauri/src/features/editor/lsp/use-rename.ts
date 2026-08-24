@@ -4,7 +4,7 @@ import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useEditorStateStore } from "@/features/editor/stores/state.store";
 import { getLineTextFromContent } from "@/features/editor/utils/position";
 import { lspDocumentTargetForEditorPath } from "./lsp-document-target";
-import { LspClient } from "./lsp-client";
+import { isDocumentFeatureAvailable, LspClient } from "./lsp-client";
 import { applyWorkspaceEdit, isWorkspaceEdit } from "./workspace-edit";
 import { logger } from "../utils/logger";
 
@@ -33,7 +33,12 @@ export const useRename = (filePath: string | undefined) => {
     const currentLine = getLineTextFromContent(content, cursorPosition.line);
     const lspClient = LspClient.getInstance();
     const target = lspDocumentTargetForEditorPath(useBufferStore.getState().buffers, filePath);
-    if (!target || !lspClient.getDocumentAvailability(target, "rename").available) return;
+    if (
+      !target ||
+      !isDocumentFeatureAvailable(lspClient.getDocumentAvailability(target, "rename"))
+    ) {
+      return;
+    }
     const symbol = getWordUnderCursor(currentLine, cursorPosition.column);
 
     if (!symbol) return;
@@ -71,7 +76,12 @@ export const useRename = (filePath: string | undefined) => {
       try {
         const lspClient = LspClient.getInstance();
         const target = lspDocumentTargetForEditorPath(useBufferStore.getState().buffers, filePath);
-        if (!target || !lspClient.getDocumentAvailability(target, "rename").available) return;
+        if (
+          !target ||
+          !isDocumentFeatureAvailable(lspClient.getDocumentAvailability(target, "rename"))
+        ) {
+          return;
+        }
         const result = await lspClient.rename(
           target,
           renameState.line,

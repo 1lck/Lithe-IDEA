@@ -20,6 +20,7 @@ final class AppServices {
     let languageProviderCatalog: LanguageProviderCatalog
     let debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver
     let workspaceOperations: any WorkspaceOperations
+    let documentLifecycleDecider: any DocumentLifecycleDeciding
     let javaMavenOperations: any JavaMavenOperations
     let markdownRenderer: any MarkdownRendering
     let markdownImageImporter: any MarkdownImageImporting
@@ -51,6 +52,7 @@ final class AppServices {
         languageProviderCatalogSnapshot: LanguageProviderCatalogSnapshot? = nil,
         debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver? = nil,
         workspaceOperations: any WorkspaceOperations,
+        documentLifecycleDecider: any DocumentLifecycleDeciding,
         javaMavenOperations: any JavaMavenOperations,
         markdownRenderer: any MarkdownRendering,
         markdownImageImporter: any MarkdownImageImporting,
@@ -85,6 +87,7 @@ final class AppServices {
         self.debugLaunchConfigurationResolver = debugLaunchConfigurationResolver
             ?? DebugLaunchConfigurationResolver(fileStorage: fileStorage)
         self.workspaceOperations = workspaceOperations
+        self.documentLifecycleDecider = documentLifecycleDecider
         self.javaMavenOperations = javaMavenOperations
         self.markdownRenderer = markdownRenderer
         self.markdownImageImporter = markdownImageImporter

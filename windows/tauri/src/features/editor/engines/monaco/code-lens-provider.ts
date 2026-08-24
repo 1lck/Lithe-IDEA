@@ -12,7 +12,10 @@ import {
   lspDocumentTargetForEditorPath,
   type LspDocumentTarget,
 } from "@/features/editor/lsp/lsp-document-target";
-import { LspClient } from "@/features/editor/lsp/lsp-client";
+import {
+  isDocumentFeatureAvailable,
+  LspClient,
+} from "@/features/editor/lsp/lsp-client";
 import { useLspStore } from "@/features/editor/lsp/stores/lsp.store";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { filePathFromUri } from "@/features/editor/lsp/workspace-edit";
@@ -24,6 +27,7 @@ const SHOW_REFERENCES_COMMAND = "editor.action.showReferences";
 
 interface LspCodeLens {
   line: number;
+  utf16Column: number;
   title: string;
   command?: string;
   arguments?: unknown[];
@@ -161,7 +165,7 @@ export function registerMonacoCodeLensProvider(): void {
       const target = lspDocumentTargetForEditorPath(useBufferStore.getState().buffers, filePath);
       if (
         !target ||
-        !lspClient.getDocumentAvailability(target, "codeLens").available ||
+        !isDocumentFeatureAvailable(lspClient.getDocumentAvailability(target, "codeLens")) ||
         (!target.documentUri && !lspClient.isDocumentOpen(target.filePath))
       ) {
         return { lenses: [] };

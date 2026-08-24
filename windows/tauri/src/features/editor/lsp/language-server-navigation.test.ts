@@ -1,56 +1,53 @@
 import { describe, expect, test } from "bun:test";
-import { languageServerUnavailableMessage } from "./language-server-navigation";
+import { languageServerNavigationBlock } from "./language-server-navigation";
 
 describe("language server jump messages", () => {
   test("does not warn when a session is already connected", () => {
     expect(
-      languageServerUnavailableMessage({
-        languageId: "java",
-        status: "connected",
-        hasSession: true,
-        ready: true,
-        featuresKnown: true,
-        supportsFeature: true,
+      languageServerNavigationBlock({
+        availability: {
+          phase: "ready",
+          languageId: "java",
+          workspacePath: "C:/work",
+          feature: "supported",
+        },
+        fallbackStatus: "connected",
       }),
     ).toBeNull();
   });
 
   test("reports a negotiated unsupported capability", () => {
     expect(
-      languageServerUnavailableMessage({
-        languageId: "java",
-        status: "connected",
-        hasSession: true,
-        ready: true,
-        featuresKnown: true,
-        supportsFeature: false,
-        featureLabel: "references",
+      languageServerNavigationBlock({
+        availability: {
+          phase: "ready",
+          languageId: "java",
+          workspacePath: "C:/work",
+          feature: "unsupported",
+        },
+        fallbackStatus: "connected",
       }),
-    ).toBe("Java language server does not support references.");
+    ).toEqual({ reason: "unsupported", languageId: "java" });
   });
 
   test("reports startup, failure, and not-ready states", () => {
     expect(
-      languageServerUnavailableMessage({
-        languageId: "java",
-        status: "connecting",
-        hasSession: false,
+      languageServerNavigationBlock({
+        availability: { phase: "unavailable", languageId: "java" },
+        fallbackStatus: "connecting",
       }),
-    ).toBe("Java language server is starting.");
+    ).toEqual({ reason: "preparing", languageId: "java" });
     expect(
-      languageServerUnavailableMessage({
-        languageId: "java",
-        status: "error",
-        lastError: "Could not find jdtls. Install Eclipse JDT Language Server and add it to PATH.",
-        hasSession: false,
+      languageServerNavigationBlock({
+        availability: { phase: "unavailable", languageId: "java" },
+        fallbackStatus: "error",
       }),
-    ).toBe("Could not find jdtls. Install Eclipse JDT Language Server and add it to PATH.");
+    ).toEqual({ reason: "failed", languageId: "java" });
     expect(
-      languageServerUnavailableMessage({
-        languageId: "java",
-        status: "disconnected",
-        hasSession: false,
+      languageServerNavigationBlock({
+        availability: { phase: "unavailable", languageId: "java" },
+        fallbackStatus: "disconnected",
       }),
-    ).toBe("Java language server is not ready.");
+    ).toEqual({ reason: "notReady", languageId: "java" });
   });
 });

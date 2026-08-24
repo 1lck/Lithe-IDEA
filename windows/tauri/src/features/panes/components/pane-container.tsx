@@ -38,6 +38,7 @@ import {
 } from "@/features/tabs/utils/internal-tab-drag";
 import { cn } from "@/utils/cn";
 import { activateBufferInPaneAndSync, activatePaneAndSyncBuffer } from "../utils/pane-activation";
+import { reconcileMountedEditorBuffers } from "../utils/mounted-editor-buffers";
 import { EmptyEditorState } from "./empty-editor-state";
 import { BOTTOM_PANE_ID } from "../constants/pane";
 import { getSingletonToolBufferTitleKey } from "../constants/tool-buffers";
@@ -332,7 +333,11 @@ export function PaneContainer({ pane }: PaneContainerProps) {
   const [isCarouselResizing, setIsCarouselResizing] = useState(false);
   const [draggedCarouselBufferId, setDraggedCarouselBufferId] = useState<string | null>(null);
   const [carouselDropBufferId, setCarouselDropBufferId] = useState<string | null>(null);
-  const [recentEditorBufferIds, setRecentEditorBufferIds] = useState<string[]>([]);
+  const [mountedEditorBufferIds, setMountedEditorBufferIds] = useState<readonly string[]>([]);
+  const mountedEditorBufferStateRef = useRef({
+    recentIds: [] as readonly string[],
+    mountedIds: [] as readonly string[],
+  });
   const containerRef = useRef<HTMLDivElement>(null);
   const carouselViewportRef = useRef<HTMLDivElement>(null);
   const lastCarouselBufferIdRef = useRef<string | null>(null);
@@ -381,26 +386,19 @@ export function PaneContainer({ pane }: PaneContainerProps) {
     const openEditorBufferIds = paneBuffers
       .filter(isStandardEditorBuffer)
       .map((buffer) => buffer.id);
-    const openEditorBufferIdSet = new Set(openEditorBufferIds);
     const activeEditorBufferId =
       activeBuffer && isStandardEditorBuffer(activeBuffer) ? activeBuffer.id : null;
-
-    setRecentEditorBufferIds((current) => {
-      const next = [
-        ...(activeEditorBufferId ? [activeEditorBufferId] : []),
-        ...current.filter(
-          (bufferId) => bufferId !== activeEditorBufferId && openEditorBufferIdSet.has(bufferId),
-        ),
-      ].slice(0, MAX_MOUNTED_EDITOR_BUFFERS);
-
-      if (
-        next.length === current.length &&
-        next.every((bufferId, index) => bufferId === current[index])
-      ) {
-        return current;
-      }
-      return next;
-    });
+    const previous = mountedEditorBufferStateRef.current;
+    const next = reconcileMountedEditorBuffers(
+      previous,
+      openEditorBufferIds,
+      activeEditorBufferId,
+      MAX_MOUNTED_EDITOR_BUFFERS,
+    );
+    mountedEditorBufferStateRef.current = next;
+    if (next.mountedIds !== previous.mountedIds) {
+      setMountedEditorBufferIds(next.mountedIds);
+    }
   }, [activeBuffer, paneBuffers]);
 
   const handlePaneClick = useCallback(() => {
@@ -920,7 +918,7 @@ export function PaneContainer({ pane }: PaneContainerProps) {
   const mountedEditorBuffers = paneBuffers.filter(
     (buffer): buffer is EditorBufferShell =>
       isStandardEditorBuffer(buffer) &&
-      (buffer.id === activeBuffer?.id || recentEditorBufferIds.includes(buffer.id)),
+      (buffer.id === activeBuffer?.id || mountedEditorBufferIds.includes(buffer.id)),
   );
 
   const renderActiveBuffer = useCallback(

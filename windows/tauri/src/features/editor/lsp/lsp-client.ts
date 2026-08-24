@@ -1,5 +1,6 @@
 import {
   getLspSessionSnapshot,
+  getLspWorkspaceSessionSnapshot,
   invokeLsp as invoke,
   isLspSemanticCommandSupported,
 } from "@/platform/lsp-core-adapter";
@@ -22,13 +23,23 @@ import { hasTextContent, shouldStartLsp } from "@/features/panes/types/pane-cont
 import { useBufferStore } from "../stores/buffer.store";
 import { logger } from "../utils/logger";
 import { normalizePath } from "@/utils/path-helpers";
-import { isBuiltInLspPath, languageIdForEditorFile } from "./built-in-language-support";
+import { getLanguageDisplayName } from "../utils/language-id";
+import {
+  isBuiltInLspPath,
+  JAVA_LANGUAGE_ID,
+  languageIdForEditorFile,
+} from "./built-in-language-support";
 import { resolvePublishedDiagnosticsFilePath } from "./diagnostics-file-path";
 import { resolveEditorLspLaunch } from "./resolve-editor-lsp-launch";
 import type { LspSemanticTokensResponse } from "./semantic-token-types";
-import { useLspStore, type LspStatus } from "./stores/lsp.store";
+import {
+  normalizeJavaImplementationMarkers,
+  type JavaImplementationMarker,
+} from "./java-navigation-models";
+import { useLspStore } from "./stores/lsp.store";
 import {
   lspDocumentRequestArgs,
+  lspSessionFilePath,
   normalizeLspDocumentTarget,
   type LspDocumentTargetInput,
 } from "./lsp-document-target";
@@ -37,6 +48,7 @@ import {
   isLanguageServerFailureCoolingDown,
   recordLanguageServerFailure,
 } from "./language-server-failure-cooldown";
+import { isCanceledLspRequest, normalizeLspError } from "./lsp-request-error";
 import {
   applyWorkspaceEdit,
   applyTextEditsToContent,
@@ -45,21 +57,45 @@ import {
   type LspTextEdit,
   type WorkspaceEdit,
 } from "./workspace-edit";
+import type { LspAdapterSessionPhase } from "@/platform/lsp-session-lifecycle";
 
-export interface LspError {
-  message: string;
-  code?: string;
-}
+export type LspWorkspaceStartOutcome =
+  | { kind: "ready" }
+  | { kind: "unsupportedHost" }
+  | { kind: "notConfigured" };
 
-export interface LspDocumentAvailability {
-  languageId?: string;
-  status: LspStatus;
-  hasSession: boolean;
-  ready: boolean;
-  featuresKnown: boolean;
-  supportsFeature: boolean;
-  available: boolean;
-  workspacePath?: string;
+export type LspFileAttachmentOutcome =
+  | { kind: "attached"; attachmentId: string }
+  | { kind: "cancelled"; reason: "superseded" | "unsupportedHost" };
+
+type LanguageServerRepairOutcome =
+  | { kind: "repaired" }
+  | { kind: "unavailable"; reason: "extensionUnavailable" | "runtimeUnresolved" }
+  | { kind: "failed"; error: unknown };
+
+export type LspDocumentAvailability =
+  | { phase: "unavailable"; languageId?: string }
+  | {
+      phase: "preparing";
+      languageId?: string;
+      workspacePath: string;
+      sessionPhase: Exclude<LspAdapterSessionPhase, "ready" | "failed" | "stopped">;
+    }
+  | {
+      phase: "failed";
+      languageId?: string;
+      workspacePath: string;
+      sessionPhase: "failed" | "stopped";
+    }
+  | {
+      phase: "ready";
+      languageId?: string;
+      workspacePath: string;
+      feature: "supported" | "unsupported" | "unknown";
+    };
+
+export function isDocumentFeatureAvailable(availability: LspDocumentAvailability): boolean {
+  return availability.phase === "ready" && availability.feature === "supported";
 }
 
 export interface LspLocation {
@@ -84,32 +120,29 @@ interface PrepareRenameResult {
   end?: { line: number; character: number };
 }
 
-function normalizeLspError(error: unknown): LspError {
-  if (error instanceof Error) {
-    return { message: error.message };
-  }
+type TrackedLspDocument = {
+  filePath: string;
+  attachmentId: string;
+  version: number;
+  phase: "open" | "closing";
+};
 
-  if (typeof error === "string") {
-    return { message: error };
-  }
+type PendingFileStart = {
+  workspacePath: string;
+  task: Promise<LspFileAttachmentOutcome>;
+};
 
-  if (error && typeof error === "object") {
-    const candidate = error as { message?: unknown; code?: unknown };
-    if (typeof candidate.message === "string" && candidate.message.trim().length > 0) {
-      return {
-        message: candidate.message,
-        code: typeof candidate.code === "string" ? candidate.code : undefined,
-      };
-    }
-    try {
-      return { message: JSON.stringify(error) };
-    } catch {
-      return { message: String(error) };
-    }
-  }
+type LspFileStartIntent = "attach" | "manualRestart";
 
-  return { message: String(error) };
-}
+type LspFileStartAttempt =
+  | { kind: "attach"; attachmentId: string }
+  | { kind: "manualRestart"; attachmentId: string }
+  | { kind: "repairRetry"; attachmentId: string };
+
+type PendingDocumentOpen = {
+  attachmentId: string;
+  task: Promise<void>;
+};
 
 function stringifyLspError(error: unknown): string {
   return normalizeLspError(error).message;
@@ -134,18 +167,6 @@ function isBenignHoverError(error: unknown): boolean {
     message.includes("column is beyond end of line") ||
     message.includes("column is beyond end of file") ||
     message.includes("no lsp client for this file")
-  );
-}
-
-function isCanceledLspRequest(error: unknown): boolean {
-  const message = stringifyLspError(error).toLowerCase();
-  return (
-    message === "canceled" ||
-    message.includes("canceled: canceled") ||
-    message.includes("request canceled") ||
-    message.includes("request cancelled") ||
-    message.includes("content modified") ||
-    message.includes("-32801")
   );
 }
 
@@ -179,11 +200,15 @@ export class LspClient {
   private activeLanguageServers = new Set<string>(); // workspace:language format
   private activeLanguages = new Set<string>(); // Track active language IDs for status
   private activeServerFiles = new Map<string, Set<string>>(); // workspace:language -> tracked files
+  private workspaceRepresentativeFiles = new Map<string, string>();
   /** workspace:language -> failure timestamp (ms); expired after a short cooldown. */
   private failedLanguageServers = new Map<string, number>();
-  private repairLanguageServerPromises = new Map<string, Promise<boolean>>();
-  private openDocuments = new Set<string>();
-  private documentVersions = new Map<string, number>();
+  private repairLanguageServerPromises = new Map<string, Promise<LanguageServerRepairOutcome>>();
+  private fileAttachmentIds = new Map<string, string>();
+  private fileStartTasks = new Map<string, PendingFileStart>();
+  private workspaceStartTasks = new Map<string, Promise<LspWorkspaceStartOutcome>>();
+  private documentOpenTasks = new Map<string, PendingDocumentOpen>();
+  private documents = new Map<string, TrackedLspDocument>();
 
   private constructor() {
     this.setupDiagnosticsListener();
@@ -213,7 +238,7 @@ export class LspClient {
   private async repairLanguageServerForFile(
     filePath: string,
     languageId: string,
-  ): Promise<boolean> {
+  ): Promise<LanguageServerRepairOutcome> {
     const repairKey = `${filePath}:${languageId}`;
     const existingRepair = this.repairLanguageServerPromises.get(repairKey);
     if (existingRepair) {
@@ -228,7 +253,10 @@ export class LspClient {
     return repairPromise;
   }
 
-  private async runLanguageServerRepair(filePath: string, languageId: string): Promise<boolean> {
+  private async runLanguageServerRepair(
+    filePath: string,
+    languageId: string,
+  ): Promise<LanguageServerRepairOutcome> {
     try {
       const [
         { useExtensionStore, waitForExtensionStoreInitialization },
@@ -244,7 +272,7 @@ export class LspClient {
 
       const extension = useExtensionStore.getState().actions.getExtensionForFile(filePath);
       if (!extension?.isInstalled || !extension.manifest.lsp) {
-        return false;
+        return { kind: "unavailable", reason: "extensionUnavailable" };
       }
 
       logger.info(
@@ -276,7 +304,7 @@ export class LspClient {
 
       if (!runtimeManifest.lsp) {
         logger.warn("LSPClient", `Language server repair did not resolve an LSP for ${languageId}`);
-        return false;
+        return { kind: "unavailable", reason: "runtimeUnresolved" };
       }
 
       extensionRegistry.registerExtension(runtimeManifest, {
@@ -285,10 +313,10 @@ export class LspClient {
         state: "installed",
       });
 
-      return true;
+      return { kind: "repaired" };
     } catch (error) {
       logger.error("LSPClient", "Language server repair failed:", error);
-      return false;
+      return { kind: "failed", error };
     }
   }
 
@@ -329,6 +357,13 @@ export class LspClient {
     this.activeServerFiles.set(serverKey, trackedFiles);
   }
 
+  private registerActiveServer(serverKey: string, languageId: string, filePath?: string) {
+    this.activeLanguageServers.add(serverKey);
+    if (filePath) this.addTrackedFile(serverKey, filePath);
+    this.activeLanguages.add(getLanguageDisplayName(languageId));
+    this.updateLspStatus();
+  }
+
   private removeTrackedFile(serverKey: string, filePath: string) {
     const trackedFiles = this.activeServerFiles.get(serverKey);
     if (!trackedFiles) return;
@@ -348,7 +383,7 @@ export class LspClient {
   private getRepresentativeFilePath(serverKey: string): string | null {
     const trackedFiles = this.activeServerFiles.get(serverKey);
     if (!trackedFiles || trackedFiles.size === 0) {
-      return null;
+      return this.workspaceRepresentativeFiles.get(serverKey) ?? null;
     }
 
     return trackedFiles.values().next().value ?? null;
@@ -366,7 +401,7 @@ export class LspClient {
       key: serverKey,
       workspacePath,
       languageId,
-      displayName: this.getLanguageDisplayName(languageId),
+      displayName: getLanguageDisplayName(languageId),
       filePath: this.getRepresentativeFilePath(serverKey),
     };
   }
@@ -401,7 +436,7 @@ export class LspClient {
   }
 
   isDocumentOpen(filePath: string): boolean {
-    return this.openDocuments.has(filePath);
+    return this.documents.get(trackedFileKey(filePath))?.phase === "open";
   }
 
   static getInstance(): LspClient {
@@ -438,7 +473,11 @@ export class LspClient {
           const filePath = resolvePublishedDiagnosticsFilePath(
             publishedFilePath,
             sourceBufferPaths,
-            this.openDocuments,
+            new Set(
+              [...this.documents.values()]
+                .filter((document) => document.phase === "open")
+                .map((document) => document.filePath),
+            ),
           );
 
           if (!filePath) {
@@ -450,7 +489,7 @@ export class LspClient {
           }
 
           const publishedVersion = event.payload.version;
-          const currentVersion = this.documentVersions.get(filePath);
+          const currentVersion = this.documents.get(trackedFileKey(filePath))?.version;
           if (
             typeof publishedVersion === "number" &&
             typeof currentVersion === "number" &&
@@ -511,59 +550,78 @@ export class LspClient {
     }
   }
 
-  async start(workspacePath: string, filePath?: string): Promise<void> {
+  async start(
+    workspacePath: string,
+    representativeFilePath?: string,
+  ): Promise<LspWorkspaceStartOutcome> {
     try {
       logger.debug("LSPClient", "Starting LSP with workspace:", workspacePath);
 
-      if (workspacePath.startsWith("wsl://") || filePath?.startsWith("wsl://")) {
+      if (workspacePath.startsWith("wsl://") || representativeFilePath?.startsWith("wsl://")) {
         logger.debug("LSPClient", `Skipping host LSP for WSL workspace ${workspacePath}`);
-        return;
+        return { kind: "unsupportedHost" };
       }
 
-      const launch = filePath ? await resolveEditorLspLaunch(filePath, workspacePath) : null;
+      const launch = representativeFilePath
+        ? await resolveEditorLspLaunch(representativeFilePath, workspacePath)
+        : null;
       if (!launch) {
         logger.debug("LSPClient", `No LSP server configured for workspace ${workspacePath}`);
-        return;
+        return { kind: "notConfigured" };
       }
 
-      logger.debug(
-        "LSPClient",
-        `Using LSP server: ${launch.serverPath} for language: ${launch.languageId}`,
-      );
       const serverKey = `${workspacePath}:${launch.languageId}`;
-      if (this.activeLanguageServers.has(serverKey)) {
-        logger.debug("LSPClient", `LSP for ${launch.languageId} already running in workspace`);
-        return;
-      }
-
-      logger.debug("LSPClient", `Invoking lsp_start with:`, {
+      const workspaceSession = getLspWorkspaceSessionSnapshot({
         workspacePath,
-        serverPath: launch.serverPath,
-        serverArgs: launch.serverArgs,
-      });
-
-      await invoke<void>("lsp_start", {
-        workspacePath,
-        filePath: filePath || null,
-        serverPath: launch.serverPath,
-        serverArgs: launch.serverArgs,
         languageId: launch.languageId,
-        providerId: launch.providerId,
-        tools: launch.tools || null,
-        initializationOptions: launch.initializationOptions || null,
-        runtimeExecutablePath: launch.runtimeExecutablePath || null,
-        cacheDirectory: launch.cacheDirectory || null,
-        environment: launch.environment || null,
       });
-
-      this.activeLanguageServers.add(serverKey);
-      if (filePath) {
-        this.addTrackedFile(serverKey, filePath);
+      if (workspaceSession?.phase === "ready") {
+        if (representativeFilePath) {
+          this.workspaceRepresentativeFiles.set(serverKey, representativeFilePath);
+        }
+        this.registerActiveServer(serverKey, launch.languageId);
+        return { kind: "ready" } as const;
       }
 
-      logger.debug("LSPClient", "LSP started successfully for workspace:", workspacePath);
+      const existingTask = this.workspaceStartTasks.get(serverKey);
+      if (existingTask) return existingTask;
+
+      const task: Promise<LspWorkspaceStartOutcome> = (async (): Promise<LspWorkspaceStartOutcome> => {
+        logger.debug(
+          "LSPClient",
+          `Using LSP server: ${launch.serverPath} for language: ${launch.languageId}`,
+        );
+        useLspStore.getState().actions.updateLspStatus("connecting");
+        await invoke<void>("lsp_start", {
+          workspacePath,
+          serverPath: launch.serverPath,
+          serverArgs: launch.serverArgs,
+          languageId: launch.languageId,
+          providerId: launch.providerId,
+          tools: launch.tools || null,
+          initializationOptions: launch.initializationOptions || null,
+          runtimeExecutablePath: launch.runtimeExecutablePath || null,
+          cacheDirectory: launch.cacheDirectory || null,
+          environment: launch.environment || null,
+          workspaceFingerprint: launch.workspaceFingerprint || null,
+        });
+
+        if (representativeFilePath) {
+          this.workspaceRepresentativeFiles.set(serverKey, representativeFilePath);
+        }
+        this.registerActiveServer(serverKey, launch.languageId);
+        logger.debug("LSPClient", "LSP started successfully for workspace:", workspacePath);
+        return { kind: "ready" };
+      })().finally(() => {
+        if (this.workspaceStartTasks.get(serverKey) === task) {
+          this.workspaceStartTasks.delete(serverKey);
+        }
+      });
+      this.workspaceStartTasks.set(serverKey, task);
+      return await task;
     } catch (error) {
       logger.error("LSPClient", "Failed to start LSP:", error);
+      useLspStore.getState().actions.setLspError(getUserFacingLspErrorMessage(error));
       throw error;
     }
   }
@@ -571,18 +629,31 @@ export class LspClient {
   async stop(workspacePath: string): Promise<void> {
     try {
       logger.debug("LSPClient", "Stopping LSP for workspace:", workspacePath);
+      const workspaceKey = trackedFileKey(workspacePath);
+      const pendingStarts = [...this.workspaceStartTasks.entries()]
+        .filter(([key]) => trackedFileKey(this.parseServerKey(key).workspacePath) === workspaceKey)
+        .map(([, task]) => task);
+      if (pendingStarts.length > 0) await Promise.allSettled(pendingStarts);
       await invoke<void>("lsp_stop", { workspacePath });
 
       // Remove all language servers for this workspace
-      const serversToRemove = Array.from(this.activeLanguageServers).filter((key) =>
-        key.startsWith(`${workspacePath}:`),
+      const serversToRemove = Array.from(this.activeLanguageServers).filter(
+        (key) => trackedFileKey(this.parseServerKey(key).workspacePath) === workspaceKey,
       );
       for (const server of serversToRemove) {
+        for (const filePath of this.activeServerFiles.get(server) ?? []) {
+          const file = trackedFileKey(filePath);
+          this.fileAttachmentIds.delete(file);
+          this.fileStartTasks.delete(file);
+          this.documentOpenTasks.delete(file);
+          this.documents.delete(file);
+        }
         this.activeLanguageServers.delete(server);
         this.activeServerFiles.delete(server);
+        this.workspaceRepresentativeFiles.delete(server);
         const { languageId: language } = this.parseServerKey(server);
         if (language) {
-          const displayName = this.getLanguageDisplayName(language);
+          const displayName = getLanguageDisplayName(language);
           this.activeLanguages.delete(displayName);
         }
       }
@@ -597,31 +668,91 @@ export class LspClient {
     }
   }
 
+  async notifyWorkspaceFilesChanged(
+    workspacePath: string,
+    changes: Array<{ path: string; kind: "created" | "changed" | "deleted" }>,
+  ): Promise<void> {
+    if (changes.length === 0) return;
+    await invoke<void>("lsp_workspace_files_changed", {
+      workspacePath,
+      languageId: JAVA_LANGUAGE_ID,
+      changes,
+    });
+  }
+
   async startForFile(
     filePath: string,
     workspacePath: string,
-    options: { forceRetry?: boolean; repairAttempted?: boolean } = {},
-  ): Promise<boolean> {
+    intent: LspFileStartIntent = "attach",
+  ): Promise<LspFileAttachmentOutcome> {
+    const attachmentKey = trackedFileKey(filePath);
+    const currentAttachmentId = this.fileAttachmentIds.get(attachmentKey);
+    const currentSession = getLspSessionSnapshot({ filePath });
+    if (
+      currentAttachmentId &&
+      currentSession &&
+      trackedFileKey(currentSession.workspacePath) === trackedFileKey(workspacePath)
+    ) {
+      this.registerActiveServer(
+        `${currentSession.workspacePath}:${currentSession.languageId}`,
+        currentSession.languageId,
+        filePath,
+      );
+      return { kind: "attached", attachmentId: currentAttachmentId };
+    }
+
+    const pending = this.fileStartTasks.get(attachmentKey);
+    if (pending && trackedFileKey(pending.workspacePath) === trackedFileKey(workspacePath)) {
+      return pending.task;
+    }
+
+    const attachmentId = crypto.randomUUID();
+    this.fileAttachmentIds.set(attachmentKey, attachmentId);
+    const task = this.startFileAttachment(filePath, workspacePath, {
+      kind: intent,
+      attachmentId,
+    }).finally(() => {
+      if (this.fileStartTasks.get(attachmentKey)?.task === task) {
+        this.fileStartTasks.delete(attachmentKey);
+      }
+    });
+    this.fileStartTasks.set(attachmentKey, { workspacePath, task });
+    return task;
+  }
+
+  private async startFileAttachment(
+    filePath: string,
+    workspacePath: string,
+    attempt: LspFileStartAttempt,
+  ): Promise<LspFileAttachmentOutcome> {
+    const attachmentKey = trackedFileKey(filePath);
+    const attachmentId = attempt.attachmentId;
+    if (this.fileAttachmentIds.get(attachmentKey) !== attachmentId) {
+      return { kind: "cancelled", reason: "superseded" };
+    }
+    const isCurrentAttachment = () => this.fileAttachmentIds.get(attachmentKey) === attachmentId;
+
     try {
       logger.debug("LSPClient", "Starting LSP for file:", filePath);
 
       if (workspacePath.startsWith("wsl://") || filePath.startsWith("wsl://")) {
         logger.debug("LSPClient", `Skipping host LSP for WSL file ${filePath}`);
-        return false;
+        if (isCurrentAttachment()) this.fileAttachmentIds.delete(attachmentKey);
+        return { kind: "cancelled", reason: "unsupportedHost" };
       }
 
       let launch: Awaited<ReturnType<typeof resolveEditorLspLaunch>> = null;
       try {
         launch = await resolveEditorLspLaunch(filePath, workspacePath);
       } catch (error) {
-        if (!options.repairAttempted && !isBuiltInLspPath(filePath)) {
+        if (attempt.kind !== "repairRetry" && !isBuiltInLspPath(filePath)) {
           const languageId = languageIdForEditorFile(filePath);
           if (languageId) {
             const repaired = await this.repairLanguageServerForFile(filePath, languageId);
-            if (repaired) {
-              return this.startForFile(filePath, workspacePath, {
-                forceRetry: true,
-                repairAttempted: true,
+            if (repaired.kind === "repaired") {
+              return this.startFileAttachment(filePath, workspacePath, {
+                kind: "repairRetry",
+                attachmentId,
               });
             }
           }
@@ -631,18 +762,18 @@ export class LspClient {
 
       if (!launch) {
         const languageId = languageIdForEditorFile(filePath);
-        if (languageId && !options.repairAttempted && !isBuiltInLspPath(filePath)) {
+        if (languageId && attempt.kind !== "repairRetry" && !isBuiltInLspPath(filePath)) {
           const repaired = await this.repairLanguageServerForFile(filePath, languageId);
-          if (repaired) {
-            return this.startForFile(filePath, workspacePath, {
-              forceRetry: true,
-              repairAttempted: true,
+          if (repaired.kind === "repaired") {
+            return this.startFileAttachment(filePath, workspacePath, {
+              kind: "repairRetry",
+              attachmentId,
             });
           }
         }
 
         const message = languageId
-          ? `Language server for ${this.getLanguageDisplayName(languageId)} could not be resolved.`
+          ? `Language server for ${getLanguageDisplayName(languageId)} could not be resolved.`
           : "No language server is configured for this file.";
         if (languageId) {
           logger.warn(
@@ -662,7 +793,7 @@ export class LspClient {
       );
 
       const serverKey = `${workspacePath}:${languageId}`;
-      if (options.forceRetry) {
+      if (attempt.kind !== "attach") {
         clearLanguageServerFailure(this.failedLanguageServers, serverKey);
       }
       if (isLanguageServerFailureCoolingDown(this.failedLanguageServers, serverKey, Date.now())) {
@@ -671,11 +802,13 @@ export class LspClient {
           `Skipping LSP restart for ${languageId} in ${workspacePath} during startup failure cooldown`,
         );
         throw new Error(
-          `${this.getLanguageDisplayName(languageId)} language server previously failed to start.`,
+          `${getLanguageDisplayName(languageId)} language server previously failed to start.`,
         );
       }
 
       useLspStore.getState().actions.updateLspStatus("connecting");
+
+      if (!isCurrentAttachment()) return { kind: "cancelled", reason: "superseded" };
 
       logger.debug("LSPClient", `Invoking lsp_start_for_file with:`, {
         filePath,
@@ -697,20 +830,23 @@ export class LspClient {
           runtimeExecutablePath: launch.runtimeExecutablePath || null,
           cacheDirectory: launch.cacheDirectory || null,
           environment: launch.environment || null,
+          workspaceFingerprint: launch.workspaceFingerprint || null,
+          attachmentId,
         });
+        if (!isCurrentAttachment()) {
+          await invoke<void>("lsp_stop_for_file", { filePath, attachmentId });
+          return { kind: "cancelled", reason: "superseded" };
+        }
         clearLanguageServerFailure(this.failedLanguageServers, serverKey);
-        this.activeLanguageServers.add(serverKey);
-        this.addTrackedFile(serverKey, filePath);
-        this.activeLanguages.add(this.getLanguageDisplayName(languageId));
-        this.updateLspStatus();
+        this.registerActiveServer(serverKey, languageId, filePath);
       } catch (error) {
         recordLanguageServerFailure(this.failedLanguageServers, serverKey, Date.now());
-        if (!options.repairAttempted && this.isRepairableStartupError(error)) {
+        if (attempt.kind !== "repairRetry" && this.isRepairableStartupError(error)) {
           const repaired = await this.repairLanguageServerForFile(filePath, languageId);
-          if (repaired) {
-            return this.startForFile(filePath, workspacePath, {
-              forceRetry: true,
-              repairAttempted: true,
+          if (repaired.kind === "repaired") {
+            return this.startFileAttachment(filePath, workspacePath, {
+              kind: "repairRetry",
+              attachmentId,
             });
           }
         }
@@ -718,8 +854,10 @@ export class LspClient {
       }
 
       logger.debug("LSPClient", "LSP started successfully for file:", filePath);
-      return true;
+      return { kind: "attached", attachmentId };
     } catch (error) {
+      if (!isCurrentAttachment()) return { kind: "cancelled", reason: "superseded" };
+      this.fileAttachmentIds.delete(attachmentKey);
       logger.error("LSPClient", "Failed to start LSP for file:", error);
       const { actions } = useLspStore.getState();
       actions.setLspError(getUserFacingLspErrorMessage(error));
@@ -742,89 +880,104 @@ export class LspClient {
     });
     const languageId =
       document.languageId ?? session?.languageId ?? languageIdForEditorFile(document.filePath);
-    const supportsFeature = Boolean(
-      session && (!feature || (session.featuresKnown && session.features.includes(feature))),
-    );
-    const status: LspStatus = session
-      ? session.ready
-        ? "connected"
-        : "connecting"
-      : "disconnected";
+    if (!session) return { phase: "unavailable", languageId };
+    if (session.phase === "failed" || session.phase === "stopped") {
+      return {
+        phase: "failed",
+        languageId,
+        workspacePath: session.workspacePath,
+        sessionPhase: session.phase,
+      };
+    }
+    if (session.phase !== "ready") {
+      return {
+        phase: "preparing",
+        languageId,
+        workspacePath: session.workspacePath,
+        sessionPhase: session.phase,
+      };
+    }
+    const featureSupport = !feature
+      ? "supported"
+      : session.featureState.phase === "unknown"
+        ? "unknown"
+        : session.featureState.features.includes(feature)
+          ? "supported"
+          : "unsupported";
     return {
+      phase: "ready",
       languageId,
-      status,
-      hasSession: session !== null,
-      ready: session?.ready ?? false,
-      featuresKnown: session?.featuresKnown ?? false,
-      supportsFeature,
-      available: Boolean(session?.ready && supportsFeature),
-      workspacePath: session?.workspacePath,
+      workspacePath: session.workspacePath,
+      feature: featureSupport,
     };
   }
 
-  /**
-   * Get display name for a language ID
-   */
-  private getLanguageDisplayName(languageId: string): string {
-    const displayNames: Record<string, string> = {
-      typescript: "TypeScript",
-      javascript: "JavaScript",
-      javascriptreact: "JavaScript React",
-      rust: "Rust",
-      python: "Python",
-      go: "Go",
-      java: "Java",
-      c: "C",
-      cpp: "C++",
-      csharp: "C#",
-      ruby: "Ruby",
-      php: "PHP",
-      html: "HTML",
-      angular: "Angular Template",
-      css: "CSS",
-      dart: "Dart",
-      dockerfile: "Dockerfile",
-      elixir: "Elixir",
-      json: "JSON",
-      jsonc: "JSONC",
-      kotlin: "Kotlin",
-      lua: "Lua",
-      yaml: "YAML",
-      nix: "Nix",
-      ocaml: "OCaml",
-      scala: "Scala",
-      solidity: "Solidity",
-      svelte: "Svelte",
-      swift: "Swift",
-      terraform: "Terraform",
-      toml: "TOML",
-      typescriptreact: "TypeScript React",
-      markdown: "Markdown",
-      bash: "Bash",
-      vue: "Vue",
-      zig: "Zig",
-    };
-    return displayNames[languageId] || languageId;
+  async ensureDocumentReady(
+    target: LspDocumentTargetInput,
+    workspacePath: string,
+    content: string,
+    feature?: string,
+  ): Promise<LspDocumentAvailability> {
+    const initial = this.getDocumentAvailability(target, feature);
+    if (isDocumentFeatureAvailable(initial)) return initial;
+
+    const document = normalizeLspDocumentTarget(target);
+    const sessionFilePath = lspSessionFilePath(document);
+    // A virtual JDT document borrows a physical source session. Reconstructing
+    // that source document from virtual class text would corrupt synchronization.
+    if (sessionFilePath !== document.filePath) return initial;
+
+    const attachment = await this.startForFile(sessionFilePath, workspacePath);
+    if (attachment.kind !== "attached") return this.getDocumentAvailability(document, feature);
+    const { attachmentId } = attachment;
+
+    const trackedDocument = this.documents.get(trackedFileKey(sessionFilePath));
+    if (trackedDocument?.phase !== "open" || trackedDocument.attachmentId !== attachmentId) {
+      await this.notifyDocumentOpen(sessionFilePath, content, attachmentId);
+    }
+    return this.getDocumentAvailability(document, feature);
   }
 
-  async stopForFile(filePath: string): Promise<void> {
+  async stopForFile(filePath: string, requestedAttachmentId?: string): Promise<void> {
+    const attachmentKey = trackedFileKey(filePath);
+    const attachmentId = requestedAttachmentId ?? this.fileAttachmentIds.get(attachmentKey);
+    if (!attachmentId) return;
+    if (this.fileAttachmentIds.get(attachmentKey) === attachmentId) {
+      this.fileAttachmentIds.delete(attachmentKey);
+    }
+
     try {
       logger.debug("LSPClient", "Stopping LSP for file:", filePath);
       const languageId = languageIdForEditorFile(filePath);
-      await invoke<void>("lsp_stop_for_file", { filePath });
+      await invoke<void>("lsp_stop_for_file", { filePath, attachmentId });
+
+      // A newer editor attachment owns the same path now. The adapter ignored
+      // this stale stop, so its frontend tracking must remain intact too.
+      if (this.fileAttachmentIds.has(attachmentKey)) return;
+
+      const trackedDocument = this.documents.get(attachmentKey);
+      if (trackedDocument?.attachmentId === attachmentId) {
+        this.documents.delete(attachmentKey);
+        useDiagnosticsStore.getState().actions.clearDiagnosticsForOwner(filePath, "lsp");
+        useLspStore.getState().actions.markDocumentStateChanged();
+      }
 
       if (languageId) {
         const activeKey = this.findServerKeyForFile(filePath, languageId);
         if (activeKey) {
           this.removeTrackedFile(activeKey, filePath);
           const stillActiveForServer = this.activeServerFiles.has(activeKey);
-          if (!stillActiveForServer) {
+          const workspaceSession = getLspWorkspaceSessionSnapshot({
+            workspacePath: this.parseServerKey(activeKey).workspacePath,
+            languageId,
+          });
+          if (!stillActiveForServer && !(languageId === JAVA_LANGUAGE_ID && workspaceSession)) {
             this.activeLanguageServers.delete(activeKey);
           }
           clearLanguageServerFailure(this.failedLanguageServers, activeKey);
         }
 
-        const displayName = this.getLanguageDisplayName(languageId);
+        const displayName = getLanguageDisplayName(languageId);
         const stillActiveForLanguage = Array.from(this.activeLanguageServers).some((key) =>
           key.endsWith(`:${languageId}`),
         );
@@ -843,14 +996,14 @@ export class LspClient {
   }
 
   async stopTrackedServer(serverKey: string): Promise<void> {
-    const filePath = this.getRepresentativeFilePath(serverKey);
-    if (!filePath) {
+    const trackedFilePath = this.activeServerFiles.get(serverKey)?.values().next().value;
+    if (!trackedFilePath) {
       const { workspacePath } = this.parseServerKey(serverKey);
       await this.stop(workspacePath);
       return;
     }
 
-    await this.stopForFile(filePath);
+    await this.stopForFile(trackedFilePath);
   }
 
   async restartForFile(filePath: string, workspacePath: string, content: string): Promise<void> {
@@ -862,11 +1015,11 @@ export class LspClient {
 
       await this.notifyDocumentClose(filePath);
       await this.stopForFile(filePath);
-      const started = await this.startForFile(filePath, workspacePath, { forceRetry: true });
-      if (!started) {
+      const attachment = await this.startForFile(filePath, workspacePath, "manualRestart");
+      if (attachment.kind !== "attached") {
         throw new Error("Language server failed to start.");
       }
-      await this.notifyDocumentOpen(filePath, content);
+      await this.notifyDocumentOpen(filePath, content, attachment.attachmentId);
     } catch (error) {
       logger.error("LSPClient", "Failed to restart LSP for file:", error);
       actions.setLspError(getUserFacingLspErrorMessage(error));
@@ -875,11 +1028,19 @@ export class LspClient {
   }
 
   async restartTrackedServer(serverKey: string): Promise<void> {
-    const filePath = this.getRepresentativeFilePath(serverKey);
-    if (!filePath) {
-      throw new Error("No tracked file for this language server");
+    const trackedFilePath = this.activeServerFiles.get(serverKey)?.values().next().value;
+    if (!trackedFilePath) {
+      const representativeFilePath = this.workspaceRepresentativeFiles.get(serverKey);
+      if (!representativeFilePath) {
+        throw new Error("No representative file for this language server");
+      }
+      const { workspacePath } = this.parseServerKey(serverKey);
+      await this.stop(workspacePath);
+      await this.start(workspacePath, representativeFilePath);
+      return;
     }
 
+    const filePath = trackedFilePath;
     const buffer = useBufferStore.getState().buffers.find((entry) => entry.path === filePath);
     const content = buffer && hasTextContent(buffer) ? buffer.content : "";
     await this.restartForFile(filePath, this.parseServerKey(serverKey).workspacePath, content);
@@ -1036,6 +1197,7 @@ export class LspClient {
   async getCodeLens(target: LspDocumentTargetInput): Promise<
     {
       line: number;
+      utf16Column: number;
       title: string;
       command?: string;
       arguments?: unknown[];
@@ -1046,6 +1208,44 @@ export class LspClient {
     } catch (error) {
       if (isCanceledLspRequest(error)) return [];
       logger.error("LSPClient", "LSP code lens error:", error);
+      return [];
+    }
+  }
+
+  async getJavaNavigationMarkers(
+    target: LspDocumentTargetInput,
+  ): Promise<JavaImplementationMarker[]> {
+    try {
+      const result = await invoke<{ markers?: unknown[] }>(
+        "java_navigation_markers",
+        lspDocumentRequestArgs(target),
+      );
+      return normalizeJavaImplementationMarkers(result.markers);
+    } catch (error) {
+      // The gutter owner distinguishes transient cancellation during JDTLS
+      // startup from a valid empty marker result and retries it with a bound.
+      if (isCanceledLspRequest(error)) throw error;
+      logger.error("LSPClient", "Java navigation marker error:", error);
+      throw error;
+    }
+  }
+
+  async resolveJavaNavigation(
+    target: LspDocumentTargetInput,
+    marker: JavaImplementationMarker,
+  ): Promise<LspLocation[]> {
+    try {
+      const result = await invoke<{ locations?: LspLocation[] }>("java_resolve_navigation", {
+        ...lspDocumentRequestArgs(target),
+        line: marker.line,
+        character: marker.utf16Column,
+        direction: marker.direction,
+        relation: marker.relation,
+      });
+      return Array.isArray(result.locations) ? result.locations : [];
+    } catch (error) {
+      if (isCanceledLspRequest(error)) return [];
+      logger.error("LSPClient", "Java navigation resolution error:", error);
       return [];
     }
   }
@@ -1378,17 +1578,53 @@ export class LspClient {
     }
   }
 
-  async notifyDocumentOpen(filePath: string, content: string): Promise<void> {
-    try {
-      logger.debug("LSPClient", `Opening document: ${filePath}`);
-      const languageId = languageIdForEditorFile(filePath);
-      await invoke<void>("lsp_document_open", { filePath, content, languageId });
-      this.openDocuments.add(filePath);
-      this.documentVersions.set(filePath, 1);
-      useLspStore.getState().actions.markDocumentStateChanged();
-    } catch (error) {
-      logger.error("LSPClient", "LSP document open error:", error);
+  async notifyDocumentOpen(
+    filePath: string,
+    content: string,
+    attachmentId?: string,
+  ): Promise<void> {
+    const attachmentKey = trackedFileKey(filePath);
+    const currentAttachmentId = this.fileAttachmentIds.get(attachmentKey);
+    if (attachmentId && currentAttachmentId !== attachmentId) return;
+    const ownerAttachmentId = attachmentId ?? currentAttachmentId;
+    if (!ownerAttachmentId) return;
+
+    const openDocument = this.documents.get(attachmentKey);
+    if (openDocument?.phase === "open" && openDocument.attachmentId === ownerAttachmentId) {
+      return;
     }
+    const pendingOpen = this.documentOpenTasks.get(attachmentKey);
+    if (pendingOpen?.attachmentId === ownerAttachmentId) return pendingOpen.task;
+
+    const task: Promise<void> = (async () => {
+      try {
+        logger.debug("LSPClient", `Opening document: ${filePath}`);
+        const languageId = languageIdForEditorFile(filePath);
+        await invoke<void>("lsp_document_open", {
+          filePath,
+          content,
+          languageId,
+          attachmentId: ownerAttachmentId,
+        });
+        if (this.fileAttachmentIds.get(attachmentKey) !== ownerAttachmentId) return;
+        this.documents.set(attachmentKey, {
+          filePath,
+          attachmentId: ownerAttachmentId,
+          version: 1,
+          phase: "open",
+        });
+        useLspStore.getState().actions.markDocumentStateChanged();
+      } catch (error) {
+        logger.error("LSPClient", "LSP document open error:", error);
+        throw error;
+      }
+    })().finally(() => {
+      if (this.documentOpenTasks.get(attachmentKey)?.task === task) {
+        this.documentOpenTasks.delete(attachmentKey);
+      }
+    });
+    this.documentOpenTasks.set(attachmentKey, { attachmentId: ownerAttachmentId, task });
+    return task;
   }
 
   async notifyDocumentChange(
@@ -1405,40 +1641,67 @@ export class LspClient {
       endColumn?: number;
     }>,
   ): Promise<void> {
+    const attachmentKey = trackedFileKey(filePath);
+    const attachmentId = this.fileAttachmentIds.get(attachmentKey);
+    const document = this.documents.get(attachmentKey);
+    if (!attachmentId || document?.phase !== "open" || document.attachmentId !== attachmentId) {
+      return;
+    }
+
     try {
-      this.openDocuments.add(filePath);
-      this.documentVersions.set(filePath, version);
       await invoke<void>("lsp_document_change", {
         filePath,
         content,
         version,
         contentChanges,
+        attachmentId,
       });
+      const current = this.documents.get(attachmentKey);
+      if (current?.phase === "open" && current.attachmentId === attachmentId) {
+        this.documents.set(attachmentKey, { ...current, version });
+      }
     } catch (error) {
       logger.error("LSPClient", "LSP document change error:", error);
+      throw error;
     }
   }
 
   async notifyDocumentSave(filePath: string, content: string): Promise<void> {
+    const attachmentKey = trackedFileKey(filePath);
+    const attachmentId = this.fileAttachmentIds.get(attachmentKey);
+    const document = this.documents.get(attachmentKey);
+    if (!attachmentId || document?.phase !== "open" || document.attachmentId !== attachmentId) {
+      return;
+    }
+
     try {
-      await invoke<void>("lsp_document_save", { filePath, content });
+      await invoke<void>("lsp_document_save", { filePath, content, attachmentId });
     } catch (error) {
-      logger.debug("LSPClient", "LSP document save notification skipped:", error);
+      logger.error("LSPClient", "LSP document save error:", error);
+      throw error;
     }
   }
 
-  async notifyDocumentClose(filePath: string): Promise<void> {
-    const wasOpen = this.openDocuments.delete(filePath);
-    this.documentVersions.delete(filePath);
-    useDiagnosticsStore.getState().actions.clearDiagnosticsForOwner(filePath, "lsp");
-    if (wasOpen) {
-      useLspStore.getState().actions.markDocumentStateChanged();
+  async notifyDocumentClose(filePath: string, requestedAttachmentId?: string): Promise<void> {
+    const attachmentKey = trackedFileKey(filePath);
+    const document = this.documents.get(attachmentKey);
+    const attachmentId = requestedAttachmentId ?? document?.attachmentId;
+    if (!attachmentId || document?.phase !== "open" || document.attachmentId !== attachmentId) {
+      return;
     }
 
+    this.documents.set(attachmentKey, { ...document, phase: "closing" });
+    useDiagnosticsStore.getState().actions.clearDiagnosticsForOwner(filePath, "lsp");
+    useLspStore.getState().actions.markDocumentStateChanged();
+
     try {
-      await invoke<void>("lsp_document_close", { filePath });
+      await invoke<void>("lsp_document_close", { filePath, attachmentId });
     } catch (error) {
       logger.error("LSPClient", "LSP document close error:", error);
+      throw error;
+    } finally {
+      const current = this.documents.get(attachmentKey);
+      if (current?.attachmentId === attachmentId) this.documents.delete(attachmentKey);
     }
   }
 

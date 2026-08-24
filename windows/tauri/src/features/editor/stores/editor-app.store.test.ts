@@ -56,7 +56,11 @@ beforeEach(() => {
 
 describe("workspace-scoped editor actions", () => {
   test("routes content changes to the source workspace", async () => {
-    setWorkspaceBuffers(WORKSPACE_A, [editorBuffer("a", "A original")], "a");
+    setWorkspaceBuffers(
+      WORKSPACE_A,
+      [editorBuffer("a", "A original", { isVirtual: false })],
+      "a",
+    );
     setWorkspaceBuffers(WORKSPACE_B, [editorBuffer("b", "B original")], "b");
     workspaceRuntimeRegistry.activateWorkspace({ id: WORKSPACE_B, name: "Workspace B" }, "ready");
 
@@ -66,6 +70,12 @@ describe("workspace-scoped editor actions", () => {
       .actions.handleContentChange("a", "A edited");
 
     expect(getEditorBuffer(WORKSPACE_A, "a").content).toBe("A edited");
+    expect(getEditorBuffer(WORKSPACE_A, "a").contentRevision).toBe(1);
+    expect(getEditorBuffer(WORKSPACE_A, "a").documentLifecycle).toEqual({
+      status: "dirty",
+      revision: 1,
+      savedRevision: 0,
+    });
     expect(getEditorBuffer(WORKSPACE_B, "b").content).toBe("B original");
   });
 

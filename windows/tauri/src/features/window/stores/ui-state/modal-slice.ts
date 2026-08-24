@@ -13,6 +13,7 @@ interface ModalState {
   isProjectPickerVisible: boolean;
   isDatabaseConnectionVisible: boolean;
   settingsInitialTab: SettingsTab | null;
+  isReferencesPopoverVisible: boolean;
 }
 
 interface ModalActions {
@@ -29,6 +30,7 @@ interface ModalActions {
   openSettingsDialog: (tab?: SettingsTab) => void;
   hasOpenModal: () => boolean;
   closeTopModal: () => boolean;
+  setIsReferencesPopoverVisible: (v: boolean) => void;
 }
 
 export type ModalSlice = ModalState & ModalActions;
@@ -45,6 +47,7 @@ export const createModalSlice: StateCreator<ModalSlice, [], [], ModalSlice> = (s
   isProjectPickerVisible: false,
   isDatabaseConnectionVisible: false,
   settingsInitialTab: null,
+  isReferencesPopoverVisible: false,
 
   // Actions
   hasOpenModal: () => {
@@ -57,7 +60,8 @@ export const createModalSlice: StateCreator<ModalSlice, [], [], ModalSlice> = (s
       state.isSettingsDialogVisible ||
       state.isBranchManagerVisible ||
       state.isProjectPickerVisible ||
-      state.isDatabaseConnectionVisible
+      state.isDatabaseConnectionVisible ||
+      state.isReferencesPopoverVisible
     );
   },
 
@@ -74,6 +78,10 @@ export const createModalSlice: StateCreator<ModalSlice, [], [], ModalSlice> = (s
     }
     if (state.isGlobalSearchVisible) {
       set({ isGlobalSearchVisible: false });
+      return true;
+    }
+    if (state.isReferencesPopoverVisible) {
+      set({ isReferencesPopoverVisible: false });
       return true;
     }
     if (state.isQuickOpenVisible) {
@@ -261,4 +269,6 @@ export const createModalSlice: StateCreator<ModalSlice, [], [], ModalSlice> = (s
       isDatabaseConnectionVisible: false,
       settingsInitialTab: tab ?? null,
     }),
+
+  setIsReferencesPopoverVisible: (v: boolean) => set({ isReferencesPopoverVisible: v }),
 });
