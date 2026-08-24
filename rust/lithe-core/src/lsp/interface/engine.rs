@@ -13,9 +13,11 @@ use super::{
 };
 use crate::lsp::languages::jdt::{
     adapt_initialization_options, adapt_start, initialized_notification, is_virtual_source_uri,
-    normalize_location, virtual_source_content, virtual_source_resolve_params,
-    workspace_configuration, JdtStartContext, ProviderLocation, WorkspaceConfigurationItem,
+    normalize_location, readiness_signal, virtual_source_content, virtual_source_resolve_params,
+    waits_for_service_ready, workspace_configuration, JdtReadinessSignal, JdtStartContext,
+    ProviderLocation, WorkspaceConfigurationItem,
 };
+use crate::lsp::languages::jdt_navigation::{JavaNavigationMarkerBatch, MAX_JAVA_NAVIGATION_TASKS};
 use crate::protocol::{CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -72,6 +74,12 @@ pub struct StartServerRequest {
     pub runtime_executable_path: Option<String>,
     #[serde(default)]
     pub cache_directory: Option<String>,
+    /// Platform-computed digest of the workspace's build-system structure.
+    /// Providers that keep durable per-workspace state (JDT LS) mix this into
+    /// their state-directory name so a structurally changed workspace does not
+    /// reuse a stale project model. See `JdtStartContext::workspace_fingerprint`.
+    #[serde(default)]
+    pub workspace_fingerprint: Option<String>,
     #[serde(default = "default_initialize_timeout")]
     pub initialize_timeout_milliseconds: u64,
     #[serde(default = "default_request_timeout")]
@@ -111,6 +119,69 @@ pub struct SyncDocumentRequest {
     pub content_changes: Vec<LspDocumentContentChange>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Core-owned document synchronization state returned after an editor update.
+pub struct SyncDocumentResponse {
+    /// Monotonic version used by all subsequent LSP requests and diagnostics.
+    pub document_version: i64,
+    /// `false` when the submitted text was already synchronized.
+    pub changed: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// Workspace file events forwarded through standard LSP watched-file semantics.
+pub struct WorkspaceFilesChangedRequest {
+    pub session_id: String,
+    pub changes: Vec<WorkspaceFileChange>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// One absolute document URI and the filesystem transition observed by a host.
+pub struct WorkspaceFileChange {
+    pub uri: String,
+    pub kind: WorkspaceFileChangeKind,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+/// LSP watched-file transition mapped to protocol event types 1, 2, and 3.
+pub enum WorkspaceFileChangeKind {
+    Created,
+    Changed,
+    Deleted,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// Requests semantic Java navigation markers for one synchronized document.
+pub struct JavaNavigationMarkersRequest {
+    pub session_id: String,
+    #[serde(default)]
+    pub operation_id: Option<String>,
+    pub uri: String,
+    #[serde(default)]
+    pub document_version: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// Resolves one previously published Java marker at click time.
+pub struct JavaResolveNavigationRequest {
+    pub session_id: String,
+    #[serde(default)]
+    pub operation_id: Option<String>,
+    pub uri: String,
+    pub line: i64,
+    pub utf16_column: i64,
+    pub direction: String,
+    pub relation: String,
+    #[serde(default)]
+    pub document_version: Option<i64>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 /// Request to remove a document from a session's synchronized state.
@@ -137,6 +208,8 @@ pub enum LspSemanticOperation {
     References,
     /// `textDocument/implementation`.
     Implementation,
+    /// JDT LS `java/findLinks` with the `superImplementation` relation.
+    JavaSuperImplementation,
     /// `textDocument/rename`.
     Rename,
     /// `textDocument/formatting`.
@@ -316,6 +389,12 @@ enum PendingKind {
     Feature,
     /// Provider-specific source retrieval normalized as a virtual document.
     VirtualDocument,
+    /// CodeLens-derived Java gutter marker projection.
+    JavaNavigationMarkers,
+    /// One JDT LS CodeLens resolve step in a bounded marker batch.
+    JavaNavigationMarkerResolve,
+    /// Click-time Java parent or implementation resolution.
+    JavaResolveNavigation,
     /// Shutdown handshake after which the engine sends `exit`.
     Shutdown,
 }
@@ -326,8 +405,19 @@ struct PendingRequest {
     operation_id: Option<String>,
     method: String,
     document_uri: Option<String>,
+    /// Document version observed when a presentation request was allocated.
+    document_version: Option<i64>,
     created_at: Instant,
     deadline: Instant,
+}
+
+/// Latest completed marker projection for one synchronized document.
+///
+/// Only one version per URI is retained. This bounds memory while preventing
+/// view refreshes from repeating the same multi-request JDT LS batch.
+struct JavaNavigationMarkerCacheEntry {
+    document_version: i64,
+    markers: Vec<crate::protocol::JavaNavigationMarkerResponse>,
 }
 
 struct SessionState {
@@ -335,6 +425,11 @@ struct SessionState {
     client: LspClientState,
     pending: BTreeMap<String, PendingRequest>,
     request_by_operation: BTreeMap<String, String>,
+    java_navigation_marker_batches: BTreeMap<String, JavaNavigationMarkerBatch>,
+    java_navigation_marker_cache: BTreeMap<String, JavaNavigationMarkerCacheEntry>,
+    /// Latest workspace event per URI observed before protocol initialization.
+    /// The engine owns and drains this queue exactly once after `initialized`.
+    pending_workspace_file_changes: BTreeMap<String, WorkspaceFileChangeKind>,
     events: VecDeque<LspRuntimeEvent>,
     next_sequence: u64,
     initialize_deadline: Option<Instant>,
@@ -388,10 +483,106 @@ pub fn stop_server(request: SessionRequest) -> Result<(), CoreError> {
 }
 
 /// Opens or replaces the synchronized contents of one document.
-pub fn sync_document(request: SyncDocumentRequest) -> Result<(), CoreError> {
+pub fn sync_document(request: SyncDocumentRequest) -> Result<SyncDocumentResponse, CoreError> {
     engine()
         .session(&request.session_id)?
         .sync_document(request)
+}
+
+/// Forwards external source and build-configuration changes without restarting
+/// the server or invalidating its durable workspace state.
+pub fn workspace_files_changed(request: WorkspaceFilesChangedRequest) -> Result<(), CoreError> {
+    engine()
+        .session(&request.session_id)?
+        .workspace_files_changed(request.changes)
+}
+
+/// Queues one shared Java gutter marker request against the active LSP session.
+pub fn java_navigation_markers(
+    request: JavaNavigationMarkersRequest,
+) -> Result<OperationResponse, CoreError> {
+    let operation_id = request
+        .operation_id
+        .clone()
+        .unwrap_or_else(|| engine().next_operation_id());
+    let session = engine().session(&request.session_id)?;
+    if session.complete_cached_java_navigation_markers(
+        &operation_id,
+        &request.uri,
+        request.document_version,
+    )? {
+        return Ok(OperationResponse { operation_id });
+    }
+    session.request_with_kind(
+        SemanticRequest {
+            session_id: request.session_id,
+            operation_id: Some(operation_id.clone()),
+            operation: LspSemanticOperation::CodeLens,
+            uri: Some(request.uri),
+            virtual_uri: None,
+            position: None,
+            new_name: None,
+            range: None,
+            diagnostics: Vec::new(),
+            completion_item: None,
+            code_action: None,
+            command: None,
+        },
+        operation_id.clone(),
+        PendingKind::JavaNavigationMarkers,
+        request.document_version,
+    )?;
+    Ok(OperationResponse { operation_id })
+}
+
+/// Queues one click-time Java parent or implementation lookup.
+pub fn java_resolve_navigation(
+    request: JavaResolveNavigationRequest,
+) -> Result<OperationResponse, CoreError> {
+    let operation_id = request
+        .operation_id
+        .clone()
+        .unwrap_or_else(|| engine().next_operation_id());
+    let operation = match request.direction.as_str() {
+        "down" => LspSemanticOperation::Implementation,
+        "up" => LspSemanticOperation::JavaSuperImplementation,
+        _ => {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Java navigation direction must be up or down.",
+            ))
+        }
+    };
+    if !matches!(request.relation.as_str(), "interface" | "inheritance") {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Java navigation relation must be interface or inheritance.",
+        ));
+    }
+    let session = engine().session(&request.session_id)?;
+    session.request_with_kind(
+        SemanticRequest {
+            session_id: request.session_id,
+            operation_id: Some(operation_id.clone()),
+            operation,
+            uri: Some(request.uri),
+            virtual_uri: None,
+            position: Some(LspPosition {
+                line: request.line,
+                utf16_column: request.utf16_column,
+            }),
+            new_name: None,
+            range: None,
+            diagnostics: Vec::new(),
+            completion_item: None,
+            code_action: None,
+            command: None,
+        },
+        operation_id.clone(),
+        PendingKind::JavaResolveNavigation,
+        request.document_version,
+    )?;
+    Ok(OperationResponse { operation_id })
 }
 
 /// Notifies the server that a synchronized document has closed.
@@ -489,6 +680,7 @@ impl LspEngine {
             data_root,
             selected_java_executable,
             arguments: request.arguments.clone(),
+            workspace_fingerprint: request.workspace_fingerprint.clone(),
         });
         if let Some(directory) = &adaptation.data_directory {
             std::fs::create_dir_all(directory).map_err(|error| {
@@ -537,11 +729,15 @@ impl LspEngine {
                         operation_id: None,
                         method: "initialize".to_string(),
                         document_uri: None,
+                        document_version: None,
                         created_at: now,
                         deadline: now + initialize_timeout,
                     },
                 )]),
                 request_by_operation: BTreeMap::new(),
+                java_navigation_marker_batches: BTreeMap::new(),
+                java_navigation_marker_cache: BTreeMap::new(),
+                pending_workspace_file_changes: BTreeMap::new(),
                 events: VecDeque::new(),
                 next_sequence: 1,
                 initialize_deadline: Some(now + initialize_timeout),
@@ -617,13 +813,63 @@ impl LspEngine {
 }
 
 impl RuntimeSession {
-    fn sync_document(&self, request: SyncDocumentRequest) -> Result<(), CoreError> {
+    fn workspace_files_changed(&self, changes: Vec<WorkspaceFileChange>) -> Result<(), CoreError> {
+        if changes.is_empty() {
+            return Ok(());
+        }
+        let mut normalized = BTreeMap::new();
+        for change in changes {
+            if !change.uri.contains("://") || change.uri.contains('\0') {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Workspace file changes require absolute document URIs.",
+                )
+                .with_details(change.uri));
+            }
+            // The last event for a URI represents its final filesystem state
+            // and prevents a watcher burst from causing redundant imports.
+            normalized.insert(change.uri, change.kind);
+        }
+        let message = {
+            let mut state = self.lock_state()?;
+            ensure_not_terminal(state.lifecycle)?;
+            if !state.client.initialized {
+                state.pending_workspace_file_changes.extend(normalized);
+                return Ok(());
+            }
+            workspace_file_changes_notification(normalized)
+        };
+        self.send_messages_or_fail(vec![message], "workspaceFilesChanged")
+    }
+
+    fn sync_document(
+        &self,
+        request: SyncDocumentRequest,
+    ) -> Result<SyncDocumentResponse, CoreError> {
         let uri = request.uri;
         let mut messages = Vec::new();
+        let mut stale_cancellations = Vec::new();
+        let document_version;
         {
             let mut state = self.lock_state()?;
             ensure_not_terminal(state.lifecycle)?;
-            if state.lifecycle == LspLifecycleState::Ready {
+            if let Some(document) = state.client.open_documents.get(&uri) {
+                // Hosts commonly publish both a ranged edit and the resulting
+                // full text. Repeating that full text must not create another
+                // JDTLS reconciliation cycle or advance the semantic version.
+                if request.content_changes.is_empty() && document.text == request.text {
+                    return Ok(SyncDocumentResponse {
+                        document_version: document.version.max(1),
+                        changed: false,
+                    });
+                }
+            }
+            state.java_navigation_marker_cache.remove(&uri);
+            // JDT LS has a second readiness phase after standard initialize.
+            // Once the protocol handshake is complete, edits must still reach
+            // the server while project import is finishing so its model cannot
+            // fall behind the editor buffer.
+            if state.client.initialized {
                 let response = if state
                     .client
                     .open_documents
@@ -646,6 +892,14 @@ impl RuntimeSession {
                 };
                 state.client = response.state;
                 messages = response.messages;
+                document_version = state
+                    .client
+                    .open_documents
+                    .get(&uri)
+                    .map(|document| document.version)
+                    .unwrap_or_default();
+                stale_cancellations =
+                    cancel_stale_document_requests_locked(self, &mut state, &uri, document_version);
             } else {
                 // Version zero means the semantic document exists in the Rust
                 // store but has not yet been opened on the server. The latest
@@ -661,9 +915,18 @@ impl RuntimeSession {
                         text: request.text,
                     },
                 );
+                // Version zero remains an internal "not opened on the wire"
+                // sentinel. Consumers receive version one, which is the exact
+                // version the latest queued text will have after initialize.
+                document_version = 1;
             }
         }
-        self.send_messages_or_fail(messages, "documentSync")
+        messages.extend(stale_cancellations);
+        self.send_messages_or_fail(messages, "documentSync")?;
+        Ok(SyncDocumentResponse {
+            document_version,
+            changed: true,
+        })
     }
 
     fn close_document(&self, uri: &str) -> Result<(), CoreError> {
@@ -678,6 +941,7 @@ impl RuntimeSession {
                     "Cannot close a document that is not owned by the language-server session.",
                 ));
             };
+            state.java_navigation_marker_cache.remove(uri);
             cleared = state.client.diagnostics.contains_key(uri);
             if document.version == 0 {
                 state.client.open_documents.remove(uri);
@@ -698,7 +962,87 @@ impl RuntimeSession {
         self.send_messages_or_fail(messages, "documentClose")
     }
 
+    fn complete_cached_java_navigation_markers(
+        &self,
+        operation_id: &str,
+        uri: &str,
+        requested_document_version: Option<i64>,
+    ) -> Result<bool, CoreError> {
+        let mut state = self.lock_state()?;
+        if state.lifecycle != LspLifecycleState::Ready || !state.client.initialized {
+            return Ok(false);
+        }
+        if state.request_by_operation.contains_key(operation_id) {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "The language-server operation ID is already pending.",
+            ));
+        }
+        let current_version = state
+            .client
+            .open_documents
+            .get(uri)
+            .map(|document| document.version.max(1));
+        let Some(entry) = state.java_navigation_marker_cache.get(uri) else {
+            return Ok(false);
+        };
+        let expected_version = requested_document_version.or(current_version);
+        if expected_version != Some(entry.document_version)
+            || current_version != Some(entry.document_version)
+        {
+            return Ok(false);
+        }
+        let document_version = entry.document_version;
+        let markers = entry.markers.clone();
+        push_log_event(
+            self,
+            &mut state,
+            "debug",
+            "Java navigation markers served from cache",
+            Some(format!(
+                "operationId={operation_id}, uri={uri}, documentVersion={document_version}, markers={}",
+                markers.len()
+            )),
+        );
+        push_request_event(
+            self,
+            &mut state,
+            operation_id,
+            "textDocument/codeLens",
+            Some(json!({
+                "documentVersion": document_version,
+                "markers": markers
+            })),
+            None,
+        );
+        Ok(true)
+    }
+
     fn request(&self, request: SemanticRequest, operation_id: String) -> Result<(), CoreError> {
+        let document_version = request.uri.as_deref().and_then(|uri| {
+            self.lock_state().ok().and_then(|state| {
+                state
+                    .client
+                    .open_documents
+                    .get(uri)
+                    .map(|document| document.version.max(1))
+            })
+        });
+        let pending_kind = if request.operation == LspSemanticOperation::VirtualDocument {
+            PendingKind::VirtualDocument
+        } else {
+            PendingKind::Feature
+        };
+        self.request_with_kind(request, operation_id, pending_kind, document_version)
+    }
+
+    fn request_with_kind(
+        &self,
+        request: SemanticRequest,
+        operation_id: String,
+        requested_kind: PendingKind,
+        requested_document_version: Option<i64>,
+    ) -> Result<(), CoreError> {
         let (messages, request_id) = {
             let mut state = self.lock_state()?;
             if state.lifecycle != LspLifecycleState::Ready || !state.client.initialized {
@@ -714,6 +1058,30 @@ impl RuntimeSession {
                 ));
             }
             let uri = request.uri.clone();
+            if let (Some(uri), Some(expected_version)) =
+                (uri.as_deref(), requested_document_version)
+            {
+                let current_version = state
+                    .client
+                    .open_documents
+                    .get(uri)
+                    .map(|document| document.version.max(1))
+                    .ok_or_else(|| {
+                        CoreError::new(
+                            ErrorCode::InvalidRequest,
+                            "The document is not synchronized with the language server.",
+                        )
+                    })?;
+                if current_version != expected_version {
+                    return Err(CoreError::new(
+                        ErrorCode::Cancelled,
+                        "The document changed before the Java navigation request started.",
+                    )
+                    .with_details(format!(
+                        "expectedVersion={expected_version}, currentVersion={current_version}"
+                    )));
+                }
+            }
             let method = semantic_method(request.operation);
             let required_capability = semantic_capability(request.operation);
             if let Some(capability) = required_capability {
@@ -731,12 +1099,36 @@ impl RuntimeSession {
                 }
             }
 
-            let pending_kind = if request.operation == LspSemanticOperation::VirtualDocument {
-                PendingKind::VirtualDocument
-            } else {
-                PendingKind::Feature
-            };
+            let pending_kind = requested_kind;
             let response = match request.operation {
+                LspSemanticOperation::JavaSuperImplementation => {
+                    let uri = uri.clone().ok_or_else(|| {
+                        CoreError::new(
+                            ErrorCode::InvalidRequest,
+                            "Java super navigation requires a document URI.",
+                        )
+                    })?;
+                    let position = request.position.ok_or_else(|| {
+                        CoreError::new(
+                            ErrorCode::InvalidRequest,
+                            "Java super navigation requires a document position.",
+                        )
+                    })?;
+                    allocate_raw_request(
+                        state.client.clone(),
+                        method,
+                        json!({
+                            "type": "superImplementation",
+                            "position": {
+                                "textDocument": { "uri": uri },
+                                "position": {
+                                    "line": position.line,
+                                    "character": position.utf16_column
+                                }
+                            }
+                        }),
+                    )?
+                }
                 LspSemanticOperation::ExecuteCommand => {
                     let command = request.command.ok_or_else(|| {
                         CoreError::new(
@@ -813,7 +1205,12 @@ impl RuntimeSession {
                 kind: pending_kind,
                 operation_id: Some(operation_id.clone()),
                 method: method.to_string(),
-                document_uri: uri,
+                document_uri: uri.clone(),
+                document_version: requested_document_version.or_else(|| {
+                    uri.as_deref()
+                        .and_then(|uri| state.client.open_documents.get(uri))
+                        .map(|document| document.version)
+                }),
                 created_at: now,
                 deadline: now + state.request_timeout,
             };
@@ -865,6 +1262,7 @@ impl RuntimeSession {
                 )
             })?;
             state.client.pending_requests.remove(&request_id);
+            state.java_navigation_marker_batches.remove(operation_id);
             let error = runtime_error(
                 self,
                 "requestCancelled",
@@ -932,6 +1330,7 @@ impl RuntimeSession {
                         operation_id: None,
                         method: "shutdown".to_string(),
                         document_uri: None,
+                        document_version: None,
                         created_at: now,
                         deadline: now + shutdown_timeout,
                     },
@@ -1121,6 +1520,11 @@ impl RuntimeSession {
             CoreError::new(ErrorCode::ParseFailed, "Invalid LSP server JSON message.")
                 .with_details(error.to_string())
         })?;
+        let readiness = readiness_signal(
+            &self.provider_id,
+            value.get("method").and_then(Value::as_str),
+            value.get("params"),
+        );
 
         if value.get("method").and_then(Value::as_str) == Some("workspace/configuration") {
             if let Some(response) = self.provider_configuration_response(&value)? {
@@ -1166,7 +1570,10 @@ impl RuntimeSession {
         };
         let mut outbound = reduced.messages;
         let mut flush_documents = false;
+        let mut ready_server_info = None;
         let mut fail_initialize: Option<(String, Option<String>)> = None;
+        let mut service_ready = false;
+        let mut fail_service_ready = None;
         {
             let mut state = self.lock_state()?;
             state.client = reduced.state;
@@ -1181,9 +1588,9 @@ impl RuntimeSession {
 
             match pending_before.as_ref().map(|pending| pending.kind) {
                 Some(PendingKind::Initialize) => {
-                    state.initialize_deadline = None;
                     let server_error = value.get("error").map(Value::to_string);
                     if server_error.is_some() || !state.client.initialized {
+                        state.initialize_deadline = None;
                         fail_initialize = Some((
                             if server_error.is_some() {
                                 "initializeFailed".to_string()
@@ -1193,12 +1600,10 @@ impl RuntimeSession {
                             server_error,
                         ));
                     } else {
-                        transition_locked(self, &mut state, LspLifecycleState::Ready, None);
-                        let capabilities = state.client.server_capabilities.clone();
-                        push_features_event(self, &mut state, capabilities);
-                        if let Some(info) = parse_server_info(&value) {
-                            push_server_info_event(self, &mut state, info);
+                        if !waits_for_service_ready(&self.provider_id) {
+                            state.initialize_deadline = None;
                         }
+                        ready_server_info = parse_server_info(&value);
                         flush_documents = true;
                     }
                 }
@@ -1232,6 +1637,169 @@ impl RuntimeSession {
                                 operation_id,
                                 &pending.method,
                                 result,
+                                error,
+                            );
+                        }
+                    }
+                }
+                Some(PendingKind::JavaNavigationMarkers) => {
+                    if let Some(pending) = pending_before.as_ref() {
+                        if let Some(operation_id) = &pending.operation_id {
+                            let event = reduced
+                                .events
+                                .iter()
+                                .find(|event| event.request_id.as_ref() == response_id.as_ref());
+                            let server_error =
+                                event.and_then(|event| event.error.as_ref()).map(|detail| {
+                                    runtime_error(
+                                        self,
+                                        "serverError",
+                                        "javaNavigationMarkers",
+                                        Some(&pending.method),
+                                        pending.document_uri.as_deref(),
+                                        "Language server returned an error.",
+                                        Some(detail),
+                                        None,
+                                    )
+                                });
+                            if let Some(error) = server_error {
+                                push_request_event(
+                                    self,
+                                    &mut state,
+                                    operation_id,
+                                    &pending.method,
+                                    None,
+                                    Some(error),
+                                );
+                            } else {
+                                let raw_lenses = value
+                                    .get("result")
+                                    .and_then(Value::as_array)
+                                    .cloned()
+                                    .unwrap_or_default();
+                                let source = pending
+                                    .document_uri
+                                    .as_deref()
+                                    .and_then(|uri| state.client.open_documents.get(uri))
+                                    .map(|document| document.text.as_str())
+                                    .unwrap_or_default();
+                                let batch = JavaNavigationMarkerBatch::new(
+                                    &raw_lenses,
+                                    source,
+                                    pending.created_at,
+                                    pending.deadline,
+                                );
+                                let total_tasks = batch.total_tasks();
+                                state
+                                    .java_navigation_marker_batches
+                                    .insert(operation_id.clone(), batch);
+                                if total_tasks > MAX_JAVA_NAVIGATION_TASKS {
+                                    push_log_event(
+                                        self,
+                                        &mut state,
+                                        "warning",
+                                        "Java navigation marker batch was limited",
+                                        Some(format!(
+                                            "operationId={operation_id}, uri={}, documentVersion={}, tasks={total_tasks}, limit={MAX_JAVA_NAVIGATION_TASKS}",
+                                            pending.document_uri.as_deref().unwrap_or(""),
+                                            pending.document_version.unwrap_or_default()
+                                        )),
+                                    );
+                                }
+                                if !queue_next_java_marker_resolve(
+                                    &mut state,
+                                    operation_id,
+                                    pending,
+                                    &mut outbound,
+                                )? {
+                                    finish_java_navigation_marker_batch(
+                                        self,
+                                        &mut state,
+                                        operation_id,
+                                        pending,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                Some(PendingKind::JavaNavigationMarkerResolve) => {
+                    if let Some(pending) = pending_before.as_ref() {
+                        if let Some(operation_id) = &pending.operation_id {
+                            if value.get("error").is_none() {
+                                if let Some(batch) =
+                                    state.java_navigation_marker_batches.get_mut(operation_id)
+                                {
+                                    batch.record_active_result(value.get("result"));
+                                }
+                            } else {
+                                push_log_event(
+                                    self,
+                                    &mut state,
+                                    "warning",
+                                    "JDT LS could not verify one Java navigation marker",
+                                    Some(format!(
+                                        "operationId={operation_id}, uri={}, documentVersion={}, error={}",
+                                        pending.document_uri.as_deref().unwrap_or(""),
+                                        pending.document_version.unwrap_or_default(),
+                                        value.get("error").map(Value::to_string).unwrap_or_default()
+                                    )),
+                                );
+                            }
+                            if !queue_next_java_marker_resolve(
+                                &mut state,
+                                operation_id,
+                                pending,
+                                &mut outbound,
+                            )? {
+                                finish_java_navigation_marker_batch(
+                                    self,
+                                    &mut state,
+                                    operation_id,
+                                    pending,
+                                );
+                            }
+                        }
+                    }
+                }
+                Some(PendingKind::JavaResolveNavigation) => {
+                    if let Some(pending) = pending_before.as_ref() {
+                        if let Some(operation_id) = &pending.operation_id {
+                            let event = reduced
+                                .events
+                                .iter()
+                                .find(|event| event.request_id.as_ref() == response_id.as_ref());
+                            let error =
+                                event.and_then(|event| event.error.as_ref()).map(|detail| {
+                                    runtime_error(
+                                        self,
+                                        "serverError",
+                                        "javaResolveNavigation",
+                                        Some(&pending.method),
+                                        pending.document_uri.as_deref(),
+                                        "Language server returned an error.",
+                                        Some(detail),
+                                        None,
+                                    )
+                                });
+                            let normalized = normalize_provider_navigation_result(
+                                &self.provider_id,
+                                event.and_then(|event| event.result.clone()),
+                            );
+                            let locations = normalized
+                                .as_ref()
+                                .and_then(|result| result.get("locations"))
+                                .cloned()
+                                .unwrap_or_else(|| Value::Array(Vec::new()));
+                            push_request_event(
+                                self,
+                                &mut state,
+                                operation_id,
+                                &pending.method,
+                                Some(json!({
+                                    "documentVersion": pending.document_version,
+                                    "locations": locations
+                                })),
                                 error,
                             );
                         }
@@ -1293,6 +1861,18 @@ impl RuntimeSession {
                 None => {}
             }
 
+            if state.lifecycle == LspLifecycleState::Initializing {
+                match readiness.as_ref() {
+                    Some(JdtReadinessSignal::Ready) if state.client.initialized => {
+                        service_ready = true;
+                    }
+                    Some(JdtReadinessSignal::Failed(detail)) => {
+                        fail_service_ready = Some(detail.clone());
+                    }
+                    _ => {}
+                }
+            }
+
             for event in reduced.events {
                 if event.kind == "diagnostics" {
                     if let Some(uri) = event.uri.as_deref() {
@@ -1336,6 +1916,17 @@ impl RuntimeSession {
             self.kill_process();
             return Ok(());
         }
+        if let Some(detail) = fail_service_ready {
+            self.fail(
+                "serviceReadyFailed",
+                "serviceReady",
+                "Java language service failed while preparing the workspace.",
+                Some(detail),
+                None,
+            );
+            self.kill_process();
+            return Ok(());
+        }
         if flush_documents {
             if let Some(notification) = initialized_notification(&self.provider_id) {
                 outbound.push(
@@ -1348,8 +1939,42 @@ impl RuntimeSession {
                 );
             }
             outbound.extend(self.flush_queued_documents()?);
+            self.send_messages_or_fail(outbound, "serverResponse")?;
+            let mut state = self.lock_state()?;
+            if let Some(info) = ready_server_info {
+                push_server_info_event(self, &mut state, info);
+            }
+            if waits_for_service_ready(&self.provider_id) {
+                push_log_event(
+                    self,
+                    &mut state,
+                    "info",
+                    "Waiting for the Java language service to finish project import",
+                    None,
+                );
+            } else {
+                transition_locked(self, &mut state, LspLifecycleState::Ready, None);
+                let capabilities = state.client.server_capabilities.clone();
+                push_features_event(self, &mut state, capabilities);
+            }
+            return Ok(());
         }
-        self.send_messages_or_fail(outbound, "serverResponse")
+        self.send_messages_or_fail(outbound, "serverResponse")?;
+        if service_ready {
+            let mut state = self.lock_state()?;
+            state.initialize_deadline = None;
+            transition_locked(self, &mut state, LspLifecycleState::Ready, None);
+            let capabilities = state.client.server_capabilities.clone();
+            push_features_event(self, &mut state, capabilities);
+            push_log_event(
+                self,
+                &mut state,
+                "info",
+                "Java language service finished project import",
+                None,
+            );
+        }
+        Ok(())
     }
 
     fn provider_configuration_response(
@@ -1415,6 +2040,10 @@ impl RuntimeSession {
             state.client = response.state;
             messages.extend(response.messages);
         }
+        if !state.pending_workspace_file_changes.is_empty() {
+            let changes = std::mem::take(&mut state.pending_workspace_file_changes);
+            messages.push(workspace_file_changes_notification(changes));
+        }
         Ok(messages)
     }
 
@@ -1439,7 +2068,11 @@ impl RuntimeSession {
                 .filter(|(_, pending)| {
                     matches!(
                         pending.kind,
-                        PendingKind::Feature | PendingKind::VirtualDocument
+                        PendingKind::Feature
+                            | PendingKind::VirtualDocument
+                            | PendingKind::JavaNavigationMarkers
+                            | PendingKind::JavaNavigationMarkerResolve
+                            | PendingKind::JavaResolveNavigation
                     ) && now >= pending.deadline
                 })
                 .map(|(id, _)| id.clone())
@@ -1451,6 +2084,7 @@ impl RuntimeSession {
                 state.client.pending_requests.remove(&request_id);
                 if let Some(operation_id) = pending.operation_id.as_deref() {
                     state.request_by_operation.remove(operation_id);
+                    state.java_navigation_marker_batches.remove(operation_id);
                     let elapsed = now.saturating_duration_since(pending.created_at);
                     let error = runtime_error(
                         self,
@@ -1575,6 +2209,7 @@ impl RuntimeSession {
             state.client.pending_requests.remove(request_id);
             if let Some(operation_id) = pending.operation_id.as_deref() {
                 state.request_by_operation.remove(operation_id);
+                state.java_navigation_marker_batches.remove(operation_id);
                 let error = runtime_error(
                     self,
                     code,
@@ -1752,6 +2387,7 @@ fn semantic_method(operation: LspSemanticOperation) -> &'static str {
         LspSemanticOperation::TypeDefinition => "textDocument/typeDefinition",
         LspSemanticOperation::References => "textDocument/references",
         LspSemanticOperation::Implementation => "textDocument/implementation",
+        LspSemanticOperation::JavaSuperImplementation => "java/findLinks",
         LspSemanticOperation::Rename => "textDocument/rename",
         LspSemanticOperation::Formatting => "textDocument/formatting",
         LspSemanticOperation::CodeActions => "textDocument/codeAction",
@@ -1775,6 +2411,7 @@ fn semantic_capability(operation: LspSemanticOperation) -> Option<&'static str> 
         LspSemanticOperation::TypeDefinition => Some("typeDefinition"),
         LspSemanticOperation::References => Some("references"),
         LspSemanticOperation::Implementation => Some("implementation"),
+        LspSemanticOperation::JavaSuperImplementation => Some("definition"),
         LspSemanticOperation::Rename => Some("rename"),
         LspSemanticOperation::Formatting => Some("formatting"),
         LspSemanticOperation::CodeActions => Some("codeActions"),
@@ -1787,6 +2424,115 @@ fn semantic_capability(operation: LspSemanticOperation) -> Option<&'static str> 
         LspSemanticOperation::FoldingRanges => Some("foldingRanges"),
         LspSemanticOperation::CodeLens => Some("codeLens"),
     }
+}
+
+fn queue_next_java_marker_resolve(
+    state: &mut SessionState,
+    operation_id: &str,
+    pending: &PendingRequest,
+    outbound: &mut Vec<String>,
+) -> Result<bool, CoreError> {
+    let next = state
+        .java_navigation_marker_batches
+        .get_mut(operation_id)
+        .and_then(JavaNavigationMarkerBatch::take_next);
+    let Some(task) = next else {
+        return Ok(false);
+    };
+    let uri = pending.document_uri.as_deref().unwrap_or_default();
+    let (method, params) = task.request(uri);
+    let response = allocate_raw_request(state.client.clone(), method, params)?;
+    let request_id = (response.state.next_request_id - 1).to_string();
+    let (created_at, deadline) = state
+        .java_navigation_marker_batches
+        .get(operation_id)
+        .map(|batch| (batch.created_at(), batch.deadline()))
+        .unwrap_or((pending.created_at, pending.deadline));
+    state.client = response.state;
+    state.pending.insert(
+        request_id.clone(),
+        PendingRequest {
+            kind: PendingKind::JavaNavigationMarkerResolve,
+            operation_id: Some(operation_id.to_string()),
+            method: method.to_string(),
+            document_uri: pending.document_uri.clone(),
+            document_version: pending.document_version,
+            created_at,
+            deadline,
+        },
+    );
+    state
+        .request_by_operation
+        .insert(operation_id.to_string(), request_id);
+    outbound.extend(response.messages);
+    Ok(true)
+}
+
+fn finish_java_navigation_marker_batch(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    operation_id: &str,
+    pending: &PendingRequest,
+) {
+    let Some(batch) = state.java_navigation_marker_batches.remove(operation_id) else {
+        return;
+    };
+    state.request_by_operation.remove(operation_id);
+    let source = pending
+        .document_uri
+        .as_deref()
+        .and_then(|uri| state.client.open_documents.get(uri))
+        .map(|document| document.text.clone())
+        .unwrap_or_default();
+    let created_at = batch.created_at();
+    let total_tasks = batch.total_tasks();
+    let resolved_lens_count = batch.resolved_lens_count();
+    let markers = batch.finish(&source);
+    if let (Some(uri), Some(document_version)) =
+        (pending.document_uri.as_ref(), pending.document_version)
+    {
+        let is_current = state
+            .client
+            .open_documents
+            .get(uri)
+            .is_some_and(|document| document.version.max(1) == document_version);
+        if is_current {
+            state.java_navigation_marker_cache.insert(
+                uri.clone(),
+                JavaNavigationMarkerCacheEntry {
+                    document_version,
+                    markers: markers.clone(),
+                },
+            );
+        }
+    }
+    let elapsed = Instant::now().saturating_duration_since(created_at);
+    push_log_event(
+        session,
+        state,
+        "debug",
+        "Java navigation markers resolved",
+        Some(format!(
+            "operationId={operation_id}, uri={}, documentVersion={}, durationMilliseconds={}, tasks={}, codeLenses={}, markers={}",
+            pending.document_uri.as_deref().unwrap_or(""),
+            pending.document_version.unwrap_or_default(),
+            elapsed.as_millis(),
+            total_tasks,
+            resolved_lens_count,
+            markers.len()
+        )),
+    );
+    push_request_event(
+        session,
+        state,
+        operation_id,
+        "textDocument/codeLens",
+        Some(json!({
+            "documentVersion": pending.document_version,
+            "markers": markers
+        })),
+        None,
+    );
 }
 
 fn allocate_raw_request(
@@ -1953,6 +2699,78 @@ fn normalize_provider_navigation_result(
     }
 
     result
+}
+
+fn cancel_stale_document_requests_locked(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    uri: &str,
+    document_version: i64,
+) -> Vec<String> {
+    let stale_ids: Vec<String> = state
+        .pending
+        .iter()
+        .filter(|(_, pending)| {
+            pending.document_uri.as_deref() == Some(uri)
+                && pending
+                    .document_version
+                    .is_some_and(|version| version < document_version)
+                && is_stale_sensitive_method(&pending.method)
+        })
+        .map(|(request_id, _)| request_id.clone())
+        .collect();
+    let mut messages = Vec::new();
+    for request_id in stale_ids {
+        let Some(pending) = state.pending.remove(&request_id) else {
+            continue;
+        };
+        state.client.pending_requests.remove(&request_id);
+        if let Some(operation_id) = pending.operation_id.as_deref() {
+            state.request_by_operation.remove(operation_id);
+            state.java_navigation_marker_batches.remove(operation_id);
+            let error = runtime_error(
+                session,
+                "staleDocumentVersion",
+                "request",
+                Some(&pending.method),
+                Some(uri),
+                "The document changed before the language-server result arrived.",
+                Some("A newer document version superseded this request."),
+                None,
+            );
+            push_request_event(
+                session,
+                state,
+                operation_id,
+                &pending.method,
+                None,
+                Some(error),
+            );
+        }
+        messages.push(
+            json!({
+                "jsonrpc": "2.0",
+                "method": "$/cancelRequest",
+                "params": { "id": request_id }
+            })
+            .to_string(),
+        );
+    }
+    messages
+}
+
+fn is_stale_sensitive_method(method: &str) -> bool {
+    matches!(
+        method,
+        "textDocument/completion"
+            | "textDocument/hover"
+            | "textDocument/inlayHint"
+            | "textDocument/foldingRange"
+            | "textDocument/codeLens"
+            | "codeLens/resolve"
+            | "textDocument/implementation"
+            | "java/findLinks"
+    )
 }
 
 fn push_diagnostics_event(
@@ -2122,7 +2940,11 @@ fn fail_feature_requests(
         .filter(|(_, pending)| {
             matches!(
                 pending.kind,
-                PendingKind::Feature | PendingKind::VirtualDocument
+                PendingKind::Feature
+                    | PendingKind::VirtualDocument
+                    | PendingKind::JavaNavigationMarkers
+                    | PendingKind::JavaNavigationMarkerResolve
+                    | PendingKind::JavaResolveNavigation
             )
         })
         .map(|(request_id, pending)| (request_id.clone(), pending.clone()))
@@ -2132,6 +2954,7 @@ fn fail_feature_requests(
         state.client.pending_requests.remove(&request_id);
         if let Some(operation_id) = pending.operation_id.as_deref() {
             state.request_by_operation.remove(operation_id);
+            state.java_navigation_marker_batches.remove(operation_id);
             let error = runtime_error(
                 session,
                 code,
@@ -2172,9 +2995,34 @@ fn clear_runtime_state(session: &RuntimeSession, state: &mut SessionState) {
     state.client.pending_requests.clear();
     state.pending.clear();
     state.request_by_operation.clear();
+    state.java_navigation_marker_batches.clear();
+    state.java_navigation_marker_cache.clear();
+    state.pending_workspace_file_changes.clear();
     state.initialize_deadline = None;
     state.shutdown_deadline = None;
     push_features_event(session, state, Vec::new());
+}
+
+fn workspace_file_changes_notification(
+    changes: BTreeMap<String, WorkspaceFileChangeKind>,
+) -> String {
+    let changes: Vec<_> = changes
+        .into_iter()
+        .map(|(uri, kind)| {
+            let event_type = match kind {
+                WorkspaceFileChangeKind::Created => 1,
+                WorkspaceFileChangeKind::Changed => 2,
+                WorkspaceFileChangeKind::Deleted => 3,
+            };
+            json!({ "uri": uri, "type": event_type })
+        })
+        .collect();
+    json!({
+        "jsonrpc": "2.0",
+        "method": "workspace/didChangeWatchedFiles",
+        "params": { "changes": changes }
+    })
+    .to_string()
 }
 
 #[cfg(test)]
@@ -2207,6 +3055,7 @@ mod tests {
             initialization_options: None,
             runtime_executable_path: None,
             cache_directory: None,
+            workspace_fingerprint: None,
             initialize_timeout_milliseconds: 10_000,
             request_timeout_milliseconds: 10_000,
             shutdown_timeout_milliseconds: 10_000,
@@ -2549,6 +3398,97 @@ mod tests {
         );
     }
 
+    #[test]
+    fn java_waits_for_service_ready_after_standard_initialize() {
+        let mut harness = Harness::start(|request| {
+            request.provider_id = "java".to_string();
+        });
+        harness.server.complete_initialize(ready_capabilities());
+        assert!(harness
+            .server
+            .await_notification("workspace/didChangeConfiguration"));
+
+        assert_eq!(
+            harness.snapshot().state,
+            LspLifecycleState::Initializing,
+            "the initialize response alone must not advertise a usable Java index"
+        );
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "method": "language/status",
+            "params": { "type": "ServiceReady", "message": "ServiceReady" }
+        }));
+        harness.await_state(LspLifecycleState::Ready);
+    }
+
+    #[test]
+    fn java_service_error_fails_the_preparing_session() {
+        let mut harness = Harness::start(|request| {
+            request.provider_id = "java".to_string();
+        });
+        harness.server.complete_initialize(ready_capabilities());
+        assert!(harness.server.await_notification("initialized"));
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "method": "language/status",
+            "params": { "type": "Error", "message": "Project import failed" }
+        }));
+        harness.await_state(LspLifecycleState::Failed);
+
+        let failure = harness
+            .events
+            .iter()
+            .find_map(|event| event.error.as_ref())
+            .expect("the Java service error should be retained");
+        assert_eq!(failure.code, "serviceReadyFailed");
+        assert_eq!(failure.stage, "serviceReady");
+        assert_eq!(
+            failure.underlying_message.as_deref(),
+            Some("Project import failed")
+        );
+    }
+
+    #[test]
+    fn java_preparation_timeout_covers_project_import() {
+        let mut harness = Harness::start(|request| {
+            request.provider_id = "java".to_string();
+            request.initialize_timeout_milliseconds = 40;
+        });
+        harness.server.complete_initialize(ready_capabilities());
+        assert!(harness.server.await_notification("initialized"));
+        harness.await_state(LspLifecycleState::Failed);
+
+        let failure = harness
+            .events
+            .iter()
+            .find_map(|event| event.error.as_ref())
+            .expect("project import timeout should be reported");
+        assert_eq!(failure.code, "initializeTimeout");
+        assert_eq!(failure.stage, "initialize");
+    }
+
+    #[test]
+    fn java_edits_stay_incremental_while_project_import_is_finishing() {
+        let mut harness = Harness::start(|request| {
+            request.provider_id = "java".to_string();
+        });
+        let uri = "file:///workspace/Main.java";
+        harness.sync(uri, "class Main {}");
+        harness.server.complete_initialize(ready_capabilities());
+        assert!(harness.server.await_notification("textDocument/didOpen"));
+        harness.sync(uri, "class Main { int value; }");
+        assert!(harness.server.await_notification("textDocument/didChange"));
+
+        assert_eq!(harness.snapshot().state, LspLifecycleState::Initializing);
+        assert_eq!(harness.snapshot().open_documents[uri].version, 2);
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "method": "language/status",
+            "params": { "type": "ServiceReady" }
+        }));
+        harness.await_state(LspLifecycleState::Ready);
+    }
+
     /// Criterion 3: two syncs emit open version 1 then change version 2.
     #[test]
     fn consecutive_syncs_open_at_version_one_and_change_to_version_two() {
@@ -2612,6 +3552,49 @@ mod tests {
         let snapshot = harness.snapshot();
         assert_eq!(snapshot.open_documents[first_uri].version, 1);
         assert_eq!(snapshot.open_documents[second_uri].version, 1);
+    }
+
+    #[test]
+    fn workspace_file_changes_queue_until_initialize_and_collapse_watcher_bursts() {
+        let mut harness = Harness::start(|_| {});
+        harness
+            .session()
+            .workspace_files_changed(vec![
+                WorkspaceFileChange {
+                    uri: "file:///workspace/pom.xml".to_string(),
+                    kind: WorkspaceFileChangeKind::Changed,
+                },
+                WorkspaceFileChange {
+                    uri: "file:///workspace/src/Main.java".to_string(),
+                    kind: WorkspaceFileChangeKind::Created,
+                },
+                WorkspaceFileChange {
+                    uri: "file:///workspace/src/Main.java".to_string(),
+                    kind: WorkspaceFileChangeKind::Changed,
+                },
+            ])
+            .expect("watcher events should queue before initialize");
+        assert!(!harness
+            .server
+            .messages()
+            .iter()
+            .any(|message| { message["method"] == "workspace/didChangeWatchedFiles" }));
+
+        harness.server.complete_initialize(ready_capabilities());
+        harness.await_state(LspLifecycleState::Ready);
+        let notification = harness
+            .server
+            .messages()
+            .into_iter()
+            .find(|message| message["method"] == "workspace/didChangeWatchedFiles")
+            .expect("queued watcher events should flush after initialize");
+        assert_eq!(
+            notification["params"]["changes"],
+            json!([
+                { "uri": "file:///workspace/pom.xml", "type": 2 },
+                { "uri": "file:///workspace/src/Main.java", "type": 2 }
+            ])
+        );
     }
 
     /// Criterion 4: a crash fails pending operations with `serverExited`.
@@ -3382,7 +4365,7 @@ mod tests {
 
         harness
             .server
-            .complete_initialize(json!({ "definitionProvider": true }));
+            .complete_java_initialize(json!({ "definitionProvider": true }));
         harness.await_state(LspLifecycleState::Ready);
         let uri = "file:///workspace/Main.java";
         harness.sync(uri, "class Main { String value; }");
@@ -3420,7 +4403,7 @@ mod tests {
             request.provider_id = "java".to_string();
             request.cache_directory = Some("/tmp/lithe-lsp-engine-tests".to_string());
         });
-        harness.server.complete_initialize(json!({
+        harness.server.complete_java_initialize(json!({
             "executeCommandProvider": { "commands": ["java.decompile"] }
         }));
         harness.await_state(LspLifecycleState::Ready);
@@ -3581,7 +4564,7 @@ mod tests {
             request.provider_id = "java".to_string();
             request.cache_directory = Some("/tmp/lithe-lsp-engine-tests".to_string());
         });
-        harness.server.complete_initialize(json!({
+        harness.server.complete_java_initialize(json!({
             "referencesProvider": true
         }));
         harness.await_state(LspLifecycleState::Ready);
@@ -3760,6 +4743,7 @@ public class Main {
                 initialization_options: None,
                 runtime_executable_path: Some(java_path),
                 cache_directory: Some(root.join("cache").to_string_lossy().into_owned()),
+                workspace_fingerprint: None,
                 initialize_timeout_milliseconds: 90_000,
                 request_timeout_milliseconds: 30_000,
                 shutdown_timeout_milliseconds: 10_000,
@@ -3891,6 +4875,575 @@ public class Main {
     }
 
     #[test]
+    fn java_navigation_markers_resolve_only_implementation_lenses_and_omit_zero_targets() {
+        let mut harness = Harness::start(|_| {});
+        harness.server.complete_initialize(json!({
+            "codeLensProvider": { "resolveProvider": true }
+        }));
+        harness.await_state(LspLifecycleState::Ready);
+        let uri = "file:///workspace/Service.java";
+        harness.sync(uri, "public interface Service {}\n");
+        let version = harness.snapshot().open_documents[uri].version;
+        let operation_id = harness.engine.next_operation_id();
+        harness
+            .session()
+            .request_with_kind(
+                SemanticRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    operation: LspSemanticOperation::CodeLens,
+                    uri: Some(uri.to_string()),
+                    virtual_uri: None,
+                    position: None,
+                    new_name: None,
+                    range: None,
+                    diagnostics: Vec::new(),
+                    completion_item: None,
+                    code_action: None,
+                    command: None,
+                },
+                operation_id.clone(),
+                PendingKind::JavaNavigationMarkers,
+                Some(version),
+            )
+            .expect("marker request should start");
+
+        let code_lens_id = harness
+            .server
+            .await_request("textDocument/codeLens")
+            .expect("the marker operation should request CodeLens data");
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": code_lens_id,
+            "result": [
+                {
+                    "range": {
+                        "start": { "line": 0, "character": 17 },
+                        "end": { "line": 0, "character": 24 }
+                    },
+                    "data": [uri, { "line": 0, "character": 17 }, "implementations"]
+                },
+                {
+                    "range": {
+                        "start": { "line": 0, "character": 17 },
+                        "end": { "line": 0, "character": 24 }
+                    },
+                    "data": [uri, { "line": 0, "character": 17 }, "references"]
+                }
+            ]
+        }));
+        let resolve_id = harness
+            .server
+            .await_request("codeLens/resolve")
+            .expect("only the implementation lens should be resolved");
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": resolve_id,
+            "result": {
+                "range": {
+                    "start": { "line": 0, "character": 17 },
+                    "end": { "line": 0, "character": 24 }
+                },
+                "command": {
+                    "title": "0 implementations",
+                    "command": "java.show.implementations",
+                    "arguments": []
+                }
+            }
+        }));
+
+        let event = harness.await_event(|event| {
+            event.operation_id.as_deref() == Some(operation_id.as_str())
+                && event.kind == "requestCompleted"
+        });
+        assert_eq!(event.result.as_ref().unwrap()["documentVersion"], version);
+        assert_eq!(
+            event.result.as_ref().unwrap()["markers"]
+                .as_array()
+                .map(Vec::len),
+            Some(0)
+        );
+        assert_eq!(
+            harness
+                .server
+                .messages()
+                .iter()
+                .filter(|message| {
+                    message.get("method").and_then(Value::as_str) == Some("codeLens/resolve")
+                })
+                .count(),
+            1
+        );
+
+        let cached_operation_id = harness.engine.next_operation_id();
+        assert!(harness
+            .session()
+            .complete_cached_java_navigation_markers(&cached_operation_id, uri, Some(version))
+            .expect("the completed marker result should be cached"));
+        let cached_event = harness.await_event(|event| {
+            event.operation_id.as_deref() == Some(cached_operation_id.as_str())
+                && event.kind == "requestCompleted"
+        });
+        assert_eq!(
+            cached_event.result.as_ref().unwrap()["documentVersion"],
+            version
+        );
+        assert_eq!(
+            harness
+                .server
+                .messages()
+                .iter()
+                .filter(|message| {
+                    message.get("method").and_then(Value::as_str) == Some("textDocument/codeLens")
+                })
+                .count(),
+            1
+        );
+
+        harness.sync(uri, "public interface Service { void run(); }\n");
+        let new_version = harness.snapshot().open_documents[uri].version;
+        assert_ne!(new_version, version);
+        assert!(!harness
+            .session()
+            .complete_cached_java_navigation_markers(
+                &harness.engine.next_operation_id(),
+                uri,
+                Some(new_version)
+            )
+            .expect("editing the document should invalidate the marker cache"));
+    }
+
+    #[test]
+    fn java_navigation_marker_batch_verifies_method_targets_and_keeps_both_directions() {
+        let mut harness = Harness::start(|_| {});
+        harness.server.complete_initialize(json!({
+            "codeLensProvider": { "resolveProvider": true },
+            "implementationProvider": true
+        }));
+        harness.await_state(LspLifecycleState::Ready);
+        let uri = "file:///workspace/Service.java";
+        let source = concat!(
+            "interface Service { void run(); }\n",
+            "class ServiceImpl implements Service {\n",
+            "    @Override public void run() {}\n",
+            "}\n"
+        );
+        harness.sync(uri, source);
+        let version = harness.snapshot().open_documents[uri].version;
+        let operation_id = harness.engine.next_operation_id();
+        harness
+            .session()
+            .request_with_kind(
+                SemanticRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    operation: LspSemanticOperation::CodeLens,
+                    uri: Some(uri.to_string()),
+                    virtual_uri: None,
+                    position: None,
+                    new_name: None,
+                    range: None,
+                    diagnostics: Vec::new(),
+                    completion_item: None,
+                    code_action: None,
+                    command: None,
+                },
+                operation_id.clone(),
+                PendingKind::JavaNavigationMarkers,
+                Some(version),
+            )
+            .expect("marker request should start");
+
+        let code_lens_id = harness
+            .server
+            .await_request("textDocument/codeLens")
+            .expect("the marker operation should request CodeLens data");
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": code_lens_id,
+            "result": []
+        }));
+
+        let super_id = harness
+            .server
+            .await_request("java/findLinks")
+            .expect("the override candidate should request its super implementation");
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": super_id,
+            "result": [{
+                "uri": uri,
+                "range": {
+                    "start": { "line": 0, "character": 25 },
+                    "end": { "line": 0, "character": 28 }
+                }
+            }]
+        }));
+
+        let interface_implementation_id = harness
+            .server
+            .await_request_at("textDocument/implementation", 0)
+            .expect("the interface declaration should query implementations");
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": interface_implementation_id,
+            "result": [{
+                "uri": uri,
+                "range": {
+                    "start": { "line": 2, "character": 26 },
+                    "end": { "line": 2, "character": 29 }
+                }
+            }]
+        }));
+
+        let overriding_implementation_id = harness
+            .server
+            .await_request_at("textDocument/implementation", 1)
+            .expect("the overriding method should query lower implementations");
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": overriding_implementation_id,
+            "result": [{
+                "uri": "file:///workspace/SpecialService.java",
+                "range": {
+                    "start": { "line": 1, "character": 16 },
+                    "end": { "line": 1, "character": 19 }
+                }
+            }]
+        }));
+
+        let event = harness.await_event(|event| {
+            event.operation_id.as_deref() == Some(operation_id.as_str())
+                && event.kind == "requestCompleted"
+        });
+        let markers = event.result.as_ref().unwrap()["markers"]
+            .as_array()
+            .expect("marker result should be an array");
+        assert_eq!(markers.len(), 3);
+        assert!(markers.iter().any(|marker| {
+            marker["line"] == 0
+                && marker["direction"] == "down"
+                && marker["relation"] == "interface"
+        }));
+        assert!(markers.iter().any(|marker| {
+            marker["line"] == 2 && marker["direction"] == "up" && marker["relation"] == "interface"
+        }));
+        assert!(markers.iter().any(|marker| {
+            marker["line"] == 2
+                && marker["direction"] == "down"
+                && marker["relation"] == "inheritance"
+        }));
+    }
+
+    #[test]
+    fn java_navigation_marker_batch_is_cancelled_when_the_document_changes() {
+        let mut harness = Harness::start(|_| {});
+        harness.server.complete_initialize(json!({
+            "codeLensProvider": { "resolveProvider": true },
+            "implementationProvider": true
+        }));
+        harness.await_state(LspLifecycleState::Ready);
+        let uri = "file:///workspace/Service.java";
+        harness.sync(
+            uri,
+            "class ServiceImpl implements Service { @Override public void run() {} }\n",
+        );
+        let version = harness.snapshot().open_documents[uri].version;
+        let operation_id = harness.engine.next_operation_id();
+        harness
+            .session()
+            .request_with_kind(
+                SemanticRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    operation: LspSemanticOperation::CodeLens,
+                    uri: Some(uri.to_string()),
+                    virtual_uri: None,
+                    position: None,
+                    new_name: None,
+                    range: None,
+                    diagnostics: Vec::new(),
+                    completion_item: None,
+                    code_action: None,
+                    command: None,
+                },
+                operation_id.clone(),
+                PendingKind::JavaNavigationMarkers,
+                Some(version),
+            )
+            .expect("marker request should start");
+
+        let code_lens_id = harness
+            .server
+            .await_request("textDocument/codeLens")
+            .expect("the marker operation should request CodeLens data");
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": code_lens_id,
+            "result": []
+        }));
+        harness
+            .server
+            .await_request("java/findLinks")
+            .expect("the first verification request should be in flight");
+
+        harness.sync(
+            uri,
+            "class ServiceImpl implements Service { @Override public void changed() {} }\n",
+        );
+        let event = harness.await_event(|event| {
+            event.operation_id.as_deref() == Some(operation_id.as_str())
+                && event.kind == "requestCompleted"
+        });
+        assert_eq!(
+            event.error.as_ref().map(|error| error.code.as_str()),
+            Some("staleDocumentVersion")
+        );
+        assert_eq!(
+            harness
+                .server
+                .messages()
+                .iter()
+                .filter(|message| {
+                    message.get("method").and_then(Value::as_str)
+                        == Some("textDocument/implementation")
+                })
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn failed_java_marker_task_preserves_other_verified_markers() {
+        let mut harness = Harness::start(|_| {});
+        harness.server.complete_initialize(json!({
+            "codeLensProvider": { "resolveProvider": true },
+            "implementationProvider": true
+        }));
+        harness.await_state(LspLifecycleState::Ready);
+        let uri = "file:///workspace/Service.java";
+        harness.sync(uri, "interface Service { void run(); }\n");
+        let version = harness.snapshot().open_documents[uri].version;
+        let operation_id = harness.engine.next_operation_id();
+        harness
+            .session()
+            .request_with_kind(
+                SemanticRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    operation: LspSemanticOperation::CodeLens,
+                    uri: Some(uri.to_string()),
+                    virtual_uri: None,
+                    position: None,
+                    new_name: None,
+                    range: None,
+                    diagnostics: Vec::new(),
+                    completion_item: None,
+                    code_action: None,
+                    command: None,
+                },
+                operation_id.clone(),
+                PendingKind::JavaNavigationMarkers,
+                Some(version),
+            )
+            .expect("marker request should start");
+
+        let code_lens_id = harness
+            .server
+            .await_request("textDocument/codeLens")
+            .expect("the marker operation should request CodeLens data");
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": code_lens_id,
+            "result": [{
+                "range": {
+                    "start": { "line": 0, "character": 25 },
+                    "end": { "line": 0, "character": 28 }
+                },
+                "command": { "title": "1 implementation" }
+            }]
+        }));
+        let implementation_id = harness
+            .server
+            .await_request("textDocument/implementation")
+            .expect("the method candidate should be verified");
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": implementation_id,
+            "error": { "code": -32603, "message": "index temporarily unavailable" }
+        }));
+
+        let event = harness.await_event(|event| {
+            event.operation_id.as_deref() == Some(operation_id.as_str())
+                && event.kind == "requestCompleted"
+        });
+        assert!(event.error.is_none());
+        assert_eq!(
+            event.result.as_ref().unwrap()["markers"]
+                .as_array()
+                .map(Vec::len),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn java_navigation_marker_batch_enforces_the_task_limit() {
+        let mut harness = Harness::start(|_| {});
+        harness.server.complete_initialize(json!({
+            "codeLensProvider": { "resolveProvider": true },
+            "implementationProvider": true
+        }));
+        harness.await_state(LspLifecycleState::Ready);
+        let uri = "file:///workspace/LargeService.java";
+        let methods = (0..(MAX_JAVA_NAVIGATION_TASKS + 1))
+            .map(|index| format!("    void method{index}();"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let source = format!("interface LargeService {{\n{methods}\n}}\n");
+        harness.sync(uri, &source);
+        let version = harness.snapshot().open_documents[uri].version;
+        let operation_id = harness.engine.next_operation_id();
+        harness
+            .session()
+            .request_with_kind(
+                SemanticRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    operation: LspSemanticOperation::CodeLens,
+                    uri: Some(uri.to_string()),
+                    virtual_uri: None,
+                    position: None,
+                    new_name: None,
+                    range: None,
+                    diagnostics: Vec::new(),
+                    completion_item: None,
+                    code_action: None,
+                    command: None,
+                },
+                operation_id.clone(),
+                PendingKind::JavaNavigationMarkers,
+                Some(version),
+            )
+            .expect("marker request should start");
+
+        let code_lens_id = harness
+            .server
+            .await_request("textDocument/codeLens")
+            .expect("the marker operation should request CodeLens data");
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": code_lens_id,
+            "result": []
+        }));
+        for index in 0..MAX_JAVA_NAVIGATION_TASKS {
+            let request_id = harness
+                .server
+                .await_request_at("textDocument/implementation", index)
+                .expect("every task within the limit should be requested");
+            harness.server.send(json!({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": []
+            }));
+        }
+
+        let event = harness.await_event(|event| {
+            event.operation_id.as_deref() == Some(operation_id.as_str())
+                && event.kind == "requestCompleted"
+        });
+        assert_eq!(
+            event.result.as_ref().unwrap()["markers"]
+                .as_array()
+                .map(Vec::len),
+            Some(0)
+        );
+        assert_eq!(
+            harness
+                .server
+                .messages()
+                .iter()
+                .filter(|message| {
+                    message.get("method").and_then(Value::as_str)
+                        == Some("textDocument/implementation")
+                })
+                .count(),
+            MAX_JAVA_NAVIGATION_TASKS
+        );
+        assert!(harness.events.iter().any(|event| {
+            event.kind == "log"
+                && event.message.as_deref() == Some("Java navigation marker batch was limited")
+        }));
+    }
+
+    #[test]
+    fn java_super_navigation_normalizes_find_links_locations() {
+        let mut harness = Harness::start(|_| {});
+        harness.server.complete_initialize(json!({
+            "definitionProvider": true
+        }));
+        harness.await_state(LspLifecycleState::Ready);
+        let uri = "file:///workspace/ServiceImpl.java";
+        harness.sync(
+            uri,
+            "class ServiceImpl { @Override public void run() {} }\n",
+        );
+        let version = harness.snapshot().open_documents[uri].version;
+        let operation_id = harness.engine.next_operation_id();
+        harness
+            .session()
+            .request_with_kind(
+                SemanticRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    operation: LspSemanticOperation::JavaSuperImplementation,
+                    uri: Some(uri.to_string()),
+                    virtual_uri: None,
+                    position: Some(LspPosition {
+                        line: 0,
+                        utf16_column: 42,
+                    }),
+                    new_name: None,
+                    range: None,
+                    diagnostics: Vec::new(),
+                    completion_item: None,
+                    code_action: None,
+                    command: None,
+                },
+                operation_id.clone(),
+                PendingKind::JavaResolveNavigation,
+                Some(version),
+            )
+            .expect("super navigation should start");
+
+        let find_links_id = harness
+            .server
+            .await_request("java/findLinks")
+            .expect("super navigation should use JDT LS findLinks");
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": find_links_id,
+            "result": [{
+                "uri": "file:///workspace/Service.java",
+                "range": {
+                    "start": { "line": 0, "character": 25 },
+                    "end": { "line": 0, "character": 28 }
+                }
+            }]
+        }));
+
+        let event = harness.await_event(|event| {
+            event.operation_id.as_deref() == Some(operation_id.as_str())
+                && event.kind == "requestCompleted"
+        });
+        let locations = event.result.as_ref().unwrap()["locations"]
+            .as_array()
+            .expect("findLinks should be normalized to locations");
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0]["uri"], "file:///workspace/Service.java");
+        assert_eq!(event.result.as_ref().unwrap()["documentVersion"], version);
+    }
+
+    #[test]
     fn java_runtime_is_derived_from_the_start_environment() {
         let environment = BTreeMap::from([("JAVA_HOME".to_string(), "/jdk".to_string())]);
         let path = java_executable_from_environment(&environment).unwrap();
@@ -3913,6 +5466,7 @@ public class Main {
             initialization_options: None,
             runtime_executable_path: None,
             cache_directory: None,
+            workspace_fingerprint: None,
             initialize_timeout_milliseconds: 1,
             request_timeout_milliseconds: 1,
             shutdown_timeout_milliseconds: 1,

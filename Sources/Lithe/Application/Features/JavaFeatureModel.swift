@@ -2,6 +2,70 @@ import Combine
 import Foundation
 import LitheGitModule
 
+@MainActor
+final class JavaLanguageServerPreparationOwner {
+    let workspaceURL: URL
+    var operationID: UUID
+    var task: Task<Void, Never>?
+
+    init(workspaceURL: URL, operationID: UUID) {
+        self.workspaceURL = workspaceURL.standardizedFileURL
+        self.operationID = operationID
+    }
+
+    func cancel() {
+        task?.cancel()
+        task = nil
+    }
+}
+
+enum JavaLanguageServerActivationReadiness {
+    case ready
+    case preparing
+}
+
+enum JavaLanguageServerPreparationFailure {
+    case failed(message: String?)
+    case timedOut(message: String?)
+
+    var message: String? {
+        switch self {
+        case .failed(let message), .timedOut(let message): message
+        }
+    }
+}
+
+@MainActor
+enum JavaLanguageServerWorkspaceState {
+    case idle
+    case preparing(owner: JavaLanguageServerPreparationOwner)
+    case ready(workspaceURL: URL, operationID: UUID)
+    case failed(
+        workspaceURL: URL,
+        operationID: UUID,
+        failure: JavaLanguageServerPreparationFailure
+    )
+
+    var operationID: UUID? {
+        switch self {
+        case .idle: nil
+        case .preparing(let owner): owner.operationID
+        case .ready(_, let operationID),
+             .failed(_, let operationID, _): operationID
+        }
+    }
+
+    func belongs(to workspaceURL: URL) -> Bool {
+        switch self {
+        case .idle: false
+        case .preparing(let owner): owner.workspaceURL == workspaceURL.standardizedFileURL
+        case .ready(let ownedURL, _),
+             .failed(let ownedURL, _, _):
+            ownedURL == workspaceURL.standardizedFileURL
+        }
+    }
+}
+
 /// Owns Java-only code vision, fallback inlay hints, Maven integration, and
 /// legacy Java debug behavior. Java LSP navigation and editing are delegated
 /// to the Rust host.
@@ -9,6 +73,7 @@ import LitheGitModule
 final class JavaFeatureModel: ObservableObject {
     @Published private(set) var javaCodeVisionHints: [URL: [JavaCodeVisionHint]] = [:]
     @Published private(set) var javaInlayHints: [URL: [JavaInlayHint]] = [:]
+    private(set) var languageServerWorkspaceState: JavaLanguageServerWorkspaceState = .idle
 
     private let operations: any JavaMavenOperations
     private let workspaceOperations: any WorkspaceOperations
@@ -59,10 +124,78 @@ final class JavaFeatureModel: ObservableObject {
     }
 
     func stop() {
+        cancelLanguageServerPreparation()
         inlayHintTasks.values.forEach { $0.cancel() }
         inlayHintTasks.removeAll()
         javaCodeVisionHints = [:]
         javaInlayHints = [:]
+    }
+
+    func beginLanguageServerPreparation(
+        workspaceURL: URL,
+        operationID: UUID
+    ) -> JavaLanguageServerPreparationOwner {
+        let owner = JavaLanguageServerPreparationOwner(
+            workspaceURL: workspaceURL,
+            operationID: operationID
+        )
+        languageServerWorkspaceState = .preparing(owner: owner)
+        return owner
+    }
+
+    @discardableResult
+    func cancelLanguageServerPreparation() -> JavaLanguageServerPreparationOwner? {
+        let owner: JavaLanguageServerPreparationOwner?
+        if case .preparing(let currentOwner) = languageServerWorkspaceState {
+            owner = currentOwner
+        } else {
+            owner = nil
+        }
+        languageServerWorkspaceState = .idle
+        owner?.cancel()
+        return owner
+    }
+
+    func ownsLanguageServerPreparation(
+        workspaceURL: URL,
+        operationID: UUID,
+        activeWorkspaceURL: URL?
+    ) -> Bool {
+        guard case .preparing(let owner) = languageServerWorkspaceState else { return false }
+        let normalizedURL = workspaceURL.standardizedFileURL
+        return owner.operationID == operationID
+            && owner.workspaceURL == normalizedURL
+            && activeWorkspaceURL?.standardizedFileURL == normalizedURL
+    }
+
+    func markLanguageServerReady(workspaceURL: URL, operationID: UUID) {
+        languageServerWorkspaceState = .ready(
+            workspaceURL: workspaceURL.standardizedFileURL,
+            operationID: operationID
+        )
+    }
+
+    func markLanguageServerFailed(
+        workspaceURL: URL,
+        operationID: UUID,
+        failure: JavaLanguageServerPreparationFailure
+    ) {
+        languageServerWorkspaceState = .failed(
+            workspaceURL: workspaceURL.standardizedFileURL,
+            operationID: operationID,
+            failure: failure
+        )
+    }
+
+    var languageServerOperationID: UUID? { languageServerWorkspaceState.operationID }
+
+    func languageServerStateBelongs(to workspaceURL: URL) -> Bool {
+        languageServerWorkspaceState.belongs(to: workspaceURL)
+    }
+
+    var isLanguageServerPreparing: Bool {
+        if case .preparing = languageServerWorkspaceState { return true }
+        return false
     }
 
     @discardableResult
@@ -164,10 +297,6 @@ final class JavaFeatureModel: ObservableObject {
             workspaceRoot: workspaceRoot,
             blameLines: blame
         )
-        let candidates = await structure(source: document.text)?.implementationMarkers ?? []
-        let implementationCounts = candidates.reduce(into: [Int: Int]()) { counts, marker in
-            counts[marker.line] = max(counts[marker.line] ?? 0, marker.implementationCount)
-        }
         guard documentProvider?()?.id == document.id else { return }
         javaCodeVisionHints[normalizedURL] = baseHints.map { hint in
             JavaCodeVisionHint(
@@ -175,7 +304,7 @@ final class JavaFeatureModel: ObservableObject {
                 utf16Column: hint.utf16Column,
                 symbol: hint.symbol,
                 usageCount: hint.usageCount,
-                implementationCount: implementationCounts[hint.line] ?? 0,
+                implementationCount: 0,
                 authorName: hint.authorName
             )
         }

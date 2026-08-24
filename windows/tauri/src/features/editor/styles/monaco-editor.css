@@ -72,6 +72,43 @@
   user-select: none;
 }
 
+/* Java gutter markers — four IDEA icons, chosen by relation × direction.
+   Copyright 2000-2021 JetBrains s.r.o. Apache 2.0 licence.
+   SVG sources: platform/icons/src/gutter/ in intellij-community. */
+
+.monaco-editor-shell .lithe-java-implementation-glyph {
+  cursor: pointer;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 12px 12px;
+  opacity: 0.85;
+  transition: opacity 0.1s ease;
+}
+
+.monaco-editor-shell .lithe-java-implementation-glyph:hover {
+  opacity: 1;
+}
+
+/* interface, down → implementedMethod (green circle I, grey down-arrow) */
+.monaco-editor-shell .lithe-java-implementation-glyph-interface-down {
+  background-image: url("../engines/monaco/gutter-icons/implementedMethod.svg");
+}
+
+/* interface, up → implementingMethod (green circle I, red up-arrow) */
+.monaco-editor-shell .lithe-java-implementation-glyph-interface-up {
+  background-image: url("../engines/monaco/gutter-icons/implementingMethod.svg");
+}
+
+/* inheritance, down → overridenMethod (blue circle O, grey down-arrow) */
+.monaco-editor-shell .lithe-java-implementation-glyph-inheritance-down {
+  background-image: url("../engines/monaco/gutter-icons/overridenMethod.svg");
+}
+
+/* inheritance, up → overridingMethod (blue circle O, red up-arrow) */
+.monaco-editor-shell .lithe-java-implementation-glyph-inheritance-up {
+  background-image: url("../engines/monaco/gutter-icons/overridingMethod.svg");
+}
+
 .monaco-editor-shell .monaco-resizable-hover,
 .monaco-editor-shell .monaco-hover,
 .monaco-editor-shell .monaco-hover .monaco-scrollable-element,

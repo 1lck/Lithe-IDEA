@@ -19,8 +19,7 @@
         "source": "import a.A;\nimport b.B;\ninterface Service {}\n"
       },
       "expected": {
-        "foldKind": "imports",
-        "implementationDirection": "down"
+        "foldKind": "imports"
       }
     }
   ]

@@ -10,6 +10,10 @@ import {
   cancelFileWatcherRefreshes,
   scheduleFileWatcherRefresh,
 } from "./file-watcher-refresh-scheduler";
+import {
+  cancelJavaWorkspaceChanges,
+  scheduleJavaWorkspaceChange,
+} from "@/features/editor/lsp/java-workspace-change-scheduler";
 
 interface FileChangeEvent {
   path: string;
@@ -34,6 +38,7 @@ export async function initializeFileWatcherListener() {
   unlistenFileChanged = await listen<FileChangeEvent>("file-changed", async (event) => {
     const { path, event_type } = event.payload;
     const workspaceId = workspaceRuntimeRegistry.getActiveWorkspaceId();
+    const rootFolderPath = useFileSystemStore.getStore(workspaceId).getState().rootFolderPath;
     const parentDirectory = await dirname(path);
 
     window.dispatchEvent(
@@ -42,13 +47,24 @@ export async function initializeFileWatcherListener() {
       }),
     );
 
+    const pendingSave = useFileWatcherStore
+      .getStore(workspaceId)
+      .getState().pendingSaves.has(path);
+    if (rootFolderPath) {
+      scheduleJavaWorkspaceChange(workspaceId, rootFolderPath, {
+        path,
+        kind: event_type === "deleted" ? "deleted" : event_type === "opened" ? "created" : "changed",
+        includeSource: !pendingSave,
+      });
+    }
+
     if (event_type === "deleted" || event_type === "opened") {
       scheduleDirectoryRefresh(workspaceId, parentDirectory);
       return;
     }
 
     const fileWatcherState = useFileWatcherStore.getStore(workspaceId).getState();
-    if (fileWatcherState.pendingSaves.has(path)) {
+    if (pendingSave) {
       return;
     }
 
@@ -58,8 +74,16 @@ export async function initializeFileWatcherListener() {
       return;
     }
 
-    await bufferState.actions.reloadBufferFromDisk(buffer.id);
-    window.dispatchEvent(new CustomEvent("file-reloaded", { detail: { path } }));
+    const result = await bufferState.actions.handleExternalBufferChange(
+      buffer.id,
+      crypto.randomUUID(),
+    );
+    if (result === "reloaded") {
+      window.dispatchEvent(new CustomEvent("file-reloaded", { detail: { path } }));
+    }
+    if (result === "failed" || result === "ignored") {
+      return;
+    }
     emitGitChanged({
       filePath: path,
       scopes: ["working-tree"],
@@ -70,6 +94,7 @@ export async function initializeFileWatcherListener() {
 
 export async function cleanupFileWatcherListener() {
   cancelFileWatcherRefreshes();
+  cancelJavaWorkspaceChanges();
 
   if (!unlistenFileChanged) {
     return;

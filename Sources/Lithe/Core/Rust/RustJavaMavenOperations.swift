@@ -1,6 +1,11 @@
 import Foundation
 
 protocol JavaMavenOperations: MavenProjectOperations, RunServerPortParsing, Sendable {
+    func javaWorkspacePolicy(
+        at rootURL: URL,
+        files: [URL],
+        changedFiles: [URL]
+    ) -> JavaWorkspacePolicyResult?
     func scanMavenProject(at rootURL: URL, files: [URL]) -> MavenProject?
     func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue]
     func codeVision(
@@ -33,6 +38,12 @@ protocol JavaMavenOperations: MavenProjectOperations, RunServerPortParsing, Send
 }
 
 extension JavaMavenOperations {
+    func javaWorkspacePolicy(
+        at _: URL,
+        files _: [URL],
+        changedFiles _: [URL] = []
+    ) -> JavaWorkspacePolicyResult? { nil }
+
     func springIndex(
         at rootURL: URL,
         files: [URL],
@@ -41,9 +52,26 @@ extension JavaMavenOperations {
     ) -> SpringIndexResult? { nil }
 }
 
+enum JavaWorkspaceChangeKind: String, Sendable {
+    case ignored
+    case source
+    case buildConfiguration
+    case other
+}
+
+struct JavaWorkspacePolicyResult: Sendable {
+    struct Change: Sendable {
+        let url: URL
+        let kind: JavaWorkspaceChangeKind
+    }
+
+    let shouldStart: Bool
+    let representativeJavaURL: URL?
+    let changes: [Change]
+}
+
 struct JavaStructureResult: Sendable {
     let foldRegions: [JavaFoldRegion]
-    let implementationMarkers: [JavaImplementationMarker]
     let inlayHints: [JavaInlayHint]
 }
 
@@ -70,6 +98,33 @@ struct RustJavaMavenOperations: JavaMavenOperations, Sendable {
                 let standardized = url.standardizedFileURL
                 if !values.contains(standardized) { values.append(standardized) }
             }
+    }
+
+    func javaWorkspacePolicy(
+        at rootURL: URL,
+        files: [URL],
+        changedFiles: [URL] = []
+    ) -> JavaWorkspacePolicyResult? {
+        let root = rootURL.standardizedFileURL
+        let workspacePaths = files.compactMap { workspaceRelativePath(for: $0, root: root) }
+        let changedPaths = changedFiles.compactMap { workspaceRelativePath(for: $0, root: root) }
+        guard let payload = core.javaWorkspacePolicy(
+            workspacePaths: workspacePaths,
+            changedPaths: changedPaths
+        ) else { return nil }
+        return JavaWorkspacePolicyResult(
+            shouldStart: payload.shouldStart,
+            representativeJavaURL: payload.representativeJavaPath.map {
+                root.appendingPathComponent($0).standardizedFileURL
+            },
+            changes: payload.changes.compactMap { change in
+                guard let kind = JavaWorkspaceChangeKind(rawValue: change.kind) else { return nil }
+                return JavaWorkspacePolicyResult.Change(
+                    url: root.appendingPathComponent(change.path).standardizedFileURL,
+                    kind: kind
+                )
+            }
+        )
     }
 
     func scanMavenProject(at rootURL: URL, files: [URL]) -> MavenProject? {
@@ -198,7 +253,6 @@ struct RustJavaMavenOperations: JavaMavenOperations, Sendable {
         ) else { return nil }
         return JavaStructureResult(
             foldRegions: payload.makeFoldRegions(),
-            implementationMarkers: payload.makeImplementationMarkers(),
             inlayHints: payload.makeInlayHints()
         )
     }

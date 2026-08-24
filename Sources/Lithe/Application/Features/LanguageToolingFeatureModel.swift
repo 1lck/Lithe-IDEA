@@ -14,9 +14,6 @@ final class LanguageToolingFeatureModel: ObservableObject {
 
     private let catalogSource: any LanguageProviderCatalogSource
     private var sessionsProvider: @MainActor () -> LanguageToolingSessionManager?
-    private let runtimeFeature: RuntimeSettingsFeatureModel
-    private let settings: AppSettings
-    private let projectRuntimeService: ProjectRuntimeService
     private var documentsProvider: (@MainActor () -> [EditorDocument])?
     private var workspaceProvider: (@MainActor () -> URL?)?
     private var activateDocument: (@MainActor (EditorDocument) -> Bool)?
@@ -25,18 +22,12 @@ final class LanguageToolingFeatureModel: ObservableObject {
     init(
         catalogSource: any LanguageProviderCatalogSource,
         catalogSnapshot: LanguageProviderCatalogSnapshot,
-        sessionsProvider: @escaping @MainActor () -> LanguageToolingSessionManager?,
-        runtimeFeature: RuntimeSettingsFeatureModel,
-        settings: AppSettings,
-        projectRuntimeService: ProjectRuntimeService
+        sessionsProvider: @escaping @MainActor () -> LanguageToolingSessionManager?
     ) {
         self.catalogSource = catalogSource
         self.catalogSnapshot = catalogSnapshot
         catalog = catalogSnapshot.catalog
         self.sessionsProvider = sessionsProvider
-        self.runtimeFeature = runtimeFeature
-        self.settings = settings
-        self.projectRuntimeService = projectRuntimeService
     }
 
     func configure(
@@ -99,12 +90,6 @@ final class LanguageToolingFeatureModel: ObservableObject {
             message: "Language server tool configuration changed",
             detail: "Workspace disable state cleared"
         )
-    }
-
-    func selectJavaJDK(_ path: String) {
-        settings.javaLanguageServerJDKPath = path
-        toolConfigurationDidChange(providerID: "java")
-        synchronizeOpenDocuments(providerID: "java")
     }
 
     func markActivationSucceeded(providerID: String) {

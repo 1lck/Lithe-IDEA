@@ -1,9 +1,16 @@
-import { languages, Range as MonacoRange, Uri } from "monaco-editor";
+import { editor as monacoEditor, Emitter, languages, Range as MonacoRange, Uri } from "monaco-editor";
 import type * as Monaco from "monaco-editor";
+// Ctrl+hover underline for go-to-definition.
+import "monaco-editor/esm/vs/editor/contrib/gotoSymbol/browser/link/goToDefinitionAtPosition.js";
 import type { CompletionItem, Hover } from "vscode-languageserver-protocol";
-import { LspClient } from "@/features/editor/lsp/lsp-client";
+import { listen } from "@tauri-apps/api/event";
+import {
+  isDocumentFeatureAvailable,
+  LspClient,
+} from "@/features/editor/lsp/lsp-client";
 import { formatHoverContents } from "@/features/editor/lsp/hover-content";
 import { lspDocumentTargetForEditorPath } from "@/features/editor/lsp/lsp-document-target";
+import { useLspStore } from "@/features/editor/lsp/stores/lsp.store";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import {
   collectWorkspaceTextEdits,
@@ -13,6 +20,7 @@ import {
 } from "@/features/editor/lsp/workspace-edit";
 import { MONACO_HIGHLIGHT_LANGUAGE_IDS } from "./language";
 import { filePathFromLitheModelUri } from "./model-uri";
+import { createMonacoSemanticTokenProvider } from "./semantic-token-provider";
 
 let providersRegistered = false;
 
@@ -195,7 +203,9 @@ export function registerMonacoLspProviders() {
       useBufferStore.getState().buffers,
       filePathFromModel(model),
     );
-    return target && lspClient.getDocumentAvailability(target, feature).available ? target : null;
+    return target && isDocumentFeatureAvailable(lspClient.getDocumentAvailability(target, feature))
+      ? target
+      : null;
   };
 
   languages.registerCompletionItemProvider(selector, {
@@ -234,8 +244,121 @@ export function registerMonacoLspProviders() {
     },
   });
 
-  // Lithe owns definition navigation so target files and virtual documents are
-  // opened as buffers. Monaco's standalone navigation cannot load those models.
+  // A definition provider makes Monaco underline symbols on Ctrl+hover.
+  // The actual target locations are intentionally returned as the current
+  // cursor range so Monaco never tries to open a model it cannot find.
+  // Navigation is handled entirely by the registerEditorOpener below, which
+  // calls Lithe's own buffer pipeline for both physical files and virtual
+  // (decompiled) documents.
+  languages.registerDefinitionProvider(selector, {
+    async provideDefinition(model, position) {
+      const target = availableTarget(model, "definition");
+      if (!target) return [];
+
+      const locations = await lspClient.getDefinition(
+        target,
+        position.lineNumber - 1,
+        position.column - 1,
+      );
+      if (!locations || locations.length === 0) return [];
+
+      // Return the word range at the cursor so Monaco draws the underline,
+      // but keep the URI pointing at the current model so no external model
+      // lookup is triggered. The opener intercepts Ctrl+Click and does the
+      // real navigation with the LSP location.
+      const word = model.getWordAtPosition(position);
+      const wordRange = word
+        ? new MonacoRange(
+            position.lineNumber,
+            word.startColumn,
+            position.lineNumber,
+            word.endColumn,
+          )
+        : new MonacoRange(
+            position.lineNumber,
+            position.column,
+            position.lineNumber,
+            position.column,
+          );
+      return [{ uri: model.uri, range: wordRange }];
+    },
+  });
+
+  // Route Monaco-initiated navigation (Ctrl+Click, peek "open") through
+  // Lithe's buffer pipeline instead of Monaco's model resolver.
+  monacoEditor.registerEditorOpener({
+    openCodeEditor(source, resource, selectionOrPosition) {
+      const sourceModel = "getModel" in source ? (source as Monaco.editor.ICodeEditor).getModel() : null;
+      if (!sourceModel) return false;
+      const sourcePath = filePathFromModel(sourceModel);
+      const range = MonacoRange.isIRange(selectionOrPosition)
+        ? selectionOrPosition
+        : selectionOrPosition
+          ? {
+              startLineNumber: selectionOrPosition.lineNumber,
+              startColumn: selectionOrPosition.column,
+              endLineNumber: selectionOrPosition.lineNumber,
+              endColumn: selectionOrPosition.column,
+            }
+          : { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 };
+
+      void (async () => {
+        const [{ openLspNavigationLocation }, { readFileContent }] = await Promise.all([
+          import("@/features/editor/lsp/navigation-target"),
+          import("@/features/file-system/controllers/file-operations"),
+        ]);
+        const bufferStore = useBufferStore.getState();
+        await openLspNavigationLocation({
+          location: {
+            uri: resource.scheme === "file" ? resource.toString() : resource.toString(),
+            range: {
+              start: { line: range.startLineNumber - 1, character: range.startColumn - 1 },
+              end: { line: range.endLineNumber - 1, character: range.endColumn - 1 },
+            },
+          },
+          sourceFilePath: sourcePath,
+          buffers: bufferStore.buffers,
+          actions: bufferStore.actions,
+          getVirtualDocument: (filePath, virtualUri) =>
+            lspClient.getVirtualDocument(filePath, virtualUri),
+          readFileContent,
+        });
+        window.dispatchEvent(
+          new CustomEvent("menu-go-to-line", {
+            detail: {
+              line: range.startLineNumber,
+              column: range.startColumn,
+            },
+          }),
+        );
+      })();
+      return true;
+    },
+  });
+
+  // Semantic highlighting: colors types, fields, and methods beyond what the
+  // Monarch grammar can express. Re-requested whenever the language server
+  // connects or its feature set changes, because the first request usually
+  // races server startup and returns nothing.
+  const semanticTokensChanged = new Emitter<void>();
+  useLspStore.subscribe((state, previousState) => {
+    if (
+      state.lspStatus.status !== previousState.lspStatus.status ||
+      state.lspStatus.documentRevision !== previousState.lspStatus.documentRevision
+    ) {
+      semanticTokensChanged.fire();
+    }
+  });
+  void listen("lsp://features-changed", () => semanticTokensChanged.fire());
+  languages.registerDocumentSemanticTokensProvider(
+    selector,
+    createMonacoSemanticTokenProvider({
+      client: lspClient,
+      filePathFromModel,
+      isLspModel: (model) => model.uri.scheme === "file" || model.uri.scheme === "lithe",
+      onDidChange: semanticTokensChanged.event,
+    }),
+  );
 
   languages.registerImplementationProvider(selector, {
     async provideImplementation(model, position) {

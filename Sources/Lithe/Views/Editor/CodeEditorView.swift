@@ -590,6 +590,7 @@ struct CodeEditorView: NSViewRepresentable {
         private var pendingReplacedRange: NSRange?
         private var pendingReplacement: String?
         private var foldRefreshTask: Task<Void, Never>?
+        private var javaMarkerRefreshTask: Task<Void, Never>?
         private var decorationRefreshTask: Task<Void, Never>?
         private var documentChangeTask: Task<Void, Never>?
         private var caretUpdateTask: Task<Void, Never>?
@@ -639,6 +640,7 @@ struct CodeEditorView: NSViewRepresentable {
 
         deinit {
             foldRefreshTask?.cancel()
+            javaMarkerRefreshTask?.cancel()
             decorationRefreshTask?.cancel()
             documentChangeTask?.cancel()
             caretUpdateTask?.cancel()
@@ -1066,6 +1068,7 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         func scheduleFoldRefresh(useDefaultImportFold: Bool = false) {
+            scheduleJavaNavigationMarkerRefresh()
             foldRefreshTask?.cancel()
             foldRefreshTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .milliseconds(80))
@@ -1084,6 +1087,27 @@ struct CodeEditorView: NSViewRepresentable {
                       self.document?.id == documentID,
                       self.textView?.string == source else { return }
                 self.applyJavaStructure(structure, useDefaultImportFold: useDefaultImportFold)
+            }
+        }
+
+        private func scheduleJavaNavigationMarkerRefresh() {
+            javaMarkerRefreshTask?.cancel()
+            javaMarkerRefreshTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(180))
+                guard !Task.isCancelled,
+                      let self,
+                      let document = self.document,
+                      let textView = self.textView as? CodeTextView,
+                      self.fileExtension.lowercased() == "java",
+                      let model = self.model else { return }
+                let documentID = document.id
+                let source = textView.string
+                let markers = await model.javaNavigationMarkers(for: document)
+                guard !Task.isCancelled,
+                      self.document?.id == documentID,
+                      self.textView?.string == source else { return }
+                self.implementationMarkers = markers
+                self.applyFoldState()
             }
         }
 
@@ -1118,7 +1142,6 @@ struct CodeEditorView: NSViewRepresentable {
                 return
             }
             foldRegions = structure.foldRegions
-            implementationMarkers = structure.implementationMarkers
             let availableIDs = Set(foldRegions.map(\.id))
             collapsedFoldIDs.formIntersection(availableIDs)
             if useDefaultImportFold,
@@ -1157,15 +1180,9 @@ struct CodeEditorView: NSViewRepresentable {
                 collapsedIDs: collapsedFoldIDs,
                 onToggle: { [weak self] region in self?.toggleFold(region) }
             )
-            // `java.structure` is an explicit local editor fallback. It does
-            // not validate markers or own any language-server lifecycle.
             gutter?.updateImplementationMarkers(implementationMarkers) { [weak model, weak document] marker in
                 guard let document else { return }
-                model?.findJavaImplementations(
-                    line: marker.line,
-                    utf16Column: marker.utf16Column,
-                    in: document.url
-                )
+                model?.resolveJavaNavigation(marker, in: document.url)
             }
         }
 
@@ -3445,8 +3462,16 @@ final class LineNumberGutterView: NSView {
             }
             if !isBlameVisible, debugBreakpointLines.contains(lineNumber - 1) {
                 drawDebugBreakpoint(y: y, height: lineRect.height)
-            } else if let marker = implementationMarkers.first(where: { $0.line == lineNumber - 1 }) {
-                drawImplementationMarker(marker, y: y, height: lineRect.height)
+            } else {
+                let markers = implementationMarkers.filter { $0.line == lineNumber - 1 }
+                for marker in markers {
+                    drawImplementationMarker(
+                        marker,
+                        sharesLine: markers.count > 1,
+                        y: y,
+                        height: lineRect.height
+                    )
+                }
             }
             if let marker = gitLineChangeMarkersByLine[lineNumber - 1] {
                 drawGitLineChange(marker, y: y, height: lineRect.height)
@@ -3569,16 +3594,30 @@ final class LineNumberGutterView: NSView {
         NSGraphicsContext.restoreGraphicsState()
     }
 
-    private func drawImplementationMarker(_ marker: JavaImplementationMarker, y: CGFloat, height: CGFloat) {
-        let markerSize: CGFloat = 15
+    private func drawImplementationMarker(
+        _ marker: JavaImplementationMarker,
+        sharesLine: Bool,
+        y: CGFloat,
+        height: CGFloat
+    ) {
+        let markerSize: CGFloat = sharesLine ? 10 : 15
+        let horizontalPosition: CGFloat
+        if sharesLine {
+            horizontalPosition = marker.direction == .up
+                ? gutterLayout.implementationRange.lowerBound
+                : gutterLayout.implementationRange.upperBound - markerSize
+        } else {
+            horizontalPosition = gutterLayout.implementationRange.lowerBound
+                + (EditorGutterLayout.width(of: gutterLayout.implementationRange) - markerSize) / 2
+        }
         let rect = NSRect(
-            x: editorGutterOriginX + gutterLayout.implementationRange.lowerBound
-                + (EditorGutterLayout.width(of: gutterLayout.implementationRange) - markerSize) / 2,
+            x: editorGutterOriginX + horizontalPosition,
             y: y + max(0, (height - markerSize) / 2),
             width: markerSize,
             height: markerSize
         )
         if let image = LitheIcons.implementationMarkerImage(
+            isInterface: marker.relation == .interface,
             pointingDown: marker.direction == .down,
             size: markerSize
         ) {
@@ -3791,7 +3830,14 @@ final class LineNumberGutterView: NSView {
             guard let region = foldRegions.first(where: { $0.startLine == line }) else { return }
             onToggleFold?(region)
         case .implementation:
-            guard let marker = implementationMarkers.first(where: { $0.line == line }) else { return }
+            let markers = implementationMarkers.filter { $0.line == line }
+            let preferredDirection: JavaImplementationDirection = localX
+                < gutterLayout.implementationRange.lowerBound
+                    + EditorGutterLayout.width(of: gutterLayout.implementationRange) / 2
+                ? .up
+                : .down
+            guard let marker = markers.first(where: { $0.direction == preferredDirection })
+                ?? markers.first else { return }
             onSelectImplementation?(marker)
         case .breakpoint where !isBlameVisible:
             onToggleDebugBreakpoint?(line)

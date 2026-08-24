@@ -36,6 +36,7 @@ const nativeCommands = new Set([
   "get_system_fonts",
   "get_system_theme",
   "list_shells",
+  "lsp_rebuild_java_index",
   "lsp_resolve_java_launch",
   "move_file",
   "open_log_directory",
@@ -72,24 +73,24 @@ const nativeCommands = new Set([
   "write_file",
 ]);
 
-export function invoke<T>(
-  command: string,
-  args?: InvokeArgs,
-  options?: InvokeOptions,
-): Promise<T> {
+export function invoke<T>(command: string, args?: InvokeArgs, options?: InvokeOptions): Promise<T> {
   const requiredCapability = capabilityForCommand(command);
   if (requiredCapability && !isBackendCapabilityAvailable(requiredCapability)) {
     return Promise.reject(
       new Error(`${BACKEND_UNAVAILABLE_TOOLTIP}: ${requiredCapability} (${command})`),
     );
   }
-  if (nativeCommands.has(command)) {
+  if (isNativeCommand(command)) {
     return tauriInvoke<T>(command, args, options);
   }
 
   return tauriInvoke<unknown>("platform_invoke", { command, args: args ?? {} }, options).then(
     (value) => adaptCoreResult<T>(command, args as Record<string, any> | undefined, value),
   );
+}
+
+export function isNativeCommand(command: string): boolean {
+  return nativeCommands.has(command);
 }
 
 function capabilityForCommand(command: string): BackendCapability | null {

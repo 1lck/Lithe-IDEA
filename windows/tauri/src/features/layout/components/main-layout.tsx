@@ -21,6 +21,8 @@ import { toast } from "sonner";
 import { useTranslation } from "@/i18n/locale-provider";
 import { frontendTrace } from "@/utils/frontend-trace";
 import { recordStartupMilestone } from "@/features/bootstrap/startup-performance";
+import { prewarmCommonLanguageTokenizers } from "@/features/editor/engines/monaco/language-contributions";
+import { ReferencesPopover } from "@/features/references/components/references-popover";
 import { getInternalTabDragData } from "@/features/tabs/utils/internal-tab-drag";
 import { PendingBufferCloseDialog } from "@/features/window/components/pending-buffer-close-dialog";
 import TitleBarWithSettings from "../../window/components/title-bar/title-bar";
@@ -209,6 +211,7 @@ export function MainLayout() {
             tabPath: activeTab.path,
           });
           recordStartupMilestone("workspace:ready");
+          prewarmCommonLanguageTokenizers();
         } catch (error) {
           console.error("Failed to restore workspace:", error);
           frontendTrace("error", "workspace-open", "startupRestore:error", {
@@ -220,6 +223,7 @@ export function MainLayout() {
         }
       } else {
         recordStartupMilestone("workspace:ready");
+        prewarmCommonLanguageTokenizers();
       }
     };
 
@@ -333,6 +337,7 @@ export function MainLayout() {
           <TerminalHost />
         </Suspense>
       ) : null}
+      <ReferencesPopover />
     </div>
   );
 }

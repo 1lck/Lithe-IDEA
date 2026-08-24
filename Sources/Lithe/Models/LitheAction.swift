@@ -62,6 +62,7 @@ enum LitheActionRegistry {
             action("open-project", model: model) { model.chooseProject() },
             action("close-project", model: model) { model.closeProject() },
             action("settings", model: model) { model.showSettings() },
+            action("rebuild-java-index", model: model) { model.rebuildJavaIndex() },
             action("save", model: model) { model.saveActiveDocument() },
             action("search-everywhere", model: model) { model.toggleSearchEverywhere() },
             action("navigate-back", model: model) { model.navigateBack() },

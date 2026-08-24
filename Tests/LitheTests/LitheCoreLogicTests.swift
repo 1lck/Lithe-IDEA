@@ -21,6 +21,26 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    func javaNavigationMarkersUseTheFourIntelliJGutterAssets() {
+        #expect(
+            LitheIcons.implementationMarkerAssetPath(isInterface: true, pointingDown: true)
+                == "gutter/implementedMethod.svg"
+        )
+        #expect(
+            LitheIcons.implementationMarkerAssetPath(isInterface: true, pointingDown: false)
+                == "gutter/implementingMethod.svg"
+        )
+        #expect(
+            LitheIcons.implementationMarkerAssetPath(isInterface: false, pointingDown: true)
+                == "gutter/overridenMethod.svg"
+        )
+        #expect(
+            LitheIcons.implementationMarkerAssetPath(isInterface: false, pointingDown: false)
+                == "gutter/overridingMethod.svg"
+        )
+    }
+
+    @Test
     @MainActor
     func closingAWorkspaceWindowClosesTheProjectInsteadOfTheWindow() {
         let sessions = TestProjectWindowSessions(hasActiveProject: true)
@@ -1376,6 +1396,7 @@ struct LitheCoreLogicTests {
 
         let feature = DocumentFeatureModel(
             operations: EmptyWorkspaceOperations(readFileValue: nil),
+            documentLifecycleDecider: RustDocumentLifecycleDecider(core: RustCoreBridge()),
             fileOperations: EmptyWorkspaceFileOperations(),
             fileStorage: storage,
             binaryFileViewerRegistry: BinaryFileViewerRegistry()
@@ -2802,6 +2823,22 @@ struct EditorDocumentTests {
     }
 
     @Test
+    func rustDocumentLifecyclePreservesDirtyEditorTextOnExternalChange() throws {
+        let core = RustCoreBridge()
+        guard core.isAvailable else { return }
+        let decider = RustDocumentLifecycleDecider(core: core)
+
+        let decision = try decider.decide(
+            state: .dirty(revision: 3, savedRevision: 1),
+            event: .externalChanged,
+            operationID: "mac-watcher-1"
+        )
+
+        #expect(decision.state.status == .conflict)
+        #expect(decision.action == .showConflict)
+    }
+
+    @Test
     func readOnlyDocumentRejectsSave() {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-read-only-\(UUID().uuidString).txt")
@@ -2821,6 +2858,7 @@ struct EditorDocumentTests {
     func virtualDocumentOpensFromMemoryAsReadOnly() throws {
         let model = DocumentFeatureModel(
             operations: EmptyWorkspaceOperations(),
+            documentLifecycleDecider: RustDocumentLifecycleDecider(core: RustCoreBridge()),
             fileOperations: EmptyWorkspaceFileOperations(),
             fileStorage: InMemoryFileStorage(),
             binaryFileViewerRegistry: BinaryFileViewerRegistry()
@@ -3450,6 +3488,45 @@ struct EditorDocumentTests {
 
     @Test
     @MainActor
+    func workspaceWatcherProjectsTypedJavaChangesWithoutReloadingForSourceEdits() async throws {
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-java-watcher")
+        let source = workspace.appendingPathComponent("src/Main.java")
+        let build = workspace.appendingPathComponent("pom.xml")
+        let watcherFactory = TestDirectoryWatcherFactory()
+        var projectedChanges: [WorkspaceFileChange] = []
+        var projectReloadCount = 0
+        let model = makeWorkspaceObservationUnitModel(
+            operations: SequencedWorkspaceOperations(
+                snapshotAvailability: [true],
+                files: [source, build]
+            ),
+            fileOperations: ExistingWorkspaceFileOperations(paths: [source.path, build.path]),
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: watcherFactory,
+            refreshGit: {},
+            notifyWorkspaceFileChanges: { projectedChanges.append(contentsOf: $0) },
+            reloadProjectServices: { projectReloadCount += 1 }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+        let watcher = try #require(watcherFactory.source)
+
+        watcher.emit([source.path, build.path])
+        let refreshed = await waitForWorkspaceObservation {
+            projectedChanges.count == 2 && projectReloadCount == 1
+        }
+
+        #expect(refreshed)
+        #expect(projectedChanges == [
+            WorkspaceFileChange(fileURL: build, kind: .changed),
+            WorkspaceFileChange(fileURL: source, kind: .changed),
+        ])
+        #expect(projectReloadCount == 1)
+    }
+
+    @Test
+    @MainActor
     func recoveryBatchRebuildsSnapshotReplacesRootsAndRefreshesOnlyGit() async throws {
         let repository = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-recovery-\(UUID().uuidString)/repository")
@@ -3584,6 +3661,7 @@ struct EditorDocumentTests {
         ]
         let model = DocumentFeatureModel(
             operations: EmptyWorkspaceOperations(readFileValue: "text"),
+            documentLifecycleDecider: RustDocumentLifecycleDecider(core: RustCoreBridge()),
             fileOperations: EmptyWorkspaceFileOperations(),
             fileStorage: InMemoryFileStorage(),
             binaryFileViewerRegistry: BinaryFileViewerRegistry()
@@ -3632,6 +3710,7 @@ struct EditorDocumentTests {
         let operations = BlockingWorkspaceOperations()
         let model = DocumentFeatureModel(
             operations: operations,
+            documentLifecycleDecider: RustDocumentLifecycleDecider(core: RustCoreBridge()),
             fileOperations: EmptyWorkspaceFileOperations(),
             fileStorage: InMemoryFileStorage(),
             binaryFileViewerRegistry: BinaryFileViewerRegistry()
@@ -3681,6 +3760,7 @@ struct EditorDocumentTests {
         let operations = BlockingWorkspaceOperations()
         let model = DocumentFeatureModel(
             operations: operations,
+            documentLifecycleDecider: RustDocumentLifecycleDecider(core: RustCoreBridge()),
             fileOperations: EmptyWorkspaceFileOperations(),
             fileStorage: InMemoryFileStorage(),
             binaryFileViewerRegistry: BinaryFileViewerRegistry()
@@ -3735,6 +3815,7 @@ struct EditorDocumentTests {
 
         let model = DocumentFeatureModel(
             operations: EmptyWorkspaceOperations(readFileValue: "original"),
+            documentLifecycleDecider: RustDocumentLifecycleDecider(core: RustCoreBridge()),
             fileOperations: EmptyWorkspaceFileOperations(),
             fileStorage: InMemoryFileStorage(),
             binaryFileViewerRegistry: BinaryFileViewerRegistry()
@@ -3867,6 +3948,7 @@ private func makeWorkspaceObservationUnitModel(
     watcherFactory: TestDirectoryWatcherFactory,
     refreshGit: @escaping @MainActor () async -> Void,
     processExternalChanges: @escaping @MainActor ([URL]) -> Bool = { _ in false },
+    notifyWorkspaceFileChanges: @escaping @MainActor ([WorkspaceFileChange]) -> Void = { _ in },
     reloadProjectServices: @escaping @MainActor () async -> Void = {},
     recordHistory: @escaping @MainActor (URL, LocalHistoryReason) async -> Void = { _, _ in }
 ) -> WorkspaceFeatureModel {
@@ -3891,6 +3973,7 @@ private func makeWorkspaceObservationUnitModel(
         relocateOpenDocuments: { _, _ in },
         closeDocuments: { _ in },
         processExternalChanges: processExternalChanges,
+        notifyWorkspaceFileChanges: notifyWorkspaceFileChanges,
         reloadProjectServices: reloadProjectServices,
         refreshGit: refreshGit,
         updateHistoryVisibilityRules: { _ in },

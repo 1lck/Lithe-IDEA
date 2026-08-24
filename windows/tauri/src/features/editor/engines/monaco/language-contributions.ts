@@ -384,3 +384,41 @@ languages.setMonarchTokensProvider("ocaml", {
     ],
   },
 });
+
+/// Languages worth loading before the user opens a file. Monarch tokenizers are
+/// lazily imported, so the first file of a given language would otherwise render
+/// uncolored for a frame or two while its chunk loads.
+const PREWARMED_LANGUAGE_IDS = [
+  "java",
+  "typescript",
+  "javascript",
+  "python",
+  "json",
+  "yaml",
+  "markdown",
+] as const;
+
+let prewarmStarted = false;
+
+/**
+ * Loads the tokenizers for commonly opened languages in the background.
+ *
+ * Safe to call more than once: `ensureMonacoLanguageTokenizer` caches its
+ * promises, and this function additionally guards against repeat scheduling.
+ * Failures are ignored because the per-file load path reports them already.
+ */
+export function prewarmCommonLanguageTokenizers(): void {
+  if (prewarmStarted) return;
+  prewarmStarted = true;
+
+  const schedule =
+    typeof requestIdleCallback === "function"
+      ? requestIdleCallback
+      : (callback: () => void) => setTimeout(callback, 0);
+
+  schedule(() => {
+    for (const languageId of PREWARMED_LANGUAGE_IDS) {
+      void ensureMonacoLanguageTokenizer(languageId).catch(() => false);
+    }
+  });
+}

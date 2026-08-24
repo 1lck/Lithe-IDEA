@@ -65,6 +65,26 @@ describe("LSP navigation targets", () => {
     expect(context.readFileContent).toHaveBeenCalledWith("C:/work/src/Service.java");
   });
 
+  test("reuses an open Windows buffer across separator and drive-case differences", async () => {
+    const existing = {
+      id: "existing-buffer",
+      path: "C:\\work\\src\\Service.java",
+    } as PaneContent;
+    const context = createOptions(
+      {
+        uri: "file:///c:/work/src/Service.java",
+        filePath: "c:/work/src/Service.java",
+        range,
+      },
+      [existing],
+    );
+
+    expect(await openLspNavigationLocation(context.options)).toBe("existing-buffer");
+    expect(context.setActiveBuffer).toHaveBeenCalledWith("existing-buffer");
+    expect(context.openContent).not.toHaveBeenCalled();
+    expect(context.readFileContent).not.toHaveBeenCalled();
+  });
+
   test("opens JDT class files as read-only Java buffers", async () => {
     const location: LspLocation = {
       uri: "jdt://contents/java.base/java/lang/String.class?=demo",

@@ -10,6 +10,7 @@ $root = Split-Path -Parent $PSScriptRoot
 $windowsApp = Join-Path $root "windows/tauri"
 $bundledExtensionsSource = [System.IO.Path]::GetFullPath((Join-Path $windowsApp "src/extensions/bundled"))
 $preparedJdtlsRoot = $null
+$preparedJdkRoot = $null
 if (-not (Test-Path -LiteralPath $bundledExtensionsSource -PathType Container)) {
     throw "Bundled extensions source directory is missing: $bundledExtensionsSource"
 }
@@ -19,6 +20,12 @@ if ($Configuration -eq "Release") {
         throw "JDTLS preparation did not return an output directory."
     }
     $preparedJdtlsRoot = [System.IO.Path]::GetFullPath([string]$prepareOutput[-1])
+
+    $jdkPrepareOutput = @(& (Join-Path $root "scripts/prepare-jdk.ps1"))
+    if ($jdkPrepareOutput.Count -eq 0) {
+        throw "JDK preparation did not return an output directory."
+    }
+    $preparedJdkRoot = [System.IO.Path]::GetFullPath([string]$jdkPrepareOutput[-1])
 }
 Set-Location $windowsApp
 
@@ -94,6 +101,13 @@ if ($Configuration -eq "Release") {
     foreach ($relativePath in @("bin/jdtls.bat", "config_win", "plugins")) {
         if (-not (Test-Path -LiteralPath (Join-Path $jdtlsDestination $relativePath))) {
             throw "Bundled JDTLS staging is incomplete: $relativePath"
+        }
+    }
+
+    $jdkDestination = Copy-ResourceDirectory $preparedJdkRoot "LanguageServers/jdk"
+    foreach ($relativePath in @("bin/java.exe", "lib")) {
+        if (-not (Test-Path -LiteralPath (Join-Path $jdkDestination $relativePath))) {
+            throw "Bundled JDK staging is incomplete: $relativePath"
         }
     }
 }

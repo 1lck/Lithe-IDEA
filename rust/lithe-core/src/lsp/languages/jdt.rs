@@ -17,6 +17,19 @@ const JDT_URI_SCHEME: &str = "jdt";
 const JDTLS_DATA_DIRECTORY: &str = "jdtls";
 const JAVA_DECOMPILE_COMMAND: &str = "java.decompile";
 const DID_CHANGE_CONFIGURATION_METHOD: &str = "workspace/didChangeConfiguration";
+const LANGUAGE_STATUS_METHOD: &str = "language/status";
+const SERVICE_READY_STATUS: &str = "ServiceReady";
+const ERROR_STATUS: &str = "Error";
+
+/// JDT LS readiness transition conveyed through its `language/status`
+/// extension after the standard LSP initialize handshake.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) enum JdtReadinessSignal {
+    /// Project import and Java service initialization have completed.
+    Ready,
+    /// JDT LS reported that its Java service could not become usable.
+    Failed(String),
+}
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -29,6 +42,38 @@ pub(crate) struct JdtStartContext {
     pub selected_java_executable: Option<PathBuf>,
     #[serde(default)]
     pub arguments: Vec<String>,
+    /// Opaque platform-provided digest of the build-system inputs that decide
+    /// how JDT LS will import the workspace: root build files and the set of
+    /// module directories, plus the bundled JDT LS version.
+    ///
+    /// JDT LS never invalidates its own `-data` state, so a workspace that
+    /// gains or loses a module keeps resolving against a stale project model
+    /// and silently loses cross-module navigation. Mixing this digest into the
+    /// state-directory name gives structurally different workspaces different
+    /// directories while keeping the previous one intact for a later switch
+    /// back. `None` preserves the pre-fingerprint directory name so existing
+    /// caches stay valid.
+    #[serde(default)]
+    pub workspace_fingerprint: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+/// Request for the deterministic directory key used by JDT LS state.
+pub(crate) struct JdtWorkspaceKeyRequest {
+    /// Absolute platform workspace path used only to derive a stable local key.
+    pub workspace_root: String,
+    /// Optional platform-computed build-structure digest mixed into the key.
+    #[serde(default)]
+    pub workspace_fingerprint: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+/// Stable key returned to platform cache-maintenance adapters.
+pub(crate) struct JdtWorkspaceKeyResponse {
+    /// Lowercase SHA-256 key naming the workspace's JDT LS state directory.
+    pub workspace_key: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
@@ -88,7 +133,10 @@ pub(crate) fn adapt_start(context: &JdtStartContext) -> JdtStartAdaptation {
     let data_directory = context
         .data_root
         .join(JDTLS_DATA_DIRECTORY)
-        .join(workspace_key(&context.workspace_root));
+        .join(workspace_key(
+            &context.workspace_root,
+            context.workspace_fingerprint.as_deref(),
+        ));
     let mut arguments = without_jdt_owned_arguments(&context.arguments);
     if let Some(java_executable) = &context.selected_java_executable {
         arguments.push("--java-executable".to_string());
@@ -163,6 +211,39 @@ pub(crate) fn initialized_notification(provider_id: &str) -> Option<ProviderNoti
             "settings": java_settings()
         }),
     })
+}
+
+/// Returns whether the provider has a readiness phase after standard LSP
+/// initialization. JDT LS cannot safely serve semantic requests until its Java
+/// project import publishes `ServiceReady`.
+pub(crate) fn waits_for_service_ready(provider_id: &str) -> bool {
+    is_java_provider(provider_id)
+}
+
+/// Reduces one JDT LS status notification to the readiness transition owned by
+/// the generic process engine. Other providers and informational statuses do
+/// not affect lifecycle state.
+pub(crate) fn readiness_signal(
+    provider_id: &str,
+    method: Option<&str>,
+    params: Option<&Value>,
+) -> Option<JdtReadinessSignal> {
+    if !is_java_provider(provider_id) || method != Some(LANGUAGE_STATUS_METHOD) {
+        return None;
+    }
+    let params = params?.as_object()?;
+    match params.get("type").and_then(Value::as_str) {
+        Some(SERVICE_READY_STATUS) => Some(JdtReadinessSignal::Ready),
+        Some(ERROR_STATUS) => Some(JdtReadinessSignal::Failed(
+            params
+                .get("message")
+                .and_then(Value::as_str)
+                .filter(|message| !message.trim().is_empty())
+                .unwrap_or("JDT LS reported an unknown Java service error.")
+                .to_string(),
+        )),
+        _ => None,
+    }
 }
 
 /// Marks JDT virtual locations as read-only and gives them a source-like path.
@@ -247,10 +328,21 @@ fn java_settings() -> Value {
             "maven": {
                 "downloadSources": true
             },
+            "configuration": {
+                "updateBuildConfiguration": "automatic"
+            },
             "inlayHints": {
                 "parameterNames": {
                     "enabled": "all"
                 }
+            },
+            // Show "N implementations" code lens above interface methods and classes.
+            "implementationsCodeLens": {
+                "enabled": true
+            },
+            // Show "N references" code lens above declarations.
+            "referencesCodeLens": {
+                "enabled": true
             }
         }
     })
@@ -265,10 +357,19 @@ fn java_configuration_for_section(section: Option<&str>) -> Value {
             "maven": {
                 "downloadSources": true
             },
+            "configuration": {
+                "updateBuildConfiguration": "automatic"
+            },
             "inlayHints": {
                 "parameterNames": {
                     "enabled": "all"
                 }
+            },
+            "implementationsCodeLens": {
+                "enabled": true
+            },
+            "referencesCodeLens": {
+                "enabled": true
             }
         }),
         Some("java.inlayHints") => json!({
@@ -282,12 +383,36 @@ fn java_configuration_for_section(section: Option<&str>) -> Value {
         Some("java.eclipse.downloadSources") => json!(true),
         Some("java.maven") => json!({ "downloadSources": true }),
         Some("java.maven.downloadSources") => json!(true),
+        Some("java.configuration") => json!({ "updateBuildConfiguration": "automatic" }),
+        Some("java.configuration.updateBuildConfiguration") => json!("automatic"),
+        Some("java.implementationsCodeLens") => json!({ "enabled": true }),
+        Some("java.implementationsCodeLens.enabled") => json!(true),
+        Some("java.referencesCodeLens") => json!({ "enabled": true }),
+        Some("java.referencesCodeLens.enabled") => json!(true),
         _ => Value::Null,
     }
 }
 
-fn workspace_key(workspace_root: &Path) -> String {
-    let identity = normalized_workspace_identity(workspace_root);
+/// Resolves a platform request through the same key algorithm used at startup.
+pub(crate) fn resolve_workspace_key(request: JdtWorkspaceKeyRequest) -> JdtWorkspaceKeyResponse {
+    JdtWorkspaceKeyResponse {
+        workspace_key: workspace_key(
+            Path::new(&request.workspace_root),
+            request.workspace_fingerprint.as_deref(),
+        ),
+    }
+}
+
+/// Hashes the normalized workspace identity and optional structural fingerprint.
+pub(crate) fn workspace_key(workspace_root: &Path, fingerprint: Option<&str>) -> String {
+    let mut identity = normalized_workspace_identity(workspace_root);
+    // Mix the structural fingerprint in as a null-delimited suffix so changes
+    // to build files or the module set produce a fresh state directory without
+    // touching the previous one.  Absent fingerprint keeps the legacy key.
+    if let Some(fp) = fingerprint {
+        identity.push('\x00');
+        identity.push_str(fp);
+    }
     let digest = Sha256::digest(identity.as_bytes());
     let mut key = String::with_capacity(digest.len() * 2);
     const HEX: &[u8; 16] = b"0123456789abcdef";
@@ -424,6 +549,7 @@ mod tests {
             data_root: PathBuf::from("/cache/Lithe"),
             selected_java_executable: Some(PathBuf::from("/jdk/bin/java")),
             arguments: vec!["--stdio".to_string()],
+            workspace_fingerprint: None,
         }
     }
 
@@ -482,16 +608,54 @@ mod tests {
     #[test]
     fn workspace_identity_is_lexical_cross_platform_and_unique() {
         assert_eq!(
-            workspace_key(Path::new(r"C:\Users\Ada\Project\.\src\..")),
-            workspace_key(Path::new("c:/users/ada/project"))
+            workspace_key(Path::new(r"C:\Users\Ada\Project\.\src\.."), None),
+            workspace_key(Path::new("c:/users/ada/project"), None)
         );
         assert_eq!(
-            workspace_key(Path::new("/workspace/project/./src/..")),
-            workspace_key(Path::new("/workspace/project"))
+            workspace_key(Path::new("/workspace/project/./src/.."), None),
+            workspace_key(Path::new("/workspace/project"), None)
         );
         assert_ne!(
-            workspace_key(Path::new("/workspace/project")),
-            workspace_key(Path::new("/workspace/other"))
+            workspace_key(Path::new("/workspace/project"), None),
+            workspace_key(Path::new("/workspace/other"), None)
+        );
+    }
+
+    #[test]
+    fn workspace_fingerprint_changes_data_directory() {
+        let mut context = java_start_context();
+        let without = adapt_start(&context).data_directory.unwrap();
+        context.workspace_fingerprint = Some("pom=111|modules=core,web|jdtls=1.38.0".to_string());
+        let first = adapt_start(&context).data_directory.unwrap();
+        context.workspace_fingerprint = Some("pom=222|modules=core,web|jdtls=1.38.0".to_string());
+        let changed = adapt_start(&context).data_directory.unwrap();
+
+        assert_ne!(without, first);
+        assert_ne!(first, changed);
+        assert_eq!(without.parent(), first.parent());
+        assert_eq!(first.parent(), changed.parent());
+        assert_eq!(without.file_name().unwrap().to_string_lossy().len(), 64);
+        assert_eq!(first.file_name().unwrap().to_string_lossy().len(), 64);
+        assert_eq!(changed.file_name().unwrap().to_string_lossy().len(), 64);
+
+        context.workspace_fingerprint = Some("pom=111|modules=core,web|jdtls=1.38.0".to_string());
+        let repeated = adapt_start(&context).data_directory.unwrap();
+        assert_eq!(first, repeated);
+    }
+
+    #[test]
+    fn workspace_key_request_uses_the_same_compatibility_algorithm() {
+        let response = resolve_workspace_key(JdtWorkspaceKeyRequest {
+            workspace_root: "/workspace/project".to_string(),
+            workspace_fingerprint: Some("pom=111|jdtls=1.38.0".to_string()),
+        });
+
+        assert_eq!(
+            response.workspace_key,
+            workspace_key(
+                Path::new("/workspace/project"),
+                Some("pom=111|jdtls=1.38.0")
+            )
         );
     }
 
@@ -552,6 +716,10 @@ mod tests {
             "java.inlayHints",
             "java.inlayHints.parameterNames",
             "java.inlayHints.parameterNames.enabled",
+            "java.implementationsCodeLens",
+            "java.implementationsCodeLens.enabled",
+            "java.referencesCodeLens",
+            "java.referencesCodeLens.enabled",
             "java.unknown",
         ]
         .map(|section| WorkspaceConfigurationItem {
@@ -563,12 +731,18 @@ mod tests {
         assert_eq!(values[0]["inlayHints"]["parameterNames"]["enabled"], "all");
         assert_eq!(values[0]["eclipse"]["downloadSources"], true);
         assert_eq!(values[0]["maven"]["downloadSources"], true);
-        assert_eq!(values[1], true);
-        assert_eq!(values[2], true);
-        assert_eq!(values[3]["parameterNames"]["enabled"], "all");
-        assert_eq!(values[4]["enabled"], "all");
-        assert_eq!(values[5], "all");
-        assert_eq!(values[6], Value::Null);
+        assert_eq!(values[0]["implementationsCodeLens"]["enabled"], true);
+        assert_eq!(values[0]["referencesCodeLens"]["enabled"], true);
+        assert_eq!(values[1], true); // java.eclipse.downloadSources
+        assert_eq!(values[2], true); // java.maven.downloadSources
+        assert_eq!(values[3]["parameterNames"]["enabled"], "all"); // java.inlayHints
+        assert_eq!(values[4]["enabled"], "all"); // java.inlayHints.parameterNames
+        assert_eq!(values[5], "all"); // java.inlayHints.parameterNames.enabled
+        assert_eq!(values[6]["enabled"], true); // java.implementationsCodeLens
+        assert_eq!(values[7], true); // java.implementationsCodeLens.enabled
+        assert_eq!(values[8]["enabled"], true); // java.referencesCodeLens
+        assert_eq!(values[9], true); // java.referencesCodeLens.enabled
+        assert_eq!(values[10], Value::Null); // java.unknown
     }
 
     #[test]
@@ -586,6 +760,14 @@ mod tests {
         );
         assert_eq!(
             notification.params["settings"]["java"]["maven"]["downloadSources"],
+            true
+        );
+        assert_eq!(
+            notification.params["settings"]["java"]["implementationsCodeLens"]["enabled"],
+            true
+        );
+        assert_eq!(
+            notification.params["settings"]["java"]["referencesCodeLens"]["enabled"],
             true
         );
     }

@@ -77,12 +77,13 @@ import {
   goToDefinition,
   goToImplementation,
   goToReferences,
+  goToSuperMethod,
   goToTypeDefinition,
   openOutlinePicker,
   openOutlineSidebar,
   promptGoToLine,
 } from "./navigation-command-actions";
-import { restartAllLanguageServers, stopAllLanguageServers } from "./lsp-command-actions";
+import { rebuildJavaIndex, restartAllLanguageServers, stopAllLanguageServers } from "./lsp-command-actions";
 import {
   openCommandPalette,
   openDiagnosticsBuffer,
@@ -313,6 +314,15 @@ const lspCommands: Command[] = [
     description: "Stop every active language server",
     execute: () => {
       void stopAllLanguageServers();
+    },
+  },
+  {
+    id: "java.rebuildIndex",
+    title: "Java: Rebuild Index",
+    category: "Java",
+    description: "Clear the Java language server index and rebuild it on next use",
+    execute: () => {
+      void rebuildJavaIndex();
     },
   },
 ];
@@ -884,6 +894,13 @@ const navigationCommands: Command[] = [
     category: "Navigation",
     keybinding: "cmd+F12",
     execute: goToImplementation,
+  },
+  {
+    id: "editor.goToSuperMethod",
+    title: "Go to Super Method",
+    category: "Navigation",
+    keybinding: "cmd+u",
+    execute: goToSuperMethod,
   },
   {
     id: "editor.goToTypeDefinition",

@@ -202,13 +202,13 @@ extension AppModel {
     var isPerformingBranchOperation: Bool { gitFeatureIfActive?.isPerformingBranchOperation ?? false }
     var isCloningRepository: Bool { gitFeatureIfActive?.isCloningRepository ?? false }
     var languageNavigationResults: [LanguageNavigationLocation] {
-        languageNavigationLocations
+        languageNavigationState.locations
     }
     var languageNavigationKind: LanguageNavigationResultKind {
-        languageNavigationResultKind
+        languageNavigationState.kind
     }
     var isLoadingNavigation: Bool {
-        isLoadingLanguageNavigation
+        languageNavigationState.isLoading
     }
     var isLoadingWorkspace: Bool { workspaceFeature.isLoadingWorkspace }
     var isRefreshingWorkspace: Bool { workspaceFeature.isRefreshingWorkspace }

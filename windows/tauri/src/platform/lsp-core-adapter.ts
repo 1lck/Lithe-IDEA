@@ -1,6 +1,18 @@
 import { emit } from "@tauri-apps/api/event";
 import { executeCore, type CoreResponse } from "@/core/lithe-core-client";
 import { frontendTrace } from "@/utils/frontend-trace";
+import {
+  createSessionLifecycle,
+  featureSnapshot,
+  isSessionReady,
+  isSessionTerminal,
+  LspOperationLog,
+  transitionSessionLifecycle,
+  type CoreLspSessionState,
+  type LspAdapterSessionPhase,
+  type LspFeatureSnapshot,
+  type LspSessionLifecycle,
+} from "./lsp-session-lifecycle";
 
 type JsonRecord = Record<string, any>;
 
@@ -8,18 +20,46 @@ const INITIALIZE_TIMEOUT_MS = 30_000;
 const SESSION_CLEANUP_TIMEOUT_MS = 5_000;
 const POLL_INTERVAL_MS = 20;
 
+interface PendingOperation {
+  resolve: (value: unknown) => void;
+  reject: (reason: Error) => void;
+}
+
+type EventPumpState =
+  | { phase: "starting" }
+  | { phase: "running"; completion: Promise<void> }
+  | { phase: "cancelled"; completion: Promise<void> }
+  | { phase: "completed" };
+
+interface EventPumpOwner {
+  // Cancellation is cooperative because an in-flight Core long poll cannot be
+  // aborted by JavaScript; stopServer wakes it and the owner then releases.
+  operation: LspOperationLog;
+  state: EventPumpState;
+}
+
 interface Session {
   id: string;
   workspacePath: string;
   languageId: string;
   files: Set<string>;
-  running: boolean;
-  ready: boolean;
-  features: Set<string>;
-  featuresKnown: boolean;
-  recovered: boolean;
-  pending: Map<string, { resolve: (value: unknown) => void; reject: (reason: Error) => void }>;
+  lifecycle: LspSessionLifecycle;
+  eventPump: EventPumpOwner | null;
+  featureState: { phase: "unknown" } | { phase: "known"; features: Set<string> };
+  pending: Map<string, PendingOperation>;
   completed: Map<string, RuntimeEvent>;
+  documentVersions: Map<string, number>;
+}
+
+interface FileAttachment {
+  session: Session;
+  id: string;
+}
+
+interface PendingFileAttachment {
+  sessionKey: string;
+  attachmentId: string;
+  operation: LspOperationLog;
 }
 
 interface StoredSession {
@@ -27,7 +67,6 @@ interface StoredSession {
   workspacePath: string;
   languageId: string;
   files: string[];
-  ready?: boolean;
   features?: string[];
 }
 
@@ -47,7 +86,7 @@ interface RuntimeEvent {
   type: string;
   providerId?: string;
   sessionId?: string;
-  state?: string;
+  state?: CoreLspSessionState;
   operationId?: string;
   uri?: string;
   version?: number;
@@ -64,16 +103,16 @@ export interface LspSessionSnapshot {
   id: string;
   workspacePath: string;
   languageId: string;
-  ready: boolean;
-  features: string[];
-  featuresKnown: boolean;
+  phase: LspAdapterSessionPhase;
+  operationId: string;
+  featureState: LspFeatureSnapshot;
 }
 
 const sessions = new Map<string, Session>();
-const fileSessions = new Map<string, Session>();
+const fileSessions = new Map<string, FileAttachment>();
 const sessionStarts = new Map<string, Promise<Session>>();
 const sessionStops = new Map<string, Promise<void>>();
-const pendingFileSessions = new Map<string, string>();
+const pendingFileSessions = new Map<string, PendingFileAttachment>();
 const SESSION_STORAGE_KEY = "lithe:lsp-core-sessions:v1";
 
 function normalizedPathKey(path: string): string {
@@ -107,8 +146,10 @@ function persistSessions(): void {
       workspacePath: session.workspacePath,
       languageId: session.languageId,
       files: [...session.files].sort(),
-      ready: session.ready,
-      features: [...session.features].sort(),
+      features:
+        session.featureState.phase === "known"
+          ? [...session.featureState.features].sort()
+          : undefined,
     }))
     .sort((left, right) =>
       sessionKey(left.workspacePath, left.languageId).localeCompare(
@@ -129,9 +170,9 @@ function persistSessions(): void {
   }
 }
 
-function attachFile(session: Session, filePath: string): Session | null {
+function attachFile(session: Session, filePath: string, attachmentId: string): Session | null {
   const key = fileKey(filePath);
-  const previous = fileSessions.get(key);
+  const previous = fileSessions.get(key)?.session;
   if (previous && previous !== session) {
     for (const existing of previous.files) {
       if (fileKey(existing) === key) previous.files.delete(existing);
@@ -141,23 +182,32 @@ function attachFile(session: Session, filePath: string): Session | null {
     if (fileKey(existing) === key) session.files.delete(existing);
   }
   session.files.add(filePath);
-  fileSessions.set(key, session);
+  fileSessions.set(key, { session, id: attachmentId });
   return previous && previous !== session ? previous : null;
 }
 
-function detachFile(session: Session, filePath: string): void {
+function detachFile(session: Session, filePath: string, attachmentId?: string): boolean {
   const key = fileKey(filePath);
+  const attachment = fileSessions.get(key);
+  if (
+    !attachment ||
+    attachment.session !== session ||
+    (attachmentId !== undefined && attachment.id !== attachmentId)
+  ) {
+    return false;
+  }
   for (const existing of session.files) {
     if (fileKey(existing) === key) session.files.delete(existing);
   }
-  if (fileSessions.get(key) === session) fileSessions.delete(key);
+  fileSessions.delete(key);
+  return true;
 }
 
 function removeSessionMappings(session: Session): void {
   const key = sessionKey(session.workspacePath, session.languageId);
   if (sessions.get(key) === session) sessions.delete(key);
   for (const file of session.files) {
-    if (fileSessions.get(fileKey(file)) === session) fileSessions.delete(fileKey(file));
+    if (fileSessions.get(fileKey(file))?.session === session) fileSessions.delete(fileKey(file));
   }
 }
 
@@ -179,7 +229,6 @@ function restorePersistedSessions(): void {
         typeof stored.languageId !== "string" ||
         !Array.isArray(stored.files) ||
         !stored.files.every((file: unknown) => typeof file === "string") ||
-        (stored.ready !== undefined && typeof stored.ready !== "boolean") ||
         (stored.features !== undefined &&
           (!Array.isArray(stored.features) ||
             !stored.features.every((feature: unknown) => typeof feature === "string")))
@@ -192,20 +241,23 @@ function restorePersistedSessions(): void {
         workspacePath: stored.workspacePath,
         languageId: stored.languageId,
         files: new Set(),
-        running: false,
-        // Version-one entries created before this field existed were all ready.
-        ready: stored.ready ?? true,
-        features: new Set(stored.features ?? []),
-        featuresKnown: stored.features !== undefined,
-        recovered: true,
+        // Persisted entries are projections of Core state. They must be
+        // validated before any new document can attach after a reload.
+        lifecycle: createSessionLifecycle("recovering"),
+        eventPump: null,
+        featureState:
+          stored.features === undefined
+            ? { phase: "unknown" }
+            : { phase: "known", features: new Set(stored.features) },
         pending: new Map(),
         completed: new Map(),
+        documentVersions: new Map(),
       };
       const key = sessionKey(session.workspacePath, session.languageId);
       const previous = sessions.get(key);
       if (previous) removeSessionMappings(previous);
       sessions.set(key, session);
-      for (const file of stored.files) attachFile(session, file);
+      for (const file of stored.files) attachFile(session, file, crypto.randomUUID());
     }
     for (const session of sessions.values()) {
       if (session.files.size === 0) removeSessionMappings(session);
@@ -223,7 +275,10 @@ restorePersistedSessions();
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     persistSessions();
-    for (const session of sessions.values()) session.running = false;
+    for (const session of sessions.values()) {
+      cancelEventPump(session, "module-disposed");
+      transitionSessionLifecycle(session.lifecycle, "recovering");
+    }
   });
 }
 
@@ -244,10 +299,15 @@ function lspAdapterError(code: string, message: string): Error & { code: string 
   return error;
 }
 
-async function core<T>(command: string, payload: JsonRecord): Promise<T> {
+async function core<T>(
+  command: string,
+  payload: JsonRecord,
+  operationId: string = crypto.randomUUID(),
+): Promise<T> {
   return coreData(
     await executeCore<T>({
-      id: crypto.randomUUID(),
+      id: operationId,
+      operationId,
       command,
       payload,
     }),
@@ -294,25 +354,28 @@ async function dispatchRuntimeEvent(event: RuntimeEvent): Promise<void> {
 
 async function dispatchSessionEvent(session: Session, event: RuntimeEvent): Promise<void> {
   await dispatchRuntimeEvent(event);
-  if (event.type === "stateChanged" && (event.state === "failed" || event.state === "stopped")) {
-    const error = new Error(`Language server entered ${event.state} state`) as Error & {
-      code?: string;
-    };
-    error.code = event.state === "failed" ? "sessionFailed" : "sessionStopped";
-    for (const pending of session.pending.values()) pending.reject(error);
-    session.pending.clear();
-    session.running = false;
-    session.ready = false;
+  if (event.type === "stateChanged" && event.state) {
+    // Core events are consumptive. Synchronize every state transition here so
+    // any poller (startup, recovery, or the long-lived pump) leaves a durable
+    // readiness snapshot for the rest of the frontend.
+    transitionSessionLifecycle(session.lifecycle, event.state);
+    if (event.state === "failed" || event.state === "stopped") {
+      const error = new Error(`Language server entered ${event.state} state`) as Error & {
+        code?: string;
+      };
+      error.code = event.state === "failed" ? "sessionFailed" : "sessionStopped";
+      rejectPendingOperations(session, error);
+    }
+    persistSessions();
   }
   if (event.type === "featuresChanged") {
-    session.features = new Set(event.capabilities ?? []);
-    session.featuresKnown = true;
+    session.featureState = { phase: "known", features: new Set(event.capabilities ?? []) };
     persistSessions();
     await emit("lsp://features-changed", {
       sessionId: session.id,
       workspacePath: session.workspacePath,
       languageId: session.languageId,
-      features: [...session.features].sort(),
+      features: [...session.featureState.features].sort(),
     });
   }
   if (event.type !== "requestCompleted" || !event.operationId) return;
@@ -333,10 +396,7 @@ async function dispatchSessionEvent(session: Session, event: RuntimeEvent): Prom
   }
 }
 
-async function poll(
-  session: Session,
-  timeoutMilliseconds = 30_000,
-): Promise<RuntimeEvent[]> {
+async function poll(session: Session, timeoutMilliseconds = 30_000): Promise<RuntimeEvent[]> {
   const response = await core<{ events: RuntimeEvent[] }>("lsp.waitEvents", {
     sessionId: session.id,
     timeoutMilliseconds,
@@ -345,11 +405,49 @@ async function poll(
   return response.events;
 }
 
-async function runEventPump(session: Session): Promise<void> {
-  while (session.running) {
-    try {
+function rejectPendingOperations(session: Session, error: Error): void {
+  const pending = [...session.pending.values()];
+  session.pending.clear();
+  for (const operation of pending) operation.reject(error);
+}
+
+function startEventPump(session: Session): void {
+  if (
+    session.eventPump?.state.phase === "starting" ||
+    session.eventPump?.state.phase === "running"
+  ) {
+    return;
+  }
+
+  const owner: EventPumpOwner = {
+    operation: new LspOperationLog("eventPump", crypto.randomUUID(), {
+      sessionId: session.id,
+      workspacePath: session.workspacePath,
+      languageId: session.languageId,
+    }),
+    state: { phase: "starting" },
+  };
+  session.eventPump = owner;
+  const completion = Promise.resolve().then(() => runEventPump(session, owner));
+  owner.state = { phase: "running", completion };
+}
+
+function cancelEventPump(session: Session, reason: string): void {
+  const owner = session.eventPump;
+  if (!owner || owner.state.phase !== "running") return;
+  owner.state = { phase: "cancelled", completion: owner.state.completion };
+  owner.operation.cancelled(reason);
+}
+
+async function runEventPump(session: Session, owner: EventPumpOwner): Promise<void> {
+  try {
+    while (
+      session.eventPump === owner &&
+      owner.state.phase === "running" &&
+      !isSessionTerminal(session.lifecycle)
+    ) {
       const events = await poll(session);
-      if (!session.running) return;
+      if (session.eventPump !== owner || owner.state.phase !== "running") return;
       const terminalState = [...events]
         .reverse()
         .find(
@@ -358,30 +456,35 @@ async function runEventPump(session: Session): Promise<void> {
             (event.state === "failed" || event.state === "stopped"),
         )?.state;
       if (terminalState) {
-        const error = new Error(`Language server entered ${terminalState} state`);
-        for (const pending of session.pending.values()) pending.reject(error);
-        session.pending.clear();
-        session.running = false;
-        session.ready = false;
         removeSessionMappings(session);
         persistSessions();
+        if (terminalState === "failed") {
+          owner.operation.failed(new Error("Language server entered failed state"), {
+            sessionState: terminalState,
+          });
+        } else {
+          owner.operation.succeeded({ sessionState: terminalState });
+        }
         return;
       }
-    } catch (reason) {
-      if (!session.running) return;
-      const error = reason instanceof Error ? reason : new Error(String(reason));
-      for (const pending of session.pending.values()) pending.reject(error);
-      session.pending.clear();
-      session.running = false;
-      session.ready = false;
-      removeSessionMappings(session);
-      persistSessions();
-      const details = String((error as Error & { details?: string }).details ?? "");
-      // waitEvents returns process_failed/sessionStopped after an intentional stop.
-      if (details !== "sessionStopped") {
-        await emit("lsp://server-crashed", {});
-      }
-      return;
+    }
+  } catch (reason) {
+    if (owner.state.phase === "cancelled" || session.eventPump !== owner) return;
+    const error = reason instanceof Error ? reason : new Error(String(reason));
+    rejectPendingOperations(session, error);
+    transitionSessionLifecycle(session.lifecycle, "failed");
+    removeSessionMappings(session);
+    persistSessions();
+    owner.operation.failed(error);
+    const details = String((error as Error & { details?: string }).details ?? "");
+    // waitEvents returns process_failed/sessionStopped after an intentional stop.
+    if (details !== "sessionStopped") {
+      await emit("lsp://server-crashed", {});
+    }
+  } finally {
+    if (session.eventPump === owner) {
+      owner.state = { phase: "completed" };
+      session.eventPump = null;
     }
   }
 }
@@ -390,12 +493,8 @@ async function waitUntilReady(session: Session): Promise<void> {
   const deadline = Date.now() + INITIALIZE_TIMEOUT_MS;
   while (Date.now() < deadline) {
     const events = await poll(session, 200);
+    if (isSessionReady(session.lifecycle)) return;
     const state = [...events].reverse().find((event) => event.type === "stateChanged")?.state;
-    if (state === "ready") {
-      session.ready = true;
-      persistSessions();
-      return;
-    }
     if (state === "failed" || state === "stopped") {
       const failure = [...events]
         .reverse()
@@ -421,97 +520,124 @@ async function waitUntilReady(session: Session): Promise<void> {
   throw error;
 }
 
-async function stopAndDestroySession(session: Session): Promise<void> {
-  session.running = false;
-  session.ready = false;
-  await core("lsp.stopServer", { sessionId: session.id });
+async function stopAndDestroySession(
+  session: Session,
+  operationId: string,
+): Promise<"stopped" | "timedOut"> {
+  cancelEventPump(session, "session-stop-requested");
+  transitionSessionLifecycle(session.lifecycle, "stopping", operationId);
+  await core("lsp.stopServer", { sessionId: session.id }, operationId);
 
   const deadline = Date.now() + SESSION_CLEANUP_TIMEOUT_MS;
+  let lastDestroyError: unknown;
+  let lastPollError: unknown;
   while (Date.now() < deadline) {
     try {
-      await core("lsp.destroyServer", { sessionId: session.id });
-      return;
-    } catch {
-      // A graceful stop is asynchronous; keep draining events until Core is terminal.
+      await core("lsp.destroyServer", { sessionId: session.id }, operationId);
+      transitionSessionLifecycle(session.lifecycle, "stopped", operationId);
+      return "stopped";
+    } catch (reason) {
+      lastDestroyError = reason;
     }
     try {
       await poll(session, POLL_INTERVAL_MS);
-    } catch {
-      // Terminal waitEvents errors mean the session is already stopped.
+    } catch (reason) {
+      lastPollError = reason;
     }
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   }
 
-  await core("lsp.destroyServer", { sessionId: session.id });
+  frontendTrace("warn", "lsp.lifecycle", "sessionCleanup:deadline", {
+    operationId,
+    sessionId: session.id,
+    lastDestroyError:
+      lastDestroyError instanceof Error ? lastDestroyError.message : String(lastDestroyError ?? ""),
+    lastPollError:
+      lastPollError instanceof Error ? lastPollError.message : String(lastPollError ?? ""),
+  });
+  await core("lsp.destroyServer", { sessionId: session.id }, operationId);
+  transitionSessionLifecycle(session.lifecycle, "stopped", operationId);
+  return "timedOut";
 }
 
-async function cleanupFailedStart(key: string, session: Session): Promise<void> {
+async function cleanupFailedStart(
+  key: string,
+  session: Session,
+  operationId: string,
+): Promise<void> {
   if (sessions.get(key) === session) sessions.delete(key);
   removeSessionMappings(session);
   persistSessions();
   try {
-    await stopAndDestroySession(session);
+    await stopAndDestroySession(session, operationId);
   } catch (reason) {
     frontendTrace("warn", "lsp.runtime", "Language-server cleanup failed", {
+      operationId,
       sessionId: session.id,
       error: reason instanceof Error ? reason.message : String(reason),
     });
   }
 }
 
-function sessionForFile(filePath: string): Session {
-  const session = fileSessions.get(fileKey(filePath));
-  if (!session) {
+function sessionForFile(filePath: string, attachmentId?: string): Session {
+  const attachment = fileSessions.get(fileKey(filePath));
+  if (!attachment || (attachmentId !== undefined && attachment.id !== attachmentId)) {
     throw lspAdapterError("no_session", `No language-server session owns this file: ${filePath}`);
   }
-  return session;
+  return attachment.session;
 }
 
 async function recoverSession(session: Session): Promise<Session | null> {
+  const operation = new LspOperationLog("sessionRecovery", session.lifecycle.operationId, {
+    sessionId: session.id,
+    workspacePath: session.workspacePath,
+    languageId: session.languageId,
+  });
   try {
     const events = await poll(session, 200);
     const state = [...events].reverse().find((event) => event.type === "stateChanged")?.state;
     if (state === "failed" || state === "stopped" || state === "stopping") {
       try {
         if (state === "stopping") {
-          await stopAndDestroySession(session);
+          await stopAndDestroySession(session, operation.operationId);
         } else {
-          await core("lsp.destroyServer", { sessionId: session.id });
+          await core("lsp.destroyServer", { sessionId: session.id }, operation.operationId);
         }
       } catch (reason) {
         frontendTrace("warn", "lsp.runtime", "Could not destroy stale language-server session", {
+          operationId: operation.operationId,
           sessionId: session.id,
           error: reason instanceof Error ? reason.message : String(reason),
         });
       }
       removeSessionMappings(session);
       persistSessions();
+      operation.cancelled(`session-${state}`);
       return null;
     }
 
-    if (state === "ready") {
-      session.ready = true;
-    } else if (state) {
-      session.ready = false;
-    }
-    if (!session.ready) await waitUntilReady(session);
+    if (state) transitionSessionLifecycle(session.lifecycle, state, operation.operationId);
+    if (!isSessionReady(session.lifecycle)) await waitUntilReady(session);
 
-    if (!session.featuresKnown) {
-      await stopAndDestroySession(session);
+    if (session.featureState.phase === "unknown") {
+      await stopAndDestroySession(session, operation.operationId);
       removeSessionMappings(session);
       persistSessions();
+      operation.cancelled("capabilities-not-recoverable");
       return null;
     }
 
-    session.recovered = false;
-    session.running = true;
+    transitionSessionLifecycle(session.lifecycle, "ready", operation.operationId);
     persistSessions();
-    void runEventPump(session);
+    startEventPump(session);
+    operation.succeeded();
     return session;
   } catch (reason) {
     removeSessionMappings(session);
     persistSessions();
+    operation.failed(reason);
     frontendTrace("warn", "lsp.runtime", "Could not recover language-server session", {
+      operationId: operation.operationId,
       sessionId: session.id,
       error: reason instanceof Error ? reason.message : String(reason),
     });
@@ -523,47 +649,93 @@ async function createSession(args: JsonRecord, key: string): Promise<Session> {
   const workspacePath = String(args.workspacePath ?? "");
   const languageId = String(args.languageId ?? "plaintext");
   const providerId = String(args.providerId ?? languageId);
+  const operationId = crypto.randomUUID();
+  const operation = new LspOperationLog("sessionStart", operationId, {
+    workspacePath,
+    languageId,
+    providerId,
+  });
   const environment = {
     ...args.tools?.lsp?.env,
     ...args.environment,
   };
-  const started = await core<{ sessionId: string }>("lsp.startServer", {
-    providerId,
-    executablePath: args.serverPath,
-    arguments: args.serverArgs ?? [],
-    environment,
-    rootUri: fileUri(workspacePath),
-    workingDirectory: workspacePath,
-    initializationOptions: args.initializationOptions ?? null,
-    runtimeExecutablePath: args.runtimeExecutablePath ?? null,
-    cacheDirectory: args.cacheDirectory ?? null,
-    initializeTimeoutMilliseconds: INITIALIZE_TIMEOUT_MS,
-  });
+  let started: { sessionId: string; state?: CoreLspSessionState };
+  try {
+    started = await core<{ sessionId: string; state?: CoreLspSessionState }>(
+      "lsp.startServer",
+      {
+        providerId,
+        executablePath: args.serverPath,
+        arguments: args.serverArgs ?? [],
+        environment,
+        rootUri: fileUri(workspacePath),
+        workingDirectory: workspacePath,
+        initializationOptions: args.initializationOptions ?? null,
+        runtimeExecutablePath: args.runtimeExecutablePath ?? null,
+        cacheDirectory: args.cacheDirectory ?? null,
+        workspaceFingerprint: args.workspaceFingerprint ?? null,
+        initializeTimeoutMilliseconds: INITIALIZE_TIMEOUT_MS,
+      },
+      operationId,
+    );
+  } catch (reason) {
+    operation.failed(reason, { stage: "processStart" });
+    throw reason;
+  }
   const session: Session = {
     id: started.sessionId,
     workspacePath,
     languageId,
     files: new Set(),
-    running: false,
-    ready: false,
-    features: new Set(),
-    featuresKnown: false,
-    recovered: false,
+    lifecycle: createSessionLifecycle(started.state ?? "initializing", operationId),
+    eventPump: null,
+    featureState: { phase: "unknown" },
     pending: new Map(),
     completed: new Map(),
+    documentVersions: new Map(),
   };
   sessions.set(key, session);
   persistSessions();
   try {
     await waitUntilReady(session);
-  } catch (error) {
-    await cleanupFailedStart(key, session);
-    throw error;
+  } catch (reason) {
+    if ((reason as Error & { code?: string })?.code === "timed_out") {
+      operation.timedOut({ stage: "initialize", sessionId: session.id });
+    } else {
+      operation.failed(reason, { stage: "initialize", sessionId: session.id });
+    }
+    await cleanupFailedStart(key, session, operationId);
+    throw reason;
   }
-  session.running = true;
+  transitionSessionLifecycle(session.lifecycle, "ready", operationId);
   persistSessions();
-  void runEventPump(session);
+  startEventPump(session);
+  operation.succeeded({ sessionId: session.id });
   return session;
+}
+
+async function waitForProjectedReadiness(
+  session: Session,
+): Promise<"ready" | "terminal" | "timedOut"> {
+  const operation = new LspOperationLog("sessionReadinessWait", crypto.randomUUID(), {
+    sessionId: session.id,
+    workspacePath: session.workspacePath,
+    languageId: session.languageId,
+  });
+  const deadline = Date.now() + INITIALIZE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (isSessionReady(session.lifecycle)) {
+      operation.succeeded();
+      return "ready";
+    }
+    if (isSessionTerminal(session.lifecycle)) {
+      operation.failed(new Error(`Language server entered ${session.lifecycle.phase} state`));
+      return "terminal";
+    }
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+  }
+  operation.timedOut({ sessionState: session.lifecycle.phase });
+  return "timedOut";
 }
 
 async function resolveSession(args: JsonRecord, key: string): Promise<Session> {
@@ -571,11 +743,16 @@ async function resolveSession(args: JsonRecord, key: string): Promise<Session> {
   if (stopping) await stopping;
 
   const existing = sessions.get(key);
-  if (existing && !existing.recovered) return existing;
+  if (existing && isSessionReady(existing.lifecycle)) return existing;
 
-  if (existing) {
+  if (existing?.lifecycle.phase === "recovering") {
     const recovered = await recoverSession(existing);
     if (recovered) return recovered;
+  } else if (existing) {
+    if (existing.eventPump && (await waitForProjectedReadiness(existing)) === "ready") {
+      return existing;
+    }
+    await stopSession(existing);
   }
 
   return createSession(args, key);
@@ -587,11 +764,28 @@ async function start(args: JsonRecord): Promise<void> {
   const key = sessionKey(workspacePath, languageId);
   const filePath = args.filePath ? String(args.filePath) : null;
   const pendingFileKey = filePath ? fileKey(filePath) : null;
-  if (pendingFileKey) pendingFileSessions.set(pendingFileKey, key);
+  const attachmentId = filePath ? String(args.attachmentId ?? crypto.randomUUID()) : null;
+  let attachmentOperation: LspOperationLog | null = null;
+  if (pendingFileKey && attachmentId) {
+    const previous = pendingFileSessions.get(pendingFileKey);
+    previous?.operation.cancelled("superseded-by-newer-attachment", {
+      replacementOperationId: attachmentId,
+    });
+    attachmentOperation = new LspOperationLog("fileAttachment", attachmentId, {
+      filePath,
+      workspacePath,
+      languageId,
+    });
+    pendingFileSessions.set(pendingFileKey, {
+      sessionKey: key,
+      attachmentId,
+      operation: attachmentOperation,
+    });
+  }
   let session = sessions.get(key);
 
   try {
-    if (!session || session.recovered || !session.ready) {
+    if (!session || !isSessionReady(session.lifecycle)) {
       let startPromise = sessionStarts.get(key);
       if (!startPromise) {
         startPromise = resolveSession(args, key).finally(() => sessionStarts.delete(key));
@@ -600,13 +794,35 @@ async function start(args: JsonRecord): Promise<void> {
       session = await startPromise;
     }
 
-    if (filePath) {
-      const displaced = attachFile(session, filePath);
+    if (
+      filePath &&
+      attachmentId &&
+      pendingFileSessions.get(fileKey(filePath))?.attachmentId === attachmentId
+    ) {
+      const displaced = attachFile(session, filePath, attachmentId);
       persistSessions();
       if (displaced && displaced.files.size === 0) await stopSession(displaced);
+      attachmentOperation?.succeeded({ sessionId: session.id });
+    } else if (filePath && attachmentId) {
+      attachmentOperation?.cancelled("superseded-before-attachment");
     }
+  } catch (reason) {
+    const isCurrent =
+      pendingFileKey &&
+      attachmentId &&
+      pendingFileSessions.get(pendingFileKey)?.attachmentId === attachmentId;
+    if (isCurrent) {
+      attachmentOperation?.failed(reason);
+    } else {
+      attachmentOperation?.cancelled("superseded-before-failure");
+    }
+    throw reason;
   } finally {
-    if (pendingFileKey && pendingFileSessions.get(pendingFileKey) === key) {
+    if (
+      pendingFileKey &&
+      attachmentId &&
+      pendingFileSessions.get(pendingFileKey)?.attachmentId === attachmentId
+    ) {
       pendingFileSessions.delete(pendingFileKey);
     }
   }
@@ -619,46 +835,104 @@ async function stopSession(session: Session): Promise<void> {
 
   let stopPromise = sessionStops.get(key);
   if (!stopPromise) {
-    stopPromise = stopAndDestroySession(session).finally(() => {
-      if (sessionStops.get(key) === stopPromise) sessionStops.delete(key);
+    const operation = new LspOperationLog("sessionStop", crypto.randomUUID(), {
+      sessionId: session.id,
+      workspacePath: session.workspacePath,
+      languageId: session.languageId,
     });
+    stopPromise = stopAndDestroySession(session, operation.operationId)
+      .then((outcome) => {
+        if (outcome === "timedOut") {
+          operation.timedOut({ stage: "cleanup" });
+        } else {
+          operation.succeeded();
+        }
+      })
+      .catch((reason) => {
+        operation.failed(reason);
+        throw reason;
+      })
+      .finally(() => {
+        if (sessionStops.get(key) === stopPromise) sessionStops.delete(key);
+      });
     sessionStops.set(key, stopPromise);
   }
   await stopPromise;
 }
 
-async function sessionForStoppingFile(filePath: string): Promise<Session | null> {
+async function sessionForStoppingFile(
+  filePath: string,
+  attachmentId?: string,
+): Promise<Session | null> {
   const key = fileKey(filePath);
-  const pendingSessionKey = pendingFileSessions.get(key);
-  const pendingStart = pendingSessionKey ? sessionStarts.get(pendingSessionKey) : null;
+  const pendingAttachment = pendingFileSessions.get(key);
+  const shouldWaitForPending =
+    pendingAttachment &&
+    (attachmentId === undefined || pendingAttachment.attachmentId === attachmentId);
+  const pendingStart = shouldWaitForPending
+    ? sessionStarts.get(pendingAttachment.sessionKey)
+    : null;
   if (pendingStart) {
     try {
       await pendingStart;
-    } catch {
+    } catch (reason) {
+      frontendTrace("info", "lsp.lifecycle", "fileStop:pendingStartFailed", {
+        operationId: pendingAttachment?.attachmentId,
+        filePath,
+        error: reason instanceof Error ? reason.message : String(reason),
+      });
       return null;
     }
   }
-  return fileSessions.get(key) ?? null;
+  const attachment = fileSessions.get(key);
+  if (!attachment || (attachmentId !== undefined && attachment.id !== attachmentId)) return null;
+  return attachment.session;
 }
 
-async function requestOperation(session: Session, payload: JsonRecord): Promise<unknown> {
-  const started = await core<{ operationId: string }>("lsp.request", payload);
+async function requestOperation(
+  session: Session,
+  payload: JsonRecord,
+  command = "lsp.request",
+): Promise<unknown> {
+  const started = await core<{ operationId: string }>(command, payload);
+  const operation = new LspOperationLog("semanticRequest", started.operationId, {
+    sessionId: session.id,
+    method: command,
+    documentUri: payload.uri,
+  });
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       session.pending.delete(started.operationId);
-      void core("lsp.cancelOperation", {
-        sessionId: session.id,
-        operationId: started.operationId,
+      operation.timedOut();
+      void core(
+        "lsp.cancelOperation",
+        {
+          sessionId: session.id,
+          operationId: started.operationId,
+        },
+        started.operationId,
+      ).catch((reason) => {
+        frontendTrace("warn", "lsp.lifecycle", "semanticRequest:cancelFailed", {
+          operationId: started.operationId,
+          sessionId: session.id,
+          error: reason instanceof Error ? reason.message : String(reason),
+        });
       });
       reject(new Error("LSP request timed out"));
     }, 30_000);
     session.pending.set(started.operationId, {
       resolve: (value) => {
         clearTimeout(timeout);
+        operation.succeeded();
         resolve(value);
       },
       reject: (error) => {
         clearTimeout(timeout);
+        if ((error as Error & { code?: string }).code === "cancelled") {
+          operation.cancelled(error.message);
+        } else {
+          operation.failed(error);
+        }
         reject(error);
       },
     });
@@ -779,6 +1053,7 @@ function unwrapResult(command: string, result: any): unknown {
     case "lsp_get_code_lens":
       return (normalized.lenses ?? []).map((lens: JsonRecord) => ({
         line: lens.range?.start?.line ?? 0,
+        utf16Column: lens.range?.start?.utf16Column ?? 0,
         title: lens.command?.title ?? "",
         command: lens.command?.command,
         arguments: lens.command?.arguments,
@@ -796,19 +1071,82 @@ async function semanticRequest(command: string, args: JsonRecord): Promise<unkno
   return unwrapResult(command, result);
 }
 
+async function synchronizeDocument(
+  operationName: "documentOpen" | "documentChange" | "documentSave",
+  session: Session,
+  filePath: string,
+  payload: JsonRecord,
+): Promise<void> {
+  const operation = new LspOperationLog(operationName, crypto.randomUUID(), {
+    sessionId: session.id,
+    filePath,
+    languageId: session.languageId,
+  });
+  try {
+    const sync = await core<{ documentVersion: number; changed: boolean }>(
+      "lsp.syncDocument",
+      payload,
+      operation.operationId,
+    );
+    session.documentVersions.set(fileUri(filePath), sync.documentVersion);
+    operation.succeeded({
+      documentVersion: sync.documentVersion,
+      changed: sync.changed,
+    });
+  } catch (reason) {
+    operation.failed(reason);
+    throw reason;
+  }
+}
+
+async function closeDocument(session: Session, filePath: string): Promise<void> {
+  const operation = new LspOperationLog("documentClose", crypto.randomUUID(), {
+    sessionId: session.id,
+    filePath,
+    languageId: session.languageId,
+  });
+  try {
+    await core(
+      "lsp.closeDocument",
+      { sessionId: session.id, uri: fileUri(filePath) },
+      operation.operationId,
+    );
+    session.documentVersions.delete(fileUri(filePath));
+    operation.succeeded();
+  } catch (reason) {
+    operation.failed(reason);
+    throw reason;
+  }
+}
+
 export function getLspSessionSnapshot(args: {
   filePath: string;
   sessionFilePath?: string;
 }): LspSessionSnapshot | null {
-  const session = fileSessions.get(fileKey(args.sessionFilePath ?? args.filePath));
-  if (!session) return null;
+  const attachment = fileSessions.get(fileKey(args.sessionFilePath ?? args.filePath));
+  if (!attachment) return null;
+  return snapshotForSession(attachment.session);
+}
+
+export function getLspWorkspaceSessionSnapshot(args: {
+  workspacePath: string;
+  languageId: string;
+}): LspSessionSnapshot | null {
+  const session = sessions.get(sessionKey(args.workspacePath, args.languageId));
+  return session ? snapshotForSession(session) : null;
+}
+
+function snapshotForSession(session: Session): LspSessionSnapshot {
   return {
     id: session.id,
     workspacePath: session.workspacePath,
     languageId: session.languageId,
-    ready: session.ready,
-    features: [...session.features].sort(),
-    featuresKnown: session.featuresKnown,
+    phase: session.lifecycle.phase,
+    operationId: session.lifecycle.operationId,
+    featureState:
+      session.featureState.phase === "known"
+        ? featureSnapshot(session.featureState.features)
+        : featureSnapshot(),
   };
 }
 
@@ -826,19 +1164,41 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
     return undefined as T;
   }
   if (command === "lsp_stop_for_file") {
-    const session = await sessionForStoppingFile(args.filePath);
-    if (!session) return undefined as T;
-    detachFile(session, args.filePath);
-    if (session.files.size === 0) {
-      await stopSession(session);
-    } else {
-      persistSessions();
+    const operation = new LspOperationLog("fileDetach", crypto.randomUUID(), {
+      filePath: args.filePath,
+    });
+    const attachmentId =
+      typeof args.attachmentId === "string" && args.attachmentId.length > 0
+        ? args.attachmentId
+        : undefined;
+    try {
+      const session = await sessionForStoppingFile(args.filePath, attachmentId);
+      if (!session) {
+        operation.cancelled("attachment-not-owned");
+        return undefined as T;
+      }
+      if (!detachFile(session, args.filePath, attachmentId)) {
+        operation.cancelled("stale-attachment");
+        return undefined as T;
+      }
+      // Keep workspace-scoped language servers (e.g. JDTLS) alive as long as
+      // the workspace is open. Stopping them per-file forces a slow cold-start
+      // the next time any Java file in the workspace is accessed.
+      if (session.files.size === 0 && session.languageId !== "java") {
+        await stopSession(session);
+      } else {
+        persistSessions();
+      }
+      operation.succeeded({ sessionId: session.id });
+      return undefined as T;
+    } catch (reason) {
+      operation.failed(reason);
+      throw reason;
     }
-    return undefined as T;
   }
   if (command === "lsp_document_open") {
-    const session = sessionForFile(args.filePath);
-    await core("lsp.syncDocument", {
+    const session = sessionForFile(args.filePath, args.attachmentId);
+    await synchronizeDocument("documentOpen", session, args.filePath, {
       sessionId: session.id,
       uri: fileUri(args.filePath),
       languageId: args.languageId ?? session.languageId,
@@ -847,7 +1207,7 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
     return undefined as T;
   }
   if (command === "lsp_document_change") {
-    const session = sessionForFile(args.filePath);
+    const session = sessionForFile(args.filePath, args.attachmentId);
     const contentChanges = Array.isArray(args.contentChanges)
       ? args.contentChanges
           .map((change: JsonRecord) => {
@@ -869,7 +1229,7 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
           })
           .filter(Boolean)
       : [];
-    await core("lsp.syncDocument", {
+    await synchronizeDocument("documentChange", session, args.filePath, {
       sessionId: session.id,
       uri: fileUri(args.filePath),
       languageId: args.languageId ?? session.languageId,
@@ -881,8 +1241,8 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
     return undefined as T;
   }
   if (command === "lsp_document_save") {
-    const session = sessionForFile(args.filePath);
-    await core("lsp.syncDocument", {
+    const session = sessionForFile(args.filePath, args.attachmentId);
+    await synchronizeDocument("documentSave", session, args.filePath, {
       sessionId: session.id,
       uri: fileUri(args.filePath),
       languageId: args.languageId ?? session.languageId,
@@ -891,9 +1251,71 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
     return undefined as T;
   }
   if (command === "lsp_document_close") {
-    const session = sessionForFile(args.filePath);
-    await core("lsp.closeDocument", { sessionId: session.id, uri: fileUri(args.filePath) });
+    const session = sessionForFile(args.filePath, args.attachmentId);
+    await closeDocument(session, args.filePath);
     return undefined as T;
+  }
+  if (command === "lsp_workspace_files_changed") {
+    const workspacePath = String(args.workspacePath ?? "");
+    const languageId = String(args.languageId ?? "java");
+    const session = sessions.get(sessionKey(workspacePath, languageId));
+    if (!session || isSessionTerminal(session.lifecycle)) return undefined as T;
+    const operation = new LspOperationLog("workspaceFilesChanged", crypto.randomUUID(), {
+      sessionId: session.id,
+      workspacePath,
+      languageId,
+    });
+    try {
+      const changes = Array.isArray(args.changes)
+        ? args.changes.map((change: JsonRecord) => ({
+            uri: fileUri(String(change.path ?? "")),
+            kind: change.kind,
+          }))
+        : [];
+      await core(
+        "lsp.workspaceFilesChanged",
+        { sessionId: session.id, changes },
+        operation.operationId,
+      );
+      operation.succeeded({ changeCount: changes.length });
+      return undefined as T;
+    } catch (reason) {
+      operation.failed(reason);
+      throw reason;
+    }
+  }
+  if (command === "java_navigation_markers") {
+    const session = sessionForFile(args.sessionFilePath ?? args.filePath);
+    const uri = typeof args.documentUri === "string" ? args.documentUri : fileUri(args.filePath);
+    return (await requestOperation(
+      session,
+      {
+        sessionId: session.id,
+        uri,
+        documentVersion: session.documentVersions.get(uri),
+      },
+      "java.navigationMarkers",
+    )) as T;
+  }
+  if (command === "java_resolve_navigation") {
+    const session = sessionForFile(args.sessionFilePath ?? args.filePath);
+    const uri = typeof args.documentUri === "string" ? args.documentUri : fileUri(args.filePath);
+    const result = await requestOperation(
+      session,
+      {
+        sessionId: session.id,
+        uri,
+        line: args.line,
+        utf16Column: args.character ?? 0,
+        direction: args.direction,
+        relation: args.relation,
+        documentVersion: session.documentVersions.get(uri),
+      },
+      "java.resolveNavigation",
+    );
+    // Custom Java operations bypass unwrapResult, so normalize Core's UTF-16
+    // position fields here before exposing standard LSP locations to the UI.
+    return normalizeCoreValue(result) as T;
   }
   if (command === "lsp_apply_code_action") {
     const session = sessionForFile(args.sessionFilePath ?? args.filePath);

@@ -36,4 +36,19 @@ struct MacRuntimeLocator: RuntimeLocator {
     func systemJDBExecutable() -> URL? {
         MacRuntimeDiscovery.systemJDBExecutable()
     }
+
+    /// Returns the home directory of the JDK bundled under the app's
+    /// `Contents/Resources/LanguageServers/jdk` directory, if present and
+    /// executable.  Development builds that lack the bundled JDK return `nil`
+    /// so the caller can fall back to user-discovered runtimes.
+    func bundledJdkHome() -> URL? {
+        guard let resourceURL = Bundle.main.resourceURL else { return nil }
+        let home = resourceURL
+            .appendingPathComponent("LanguageServers")
+            .appendingPathComponent("jdk")
+            .standardizedFileURL
+        let java = home.appendingPathComponent("bin/java")
+        guard FileManager.default.isExecutableFile(atPath: java.path) else { return nil }
+        return home
+    }
 }

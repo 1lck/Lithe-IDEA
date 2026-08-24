@@ -4,6 +4,124 @@ use serde_json::Value;
 use std::fs;
 
 #[test]
+fn jdt_workspace_key_matches_the_shared_compatibility_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/lsp/jdt-workspace-key-v1.json"
+    ))
+    .expect("JDT workspace-key fixture should be valid JSON");
+
+    for case in fixture["cases"]
+        .as_array()
+        .expect("JDT workspace-key fixture should contain cases")
+    {
+        let request = serde_json::json!({
+            "id": case["name"],
+            "command": "lsp.jdtWorkspaceKey",
+            "payload": {
+                "workspaceRoot": case["workspaceRoot"],
+                "workspaceFingerprint": case["workspaceFingerprint"]
+            }
+        });
+        let response: Value = serde_json::from_str(&execute_json(&request.to_string()))
+            .expect("JDT workspace-key response should be JSON");
+
+        assert_eq!(response["ok"], true, "case {}", case["name"]);
+        assert_eq!(
+            response["data"]["workspaceKey"], case["workspaceKey"],
+            "case {}",
+            case["name"]
+        );
+    }
+}
+
+#[test]
+fn java_workspace_policy_matches_the_shared_compatibility_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/lsp/java-workspace-policy-v1.json"
+    ))
+    .expect("Java workspace-policy fixture should be valid JSON");
+
+    for case in fixture["cases"]
+        .as_array()
+        .expect("Java workspace-policy fixture should contain cases")
+    {
+        let request = serde_json::json!({
+            "id": case["name"],
+            "command": "java.workspacePolicy",
+            "payload": {
+                "workspacePaths": case["workspacePaths"],
+                "changedPaths": case["changedPaths"]
+            }
+        });
+        let response: Value = serde_json::from_str(&execute_json(&request.to_string()))
+            .expect("Java workspace-policy response should be JSON");
+
+        assert_eq!(response["ok"], true, "case {}", case["name"]);
+        assert_eq!(response["data"], case["expected"], "case {}", case["name"]);
+    }
+}
+
+#[test]
+fn jdt_workspace_fingerprint_matches_the_shared_compatibility_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/lsp/jdt-workspace-fingerprint-v1.json"
+    ))
+    .expect("JDT workspace-fingerprint fixture should be valid JSON");
+
+    for case in fixture["cases"]
+        .as_array()
+        .expect("JDT workspace-fingerprint fixture should contain cases")
+    {
+        let request = serde_json::json!({
+            "id": case["name"],
+            "command": "java.jdtWorkspaceFingerprint",
+            "payload": {
+                "buildFiles": case["buildFiles"],
+                "directMavenModules": case["directMavenModules"],
+                "jdtlsVersion": case["jdtlsVersion"]
+            }
+        });
+        let response: Value = serde_json::from_str(&execute_json(&request.to_string()))
+            .expect("JDT workspace-fingerprint response should be JSON");
+
+        assert_eq!(response["ok"], true, "case {}", case["name"]);
+        assert_eq!(
+            response["data"]["workspaceFingerprint"], case["workspaceFingerprint"],
+            "case {}",
+            case["name"]
+        );
+    }
+}
+
+#[test]
+fn jdt_cache_retention_matches_the_shared_compatibility_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/lsp/jdt-cache-retention-v1.json"
+    ))
+    .expect("JDT cache-retention fixture should be valid JSON");
+
+    for case in fixture["cases"]
+        .as_array()
+        .expect("JDT cache-retention fixture should contain cases")
+    {
+        let request = serde_json::json!({
+            "id": case["name"],
+            "command": "java.jdtCacheRetention",
+            "payload": {
+                "nowUnixSeconds": case["nowUnixSeconds"],
+                "activeWorkspaceKey": case["activeWorkspaceKey"],
+                "entries": case["entries"]
+            }
+        });
+        let response: Value = serde_json::from_str(&execute_json(&request.to_string()))
+            .expect("JDT cache-retention response should be JSON");
+
+        assert_eq!(response["ok"], true, "case {}", case["name"]);
+        assert_eq!(response["data"], case["expected"], "case {}", case["name"]);
+    }
+}
+
+#[test]
 fn maven_scan_returns_recursive_shared_project_model() {
     let root = temporary_root("maven");
     fs::create_dir_all(root.join("module-a/module-b")).expect("modules should be creatable");
@@ -228,10 +346,9 @@ fn java_core_commands_return_shared_runtime_and_structure_data() {
         structure_response["data"]["foldRegions"][0]["kind"],
         "imports"
     );
-    assert_eq!(
-        structure_response["data"]["implementationMarkers"][0]["direction"],
-        "down"
-    );
+    assert!(structure_response["data"]
+        .get("implementationMarkers")
+        .is_none());
     let swift_structure = serde_json::json!({
         "id": "swift-structure",
         "command": "java.structure",
