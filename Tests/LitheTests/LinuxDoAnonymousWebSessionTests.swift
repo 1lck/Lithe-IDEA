@@ -1,30 +1,41 @@
-import WebKit
 @testable import Lithe
 import Testing
 
 @MainActor
-struct LinuxDoAnonymousWebSessionTests {
+struct LinuxDoIdleRetainerTests {
     @Test
-    func shortPanelAbsenceKeepsTheCurrentWebView() async {
-        let session = LinuxDoAnonymousWebSession(idleLifetimeNanoseconds: 50_000_000)
-        let webView = WKWebView()
-        session.webView = webView
+    func shortPanelAbsenceKeepsTheCurrentObject() async {
+        let retainer = LinuxDoIdleRetainer<TestRetainedObject>(
+            idleLifetimeNanoseconds: 50_000_000,
+            prepareForRelease: { _ in }
+        )
+        let retainedObject = TestRetainedObject()
+        retainer.value = retainedObject
 
-        let releaseTask = session.releaseAfterInactivity()
-        session.resume()
+        let releaseTask = retainer.releaseAfterInactivity()
+        retainer.resume()
         await releaseTask.value
 
-        #expect(session.webView === webView)
+        #expect(retainer.value === retainedObject)
     }
 
     @Test
-    func inactiveSessionReleasesItsWebView() async {
-        let session = LinuxDoAnonymousWebSession(idleLifetimeNanoseconds: 20_000_000)
-        session.webView = WKWebView()
+    func inactiveSessionReleasesItsObject() async {
+        var releasedObject: TestRetainedObject?
+        let retainer = LinuxDoIdleRetainer<TestRetainedObject>(
+            idleLifetimeNanoseconds: 20_000_000
+        ) { value in
+            releasedObject = value
+        }
+        let retainedObject = TestRetainedObject()
+        retainer.value = retainedObject
 
-        let releaseTask = session.releaseAfterInactivity()
+        let releaseTask = retainer.releaseAfterInactivity()
         await releaseTask.value
 
-        #expect(session.webView == nil)
+        #expect(releasedObject === retainedObject)
+        #expect(retainer.value == nil)
     }
 }
+
+private final class TestRetainedObject {}

@@ -6,10 +6,15 @@ enum TerminalTabDragPayload {
     static let pasteboardType = NSPasteboard.PasteboardType(type.identifier)
     private static let activeDrag = ActiveTerminalTabDrag()
 
+    static var activeSessionID: UUID? { activeDrag.sessionID }
+
     static func provider(for sessionID: UUID) -> NSItemProvider {
         activeDrag.store(sessionID)
-        let provider = NSItemProvider()
         let data = Data(sessionID.uuidString.utf8)
+        // AppKit needs a concrete standard representation to establish the
+        // native drag session. CodeTextView explicitly rejects providers that
+        // also advertise the private terminal-tab type.
+        let provider = NSItemProvider(object: "Terminal" as NSString)
         provider.registerDataRepresentation(
             forTypeIdentifier: type.identifier,
             visibility: .ownProcess
@@ -40,6 +45,16 @@ enum TerminalTabDragPayload {
         from providers: [NSItemProvider],
         completion: @escaping @MainActor (UUID) -> Void
     ) -> Bool {
+        guard !providers.isEmpty else { return false }
+        // Terminal tab drags are process-local and only one native drag can be
+        // active at a time. Resolve that identity immediately so a promised
+        // representation cannot turn a valid drop into a silent no-op.
+        if let sessionID = activeDrag.sessionID {
+            MainActor.assumeIsolated {
+                completion(sessionID)
+            }
+            return true
+        }
         guard let provider = providers.first(where: {
             $0.hasItemConformingToTypeIdentifier(type.identifier)
         }) else { return false }

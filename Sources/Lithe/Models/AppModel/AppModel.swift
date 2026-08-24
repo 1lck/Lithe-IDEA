@@ -159,6 +159,7 @@ final class AppModel: ObservableObject, Identifiable {
     let workspaceFeature: WorkspaceFeatureModel
     let githubFeature: GitHubFeatureModel
     let discourseCommunityFeature: DiscourseCommunityFeatureModel
+    let editorTabOrderFeature = EditorTabOrderFeatureModel()
     let terminalPlacementFeature: TerminalPlacementFeatureModel
     private struct CachedModuleCapability {
         let moduleID: ModuleID
@@ -272,7 +273,9 @@ final class AppModel: ObservableObject, Identifiable {
     private var workspaceFeatureObservation: AnyCancellable?
     private var githubFeatureObservation: AnyCancellable?
     private var runtimeFeatureObservation: AnyCancellable?
+    private var editorTabOrderFeatureObservation: AnyCancellable?
     private var terminalPlacementObservation: AnyCancellable?
+    private var documentTabCollectionObservation: AnyCancellable?
     private var activeDocumentSelectionObservation: AnyCancellable?
     private var moduleRuntimeObservationID: UUID?
 
@@ -419,6 +422,8 @@ final class AppModel: ObservableObject, Identifiable {
         navigationHistoryFeatureObservation = navigationHistoryFeature.objectWillChange.sink { [weak self] _ in
             self?.scheduleObjectWillChangeRelay()
         }
+        editorTabOrderFeatureObservation = editorTabOrderFeature.objectWillChange
+            .sink { [weak self] _ in self?.scheduleObjectWillChangeRelay() }
         terminalPlacementObservation = terminalPlacementFeature.objectWillChange.sink { [weak self] _ in
             self?.scheduleObjectWillChangeRelay()
         }
@@ -584,6 +589,9 @@ final class AppModel: ObservableObject, Identifiable {
         documentFeatureObservation = documentFeature.objectWillChange.sink { [weak self] _ in
             self?.scheduleObjectWillChangeRelay()
         }
+        documentTabCollectionObservation = documentFeature.$openDocuments
+            .map { $0.map(\.id) }.removeDuplicates()
+            .sink { [weak self] ids in self?.editorTabOrderFeature.reconcileDocuments(orderedIDs: ids) }
         javaFeature.configure(
             documentProvider: { [weak self] in self?.activeDocument },
             caretProvider: { [weak self] in self?.editorCaret },

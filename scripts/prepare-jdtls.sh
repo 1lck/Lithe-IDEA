@@ -30,6 +30,17 @@ file_sha256() {
     shasum -a 256 "$1" | awk '{print tolower($1)}'
 }
 
+cache_warning() {
+    local message="$1"
+    print -u2 -- "warning: $message"
+    if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+        message="${message//'%'/'%25'}"
+        message="${message//$'\r'/'%0D'}"
+        message="${message//$'\n'/'%0A'}"
+        print -- "::warning title=JDTLS cache fallback::$message"
+    fi
+}
+
 download_verified_file() {
     local url="$1"
     local expected_sha256="$2"
@@ -43,7 +54,7 @@ download_verified_file() {
         if [[ "$actual_sha256" == "$expected_sha256" ]]; then
             return 0
         fi
-        print -u2 -- "$description cache checksum mismatch; removing it before retrying the download"
+        cache_warning "$description cache checksum mismatch; removing it before retrying the download"
         rm -f -- "$destination"
     fi
 

@@ -9,13 +9,14 @@ DEFAULT_BUILD_NUMBER=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$INF
 VERSION="${LITHE_VERSION:-$DEFAULT_VERSION}"
 BUILD_NUMBER="${LITHE_BUILD_NUMBER:-$DEFAULT_BUILD_NUMBER}"
 ARCH="${LITHE_ARCH:-universal}"
+DIST_ROOT="${LITHE_DIST_ROOT:-$ROOT_DIR/dist}"
 SIGNING_IDENTITY="${LITHE_CODESIGN_IDENTITY:--}"
 ARM64_TRIPLE="arm64-apple-macosx"
 X86_64_TRIPLE="x86_64-apple-macosx"
 
 case "$ARCH" in
-    universal) APP_DIR="$ROOT_DIR/dist/Lithe.app" ;;
-    arm64|x86_64) APP_DIR="$ROOT_DIR/dist/Lithe-$ARCH.app" ;;
+    universal) APP_DIR="$DIST_ROOT/Lithe.app" ;;
+    arm64|x86_64) APP_DIR="$DIST_ROOT/Lithe-$ARCH.app" ;;
     *) print -u2 -- "Unsupported app architecture: $ARCH"; exit 1 ;;
 esac
 

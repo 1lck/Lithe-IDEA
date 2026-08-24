@@ -44,6 +44,16 @@ function Get-FileSHA256 {
     (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
 }
 
+function Write-CacheWarning {
+    param([Parameter(Mandatory)][string]$Message)
+
+    Write-Warning $Message
+    if ($env:GITHUB_ACTIONS -eq "true") {
+        $escaped = $Message.Replace("%", "%25").Replace("`r", "%0D").Replace("`n", "%0A")
+        Write-Output "::warning title=JDTLS cache fallback::$escaped"
+    }
+}
+
 function Get-VerifiedDownload {
     param(
         [Parameter(Mandatory)][string]$Uri,
@@ -55,7 +65,7 @@ function Get-VerifiedDownload {
     if (Test-Path -LiteralPath $Destination -PathType Leaf) {
         $actualHash = Get-FileSHA256 -Path $Destination
         if ($actualHash -eq $ExpectedSHA256) { return }
-        Write-Warning "$Description cache checksum mismatch; removing it before retrying the download"
+        Write-CacheWarning "$Description cache checksum mismatch; removing it before retrying the download"
         Remove-Item -Force -LiteralPath $Destination
     }
 

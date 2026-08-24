@@ -58,22 +58,12 @@ jobs:
         with:
           targets: ${{ matrix.architecture == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}
 
-      - name: Restore SwiftPM dependencies
-        uses: actions/cache@v6
+      - name: Prepare verified dependency caches
+        uses: ./.github/actions/prepare-macos-dependency-cache
         with:
-          path: |
-            .build/checkouts
-            .build/repositories
-            ~/.cache/org.swift.swiftpm
-          key: swiftpm-${{ runner.os }}-6.2-${{ hashFiles('Package.resolved') }}
-
-      - name: Restore Cargo dependencies
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/git
-            ~/.cargo/registry
-          key: cargo-dependencies-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock') }}
+          swiftpm: "true"
+          cargo: "true"
+          jdtls: "true"
 
       - name: Build and package the preview app
         env:

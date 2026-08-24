@@ -1,0 +1,169 @@
+name: Database CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: database-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Classify changes
+    runs-on: ubuntu-latest
+    outputs:
+      swift_database: ${{ steps.classify.outputs.swift_database }}
+      rust_database: ${{ steps.classify.outputs.rust_database }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Resolve comparison base
+        id: base
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+        shell: bash
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo "manual=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          base_sha="$PUSH_BASE_SHA"
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            base_sha="$PR_BASE_SHA"
+          fi
+          {
+            echo "manual=false"
+            echo "base_sha=$base_sha"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Classify changed paths
+        id: classify
+        env:
+          MANUAL: ${{ steps.base.outputs.manual }}
+          BASE_SHA: ${{ steps.base.outputs.base_sha }}
+        shell: bash
+        run: |
+          if [[ "$MANUAL" == "true" ]]; then
+            {
+              echo "swift_database=true"
+              echo "rust_database=true"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          ./scripts/classify-ci-changes.sh "$BASE_SHA" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Summarize selected lanes
+        shell: bash
+        env:
+          SWIFT_DATABASE: ${{ steps.classify.outputs.swift_database }}
+          RUST_DATABASE: ${{ steps.classify.outputs.rust_database }}
+        run: |
+          {
+            echo "### Database CI lanes"
+            echo "| Lane | Run |"
+            echo "| --- | --- |"
+            echo "| Swift database tests | $SWIFT_DATABASE |"
+            echo "| Rust database tests | $RUST_DATABASE |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  swift-database-tests:
+    name: Swift database tests
+    needs: changes
+    if: needs.changes.outputs.swift_database == 'true'
+    runs-on: macos-14
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.2"
+
+      - name: Prepare verified SwiftPM cache
+        uses: ./.github/actions/prepare-macos-dependency-cache
+        with:
+          swiftpm: "true"
+
+      - name: Run database-focused Swift tests
+        timeout-minutes: 12
+        run: ./scripts/test-macos.sh --filter '(LitheDatabaseModuleTests|LitheTests\.LitheCoreLogicTests/database)'
+
+  rust-database-tests:
+    name: Rust database tests
+    needs: changes
+    if: needs.changes.outputs.rust_database == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Restore Cargo dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+          key: cargo-dependencies-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock') }}
+
+      - name: Check formatting and test database crates
+        run: |
+          cargo fmt --manifest-path rust/Cargo.toml -p lithe-db-sidecar -p lithe-db-mcp -- --check
+          cargo test --manifest-path rust/Cargo.toml -p lithe-db-sidecar
+          cargo test --manifest-path rust/Cargo.toml -p lithe-db-mcp
+
+  gate:
+    name: Database CI gate
+    needs:
+      - changes
+      - swift-database-tests
+      - rust-database-tests
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Verify required jobs
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          SWIFT_DATABASE_SELECTED: ${{ needs.changes.outputs.swift_database }}
+          RUST_DATABASE_SELECTED: ${{ needs.changes.outputs.rust_database }}
+          SWIFT_DATABASE_RESULT: ${{ needs.swift-database-tests.result }}
+          RUST_DATABASE_RESULT: ${{ needs.rust-database-tests.result }}
+        shell: bash
+        run: |
+          [[ "$CHANGES_RESULT" == "success" ]]
+          require_selected_job() {
+            local selected="$1"
+            local result="$2"
+            if [[ "$selected" == "true" ]]; then
+              [[ "$result" == "success" ]]
+            else
+              [[ "$result" == "skipped" ]]
+            fi
+          }
+          require_selected_job "$SWIFT_DATABASE_SELECTED" "$SWIFT_DATABASE_RESULT"
+          require_selected_job "$RUST_DATABASE_SELECTED" "$RUST_DATABASE_RESULT"

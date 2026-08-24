@@ -119,23 +119,24 @@ extension AppModel {
     func moveTerminalToEditor(_ sessionID: UUID) {
         guard let session = terminalSessions.first(where: { $0.id == sessionID }) else { return }
         terminalPlacementFeature.moveToEditor(sessionID)
+        editorTabOrderFeature.moveToEnd(.terminal(sessionID))
+        terminalPlacementFeature.reorderEditorSessions(
+            orderedIDs: editorTabOrderFeature.terminalIDs
+        )
         _ = terminalFeature?.selectSession(session)
     }
 
     func moveTerminalToEditor(_ sessionID: UUID, before targetSessionID: UUID) {
-        guard let session = terminalSessions.first(where: { $0.id == sessionID }) else { return }
-        terminalPlacementFeature.moveToEditor(sessionID, before: targetSessionID)
-        _ = terminalFeature?.selectSession(session)
+        moveEditorTab(.terminal(sessionID), before: .terminal(targetSessionID))
     }
 
     func moveTerminalToEditor(_ sessionID: UUID, after targetSessionID: UUID) {
-        guard let session = terminalSessions.first(where: { $0.id == sessionID }) else { return }
-        terminalPlacementFeature.moveToEditor(sessionID, after: targetSessionID)
-        _ = terminalFeature?.selectSession(session)
+        moveEditorTab(.terminal(sessionID), after: .terminal(targetSessionID))
     }
 
     func moveTerminalToTool(_ sessionID: UUID) {
         guard let session = terminalSessions.first(where: { $0.id == sessionID }) else { return }
+        editorTabOrderFeature.remove(.terminal(sessionID))
         terminalPlacementFeature.moveToTool(sessionID)
         _ = terminalFeature?.selectSession(session)
         isTerminalVisible = true
@@ -143,6 +144,7 @@ extension AppModel {
 
     func moveTerminalToTool(_ sessionID: UUID, before targetSessionID: UUID) {
         guard let session = terminalSessions.first(where: { $0.id == sessionID }) else { return }
+        editorTabOrderFeature.remove(.terminal(sessionID))
         terminalPlacementFeature.moveToTool(sessionID, before: targetSessionID)
         _ = terminalFeature?.selectSession(session)
         isTerminalVisible = true
@@ -150,6 +152,7 @@ extension AppModel {
 
     func moveTerminalToTool(_ sessionID: UUID, after targetSessionID: UUID) {
         guard let session = terminalSessions.first(where: { $0.id == sessionID }) else { return }
+        editorTabOrderFeature.remove(.terminal(sessionID))
         terminalPlacementFeature.moveToTool(sessionID, after: targetSessionID)
         _ = terminalFeature?.selectSession(session)
         isTerminalVisible = true
@@ -157,6 +160,7 @@ extension AppModel {
 
     func closeTerminalSession(_ session: TerminalSession) {
         guard terminalSessions.contains(where: { $0.id == session.id }) else { return }
+        editorTabOrderFeature.remove(.terminal(session.id))
         terminalPlacementFeature.removeSession(session.id)
         terminalFeature?.closeSession(session)
         if terminalSessions.isEmpty {
@@ -168,6 +172,7 @@ extension AppModel {
     func restartActiveTerminal() { terminalFeature?.restartActiveSession() }
     func restartActiveTerminal(using shellPath: String) { terminalFeature?.restartActiveSession(using: shellPath) }
     func stopTerminalSessions() {
+        editorTabOrderFeature.removeAllTerminals()
         terminalPlacementFeature.reset()
         terminalFeature?.stopAllSessions()
     }

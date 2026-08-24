@@ -36,9 +36,93 @@ jobs:
           targets: x86_64-pc-windows-msvc
 
       - name: Set up Bun
+        id: bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.12"
+          bun-version-file: windows/tauri/package.json
+
+      - name: Configure isolated dependency caches
+        shell: pwsh
+        run: |
+          "CARGO_HOME=$(Join-Path $env:GITHUB_WORKSPACE '.artifacts/cargo-home')" >> $env:GITHUB_ENV
+          # Bun's cache and temp directory must share a Windows volume so
+          # lifecycle shims such as node-gyp.cmd are added to the correct PATH.
+          "BUN_INSTALL_CACHE_DIR=$(Join-Path $env:GITHUB_WORKSPACE '.artifacts/bun-cache')" >> $env:GITHUB_ENV
+          "BUN_TMPDIR=$(Join-Path $env:GITHUB_WORKSPACE '.artifacts/bun-tmp')" >> $env:GITHUB_ENV
+          # The verified cache rejects links, so omit Bun's junction-only index.
+          "BUN_FEATURE_FLAG_DISABLE_INSTALL_INDEX=1" >> $env:GITHUB_ENV
+
+      - name: Resolve Rust cache identity
+        id: rust-cache
+        shell: pwsh
+        run: |
+          $commit = rustc -Vv |
+            Select-String '^commit-hash:' |
+            ForEach-Object { ($_.Line -split ':', 2)[1].Trim() } |
+            Select-Object -First 1
+          if ([string]::IsNullOrWhiteSpace($commit)) {
+            throw "Could not resolve the Rust compiler commit hash."
+          }
+          "commit=$commit" >> $env:GITHUB_OUTPUT
+
+      - name: Restore Cargo downloads
+        id: cargo-download-cache
+        continue-on-error: true
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            .artifacts/cargo-home/registry/cache
+          key: lithe-${{ runner.os }}-${{ runner.arch }}-cargo-downloads-v1-${{ hashFiles('rust/Cargo.lock', 'windows/tauri/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            lithe-${{ runner.os }}-${{ runner.arch }}-cargo-downloads-v1-
+
+      - name: Restore Cargo build outputs
+        id: cargo-build-cache
+        continue-on-error: true
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            windows/tauri/src-tauri/target/**/.fingerprint
+            windows/tauri/src-tauri/target/**/build
+            windows/tauri/src-tauri/target/**/deps
+            windows/tauri/src-tauri/target/**/incremental
+            rust/target/**/.fingerprint
+            rust/target/**/build
+            rust/target/**/deps
+            rust/target/**/incremental
+          key: lithe-${{ runner.os }}-${{ runner.arch }}-cargo-build-v1-x86_64-pc-windows-msvc-${{ steps.rust-cache.outputs.commit }}-${{ hashFiles('rust/Cargo.lock', 'rust/**/Cargo.toml', 'windows/tauri/src-tauri/Cargo.lock', 'windows/tauri/src-tauri/Cargo.toml', 'windows/tauri/crates/**/Cargo.toml', 'windows/tauri/rust-toolchain.toml') }}
+          restore-keys: |
+            lithe-${{ runner.os }}-${{ runner.arch }}-cargo-build-v1-x86_64-pc-windows-msvc-${{ steps.rust-cache.outputs.commit }}-
+
+      - name: Restore Bun downloads
+        id: bun-download-cache
+        continue-on-error: true
+        uses: actions/cache/restore@v6
+        with:
+          path: .artifacts/bun-cache
+          key: lithe-${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.bun.outputs.bun-version }}-v2-${{ hashFiles('windows/tauri/bun.lock') }}
+          restore-keys: |
+            lithe-${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.bun.outputs.bun-version }}-v2-
+
+      - name: Restore JDTLS downloads
+        id: jdtls-download-cache
+        continue-on-error: true
+        uses: actions/cache/restore@v6
+        with:
+          path: .artifacts/jdtls-downloads
+          key: lithe-${{ runner.os }}-${{ runner.arch }}-jdtls-v1-${{ hashFiles('third_party/jdtls/manifest.json') }}
+
+      - name: Validate restored caches or fall back
+        if: always()
+        shell: pwsh
+        run: |
+          ./scripts/validate-windows-build-caches.ps1 `
+            -CargoDownloadsOutcome "${{ steps.cargo-download-cache.outcome }}" `
+            -CargoBuildOutcome "${{ steps.cargo-build-cache.outcome }}" `
+            -CargoBuildHit "${{ steps.cargo-build-cache.outputs.cache-hit }}" `
+            -BunOutcome "${{ steps.bun-download-cache.outcome }}" `
+            -JdtlsOutcome "${{ steps.jdtls-download-cache.outcome }}" `
+            -IncludeWindowsAssets
 
       - name: Resolve release version
         id: version
@@ -57,10 +141,6 @@ jobs:
           }
           "version=$version" >> $env:GITHUB_OUTPUT
           "tag=v$version" >> $env:GITHUB_OUTPUT
-
-      - name: Build Windows Tauri application
-        shell: pwsh
-        run: ./scripts/build-windows.ps1 -Configuration Release
 
       - name: Import Authenticode certificate
         id: signing
