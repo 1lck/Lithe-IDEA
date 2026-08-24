@@ -388,7 +388,7 @@ struct GitHubPullRequestDetailView: View {
                 )
             }
         }
-        .background(LitheTheme.editor)
+        .litheWorkbenchSurface(LitheTheme.editor)
         .animation(.easeOut(duration: 0.16), value: model.githubFeature.isCreatingPullRequest)
         .animation(.easeOut(duration: 0.16), value: model.githubFeature.selectedPullRequest?.number)
     }
@@ -513,7 +513,7 @@ struct GitHubPullRequestDetailView: View {
         }
         .padding(.horizontal, 14)
         .frame(height: 56)
-        .background(LitheTheme.toolHeader)
+        .litheWorkbenchSurface(LitheTheme.toolHeader)
     }
 
     private func sectionBar(_ request: GitHubPullRequest) -> some View {
@@ -559,7 +559,7 @@ struct GitHubPullRequestDetailView: View {
         }
         .padding(.horizontal, 10)
         .frame(height: 40)
-        .background(LitheTheme.sidebar)
+        .litheWorkbenchSurface(LitheTheme.sidebar)
     }
 
     @ViewBuilder
@@ -1352,7 +1352,7 @@ private struct GitHubCreatePullRequestWorkspaceView: View {
             .padding(.vertical, 28)
             .frame(maxWidth: .infinity, alignment: .top)
         }
-        .background(LitheTheme.editor)
+        .litheWorkbenchSurface(LitheTheme.editor)
         .onExitCommand { model.githubFeature.cancelCreatingPullRequest() }
         .task {
             // The feature model immediately reuses a fresh branch cache and

@@ -26,7 +26,7 @@ struct MavenView: View {
                 emptyState
             }
         }
-        .background(LitheTheme.editor)
+        .litheWorkbenchSurface(LitheTheme.editor)
         .onAppear {
             if expandedNodeIDs.isEmpty {
                 resetTreeState()
@@ -123,7 +123,7 @@ struct MavenView: View {
             .padding(.horizontal, 6)
             .padding(.vertical, 8)
         }
-        .background(LitheTheme.sidebar)
+        .litheWorkbenchSurface(LitheTheme.sidebar)
     }
 
     private func moduleTreeNode(_ module: MavenModule) -> AnyView {
@@ -298,7 +298,7 @@ struct MavenView: View {
             .foregroundStyle(LitheTheme.primaryText)
             .padding(.horizontal, 12)
             .frame(height: 36)
-            .background(LitheTheme.toolHeader)
+            .litheWorkbenchSurface(LitheTheme.toolHeader)
 
             if !feature.issues.isEmpty {
                 issueList
@@ -350,7 +350,7 @@ struct MavenView: View {
             .padding(.vertical, 5)
         }
         .frame(maxHeight: 132)
-        .background(LitheTheme.sidebar)
+        .litheWorkbenchSurface(LitheTheme.sidebar)
     }
 
     private var emptyState: some View {

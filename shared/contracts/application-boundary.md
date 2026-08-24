@@ -32,6 +32,7 @@ verification scripts are the executable source of boundary checks.
 | Java/Maven/Spring | deterministic Maven-root selection, project structure, modules and profiles; compiler diagnostic parsing; Java source structure, symbols, code vision, run-configuration detection, Spring configuration/bean/endpoint indexing, and JDTLS adapter policy | JDK/Maven discovery, local dependency-repository selection, Java/Maven child processes, sockets, and JDB transport |
 | Run/Debug | versioned configuration documents, three-layer resolution, diagnostics, and platform-neutral launch plans | project file persistence, child processes, sockets, and JDB transport |
 | Terminal | input bytes, output bytes, lifecycle | PTY/ConPTY, shell and environment |
+| Workbench background | versioned source (`none`, bundled slot `01`–`10`, or `custom`) and opacity | UI, image rendering, bundled-resource packaging, local-image access permission and persistence |
 | Local History | revision metadata, text content, restore result | persistence location and file operations |
 | Modules | stable IDs, manifests, enabled state, lifecycle snapshots, dependencies, capabilities, and contributions | native factories, processes, timers, PTY/ConPTY, watchers, connections, and UI rendering |
 | Community integrations | Discourse authorization sessions, RSA-OAEP callback verification, user API protocol models, and normalized community data | opening the system browser, receiving URL callbacks, and credential-vault persistence |
@@ -150,6 +151,17 @@ that model. It must not construct `Process`, file watchers, terminals, runtime
 locators, Git command runners, or persistence stores. Platform-specific actions
 such as directory picking, file-browser reveal, clipboard access, and native
 shortcut monitoring are capability ports, not application logic.
+
+## Workbench Background Contract
+
+[`workbench-background-v1.schema.json`](workbench-background-v1.schema.json)
+defines the portable background preference. It stores only a stable bundled
+slot ID, `custom`, or `none`, plus opacity. A bundled slot is the same product
+identifier on every platform; each product packages and renders its own copy of
+that slot's image. `custom` deliberately contains no path, bookmark, token, or
+image bytes. Native file access authorization and local-image metadata are
+platform-private, so a preference can be understood on another platform
+without leaking an unusable absolute path or macOS security-scoped bookmark.
 
 Search and Git examples are kept in `shared/fixtures/`. New behavior should
 add a fixture before adding a second platform implementation.

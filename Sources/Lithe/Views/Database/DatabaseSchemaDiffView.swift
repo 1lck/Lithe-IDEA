@@ -42,7 +42,7 @@ struct DatabaseSchemaDiffView: View {
             }
             .padding(.horizontal, 10)
             .frame(height: 38)
-            .background(LitheTheme.toolHeader)
+            .litheWorkbenchSurface(LitheTheme.toolHeader)
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
             if let diff {
@@ -56,7 +56,7 @@ struct DatabaseSchemaDiffView: View {
                 .foregroundStyle(LitheTheme.secondaryText)
             }
         }
-        .background(LitheTheme.editor)
+        .litheWorkbenchSurface(LitheTheme.editor)
         .onAppear(perform: setDefaults)
         .alert("Apply schema migration?", isPresented: $showsMigrationConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -89,7 +89,7 @@ struct DatabaseSchemaDiffView: View {
             }
             .padding(.horizontal, 10)
             .frame(height: 42)
-            .background(LitheTheme.toolHeader)
+            .litheWorkbenchSurface(LitheTheme.toolHeader)
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
             if diff.items.isEmpty {

@@ -3,6 +3,7 @@ import LitheGitModule
 
 struct GitLogView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var settings: AppSettings
     @State private var localExpanded = true
     @State private var remoteExpanded = true
     @State private var tagsExpanded = true
@@ -117,7 +118,7 @@ struct GitLogView: View {
                 }
             }
         }
-        .background(LitheTheme.sidebar)
+        .background(settings.hasWorkbenchBackgroundImage ? Color.clear : LitheTheme.sidebar)
         .task(id: model.gitCommits) {
             let commits = model.gitCommits
             let updatedLayout = await Task.detached(priority: .userInitiated) {
@@ -319,7 +320,7 @@ struct GitLogView: View {
         .padding(.leading, 12)
         .padding(.trailing, 42)
         .frame(height: 32)
-        .background(LitheTheme.toolHeader)
+        .background(settings.hasWorkbenchBackgroundImage ? Color.clear : LitheTheme.toolHeader)
         .overlay(alignment: .bottom) {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
         }
@@ -381,7 +382,7 @@ struct GitLogView: View {
         }
         .padding(.horizontal, 10)
         .frame(height: GitVisual.toolbarHeight)
-        .background(LitheTheme.toolHeader)
+        .background(settings.hasWorkbenchBackgroundImage ? Color.clear : LitheTheme.toolHeader)
         .overlay(alignment: .bottom) {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
         }
@@ -451,7 +452,7 @@ struct GitLogView: View {
                 .litheScrollViewChrome(hideHorizontal: true)
             }
         }
-        .background(LitheTheme.sidebar)
+        .background(settings.hasWorkbenchBackgroundImage ? Color.clear : LitheTheme.sidebar)
     }
 
     private func referenceSection(
@@ -700,7 +701,7 @@ struct GitLogView: View {
             }
             .padding(.horizontal, 10)
             .frame(height: GitVisual.toolbarHeight)
-            .background(LitheTheme.toolHeader)
+            .background(settings.hasWorkbenchBackgroundImage ? Color.clear : LitheTheme.toolHeader)
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
@@ -756,7 +757,7 @@ struct GitLogView: View {
                 }
             }
         }
-        .background(LitheTheme.editor)
+        .background(settings.hasWorkbenchBackgroundImage ? Color.clear : LitheTheme.editor)
     }
 
     private var detailPane: some View {
@@ -796,7 +797,7 @@ struct GitLogView: View {
                     .frame(maxHeight: .infinity)
             }
         }
-        .background(LitheTheme.sidebar)
+        .background(settings.hasWorkbenchBackgroundImage ? Color.clear : LitheTheme.sidebar)
     }
 
     private var commitFilesPane: some View {
@@ -812,7 +813,7 @@ struct GitLogView: View {
             .foregroundStyle(LitheTheme.secondaryText)
             .padding(.horizontal, 10)
             .frame(height: GitVisual.toolbarHeight)
-            .background(LitheTheme.toolHeader)
+            .background(settings.hasWorkbenchBackgroundImage ? Color.clear : LitheTheme.toolHeader)
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
@@ -874,7 +875,7 @@ struct GitLogView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .background(LitheTheme.editor)
+        .background(settings.hasWorkbenchBackgroundImage ? Color.clear : LitheTheme.editor)
     }
 
     private var filteredCommits: [GitCommit] {

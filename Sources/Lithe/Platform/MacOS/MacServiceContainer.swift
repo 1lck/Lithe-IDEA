@@ -46,6 +46,10 @@ final class MacServiceContainer {
         MacApplicationLogWriter()
     }
 
+    static func makeWorkbenchBackgroundPlatform() -> any WorkbenchBackgroundPlatformProviding {
+        MacWorkbenchBackgroundPlatform()
+    }
+
     init(
         store: any KeyValueStore,
         settings: AppSettings,

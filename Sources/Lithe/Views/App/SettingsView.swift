@@ -249,6 +249,58 @@ struct SettingsView: View {
                 Text("Choose a color theme and whether Lithe follows the system appearance.")
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
+
+                Divider().padding(.vertical, 2)
+
+                Text("Workbench background")
+                    .font(.system(size: 11.5, weight: .medium))
+
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(settings.workbenchBackgroundDisplayName ?? "No background image selected")
+                            .lineLimit(1)
+                        Text("Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar.")
+                            .font(LitheTheme.smallFont)
+                            .foregroundStyle(LitheTheme.secondaryText)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    Button("Choose Image…") {
+                        settings.chooseWorkbenchBackgroundImage()
+                    }
+                    .buttonStyle(LitheSecondaryButtonStyle())
+
+                    if settings.hasConfiguredWorkbenchBackground {
+                        Button("Remove") {
+                            settings.clearWorkbenchBackgroundImage()
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(LitheTheme.accent)
+                        .lithePointer()
+                    }
+                }
+
+                if let error = settings.workbenchBackgroundImageError {
+                    Label {
+                        Text(LocalizedStringKey(error))
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                    }
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if settings.hasConfiguredWorkbenchBackground {
+                    row("Workbench background transparency") {
+                        Slider(value: $settings.workbenchBackgroundOpacity, in: 0.05...1.0, step: 0.01)
+                            .frame(width: 180)
+                        Text("\(Int((settings.workbenchBackgroundOpacity * 100).rounded()))%")
+                            .foregroundStyle(LitheTheme.secondaryText)
+                            .frame(width: 34, alignment: .trailing)
+                    }
+                }
             }
 
             group("Language") {

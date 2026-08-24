@@ -9,6 +9,8 @@ private enum ActivityBarMetrics {
     static let buttonHeight: CGFloat = 30
     static let spacing: CGFloat = 4
     static let edgeInset: CGFloat = 4
+    /// The title-bar action lane shown before the trailing activity rail.
+    static let titleBarActionTrailingInset: CGFloat = 256
 }
 
 struct WorkbenchView: View {
@@ -32,6 +34,8 @@ struct WorkbenchView: View {
     @State private var isPluginPanelPresented = false
     @State private var didRestoreLayout = false
     @State private var hoveredProjectTabID: UUID?
+    @State private var workbenchBackgroundImage: NSImage?
+    @State private var isBackgroundPickerPresented = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -57,6 +61,12 @@ struct WorkbenchView: View {
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             statusBar
+        }
+        .background {
+            WorkbenchBackgroundImageView(
+                image: workbenchBackgroundImage,
+                opacity: settings.workbenchBackgroundOpacity
+            )
         }
         .sheet(item: $newBranchReference) { reference in
             TopBarNewBranchDialog(reference: reference) { name, checkout in
@@ -275,7 +285,7 @@ struct WorkbenchView: View {
             }
         }
         .frame(height: LitheTheme.Metrics.tabHeight + 4)
-        .background(LitheTheme.toolHeader)
+        .background(settings.hasWorkbenchBackgroundImage ? Color.clear : LitheTheme.toolHeader)
     }
 
     private func projectTab(_ projectModel: AppModel, width: CGFloat) -> some View {
@@ -478,13 +488,45 @@ struct WorkbenchView: View {
         .padding(.leading, 76)
         .padding(.trailing, 10)
         .frame(height: LitheTheme.Metrics.toolbarHeight)
+        .overlay(alignment: .trailing) {
+            backgroundPickerButton
+                .padding(.trailing, ActivityBarMetrics.titleBarActionTrailingInset)
+        }
         .background {
-            LitheTheme.titlebar
+            (settings.hasWorkbenchBackgroundImage ? Color.clear : LitheTheme.titlebar)
                 .contentShape(Rectangle())
                 .onTapGesture(count: 2) {
                     (NSApplication.shared.keyWindow?.delegate as? LitheWindowCoordinator)?
                         .toggleWorkspaceZoom()
                 }
+        }
+    }
+
+    private var backgroundPickerButton: some View {
+        Button {
+            isBackgroundPickerPresented.toggle()
+        } label: {
+            Image(systemName: "photo.on.rectangle.angled")
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 30, height: 30)
+                .litheRowHover(
+                    isActive: isBackgroundPickerPresented,
+                    cornerRadius: 6,
+                    activeBackground: LitheTheme.subtleSelection
+                )
+        }
+        .buttonStyle(.plain)
+        .lithePointer()
+        .foregroundStyle(LitheTheme.secondaryText)
+        .help("Change workbench background")
+        .accessibilityLabel("Change workbench background")
+        .accessibilityIdentifier("workbench-background-picker")
+        .popover(isPresented: $isBackgroundPickerPresented, arrowEdge: .bottom) {
+            WorkbenchBackgroundPicker {
+                isBackgroundPickerPresented = false
+            }
+            .environmentObject(model)
+            .environmentObject(settings)
         }
     }
 
@@ -562,7 +604,7 @@ struct WorkbenchView: View {
                 .padding(.bottom, ActivityBarMetrics.edgeInset)
             }
             .frame(width: ActivityBarMetrics.width, height: geometry.size.height, alignment: .top)
-            .background(LitheTheme.titlebar)
+            .background(settings.hasWorkbenchBackgroundImage ? Color.clear : LitheTheme.titlebar)
         }
         .frame(width: ActivityBarMetrics.width)
     }
@@ -613,7 +655,7 @@ struct WorkbenchView: View {
         }
         .padding(.top, ActivityBarMetrics.edgeInset)
         .frame(width: ActivityBarMetrics.rightWidth)
-        .background(LitheTheme.titlebar)
+        .background(settings.hasWorkbenchBackgroundImage ? Color.clear : LitheTheme.titlebar)
     }
 
     private var rightHoverRegion: some View {
@@ -625,7 +667,7 @@ struct WorkbenchView: View {
                 )
                 .environmentObject(linuxDoWebSession)
                 .frame(width: rightSidebarWidth)
-                .background(LitheTheme.sidebar)
+                .background(settings.hasWorkbenchBackgroundImage ? Color.clear : LitheTheme.sidebar)
                 .overlay(alignment: .leading) {
                     Rectangle().fill(LitheTheme.panelBorder).frame(width: 1)
                 }
@@ -762,6 +804,7 @@ struct WorkbenchView: View {
                 saveLayout(sidebarWidth: sidebarWidth, topPaneHeight: height)
             },
             showsBottomToolMinimize: model.isGitLogVisible,
+            hasWorkbenchBackground: settings.hasWorkbenchBackgroundImage,
             onBottomToolMinimize: {
                 model.closeGitLog()
             },
@@ -795,6 +838,15 @@ struct WorkbenchView: View {
                 }
             }
         )
+        .onAppear {
+            loadWorkbenchBackgroundImage()
+        }
+        .onChange(of: settings.workbenchBackground) { _ in
+            loadWorkbenchBackgroundImage()
+        }
+        .onChange(of: settings.workbenchBackgroundImageAccess) { _ in
+            loadWorkbenchBackgroundImage()
+        }
     }
 
     @ViewBuilder
@@ -822,7 +874,10 @@ struct WorkbenchView: View {
         // Do not clip this container: Changes, Search, and Database sidebars
         // contain AppKit-backed controls that SwiftUI cannot composite through
         // a mask without showing its yellow unavailable placeholder.
-        .litheRoundedControlBackground(LitheTheme.sidebar, cornerRadius: 10)
+        .litheRoundedControlBackground(
+            settings.hasWorkbenchBackgroundImage ? Color.clear : LitheTheme.sidebar,
+            cornerRadius: 10
+        )
     }
 
     private var isBottomToolVisible: Bool {
@@ -843,7 +898,7 @@ struct WorkbenchView: View {
         .foregroundStyle(LitheTheme.secondaryText)
         .padding(.horizontal, 9)
         .frame(height: LitheTheme.Metrics.statusBarHeight)
-        .background(LitheTheme.titlebar)
+        .background(settings.hasWorkbenchBackgroundImage ? Color.clear : LitheTheme.titlebar)
     }
 
     private var editorBreadcrumbs: some View {
@@ -992,6 +1047,18 @@ struct WorkbenchView: View {
             for: workspaceURL
         )
     }
+
+    private func loadWorkbenchBackgroundImage() {
+        guard let data = settings.loadWorkbenchBackgroundImageData(),
+              let image = NSImage(data: data) else {
+            if settings.isCustomWorkbenchBackground {
+                settings.invalidateWorkbenchBackgroundImage()
+            }
+            workbenchBackgroundImage = nil
+            return
+        }
+        workbenchBackgroundImage = image
+    }
 }
 
 private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTool: View>: View {
@@ -1001,6 +1068,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
     let onSidebarWidthCommitted: (CGFloat) -> Void
     let onTopPaneHeightCommitted: (CGFloat) -> Void
     let showsBottomToolMinimize: Bool
+    let hasWorkbenchBackground: Bool
     let onBottomToolMinimize: () -> Void
     let sidebar: Sidebar
     let editor: Editor
@@ -1018,6 +1086,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
         onSidebarWidthCommitted: @escaping (CGFloat) -> Void,
         onTopPaneHeightCommitted: @escaping (CGFloat) -> Void,
         showsBottomToolMinimize: Bool,
+        hasWorkbenchBackground: Bool,
         onBottomToolMinimize: @escaping () -> Void,
         @ViewBuilder sidebar: () -> Sidebar,
         @ViewBuilder editor: () -> Editor,
@@ -1029,6 +1098,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
         self.onSidebarWidthCommitted = onSidebarWidthCommitted
         self.onTopPaneHeightCommitted = onTopPaneHeightCommitted
         self.showsBottomToolMinimize = showsBottomToolMinimize
+        self.hasWorkbenchBackground = hasWorkbenchBackground
         self.onBottomToolMinimize = onBottomToolMinimize
         self.sidebar = sidebar()
         self.editor = editor()
@@ -1141,7 +1211,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                 height: geometry.size.height,
                 alignment: .topLeading
             )
-            .background(LitheTheme.titlebar)
+            .background(hasWorkbenchBackground ? Color.clear : LitheTheme.editor)
             // Keep the workspace as a live view hierarchy. `drawingGroup()`
             // cannot composite AppKit-backed editors, fields, checkboxes, or
             // terminals and replaces them with unavailable placeholders. It
@@ -1157,5 +1227,160 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
 
     private func constrained(_ value: CGFloat, minimum: CGFloat, maximum: CGFloat) -> CGFloat {
         min(max(value, minimum), maximum)
+    }
+}
+
+private struct WorkbenchBackgroundImageView: View {
+    let image: NSImage?
+    let opacity: Double
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        ZStack {
+            LitheTheme.window
+
+            GeometryReader { geometry in
+                if let image {
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                        .opacity(opacity)
+                }
+            }
+
+            // Preserve the source image's colour while keeping text legible.
+            // Soft-light compositing against the dark theme muted bright images
+            // twice, so a single contrast veil produces the intended wallpaper
+            // effect at the full 100% setting.
+            (colorScheme == .dark ? Color.black.opacity(0.46) : Color.white.opacity(0.25))
+        }
+        .compositingGroup()
+        .allowsHitTesting(false)
+    }
+}
+
+struct WorkbenchBackgroundPicker: View {
+    @EnvironmentObject private var settings: AppSettings
+
+    let dismiss: () -> Void
+
+    private var availablePresets: [WorkbenchBackgroundPreset] {
+        WorkbenchBackgroundPreset.allCases.filter(settings.hasBundledWorkbenchBackgroundImage)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Label("Workbench background", systemImage: "photo.on.rectangle.angled")
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer()
+                Button(action: dismiss) {
+                    Image(systemName: "xmark")
+                }
+                .litheIconButton()
+                .help("Close")
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Built-in backgrounds")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(LitheTheme.secondaryText)
+
+                LazyVGrid(
+                    columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3),
+                    spacing: 10
+                ) {
+                    ForEach(availablePresets) { preset in
+                        presetButton(preset)
+                    }
+                }
+            }
+
+            Divider()
+
+            HStack(spacing: 8) {
+                Button("Choose Image…") {
+                    settings.chooseWorkbenchBackgroundImage()
+                }
+                .buttonStyle(LitheSecondaryButtonStyle())
+
+                if settings.hasConfiguredWorkbenchBackground {
+                    Button("Remove") {
+                        settings.clearWorkbenchBackgroundImage()
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(LitheTheme.accent)
+                    .lithePointer()
+                }
+
+                Spacer(minLength: 0)
+
+                Text(settings.workbenchBackgroundDisplayName ?? "No background image selected")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .lineLimit(1)
+                    .frame(maxWidth: 112, alignment: .trailing)
+            }
+
+            if settings.hasConfiguredWorkbenchBackground {
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack {
+                        Text("Workbench background transparency")
+                            .font(.system(size: 11.5, weight: .medium))
+                        Spacer()
+                        Text("\(Int((settings.workbenchBackgroundOpacity * 100).rounded()))%")
+                            .font(.system(size: 11.5, design: .monospaced))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                    }
+                    Slider(value: $settings.workbenchBackgroundOpacity, in: 0.05...1.0, step: 0.01)
+                }
+            }
+        }
+        .padding(14)
+        .frame(width: 356)
+        .background(LitheTheme.popupBackground)
+    }
+
+    private func presetButton(_ preset: WorkbenchBackgroundPreset) -> some View {
+        let isSelected = settings.workbenchBackgroundPreset == preset
+        return Button {
+            settings.setWorkbenchBackgroundPreset(preset)
+        } label: {
+            VStack(spacing: 5) {
+                WorkbenchBackgroundPresetArtwork(
+                    imageData: settings.bundledWorkbenchBackgroundImageData(for: preset)
+                )
+                    .frame(height: 56)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(
+                                isSelected ? LitheTheme.accent : LitheTheme.panelBorder,
+                                lineWidth: isSelected ? 2 : 1
+                            )
+                    }
+                Text(LocalizedStringKey(preset.title))
+                    .font(.system(size: 10.5, weight: isSelected ? .semibold : .regular))
+                    .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
+            }
+            .frame(width: 100)
+        }
+        .buttonStyle(.plain)
+        .lithePointer()
+        .accessibilityLabel(Text(LocalizedStringKey(preset.title)))
+    }
+}
+
+struct WorkbenchBackgroundPresetArtwork: View {
+    let imageData: Data?
+
+    var body: some View {
+        if let imageData, let image = NSImage(data: imageData) {
+            Image(nsImage: image)
+                .resizable()
+                .scaledToFill()
+        }
     }
 }

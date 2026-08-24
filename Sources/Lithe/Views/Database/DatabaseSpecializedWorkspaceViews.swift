@@ -25,7 +25,7 @@ struct RedisWorkspaceView: View {
                 keyDetail
             }
         }
-        .background(LitheTheme.editor)
+        .litheWorkbenchSurface(LitheTheme.editor)
         .task(id: feature.selectedProfileID) {
             await feature.loadRedisKeys(pattern: pattern)
         }
@@ -100,7 +100,7 @@ struct RedisWorkspaceView: View {
         .padding(.horizontal, 12)
         .frame(height: 44)
         .foregroundStyle(LitheTheme.primaryText)
-        .background(LitheTheme.toolHeader)
+        .litheWorkbenchSurface(LitheTheme.toolHeader)
     }
 
     private var keyBrowser: some View {
@@ -183,7 +183,7 @@ struct RedisWorkspaceView: View {
                 }
             }
         }
-        .background(LitheTheme.sidebar)
+        .litheWorkbenchSurface(LitheTheme.sidebar)
     }
 
     @ViewBuilder
@@ -207,7 +207,7 @@ struct RedisWorkspaceView: View {
                         .foregroundStyle(LitheTheme.error)
                 }
                 .padding(12)
-                .background(LitheTheme.toolHeader)
+                .litheWorkbenchSurface(LitheTheme.toolHeader)
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
                 ScrollView {
@@ -388,7 +388,7 @@ struct NacosWorkspaceView: View {
             }
             if section == .configs { configurations } else { services }
         }
-        .background(LitheTheme.editor)
+        .litheWorkbenchSurface(LitheTheme.editor)
         .task(id: feature.selectedProfileID) {
             await feature.loadNacosConfigs(dataId: dataIDSearch, group: groupSearch)
             await feature.loadNacosServices(serviceName: serviceSearch, group: serviceGroupSearch)
@@ -433,7 +433,7 @@ struct NacosWorkspaceView: View {
                 .litheIconButton().help("Refresh Nacos workspace")
                 .disabled(feature.isLoading || profile == nil)
         }
-        .padding(.horizontal, 12).frame(height: 44).foregroundStyle(LitheTheme.primaryText).background(LitheTheme.toolHeader)
+        .padding(.horizontal, 12).frame(height: 44).foregroundStyle(LitheTheme.primaryText).litheWorkbenchSurface(LitheTheme.toolHeader)
     }
 
     private var configurations: some View {
@@ -474,7 +474,7 @@ struct NacosWorkspaceView: View {
                     }.padding(.vertical, 6)
                 }
             }
-            .frame(minWidth: 285, idealWidth: 340, maxWidth: 390).background(LitheTheme.sidebar)
+            .frame(minWidth: 285, idealWidth: 340, maxWidth: 390).litheWorkbenchSurface(LitheTheme.sidebar)
             Rectangle().fill(LitheTheme.divider).frame(width: 1)
             configEditor
         }
@@ -492,11 +492,11 @@ struct NacosWorkspaceView: View {
                         .litheIconButton().foregroundStyle(LitheTheme.error).help("Delete configuration")
                 }
             }
-            .padding(12).background(LitheTheme.toolHeader)
+            .padding(12).litheWorkbenchSurface(LitheTheme.toolHeader)
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             TextEditor(text: $draftContent)
                 .font(.system(size: 12, design: .monospaced)).scrollContentBackground(.hidden)
-                .padding(12).background(LitheTheme.editor)
+                .padding(12).litheWorkbenchSurface(LitheTheme.editor)
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             HStack {
                 Text(feature.nacosSelectedConfig == nil ? "Create a configuration" : "Edit configuration")
@@ -506,7 +506,7 @@ struct NacosWorkspaceView: View {
                     .buttonStyle(LithePrimaryButtonStyle())
                     .disabled(draftDataID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || draftGroup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-            .padding(.horizontal, 12).frame(height: 48).background(LitheTheme.toolHeader)
+            .padding(.horizontal, 12).frame(height: 48).litheWorkbenchSurface(LitheTheme.toolHeader)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -538,7 +538,7 @@ struct NacosWorkspaceView: View {
                     }.padding(.vertical, 6)
                 }
             }
-            .frame(minWidth: 285, idealWidth: 340, maxWidth: 390).background(LitheTheme.sidebar)
+            .frame(minWidth: 285, idealWidth: 340, maxWidth: 390).litheWorkbenchSurface(LitheTheme.sidebar)
             Rectangle().fill(LitheTheme.divider).frame(width: 1)
             VStack(alignment: .leading, spacing: 0) {
                 HStack {
@@ -546,7 +546,7 @@ struct NacosWorkspaceView: View {
                         .font(.system(size: 12, weight: .semibold))
                     Spacer()
                     Text("\(feature.nacosInstances.count) instances").font(.system(size: 9.5)).foregroundStyle(LitheTheme.secondaryText)
-                }.padding(12).background(LitheTheme.toolHeader)
+                }.padding(12).litheWorkbenchSurface(LitheTheme.toolHeader)
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
                 if feature.nacosInstances.isEmpty {
                     specializedEmptyState(symbol: "network", title: "Select a service", detail: "Choose a Nacos service to inspect its registered instances and health state.")

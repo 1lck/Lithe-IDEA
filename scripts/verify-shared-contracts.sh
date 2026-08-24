@@ -11,6 +11,7 @@ done
 module_fixture="shared/fixtures/modules/built-in-v1.json"
 plugin_fixture="shared/fixtures/plugins/official-v1.json"
 github_fixture="shared/fixtures/github/pull-request-v1.json"
+workbench_background_fixture="shared/fixtures/settings/workbench-background-v1.json"
 fixture_ids=$(/usr/bin/ruby -rjson -e 'puts JSON.parse(File.read(ARGV.fetch(0))).fetch("modules").map { |m| m.fetch("id") }.sort' "$module_fixture")
 swift_ids=$(rg '^[[:space:]]*static let .* = ModuleID\("dev\.lithe\.[^"]+"\)' Sources/LitheModuleAPI/Lifecycle/ModuleTypes.swift \
     | sed -E 's/.*ModuleID\("([^"]+)"\).*/\1/' \
@@ -103,5 +104,21 @@ fi
   abort "GitHub assignees must be sorted" unless assignees == assignees.sort
   abort "GitHub fixture must not contain a credential" if File.read(ARGV.fetch(0)).match?(/accessToken|clientSecret|password/)
 ' "$github_fixture"
+
+/usr/bin/ruby -rjson -e '
+  background = JSON.parse(File.read(ARGV.fetch(0)))
+  abort "workbench background fixture version must be 1" unless background.fetch("version") == 1
+  abort "workbench background fixture has unexpected fields" unless background.keys.sort == ["opacity", "source", "version"]
+  opacity = background.fetch("opacity")
+  abort "workbench background opacity must be between 0.05 and 1" unless opacity.is_a?(Numeric) && opacity.between?(0.05, 1)
+  source = background.fetch("source")
+  kind = source.fetch("kind")
+  abort "invalid workbench background source" unless ["none", "bundled", "custom"].include?(kind)
+  if kind == "bundled"
+    abort "bundled workbench background requires a stable slot" unless source.keys.sort == ["bundledSlot", "kind"] && source.fetch("bundledSlot").match?(/^(0[1-9]|10)$/)
+  else
+    abort "non-bundled workbench background must not carry platform data" unless source.keys == ["kind"]
+  end
+' "$workbench_background_fixture"
 
 print "Shared contract verification passed: JSON fixtures are valid"

@@ -28,7 +28,7 @@ struct JavaDebugView: View {
                 emptyState
             }
         }
-        .background(LitheTheme.editor)
+        .litheWorkbenchSurface(LitheTheme.editor)
     }
 
     private var targetBar: some View {
@@ -102,7 +102,7 @@ struct JavaDebugView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(LitheTheme.toolHeader)
+        .litheWorkbenchSurface(LitheTheme.toolHeader)
     }
 
     private var remoteFields: some View {
@@ -299,7 +299,7 @@ struct JavaDebugView: View {
 
             Spacer(minLength: 0)
         }
-        .background(LitheTheme.sidebar)
+        .litheWorkbenchSurface(LitheTheme.sidebar)
     }
 
     private var evaluateRow: some View {
@@ -507,7 +507,7 @@ struct JavaDebugView: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 32)
-        .background(LitheTheme.sidebar)
+        .litheWorkbenchSurface(LitheTheme.sidebar)
     }
 
     private func inspectButton(_ title: String, icon: String, action: @escaping () -> Void) -> some View {

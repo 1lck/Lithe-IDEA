@@ -64,7 +64,7 @@ struct LanguageTestsView: View {
                 }
             }
         }
-        .background(LitheTheme.editor)
+        .litheWorkbenchSurface(LitheTheme.editor)
         .onAppear(perform: selectDefaultItemIfNeeded)
         .onChange(of: service.itemsByProviderID) { _ in selectDefaultItemIfNeeded() }
     }
@@ -176,7 +176,7 @@ struct LanguageTestsView: View {
                 .padding(7)
             }
         }
-        .background(LitheTheme.sidebar)
+        .litheWorkbenchSurface(LitheTheme.sidebar)
     }
 
     private func providerSection(_ descriptor: LanguageProviderDescriptor) -> some View {
@@ -264,7 +264,7 @@ struct LanguageTestsView: View {
             Spacer(minLength: 0)
         }
         .frame(maxHeight: .infinity)
-        .background(LitheTheme.sidebar)
+        .litheWorkbenchSurface(LitheTheme.sidebar)
     }
 
     @ViewBuilder
@@ -286,7 +286,7 @@ struct LanguageTestsView: View {
                     model.openSourceLocation(url: url, line: line, column: column)
                 }
             }
-            .background(LitheTheme.editor)
+            .litheWorkbenchSurface(LitheTheme.editor)
         } else {
             emptyState("Select a test scope to view its details.")
         }

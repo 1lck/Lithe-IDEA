@@ -80,7 +80,7 @@ struct EditorAreaView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
             }
         }
-        .background(LitheTheme.editor)
+        .background(settings.hasWorkbenchBackgroundImage ? Color.clear : LitheTheme.editor)
         .onChange(of: model.openDocuments.map(\.id)) { ids in
             if let splitDocumentID, !ids.contains(splitDocumentID) {
                 self.splitDocumentID = nil
@@ -150,7 +150,7 @@ struct EditorAreaView: View {
         .background(
             isTerminalTabBarDropTargeted
                 ? LitheTheme.accent.opacity(0.08)
-                : LitheTheme.sidebar
+                : (settings.hasWorkbenchBackgroundImage ? Color.clear : LitheTheme.sidebar)
         )
         .onDrop(
             of: [TerminalTabDragPayload.type],

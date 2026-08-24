@@ -24,6 +24,16 @@ final class AppSettings: ObservableObject {
         static let commitMessageAI = "settings.commitMessageAI"
         static let keyboardShortcutOverrides = "settings.keyboardShortcutOverrides"
         static let customLogDirectory = "settings.customLogDirectory"
+        static let workbenchBackground = "settings.workbenchBackground"
+        // This value is platform-private. The portable preference only records
+        // `custom`; each platform owns the opaque local-image authorization.
+        static let macOSWorkbenchBackgroundImageAccess = "platform.macos.workbenchBackgroundImageAccess"
+        static let legacyMacOSWorkbenchBackgroundImageBookmark = "platform.macos.workbenchBackgroundImageBookmark"
+        static let legacyMacOSWorkbenchBackgroundImageName = "platform.macos.workbenchBackgroundImageName"
+        static let legacyWorkbenchBackgroundImageBookmark = "settings.workbenchBackgroundImageBookmark"
+        static let legacyWorkbenchBackgroundImageName = "settings.workbenchBackgroundImageName"
+        static let legacyWorkbenchBackgroundPreset = "settings.workbenchBackgroundPreset"
+        static let legacyWorkbenchBackgroundOpacity = "settings.workbenchBackgroundOpacity"
     }
 
     private struct KeyboardShortcutOverridesPayload: Codable {
@@ -35,6 +45,7 @@ final class AppSettings: ObservableObject {
 
     private let defaults: any KeyValueStore
     private let logDirectoryProvider: any LogDirectoryProviding
+    private let workbenchBackgroundPlatform: any WorkbenchBackgroundPlatformProviding
 
     @Published var colorTheme: AppColorTheme {
         didSet {
@@ -84,16 +95,32 @@ final class AppSettings: ObservableObject {
     }
     @Published private(set) var keyboardShortcutOverrides: [String: [KeyboardShortcutBinding]]
     @Published private(set) var customLogDirectory: URL?
+    @Published private(set) var workbenchBackgroundImageAccess: WorkbenchBackgroundImageAccess?
+    @Published private(set) var workbenchBackground: WorkbenchBackgroundConfiguration
+    @Published var workbenchBackgroundOpacity: Double {
+        didSet {
+            let normalizedOpacity = min(max(workbenchBackgroundOpacity, 0.05), 1)
+            if workbenchBackgroundOpacity != normalizedOpacity {
+                workbenchBackgroundOpacity = normalizedOpacity
+                return
+            }
+            workbenchBackground.opacity = workbenchBackgroundOpacity
+            saveWorkbenchBackgroundConfiguration()
+        }
+    }
+    @Published private(set) var workbenchBackgroundImageError: String?
 
     private var fileVisibilityRulesObservers: [UUID: () -> Void] = [:]
     private var logDirectoryObservers: [UUID: (URL) -> Void] = [:]
 
     init(
         store: any KeyValueStore,
-        logDirectoryProvider: any LogDirectoryProviding
+        logDirectoryProvider: any LogDirectoryProviding,
+        workbenchBackgroundPlatform: any WorkbenchBackgroundPlatformProviding
     ) {
         self.defaults = store
         self.logDirectoryProvider = logDirectoryProvider
+        self.workbenchBackgroundPlatform = workbenchBackgroundPlatform
         colorTheme = AppColorTheme(
             rawValue: defaults.string(forKey: Key.colorTheme) ?? ""
         ) ?? .lithe
@@ -127,12 +154,34 @@ final class AppSettings: ObservableObject {
             guard !path.isEmpty else { return nil }
             return URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
         }
+        let backgroundAccess = Self.loadWorkbenchBackgroundImageAccess(from: defaults)
+        let legacyPreset = defaults.string(forKey: Key.legacyWorkbenchBackgroundPreset)
+            .flatMap(WorkbenchBackgroundPreset.init(rawValue:))
+        let legacyOpacity = defaults.object(forKey: Key.legacyWorkbenchBackgroundOpacity) as? Double ?? 0.22
+        let backgroundConfiguration = Self.loadWorkbenchBackgroundConfiguration(
+            from: defaults,
+            legacyPreset: legacyPreset,
+            hasLegacyCustomImage: backgroundAccess != nil,
+            legacyOpacity: legacyOpacity
+        )
+        workbenchBackgroundImageAccess = backgroundAccess
+        workbenchBackground = backgroundConfiguration
+        workbenchBackgroundOpacity = backgroundConfiguration.opacity
+        workbenchBackgroundImageError = nil
         if let data = defaults.data(forKey: Key.commitMessageAI),
            let saved = try? JSONDecoder().decode(CommitMessageAISettings.self, from: data) {
             commitMessageAI = saved
         } else {
             commitMessageAI = .default
         }
+        saveWorkbenchBackgroundConfiguration()
+        saveWorkbenchBackgroundImageAccess()
+        defaults.set(nil, forKey: Key.legacyMacOSWorkbenchBackgroundImageBookmark)
+        defaults.set(nil, forKey: Key.legacyMacOSWorkbenchBackgroundImageName)
+        defaults.set(nil, forKey: Key.legacyWorkbenchBackgroundImageBookmark)
+        defaults.set(nil, forKey: Key.legacyWorkbenchBackgroundImageName)
+        defaults.set(nil, forKey: Key.legacyWorkbenchBackgroundPreset)
+        defaults.set(nil, forKey: Key.legacyWorkbenchBackgroundOpacity)
         AppThemeRuntime.shared.activate(colorTheme)
     }
 
@@ -150,6 +199,106 @@ final class AppSettings: ObservableObject {
         for observer in logDirectoryObservers.values {
             observer(logDirectory)
         }
+    }
+
+    /// Whether the configured background can be rendered in this macOS build.
+    /// A valid cross-platform bundled slot may be absent from an older package;
+    /// preserve the shared selection but do not make the workbench transparent.
+    var hasWorkbenchBackgroundImage: Bool {
+        if let preset = workbenchBackgroundPreset {
+            return workbenchBackgroundPlatform.hasBundledImage(for: preset.bundledImageSlot)
+        }
+        return workbenchBackground.source.isCustom && workbenchBackgroundImageAccess != nil
+    }
+
+    /// Whether the user has selected a background, even if its local resource is
+    /// unavailable in this platform build.
+    var hasConfiguredWorkbenchBackground: Bool {
+        workbenchBackground.source.isCustom || workbenchBackgroundPreset != nil
+    }
+
+    var workbenchBackgroundPreset: WorkbenchBackgroundPreset? {
+        guard let slot = workbenchBackground.source.bundledSlot else {
+            return nil
+        }
+        return WorkbenchBackgroundPreset(bundledSlot: slot)
+    }
+
+    var workbenchBackgroundDisplayName: String? {
+        workbenchBackgroundPreset?.title ?? workbenchBackgroundImageAccess?.displayName
+    }
+
+    func chooseWorkbenchBackgroundImage() {
+        guard let url = workbenchBackgroundPlatform.chooseImage(
+            title: "Choose Workbench Background",
+            prompt: "Choose"
+        ) else {
+            return
+        }
+        _ = setWorkbenchBackgroundImage(url)
+    }
+
+    var isCustomWorkbenchBackground: Bool {
+        workbenchBackground.source.isCustom
+    }
+
+    func hasBundledWorkbenchBackgroundImage(_ preset: WorkbenchBackgroundPreset) -> Bool {
+        workbenchBackgroundPlatform.hasBundledImage(for: preset.bundledImageSlot)
+    }
+
+    func bundledWorkbenchBackgroundImageData(for preset: WorkbenchBackgroundPreset) -> Data? {
+        workbenchBackgroundPlatform.bundledImageData(for: preset.bundledImageSlot)
+    }
+
+    @discardableResult
+    func setWorkbenchBackgroundImage(_ url: URL) -> Bool {
+        guard let access = workbenchBackgroundPlatform.makeImageAccess(for: url) else {
+            workbenchBackgroundImageError = "Could not save access to the selected background image."
+            return false
+        }
+        workbenchBackgroundImageAccess = access
+        workbenchBackground = .custom(opacity: workbenchBackgroundOpacity)
+        workbenchBackgroundImageError = nil
+        saveWorkbenchBackgroundImageAccess()
+        saveWorkbenchBackgroundConfiguration()
+        return true
+    }
+
+    func setWorkbenchBackgroundPreset(_ preset: WorkbenchBackgroundPreset) {
+        workbenchBackground = .bundled(slot: preset.bundledImageSlot, opacity: workbenchBackgroundOpacity)
+        workbenchBackgroundImageAccess = nil
+        workbenchBackgroundImageError = nil
+        saveWorkbenchBackgroundImageAccess()
+        saveWorkbenchBackgroundConfiguration()
+    }
+
+    func clearWorkbenchBackgroundImage() {
+        workbenchBackgroundImageAccess = nil
+        workbenchBackground = .none(opacity: workbenchBackgroundOpacity)
+        workbenchBackgroundImageError = nil
+        saveWorkbenchBackgroundImageAccess()
+        saveWorkbenchBackgroundConfiguration()
+    }
+
+    func loadWorkbenchBackgroundImageData() -> Data? {
+        if let preset = workbenchBackgroundPreset {
+            return workbenchBackgroundPlatform.bundledImageData(for: preset.bundledImageSlot)
+        }
+        guard workbenchBackground.source.isCustom, let access = workbenchBackgroundImageAccess else { return nil }
+        guard let result = workbenchBackgroundPlatform.loadImageData(for: access) else {
+            invalidateWorkbenchBackgroundImage()
+            return nil
+        }
+        if let refreshedAccess = result.refreshedAccess {
+            workbenchBackgroundImageAccess = refreshedAccess
+            saveWorkbenchBackgroundImageAccess()
+        }
+        return result.data
+    }
+
+    func invalidateWorkbenchBackgroundImage() {
+        clearWorkbenchBackgroundImage()
+        workbenchBackgroundImageError = "The selected background image is unavailable and was removed."
     }
 
     @discardableResult
@@ -202,6 +351,8 @@ final class AppSettings: ObservableObject {
         javaLanguageServerJDKPath = ""
         commitMessageAI = .default
         setCustomLogDirectory(nil)
+        clearWorkbenchBackgroundImage()
+        workbenchBackgroundOpacity = 0.22
         setKeyboardShortcutOverrides([:])
     }
 
@@ -318,6 +469,188 @@ final class AppSettings: ObservableObject {
             knownCommandIDs.contains(commandID)
                 && bindings.allSatisfy(\.isAssignable)
                 && Set(bindings).count == bindings.count
+        }
+    }
+
+    private func saveWorkbenchBackgroundConfiguration() {
+        guard let data = try? JSONEncoder().encode(workbenchBackground.normalized) else { return }
+        defaults.set(data, forKey: Key.workbenchBackground)
+    }
+
+    private func saveWorkbenchBackgroundImageAccess() {
+        guard let workbenchBackgroundImageAccess,
+              let data = try? JSONEncoder().encode(workbenchBackgroundImageAccess) else {
+            defaults.set(nil, forKey: Key.macOSWorkbenchBackgroundImageAccess)
+            return
+        }
+        defaults.set(data, forKey: Key.macOSWorkbenchBackgroundImageAccess)
+    }
+
+    private static func loadWorkbenchBackgroundImageAccess(
+        from defaults: any KeyValueStore
+    ) -> WorkbenchBackgroundImageAccess? {
+        if let data = defaults.data(forKey: Key.macOSWorkbenchBackgroundImageAccess),
+           let access = try? JSONDecoder().decode(WorkbenchBackgroundImageAccess.self, from: data) {
+            return access
+        }
+
+        guard let bookmark = defaults.data(forKey: Key.legacyMacOSWorkbenchBackgroundImageBookmark)
+            ?? defaults.data(forKey: Key.legacyWorkbenchBackgroundImageBookmark) else {
+            return nil
+        }
+        let displayName = defaults.string(forKey: Key.legacyMacOSWorkbenchBackgroundImageName)
+            ?? defaults.string(forKey: Key.legacyWorkbenchBackgroundImageName)
+            ?? "Selected image"
+        return WorkbenchBackgroundImageAccess(opaqueData: bookmark, displayName: displayName)
+    }
+
+    private static func loadWorkbenchBackgroundConfiguration(
+        from defaults: any KeyValueStore,
+        legacyPreset: WorkbenchBackgroundPreset?,
+        hasLegacyCustomImage: Bool,
+        legacyOpacity: Double
+    ) -> WorkbenchBackgroundConfiguration {
+        if let data = defaults.data(forKey: Key.workbenchBackground),
+           let configuration = try? JSONDecoder().decode(WorkbenchBackgroundConfiguration.self, from: data) {
+            return configuration.normalized
+        }
+
+        if let legacyPreset {
+            return .bundled(slot: legacyPreset.bundledImageSlot, opacity: legacyOpacity)
+        }
+        if hasLegacyCustomImage {
+            return .custom(opacity: legacyOpacity)
+        }
+        return .none(opacity: legacyOpacity)
+    }
+}
+
+struct WorkbenchBackgroundConfiguration: Codable, Equatable {
+    static let version = 1
+
+    var version: Int
+    var source: WorkbenchBackgroundSource
+    var opacity: Double
+
+    static func none(opacity: Double = 0.22) -> Self {
+        Self(version: version, source: .none, opacity: opacity)
+    }
+
+    static func bundled(slot: String, opacity: Double) -> Self {
+        Self(version: version, source: .bundled(bundledSlot: slot), opacity: opacity)
+    }
+
+    static func custom(opacity: Double) -> Self {
+        Self(version: version, source: .custom, opacity: opacity)
+    }
+
+    var normalized: Self {
+        let normalizedOpacity = min(max(opacity, 0.05), 1)
+        guard version == Self.version else { return .none(opacity: normalizedOpacity) }
+        switch source {
+        case .none, .custom:
+            return Self(version: Self.version, source: source, opacity: normalizedOpacity)
+        case let .bundled(bundledSlot) where WorkbenchBackgroundPreset.validBundledSlots.contains(bundledSlot):
+            return Self(version: Self.version, source: source, opacity: normalizedOpacity)
+        case .bundled:
+            return .none(opacity: normalizedOpacity)
+        }
+    }
+}
+
+enum WorkbenchBackgroundSource: Codable, Equatable {
+    case none
+    case bundled(bundledSlot: String)
+    case custom
+
+    private enum CodingKeys: String, CodingKey { case kind, bundledSlot }
+    private enum Kind: String, Codable { case none, bundled, custom }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(Kind.self, forKey: .kind) {
+        case .none:
+            self = .none
+        case .custom:
+            self = .custom
+        case .bundled:
+            self = .bundled(bundledSlot: try container.decode(String.self, forKey: .bundledSlot))
+        }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .none:
+            try container.encode(Kind.none, forKey: .kind)
+        case .custom:
+            try container.encode(Kind.custom, forKey: .kind)
+        case let .bundled(bundledSlot):
+            try container.encode(Kind.bundled, forKey: .kind)
+            try container.encode(bundledSlot, forKey: .bundledSlot)
+        }
+    }
+
+    var isCustom: Bool {
+        switch self {
+        case .custom: true
+        case .none, .bundled: false
+        }
+    }
+
+    var bundledSlot: String? {
+        guard case let .bundled(slot) = self else { return nil }
+        return slot
+    }
+}
+
+enum WorkbenchBackgroundPreset: String, CaseIterable, Identifiable {
+    case builtIn01
+    case builtIn02
+    case builtIn03
+    case builtIn04
+    case builtIn05
+    case builtIn06
+    case builtIn07
+    case builtIn08
+    case builtIn09
+    case builtIn10
+
+    var id: String { rawValue }
+
+    static let validBundledSlots = Set(allCases.map(\.bundledImageSlot))
+
+    init?(bundledSlot: String) {
+        self.init(rawValue: "builtIn\(bundledSlot)")
+    }
+
+    var title: String {
+        switch self {
+        case .builtIn01: "01"
+        case .builtIn02: "02"
+        case .builtIn03: "03"
+        case .builtIn04: "04"
+        case .builtIn05: "05"
+        case .builtIn06: "06"
+        case .builtIn07: "07"
+        case .builtIn08: "08"
+        case .builtIn09: "09"
+        case .builtIn10: "10"
+        }
+    }
+
+    var bundledImageSlot: String {
+        switch self {
+        case .builtIn01: "01"
+        case .builtIn02: "02"
+        case .builtIn03: "03"
+        case .builtIn04: "04"
+        case .builtIn05: "05"
+        case .builtIn06: "06"
+        case .builtIn07: "07"
+        case .builtIn08: "08"
+        case .builtIn09: "09"
+        case .builtIn10: "10"
         }
     }
 }

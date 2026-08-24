@@ -20,7 +20,7 @@ struct SpringEndpointsView: View {
             }
             .padding(.horizontal, 10)
             .frame(height: 34)
-            .background(LitheTheme.editor)
+            .litheWorkbenchSurface(LitheTheme.editor)
             if model.isIndexingSpring {
                 ProgressView("Indexing Spring project…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -63,7 +63,7 @@ struct SpringEndpointsView: View {
                 }
             }
         }
-        .background(LitheTheme.sidebar)
+        .litheWorkbenchSurface(LitheTheme.sidebar)
     }
 
     private var filteredEndpoints: [SpringEndpoint] {

@@ -7,6 +7,10 @@ struct TestLogDirectoryProvider: LogDirectoryProviding {
 
 extension AppSettings {
     convenience init(store: any KeyValueStore) {
-        self.init(store: store, logDirectoryProvider: TestLogDirectoryProvider())
+        self.init(
+            store: store,
+            logDirectoryProvider: TestLogDirectoryProvider(),
+            workbenchBackgroundPlatform: UnavailableWorkbenchBackgroundPlatform()
+        )
     }
 }
