@@ -1184,6 +1184,7 @@ struct CodeEditorView: NSViewRepresentable {
                 guard let document else { return }
                 model?.resolveJavaNavigation(marker, in: document.url)
             }
+            scheduleEditorOverlayRelayout()
         }
 
         func updateCodeVisionAndBlame() {
