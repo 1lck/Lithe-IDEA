@@ -736,7 +736,10 @@ struct EditorSyntaxHighlighterTests {
     }
 
     private var propertyColor: NSColor {
-        NSColor(srgbRed: 79 / 255, green: 148 / 255, blue: 250 / 255, alpha: 1)
+        SyntaxHighlightingColorConfiguration.bundled.palette(
+            formatID: nil,
+            base: CodeEditorPalette(isDark: true, theme: .lithe)
+        ).property
     }
 
     private func syntaxPalette(fileExtension: String) -> SyntaxHighlightingPalette {

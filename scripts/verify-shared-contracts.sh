@@ -8,9 +8,16 @@ for fixture in shared/fixtures/**/*.json; do
     /usr/bin/ruby -rjson -e 'JSON.parse(File.read(ARGV.fetch(0)))' "$fixture"
 done
 
+for schema in shared/contracts/*.schema.json; do
+    /usr/bin/ruby -rjson -e 'JSON.parse(File.read(ARGV.fetch(0)))' "$schema"
+done
+
 module_fixture="shared/fixtures/modules/built-in-v1.json"
 plugin_fixture="shared/fixtures/plugins/official-v1.json"
 github_fixture="shared/fixtures/github/pull-request-v1.json"
+syntax_theme_fixture="shared/fixtures/editor-themes/lithe-v1.json"
+macos_syntax_colors="Sources/Lithe/Resources/SyntaxHighlighting/color-mappings.json"
+windows_lithe_theme="windows/tauri/src/extensions/themes/builtin/lithe.json"
 fixture_ids=$(/usr/bin/ruby -rjson -e 'puts JSON.parse(File.read(ARGV.fetch(0))).fetch("modules").map { |m| m.fetch("id") }.sort' "$module_fixture")
 swift_ids=$(rg '^[[:space:]]*static let .* = ModuleID\("dev\.lithe\.[^"]+"\)' Sources/LitheModuleAPI/Lifecycle/ModuleTypes.swift \
     | sed -E 's/.*ModuleID\("([^"]+)"\).*/\1/' \
@@ -103,5 +110,85 @@ fi
   abort "GitHub assignees must be sorted" unless assignees == assignees.sort
   abort "GitHub fixture must not contain a credential" if File.read(ARGV.fetch(0)).match?(/accessToken|clientSecret|password/)
 ' "$github_fixture"
+
+/usr/bin/ruby -rjson -e '
+  fixture = JSON.parse(File.read(ARGV.fetch(0)))
+  macos = JSON.parse(File.read(ARGV.fetch(1)))
+  windows = JSON.parse(File.read(ARGV.fetch(2)))
+
+  abort "syntax theme fixture version must be 1" unless fixture.fetch("version") == 1
+  abort "syntax theme fixture ID must be lithe" unless fixture.fetch("id") == "lithe"
+
+  palette_roles = %w[
+    attribute boolean comment constant function invalid jsx jsx-attribute keyword null
+    number operator property punctuation regex string tag text type variable
+  ].sort
+  expected_fallbacks = {
+    "annotation" => "attribute",
+    "documentationComment" => "comment",
+    "field" => "property",
+    "functionCall" => "function",
+    "functionDeclaration" => "function",
+    "parameter" => "variable",
+    "typeParameter" => "type"
+  }
+  fallbacks = fixture.fetch("fallbacks")
+  abort "syntax role fallbacks differ from v1" unless fallbacks == expected_fallbacks
+
+  appearances = fixture.fetch("appearances")
+  abort "syntax theme must define light and dark" unless appearances.keys.sort == %w[dark light]
+  color_pattern = /\A#[0-9a-f]{6}(?:[0-9a-f]{2})?\z/i
+  appearances.each do |appearance, palette|
+    abort "#{appearance} syntax roles differ from v1" unless palette.keys.sort == palette_roles
+    palette.each_value do |color|
+      abort "invalid #{appearance} syntax color #{color.inspect}" unless color.match?(color_pattern)
+    end
+  end
+
+  resolve_role = lambda do |appearance, role, trail = []|
+    palette = appearances.fetch(appearance)
+    return palette.fetch(role) if palette.key?(role)
+    abort "unknown syntax role #{role}" unless fallbacks.key?(role)
+    abort "cyclic syntax role fallback for #{role}" if trail.include?(role)
+    resolve_role.call(appearance, fallbacks.fetch(role), trail + [role])
+  end
+
+  macos_role_sources = {
+    "text" => "text",
+    "keyword" => "keyword",
+    "annotation" => "annotation",
+    "type" => "type",
+    "property" => "property",
+    "number" => "number",
+    "string" => "string",
+    "comment" => "comment"
+  }
+  macos_defaults = macos.fetch("defaults")
+  abort "macOS syntax roles differ from the shared subset" unless macos_defaults.keys.sort == macos_role_sources.keys.sort
+  %w[light dark].each do |appearance|
+    macos_role_sources.each do |macos_role, shared_role|
+      value = macos_defaults.fetch(macos_role)
+      abort "macOS #{macos_role} must define light and dark colors" unless value.is_a?(Hash)
+      actual = value.fetch(appearance)
+      expected = resolve_role.call(appearance, shared_role)
+      abort "macOS #{appearance} #{macos_role} differs from shared palette" unless actual.casecmp?(expected)
+    end
+  end
+
+  windows_syntax_roles = palette_roles - %w[invalid text]
+  %w[light dark].each do |appearance|
+    theme = windows.fetch("themes").find { |entry| entry.fetch("id") == "lithe-#{appearance}" }
+    abort "missing Windows lithe-#{appearance} theme" unless theme
+    syntax = theme.fetch("syntax")
+    abort "Windows #{appearance} syntax roles differ from v1" unless syntax.keys.sort == windows_syntax_roles
+    windows_syntax_roles.each do |role|
+      expected = resolve_role.call(appearance, role)
+      abort "Windows #{appearance} #{role} differs from shared palette" unless syntax.fetch(role).casecmp?(expected)
+    end
+    colors = theme.fetch("colors")
+    abort "Windows #{appearance} text differs from shared palette" unless colors.fetch("foreground").casecmp?(resolve_role.call(appearance, "text"))
+    abort "Windows #{appearance} invalid differs from shared palette" unless colors.fetch("destructive").casecmp?(resolve_role.call(appearance, "invalid"))
+  end
+' "$syntax_theme_fixture" "$macos_syntax_colors" "$windows_lithe_theme"
 
 print "Shared contract verification passed: JSON fixtures are valid"

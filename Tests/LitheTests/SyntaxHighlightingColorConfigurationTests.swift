@@ -14,6 +14,36 @@ struct SyntaxHighlightingColorConfigurationTests {
     }
 
     @Test
+    func bundledColorsUseSharedLithePalette() {
+        let light = SyntaxHighlightingColorConfiguration.bundled.palette(
+            formatID: nil,
+            base: CodeEditorPalette(isDark: false, theme: .lithe)
+        )
+        let dark = SyntaxHighlightingColorConfiguration.bundled.palette(
+            formatID: nil,
+            base: CodeEditorPalette(isDark: true, theme: .lithe)
+        )
+
+        #expect(rgba(light.text) == [31, 35, 40, 255])
+        #expect(rgba(light.keyword) == [184, 50, 128, 255])
+        #expect(rgba(light.annotation) == [161, 92, 0, 255])
+        #expect(rgba(light.type) == [65, 105, 168, 255])
+        #expect(rgba(light.property) == [7, 94, 158, 255])
+        #expect(rgba(light.number) == [161, 92, 0, 255])
+        #expect(rgba(light.string) == [40, 125, 60, 255])
+        #expect(rgba(light.comment) == [104, 113, 125, 255])
+
+        #expect(rgba(dark.text) == [223, 225, 229, 255])
+        #expect(rgba(dark.keyword) == [207, 142, 109, 255])
+        #expect(rgba(dark.annotation) == [179, 174, 96, 255])
+        #expect(rgba(dark.type) == [188, 190, 196, 255])
+        #expect(rgba(dark.property) == [199, 125, 187, 255])
+        #expect(rgba(dark.number) == [42, 172, 184, 255])
+        #expect(rgba(dark.string) == [106, 171, 115, 255])
+        #expect(rgba(dark.comment) == [122, 126, 133, 255])
+    }
+
+    @Test
     func formatOverridesResolveAdaptiveHexAndThemeColors() throws {
         let configuration = try SyntaxHighlightingColorConfiguration(data: Data(#"""
         {

@@ -5,14 +5,14 @@
     "Use {\"light\": \"...\", \"dark\": \"...\"} when appearances need different colors."
   ],
   "defaults": {
-    "text": "editor:text",
-    "keyword": "theme:skill",
-    "annotation": "theme:warning",
-    "type": "theme:accent",
-    "property": "#4F94FA",
-    "number": "theme:warning",
-    "string": "theme:success",
-    "comment": "theme:secondaryText"
+    "text": {"light": "#1f2328", "dark": "#dfe1e5"},
+    "keyword": {"light": "#b83280", "dark": "#cf8e6d"},
+    "annotation": {"light": "#a15c00", "dark": "#b3ae60"},
+    "type": {"light": "#4169a8", "dark": "#bcbec4"},
+    "property": {"light": "#075e9e", "dark": "#c77dbb"},
+    "number": {"light": "#a15c00", "dark": "#2aacb8"},
+    "string": {"light": "#287d3c", "dark": "#6aab73"},
+    "comment": {"light": "#68717d", "dark": "#7a7e85"}
   },
   "formats": {
     "json": {},

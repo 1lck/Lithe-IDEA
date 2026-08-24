@@ -18,4 +18,11 @@ the JSON/C ABI commands are listed in
 [`contracts/rust-core-api.md`](contracts/rust-core-api.md). Search and Git
 golden fixtures live under [`fixtures`](fixtures).
 
+Editor syntax roles and fallback semantics are defined by
+[`contracts/editor-syntax-theme-v1.schema.json`](contracts/editor-syntax-theme-v1.schema.json).
+The canonical Lithe palette lives in
+[`fixtures/editor-themes/lithe-v1.json`](fixtures/editor-themes/lithe-v1.json);
+platform renderers map the roles to AppKit or Monaco without sharing rendering
+implementation.
+
 Do not place UI state, process management, file watching, terminal sessions, installers, or update logic here. The compiled implementation lives under `rust/lithe-core`; this directory remains the stable contract and fixture source.
