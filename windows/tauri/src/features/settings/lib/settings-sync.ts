@@ -93,6 +93,7 @@ type SyncableSettingsKey =
   | "showActivityRailProjectIcons"
   | "collapsedActivityRailSections"
   | "sidebarWidth"
+  | "rightToolWindowWidth"
   | "showGitHubPullRequests"
   | "showGitHubIssues"
   | "showGitHubActions"
@@ -219,6 +220,7 @@ const SYNCABLE_SETTINGS_KEYS: SyncableSettingsKey[] = [
   "showActivityRailProjectIcons",
   "collapsedActivityRailSections",
   "sidebarWidth",
+  "rightToolWindowWidth",
   "showGitHubPullRequests",
   "showGitHubIssues",
   "showGitHubActions",

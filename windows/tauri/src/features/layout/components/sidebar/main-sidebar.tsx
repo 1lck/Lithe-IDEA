@@ -14,6 +14,7 @@ import { flushSync } from "react-dom";
 import { FileExplorerPane } from "@/features/file-explorer/components/file-explorer-pane";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import GitView from "@/features/git/components/git-view";
+import GlobalSearchBuffer from "@/features/global-search/components/global-search-buffer";
 import { SidebarPaneSelector } from "@/features/layout/components/sidebar/sidebar-pane-selector";
 import { SidebarProjectDots } from "@/features/layout/components/sidebar/sidebar-projects";
 import { useSidebarPaneController } from "@/features/layout/hooks/use-sidebar-pane-controller";
@@ -24,11 +25,13 @@ import {
   getProjectSwipeBounds,
 } from "@/features/layout/utils/project-carousel";
 import type { SidebarView } from "@/features/layout/utils/sidebar-pane-utils";
+import {
+  openGlobalSearchSidebar,
+  toggleDiagnosticsPane,
+} from "@/features/layout/actions/workbench-tool-window-actions";
 import { RunIcon } from "@/features/run/components/run-icon";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
-import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import {
-  openDiagnosticsBuffer,
   toggleGitLogPane,
   toggleRunPane,
   toggleTerminalPane,
@@ -116,17 +119,8 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
   const openSettingsDialog = useUIState((state) => state.openSettingsDialog);
   const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible);
   const bottomPaneActiveTab = useUIState((state) => state.bottomPaneActiveTab);
-  const openGlobalSearchBuffer = useBufferStore.use.actions().openGlobalSearchBuffer;
-  const isDiagnosticsBufferActive = useBufferStore((state) => {
-    if (!state.activeBufferId) return false;
-    return state.buffers.some(
-      (buffer) => buffer.id === state.activeBufferId && buffer.type === "diagnostics",
-    );
-  });
   const configuredActivityRailWidth = useSettingsStore((state) => state.settings.activityRailWidth);
-  const askWhereToOpenProjects = useSettingsStore(
-    (state) => state.settings.askWhereToOpenProjects,
-  );
+  const askWhereToOpenProjects = useSettingsStore((state) => state.settings.askWhereToOpenProjects);
   const openFoldersInNewWindow = useSettingsStore((state) => state.settings.openFoldersInNewWindow);
   const hiddenSidebarActivityItems = useSettingsStore(
     (state) => state.settings.hiddenSidebarActivityItems,
@@ -659,14 +653,17 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
                   isSidebarVisible={isSidebarVisible}
                   coreFeatures={coreFeatures}
                   onViewChange={handleSidebarViewChange}
-                  onSearchClick={() => openGlobalSearchBuffer()}
+                  onSearchClick={() => handleSidebarViewChange("search")}
+                  isSearchActive={
+                    isSidebarVisible && !isGitViewActive && activeSidebarView === "search"
+                  }
                   onGitLogClick={() => toggleGitLogPane()}
                   isGitLogActive={isBottomPaneVisible && bottomPaneActiveTab === "gitLog"}
                   onSettingsClick={() => openSettingsDialog()}
                   onTerminalClick={() => toggleTerminalPane()}
                   isTerminalActive={isBottomPaneVisible && bottomPaneActiveTab === "terminal"}
-                  onDiagnosticsClick={() => openDiagnosticsBuffer()}
-                  isDiagnosticsActive={isDiagnosticsBufferActive}
+                  onDiagnosticsClick={() => toggleDiagnosticsPane()}
+                  isDiagnosticsActive={isBottomPaneVisible && bottomPaneActiveTab === "diagnostics"}
                   onRunClick={() => toggleRunPane()}
                   isRunActive={isBottomPaneVisible && bottomPaneActiveTab === "run"}
                   compact={!expanded}
@@ -733,7 +730,7 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
             <FolderOpenIcon />
             {t("welcome.openProject")}
           </ContextMenuItem>
-          <ContextMenuItem onClick={() => openGlobalSearchBuffer()}>
+          <ContextMenuItem onClick={() => openGlobalSearchSidebar()}>
             <MagnifyingGlassIcon />
             {t("workbench.search")}
           </ContextMenuItem>
@@ -813,6 +810,14 @@ export const MainSidebar = memo(({ activeView, isGitActive }: MainSidebarProps) 
       id: "files",
       content: <FileExplorerPane />,
     },
+    ...(coreFeatures.search
+      ? [
+          {
+            id: "search" as const,
+            content: <GlobalSearchBuffer compact />,
+          },
+        ]
+      : []),
   ];
   const paneEntries = allPaneEntries;
   const activePane = (() => {

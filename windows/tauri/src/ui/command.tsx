@@ -189,6 +189,7 @@ Command.displayName = "Command";
 interface CommandHeaderProps {
   children: React.ReactNode;
   onClose: () => void;
+  hideCloseButton?: boolean;
   showClearButton?: boolean;
   className?: string;
   contentClassName?: string;
@@ -197,6 +198,7 @@ interface CommandHeaderProps {
 export const CommandHeader = ({
   children,
   onClose,
+  hideCloseButton = false,
   showClearButton = false,
   className,
   contentClassName,
@@ -208,9 +210,11 @@ export const CommandHeader = ({
     <div data-command-header className={cn("border-border border-b", className)}>
       <div className={cn(commandHeaderContentClassName, contentClassName)}>
         {children}
-        <CommandHeaderAction aria-label={t("commandPalette.close")} onClick={onClose}>
-          <X />
-        </CommandHeaderAction>
+        {!hideCloseButton ? (
+          <CommandHeaderAction aria-label={t("commandPalette.close")} onClick={onClose}>
+            <X />
+          </CommandHeaderAction>
+        ) : null}
         {showClearButton && (
           <CommandHeaderAction
             aria-label={t("commandPalette.clearPersistedActions")}
