@@ -13,6 +13,7 @@ esac
 temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/lithe-package-verification.XXXXXX")
 trap 'rm -rf -- "$temporary_directory"' EXIT
 jdtls_root="$temporary_directory/jdtls"
+jdk_root="$temporary_directory/jdk"
 dist_root="$temporary_directory/dist"
 package_log="$temporary_directory/package.log"
 dmg_log="$temporary_directory/dmg.log"
@@ -39,9 +40,19 @@ LAUNCHER
 : > "$jdtls_root/lombok/lombok.jar"
 : > "$jdtls_root/lombok/LICENSE-MIT.txt"
 
+mkdir -p "$jdk_root/bin" "$jdk_root/lib"
+cat > "$temporary_directory/java.c" <<'SOURCE'
+int main(void) { return 0; }
+SOURCE
+xcrun clang -arch "$ARCH" "$temporary_directory/java.c" -o "$jdk_root/bin/java"
+cat > "$jdk_root/release" <<'RELEASE'
+JAVA_VERSION="21.0.0"
+RELEASE
+
 LITHE_ARCH="$ARCH" \
 LITHE_DIST_ROOT="$dist_root" \
 LITHE_JDTLS_ROOT="$jdtls_root" \
+LITHE_JDK_ROOT="$jdk_root" \
 LITHE_CODESIGN_IDENTITY="-" \
     scripts/package-app.sh | tee "$package_log"
 
@@ -68,6 +79,8 @@ required_resources=(
     "$app_path/Contents/Info.plist"
     "$app_path/Contents/Resources/Lithe_Lithe.bundle"
     "$app_path/Contents/Resources/LanguageServers/jdtls/bin/jdtls"
+    "$app_path/Contents/Resources/LanguageServers/jdk/bin/java"
+    "$app_path/Contents/Resources/LanguageServers/jdk/lib"
 )
 for resource in "${required_resources[@]}"; do
     if [[ ! -e "$resource" ]]; then
@@ -75,6 +88,9 @@ for resource in "${required_resources[@]}"; do
         exit 1
     fi
 done
+/usr/bin/lipo \
+    "$app_path/Contents/Resources/LanguageServers/jdk/bin/java" \
+    -verify_arch "$ARCH"
 
 plugin_manifests=("$app_path/Contents/Resources/OfficialPlugins"/*/plugin.json(N))
 if (( ${#plugin_manifests[@]} == 0 )); then

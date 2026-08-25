@@ -5,6 +5,7 @@ param(
     [string]$CargoBuildHit = "",
     [string]$BunOutcome = "skipped",
     [string]$JdtlsOutcome = "skipped",
+    [string]$JdkOutcome = "skipped",
     [switch]$IncludeWindowsAssets
 )
 
@@ -14,6 +15,7 @@ $artifactsRoot = [System.IO.Path]::GetFullPath((Join-Path $root ".artifacts"))
 $cargoHome = Join-Path $artifactsRoot "cargo-home"
 $bunCache = Join-Path $artifactsRoot "bun-cache"
 $jdtlsCache = Join-Path $artifactsRoot "jdtls-downloads"
+$jdkCache = Join-Path $artifactsRoot "jdk-downloads"
 
 function Write-CacheWarning {
     param([string]$Title, [string]$Message)
@@ -61,6 +63,10 @@ if ($JdtlsOutcome -eq "failure") {
     Write-CacheWarning "JDTLS cache restore failed" "Discarding the partial JDTLS cache and downloading verified artifacts normally."
     Reset-GeneratedPath $jdtlsCache
 }
+if ($JdkOutcome -eq "failure") {
+    Write-CacheWarning "JDK cache restore failed" "Discarding the partial JDK cache and downloading verified artifacts normally."
+    Reset-GeneratedPath $jdkCache
+}
 
 $validatorArguments = @(
     (Join-Path $root "scripts/verify-download-cache.mjs"),
@@ -77,6 +83,8 @@ if ($IncludeWindowsAssets) {
     $validatorArguments += @(
         "--jdtls-cache", $jdtlsCache,
         "--jdtls-manifest", (Join-Path $root "third_party/jdtls/manifest.json"),
+        "--jdk-cache", $jdkCache,
+        "--jdk-manifest", (Join-Path $root "third_party/jdk/manifest.json"),
         "--bun-version", $bunVersion,
         "--bun-lock", (Join-Path $root "windows/tauri/bun.lock"),
         "--bun-cache", $bunCache
@@ -90,6 +98,7 @@ if ($LASTEXITCODE -ne 0) {
     if ($IncludeWindowsAssets) {
         Reset-GeneratedPath $bunCache
         Reset-GeneratedPath $jdtlsCache
+        Reset-GeneratedPath $jdkCache
     }
 }
 
