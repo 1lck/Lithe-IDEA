@@ -85,6 +85,8 @@ jobs:
           swiftpm: "true"
           cargo: "true"
           jdtls: "true"
+          jdk: "true"
+          jdk-architecture: ${{ matrix.architecture }}
           restore-only: "true"
 
       - name: Build and package the App

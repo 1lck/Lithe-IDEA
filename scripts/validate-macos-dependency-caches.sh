@@ -9,6 +9,8 @@ CARGO_ENABLED=false
 CARGO_OUTCOME=skipped
 JDTLS_ENABLED=false
 JDTLS_OUTCOME=skipped
+JDK_ENABLED=false
+JDK_OUTCOME=skipped
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -19,6 +21,8 @@ while [[ $# -gt 0 ]]; do
         --cargo-outcome) CARGO_OUTCOME="$2"; shift 2 ;;
         --jdtls-enabled) JDTLS_ENABLED="$2"; shift 2 ;;
         --jdtls-outcome) JDTLS_OUTCOME="$2"; shift 2 ;;
+        --jdk-enabled) JDK_ENABLED="$2"; shift 2 ;;
+        --jdk-outcome) JDK_OUTCOME="$2"; shift 2 ;;
         *) print -u2 -- "Unknown option: $1"; exit 2 ;;
     esac
 done
@@ -50,6 +54,7 @@ clear_artifact_cache() {
 swiftpm_root="$ROOT_DIR/.artifacts/swiftpm-cache"
 cargo_cache="$ROOT_DIR/.artifacts/cargo-home/registry/cache"
 jdtls_cache="$ROOT_DIR/.artifacts/jdtls-downloads"
+jdk_cache="$ROOT_DIR/.artifacts/jdk-downloads"
 
 if [[ "$SWIFTPM_ENABLED" == "true" && "$SWIFTPM_OUTCOME" != "success" ]]; then
     warning "SwiftPM cache restore failed" "GitHub cache restore reported $SWIFTPM_OUTCOME. The isolated cache will be discarded and dependencies will be resolved normally."
@@ -62,6 +67,10 @@ fi
 if [[ "$JDTLS_ENABLED" == "true" && "$JDTLS_OUTCOME" != "success" ]]; then
     warning "JDTLS cache restore failed" "GitHub cache restore reported $JDTLS_OUTCOME. The isolated cache will be discarded and artifacts will be downloaded normally."
     clear_artifact_cache "$jdtls_cache"
+fi
+if [[ "$JDK_ENABLED" == "true" && "$JDK_OUTCOME" != "success" ]]; then
+    warning "JDK cache restore failed" "GitHub cache restore reported $JDK_OUTCOME. The isolated cache will be discarded and artifacts will be downloaded normally."
+    clear_artifact_cache "$jdk_cache"
 fi
 
 verifier_arguments=()
@@ -86,12 +95,19 @@ if [[ "$JDTLS_ENABLED" == "true" ]]; then
         --jdtls-manifest "$ROOT_DIR/third_party/jdtls/manifest.json"
     )
 fi
+if [[ "$JDK_ENABLED" == "true" ]]; then
+    verifier_arguments+=(
+        --jdk-cache "$jdk_cache"
+        --jdk-manifest "$ROOT_DIR/third_party/jdk/manifest.json"
+    )
+fi
 
 if ! node "$ROOT_DIR/scripts/verify-download-cache.mjs" "${verifier_arguments[@]}"; then
     warning "Dependency cache validation failed" "The cache validator failed unexpectedly. All enabled caches will be cleared before the normal dependency path continues."
     [[ "$SWIFTPM_ENABLED" == "true" ]] && clear_artifact_cache "$swiftpm_root"
     [[ "$CARGO_ENABLED" == "true" ]] && clear_artifact_cache "$cargo_cache"
     [[ "$JDTLS_ENABLED" == "true" ]] && clear_artifact_cache "$jdtls_cache"
+    [[ "$JDK_ENABLED" == "true" ]] && clear_artifact_cache "$jdk_cache"
 fi
 
 if [[ -n "${GITHUB_ENV:-}" ]]; then

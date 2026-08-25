@@ -277,7 +277,7 @@ fn bundled_jdk_root(app: &AppHandle) -> Option<PathBuf> {
 }
 
 fn is_jdk_home(root: &Path) -> bool {
-    root.join("bin").join("java.exe").is_file() || root.join("bin").join("java").is_file()
+    root.join("bin").join("java.exe").is_file()
 }
 
 fn jdtls_version_for_executable(executable: &Path) -> Result<String, String> {
@@ -471,14 +471,18 @@ mod tests {
     use super::*;
     use std::collections::BTreeSet;
     use std::fs;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    static TEST_TEMP_DIRECTORY_ID: AtomicU64 = AtomicU64::new(1);
 
     fn temp_dir() -> PathBuf {
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("lithe-java-lsp-{stamp}"));
+        let id = TEST_TEMP_DIRECTORY_ID.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!("lithe-java-lsp-{stamp}-{id}"));
         fs::create_dir_all(&path).expect("temp dir");
         path
     }
@@ -563,6 +567,17 @@ mod tests {
         let resolution = resolve_java_lsp_launch(None, Some(&jdtls_root), &[], Some(&bundled_jdk))
             .expect("resolution");
         assert_eq!(resolution.java_home, bundled_jdk, "bundled JDK should win");
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn windows_bundled_jdk_rejects_a_unix_java_executable() {
+        let root = temp_dir().join("non-windows-jdk-test");
+        let bin = root.join("bin");
+        fs::create_dir_all(&bin).expect("JDK bin");
+        fs::write(bin.join("java"), "").expect("Unix java marker");
+
+        assert!(!is_jdk_home(&root));
         fs::remove_dir_all(root).ok();
     }
 

@@ -64,6 +64,8 @@ jobs:
           swiftpm: "true"
           cargo: "true"
           jdtls: "true"
+          jdk: "true"
+          jdk-architecture: ${{ matrix.architecture }}
 
       - name: Build and package the preview app
         env:

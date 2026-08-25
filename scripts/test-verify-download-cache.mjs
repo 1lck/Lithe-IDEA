@@ -45,6 +45,8 @@ async function assertWindowsBunCacheConfiguration() {
     assert.match(contents, /BUN_TMPDIR=.*\.artifacts\/bun-tmp/, `${relativePath} must keep Bun temp files on the cache volume`);
     assert.match(contents, /BUN_FEATURE_FLAG_DISABLE_INSTALL_INDEX=1/, `${relativePath} must omit Bun's Windows junction index`);
     assert.match(contents, /bun-\$\{\{ steps\.bun\.outputs\.bun-version \}\}-v2-/, `${relativePath} must isolate the same-volume Bun cache format`);
+    assert.match(contents, /^\s*path: \.artifacts\/jdk-downloads$/m, `${relativePath} must cache JDK downloads`);
+    assert.match(contents, /jdk-v1-\$\{\{ hashFiles\('third_party\/jdk\/manifest\.json'\) \}\}/, `${relativePath} must key JDK downloads by manifest`);
   }
 
   const installer = await fs.readFile(path.join(repositoryRoot, "scripts/install-windows-frontend-dependencies.ps1"), "utf8");
@@ -60,8 +62,63 @@ async function assertWindowsBunCacheConfiguration() {
   assert.match(validator, /\$bunCache = Join-Path \$artifactsRoot "bun-cache"/, "Windows cache validation must use the isolated Bun cache");
 }
 
+async function assertWindowsJavaToolingBuildConfiguration() {
+  const buildScript = await fs.readFile(path.join(repositoryRoot, "scripts/build-windows.ps1"), "utf8");
+  assert.match(buildScript, /prepare-jdtls\.ps1/, "Windows builds must prepare JDTLS");
+  assert.match(buildScript, /prepare-jdk\.ps1[\s\S]*-RustTarget \$RustTarget/, "Windows builds must prepare the target JDK");
+  assert.doesNotMatch(
+    buildScript,
+    /if \(\$Configuration -eq "Release"\) \{[\s\S]{0,1200}prepare-jdk\.ps1/,
+    "Debug builds must not skip JDK preparation",
+  );
+  assert.match(buildScript, /LanguageServers\/jdk/, "Windows builds must stage the JDK next to the executable");
+
+  const packageScript = await fs.readFile(path.join(repositoryRoot, "scripts/package-windows.ps1"), "utf8");
+  assert.match(packageScript, /prepare-jdk\.ps1[\s\S]*-RustTarget \$RustTarget/, "Windows packages must prepare the target JDK");
+  assert.match(packageScript, /bin\/java\.exe/, "Windows packages must validate the bundled java.exe");
+  assert.match(packageScript, /Sync-BundleResource \$preparedJdkRoot[\s\S]*\.artifacts\/jdk/, "Windows packages must stage overrides at Tauri's canonical JDK path");
+
+  const prepareScript = await fs.readFile(path.join(repositoryRoot, "scripts/prepare-jdk.ps1"), "utf8");
+  assert.match(prepareScript, /"x86_64-pc-windows-msvc" \{ return "windows-x86_64" \}/);
+  assert.match(prepareScript, /"aarch64-pc-windows-msvc" \{ return "windows-aarch64" \}/);
+  assert.match(prepareScript, /\.lithe-jdk\.json/, "Prepared JDKs must carry a reusable identity stamp");
+}
+
+async function assertMacJdkCacheConfiguration() {
+  const action = await fs.readFile(
+    path.join(repositoryRoot, ".github/actions/prepare-macos-dependency-cache/action.yml"),
+    "utf8",
+  );
+  assert.match(action, /^  jdk:$/m, "macOS cache action must expose the JDK cache");
+  assert.match(action, /^  jdk-architecture:$/m, "macOS cache action must isolate target architectures");
+  assert.match(action, /path: \.artifacts\/jdk-downloads/);
+  assert.match(action, /macos-jdk-downloads-\$\{\{ runner\.os \}\}-\$\{\{ inputs\.jdk-architecture \}\}-/);
+
+  for (const relativePath of [
+    ".github/workflows/release-preview-macos.yml",
+    ".github/workflows/release-macos.yml",
+  ]) {
+    const workflow = await fs.readFile(path.join(repositoryRoot, relativePath), "utf8");
+    assert.match(workflow, /^\s+jdk: "true"$/m, `${relativePath} must restore JDK downloads`);
+    assert.match(workflow, /^\s+jdk-architecture: \$\{\{ matrix\.architecture \}\}$/m, `${relativePath} must cache the target architecture`);
+  }
+
+  const packageScript = await fs.readFile(path.join(repositoryRoot, "scripts/package-app.sh"), "utf8");
+  assert.match(packageScript, /LITHE_JDK_TARGET_ARCH="\$jdk_arch"/, "macOS packages must prepare the target-architecture JDK");
+  const prepareScript = await fs.readFile(path.join(repositoryRoot, "scripts/prepare-jdk.sh"), "utf8");
+  assert.match(prepareScript, /TARGET_ARCH="\$\{LITHE_JDK_TARGET_ARCH:-\$\(uname -m\)\}"/);
+  assert.match(prepareScript, /macos-aarch64/);
+  assert.match(prepareScript, /macos-x86_64/);
+  assert.match(prepareScript, /lipo.*-verify_arch.*TARGET_ARCH/, "macOS JDK validation must verify its Mach-O architecture");
+
+  const packageVerifier = await fs.readFile(path.join(repositoryRoot, "scripts/verify-macos-package.sh"), "utf8");
+  assert.match(packageVerifier, /LanguageServers\/jdk\/bin\/java/, "macOS package verification must require the bundled JDK");
+}
+
 try {
   await assertWindowsBunCacheConfiguration();
+  await assertWindowsJavaToolingBuildConfiguration();
+  await assertMacJdkCacheConfiguration();
 
   const cargoCache = path.join(testRoot, "cargo-cache", "registry");
   const cargoLock = path.join(testRoot, "Cargo.lock");
@@ -126,6 +183,57 @@ try {
   assert.equal(await fs.readFile(jdtlsArchive, "utf8"), "");
   await assert.rejects(fs.access(unexpected));
   assert.match(diagnostics(result), /not referenced by the JDTLS manifest/);
+
+  const jdkCache = path.join(testRoot, "jdk-cache");
+  const jdkManifest = path.join(testRoot, "jdk-manifest.json");
+  const jdkArchive = path.join(jdkCache, `jdk-21.0.0-windows-x86_64-${emptySha256}.zip`);
+  const macJdkArchive = path.join(jdkCache, `jdk-21.0.0-macos-aarch64-${emptySha256}.tar.gz`);
+  const unexpectedJdk = path.join(jdkCache, "unexpected.download");
+  await fs.mkdir(jdkCache, { recursive: true });
+  await fs.writeFile(
+    jdkManifest,
+    JSON.stringify({
+      version: "21.0.0",
+      platforms: {
+        "windows-x86_64": { sha256: emptySha256 },
+        "macos-aarch64": { sha256: emptySha256 },
+      },
+    }),
+  );
+  await fs.writeFile(jdkArchive, "");
+  await fs.writeFile(macJdkArchive, "");
+  await fs.writeFile(unexpectedJdk, "unexpected");
+
+  result = verify([
+    "--cargo-cache",
+    cargoCache,
+    "--cargo-lock",
+    cargoLock,
+    "--jdk-cache",
+    jdkCache,
+    "--jdk-manifest",
+    jdkManifest,
+  ]);
+  assertSucceeded(result);
+  assert.equal(await fs.readFile(jdkArchive, "utf8"), "");
+  assert.equal(await fs.readFile(macJdkArchive, "utf8"), "");
+  await assert.rejects(fs.access(unexpectedJdk));
+  assert.match(diagnostics(result), /not referenced by the JDK manifest/);
+
+  await fs.writeFile(jdkArchive, "corrupted");
+  result = verify([
+    "--cargo-cache",
+    cargoCache,
+    "--cargo-lock",
+    cargoLock,
+    "--jdk-cache",
+    jdkCache,
+    "--jdk-manifest",
+    jdkManifest,
+  ]);
+  assertSucceeded(result);
+  await assert.rejects(fs.access(jdkArchive));
+  assert.match(diagnostics(result), /JDK cache entry rejected.*SHA-256 mismatch/s);
 
   const fakeBin = path.join(testRoot, "bin");
   const fakeBun = path.join(fakeBin, "bun");

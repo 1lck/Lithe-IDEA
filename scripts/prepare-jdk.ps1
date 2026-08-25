@@ -3,7 +3,8 @@
 
 [CmdletBinding()]
 param(
-    [string]$OutputDirectory = ""
+    [string]$OutputDirectory = "",
+    [string]$RustTarget = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,21 +24,33 @@ $requestedOutput = if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
 $output = [System.IO.Path]::GetFullPath($requestedOutput)
 $cache = Join-Path $root ".artifacts/jdk-downloads"
 
-# Detect architecture
-$arch = if ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -eq
-    [System.Runtime.InteropServices.Architecture]::Arm64) {
-    "windows-aarch64"
-} else {
+function Resolve-PlatformKey {
+    if (-not [string]::IsNullOrWhiteSpace($RustTarget)) {
+        switch ($RustTarget) {
+            "x86_64-pc-windows-msvc" { return "windows-x86_64" }
+            "aarch64-pc-windows-msvc" { return "windows-aarch64" }
+            default { throw "Unsupported Windows Rust target for the bundled JDK: $RustTarget" }
+        }
+    }
+
+    if ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -eq
+        [System.Runtime.InteropServices.Architecture]::Arm64) {
+        return "windows-aarch64"
+    }
     "windows-x86_64"
 }
 
+$platformKey = Resolve-PlatformKey
+
 $jdkVersion  = $manifest.version
-$platform    = $manifest.platforms.$arch
+$platform    = $manifest.platforms.$platformKey
+if ($null -eq $platform) { throw "The bundled JDK manifest has no platform entry for $platformKey" }
 $archiveUrl  = $platform.url
 $archiveSha256 = $platform.sha256.ToLowerInvariant()
 
 $safeVersion = $jdkVersion -replace '[^A-Za-z0-9._-]', '_'
-$archivePath = Join-Path $cache "jdk-$safeVersion-$arch-$archiveSha256.zip"
+$archivePath = Join-Path $cache "jdk-$safeVersion-$platformKey-$archiveSha256.zip"
+$stampPath = Join-Path $output ".lithe-jdk.json"
 
 function Get-FileSHA256 {
     param([Parameter(Mandatory)][string]$Path)
@@ -76,6 +89,10 @@ function Assert-JdkOutput {
     if (-not (Test-Path -LiteralPath $javaExe -PathType Leaf)) {
         throw "Bundled JDK java.exe is missing: $javaExe"
     }
+    $libDirectory = Join-Path $output "lib"
+    if (-not (Test-Path -LiteralPath $libDirectory -PathType Container)) {
+        throw "Bundled JDK lib directory is missing: $libDirectory"
+    }
 
     # Windows PowerShell 5 surfaces a native process's stderr as an error
     # record. Java writes its version to stderr, so temporarily allow that
@@ -96,10 +113,33 @@ function Assert-JdkOutput {
     }
 }
 
+function Test-PreparedJdk {
+    if (-not (Test-Path -LiteralPath $stampPath -PathType Leaf)) { return $false }
+    try {
+        $stamp = Get-Content -Raw -LiteralPath $stampPath | ConvertFrom-Json
+        if ($stamp.schemaVersion -ne 1 -or
+            $stamp.manifestVersion -ne $jdkVersion -or
+            $stamp.platform -ne $platformKey -or
+            $stamp.archiveSHA256 -ne $archiveSha256) {
+            return $false
+        }
+        Assert-JdkOutput
+        return $true
+    } catch {
+        Write-Warning "Prepared bundled JDK is invalid and will be rebuilt: $($_.Exception.Message)"
+        return $false
+    }
+}
+
 # If LITHE_JDK_ROOT is set externally, just validate and return.
 if (-not [string]::IsNullOrWhiteSpace($env:LITHE_JDK_ROOT) -and
     [string]::IsNullOrWhiteSpace($OutputDirectory)) {
     Assert-JdkOutput
+    Write-Output $output
+    exit 0
+}
+
+if (Test-PreparedJdk) {
     Write-Output $output
     exit 0
 }
@@ -122,6 +162,12 @@ try {
     $inner = Get-ChildItem -LiteralPath $staging -Directory | Select-Object -First 1
     if ($null -eq $inner) { throw "Could not locate JDK directory inside the Temurin archive" }
     Move-Item -LiteralPath $inner.FullName -Destination $output
+    @{
+        schemaVersion = 1
+        manifestVersion = $jdkVersion
+        platform = $platformKey
+        archiveSHA256 = $archiveSha256
+    } | ConvertTo-Json | Set-Content -LiteralPath $stampPath -Encoding ascii
 } finally {
     if (Test-Path -LiteralPath $staging) { Remove-Item -Recurse -Force -LiteralPath $staging }
 }
