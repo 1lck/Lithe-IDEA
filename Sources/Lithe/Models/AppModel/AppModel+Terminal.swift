@@ -23,6 +23,24 @@ extension AppModel {
     var terminalSessions: [TerminalSession] { terminalFeature?.terminalSessions ?? [] }
     var activeTerminalSessionID: UUID? { terminalFeature?.activeTerminalSessionID }
     var activeTerminalSession: TerminalSession? { terminalFeature?.activeTerminalSession }
+    var toolTerminalSessions: [TerminalSession] {
+        sessions(orderedBy: terminalPlacementFeature.toolSessionIDs)
+    }
+    var editorTerminalSessions: [TerminalSession] {
+        sessions(orderedBy: terminalPlacementFeature.editorSessionIDs)
+    }
+    var activeToolTerminalSession: TerminalSession? {
+        let toolSessions = toolTerminalSessions
+        if let activeTerminalSessionID,
+           let activeSession = toolSessions.first(where: { $0.id == activeTerminalSessionID }) {
+            return activeSession
+        }
+        return toolSessions.first
+    }
+    var activeEditorTerminalSession: TerminalSession? {
+        guard let sessionID = terminalPlacementFeature.activeEditorSessionID else { return nil }
+        return terminalSessions.first { $0.id == sessionID }
+    }
     func terminalTitle(for session: TerminalSession) -> String { terminalFeature?.terminalTitle(for: session) ?? "Local" }
 
     @discardableResult
@@ -37,6 +55,7 @@ extension AppModel {
         }
         let session = feature.createSession(in: workspaceURL, shellPath: shellPath ?? settings.terminalShellPath)
         configureTerminalSession(session)
+        terminalPlacementFeature.registerSession(session.id)
         isTerminalVisible = true
         isTestsVisible = false
         isGitLogVisible = false
@@ -81,12 +100,68 @@ extension AppModel {
     }
 
     func selectTerminalSession(_ session: TerminalSession) {
+        guard terminalPlacementFeature.toolSessionIDs.contains(session.id) else { return }
         guard terminalFeature?.selectSession(session) == true else { return }
+        isTerminalVisible = true
+    }
+
+    func selectEditorTerminalSession(_ session: TerminalSession) {
+        guard terminalPlacementFeature.editorSessionIDs.contains(session.id),
+              terminalFeature?.selectSession(session) == true else { return }
+        terminalPlacementFeature.activateEditorSession(session.id)
+    }
+
+    func selectEditorDocument(_ document: EditorDocument) {
+        terminalPlacementFeature.activateDocument()
+        activeDocumentID = document.id
+    }
+
+    func moveTerminalToEditor(_ sessionID: UUID) {
+        guard let session = terminalSessions.first(where: { $0.id == sessionID }) else { return }
+        terminalPlacementFeature.moveToEditor(sessionID)
+        editorTabOrderFeature.moveToEnd(.terminal(sessionID))
+        terminalPlacementFeature.reorderEditorSessions(
+            orderedIDs: editorTabOrderFeature.terminalIDs
+        )
+        _ = terminalFeature?.selectSession(session)
+    }
+
+    func moveTerminalToEditor(_ sessionID: UUID, before targetSessionID: UUID) {
+        moveEditorTab(.terminal(sessionID), before: .terminal(targetSessionID))
+    }
+
+    func moveTerminalToEditor(_ sessionID: UUID, after targetSessionID: UUID) {
+        moveEditorTab(.terminal(sessionID), after: .terminal(targetSessionID))
+    }
+
+    func moveTerminalToTool(_ sessionID: UUID) {
+        guard let session = terminalSessions.first(where: { $0.id == sessionID }) else { return }
+        editorTabOrderFeature.remove(.terminal(sessionID))
+        terminalPlacementFeature.moveToTool(sessionID)
+        _ = terminalFeature?.selectSession(session)
+        isTerminalVisible = true
+    }
+
+    func moveTerminalToTool(_ sessionID: UUID, before targetSessionID: UUID) {
+        guard let session = terminalSessions.first(where: { $0.id == sessionID }) else { return }
+        editorTabOrderFeature.remove(.terminal(sessionID))
+        terminalPlacementFeature.moveToTool(sessionID, before: targetSessionID)
+        _ = terminalFeature?.selectSession(session)
+        isTerminalVisible = true
+    }
+
+    func moveTerminalToTool(_ sessionID: UUID, after targetSessionID: UUID) {
+        guard let session = terminalSessions.first(where: { $0.id == sessionID }) else { return }
+        editorTabOrderFeature.remove(.terminal(sessionID))
+        terminalPlacementFeature.moveToTool(sessionID, after: targetSessionID)
+        _ = terminalFeature?.selectSession(session)
         isTerminalVisible = true
     }
 
     func closeTerminalSession(_ session: TerminalSession) {
         guard terminalSessions.contains(where: { $0.id == session.id }) else { return }
+        editorTabOrderFeature.remove(.terminal(session.id))
+        terminalPlacementFeature.removeSession(session.id)
         terminalFeature?.closeSession(session)
         if terminalSessions.isEmpty {
             isTerminalVisible = false
@@ -96,9 +171,18 @@ extension AppModel {
 
     func restartActiveTerminal() { terminalFeature?.restartActiveSession() }
     func restartActiveTerminal(using shellPath: String) { terminalFeature?.restartActiveSession(using: shellPath) }
-    func stopTerminalSessions() { terminalFeature?.stopAllSessions() }
+    func stopTerminalSessions() {
+        editorTabOrderFeature.removeAllTerminals()
+        terminalPlacementFeature.reset()
+        terminalFeature?.stopAllSessions()
+    }
 
     var activeTerminalShellPath: String {
         settings.terminalShellPath ?? terminalFeature?.availableShells.first ?? "/bin/zsh"
+    }
+
+    private func sessions(orderedBy sessionIDs: [UUID]) -> [TerminalSession] {
+        let sessionsByID = Dictionary(uniqueKeysWithValues: terminalSessions.map { ($0.id, $0) })
+        return sessionIDs.compactMap { sessionsByID[$0] }
     }
 }

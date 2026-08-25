@@ -5,7 +5,8 @@ set -euo pipefail
 ROOT_DIR="${0:A:h:h}"
 ARCH="${LITHE_ARCH:-$(uname -m)}"
 MANIFEST="$ROOT_DIR/rust/Cargo.toml"
-OUTPUT_DIR="$ROOT_DIR/dist/database-mcp"
+DIST_ROOT="${LITHE_DIST_ROOT:-$ROOT_DIR/dist}"
+OUTPUT_DIR="$DIST_ROOT/database-mcp"
 
 export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
 mkdir -p "$OUTPUT_DIR"

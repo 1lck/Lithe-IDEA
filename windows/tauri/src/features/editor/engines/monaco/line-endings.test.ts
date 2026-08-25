@@ -24,4 +24,9 @@ describe("monaco line endings", () => {
     expect(documentUsesCrlf(content)).toBe(false);
     expect(toMonacoModelValue(content)).toBe(content);
   });
+
+  test("does not throw when content is missing during editor teardown", () => {
+    expect(documentUsesCrlf(undefined as unknown as string)).toBe(false);
+    expect(toMonacoModelValue(undefined as unknown as string)).toBe("");
+  });
 });

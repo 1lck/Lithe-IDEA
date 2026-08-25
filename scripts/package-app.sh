@@ -9,18 +9,24 @@ DEFAULT_BUILD_NUMBER=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$INF
 VERSION="${LITHE_VERSION:-$DEFAULT_VERSION}"
 BUILD_NUMBER="${LITHE_BUILD_NUMBER:-$DEFAULT_BUILD_NUMBER}"
 ARCH="${LITHE_ARCH:-universal}"
+DIST_ROOT="${LITHE_DIST_ROOT:-$ROOT_DIR/dist}"
 SIGNING_IDENTITY="${LITHE_CODESIGN_IDENTITY:--}"
 ARM64_TRIPLE="arm64-apple-macosx"
 X86_64_TRIPLE="x86_64-apple-macosx"
 
 case "$ARCH" in
-    universal) APP_DIR="$ROOT_DIR/dist/Lithe.app" ;;
-    arm64|x86_64) APP_DIR="$ROOT_DIR/dist/Lithe-$ARCH.app" ;;
+    universal) APP_DIR="$DIST_ROOT/Lithe.app" ;;
+    arm64|x86_64) APP_DIR="$DIST_ROOT/Lithe-$ARCH.app" ;;
     *) print -u2 -- "Unsupported app architecture: $ARCH"; exit 1 ;;
 esac
 
 cd "$ROOT_DIR"
 JDTLS_ROOT=$("$ROOT_DIR/scripts/prepare-jdtls.sh")
+jdk_arch="$ARCH"
+if [[ "$jdk_arch" == "universal" ]]; then
+    jdk_arch="$(uname -m)"
+fi
+JDK_ROOT=$(LITHE_JDK_TARGET_ARCH="$jdk_arch" "$ROOT_DIR/scripts/prepare-jdk.sh")
 if [[ "$ARCH" == "universal" ]]; then
     scripts/build-macos.sh --configuration release --triple "$ARM64_TRIPLE"
     scripts/build-macos.sh --configuration release --triple "$X86_64_TRIPLE"
@@ -92,6 +98,7 @@ fi
 cp -R "$resource_bundle" "$APP_DIR/Contents/Resources/Lithe_Lithe.bundle"
 mkdir -p "$APP_DIR/Contents/Resources/LanguageServers"
 cp -R "$JDTLS_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdtls"
+cp -R "$JDK_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdk"
 
 OFFICIAL_PLUGIN_DESTINATION="$APP_DIR/Contents/Resources/OfficialPlugins"
 mkdir -p "$OFFICIAL_PLUGIN_DESTINATION"

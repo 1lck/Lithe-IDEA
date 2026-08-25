@@ -292,17 +292,6 @@ pub struct JavaFoldRegionResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-/// Java gutter marker summarizing implementations of one declaration.
-pub struct JavaImplementationMarkerResponse {
-    pub line: usize,
-    pub utf16_column: usize,
-    pub implementation_count: usize,
-    /// Navigation direction describing implementations below or parents above.
-    pub direction: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
 /// Lightweight Java parameter-name inlay hint.
 pub struct JavaInlayHintResponse {
     pub line: usize,
@@ -310,13 +299,36 @@ pub struct JavaInlayHintResponse {
     pub label: String,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// One non-overlapping Java token range with a portable editor-theme role.
+pub struct JavaSyntaxHighlightResponse {
+    /// Document-relative start measured in UTF-16 code units.
+    pub utf16_start: usize,
+    /// Token length measured in UTF-16 code units.
+    pub utf16_length: usize,
+    /// Semantic role defined by the shared editor syntax-theme contract.
+    pub role: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// Lightweight structural features derived from one Java source document.
 pub struct JavaStructureResponse {
     pub fold_regions: Vec<JavaFoldRegionResponse>,
-    pub implementation_markers: Vec<JavaImplementationMarkerResponse>,
     pub inlay_hints: Vec<JavaInlayHintResponse>,
+    pub syntax_highlights: Vec<JavaSyntaxHighlightResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// One Java navigation gutter marker normalized from provider semantic data.
+pub struct JavaNavigationMarkerResponse {
+    pub line: usize,
+    pub utf16_column: usize,
+    pub implementation_count: usize,
+    pub direction: String,
+    pub relation: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

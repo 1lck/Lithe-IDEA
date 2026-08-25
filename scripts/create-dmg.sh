@@ -7,14 +7,15 @@ INFO_PLIST="$ROOT_DIR/Resources/Info.plist"
 DEFAULT_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INFO_PLIST")
 VERSION="${LITHE_VERSION:-$DEFAULT_VERSION}"
 ARCH="${LITHE_ARCH:-universal}"
+DIST_ROOT="${LITHE_DIST_ROOT:-$ROOT_DIR/dist}"
 case "$ARCH" in
     universal)
-        APP_DIR="$ROOT_DIR/dist/Lithe.app"
-        DMG_PATH="$ROOT_DIR/dist/Lithe-${VERSION}.dmg"
+        APP_DIR="$DIST_ROOT/Lithe.app"
+        DMG_PATH="$DIST_ROOT/Lithe-${VERSION}.dmg"
         ;;
     arm64|x86_64)
-        APP_DIR="$ROOT_DIR/dist/Lithe-$ARCH.app"
-        DMG_PATH="$ROOT_DIR/dist/Lithe-${VERSION}-${ARCH}.dmg"
+        APP_DIR="$DIST_ROOT/Lithe-$ARCH.app"
+        DMG_PATH="$DIST_ROOT/Lithe-${VERSION}-${ARCH}.dmg"
         ;;
     *)
         print -u2 -- "Unsupported app architecture: $ARCH"
@@ -22,6 +23,7 @@ case "$ARCH" in
         ;;
 esac
 STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/lithe-dmg.XXXXXX")"
+trap 'rm -rf -- "$STAGING_DIR"' EXIT
 
 if [[ ! -d "$APP_DIR" ]]; then
     print -u2 -- "Missing app bundle: $APP_DIR"

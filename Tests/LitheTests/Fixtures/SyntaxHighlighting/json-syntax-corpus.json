@@ -1,0 +1,19 @@
+{
+  "name": "Lithe",
+  "number": 42,
+  "negativeDecimal": -3.14,
+  "scientific": 6.02e23,
+  "url": "https://example.com/#fragment",
+  "boolean": true,
+  "nullValue": null,
+  "escaped\"key": "escaped\\value",
+  "nested": {
+    "items": [
+      "name",
+      {
+        "name": "nested-value"
+      }
+    ]
+  },
+  "tail": ["name"]
+}

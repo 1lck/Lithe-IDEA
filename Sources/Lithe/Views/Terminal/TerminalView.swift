@@ -1,21 +1,25 @@
-import AppKit
 import SwiftUI
 import LitheTerminalModule
 
 struct TerminalView: View {
     @EnvironmentObject private var model: AppModel
-    @ObservedObject var session: TerminalSession
-    @State private var focusRequestID = 0
 
     var body: some View {
         VStack(spacing: 0) {
             terminalToolbar
             terminalCanvas
         }
+        .contentShape(Rectangle())
+        .onDrop(
+            of: [TerminalTabDragPayload.type],
+            delegate: TerminalBarDropDelegate { sessionID in
+                guard model.editorTerminalSessions.contains(where: { $0.id == sessionID }) else {
+                    return
+                }
+                model.moveTerminalToTool(sessionID)
+            }
+        )
         .background(LitheTheme.editor)
-        .task(id: session.id) {
-            requestInputFocus()
-        }
     }
 
     private var terminalToolbar: some View {
@@ -29,19 +33,27 @@ struct TerminalView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 3) {
-                    ForEach(model.terminalSessions) { terminalSession in
+                    ForEach(model.toolTerminalSessions) { terminalSession in
                         terminalTab(terminalSession)
                     }
                 }
                 .padding(.horizontal, 2)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .onDrop(
+                of: [TerminalTabDragPayload.type],
+                delegate: TerminalBarDropDelegate { sessionID in
+                    model.moveTerminalToTool(sessionID)
+                }
+            )
 
-            terminalStatus
+            if let session = model.activeToolTerminalSession {
+                TerminalStatusView(session: session)
+            }
 
             Button {
-                model.createTerminalSession()
-                requestInputFocus()
+                _ = model.createTerminalSession()
             } label: {
                 Image(systemName: "plus")
             }
@@ -51,8 +63,7 @@ struct TerminalView: View {
             Menu {
                 ForEach(model.availableTerminalShells, id: \.self) { shell in
                     Button("New \(shellLabel(for: shell))") {
-                        model.createTerminalSession(shellPath: shell)
-                        requestInputFocus()
+                        _ = model.createTerminalSession(shellPath: shell)
                     }
                 }
             } label: {
@@ -67,15 +78,23 @@ struct TerminalView: View {
             .help("New terminal with shell")
 
             Menu {
-                Button("Interrupt", action: session.interrupt)
-                Button("Restart") {
-                    model.restartActiveTerminal()
-                    requestInputFocus()
-                }
-                Button("Clear", action: session.clear)
-                Divider()
-                Button("Close Terminal") {
-                    model.closeTerminalSession(session)
+                if let session = model.activeToolTerminalSession {
+                    Button("Interrupt", action: session.interrupt)
+                    Button("Restart") {
+                        session.restart()
+                        session.focus()
+                    }
+                    Button("Clear", action: session.clear)
+                    Divider()
+                    Button("Move to Editor") {
+                        model.moveTerminalToEditor(session.id)
+                    }
+                    Button("Close Terminal") {
+                        model.closeTerminalSession(session)
+                    }
+                } else {
+                    Button("No Terminal Sessions") {}
+                        .disabled(true)
                 }
             } label: {
                 LitheSystemIcon(systemImage: "ellipsis.vertical")
@@ -105,7 +124,142 @@ struct TerminalView: View {
         }
     }
 
-    private var terminalStatus: some View {
+    private func terminalTab(_ session: TerminalSession) -> some View {
+        let isActive = model.activeToolTerminalSession?.id == session.id
+
+        return HStack(spacing: 1) {
+            HStack(spacing: 6) {
+                Image(systemName: "terminal")
+                    .font(.system(size: 10, weight: .medium))
+                TerminalToolTabTitle(
+                    session: session,
+                    fallbackTitle: model.terminalTitle(for: session),
+                    isActive: isActive
+                )
+            }
+            .foregroundStyle(isActive ? LitheTheme.primaryText : LitheTheme.secondaryText)
+            .padding(.leading, 9)
+            .padding(.trailing, 5)
+            .frame(height: 26)
+            .contentShape(Rectangle())
+            .contentShape(
+                .dragPreview,
+                RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius)
+            )
+            .onTapGesture {
+                model.selectTerminalSession(session)
+                session.focus()
+            }
+            .onDrag {
+                TerminalTabDragPayload.provider(for: session.id)
+            } preview: {
+                terminalTabDragPreview(session)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(model.terminalTitle(for: session))
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction {
+                model.selectTerminalSession(session)
+            }
+
+            Button {
+                model.closeTerminalSession(session)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Close \(model.terminalTitle(for: session))")
+        }
+        .background(isActive ? LitheTheme.subtleSelection : .clear)
+        .overlay {
+            RoundedRectangle(cornerRadius: 5)
+                .stroke(isActive ? LitheTheme.inputFocusBorder : .clear, lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 5))
+        .background {
+            GeometryReader { geometry in
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onDrop(
+                        of: [TerminalTabDragPayload.type],
+                        delegate: TerminalTabDropDelegate(
+                            targetSessionID: session.id,
+                            targetWidth: geometry.size.width,
+                            moveBefore: { sourceID in
+                                model.moveTerminalToTool(sourceID, before: session.id)
+                            },
+                            moveAfter: { sourceID in
+                                model.moveTerminalToTool(sourceID, after: session.id)
+                            }
+                        )
+                    )
+            }
+        }
+        .contextMenu {
+            Button("Move to Editor") {
+                model.moveTerminalToEditor(session.id)
+            }
+            Divider()
+            Button("Close") {
+                model.closeTerminalSession(session)
+            }
+        }
+        .lithePointer()
+    }
+
+    @ViewBuilder
+    private var terminalCanvas: some View {
+        if let session = model.activeToolTerminalSession {
+            TerminalSurfaceView(session: session)
+                .id(session.id)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(8)
+        } else {
+            Image(systemName: "terminal")
+                .font(.system(size: 34, weight: .ultraLight))
+                .foregroundStyle(LitheTheme.tertiaryText)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .onDrop(
+                    of: [TerminalTabDragPayload.type],
+                    delegate: TerminalBarDropDelegate { sessionID in
+                        model.moveTerminalToTool(sessionID)
+                    }
+                )
+        }
+    }
+
+    private func terminalTabDragPreview(_ session: TerminalSession) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: "terminal")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(LitheTheme.accent)
+            Text(model.terminalTitle(for: session))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(LitheTheme.primaryText)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: LitheTheme.Metrics.tabHeight)
+        .background(LitheTheme.activeTabBackground)
+        .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius))
+        .shadow(color: .black.opacity(0.42), radius: 10, y: 6)
+    }
+
+    private func shellLabel(for path: String) -> String {
+        let name = URL(fileURLWithPath: path).lastPathComponent
+        return path == "/bin/\(name)" ? name : "\(name) (\(path))"
+    }
+}
+
+private struct TerminalStatusView: View {
+    @ObservedObject var session: TerminalSession
+
+    var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             HStack(spacing: 5) {
                 Circle()
@@ -139,97 +293,64 @@ struct TerminalView: View {
             .help("Command-click a file path or URL to open it")
         }
     }
+}
 
-    private func terminalTab(_ terminalSession: TerminalSession) -> some View {
-        let isActive = model.activeTerminalSessionID == terminalSession.id
-            || (model.activeTerminalSessionID == nil && model.terminalSessions.first?.id == terminalSession.id)
+private struct TerminalToolTabTitle: View {
+    @ObservedObject var session: TerminalSession
+    let fallbackTitle: String
+    let isActive: Bool
 
-        return HStack(spacing: 1) {
-            Button {
-                model.selectTerminalSession(terminalSession)
-                requestInputFocus()
-            } label: {
-                Text(model.terminalTitle(for: terminalSession))
-                    .font(.system(size: 11.5, weight: isActive ? .semibold : .medium))
-                    .foregroundStyle(isActive ? LitheTheme.primaryText : LitheTheme.secondaryText)
-                    .padding(.leading, 9)
-                    .padding(.trailing, 5)
-                    .frame(height: 26)
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                model.closeTerminalSession(terminalSession)
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .frame(width: 22, height: 22)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Close \(model.terminalTitle(for: terminalSession))")
-        }
-        .background(isActive ? LitheTheme.subtleSelection : .clear)
-        .overlay {
-            RoundedRectangle(cornerRadius: 5)
-                .stroke(isActive ? LitheTheme.inputFocusBorder : .clear, lineWidth: 1)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 5))
-        .lithePointer()
-    }
-
-    private var terminalCanvas: some View {
-        Group {
-            if let nativeView = session.nativeView as? NSView {
-                SwiftTermSurface(
-                    nativeView: nativeView,
-                    focusRequestID: focusRequestID
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 8)
-            } else {
-                LitheTheme.editor
-            }
-        }
-        .background(LitheTheme.editor)
-    }
-
-    private func shellLabel(for path: String) -> String {
-        let name = URL(fileURLWithPath: path).lastPathComponent
-        return path == "/bin/\(name)" ? name : "\(name) (\(path))"
-    }
-
-    private func requestInputFocus() {
-        guard session.isRunning else { return }
-        focusRequestID &+= 1
-        session.focus()
+    var body: some View {
+        Text(session.processTitle.flatMap { $0.isEmpty ? nil : $0 } ?? fallbackTitle)
+            .font(.system(size: 11.5, weight: isActive ? .semibold : .medium))
+            .lineLimit(1)
     }
 }
 
-private struct SwiftTermSurface: NSViewRepresentable {
-    let nativeView: NSView
-    let focusRequestID: Int
+private struct TerminalBarDropDelegate: DropDelegate {
+    let receive: @MainActor (UUID) -> Void
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
     }
 
-    func makeNSView(context: Context) -> NSView {
-        nativeView
+    func validateDrop(info: DropInfo) -> Bool {
+        !info.itemProviders(for: [TerminalTabDragPayload.type]).isEmpty
     }
 
-    func updateNSView(_ view: NSView, context: Context) {
-        guard context.coordinator.lastFocusRequestID != focusRequestID else { return }
-        context.coordinator.lastFocusRequestID = focusRequestID
-        DispatchQueue.main.async {
-            guard let window = view.window, window.firstResponder !== view else { return }
-            window.makeFirstResponder(view)
+    func performDrop(info: DropInfo) -> Bool {
+        TerminalTabDragPayload.loadSessionID(
+            from: info.itemProviders(for: [TerminalTabDragPayload.type]),
+            completion: receive
+        )
+    }
+}
+
+private struct TerminalTabDropDelegate: DropDelegate {
+    let targetSessionID: UUID
+    let targetWidth: CGFloat
+    let moveBefore: @MainActor (UUID) -> Void
+    let moveAfter: @MainActor (UUID) -> Void
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func validateDrop(info: DropInfo) -> Bool {
+        !info.itemProviders(for: [TerminalTabDragPayload.type]).isEmpty
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        let insertAfter = info.location.x >= targetWidth / 2
+        return TerminalTabDragPayload.loadSessionID(
+            from: info.itemProviders(for: [TerminalTabDragPayload.type])
+        ) { sourceSessionID in
+            guard sourceSessionID != targetSessionID else { return }
+            if insertAfter {
+                moveAfter(sourceSessionID)
+            } else {
+                moveBefore(sourceSessionID)
+            }
         }
-    }
-
-    final class Coordinator: NSObject {
-        var lastFocusRequestID = -1
     }
 }

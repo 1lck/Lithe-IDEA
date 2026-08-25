@@ -163,7 +163,9 @@ pub fn run_write_document(args: WriteDocumentArgs) -> Result<(), String> {
         relative.as_str(),
         "run/local.json" | "run/configurations.json" | "project.json"
     ) {
-        return Err("Run documents can only be written under .lithe/run or .lithe/project.json".into());
+        return Err(
+            "Run documents can only be written under .lithe/run or .lithe/project.json".into(),
+        );
     }
     let target = join_relative(&root.join(".lithe"), &relative);
     validate_write_target(&root, &target)?;
@@ -209,11 +211,9 @@ pub fn run_resolve_launch(args: ResolveLaunchArgs) -> Result<ResolvedLaunch, Str
         environment.insert("JAVA_HOME".into(), home.clone());
     }
     for (key, value) in args.environment {
-        if let Some(text) = resolve_environment_value(
-            &value,
-            java_home.as_deref(),
-            maven_java_home.as_deref(),
-        ) {
+        if let Some(text) =
+            resolve_environment_value(&value, java_home.as_deref(), maven_java_home.as_deref())
+        {
             environment.insert(key, text);
         }
     }
@@ -248,14 +248,18 @@ pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), S
     sessions()
         .lock()
         .map_err(|_| "Run process state is unavailable".to_string())?
-        .insert(
-            args.session_id.clone(),
-            RunningSession { pid, stdin },
-        );
+        .insert(args.session_id.clone(), RunningSession { pid, stdin });
 
     let stdout_reader = spawn_output_reader(app.clone(), args.session_id.clone(), stdout);
     let stderr_reader = spawn_output_reader(app.clone(), args.session_id.clone(), stderr);
-    spawn_exit_waiter(app, args.session_id, child, pid, stdout_reader, stderr_reader);
+    spawn_exit_waiter(
+        app,
+        args.session_id,
+        child,
+        pid,
+        stdout_reader,
+        stderr_reader,
+    );
     Ok(())
 }
 
@@ -308,7 +312,12 @@ fn write_generated_documents(
     let requirements_path = toolchain_directory.join("requirements.json");
     let ignore_path = lithe_directory.join(".gitignore");
     let manifest_path = lithe_directory.join("project.json");
-    for path in [&generated_path, &requirements_path, &ignore_path, &manifest_path] {
+    for path in [
+        &generated_path,
+        &requirements_path,
+        &ignore_path,
+        &manifest_path,
+    ] {
         validate_write_target(&root, path)?;
     }
     fs::create_dir_all(&run_directory).map_err(|error| error.to_string())?;
@@ -327,7 +336,11 @@ fn write_generated_documents(
     atomic_write(&generated_path, pretty_json(generated)?.as_bytes())
 }
 
-fn collect_java_sources(root: &Path, directory: &Path, paths: &mut Vec<String>) -> Result<(), String> {
+fn collect_java_sources(
+    root: &Path,
+    directory: &Path,
+    paths: &mut Vec<String>,
+) -> Result<(), String> {
     if paths.len() >= MAX_JAVA_SOURCES {
         return Ok(());
     }
@@ -357,7 +370,10 @@ fn collect_java_sources(root: &Path, directory: &Path, paths: &mut Vec<String>) 
 }
 
 fn is_skipped_directory(name: &str) -> bool {
-    name.starts_with('.') || SKIPPED_DIRECTORIES.iter().any(|value| value.eq_ignore_ascii_case(name))
+    name.starts_with('.')
+        || SKIPPED_DIRECTORIES
+            .iter()
+            .any(|value| value.eq_ignore_ascii_case(name))
 }
 
 fn workspace_relative(root: &Path, path: &Path) -> Option<String> {
@@ -445,7 +461,12 @@ fn discover_toolchains_with_overrides(
             java.push(runtime);
         }
     }
-    java.sort_by(|left, right| right.version.cmp(&left.version).then(left.home_path.cmp(&right.home_path)));
+    java.sort_by(|left, right| {
+        right
+            .version
+            .cmp(&left.version)
+            .then(left.home_path.cmp(&right.home_path))
+    });
 
     let mut maven = Vec::new();
     let mut seen_executables = std::collections::HashSet::new();
@@ -582,7 +603,10 @@ pub(crate) fn java_executable(home: &Path) -> Option<PathBuf> {
 }
 
 fn java_home_from_executable(executable: &Path) -> Option<PathBuf> {
-    executable.parent().and_then(Path::parent).map(Path::to_path_buf)
+    executable
+        .parent()
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
 }
 
 fn resolve_java_home(root: &Path, override_path: &str) -> Result<Option<String>, String> {
@@ -596,7 +620,9 @@ fn resolve_java_home(root: &Path, override_path: &str) -> Result<Option<String>,
         if java_executable(&path).is_some() {
             return Ok(Some(normalize_path(&path).to_string_lossy().into_owned()));
         }
-        return Err(format!("JDK Home does not point to a directory: {configured}"));
+        return Err(format!(
+            "JDK Home does not point to a directory: {configured}"
+        ));
     }
     Ok(discover_toolchains(Some(root))
         .java
@@ -619,13 +645,19 @@ fn resolve_executable(
                 })?;
                 java_executable(Path::new(home))
                     .map(|path| path.to_string_lossy().into_owned())
-                    .ok_or_else(|| "No Java runtime was found. Set JAVA_HOME or install a JDK.".into())
+                    .ok_or_else(|| {
+                        "No Java runtime was found. Set JAVA_HOME or install a JDK.".into()
+                    })
             }
             "project-maven" => resolve_maven_executable(root, working_directory, maven_override),
             other => Err(format!("No resolver is registered for toolchain {other}.")),
         };
     }
-    if let Some(command) = executable.command.as_deref().filter(|value| !value.is_empty()) {
+    if let Some(command) = executable
+        .command
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
         return lookup_on_path(command)
             .or_else(|| lookup_on_path(&format!("{command}.cmd")))
             .or_else(|| lookup_on_path(&format!("{command}.exe")))
@@ -723,7 +755,10 @@ fn resolve_environment_value(
     }
     let object = value.as_object()?;
     let toolchain = object.get("toolchain")?.as_str()?;
-    let property = object.get("property").and_then(Value::as_str).unwrap_or("home");
+    let property = object
+        .get("property")
+        .and_then(Value::as_str)
+        .unwrap_or("home");
     if property != "home" {
         return None;
     }
@@ -751,7 +786,10 @@ fn command_output(executable: &Path, arguments: &[&str]) -> String {
         .map(|argument| (*argument).to_string())
         .collect::<Vec<_>>();
     let mut command = command_for_executable(&executable.to_string_lossy(), &arguments);
-    command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     apply_creation_flags(&mut command);
     command
         .output()
@@ -943,7 +981,9 @@ fn decode_windows_code_page(bytes: &[u8], code_page: u32) -> Option<String> {
 
 fn java_version(output: &str) -> Option<String> {
     for line in output.lines() {
-        let Some(index) = line.find("version") else { continue };
+        let Some(index) = line.find("version") else {
+            continue;
+        };
         let rest = line[index + "version".len()..].trim();
         if let Some(quoted) = rest.strip_prefix('"') {
             return quoted.split('"').next().map(str::to_string);
@@ -1015,7 +1055,11 @@ fn spawn_exit_waiter(
     stderr_reader: thread::JoinHandle<()>,
 ) {
     thread::spawn(move || {
-        let exit_code = child.wait().ok().and_then(|status| status.code()).unwrap_or(-1);
+        let exit_code = child
+            .wait()
+            .ok()
+            .and_then(|status| status.code())
+            .unwrap_or(-1);
         let _ = stdout_reader.join();
         let _ = stderr_reader.join();
         let stale = match sessions().lock() {
@@ -1099,7 +1143,11 @@ mod tests {
             Some("spring-boot.maven:demo"),
         )
         .expect("write");
-        assert!(root.join(".lithe").join("run").join("generated.json").is_file());
+        assert!(root
+            .join(".lithe")
+            .join("run")
+            .join("generated.json")
+            .is_file());
         assert!(root
             .join(".lithe")
             .join("toolchains")
@@ -1113,7 +1161,10 @@ mod tests {
             &fs::read_to_string(root.join(".lithe").join("project.json")).expect("manifest"),
         )
         .expect("json");
-        assert_eq!(manifest["defaultRunConfiguration"], "spring-boot.maven:demo");
+        assert_eq!(
+            manifest["defaultRunConfiguration"],
+            "spring-boot.maven:demo"
+        );
         fs::remove_dir_all(root).ok();
     }
 
@@ -1221,8 +1272,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn windows_gbk_bytes_decode_to_chinese() {
-        let text = decode_windows_code_page(&[0xCF, 0xB5, 0xCD, 0xB3], 936)
-            .expect("GBK decode");
+        let text = decode_windows_code_page(&[0xCF, 0xB5, 0xCD, 0xB3], 936).expect("GBK decode");
         assert_eq!(text, "系统");
     }
 }

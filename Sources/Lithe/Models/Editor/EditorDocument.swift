@@ -23,7 +23,7 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
         set { replaceText(newValue, publish: true) }
     }
     @Published private(set) var savedText: String
-    @Published var hasExternalConflict = false
+    private(set) var lifecycleState: DocumentLifecycleState
     private(set) var lastKnownModificationDate: Date?
 
     init(
@@ -38,6 +38,7 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
         self.displayPath = displayPath
         self.storedText = text
         self.savedText = text
+        self.lifecycleState = .clean(revision: 0)
         self.lastKnownModificationDate = modificationDate
     }
 
@@ -45,60 +46,93 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
         displayPath?.split(separator: "/").last.map(String.init) ?? url.lastPathComponent
     }
 
-    var isDirty: Bool { storedText != savedText }
+    var isDirty: Bool { lifecycleState.hasUnpersistedText }
+    var hasExternalConflict: Bool { lifecycleState.status == .conflict }
 
     /// Keep the live NSTextView buffer in sync without waking SwiftUI on every
     /// already-dirty keystroke. The first edit still publishes so the tab dirty
     /// mark can appear.
     func applyLiveEditorText(_ newText: String) {
-        replaceText(newText, publish: isDirty != (newText != savedText))
+        let remainsUnpersisted = lifecycleState.status == .saving
+            || lifecycleState.status == .conflict
+            || newText != savedText
+        replaceText(newText, publish: isDirty != remainsUnpersisted)
     }
 
     private func replaceText(_ newText: String, publish: Bool) {
         guard storedText != newText else { return }
+        let nextRevision = lifecycleState.revision + 1
+        let nextLifecycle: DocumentLifecycleState
+        switch lifecycleState.status {
+        case .saving, .conflict:
+            nextLifecycle = DocumentLifecycleState(
+                status: lifecycleState.status,
+                revision: nextRevision,
+                savedRevision: lifecycleState.savedRevision,
+                saveRevision: lifecycleState.saveRevision,
+                operationId: lifecycleState.operationId
+            )
+        case .clean, .dirty:
+            if newText == savedText {
+                nextLifecycle = .clean(revision: nextRevision)
+            } else {
+                nextLifecycle = .dirty(
+                    revision: nextRevision,
+                    savedRevision: lifecycleState.savedRevision ?? lifecycleState.revision
+                )
+            }
+        }
         if publish {
             objectWillChange.send()
         }
         storedText = newText
+        lifecycleState = nextLifecycle
     }
 
     func save() throws {
         guard !isReadOnly else { throw DocumentError.readOnly }
         try text.write(to: url, atomically: true, encoding: .utf8)
-        savedText = text
-        lastKnownModificationDate = Self.modificationDate(for: url)
-        hasExternalConflict = false
+        markSavedWithoutWriting()
     }
 
     func reloadFromDisk() throws {
         let contents = try String(contentsOf: url, encoding: .utf8)
-        text = contents
+        storedText = contents
         savedText = contents
+        lifecycleState = .clean(revision: lifecycleState.revision + 1)
         lastKnownModificationDate = Self.modificationDate(for: url)
-        hasExternalConflict = false
     }
 
     func keepEditorVersion() {
-        lastKnownModificationDate = Self.modificationDate(for: url)
-        hasExternalConflict = false
+        acknowledgeExternalModification()
+        lifecycleState = .dirty(
+            revision: lifecycleState.revision,
+            savedRevision: lifecycleState.savedRevision ?? 0
+        )
+        objectWillChange.send()
     }
 
-    func processPossibleExternalChange() -> Bool {
+    func acknowledgeExternalModification() {
+        lastKnownModificationDate = Self.modificationDate(for: url)
+    }
+
+    func hasPossibleExternalChange() -> Bool {
         let currentDate = Self.modificationDate(for: url)
-        guard currentDate != lastKnownModificationDate else { return false }
-
-        if isDirty {
-            hasExternalConflict = true
-        } else {
-            try? reloadFromDisk()
-        }
-        return true
+        return currentDate != lastKnownModificationDate
     }
 
-    func markSavedWithoutWriting() {
+    func applyLifecycleState(_ state: DocumentLifecycleState) {
+        let statusChanged = lifecycleState.status != state.status
+        if statusChanged {
+            objectWillChange.send()
+        }
+        lifecycleState = state
+    }
+
+    func markSavedWithoutWriting(state: DocumentLifecycleState? = nil) {
         savedText = text
+        lifecycleState = state ?? .clean(revision: lifecycleState.revision)
         lastKnownModificationDate = Self.modificationDate(for: url)
-        hasExternalConflict = false
     }
 
     func relocate(to newURL: URL) {

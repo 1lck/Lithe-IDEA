@@ -9,6 +9,7 @@ final class AppSettings: ObservableObject {
         static let themePreference = "settings.themePreference"
         static let language = "settings.language"
         static let editorFontSize = "settings.editorFontSize"
+        static let projectTreeRowHeight = "settings.projectTreeRowHeight"
         static let tabWidth = "settings.tabWidth"
         static let editorTabLayoutMode = "settings.editorTabLayoutMode"
         static let showCodeVision = "settings.showCodeVision"
@@ -19,7 +20,6 @@ final class AppSettings: ObservableObject {
         static let hiddenFilePatterns = "settings.hiddenFilePatterns"
         static let gitSaveChangesPolicy = "settings.gitSaveChangesPolicy"
         static let projectOpenBehavior = "settings.projectOpenBehavior"
-        static let javaLanguageServerJDKPath = "settings.javaLanguageServerJDKPath"
         static let commitMessageAI = "settings.commitMessageAI"
         static let keyboardShortcutOverrides = "settings.keyboardShortcutOverrides"
         static let customLogDirectory = "settings.customLogDirectory"
@@ -46,6 +46,9 @@ final class AppSettings: ObservableObject {
     }
     @Published var language: AppLanguage { didSet { defaults.set(language.rawValue, forKey: Key.language) } }
     @Published var editorFontSize: Double { didSet { defaults.set(editorFontSize, forKey: Key.editorFontSize) } }
+    @Published var projectTreeRowHeight: Double {
+        didSet { defaults.set(projectTreeRowHeight, forKey: Key.projectTreeRowHeight) }
+    }
     @Published var tabWidth: Int { didSet { defaults.set(tabWidth, forKey: Key.tabWidth) } }
     @Published var editorTabLayoutMode: EditorTabLayoutMode {
         didSet { defaults.set(editorTabLayoutMode.rawValue, forKey: Key.editorTabLayoutMode) }
@@ -72,9 +75,6 @@ final class AppSettings: ObservableObject {
     @Published var projectOpenBehavior: ProjectOpenBehavior {
         didSet { defaults.set(projectOpenBehavior.rawValue, forKey: Key.projectOpenBehavior) }
     }
-    @Published var javaLanguageServerJDKPath: String {
-        didSet { defaults.set(javaLanguageServerJDKPath, forKey: Key.javaLanguageServerJDKPath) }
-    }
     @Published var commitMessageAI: CommitMessageAISettings {
         didSet { saveCommitMessageAI() }
     }
@@ -98,6 +98,7 @@ final class AppSettings: ObservableObject {
         ) ?? .dark
         language = AppLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .english
         editorFontSize = defaults.object(forKey: Key.editorFontSize) as? Double ?? 13
+        projectTreeRowHeight = defaults.object(forKey: Key.projectTreeRowHeight) as? Double ?? 24
         tabWidth = defaults.object(forKey: Key.tabWidth) as? Int ?? 4
         editorTabLayoutMode = EditorTabLayoutMode(
             rawValue: defaults.string(forKey: Key.editorTabLayoutMode) ?? ""
@@ -116,7 +117,6 @@ final class AppSettings: ObservableObject {
         projectOpenBehavior = ProjectOpenBehavior(
             rawValue: defaults.string(forKey: Key.projectOpenBehavior) ?? ""
         ) ?? .ask
-        javaLanguageServerJDKPath = defaults.string(forKey: Key.javaLanguageServerJDKPath) ?? ""
         keyboardShortcutOverrides = Self.loadKeyboardShortcutOverrides(from: defaults)
         customLogDirectory = defaults.string(forKey: Key.customLogDirectory).flatMap { path in
             guard !path.isEmpty else { return nil }
@@ -183,6 +183,7 @@ final class AppSettings: ObservableObject {
         themePreference = .dark
         language = .english
         editorFontSize = 13
+        projectTreeRowHeight = 24
         tabWidth = 4
         editorTabLayoutMode = .singleLine
         showCodeVision = true
@@ -193,7 +194,6 @@ final class AppSettings: ObservableObject {
         hiddenFilePatterns = FileVisibilityRules.default.hiddenFilePatterns
         gitSaveChangesPolicy = .stash
         projectOpenBehavior = .ask
-        javaLanguageServerJDKPath = ""
         commitMessageAI = .default
         setCustomLogDirectory(nil)
         setKeyboardShortcutOverrides([:])

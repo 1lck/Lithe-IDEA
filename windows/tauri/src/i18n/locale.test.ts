@@ -80,7 +80,7 @@ describe("Windows display language", () => {
     expect(translate("welcome.openFolder")).toBe("打开文件夹");
     expect(translate("missing.key")).toBe("missing.key");
     expect(getLocaleCatalog("en-US")).toHaveProperty(["settings.displayLanguage"]);
-    expect(defaultSettings.displayLanguage).toBe("en-US");
+    expect(defaultSettings.displayLanguage).toBe("zh-CN");
   });
 
   test("keeps English and Simplified Chinese catalogs aligned", () => {

@@ -1,31 +1,39 @@
-import { useState } from "react";
+import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useTranslation } from "@/i18n/locale-provider";
+import { Button } from "@/ui/button";
 import { PuzzlePieceIcon } from "@/ui/icons";
-import Tooltip from "@/ui/tooltip";
 
 export function PluginActivityRail() {
   const { t } = useTranslation();
-  const [selected, setSelected] = useState(false);
-  const pluginsLabel = t("plugins.title");
+  const openExtensionsBuffer = useBufferStore.use.actions().openExtensionsBuffer;
+  const isExtensionsActive = useBufferStore((state) => {
+    if (!state.activeBufferId) return false;
+
+    return state.buffers.some(
+      (buffer) => buffer.id === state.activeBufferId && buffer.type === "extensions",
+    );
+  });
+  const extensionsLabel = t("extensions.title");
 
   return (
     <aside
-      aria-label={pluginsLabel}
-      className="flex w-9.5 shrink-0 flex-col items-center bg-surface pt-1"
+      aria-label={extensionsLabel}
+      className="lithe-plugin-activity-rail flex w-9.5 shrink-0 flex-col items-center rounded-r-xl border-border border-r bg-surface pt-1"
     >
-      <Tooltip content={pluginsLabel} side="left">
-        <button
-          type="button"
-          className={`flex size-7.5 items-center justify-center rounded-sm text-subtle-foreground transition-colors hover:bg-accent hover:text-foreground ${
-            selected ? "bg-selected text-foreground" : ""
-          }`}
-          onClick={() => setSelected((value) => !value)}
-          aria-pressed={selected}
-          aria-label={pluginsLabel}
-        >
-          <PuzzlePieceIcon className="size-4.5" />
-        </button>
-      </Tooltip>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        active={isExtensionsActive}
+        tooltip={extensionsLabel}
+        tooltipSide="left"
+        aria-label={extensionsLabel}
+        aria-pressed={isExtensionsActive}
+        className="rounded-sm"
+        onClick={openExtensionsBuffer}
+      >
+        <PuzzlePieceIcon className="size-4.5" />
+      </Button>
     </aside>
   );
 }

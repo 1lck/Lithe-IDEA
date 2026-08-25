@@ -21,7 +21,7 @@ const DEFAULT_AI_AUTOCOMPLETE_CUSTOM_BASE_URL = "";
 
 export const defaultSettings: Settings = {
   // General
-  autoSave: false,
+  autoSave: true,
   quickOpenPreview: true,
   // Editor
   fontFamily: DEFAULT_MONO_FONT_FAMILY,
@@ -64,7 +64,7 @@ export const defaultSettings: Settings = {
   // UI
   uiFontFamily: DEFAULT_UI_FONT_FAMILY,
   uiFontSize: UI_FONT_SIZE_DEFAULT,
-  displayLanguage: "en-US",
+  displayLanguage: "zh-CN",
   reduceMotion: false,
   showStatusBar: true,
   showTabIcons: true,
@@ -72,7 +72,7 @@ export const defaultSettings: Settings = {
   windowChromeDensity: "focused",
   // Theme
   theme: "lithe-dark",
-  iconTheme: "lithe-icons",
+  iconTheme: "idea-icons",
   syncSystemTheme: false,
   autoThemeLight: "lithe-light",
   autoThemeDark: "lithe-dark",
@@ -127,7 +127,6 @@ export const defaultSettings: Settings = {
   lintOnSave: false,
   autoCompletion: true,
   parameterHints: true,
-  jdtlsJavaHomePath: "",
   // External Editor
   externalEditor: "none",
   customEditorCommand: "",

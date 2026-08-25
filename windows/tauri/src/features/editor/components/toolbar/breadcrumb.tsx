@@ -1,7 +1,6 @@
 import { type ReactNode, useRef, useState } from "react";
 import { DotsThreeIcon as MoreHorizontal } from "@/ui/icons";
 import { useShallow } from "zustand/react/shallow";
-import { EditorStatusActions } from "@/features/editor/components/toolbar/editor-status-actions";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { getBufferById } from "@/features/editor/utils/buffer-index";
 import { useInlineEditToolbarStore } from "@/features/editor/stores/inline-edit-toolbar.store";
@@ -173,10 +172,6 @@ export default function Breadcrumb({
   const defaultActions =
     showDefaultActions && activeBuffer ? (
       <>
-        <EditorStatusActions
-          bufferId={resolvedBufferId ?? undefined}
-          editorViewKey={editorViewKey}
-        />
         <BreadcrumbActionButton
           ref={actionsButtonRef}
           onClick={() => setIsActionsMenuOpen((open) => !open)}
@@ -202,8 +197,8 @@ export default function Breadcrumb({
 
   return (
     <>
-      <div className="flex min-h-7 select-none items-center justify-between bg-background px-3 py-1">
-        <div className="font-sans flex min-w-0 items-center gap-2 text-subtle-foreground ui-text-sm">
+      <div className="flex h-7 min-h-7 select-none items-center justify-between border-border/50 border-b bg-background px-2 py-0">
+        <div className="font-sans ui-text-chrome flex min-w-0 items-center gap-2 text-subtle-foreground">
           {showPath && showBreadcrumbPath ? (
             <>
               {showFilePath ? (

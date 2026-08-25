@@ -19,10 +19,12 @@ export const createPaneContent = (id: string, spec: OpenContentSpec): PaneConten
         content: spec.content,
         savedContent: spec.content,
         isDirty: false,
+        documentLifecycle: { status: "clean", revision: 0 },
         isVirtual: spec.isVirtual ?? false,
         isPreview: spec.isPreview ?? false,
         readOnly: spec.readOnly,
         language: spec.language ?? detectLanguageFromFileName(spec.name),
+        lspDocument: spec.lspDocument,
         tokens: [],
       };
     case "terminal": {

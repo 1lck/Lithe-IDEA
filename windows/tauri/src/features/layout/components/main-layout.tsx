@@ -19,13 +19,16 @@ import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.s
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { toast } from "sonner";
 import { useTranslation } from "@/i18n/locale-provider";
-import { cn } from "@/utils/cn";
 import { frontendTrace } from "@/utils/frontend-trace";
 import { recordStartupMilestone } from "@/features/bootstrap/startup-performance";
+import { prewarmCommonLanguageTokenizers } from "@/features/editor/engines/monaco/language-contributions";
+import { ReferencesPopover } from "@/features/references/components/references-popover";
 import { getInternalTabDragData } from "@/features/tabs/utils/internal-tab-drag";
+import { PendingBufferCloseDialog } from "@/features/window/components/pending-buffer-close-dialog";
 import TitleBarWithSettings from "../../window/components/title-bar/title-bar";
 import { ProjectTabBar } from "../../window/components/project-tab-bar";
 import Footer from "./footer/footer";
+import { WorkbenchErrorBoundary } from "./workbench-error-boundary";
 import { ResizablePane } from "./resizable-pane";
 import {
   COLLAPSED_ACTIVITY_RAIL_WIDTH,
@@ -208,6 +211,7 @@ export function MainLayout() {
             tabPath: activeTab.path,
           });
           recordStartupMilestone("workspace:ready");
+          prewarmCommonLanguageTokenizers();
         } catch (error) {
           console.error("Failed to restore workspace:", error);
           frontendTrace("error", "workspace-open", "startupRestore:error", {
@@ -219,6 +223,7 @@ export function MainLayout() {
         }
       } else {
         recordStartupMilestone("workspace:ready");
+        prewarmCommonLanguageTokenizers();
       }
     };
 
@@ -262,7 +267,7 @@ export function MainLayout() {
       )}
 
       <TitleBarWithSettings />
-      <ProjectTabBar />
+      <ProjectTabBar hideWhenSingle />
 
       {rootFolderPath ? (
         <>
@@ -282,14 +287,10 @@ export function MainLayout() {
               </ResizablePane>
 
               <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                <div
-                  className={cn(
-                    "lithe-glass-island relative min-h-0 flex-1 overflow-hidden border-border/70 border-y border-r bg-background",
-                    !isSidebarVisible && "rounded-l-xl border-l",
-                    "rounded-r-xl",
-                  )}
-                >
-                  <CachedWorkspaceSplitViews />
+                <div className="lithe-glass-island relative min-h-0 flex-1 overflow-hidden rounded-xl border-border border-l bg-background">
+                  <WorkbenchErrorBoundary>
+                    <CachedWorkspaceSplitViews />
+                  </WorkbenchErrorBoundary>
                 </div>
                 {terminalWidthMode === "editor" && deferredSurfacesReady && (
                   <Suspense fallback={null}>
@@ -316,6 +317,8 @@ export function MainLayout() {
         <WelcomeScreen />
       )}
 
+      <PendingBufferCloseDialog />
+
       {/* Global modals and overlays */}
       {deferredSurfacesReady ? (
         <Suspense fallback={null}>
@@ -334,6 +337,7 @@ export function MainLayout() {
           <TerminalHost />
         </Suspense>
       ) : null}
+      <ReferencesPopover />
     </div>
   );
 }

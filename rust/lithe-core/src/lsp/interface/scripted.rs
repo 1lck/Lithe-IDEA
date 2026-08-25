@@ -89,8 +89,8 @@ impl ScriptedServer {
         self.shared.ready.notify_all();
     }
 
-    /// Answers `initialize` with the given feature capabilities and, once the
-    /// engine reports ready, leaves the session usable for feature requests.
+    /// Answers the standard `initialize` request with the given capabilities.
+    /// Providers with a second readiness phase remain initializing afterward.
     pub fn complete_initialize(&self, capabilities: Value) {
         let id = self
             .await_request("initialize")
@@ -105,13 +105,28 @@ impl ScriptedServer {
         }));
     }
 
+    /// Completes both the standard handshake and JDT LS project-import phase.
+    pub fn complete_java_initialize(&self, capabilities: Value) {
+        self.complete_initialize(capabilities);
+        self.send(serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "language/status",
+            "params": { "type": "ServiceReady" }
+        }));
+    }
+
     /// Blocks until the engine has written a request for `method`, returning its
     /// JSON-RPC id. Polling the written bytes is what lets a test stay in step
     /// with the engine's reader and monitor threads without fixed sleeps.
     pub fn await_request(&self, method: &str) -> Option<String> {
+        self.await_request_at(method, 0)
+    }
+
+    /// Blocks until the zero-based request occurrence for `method` is written.
+    pub fn await_request_at(&self, method: &str, index: usize) -> Option<String> {
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
-            if let Some(id) = self.request_id(method) {
+            if let Some(id) = self.request_ids(method).get(index).cloned() {
                 return Some(id);
             }
             std::thread::sleep(Duration::from_millis(2));
@@ -135,17 +150,20 @@ impl ScriptedServer {
         false
     }
 
-    fn request_id(&self, method: &str) -> Option<String> {
-        self.messages().into_iter().find_map(|message| {
-            (message.get("method").and_then(Value::as_str) == Some(method))
-                .then(|| {
-                    message
-                        .get("id")
-                        .and_then(Value::as_str)
-                        .map(str::to_string)
-                })
-                .flatten()
-        })
+    fn request_ids(&self, method: &str) -> Vec<String> {
+        self.messages()
+            .into_iter()
+            .filter_map(|message| {
+                (message.get("method").and_then(Value::as_str) == Some(method))
+                    .then(|| {
+                        message
+                            .get("id")
+                            .and_then(Value::as_str)
+                            .map(str::to_string)
+                    })
+                    .flatten()
+            })
+            .collect()
     }
 
     /// Every JSON-RPC message the engine has written, unframed.

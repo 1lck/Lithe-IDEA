@@ -56,6 +56,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     private var relocateOpenDocuments: (@MainActor (URL, URL) -> Void)?
     private var closeDocuments: (@MainActor (URL) -> Void)?
     private var processExternalChanges: (@MainActor ([URL]) -> Bool)?
+    private var notifyWorkspaceFileChanges: (@MainActor ([WorkspaceFileChange]) -> Void)?
     private var reloadProjectServices: (@MainActor () async -> Void)?
     private var refreshGit: (@MainActor () async -> Void)?
     private var updateHistoryVisibilityRules: (@MainActor (FileVisibilityRules) async -> Void)?
@@ -91,6 +92,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         relocateOpenDocuments: @escaping @MainActor (URL, URL) -> Void,
         closeDocuments: @escaping @MainActor (URL) -> Void,
         processExternalChanges: @escaping @MainActor ([URL]) -> Bool,
+        notifyWorkspaceFileChanges: @escaping @MainActor ([WorkspaceFileChange]) -> Void = { _ in },
         reloadProjectServices: @escaping @MainActor () async -> Void,
         refreshGit: @escaping @MainActor () async -> Void,
         updateHistoryVisibilityRules: @escaping @MainActor (FileVisibilityRules) async -> Void,
@@ -111,6 +113,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         self.relocateOpenDocuments = relocateOpenDocuments
         self.closeDocuments = closeDocuments
         self.processExternalChanges = processExternalChanges
+        self.notifyWorkspaceFileChanges = notifyWorkspaceFileChanges
         self.reloadProjectServices = reloadProjectServices
         self.refreshGit = refreshGit
         self.updateHistoryVisibilityRules = updateHistoryVisibilityRules
@@ -744,8 +747,27 @@ package final class WorkspaceFeatureModel: ObservableObject {
         let changedURLs = paths
             .map { URL(fileURLWithPath: $0).standardizedFileURL }
             .filter(isWorkspaceURL)
+            .reduce(into: [URL]()) { values, url in
+                if !values.contains(url) { values.append(url) }
+            }
+            .sorted { $0.path < $1.path }
         let conflictDetected = processExternalChanges?(changedURLs) ?? false
         if conflictDetected { notify?("External edits conflict with unsaved changes") }
+
+        let knownPaths = Set(projectFiles.map { $0.standardizedFileURL.path })
+        let fileChanges = changedURLs.compactMap { url -> WorkspaceFileChange? in
+            let wasKnown = knownPaths.contains(url.path)
+            if fileOperations.fileExists(at: url) {
+                return WorkspaceFileChange(
+                    fileURL: url,
+                    kind: wasKnown ? .changed : .created
+                )
+            }
+            return wasKnown ? WorkspaceFileChange(fileURL: url, kind: .deleted) : nil
+        }
+        if !fileChanges.isEmpty {
+            notifyWorkspaceFileChanges?(fileChanges)
+        }
 
         let requiresWorkspaceSnapshot = changedURLs.contains { url in
             let wasKnownFile = projectFiles.contains { $0.standardizedFileURL.path == url.path }
@@ -767,7 +789,6 @@ package final class WorkspaceFeatureModel: ObservableObject {
                 && url.path.hasPrefix(workspaceURL.appendingPathComponent(".lithe").path + "/")
             return isLitheConfiguration
                 || name == "pom.xml" || name == "build.gradle" || name == "build.gradle.kts"
-                || url.pathExtension.lowercased() == "java"
         }
         if requiresProjectServiceReload { await reloadProjectServices?() }
         await requestGitRefreshNow()

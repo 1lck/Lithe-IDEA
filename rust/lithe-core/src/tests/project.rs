@@ -546,3 +546,34 @@ fn file_commands_round_trip_and_reject_traversal() {
     fs::remove_dir_all(root).expect("temporary workspace should be removable");
     fs::remove_dir_all(outside).expect("outside fixture should be removable");
 }
+
+#[test]
+fn document_lifecycle_matches_the_cross_platform_fixture() {
+    let fixture_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../shared/fixtures/documents/lifecycle-v1.json");
+    let fixture: Value = serde_json::from_str(
+        &fs::read_to_string(fixture_path).expect("document lifecycle fixture should be readable"),
+    )
+    .expect("document lifecycle fixture should be valid JSON");
+
+    for case in fixture["cases"]
+        .as_array()
+        .expect("document lifecycle cases should be an array")
+    {
+        let request = serde_json::json!({
+            "id": case["name"],
+            "command": "document.lifecycle",
+            "payload": {
+                "state": case["state"],
+                "event": case["event"]
+            }
+        });
+        let response: Value = serde_json::from_str(&execute_json(&request.to_string()))
+            .expect("document lifecycle response should be valid JSON");
+        assert_eq!(
+            response["data"], case["expected"],
+            "fixture case {}",
+            case["name"]
+        );
+    }
+}

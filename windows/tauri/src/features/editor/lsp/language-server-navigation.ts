@@ -1,25 +1,30 @@
+import type { LspDocumentAvailability } from "./lsp-client";
 import type { LspStatus } from "./stores/lsp.store";
 
-export function languageDisplayName(languageId: string | undefined): string {
-  if (!languageId) return "Language";
-  if (languageId === "java") return "Java";
-  return languageId;
-}
+export type LanguageServerNavigationBlock =
+  | { reason: "preparing"; languageId?: string }
+  | { reason: "failed"; languageId?: string }
+  | { reason: "unsupported"; languageId?: string }
+  | { reason: "notReady"; languageId?: string };
 
-export function languageServerUnavailableMessage(args: {
-  languageId?: string;
-  status: LspStatus;
-  lastError?: string;
-  hasSession: boolean;
-}): string | null {
-  if (args.hasSession && args.status === "connected") return null;
-
-  const name = languageDisplayName(args.languageId);
-  if (args.status === "connecting") {
-    return `${name} language server is starting.`;
+/** Projects runtime state to a stable UI reason without creating presentation text. */
+export function languageServerNavigationBlock(args: {
+  availability: LspDocumentAvailability;
+  fallbackStatus: LspStatus;
+}): LanguageServerNavigationBlock | null {
+  const { availability } = args;
+  if (availability.phase === "ready") {
+    if (availability.feature === "supported") return null;
+    if (availability.feature === "unknown") {
+      return { reason: "preparing", languageId: availability.languageId };
+    }
+    return { reason: "unsupported", languageId: availability.languageId };
   }
-  if (args.status === "error") {
-    return args.lastError?.trim() || `${name} language server failed.`;
+  if (availability.phase === "preparing" || args.fallbackStatus === "connecting") {
+    return { reason: "preparing", languageId: availability.languageId };
   }
-  return args.lastError?.trim() || `${name} language server is not ready.`;
+  if (availability.phase === "failed" || args.fallbackStatus === "error") {
+    return { reason: "failed", languageId: availability.languageId };
+  }
+  return { reason: "notReady", languageId: availability.languageId };
 }

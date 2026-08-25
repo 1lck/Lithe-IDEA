@@ -13,6 +13,34 @@ import LitheTerminalModule
 @Suite("Lithe core logic")
 struct LitheCoreLogicTests {
     @Test
+    func javaInterfaceSymbolAcceptsUnicodeIdentifiers() {
+        #expect(
+            LitheIcons.javaSymbolKind(fromSourcePrefix: "public interface 用户服务 {}")
+                == .javaInterface
+        )
+    }
+
+    @Test
+    func javaNavigationMarkersUseTheFourIntelliJGutterAssets() {
+        #expect(
+            LitheIcons.implementationMarkerAssetPath(isInterface: true, pointingDown: true)
+                == "gutter/implementedMethod.svg"
+        )
+        #expect(
+            LitheIcons.implementationMarkerAssetPath(isInterface: true, pointingDown: false)
+                == "gutter/implementingMethod.svg"
+        )
+        #expect(
+            LitheIcons.implementationMarkerAssetPath(isInterface: false, pointingDown: true)
+                == "gutter/overridenMethod.svg"
+        )
+        #expect(
+            LitheIcons.implementationMarkerAssetPath(isInterface: false, pointingDown: false)
+                == "gutter/overridingMethod.svg"
+        )
+    }
+
+    @Test
     @MainActor
     func closingAWorkspaceWindowClosesTheProjectInsteadOfTheWindow() {
         let sessions = TestProjectWindowSessions(hasActiveProject: true)
@@ -72,6 +100,19 @@ struct LitheCoreLogicTests {
         #expect(window.contentLayoutRect.height <= LitheWindowLayout.workspace.contentSize.height)
         #expect(window.contentLayoutRect.width >= LitheWindowLayout.workspace.minimumContentSize.width)
         #expect(window.contentLayoutRect.height >= LitheWindowLayout.workspace.minimumContentSize.height)
+    }
+
+    @Test
+    @MainActor
+    func workspaceWindowKeepsAnAccessibleTitleWithoutShowingTheNativeTitle() {
+        let sessions = TestProjectWindowSessions(hasActiveProject: true)
+        let coordinator = LitheWindowCoordinator(projectSessions: sessions)
+        let window = NSWindow()
+
+        coordinator.attach(to: window, layout: .workspace, title: "Lithe-IDEA")
+
+        #expect(window.title == "Lithe-IDEA")
+        #expect(window.titleVisibility == .hidden)
     }
 
     @Test
@@ -1355,6 +1396,7 @@ struct LitheCoreLogicTests {
 
         let feature = DocumentFeatureModel(
             operations: EmptyWorkspaceOperations(readFileValue: nil),
+            documentLifecycleDecider: RustDocumentLifecycleDecider(core: RustCoreBridge()),
             fileOperations: EmptyWorkspaceFileOperations(),
             fileStorage: storage,
             binaryFileViewerRegistry: BinaryFileViewerRegistry()
@@ -2122,6 +2164,14 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
+    func codeEditorDoesNotRegisterThePrivateTerminalTabDropType() {
+        let textView = CodeTextView(frame: .zero)
+
+        #expect(!textView.registeredDraggedTypes.contains(TerminalTabDragPayload.pasteboardType))
+    }
+
+    @Test
+    @MainActor
     func codeEditorInterceptsCommandVPasteBeforeMenuRouting() throws {
         let textView = CodeTextView(frame: .zero)
         var handled = false
@@ -2747,6 +2797,22 @@ struct EditorDocumentTests {
     }
 
     @Test
+    func rustDocumentLifecyclePreservesDirtyEditorTextOnExternalChange() throws {
+        let core = RustCoreBridge()
+        guard core.isAvailable else { return }
+        let decider = RustDocumentLifecycleDecider(core: core)
+
+        let decision = try decider.decide(
+            state: .dirty(revision: 3, savedRevision: 1),
+            event: .externalChanged,
+            operationID: "mac-watcher-1"
+        )
+
+        #expect(decision.state.status == .conflict)
+        #expect(decision.action == .showConflict)
+    }
+
+    @Test
     func readOnlyDocumentRejectsSave() {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-read-only-\(UUID().uuidString).txt")
@@ -2766,6 +2832,7 @@ struct EditorDocumentTests {
     func virtualDocumentOpensFromMemoryAsReadOnly() throws {
         let model = DocumentFeatureModel(
             operations: EmptyWorkspaceOperations(),
+            documentLifecycleDecider: RustDocumentLifecycleDecider(core: RustCoreBridge()),
             fileOperations: EmptyWorkspaceFileOperations(),
             fileStorage: InMemoryFileStorage(),
             binaryFileViewerRegistry: BinaryFileViewerRegistry()
@@ -3395,6 +3462,45 @@ struct EditorDocumentTests {
 
     @Test
     @MainActor
+    func workspaceWatcherProjectsTypedJavaChangesWithoutReloadingForSourceEdits() async throws {
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-java-watcher")
+        let source = workspace.appendingPathComponent("src/Main.java")
+        let build = workspace.appendingPathComponent("pom.xml")
+        let watcherFactory = TestDirectoryWatcherFactory()
+        var projectedChanges: [WorkspaceFileChange] = []
+        var projectReloadCount = 0
+        let model = makeWorkspaceObservationUnitModel(
+            operations: SequencedWorkspaceOperations(
+                snapshotAvailability: [true],
+                files: [source, build]
+            ),
+            fileOperations: ExistingWorkspaceFileOperations(paths: [source.path, build.path]),
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: watcherFactory,
+            refreshGit: {},
+            notifyWorkspaceFileChanges: { projectedChanges.append(contentsOf: $0) },
+            reloadProjectServices: { projectReloadCount += 1 }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+        let watcher = try #require(watcherFactory.source)
+
+        watcher.emit([source.path, build.path])
+        let refreshed = await waitForWorkspaceObservation {
+            projectedChanges.count == 2 && projectReloadCount == 1
+        }
+
+        #expect(refreshed)
+        #expect(projectedChanges == [
+            WorkspaceFileChange(fileURL: build, kind: .changed),
+            WorkspaceFileChange(fileURL: source, kind: .changed),
+        ])
+        #expect(projectReloadCount == 1)
+    }
+
+    @Test
+    @MainActor
     func recoveryBatchRebuildsSnapshotReplacesRootsAndRefreshesOnlyGit() async throws {
         let repository = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-recovery-\(UUID().uuidString)/repository")
@@ -3529,6 +3635,7 @@ struct EditorDocumentTests {
         ]
         let model = DocumentFeatureModel(
             operations: EmptyWorkspaceOperations(readFileValue: "text"),
+            documentLifecycleDecider: RustDocumentLifecycleDecider(core: RustCoreBridge()),
             fileOperations: EmptyWorkspaceFileOperations(),
             fileStorage: InMemoryFileStorage(),
             binaryFileViewerRegistry: BinaryFileViewerRegistry()
@@ -3566,6 +3673,9 @@ struct EditorDocumentTests {
 
         model.reorderDocuments(orderedPaths: urls.reversed().map(\.path))
         #expect(model.openDocuments.map(\.url.lastPathComponent) == ["C.swift", "B.swift", "A.swift"])
+
+        model.reorderDocuments(orderedIDs: [ids[0], ids[2], ids[1]])
+        #expect(model.openDocuments.map(\.url.lastPathComponent) == ["A.swift", "C.swift", "B.swift"])
     }
 
     @Test
@@ -3577,6 +3687,7 @@ struct EditorDocumentTests {
         let operations = BlockingWorkspaceOperations()
         let model = DocumentFeatureModel(
             operations: operations,
+            documentLifecycleDecider: RustDocumentLifecycleDecider(core: RustCoreBridge()),
             fileOperations: EmptyWorkspaceFileOperations(),
             fileStorage: InMemoryFileStorage(),
             binaryFileViewerRegistry: BinaryFileViewerRegistry()
@@ -3626,6 +3737,7 @@ struct EditorDocumentTests {
         let operations = BlockingWorkspaceOperations()
         let model = DocumentFeatureModel(
             operations: operations,
+            documentLifecycleDecider: RustDocumentLifecycleDecider(core: RustCoreBridge()),
             fileOperations: EmptyWorkspaceFileOperations(),
             fileStorage: InMemoryFileStorage(),
             binaryFileViewerRegistry: BinaryFileViewerRegistry()
@@ -3680,6 +3792,7 @@ struct EditorDocumentTests {
 
         let model = DocumentFeatureModel(
             operations: EmptyWorkspaceOperations(readFileValue: "original"),
+            documentLifecycleDecider: RustDocumentLifecycleDecider(core: RustCoreBridge()),
             fileOperations: EmptyWorkspaceFileOperations(),
             fileStorage: InMemoryFileStorage(),
             binaryFileViewerRegistry: BinaryFileViewerRegistry()
@@ -3724,8 +3837,21 @@ struct EditorDocumentTests {
     @Test
     func projectTreeLocatorMatchesStandardizedPathsAndExpandsParents() {
         let root = URL(fileURLWithPath: "/tmp/lithe-tree-locator-tests")
+        let sourcesDirectory = root.appendingPathComponent("Sources")
         let featureDirectory = root.appendingPathComponent("Sources/Feature")
         let fileURL = featureDirectory.appendingPathComponent("Example.swift")
+        let tree = FileNode(
+            url: root,
+            isDirectory: true,
+            children: [
+                FileNode(
+                    url: featureDirectory,
+                    isDirectory: true,
+                    children: [FileNode(url: fileURL, isDirectory: false, children: nil)],
+                    collapsedAncestorPaths: [sourcesDirectory.path]
+                )
+            ]
+        )
 
         let equivalentFile = root.appendingPathComponent("Sources/Nested/../Feature/Example.swift")
         #expect(ProjectTreeLocator.matchingURL(for: equivalentFile, among: [fileURL]) == fileURL)
@@ -3741,6 +3867,27 @@ struct EditorDocumentTests {
             ProjectTreeLocator.matchingURL(
                 for: root.deletingLastPathComponent().appendingPathComponent("Outside.swift"),
                 among: [fileURL]
+            ) == nil
+        )
+        #expect(ProjectTreeLocator.matchingURL(for: featureDirectory, in: tree) == featureDirectory)
+        #expect(ProjectTreeLocator.matchingURL(for: sourcesDirectory, in: tree) == featureDirectory)
+        #expect(ProjectTreeLocator.matchingURL(for: fileURL, in: tree) == fileURL)
+        #expect(
+            ProjectTreeLocator.expandedDirectoryPaths(
+                for: featureDirectory,
+                rootURL: root,
+                includeItem: true
+            ) == Set([
+                root.standardizedFileURL.path,
+                root.appendingPathComponent("Sources").standardizedFileURL.path,
+                featureDirectory.standardizedFileURL.path
+            ])
+        )
+        #expect(ProjectTreeLocator.matchingURL(for: root.appendingPathComponent("Hidden"), in: tree) == nil)
+        #expect(
+            ProjectTreeLocator.matchingURL(
+                for: root.deletingLastPathComponent().appendingPathComponent("Outside"),
+                in: tree
             ) == nil
         )
     }
@@ -3778,6 +3925,7 @@ private func makeWorkspaceObservationUnitModel(
     watcherFactory: TestDirectoryWatcherFactory,
     refreshGit: @escaping @MainActor () async -> Void,
     processExternalChanges: @escaping @MainActor ([URL]) -> Bool = { _ in false },
+    notifyWorkspaceFileChanges: @escaping @MainActor ([WorkspaceFileChange]) -> Void = { _ in },
     reloadProjectServices: @escaping @MainActor () async -> Void = {},
     recordHistory: @escaping @MainActor (URL, LocalHistoryReason) async -> Void = { _, _ in }
 ) -> WorkspaceFeatureModel {
@@ -3802,6 +3950,7 @@ private func makeWorkspaceObservationUnitModel(
         relocateOpenDocuments: { _, _ in },
         closeDocuments: { _ in },
         processExternalChanges: processExternalChanges,
+        notifyWorkspaceFileChanges: notifyWorkspaceFileChanges,
         reloadProjectServices: reloadProjectServices,
         refreshGit: refreshGit,
         updateHistoryVisibilityRules: { _ in },

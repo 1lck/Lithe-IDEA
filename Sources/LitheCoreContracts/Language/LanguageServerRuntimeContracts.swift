@@ -38,12 +38,80 @@ package struct LanguageServerRuntimeOperation: Equatable, Sendable {
     }
 }
 
+package struct LanguageServerDocumentSync: Equatable, Sendable {
+    package let documentVersion: Int
+    package let changed: Bool
+
+    package init(documentVersion: Int, changed: Bool) {
+        self.documentVersion = documentVersion
+        self.changed = changed
+    }
+}
+
+package enum LanguageServerWorkspaceFileChangeKind: String, Equatable, Sendable {
+    case created
+    case changed
+    case deleted
+}
+
+package struct LanguageServerWorkspaceFileChange: Equatable, Sendable {
+    package let fileURL: URL
+    package let kind: LanguageServerWorkspaceFileChangeKind
+
+    package init(fileURL: URL, kind: LanguageServerWorkspaceFileChangeKind) {
+        self.fileURL = fileURL.standardizedFileURL
+        self.kind = kind
+    }
+}
+
+package enum JavaNavigationDirection: String, Codable, Equatable, Sendable {
+    case up
+    case down
+}
+
+package enum JavaNavigationRelation: String, Codable, Equatable, Sendable {
+    case interface
+    case inheritance
+}
+
+package struct JavaNavigationMarker: Equatable, Sendable {
+    package let line: Int
+    package let utf16Column: Int
+    package let implementationCount: Int
+    package let direction: JavaNavigationDirection
+    package let relation: JavaNavigationRelation
+
+    package init(
+        line: Int,
+        utf16Column: Int,
+        implementationCount: Int,
+        direction: JavaNavigationDirection,
+        relation: JavaNavigationRelation
+    ) {
+        self.line = line
+        self.utf16Column = utf16Column
+        self.implementationCount = implementationCount
+        self.direction = direction
+        self.relation = relation
+    }
+}
+
 package struct LanguageServerRuntimeError: Equatable, Sendable {
+    package let code: String
+    package let stage: String
     package let message: String
     package let underlyingMessage: String?
     package let processExitCode: Int?
 
-    package init(message: String, underlyingMessage: String?, processExitCode: Int?) {
+    package init(
+        code: String,
+        stage: String,
+        message: String,
+        underlyingMessage: String?,
+        processExitCode: Int?
+    ) {
+        self.code = code
+        self.stage = stage
         self.message = message
         self.underlyingMessage = underlyingMessage
         self.processExitCode = processExitCode
@@ -104,6 +172,7 @@ package protocol LanguageServerRuntimeCore: Sendable {
         initializationOptions: ToolingJSONValue?,
         runtimeExecutableURL: URL?,
         cacheDirectoryURL: URL?,
+        workspaceFingerprint: String?,
         initializeTimeout: TimeInterval,
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
@@ -115,6 +184,10 @@ package protocol LanguageServerRuntimeCore: Sendable {
         fileURL: URL,
         languageID: String,
         text: String
+    ) -> Result<LanguageServerDocumentSync, LanguageServerRuntimeFailure>
+    func notifyLanguageServerWorkspaceFilesChanged(
+        sessionID: String,
+        changes: [LanguageServerWorkspaceFileChange]
     ) -> Result<Void, LanguageServerRuntimeFailure>
     func closeLanguageServerDocument(sessionID: String, fileURL: URL)
     func requestLanguageServerOperation(
@@ -130,9 +203,52 @@ package protocol LanguageServerRuntimeCore: Sendable {
         codeAction: LanguageServerCodeAction?,
         command: LanguageServerCommand?
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
+    func requestJavaNavigationMarkers(
+        sessionID: String,
+        fileURL: URL,
+        documentVersion: Int
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
+    func resolveJavaNavigation(
+        sessionID: String,
+        fileURL: URL,
+        marker: JavaNavigationMarker,
+        documentVersion: Int
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
     func cancelLanguageServerOperation(sessionID: String, operationID: String)
     func pollLanguageServerEvents(sessionID: String) -> [LanguageServerRuntimeEvent]
     func destroyLanguageServer(sessionID: String)
+}
+
+package extension LanguageServerRuntimeCore {
+    func notifyLanguageServerWorkspaceFilesChanged(
+        sessionID _: String,
+        changes _: [LanguageServerWorkspaceFileChange]
+    ) -> Result<Void, LanguageServerRuntimeFailure> {
+        .success(())
+    }
+
+    func requestJavaNavigationMarkers(
+        sessionID _: String,
+        fileURL _: URL,
+        documentVersion _: Int
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(
+            code: "not_supported",
+            message: "Java navigation markers are not supported by this runtime."
+        ))
+    }
+
+    func resolveJavaNavigation(
+        sessionID _: String,
+        fileURL _: URL,
+        marker _: JavaNavigationMarker,
+        documentVersion _: Int
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(
+            code: "not_supported",
+            message: "Java navigation is not supported by this runtime."
+        ))
+    }
 }
 
 @MainActor

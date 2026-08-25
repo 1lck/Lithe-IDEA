@@ -57,6 +57,7 @@ export interface GitDiffSplitRow {
   new_line_number?: number;
   old_content?: string;
   new_content?: string;
+  is_invisible_change?: boolean;
 }
 
 export interface GitDiff {

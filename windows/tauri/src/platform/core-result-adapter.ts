@@ -8,6 +8,10 @@ function asRecord(value: unknown): JsonRecord {
   return typeof value === "object" && value !== null ? (value as JsonRecord) : {};
 }
 
+function withoutTrailingCarriageReturn(value: string): string {
+  return value.endsWith("\r") ? value.slice(0, -1) : value;
+}
+
 function normalizeStatus(status: string, untracked: boolean): string {
   if (untracked || status.includes("?")) return "untracked";
   if (status.includes("A")) return "added";
@@ -35,13 +39,19 @@ function adaptStructuredSplitHunks(value: unknown): GitDiffSplitRow[][] {
 
     const left = typeof row.left === "string" ? row.left : undefined;
     const right = typeof row.right === "string" ? row.right : kind === "context" ? left : undefined;
-    const visualKind = kind === "changed" && left === right ? "context" : kind;
+    const isInvisibleChange =
+      kind === "changed" &&
+      left !== undefined &&
+      right !== undefined &&
+      withoutTrailingCarriageReturn(left) === withoutTrailingCarriageReturn(right);
+    const visualKind = isInvisibleChange ? "context" : kind;
     currentHunk.push({
       kind: visualKind as GitDiffSplitRow["kind"],
       old_line_number: typeof row.oldLine === "number" ? row.oldLine : undefined,
       new_line_number: typeof row.newLine === "number" ? row.newLine : undefined,
       old_content: left,
       new_content: right,
+      ...(isInvisibleChange ? { is_invisible_change: true } : {}),
     });
   }
 

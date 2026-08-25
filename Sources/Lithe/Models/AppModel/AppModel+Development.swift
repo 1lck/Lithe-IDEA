@@ -596,23 +596,24 @@ extension AppModel {
                 presentGenericNavigationValues(
                     springLocations,
                     kind: .definitions,
-                    navigateToSingleResult: true
+                    navigateToSingleResult: true,
+                    providerID: nil
                 )
                 return
             }
         }
-        guard supportsLanguageServerFeature(.definition) else {
-            showNotification("Definition navigation is not supported by this language server")
-            return
-        }
+        guard languageServerFeatureIsReady(
+            .definition,
+            unsupportedMessage: "Definition navigation is not supported by this language server"
+        ) else { return }
         performGenericNavigation(method: "textDocument/definition", kind: .definitions)
     }
 
     func goToUsages() {
-        guard supportsLanguageServerFeature(.references) else {
-            showNotification("Reference navigation is not supported by this language server")
-            return
-        }
+        guard languageServerFeatureIsReady(
+            .references,
+            unsupportedMessage: "Reference navigation is not supported by this language server"
+        ) else { return }
         performGenericNavigation(
             method: "textDocument/references",
             kind: .references,
@@ -621,10 +622,10 @@ extension AppModel {
     }
 
     func goToImplementation() {
-        guard supportsLanguageServerFeature(.implementation) else {
-            showNotification("Implementation navigation is not supported by this language server")
-            return
-        }
+        guard languageServerFeatureIsReady(
+            .implementation,
+            unsupportedMessage: "Implementation navigation is not supported by this language server"
+        ) else { return }
         performGenericNavigation(method: "textDocument/implementation", kind: .implementations)
     }
 
@@ -647,10 +648,10 @@ extension AppModel {
     }
 
     func findReferences() {
-        guard supportsLanguageServerFeature(.references) else {
-            showNotification("Reference navigation is not supported by this language server")
-            return
-        }
+        guard languageServerFeatureIsReady(
+            .references,
+            unsupportedMessage: "Reference navigation is not supported by this language server"
+        ) else { return }
         performGenericNavigation(
             method: "textDocument/references",
             kind: .references,
@@ -664,15 +665,55 @@ extension AppModel {
             line: line,
             utf16Column: utf16Column
         )
-        guard supportsLanguageServerFeature(.implementation) else {
-            showNotification("Implementation navigation is not supported by this language server")
-            return
-        }
+        guard languageServerFeatureIsReady(
+            .implementation,
+            unsupportedMessage: "Implementation navigation is not supported by this language server"
+        ) else { return }
         performGenericNavigation(
             method: "textDocument/implementation",
             kind: .implementations,
             navigateToSingleResult: false
         )
+    }
+
+    func resolveJavaNavigation(_ marker: JavaImplementationMarker, in fileURL: URL) {
+        guard !languageNavigationState.isLoading,
+              let sessions = languageToolingSessionsIfActive,
+              let provider = languageProviderCatalog.provider(for: fileURL) else { return }
+        guard !isJavaLanguageServerPreparing(for: fileURL) else {
+            showJavaLanguageServerPreparingNotification()
+            return
+        }
+        let kind: LanguageNavigationResultKind = marker.direction == .down
+            ? .implementations
+            : .definitions
+        let operationID = beginLanguageNavigation(providerID: provider.id, kind: kind)
+        do {
+            try sessions.resolveJavaNavigation(
+                fileURL: fileURL,
+                marker: marker.sharedMarker
+            ) { [weak self] result in
+                guard let self,
+                      self.languageNavigationState.owns(operationID: operationID) else { return }
+                switch result {
+                case .success(let locations):
+                    self.presentGenericNavigationValues(
+                        locations,
+                        kind: kind,
+                        navigateToSingleResult: true,
+                        providerID: provider.id
+                    )
+                case .failure(let error):
+                    self.languageNavigationState = .idle
+                    self.showNotification(error.localizedDescription)
+                }
+            }
+        } catch {
+            if languageNavigationState.owns(operationID: operationID) {
+                languageNavigationState = .idle
+            }
+            showNotification(error.localizedDescription)
+        }
     }
 
     func navigate(to location: LanguageNavigationLocation) {
@@ -684,7 +725,7 @@ extension AppModel {
                 utf16Column: location.utf16Column,
                 isReadOnly: location.isReadOnly,
                 displayPath: location.displayPath,
-                virtualProviderID: location.url.isFileURL ? nil : languageNavigationProviderID
+                virtualProviderID: location.url.isFileURL ? nil : languageNavigationState.providerID
             ),
             recordsHistory: true
         )
@@ -754,7 +795,7 @@ extension AppModel {
             }
             guard let providerID = location.virtualProviderID
                 ?? virtualDocumentProviderIDs[location.url]
-                ?? languageNavigationProviderID else {
+                ?? languageNavigationState.providerID else {
                 showNotification("The virtual source provider is no longer available")
                 onFailure?()
                 return
@@ -764,14 +805,18 @@ extension AppModel {
                 onFailure?()
                 return
             }
-            isLoadingLanguageNavigation = true
+            let operationID = beginLanguageNavigation(
+                providerID: providerID,
+                kind: languageNavigationState.kind
+            )
             do {
                 try languageToolingSessions.resolveVirtualDocument(
                     providerID: providerID,
                     uri: location.url
                 ) { [weak self] result in
-                    guard let self else { return }
-                    self.isLoadingLanguageNavigation = false
+                    guard let self,
+                          self.languageNavigationState.owns(operationID: operationID) else { return }
+                    self.languageNavigationState = .idle
                     switch result {
                     case .success(let text):
                         self.virtualDocumentProviderIDs[location.url] = providerID
@@ -794,7 +839,9 @@ extension AppModel {
                     }
                 }
             } catch {
-                isLoadingLanguageNavigation = false
+                if languageNavigationState.owns(operationID: operationID) {
+                    languageNavigationState = .idle
+                }
                 onFailure?()
                 showNotification(error.localizedDescription)
             }
@@ -839,9 +886,20 @@ extension AppModel {
     }
 
     func clearLanguageNavigationProjection() {
-        languageNavigationProviderID = nil
-        languageNavigationLocations = []
-        isLoadingLanguageNavigation = false
+        languageNavigationState = .idle
+    }
+
+    private func beginLanguageNavigation(
+        providerID: String,
+        kind: LanguageNavigationResultKind
+    ) -> UUID {
+        let operationID = UUID()
+        languageNavigationState = .loading(
+            operationID: operationID,
+            providerID: providerID,
+            kind: kind
+        )
+        return operationID
     }
 
     func requestLanguageHover(
@@ -1164,13 +1222,29 @@ extension AppModel {
         return (languageToolingSessionsIfActive?.features(for: document.url).contains(feature) == true)
     }
 
+    private func languageServerFeatureIsReady(
+        _ feature: LanguageServerFeatureSet,
+        unsupportedMessage: String
+    ) -> Bool {
+        guard let document = activeDocument else { return false }
+        if isJavaLanguageServerPreparing(for: document.url) {
+            showJavaLanguageServerPreparingNotification()
+            return false
+        }
+        guard supportsLanguageServerFeature(feature) else {
+            showNotification(unsupportedMessage)
+            return false
+        }
+        return true
+    }
+
     private func performGenericNavigation(
         method: String,
         kind: LanguageNavigationResultKind,
         navigateToSingleResult: Bool = true,
         fallbackToImplementationsIfSelf: Bool = false
     ) {
-        guard !isLoadingLanguageNavigation,
+        guard !languageNavigationState.isLoading,
               let document = activeDocument,
               let caret = editorCaret,
               caret.url.standardizedFileURL == document.url.standardizedFileURL,
@@ -1179,9 +1253,7 @@ extension AppModel {
             showNotification("Place the caret on a language symbol first")
             return
         }
-        isLoadingLanguageNavigation = true
-        languageNavigationProviderID = provider.id
-        languageNavigationResultKind = kind
+        let operationID = beginLanguageNavigation(providerID: provider.id, kind: kind)
         do {
             try languageToolingSessionsIfActive?.navigate(
                 method: method,
@@ -1193,11 +1265,11 @@ extension AppModel {
                 ),
                 rootURL: workspaceURL
             ) { [weak self] result in
-                guard let self else { return }
-                self.isLoadingLanguageNavigation = false
+                guard let self,
+                      self.languageNavigationState.owns(operationID: operationID) else { return }
                 switch result {
                 case .failure(let error):
-                    self.languageNavigationProviderID = nil
+                    self.languageNavigationState = .idle
                     self.showNotification(error.localizedDescription)
                 case .success(let values):
                     if fallbackToImplementationsIfSelf,
@@ -1210,20 +1282,23 @@ extension AppModel {
                             caret: caret,
                             workspaceURL: workspaceURL,
                             originalValues: values,
-                            navigateToSingleResult: navigateToSingleResult
+                            navigateToSingleResult: navigateToSingleResult,
+                            providerID: provider.id
                         )
                         return
                     }
                     self.presentGenericNavigationValues(
                         values,
                         kind: kind,
-                        navigateToSingleResult: navigateToSingleResult
+                        navigateToSingleResult: navigateToSingleResult,
+                        providerID: provider.id
                     )
                 }
             }
         } catch {
-            isLoadingLanguageNavigation = false
-            languageNavigationProviderID = nil
+            if languageNavigationState.owns(operationID: operationID) {
+                languageNavigationState = .idle
+            }
             showNotification(error.localizedDescription)
         }
     }
@@ -1233,9 +1308,13 @@ extension AppModel {
         caret: EditorCaret,
         workspaceURL: URL,
         originalValues: [LanguageServerLocation],
-        navigateToSingleResult: Bool
+        navigateToSingleResult: Bool,
+        providerID: String
     ) {
-        isLoadingLanguageNavigation = true
+        let operationID = beginLanguageNavigation(
+            providerID: providerID,
+            kind: .implementations
+        )
         do {
             try languageToolingSessionsIfActive?.navigate(
                 method: "textDocument/implementation",
@@ -1247,28 +1326,31 @@ extension AppModel {
                 ),
                 rootURL: workspaceURL
             ) { [weak self] result in
-                guard let self else { return }
-                self.isLoadingLanguageNavigation = false
+                guard let self,
+                      self.languageNavigationState.owns(operationID: operationID) else { return }
                 if case .success(let implementations) = result, !implementations.isEmpty {
                     self.presentGenericNavigationValues(
                         implementations,
                         kind: .implementations,
-                        navigateToSingleResult: navigateToSingleResult
+                        navigateToSingleResult: navigateToSingleResult,
+                        providerID: providerID
                     )
                 } else {
                     self.presentGenericNavigationValues(
                         originalValues,
                         kind: .definitions,
-                        navigateToSingleResult: navigateToSingleResult
+                        navigateToSingleResult: navigateToSingleResult,
+                        providerID: providerID
                     )
                 }
             }
         } catch {
-            isLoadingLanguageNavigation = false
+            guard languageNavigationState.owns(operationID: operationID) else { return }
             presentGenericNavigationValues(
                 originalValues,
                 kind: .definitions,
-                navigateToSingleResult: navigateToSingleResult
+                navigateToSingleResult: navigateToSingleResult,
+                providerID: providerID
             )
         }
     }
@@ -1276,7 +1358,8 @@ extension AppModel {
     private func presentGenericNavigationValues(
         _ values: [LanguageServerLocation],
         kind: LanguageNavigationResultKind,
-        navigateToSingleResult: Bool
+        navigateToSingleResult: Bool,
+        providerID: String?
     ) {
         let locations = values.map {
             LanguageNavigationLocation(
@@ -1287,9 +1370,8 @@ extension AppModel {
                 displayPath: $0.displayPath
             )
         }
-        languageNavigationResultKind = kind
-        languageNavigationLocations = locations
         guard !locations.isEmpty else {
+            languageNavigationState = .idle
             switch kind {
             case .definitions: showNotification("Definition not found")
             case .references: showNotification("No usages found")
@@ -1297,6 +1379,11 @@ extension AppModel {
             }
             return
         }
+        languageNavigationState = .results(
+            providerID: providerID,
+            kind: kind,
+            locations: locations
+        )
         if navigateToSingleResult, locations.count == 1, let location = locations.first {
             navigate(to: location)
         } else {

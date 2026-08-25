@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "mixed-workspace",
+      "workspacePaths": [
+        "README.md",
+        "node_modules/example/Fake.java",
+        "src/Main.java",
+        "target/generated/Generated.java"
+      ],
+      "changedPaths": [
+        "README.md",
+        "build.gradle.kts",
+        "src/Main.java",
+        "target/generated/Generated.java"
+      ],
+      "expected": {
+        "shouldStart": true,
+        "representativeJavaPath": "src/Main.java",
+        "changes": [
+          { "path": "README.md", "kind": "other" },
+          { "path": "build.gradle.kts", "kind": "buildConfiguration" },
+          { "path": "src/Main.java", "kind": "source" },
+          { "path": "target/generated/Generated.java", "kind": "ignored" }
+        ]
+      }
+    },
+    {
+      "name": "ignored-java-only",
+      "workspacePaths": [
+        ".worktrees/topic/src/Topic.java",
+        "build/generated/Generated.java",
+        "node_modules/example/Fake.java"
+      ],
+      "changedPaths": [
+        ".mvn/wrapper/maven-wrapper.properties",
+        "gradle/wrapper/gradle-wrapper.properties",
+        "settings.gradle"
+      ],
+      "expected": {
+        "shouldStart": false,
+        "changes": [
+          { "path": ".mvn/wrapper/maven-wrapper.properties", "kind": "buildConfiguration" },
+          { "path": "gradle/wrapper/gradle-wrapper.properties", "kind": "buildConfiguration" },
+          { "path": "settings.gradle", "kind": "buildConfiguration" }
+        ]
+      }
+    }
+  ]
+}

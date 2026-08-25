@@ -14,6 +14,7 @@ enum LitheCommandCatalog {
         command("save", "Save", "Save the active document", .project, "s", [.command]),
         command("close-project", "Close Project", "Return to the Welcome screen", .project, "w", [.shift, .command]),
         command("settings", "Settings", "Configure editor and project behavior", .project, ",", [.command]),
+        command("rebuild-java-index", "Java: Rebuild Index", "Clear the current project's Java index and rebuild it on next use", .project),
         command("reveal-in-finder", "Reveal in Finder", "Show the active file in Finder", .project),
 
         command("run", "Run", "Run selected configuration", .run, "r", [.control]),

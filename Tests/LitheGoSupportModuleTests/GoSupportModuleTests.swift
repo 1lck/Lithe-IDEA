@@ -481,6 +481,7 @@ private final class GoTestLanguageServerRuntimeCore: LanguageServerRuntimeCore, 
         initializationOptions _: ToolingJSONValue?,
         runtimeExecutableURL _: URL?,
         cacheDirectoryURL _: URL?,
+        workspaceFingerprint _: String?,
         initializeTimeout _: TimeInterval,
         requestTimeout _: TimeInterval,
         shutdownTimeout _: TimeInterval
@@ -503,7 +504,9 @@ private final class GoTestLanguageServerRuntimeCore: LanguageServerRuntimeCore, 
         fileURL _: URL,
         languageID _: String,
         text _: String
-    ) -> Result<Void, LanguageServerRuntimeFailure> { .success(()) }
+    ) -> Result<LanguageServerDocumentSync, LanguageServerRuntimeFailure> {
+        .success(LanguageServerDocumentSync(documentVersion: 1, changed: true))
+    }
 
     func closeLanguageServerDocument(sessionID _: String, fileURL _: URL) {}
 

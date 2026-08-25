@@ -63,6 +63,8 @@ pub enum CoreCommand {
     FileRead,
     /// Replaces one workspace-relative UTF-8 file (`file.write`).
     FileWrite,
+    /// Reduces one shared document persistence event (`document.lifecycle`).
+    DocumentLifecycle,
     /// Records one local-history snapshot (`history.record`).
     HistoryRecord,
     /// Lists retained local-history metadata (`history.entries`).
@@ -93,18 +95,34 @@ pub enum CoreCommand {
     LspBuiltinNavigation,
     /// Starts and initializes a managed language server (`lsp.startServer`).
     LspStartServer,
+    /// Derives the durable JDT LS workspace directory key (`lsp.jdtWorkspaceKey`).
+    LspJdtWorkspaceKey,
+    /// Plans Java workspace activation and change handling (`java.workspacePolicy`).
+    JavaWorkspacePolicy,
+    /// Selects expired inactive JDT LS workspace caches (`java.jdtCacheRetention`).
+    JavaJdtCacheRetention,
+    /// Derives a JDT LS workspace fingerprint from platform observations (`java.jdtWorkspaceFingerprint`).
+    JavaJdtWorkspaceFingerprint,
     /// Gracefully shuts down a managed server (`lsp.stopServer`).
     LspStopServer,
     /// Opens or updates a synchronized document (`lsp.syncDocument`).
     LspSyncDocument,
+    /// Publishes external workspace file changes (`lsp.workspaceFilesChanged`).
+    LspWorkspaceFilesChanged,
     /// Closes a synchronized document (`lsp.closeDocument`).
     LspCloseDocument,
     /// Queues one semantic server request (`lsp.request`).
     LspRequest,
+    /// Queues shared Java gutter marker resolution (`java.navigationMarkers`).
+    JavaNavigationMarkers,
+    /// Queues click-time Java navigation resolution (`java.resolveNavigation`).
+    JavaResolveNavigation,
     /// Cancels one pending semantic request (`lsp.cancelOperation`).
     LspCancelOperation,
     /// Drains queued session events (`lsp.pollEvents`).
     LspPollEvents,
+    /// Waits for queued session events (`lsp.waitEvents`).
+    LspWaitEvents,
     /// Stops and removes a server session (`lsp.destroyServer`).
     LspDestroyServer,
     /// Discovers Java main classes and run entries (`java.runConfigurations`).
@@ -199,6 +217,7 @@ impl CoreCommand {
             "workspace.replacePreview" => Some(Self::WorkspaceReplacePreview),
             "file.read" => Some(Self::FileRead),
             "file.write" => Some(Self::FileWrite),
+            "document.lifecycle" => Some(Self::DocumentLifecycle),
             "history.record" => Some(Self::HistoryRecord),
             "history.entries" => Some(Self::HistoryEntries),
             "history.content" => Some(Self::HistoryContent),
@@ -214,12 +233,19 @@ impl CoreCommand {
             "lsp.builtinHover" => Some(Self::LspBuiltinHover),
             "lsp.builtinNavigation" => Some(Self::LspBuiltinNavigation),
             "lsp.startServer" => Some(Self::LspStartServer),
+            "lsp.jdtWorkspaceKey" => Some(Self::LspJdtWorkspaceKey),
+            "java.workspacePolicy" => Some(Self::JavaWorkspacePolicy),
+            "java.jdtCacheRetention" => Some(Self::JavaJdtCacheRetention),
+            "java.jdtWorkspaceFingerprint" => Some(Self::JavaJdtWorkspaceFingerprint),
             "lsp.stopServer" => Some(Self::LspStopServer),
             "lsp.syncDocument" => Some(Self::LspSyncDocument),
+            "lsp.workspaceFilesChanged" => Some(Self::LspWorkspaceFilesChanged),
             "lsp.closeDocument" => Some(Self::LspCloseDocument),
             "lsp.request" => Some(Self::LspRequest),
+            "java.resolveNavigation" => Some(Self::JavaResolveNavigation),
             "lsp.cancelOperation" => Some(Self::LspCancelOperation),
             "lsp.pollEvents" => Some(Self::LspPollEvents),
+            "lsp.waitEvents" => Some(Self::LspWaitEvents),
             "lsp.destroyServer" => Some(Self::LspDestroyServer),
             "java.runConfigurations" => Some(Self::JavaRunConfigurations),
             "runConfig.inspect" => Some(Self::RunConfigInspect),
@@ -233,6 +259,7 @@ impl CoreCommand {
             "java.sourceDefinition" => Some(Self::JavaSourceDefinition),
             "java.serverPort" => Some(Self::JavaServerPort),
             "java.structure" => Some(Self::JavaStructure),
+            "java.navigationMarkers" => Some(Self::JavaNavigationMarkers),
             "spring.index" => Some(Self::SpringIndex),
             "git.status" => Some(Self::GitStatus),
             "git.watchContext" => Some(Self::GitWatchContext),
@@ -268,12 +295,14 @@ mod tests {
     fn parses_semantic_lsp_runtime_commands() {
         for command in [
             "lsp.startServer",
+            "lsp.jdtWorkspaceKey",
             "lsp.stopServer",
             "lsp.syncDocument",
             "lsp.closeDocument",
             "lsp.request",
             "lsp.cancelOperation",
             "lsp.pollEvents",
+            "lsp.waitEvents",
             "lsp.destroyServer",
         ] {
             assert!(CoreCommand::parse(command).is_some(), "missing {command}");
@@ -293,5 +322,10 @@ mod tests {
         ] {
             assert!(CoreCommand::parse(command).is_some(), "missing {command}");
         }
+    }
+
+    #[test]
+    fn parses_document_lifecycle_command() {
+        assert!(CoreCommand::parse("document.lifecycle").is_some());
     }
 }

@@ -47,6 +47,13 @@ const renderWhitespace = (content: string, showWhitespace: boolean) => {
         </span>
       );
     }
+    if (char === "\r") {
+      return (
+        <span key={i} className="text-warning opacity-70" title="CR">
+          ␍
+        </span>
+      );
+    }
     return char;
   });
 };

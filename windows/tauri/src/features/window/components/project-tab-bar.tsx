@@ -5,9 +5,13 @@ import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.s
 import { Button } from "@/ui/button";
 import { FolderIcon, XIcon as X } from "@/ui/icons";
 import { cn } from "@/utils/cn";
-import { getProjectTabBarItems } from "../utils/project-tab-bar-model";
+import { getProjectTabBarItems, shouldShowProjectTabBar } from "../utils/project-tab-bar-model";
 
-export function ProjectTabBar() {
+interface ProjectTabBarProps {
+  hideWhenSingle?: boolean;
+}
+
+export function ProjectTabBar({ hideWhenSingle = false }: ProjectTabBarProps) {
   const { t } = useTranslation();
   const [closingProjectId, setClosingProjectId] = useState<string | null>(null);
   const projectTabs = useWorkspaceTabsStore.use.projectTabs();
@@ -28,11 +32,11 @@ export function ProjectTabBar() {
     }
   };
 
-  if (projects.length === 0) return null;
+  if (!shouldShowProjectTabBar(projects.length, hideWhenSingle)) return null;
 
   return (
     <div
-      className="flex h-10 shrink-0 items-center overflow-x-auto border-border/70 border-b bg-surface/90 px-1.5"
+      className="flex h-8 shrink-0 items-center overflow-x-auto border-border border-b bg-surface px-1.5"
       role="tablist"
       aria-label={t("titleProject.openProjects")}
       aria-orientation="horizontal"
@@ -54,10 +58,10 @@ export function ProjectTabBar() {
                   void switchToProject(project.id);
                 }}
                 className={cn(
-                  "relative flex h-8 min-w-44 max-w-64 items-center gap-2 rounded-md border py-0 pr-9 pl-3 text-left ui-text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed",
+                  "relative flex h-7 min-w-36 max-w-60 items-center gap-1.5 rounded-sm border py-0 pr-8 pl-2.5 text-left ui-text-chrome outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed",
                   project.isActive
-                    ? "border-primary/45 bg-selected text-foreground"
-                    : "border-transparent text-subtle-foreground hover:border-border/70 hover:bg-accent hover:text-foreground",
+                    ? "border-transparent bg-accent text-foreground"
+                    : "border-transparent text-subtle-foreground hover:bg-accent/70 hover:text-foreground",
                 )}
               >
                 <FolderIcon
@@ -71,7 +75,7 @@ export function ProjectTabBar() {
                 {project.isActive ? (
                   <span
                     aria-hidden="true"
-                    className="absolute inset-x-3 -bottom-px h-px bg-primary"
+                    className="absolute inset-x-1.5 bottom-0 h-0.5 rounded-t-sm bg-primary"
                   />
                 ) : null}
               </button>

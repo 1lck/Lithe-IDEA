@@ -30,6 +30,21 @@ struct AppSettingsTests {
     }
 
     @Test
+    func projectTreeRowHeightDefaultsPersistsAndRestores() {
+        let store = AppSettingsTestStore()
+        let settings = AppSettings(store: store)
+
+        #expect(settings.projectTreeRowHeight == 24)
+
+        settings.projectTreeRowHeight = 29
+        #expect(AppSettings(store: store).projectTreeRowHeight == 29)
+
+        settings.restoreDefaults()
+        #expect(settings.projectTreeRowHeight == 24)
+        #expect(AppSettings(store: store).projectTreeRowHeight == 24)
+    }
+
+    @Test
     func customLogDirectoryPersistsAndCanBeRestoredToDefault() {
         let store = AppSettingsTestStore()
         let settings = AppSettings(store: store)

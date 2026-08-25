@@ -1,6 +1,10 @@
 //! Pure LSP client-state transitions and JSON-RPC message construction.
 
 use super::types::*;
+use crate::lsp::{
+    apply_content_changes_sequential, order_incremental_changes_for_replay, ApplyTextEditsRequest,
+    LspTextEdit,
+};
 use crate::protocol::{CoreError, ErrorCode};
 use serde_json::{json, Value};
 
@@ -147,14 +151,62 @@ pub fn client_change_document(
 ) -> Result<LspClientResponse, CoreError> {
     validate_uri(&request.uri)?;
     let mut state = request.state;
-    let Some(document) = state.open_documents.get_mut(&request.uri) else {
+    let Some(document) = state.open_documents.get(&request.uri).cloned() else {
         return Err(CoreError::new(
             ErrorCode::InvalidRequest,
             "Cannot change a document that is not open in the LSP client.",
         ));
     };
+    let wants_incremental = state.text_document_sync == LspTextDocumentSyncKind::Incremental
+        && !request.content_changes.is_empty();
+    let ordered_incremental = if wants_incremental {
+        order_incremental_changes_for_replay(&document.text, &request.content_changes)?
+    } else {
+        None
+    };
+    let (next_text, wire_incremental) = if let Some(changes) = ordered_incremental {
+        (
+            apply_content_changes_sequential(&document.text, &changes)?,
+            Some(changes),
+        )
+    } else if !request.text.is_empty() {
+        // Host-provided full text, or full-sync fallback after an unsafe batch.
+        (request.text, None)
+    } else if !request.content_changes.is_empty() {
+        // No full text available; derive local document from the ranged batch.
+        (
+            apply_content_changes_as_simultaneous_edits(&document.text, &request.content_changes)?,
+            None,
+        )
+    } else {
+        (String::new(), None)
+    };
+    let content_changes = if let Some(changes) = wire_incremental.as_ref() {
+        json!(changes
+            .iter()
+            .map(|change| {
+                let range = change.range.expect("incremental changes require a range");
+                json!({
+                    "range": {
+                        "start": {
+                            "line": range.start.line,
+                            "character": range.start.utf16_column
+                        },
+                        "end": {
+                            "line": range.end.line,
+                            "character": range.end.utf16_column
+                        }
+                    },
+                    "text": change.text
+                })
+            })
+            .collect::<Vec<_>>())
+    } else {
+        json!([{ "text": next_text }])
+    };
+    let mut document = document;
     document.version += 1;
-    document.text = request.text;
+    document.text = next_text;
     let message = json_rpc_notification(
         "textDocument/didChange",
         json!({
@@ -162,12 +214,32 @@ pub fn client_change_document(
                 "uri": document.uri,
                 "version": document.version
             },
-            "contentChanges": [{
-                "text": document.text
-            }]
+            "contentChanges": content_changes
         }),
     )?;
+    state.open_documents.insert(request.uri, document);
     Ok(client_response(state, vec![message], Vec::new()))
+}
+
+fn apply_content_changes_as_simultaneous_edits(
+    text: &str,
+    changes: &[LspDocumentContentChange],
+) -> Result<String, CoreError> {
+    let mut edits = Vec::new();
+    for change in changes {
+        let Some(range) = change.range else {
+            return Ok(change.text.clone());
+        };
+        edits.push(LspTextEdit {
+            range,
+            new_text: change.text.clone(),
+        });
+    }
+    Ok(crate::lsp::apply_text_edits(ApplyTextEditsRequest {
+        text: text.to_string(),
+        edits,
+    })?
+    .text)
 }
 
 /// Closes a document and clears diagnostics owned by its URI.
@@ -213,13 +285,27 @@ pub fn client_shutdown(request: ClientShutdownRequest) -> Result<LspClientRespon
 pub(crate) fn client_feature_request_canonical(
     request: ClientFeatureRequest,
 ) -> Result<LspClientResponse, CoreError> {
+    client_feature_request_with_document_ownership(request, true)
+}
+
+/// Allocates a feature request for a provider-owned virtual document.
+pub(crate) fn client_provider_document_feature_request_canonical(
+    request: ClientFeatureRequest,
+) -> Result<LspClientResponse, CoreError> {
+    client_feature_request_with_document_ownership(request, false)
+}
+
+fn client_feature_request_with_document_ownership(
+    request: ClientFeatureRequest,
+    require_open_document: bool,
+) -> Result<LspClientResponse, CoreError> {
     validate_uri(&request.uri)?;
     validate_lsp_method(&request.method)?;
     let params = feature_request_params(&request)?;
     let uri = request.uri.clone();
     let method = request.method.clone();
     let mut state = request.state;
-    if !state.open_documents.contains_key(&uri) {
+    if require_open_document && !state.open_documents.contains_key(&uri) {
         return Err(CoreError::new(
             ErrorCode::InvalidRequest,
             "Cannot request LSP features for a document that is not open.",
@@ -338,6 +424,8 @@ pub fn client_apply_server_message(
                 state.server_capabilities = feature_names_from_capabilities(
                     result.get("capabilities").unwrap_or(&Value::Null),
                 );
+                state.text_document_sync =
+                    text_document_sync_kind(result.get("capabilities").unwrap_or(&Value::Null));
                 state.initialized = true;
                 responses.push(json_rpc_notification("initialized", json!({}))?);
             }
@@ -346,6 +434,7 @@ pub fn client_apply_server_message(
             state.initialized = false;
             state.shutdown_requested = false;
             state.server_capabilities.clear();
+            state.text_document_sync = LspTextDocumentSyncKind::Full;
             state.open_documents.clear();
             state.diagnostics.clear();
             state.diagnostic_versions.clear();
@@ -484,6 +573,7 @@ fn validate_lsp_method(method: &str) -> Result<(), CoreError> {
         | "textDocument/codeAction"
         | "completionItem/resolve"
         | "codeAction/resolve"
+        | "java/findLinks"
         | "workspace/executeCommand" => Ok(()),
         _ => Err(CoreError::new(
             ErrorCode::NotSupported,
@@ -549,6 +639,13 @@ fn feature_request_params(request: &ClientFeatureRequest) -> Result<Value, CoreE
                 "This LSP request requires a completion item.",
             )
         }),
+        "java/findLinks" => Ok(json!({
+            "type": "superImplementation",
+            "position": {
+                "textDocument": text_document,
+                "position": lsp_position_json(required_position(request)?)
+            }
+        })),
         "codeAction/resolve" => request.code_action.clone().ok_or_else(|| {
             CoreError::new(
                 ErrorCode::InvalidRequest,
@@ -759,6 +856,7 @@ fn lsp_feature_result_for_method(method: Option<&str>, result: Option<&Value>) -
         | Some("textDocument/declaration")
         | Some("textDocument/typeDefinition")
         | Some("textDocument/implementation")
+        | Some("java/findLinks")
         | Some("textDocument/references") => Some(json!({
             "locations": parse_locations(result)
         })),
@@ -1142,6 +1240,20 @@ fn hex_value(value: u8) -> Option<u8> {
         b'a'..=b'f' => Some(value - b'a' + 10),
         b'A'..=b'F' => Some(value - b'A' + 10),
         _ => None,
+    }
+}
+
+fn text_document_sync_kind(capabilities: &Value) -> LspTextDocumentSyncKind {
+    let sync = capabilities.get("textDocumentSync");
+    let change = match sync {
+        Some(Value::Number(value)) => value.as_i64().unwrap_or(1),
+        Some(Value::Object(value)) => value.get("change").and_then(Value::as_i64).unwrap_or(1),
+        _ => 1,
+    };
+    match change {
+        0 => LspTextDocumentSyncKind::None,
+        2 => LspTextDocumentSyncKind::Incremental,
+        _ => LspTextDocumentSyncKind::Full,
     }
 }
 

@@ -2,6 +2,7 @@ import type { DatabaseType } from "@/features/database/types/provider.types";
 import type { MultiFileDiff } from "@/features/git/types/git-diff.types";
 import type { GitDiff } from "@/features/git/types/git.types";
 import type { OnboardingMode } from "@/features/onboarding/lib/onboarding-state";
+import type { DocumentLifecycleState } from "@/platform/document-lifecycle";
 
 // ── Token entry for syntax highlighting cache ───────────────────────
 
@@ -10,6 +11,12 @@ export interface TokenEntry {
   end: number;
   token_type: string;
   class_name: string;
+}
+
+export interface EditorLspDocumentBinding {
+  documentUri: string;
+  sessionFilePath: string;
+  languageId: string;
 }
 
 // ── Content type discriminant ───────────────────────────────────────
@@ -59,11 +66,19 @@ export interface EditorContent extends PaneContentBase {
   content: string;
   savedContent: string;
   isDirty: boolean;
+  /** Shared persistence state; optional only for restored pre-contract sessions. */
+  documentLifecycle?: DocumentLifecycleState;
   isVirtual: boolean;
   readOnly?: boolean;
   language?: string;
   languageOverride?: string;
+  lspDocument?: EditorLspDocumentBinding;
   tokens: TokenEntry[];
+  /**
+   * Bumped for every accepted text change. React selectors use this revision
+   * to recover the latest document text when a Monaco surface is rebuilt.
+   */
+  contentRevision?: number;
 }
 
 export interface TerminalContent extends PaneContentBase {
@@ -100,6 +115,7 @@ export interface DiffContent extends PaneContentBase {
   content: string;
   savedContent: string;
   diffData?: GitDiff | MultiFileDiff;
+  contentRevision?: number;
 }
 
 interface ImageContent extends PaneContentBase {
@@ -307,6 +323,7 @@ export type OpenContentSpec =
       isPreview?: boolean;
       readOnly?: boolean;
       language?: string;
+      lspDocument?: EditorLspDocumentBinding;
     }
   | {
       type: "terminal";

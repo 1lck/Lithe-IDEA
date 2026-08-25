@@ -9,6 +9,10 @@ import { useTerminalStore } from "@/features/terminal/stores/terminal.store";
 import { useTerminalShellsStore } from "@/features/terminal/stores/shells.store";
 import type { TerminalSplitDirection } from "@/features/terminal/types/terminal.types";
 import {
+  openNewTerminalFromGlobalEntry,
+  shouldAutoHideTerminalPane,
+} from "@/features/terminal/utils/terminal-pane-visibility";
+import {
   resolveTerminalLaunch,
   SYSTEM_DEFAULT_PROFILE_ID,
 } from "@/features/terminal/utils/terminal-profiles";
@@ -85,7 +89,7 @@ const TerminalContainer = ({
     [originalCloseTerminal],
   );
 
-  const hasInitializedRef = useRef(false);
+  const previousTerminalCountRef = useRef(terminals.length);
   const wasVisibleRef = useRef(false);
   const workspaceDirectoryRef = useRef(currentDirectory);
   const terminalSessionRefs = useRef<Map<string, { focus: () => void; showSearch: () => void }>>(
@@ -99,7 +103,7 @@ const TerminalContainer = ({
     }
 
     workspaceDirectoryRef.current = currentDirectory;
-    hasInitializedRef.current = terminals.length > 0;
+    previousTerminalCountRef.current = terminals.length;
     wasVisibleRef.current = false;
   }, [currentDirectory, terminals.length]);
   const registerTerminalFocus = useUIState((state) => state.registerTerminalFocus);
@@ -190,12 +194,23 @@ const TerminalContainer = ({
     };
   }, []);
 
-  // Auto-close bottom pane when all terminals are closed
+  // Collapse only on a visible terminal pane's transition from live tabs to none.
+  // An already-empty pane is allowed to remain visible long enough to create its first terminal.
   useEffect(() => {
-    if (terminals.length === 0 && hasInitializedRef.current) {
+    const previousTerminalCount = previousTerminalCountRef.current;
+    previousTerminalCountRef.current = terminals.length;
+
+    if (
+      shouldAutoHideTerminalPane({
+        bottomPaneActiveTab,
+        isBottomPaneVisible,
+        previousTerminalCount,
+        terminalCount: terminals.length,
+      })
+    ) {
       setIsBottomPaneVisible(false);
     }
-  }, [terminals.length, setIsBottomPaneVisible]);
+  }, [bottomPaneActiveTab, isBottomPaneVisible, terminals.length, setIsBottomPaneVisible]);
 
   const handleTabClick = useCallback(
     (terminalId: string) => {
@@ -508,7 +523,11 @@ const TerminalContainer = ({
 
   useEffect(() => {
     const handleNewTerminalEvent = () => {
-      handleNewTerminal();
+      openNewTerminalFromGlobalEntry({
+        createTerminal: handleNewTerminal,
+        setBottomPaneActiveTab,
+        setIsBottomPaneVisible,
+      });
     };
 
     const handleDetachTerminalToBuffer = (event: Event) => {
@@ -521,7 +540,6 @@ const TerminalContainer = ({
 
     const handleEnsureTerminalSession = () => {
       if (terminals.length === 0) {
-        hasInitializedRef.current = true;
         handleNewTerminal();
         return;
       }
@@ -558,6 +576,8 @@ const TerminalContainer = ({
     focusActiveTerminal,
     handleNewTerminal,
     setActiveTerminal,
+    setBottomPaneActiveTab,
+    setIsBottomPaneVisible,
     handleSplitView,
     closeTerminal,
   ]);
@@ -568,7 +588,6 @@ const TerminalContainer = ({
     const justBecameVisible = isTerminalVisible && !wasVisibleRef.current;
 
     if (justBecameVisible && terminals.length === 0) {
-      hasInitializedRef.current = true;
       handleNewTerminal();
     }
 

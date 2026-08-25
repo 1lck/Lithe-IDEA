@@ -83,7 +83,7 @@ function MenubarTrigger({ className, ...props }: ComponentProps<typeof Menu.Trig
       data-slot="menubar-trigger"
       openOnHover
       className={cn(
-        "font-sans ui-text-sm flex h-5 select-none items-center rounded-md px-1.5 text-subtle-foreground outline-none transition-[transform,background-color,color] duration-(--app-duration-fast) ease-(--app-ease-smooth) hover:bg-accent/50 hover:text-foreground active:scale-(--app-press-scale) focus:bg-accent/50 focus:text-foreground data-popup-open:bg-accent/80 data-popup-open:text-foreground",
+        "font-sans ui-text-sm flex h-5 shrink-0 select-none items-center whitespace-nowrap rounded-md px-1.5 text-subtle-foreground outline-none transition-[transform,background-color,color] duration-(--app-duration-fast) ease-(--app-ease-smooth) hover:bg-accent/50 hover:text-foreground active:scale-(--app-press-scale) focus:bg-accent/50 focus:text-foreground data-popup-open:bg-accent/80 data-popup-open:text-foreground",
         className,
       )}
       {...props}

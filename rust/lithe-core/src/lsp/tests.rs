@@ -593,6 +593,7 @@ fn client_core_tracks_documents_and_feature_requests() {
         state: opened.state,
         uri: "file:///tmp/project/main.rs".to_string(),
         text: "fn main() { launch(); }\n".to_string(),
+        content_changes: Vec::new(),
     })
     .unwrap();
     assert_eq!(
@@ -630,6 +631,253 @@ fn client_core_tracks_documents_and_feature_requests() {
     let request_message: Value = serde_json::from_str(&requested.messages[0]).unwrap();
     assert_eq!(request_message["method"], "textDocument/definition");
     assert_eq!(request_message["params"]["position"]["character"], 12);
+}
+
+#[test]
+fn client_change_document_emits_incremental_ranges_when_the_server_supports_them() {
+    let opened = client_open_document(ClientOpenDocumentRequest {
+        state: LspClientState::default(),
+        uri: "file:///tmp/project/main.rs".to_string(),
+        language_id: "rust".to_string(),
+        text: "fn main() {}\n".to_string(),
+    })
+    .unwrap();
+    let mut state = opened.state;
+    state.text_document_sync = LspTextDocumentSyncKind::Incremental;
+    let changed = client_change_document(ClientChangeDocumentRequest {
+        state,
+        uri: "file:///tmp/project/main.rs".to_string(),
+        text: String::new(),
+        content_changes: vec![LspDocumentContentChange {
+            range: Some(LspRange {
+                start: LspPosition {
+                    line: 0,
+                    utf16_column: 8,
+                },
+                end: LspPosition {
+                    line: 0,
+                    utf16_column: 8,
+                },
+            }),
+            text: "launch".to_string(),
+        }],
+    })
+    .unwrap();
+    assert_eq!(
+        changed
+            .state
+            .open_documents
+            .get("file:///tmp/project/main.rs")
+            .unwrap()
+            .text,
+        "fn main(launch) {}\n"
+    );
+    let did_change: Value = serde_json::from_str(&changed.messages[0]).unwrap();
+    assert_eq!(did_change["method"], "textDocument/didChange");
+    assert_eq!(did_change["params"]["contentChanges"][0]["text"], "launch");
+    assert_eq!(
+        did_change["params"]["contentChanges"][0]["range"]["start"]["character"],
+        8
+    );
+}
+
+#[test]
+fn client_change_document_replays_multi_change_batches_end_to_start() {
+    // Pre-event document. Both Monaco ranges are relative to this text:
+    // insert "X" at column 1, and insert a newline at column 3 (between "c" and "d").
+    // Sequential LSP apply in original left-to-right order would shift the
+    // second range and diverge; end-to-start order keeps Core and wire aligned.
+    let opened = client_open_document(ClientOpenDocumentRequest {
+        state: LspClientState::default(),
+        uri: "file:///tmp/project/multi.rs".to_string(),
+        language_id: "rust".to_string(),
+        text: "abcd".to_string(),
+    })
+    .unwrap();
+    let mut state = opened.state;
+    state.text_document_sync = LspTextDocumentSyncKind::Incremental;
+    let changed = client_change_document(ClientChangeDocumentRequest {
+        state,
+        uri: "file:///tmp/project/multi.rs".to_string(),
+        text: String::new(),
+        content_changes: vec![
+            LspDocumentContentChange {
+                range: Some(LspRange {
+                    start: LspPosition {
+                        line: 0,
+                        utf16_column: 1,
+                    },
+                    end: LspPosition {
+                        line: 0,
+                        utf16_column: 1,
+                    },
+                }),
+                text: "X".to_string(),
+            },
+            LspDocumentContentChange {
+                range: Some(LspRange {
+                    start: LspPosition {
+                        line: 0,
+                        utf16_column: 3,
+                    },
+                    end: LspPosition {
+                        line: 0,
+                        utf16_column: 3,
+                    },
+                }),
+                text: "\n".to_string(),
+            },
+        ],
+    })
+    .unwrap();
+
+    let document = changed
+        .state
+        .open_documents
+        .get("file:///tmp/project/multi.rs")
+        .unwrap();
+    assert_eq!(document.text, "aXbc\nd");
+
+    let did_change: Value = serde_json::from_str(&changed.messages[0]).unwrap();
+    let content_changes = did_change["params"]["contentChanges"].as_array().unwrap();
+    assert_eq!(content_changes.len(), 2);
+    // Wire order must be end-to-start so sequential replay matches document.text.
+    assert_eq!(content_changes[0]["text"], "\n");
+    assert_eq!(content_changes[0]["range"]["start"]["character"], 3);
+    assert_eq!(content_changes[1]["text"], "X");
+    assert_eq!(content_changes[1]["range"]["start"]["character"], 1);
+
+    let replayed = apply_content_changes_sequential(
+        "abcd",
+        &[
+            LspDocumentContentChange {
+                range: Some(LspRange {
+                    start: LspPosition {
+                        line: 0,
+                        utf16_column: 3,
+                    },
+                    end: LspPosition {
+                        line: 0,
+                        utf16_column: 3,
+                    },
+                }),
+                text: "\n".to_string(),
+            },
+            LspDocumentContentChange {
+                range: Some(LspRange {
+                    start: LspPosition {
+                        line: 0,
+                        utf16_column: 1,
+                    },
+                    end: LspPosition {
+                        line: 0,
+                        utf16_column: 1,
+                    },
+                }),
+                text: "X".to_string(),
+            },
+        ],
+    )
+    .unwrap();
+    assert_eq!(replayed, document.text);
+
+    // Left-to-right sequential apply of the original Monaco order diverges,
+    // which is exactly the bug the end-to-start wire order prevents.
+    let diverged = apply_content_changes_sequential(
+        "abcd",
+        &[
+            LspDocumentContentChange {
+                range: Some(LspRange {
+                    start: LspPosition {
+                        line: 0,
+                        utf16_column: 1,
+                    },
+                    end: LspPosition {
+                        line: 0,
+                        utf16_column: 1,
+                    },
+                }),
+                text: "X".to_string(),
+            },
+            LspDocumentContentChange {
+                range: Some(LspRange {
+                    start: LspPosition {
+                        line: 0,
+                        utf16_column: 3,
+                    },
+                    end: LspPosition {
+                        line: 0,
+                        utf16_column: 3,
+                    },
+                }),
+                text: "\n".to_string(),
+            },
+        ],
+    )
+    .unwrap();
+    assert_ne!(diverged, document.text);
+}
+
+#[test]
+fn client_change_document_falls_back_to_full_sync_for_overlapping_ranges() {
+    let opened = client_open_document(ClientOpenDocumentRequest {
+        state: LspClientState::default(),
+        uri: "file:///tmp/project/overlap.rs".to_string(),
+        language_id: "rust".to_string(),
+        text: "abcdef".to_string(),
+    })
+    .unwrap();
+    let mut state = opened.state;
+    state.text_document_sync = LspTextDocumentSyncKind::Incremental;
+    let changed = client_change_document(ClientChangeDocumentRequest {
+        state,
+        uri: "file:///tmp/project/overlap.rs".to_string(),
+        text: "Z".to_string(),
+        content_changes: vec![
+            LspDocumentContentChange {
+                range: Some(LspRange {
+                    start: LspPosition {
+                        line: 0,
+                        utf16_column: 0,
+                    },
+                    end: LspPosition {
+                        line: 0,
+                        utf16_column: 3,
+                    },
+                }),
+                text: "AA".to_string(),
+            },
+            LspDocumentContentChange {
+                range: Some(LspRange {
+                    start: LspPosition {
+                        line: 0,
+                        utf16_column: 2,
+                    },
+                    end: LspPosition {
+                        line: 0,
+                        utf16_column: 5,
+                    },
+                }),
+                text: "BB".to_string(),
+            },
+        ],
+    })
+    .unwrap();
+
+    assert_eq!(
+        changed
+            .state
+            .open_documents
+            .get("file:///tmp/project/overlap.rs")
+            .unwrap()
+            .text,
+        "Z"
+    );
+    let did_change: Value = serde_json::from_str(&changed.messages[0]).unwrap();
+    assert_eq!(
+        did_change["params"]["contentChanges"],
+        json!([{ "text": "Z" }])
+    );
 }
 
 #[test]
@@ -728,6 +976,7 @@ fn client_core_ignores_diagnostics_for_unopened_or_stale_document_versions() {
         state: opened.state,
         uri: uri.to_string(),
         text: "fn main() { launch(); }\n".to_string(),
+        content_changes: Vec::new(),
     })
     .unwrap();
 

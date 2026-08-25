@@ -49,7 +49,7 @@ struct RootView: View {
                 return Alert(
                     title: Text(LocalizedStringKey(notice.title)),
                     message: Text(LocalizedStringKey(notice.message)),
-                    primaryButton: .default(Text("Download")) {
+                    primaryButton: .default(Text("Open Release Page")) {
                         updateChecker.openRelease(url)
                     },
                     secondaryButton: .cancel()
@@ -178,7 +178,9 @@ private struct ActiveSessionChrome: View {
         if windowLayout == .standalone {
             return projectSessions.activeModel.standaloneFileURL?.lastPathComponent ?? "Lithe"
         }
-        guard windowLayout == .welcome else { return nil }
+        if windowLayout == .workspace {
+            return projectSessions.activeModel.workspaceURL?.lastPathComponent ?? "Lithe"
+        }
         return String(
             localized: "Welcome to Lithe",
             bundle: .main,
@@ -342,7 +344,7 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
         if let title {
             window.title = title
             window.titlebarAppearsTransparent = true
-            window.titleVisibility = .visible
+            window.titleVisibility = layout == .workspace ? .hidden : .visible
         } else {
             window.title = ""
             window.titleVisibility = .hidden

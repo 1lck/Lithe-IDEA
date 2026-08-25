@@ -8,6 +8,7 @@ import { useFileSystemStore } from "@/features/file-system/stores/file-system.st
 import type { HeaderTrailingItemId } from "@/features/layout/config/item-order";
 import { orderChromeItems, type ChromeItem } from "@/features/layout/utils/chrome-items";
 import { useFooterGitBranchItem } from "@/features/layout/components/footer/footer-git-branch-item";
+import { AppUpdateControl } from "@/features/layout/components/app-update-control";
 import SettingsDialog from "@/features/settings/components/settings-dialog";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
@@ -71,7 +72,7 @@ const TitleBar = ({ showMinimal = false, onOpenProjectPicker }: TitleBarProps) =
   const handleOpenFolder = useFileSystemStore((state) => state.handleOpenFolder);
   const closeProject = useFileSystemStore((state) => state.closeProject);
   const projectTabs = useWorkspaceTabsStore.use.projectTabs();
-  const setIsGlobalSearchVisible = useUIState((state) => state.setIsGlobalSearchVisible);
+  const setIsQuickOpenVisible = useUIState((state) => state.setIsQuickOpenVisible);
   const branchItem = useFooterGitBranchItem();
 
   const [menuBarActiveMenu, setMenuBarActiveMenu] = useState<string | null>(null);
@@ -244,11 +245,25 @@ const TitleBar = ({ showMinimal = false, onOpenProjectPicker }: TitleBarProps) =
   const headerTrailingItems: Array<ChromeItem<HeaderTrailingItemId>> = [];
   const orderedTrailingItems = orderChromeItems(headerTrailingItems, headerTrailingItemsOrder);
 
-  const macOSAlignedControls = (
+  const projectControls = (
     <ChromeGroup gap="tight" className="pointer-events-auto">
       <TitleProjectMenu onOpenProjectPicker={onOpenProjectPicker} />
       {branchItem?.content}
     </ChromeGroup>
+  );
+
+  const quickOpenAction = (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-xs"
+      tooltip={t("workbench.search")}
+      tooltipSide="bottom"
+      onClick={() => setIsQuickOpenVisible(true)}
+      aria-label={t("workbench.search")}
+    >
+      <MagnifyingGlassIcon />
+    </Button>
   );
 
   const workbenchActions = (
@@ -267,17 +282,7 @@ const TitleBar = ({ showMinimal = false, onOpenProjectPicker }: TitleBarProps) =
           </Button>
         </span>
       </Tooltip>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-xs"
-        tooltip={t("workbench.search")}
-        tooltipSide="bottom"
-        onClick={() => setIsGlobalSearchVisible(true)}
-        aria-label={t("workbench.search")}
-      >
-        <MagnifyingGlassIcon />
-      </Button>
+      {quickOpenAction}
       <Button
         type="button"
         variant="ghost"
@@ -327,7 +332,7 @@ const TitleBar = ({ showMinimal = false, onOpenProjectPicker }: TitleBarProps) =
         >
           <ChromeGroup className="pointer-events-auto h-full">
             {menuItem}
-            {macOSAlignedControls}
+            {projectControls}
           </ChromeGroup>
 
           <ChromeGroup className="h-full">
@@ -346,13 +351,18 @@ const TitleBar = ({ showMinimal = false, onOpenProjectPicker }: TitleBarProps) =
         data-tauri-drag-region
         onMouseDown={handleTitleBarMouseDown}
         onContextMenu={handleTitleBarContextMenu}
-        className="lithe-title-bar font-sans ui-text-chrome relative z-50 flex h-(--lithe-title-bar-height) items-center justify-between gap-(--lithe-chrome-gap) bg-transparent px-(--lithe-chrome-padding-inline) text-subtle-foreground"
+        className="lithe-title-bar font-sans ui-text-chrome relative z-50 flex h-(--lithe-title-bar-height) items-center justify-between gap-(--lithe-chrome-gap) bg-surface px-(--lithe-chrome-padding-inline) text-muted-foreground"
       >
-        <ChromeGroup data-tauri-drag-region grow>
-          <ChromeGroup className="pointer-events-auto">{macOSAlignedControls}</ChromeGroup>
+        <ChromeGroup data-tauri-drag-region grow className="min-w-0">
+          <ChromeGroup className="pointer-events-auto min-w-0">
+            {menuItem}
+            {projectControls}
+          </ChromeGroup>
         </ChromeGroup>
-        <ChromeGroup className="z-20">
+        <ChromeGroup className="pointer-events-auto z-20">
+          {quickOpenAction}
           <TitleBarTrailingActions items={orderedTrailingItems} />
+          {isWindows ? <AppUpdateControl /> : null}
 
           {showAppWindowControls && (
             <WindowControls

@@ -5,10 +5,10 @@ import UniformTypeIdentifiers
 /// The small amount of state needed to make a tab drag observable and
 /// cancellable from the surrounding SwiftUI view.
 struct EditorTabDragState: Equatable {
-    /// Identifies one native drag session. A stale DropDelegate callback from
+    /// Identifies one tab-reorder gesture. A stale DropDelegate callback from
     /// a previous session must never mutate the next session's state.
     var sessionID: UUID?
-    var draggedDocumentID: UUID?
+    var draggedItem: EditorTabItem?
     var dropTarget: EditorTabDropTarget?
     /// Incremented whenever the current target changes. This lets us ignore
     /// dropExited callbacks emitted by a tab view that was rebuilt during
@@ -17,14 +17,24 @@ struct EditorTabDragState: Equatable {
 
     static let idle = EditorTabDragState(
         sessionID: nil,
-        draggedDocumentID: nil,
+        draggedItem: nil,
         dropTarget: nil,
         dropTargetRevision: 0
     )
 
+    var draggedDocumentID: UUID? {
+        guard let draggedItem,
+              case .document(let documentID) = draggedItem else { return nil }
+        return documentID
+    }
+
     mutating func begin(documentID: UUID) {
+        begin(item: .document(documentID))
+    }
+
+    mutating func begin(item: EditorTabItem) {
         sessionID = UUID()
-        draggedDocumentID = documentID
+        draggedItem = item
         dropTarget = nil
         dropTargetRevision = 0
     }
@@ -58,9 +68,33 @@ struct EditorTabDropTarget: Equatable {
     let side: EditorTabDropSide
 }
 
+struct EditorTabReorderTarget: Equatable {
+    let item: EditorTabItem
+    let side: EditorTabDropSide
+}
+
 enum EditorTabDropSide: Equatable {
     case before
     case after
+}
+
+/// Keeps live tab reordering away from the midpoint where layout changes can
+/// otherwise make the pointer oscillate between before and after.
+enum EditorTabDropGeometry {
+    static let hoverDeadZoneRatio: CGFloat = 0.10
+
+    static func hoverSide(locationX: CGFloat, width: CGFloat) -> EditorTabDropSide? {
+        guard width > 0 else { return nil }
+        let midpoint = width / 2
+        let deadZone = width * hoverDeadZoneRatio
+        if locationX < midpoint - deadZone { return .before }
+        if locationX > midpoint + deadZone { return .after }
+        return nil
+    }
+
+    static func finalSide(locationX: CGFloat, width: CGFloat) -> EditorTabDropSide {
+        width > 0 && locationX > width / 2 ? .after : .before
+    }
 }
 
 enum EditorTabDragPayload {

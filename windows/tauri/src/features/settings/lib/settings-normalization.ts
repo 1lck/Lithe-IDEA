@@ -11,6 +11,7 @@ import {
 import {
   DEFAULT_MONO_FONT_FAMILY,
   DEFAULT_UI_FONT_FAMILY,
+  DEFAULT_UI_FONT_SIZE,
 } from "@/features/settings/config/typography-defaults";
 import { normalizeConfiguredFontFamily } from "@/features/settings/lib/font-family-resolution";
 import {
@@ -94,6 +95,9 @@ const AI_MODEL_MIGRATIONS: Record<string, Record<string, string>> = {
     "qwen3.6-plus": "qwen3-max",
   },
 };
+
+const LEGACY_DEFAULT_UI_FONT_FAMILY = "Geist Sans";
+const LEGACY_DEFAULT_UI_FONT_SIZE = 15;
 
 const AI_AUTOCOMPLETE_MODEL_MIGRATIONS: Record<string, string> = {
   "google/gemini-2.5-flash-lite": "google/gemini-3.1-flash-lite",
@@ -207,13 +211,14 @@ function normalizeStringList(value: unknown): string[] {
 
 function normalizeIconTheme(value: string): string {
   if (
+    value === "lithe-icons" ||
     value === "lithe-icons-dimmed" ||
     value === "lithe-icons-light" ||
     value === "lithe-file-icons" ||
     value === "lithe-file-icons-dark" ||
     value === "lithe-file-icons-light"
   ) {
-    return "lithe-icons";
+    return "idea-icons";
   }
 
   if (value === "colorful-material" || value === "seti") {
@@ -460,6 +465,14 @@ export function normalizeSettings(settings: Settings): Settings {
     normalizedSettings.gitSidebarTabOrder = ["changes", "history"];
   }
 
+  if (
+    normalizedSettings.uiFontFamily === LEGACY_DEFAULT_UI_FONT_FAMILY &&
+    normalizedSettings.uiFontSize === LEGACY_DEFAULT_UI_FONT_SIZE
+  ) {
+    normalizedSettings.uiFontFamily = DEFAULT_UI_FONT_FAMILY;
+    normalizedSettings.uiFontSize = DEFAULT_UI_FONT_SIZE;
+  }
+
   normalizedSettings.uiFontSize = normalizeUiFontSize(normalizedSettings.uiFontSize);
   normalizedSettings.fontFamily = normalizeConfiguredFontFamily(
     normalizedSettings.fontFamily,
@@ -524,10 +537,7 @@ export function normalizeSettings(settings: Settings): Settings {
   normalizedSettings.lastSettingsTab = normalizeSettingsSection(
     (normalizedSettings as { lastSettingsTab?: unknown }).lastSettingsTab,
   );
-  normalizedSettings.jdtlsJavaHomePath =
-    typeof normalizedSettings.jdtlsJavaHomePath === "string"
-      ? normalizedSettings.jdtlsJavaHomePath.trim()
-      : "";
+  delete (normalizedSettings as { jdtlsJavaHomePath?: unknown }).jdtlsJavaHomePath;
 
   if (!isKeybindingPreset(normalizedSettings.keybindingPreset)) {
     normalizedSettings.keybindingPreset = "none";
@@ -665,10 +675,6 @@ export function normalizeSettingValue<K extends keyof Settings>(
 
   if (key === "activeV0DesignSystemId") {
     return ((value as string)?.trim() || "") as Settings[K];
-  }
-
-  if (key === "jdtlsJavaHomePath") {
-    return (value as string).trim() as Settings[K];
   }
 
   if (key === "aiCustomBaseUrl") {

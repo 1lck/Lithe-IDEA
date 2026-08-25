@@ -6,11 +6,16 @@ static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
 #[tauri::command]
 pub async fn platform_invoke(command: String, args: Value) -> Result<Value, String> {
+    let operation_id = args
+        .get("operationId")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .unwrap_or_else(|| format!("windows-{}", REQUEST_ID.fetch_add(1, Ordering::Relaxed)));
     let (core_command, payload) = translate(&command, args)?;
-    let id = format!("windows-{}", REQUEST_ID.fetch_add(1, Ordering::Relaxed));
     let request = json!({
-        "id": id,
-        "operationId": id,
+        "id": operation_id,
+        "operationId": operation_id,
         "timeoutMilliseconds": 30_000,
         "command": core_command,
         "payload": payload
@@ -53,6 +58,8 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
         "git_status" => "git.status",
         "git_blame_file" => {
             move_field(&mut payload, "filePath", "path");
+            payload.remove("operationId");
+            payload.remove("content");
             "git.blame"
         }
         "git_log" | "git_branches" => "git.history",
@@ -123,37 +130,25 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
         }
         "git_delete_branch" => {
             let branch = take_text(&mut payload, "branchName")?;
-            payload.insert(
-                "reference".into(),
-                json!(local_branch_reference(&branch)),
-            );
+            payload.insert("reference".into(), json!(local_branch_reference(&branch)));
             payload.insert("operation".into(), json!("deleteBranch"));
             "git.write"
         }
         "git_checkout" => {
             let branch = take_text(&mut payload, "branchName")?;
-            payload.insert(
-                "reference".into(),
-                json!(local_branch_reference(&branch)),
-            );
+            payload.insert("reference".into(), json!(local_branch_reference(&branch)));
             payload.insert("operation".into(), json!("checkout"));
             payload.insert("referenceKind".into(), json!("local"));
             "git.write"
         }
         "git_checkout_preflight" => {
             let branch = take_text(&mut payload, "branchName")?;
-            payload.insert(
-                "reference".into(),
-                json!(local_branch_reference(&branch)),
-            );
+            payload.insert("reference".into(), json!(local_branch_reference(&branch)));
             "git.checkoutPreflight"
         }
         "git_merge" | "git_rebase" => {
             let branch = take_text(&mut payload, "branchName")?;
-            payload.insert(
-                "reference".into(),
-                json!(local_branch_reference(&branch)),
-            );
+            payload.insert("reference".into(), json!(local_branch_reference(&branch)));
             payload.insert(
                 "operation".into(),
                 json!(if command == "git_merge" {
@@ -166,10 +161,7 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
         }
         "git_integration_preflight" => {
             let branch = take_text(&mut payload, "branchName")?;
-            payload.insert(
-                "reference".into(),
-                json!(local_branch_reference(&branch)),
-            );
+            payload.insert("reference".into(), json!(local_branch_reference(&branch)));
             "git.integrationPreflight"
         }
         "git_operation_state" => "git.operationState",
@@ -599,8 +591,7 @@ mod tests {
             ("git_operation_abort", "operationAbort"),
             ("git_operation_skip", "operationSkip"),
         ] {
-            let (command, payload) =
-                translate(compat, json!({ "repoPath": "C:/work" })).unwrap();
+            let (command, payload) = translate(compat, json!({ "repoPath": "C:/work" })).unwrap();
             assert_eq!(command, "git.write");
             assert_eq!(
                 payload,
@@ -644,10 +635,7 @@ mod tests {
             local_branch_reference("feature/old"),
             "refs/heads/feature/old"
         );
-        assert_eq!(
-            local_branch_reference("refs/heads/main"),
-            "refs/heads/main"
-        );
+        assert_eq!(local_branch_reference("refs/heads/main"), "refs/heads/main");
         assert_eq!(local_branch_reference("refs/foo"), "refs/heads/refs/foo");
     }
 

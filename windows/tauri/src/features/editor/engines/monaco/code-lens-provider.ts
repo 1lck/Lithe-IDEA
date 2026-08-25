@@ -6,10 +6,18 @@ import {
   languages,
 } from "monaco-editor";
 import type * as Monaco from "monaco-editor";
+import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
-import { isEditorLspSupported } from "@/features/editor/lsp/built-in-language-support";
-import { LspClient } from "@/features/editor/lsp/lsp-client";
+import {
+  lspDocumentTargetForEditorPath,
+  type LspDocumentTarget,
+} from "@/features/editor/lsp/lsp-document-target";
+import {
+  isDocumentFeatureAvailable,
+  LspClient,
+} from "@/features/editor/lsp/lsp-client";
 import { useLspStore } from "@/features/editor/lsp/stores/lsp.store";
+import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { filePathFromUri } from "@/features/editor/lsp/workspace-edit";
 import { MONACO_HIGHLIGHT_LANGUAGE_IDS } from "./language";
 import { filePathFromLitheModelUri } from "./model-uri";
@@ -19,13 +27,14 @@ const SHOW_REFERENCES_COMMAND = "editor.action.showReferences";
 
 interface LspCodeLens {
   line: number;
+  utf16Column: number;
   title: string;
   command?: string;
   arguments?: unknown[];
 }
 
 interface ExecuteLspCodeLensPayload {
-  filePath: string;
+  target: LspDocumentTarget;
   lens: LspCodeLens;
 }
 
@@ -114,6 +123,7 @@ function toShowReferencesArguments(argumentsValue: unknown[] | undefined): unkno
 export function toMonacoCodeLens(
   filePath: string,
   lens: LspCodeLens,
+  target: LspDocumentTarget = { filePath },
 ): Monaco.languages.CodeLens | null {
   if (!lens.command) return null;
 
@@ -137,7 +147,7 @@ export function toMonacoCodeLens(
     command: {
       id: EXECUTE_LSP_CODE_LENS_COMMAND,
       title: lens.title,
-      arguments: [{ filePath, lens } satisfies ExecuteLspCodeLensPayload],
+      arguments: [{ target, lens } satisfies ExecuteLspCodeLensPayload],
     },
   };
 }
@@ -152,21 +162,21 @@ export function registerMonacoCodeLensProvider(): void {
     onDidChange: codeLensesChanged.event,
     async provideCodeLenses(model, token) {
       const filePath = filePathFromModel(model);
+      const target = lspDocumentTargetForEditorPath(useBufferStore.getState().buffers, filePath);
       if (
-        !filePath ||
-        !isEditorLspSupported(filePath) ||
-        !lspClient.getActiveServerEntryForFile(filePath) ||
-        !lspClient.isDocumentOpen(filePath)
+        !target ||
+        !isDocumentFeatureAvailable(lspClient.getDocumentAvailability(target, "codeLens")) ||
+        (!target.documentUri && !lspClient.isDocumentOpen(target.filePath))
       ) {
         return { lenses: [] };
       }
 
-      const lenses = await lspClient.getCodeLens(filePath);
+      const lenses = await lspClient.getCodeLens(target);
       if (token.isCancellationRequested) return { lenses: [] };
 
       return {
         lenses: lenses
-          .map((lens) => toMonacoCodeLens(filePath, lens))
+          .map((lens) => toMonacoCodeLens(filePath, lens, target))
           .filter((lens): lens is Monaco.languages.CodeLens => lens !== null),
       };
     },
@@ -181,14 +191,15 @@ export function registerMonacoCodeLensProvider(): void {
       codeLensesChanged.fire(provider);
     }
   });
+  void listen("lsp://features-changed", () => codeLensesChanged.fire(provider));
 
   monacoEditor.addCommand({
     id: EXECUTE_LSP_CODE_LENS_COMMAND,
     run: (_accessor, payload: ExecuteLspCodeLensPayload | undefined) => {
-      if (!payload?.filePath || !payload.lens.command) return;
+      if (!payload?.target.filePath || !payload.lens.command) return;
 
       void lspClient
-        .applyCodeAction(payload.filePath, {
+        .applyCodeAction(payload.target, {
           title: payload.lens.title,
           command: payload.lens.command,
           arguments: payload.lens.arguments ?? [],

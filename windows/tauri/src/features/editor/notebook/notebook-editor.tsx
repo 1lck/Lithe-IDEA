@@ -602,11 +602,14 @@ export function NotebookEditor() {
   const currentNotebook = () => latestNotebookRef.current ?? (parsed.ok ? parsed.notebook : null);
 
   const updateNotebook = (notebook: NotebookDocument) => {
+    if (!bufferId) return;
+
     latestNotebookRef.current = notebook;
     const serializedNotebook = serializeNotebook(notebook);
+    const targetBufferId = bufferId;
     const nextCommit = notebookCommitQueueRef.current
       .catch(() => undefined)
-      .then(() => handleContentChange(serializedNotebook));
+      .then(() => handleContentChange(targetBufferId, serializedNotebook));
     notebookCommitQueueRef.current = nextCommit;
     void nextCommit;
   };

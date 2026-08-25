@@ -103,6 +103,20 @@ Platform products do not share module-runtime implementation code. The stable
 manifest, lifecycle semantics, and deterministic JSON representation are the
 portable boundary.
 
+## Document Lifecycle Contract
+
+An open document, rather than an editor widget, owns live text for the lifetime
+of its tab. Recreating Monaco, `NSTextView`, syntax services, or an LSP binding
+must reattach to that document and must not read an older memoized snapshot.
+
+Persistence state is one of `clean`, `dirty`, `saving`, or `conflict`.
+`saving` retains `operationId` and the immutable revision being written. A save
+completion only clears dirty state when it still owns that operation and no
+newer revision exists. A watcher may reload a clean document, but an external
+change to a dirty or saving document enters `conflict` and preserves live text
+until the user chooses Keep Editor or Load Disk Version. Platforms own text and
+native I/O; Rust Core owns the deterministic boundary-event decisions.
+
 Workspace visibility and project detection exclude nested checkout containers
 named `.worktree` or `.worktrees` by default, so a copied project is not treated
 as a second set of sources or runnable services.
@@ -114,6 +128,32 @@ ignore stale termination events after a restart. `stop()` is the cancellation
 operation and must terminate the platform process without changing feature
 state owned by another operation.
 
+Java workspace activation is a shared Core decision over visible relative
+paths. Any workspace containing a non-ignored `.java` source starts one JDT LS
+session asynchronously, even without Maven or Gradle metadata. That session is
+owned by the workspace and remains alive until the workspace closes or the user
+explicitly restarts it. `ready` means JDT LS has completed project import, not
+merely that the process answered `initialize`.
+
+JDT LS runs only on the Temurin JDK 21 bundled with Lithe. This runtime is
+independent of project Run/Debug JDK selection and has no user-configurable
+path. A missing or invalid bundle is a packaging failure. The application shows
+preparing, ready, failure, and timeout notifications; a navigation command while
+preparing ends after the notice and is never replayed later.
+
+Platforms observe JDT LS version and non-recursive build-file metadata, while
+Rust Core alone validates and reduces those observations to the opaque workspace
+fingerprint. macOS and Windows adapters must not duplicate its ordering,
+de-duplication, or serialization rules.
+
+Editor changes use versioned incremental document synchronization and do not
+restart the session or clear its index. Workspace watchers coalesce Maven and
+Gradle changes before one project refresh and publish normalized watched-file
+events. Platform adapters mark selected JDT LS caches as recently used, ask
+Rust Core which inactive caches exceed the 30-day retention period, and delete
+only those validated directories. **Java: Rebuild Index** remains the explicit
+recovery path for the current workspace key.
+
 Language feature clients route through a provider interface rather than
 depending directly on an LSP session. Process-free providers remain available
 when an executable is missing. LSP-backed features are enabled only after the
@@ -121,6 +161,13 @@ server advertises them during initialize or dynamic registration. The shared
 core owns JSON-RPC state and normalized results; platform adapters own stdio and
 process lifecycle. Detailed invariants are documented in
 [`language-tooling.md`](../../docs/architecture/language-tooling.md).
+
+Session lifecycle is a single discriminated state, never a set of booleans.
+Capability negotiation is separately `unknown` or `known`; a known capability
+is then supported or unsupported. Failures retain stable `code`, `stage`, exit
+code, and diagnostic detail across the Rust, Swift, and TypeScript boundaries.
+Domain and adapter layers return stable reasons rather than user-facing prose;
+each product's presentation layer owns localized notification text.
 
 ## Error Codes
 

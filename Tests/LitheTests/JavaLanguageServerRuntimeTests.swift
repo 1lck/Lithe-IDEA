@@ -21,12 +21,13 @@ struct JavaLanguageServerRuntimeTests {
 
     @Test
     @MainActor
-    func automaticJdtlsRuntimeIgnoresProjectRunJDK() async {
+    func bundledJdtlsRuntimeIgnoresProjectRunJDK() async {
         let projectRuntime = javaRuntime("/project/jdk-11", "11.0.26")
         let jdtlsRuntime = javaRuntime("/language-server/jdk-21", "21.0.10")
         let service = ProjectRuntimeService(
             runtimeLocator: JavaLanguageServerTestRuntimeLocator(
-                runtimes: [projectRuntime, jdtlsRuntime]
+                runtimes: [projectRuntime, jdtlsRuntime],
+                bundledHomePath: jdtlsRuntime.homePath
             ),
             store: JavaLanguageServerTestStore()
         )
@@ -45,43 +46,84 @@ struct JavaLanguageServerRuntimeTests {
 
     @Test
     @MainActor
-    func manualJdtlsRuntimeRejectsOldJavaAndAcceptsJava17() async {
-        let oldRuntime = javaRuntime("/jdk-11", "11.0.26")
-        let supportedRuntime = javaRuntime("/jdk-17", "17.0.18")
+    func bundledJdtlsRuntimeRejectsNonJdk21() async {
+        let unsupportedRuntime = javaRuntime("/jdk-17", "17.0.18")
         let service = ProjectRuntimeService(
             runtimeLocator: JavaLanguageServerTestRuntimeLocator(
-                runtimes: [supportedRuntime, oldRuntime]
+                runtimes: [unsupportedRuntime],
+                bundledHomePath: unsupportedRuntime.homePath
             ),
             store: JavaLanguageServerTestStore()
         )
 
-        #expect(await service.inspectJavaLanguageServerRuntime(atPath: oldRuntime.homePath) == oldRuntime)
-        await service.prepareJavaLanguageServerRuntime(overridePath: oldRuntime.homePath)
-        #expect(service.javaLanguageServerExecutableURL(overridePath: oldRuntime.homePath) == nil)
-        await service.prepareJavaLanguageServerRuntime(overridePath: supportedRuntime.homePath)
-        #expect(
-            service.javaLanguageServerExecutableURL(overridePath: supportedRuntime.homePath)?.path
-                == "/jdk-17/bin/java"
-        )
+        let result = await service.prepareJavaLanguageServerRuntime()
+
+        #expect(service.javaLanguageServerExecutableURL() == nil)
+        guard case .failed(let message) = result else {
+            Issue.record("Expected the bundled JDK version check to fail")
+            return
+        }
+        #expect(message.contains("JDK 21"))
     }
 
     @Test
     @MainActor
-    func automaticJdtlsRuntimeDiscoveryRunsOffTheMainThread() async {
-        let recorder = JavaLanguageServerDiscoveryThreadRecorder()
-        let runtime = javaRuntime("/jdk-21", "21.0.10")
+    func missingBundledJdtlsRuntimeDoesNotUseDiscoveredJDK() async {
+        let discoveredRuntime = javaRuntime("/system/jdk-21", "21.0.10")
         let service = ProjectRuntimeService(
             runtimeLocator: JavaLanguageServerTestRuntimeLocator(
-                runtimes: [runtime],
-                threadRecorder: recorder
+                runtimes: [discoveredRuntime],
+                bundledHomePath: nil
             ),
             store: JavaLanguageServerTestStore()
         )
 
-        await service.prepareJavaLanguageServerRuntime()
+        let result = await service.prepareJavaLanguageServerRuntime()
 
-        #expect(recorder.discoveryWasOnMainThread == false)
-        #expect(service.javaLanguageServerExecutableURL()?.path == "/jdk-21/bin/java")
+        #expect(service.javaLanguageServerExecutableURL() == nil)
+        guard case .failed(let message) = result else {
+            Issue.record("Expected a missing bundled JDK failure")
+            return
+        }
+        #expect(message.contains("bundled Temurin JDK 21"))
+    }
+
+    @Test
+    @MainActor
+    func preparationOwnerCancelsAndReleasesItsTask() {
+        let owner = JavaLanguageServerPreparationOwner(
+            workspaceURL: URL(fileURLWithPath: "/workspace", isDirectory: true),
+            operationID: UUID()
+        )
+        let task = Task { @MainActor () -> Void in
+            do {
+                try await Task.sleep(nanoseconds: 60_000_000_000)
+            } catch {
+                return
+            }
+        }
+        owner.task = task
+
+        owner.cancel()
+
+        #expect(task.isCancelled)
+        #expect(owner.task == nil)
+    }
+
+    @Test
+    @MainActor
+    func workspaceStateKeepsPreparationOperationIdentity() {
+        let workspaceURL = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let operationID = UUID()
+        let owner = JavaLanguageServerPreparationOwner(
+            workspaceURL: workspaceURL,
+            operationID: operationID
+        )
+        let state = JavaLanguageServerWorkspaceState.preparing(owner: owner)
+
+        #expect(state.operationID == operationID)
+        #expect(state.belongs(to: workspaceURL))
+        #expect(!state.belongs(to: URL(fileURLWithPath: "/other", isDirectory: true)))
     }
 
     private func javaRuntime(_ homePath: String, _ version: String) -> JavaRuntimeCandidate {
@@ -91,20 +133,19 @@ struct JavaLanguageServerRuntimeTests {
 
 private struct JavaLanguageServerTestRuntimeLocator: RuntimeLocator {
     let runtimes: [JavaRuntimeCandidate]
-    var threadRecorder: JavaLanguageServerDiscoveryThreadRecorder?
+    let bundledHomePath: String?
 
     init(
         runtimes: [JavaRuntimeCandidate],
-        threadRecorder: JavaLanguageServerDiscoveryThreadRecorder? = nil
+        bundledHomePath: String? = nil
     ) {
         self.runtimes = runtimes
-        self.threadRecorder = threadRecorder
+        self.bundledHomePath = bundledHomePath
     }
 
     func environment() -> [String: String] { [:] }
 
     func discover() -> RuntimeDiscoveryResult {
-        threadRecorder?.recordDiscoveryThread()
         return RuntimeDiscoveryResult(javaRuntimes: runtimes, mavenRuntimes: [])
     }
 
@@ -123,23 +164,8 @@ private struct JavaLanguageServerTestRuntimeLocator: RuntimeLocator {
     func mavenExecutable(forHomePath path: String) -> URL? { nil }
     func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? { nil }
     func systemJDBExecutable() -> URL? { nil }
-    func javaLanguageServerExecutable() -> URL? { nil }
-}
-
-private final class JavaLanguageServerDiscoveryThreadRecorder: @unchecked Sendable {
-    private let lock = NSLock()
-    private var discoveryWasOnMainThreadValue: Bool?
-
-    var discoveryWasOnMainThread: Bool? {
-        lock.lock()
-        defer { lock.unlock() }
-        return discoveryWasOnMainThreadValue
-    }
-
-    func recordDiscoveryThread() {
-        lock.lock()
-        discoveryWasOnMainThreadValue = Thread.isMainThread
-        lock.unlock()
+    func bundledJdkHome() -> URL? {
+        bundledHomePath.map { URL(fileURLWithPath: $0, isDirectory: true) }
     }
 }
 

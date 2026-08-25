@@ -1,14 +1,28 @@
-export function isEditorGoToDefinitionModifierClick(event: {
-  leftButton?: boolean;
+interface EditorGoToDefinitionModifierEvent {
   ctrlKey?: boolean;
   metaKey?: boolean;
   altKey?: boolean;
   shiftKey?: boolean;
-}): boolean {
-  return Boolean(
-    event.leftButton &&
-      (event.ctrlKey || event.metaKey) &&
-      !event.altKey &&
-      !event.shiftKey,
-  );
+}
+
+interface EditorGoToDefinitionModifierKeyEvent extends EditorGoToDefinitionModifierEvent {
+  key?: string;
+}
+
+export function isEditorGoToDefinitionModifierActive(
+  event: EditorGoToDefinitionModifierEvent,
+): boolean {
+  return Boolean((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey);
+}
+
+export function isEditorGoToDefinitionModifierClick(
+  event: EditorGoToDefinitionModifierEvent & { leftButton?: boolean },
+): boolean {
+  return Boolean(event.leftButton && isEditorGoToDefinitionModifierActive(event));
+}
+
+export function isEditorGoToDefinitionModifierKey(
+  event: EditorGoToDefinitionModifierKeyEvent,
+): boolean {
+  return event.key === "Control" || event.key === "Meta";
 }

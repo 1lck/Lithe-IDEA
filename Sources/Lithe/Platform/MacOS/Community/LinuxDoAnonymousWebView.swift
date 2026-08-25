@@ -10,17 +10,22 @@ enum LinuxDoWebNavigationAction: Equatable {
     case reload(UUID)
 }
 
-/// Retains one guest browsing surface across short panel presentations and
-/// releases it after a bounded idle period. Site cookies live in WebKit's data
-/// store and outlast this in-memory view cache.
+/// Retains one object while its surface is active and releases it after a
+/// bounded idle period. Keeping the timer independent from WebKit lets the
+/// lifecycle policy be tested without starting a browser process.
 @MainActor
-final class LinuxDoAnonymousWebSession: ObservableObject {
-    var webView: WKWebView?
+final class LinuxDoIdleRetainer<Value: AnyObject> {
+    var value: Value?
     private var releaseTask: Task<Void, Never>?
     private let idleLifetimeNanoseconds: UInt64
+    private let prepareForRelease: (Value) -> Void
 
-    init(idleLifetimeNanoseconds: UInt64 = 10 * 60 * 1_000_000_000) {
+    init(
+        idleLifetimeNanoseconds: UInt64,
+        prepareForRelease: @escaping (Value) -> Void
+    ) {
         self.idleLifetimeNanoseconds = idleLifetimeNanoseconds
+        self.prepareForRelease = prepareForRelease
     }
 
     func resume() {
@@ -31,14 +36,14 @@ final class LinuxDoAnonymousWebSession: ObservableObject {
     @discardableResult
     func releaseAfterInactivity() -> Task<Void, Never> {
         releaseTask?.cancel()
+        let idleLifetimeNanoseconds = idleLifetimeNanoseconds
         let task = Task { @MainActor [weak self] in
-            guard let self else { return }
             try? await Task.sleep(nanoseconds: idleLifetimeNanoseconds)
-            guard !Task.isCancelled else { return }
-            webView?.stopLoading()
-            webView?.navigationDelegate = nil
-            webView?.uiDelegate = nil
-            webView = nil
+            guard !Task.isCancelled, let self else { return }
+            if let value {
+                prepareForRelease(value)
+            }
+            value = nil
             releaseTask = nil
         }
         releaseTask = task
@@ -48,7 +53,38 @@ final class LinuxDoAnonymousWebSession: ObservableObject {
     deinit {
         releaseTask?.cancel()
     }
+}
 
+/// Retains one guest browsing surface across short panel presentations and
+/// releases it after a bounded idle period. Site cookies live in WebKit's data
+/// store and outlast this in-memory view cache.
+@MainActor
+final class LinuxDoAnonymousWebSession: ObservableObject {
+    private let webViewRetainer: LinuxDoIdleRetainer<WKWebView>
+
+    var webView: WKWebView? {
+        get { webViewRetainer.value }
+        set { webViewRetainer.value = newValue }
+    }
+
+    init(idleLifetimeNanoseconds: UInt64 = 10 * 60 * 1_000_000_000) {
+        webViewRetainer = LinuxDoIdleRetainer(
+            idleLifetimeNanoseconds: idleLifetimeNanoseconds
+        ) { webView in
+            webView.stopLoading()
+            webView.navigationDelegate = nil
+            webView.uiDelegate = nil
+        }
+    }
+
+    func resume() {
+        webViewRetainer.resume()
+    }
+
+    @discardableResult
+    func releaseAfterInactivity() -> Task<Void, Never> {
+        webViewRetainer.releaseAfterInactivity()
+    }
 }
 
 /// Hosts the public LINUX DO website in a read-only WebKit session.
@@ -153,7 +189,11 @@ struct LinuxDoAnonymousWebView: NSViewRepresentable {
         """#
 
     @MainActor
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+    final class Coordinator:
+        NSObject,
+        @MainActor WKNavigationDelegate,
+        @MainActor WKUIDelegate
+    {
         var parent: LinuxDoAnonymousWebView
         weak var webView: WKWebView?
         private var handledAction: LinuxDoWebNavigationAction = .none

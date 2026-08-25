@@ -38,6 +38,7 @@ import {
 } from "@/features/tabs/utils/internal-tab-drag";
 import { cn } from "@/utils/cn";
 import { activateBufferInPaneAndSync, activatePaneAndSyncBuffer } from "../utils/pane-activation";
+import { reconcileMountedEditorBuffers } from "../utils/mounted-editor-buffers";
 import { EmptyEditorState } from "./empty-editor-state";
 import { BOTTOM_PANE_ID } from "../constants/pane";
 import { getSingletonToolBufferTitleKey } from "../constants/tool-buffers";
@@ -287,9 +288,7 @@ function PullRequestPreviewCard({ buffer }: { buffer: PullRequestContent }) {
       <div className="min-h-0 flex-1 bg-background/40 px-3 py-3">
         <div className="rounded-lg bg-surface/35 px-3 py-2">
           <div className="line-clamp-5 ui-text-sm leading-6 text-subtle-foreground">
-            {details?.body?.trim()
-              ? details.body
-              : t("panes.pullRequestPreviewFallback")}
+            {details?.body?.trim() ? details.body : t("panes.pullRequestPreviewFallback")}
           </div>
         </div>
         <div className="mt-3 rounded-lg bg-surface/35 px-3 py-2 ui-text-sm text-subtle-foreground">
@@ -307,9 +306,7 @@ function WebViewerDisabledState() {
     <Empty className="size-full rounded-none bg-background px-6">
       <EmptyHeader>
         <EmptyTitle>{t("panes.webViewerDisabled")}</EmptyTitle>
-        <EmptyDescription>
-          {t("panes.webViewerDisabledDescription")}
-        </EmptyDescription>
+        <EmptyDescription>{t("panes.webViewerDisabledDescription")}</EmptyDescription>
       </EmptyHeader>
     </Empty>
   );
@@ -336,7 +333,11 @@ export function PaneContainer({ pane }: PaneContainerProps) {
   const [isCarouselResizing, setIsCarouselResizing] = useState(false);
   const [draggedCarouselBufferId, setDraggedCarouselBufferId] = useState<string | null>(null);
   const [carouselDropBufferId, setCarouselDropBufferId] = useState<string | null>(null);
-  const [recentEditorBufferIds, setRecentEditorBufferIds] = useState<string[]>([]);
+  const [mountedEditorBufferIds, setMountedEditorBufferIds] = useState<readonly string[]>([]);
+  const mountedEditorBufferStateRef = useRef({
+    recentIds: [] as readonly string[],
+    mountedIds: [] as readonly string[],
+  });
   const containerRef = useRef<HTMLDivElement>(null);
   const carouselViewportRef = useRef<HTMLDivElement>(null);
   const lastCarouselBufferIdRef = useRef<string | null>(null);
@@ -373,36 +374,36 @@ export function PaneContainer({ pane }: PaneContainerProps) {
   );
 
   useEffect(() => {
+    if (!isActivePane || !pane.activeBufferId) return;
+
+    const bufferStore = useBufferStore.getState();
+    if (bufferStore.activeBufferId !== pane.activeBufferId) {
+      bufferStore.actions.setActiveBuffer(pane.activeBufferId);
+    }
+  }, [isActivePane, pane.activeBufferId]);
+
+  useEffect(() => {
     const openEditorBufferIds = paneBuffers
       .filter(isStandardEditorBuffer)
       .map((buffer) => buffer.id);
-    const openEditorBufferIdSet = new Set(openEditorBufferIds);
     const activeEditorBufferId =
       activeBuffer && isStandardEditorBuffer(activeBuffer) ? activeBuffer.id : null;
-
-    setRecentEditorBufferIds((current) => {
-      const next = [
-        ...(activeEditorBufferId ? [activeEditorBufferId] : []),
-        ...current.filter(
-          (bufferId) => bufferId !== activeEditorBufferId && openEditorBufferIdSet.has(bufferId),
-        ),
-      ].slice(0, MAX_MOUNTED_EDITOR_BUFFERS);
-
-      if (
-        next.length === current.length &&
-        next.every((bufferId, index) => bufferId === current[index])
-      ) {
-        return current;
-      }
-      return next;
-    });
+    const previous = mountedEditorBufferStateRef.current;
+    const next = reconcileMountedEditorBuffers(
+      previous,
+      openEditorBufferIds,
+      activeEditorBufferId,
+      MAX_MOUNTED_EDITOR_BUFFERS,
+    );
+    mountedEditorBufferStateRef.current = next;
+    if (next.mountedIds !== previous.mountedIds) {
+      setMountedEditorBufferIds(next.mountedIds);
+    }
   }, [activeBuffer, paneBuffers]);
 
   const handlePaneClick = useCallback(() => {
-    if (!isActivePane) {
-      activatePaneAndSyncBuffer(pane.id);
-    }
-  }, [isActivePane, pane.id]);
+    activatePaneAndSyncBuffer(pane.id);
+  }, [pane.id]);
 
   const handlePaneMouseDownCapture = useCallback(
     (e: React.MouseEvent) => {
@@ -417,11 +418,9 @@ export function PaneContainer({ pane }: PaneContainerProps) {
         return;
       }
 
-      if (!isActivePane) {
-        activatePaneAndSyncBuffer(pane.id);
-      }
+      activatePaneAndSyncBuffer(pane.id);
     },
-    [isActivePane, pane.id],
+    [pane.id],
   );
 
   const handleTabClick = useCallback(
@@ -919,7 +918,7 @@ export function PaneContainer({ pane }: PaneContainerProps) {
   const mountedEditorBuffers = paneBuffers.filter(
     (buffer): buffer is EditorBufferShell =>
       isStandardEditorBuffer(buffer) &&
-      (buffer.id === activeBuffer?.id || recentEditorBufferIds.includes(buffer.id)),
+      (buffer.id === activeBuffer?.id || mountedEditorBufferIds.includes(buffer.id)),
   );
 
   const renderActiveBuffer = useCallback(

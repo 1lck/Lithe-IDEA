@@ -41,16 +41,20 @@ extension AppModel {
 
     func projectTreeURL(for url: URL) -> URL? {
         guard url.isFileURL else { return nil }
-        return ProjectTreeLocator.matchingURL(for: url, among: projectFiles)
+        if let matchingFile = ProjectTreeLocator.matchingURL(for: url, among: projectFiles) {
+            return matchingFile
+        }
+        guard let rootNode else { return nil }
+        return ProjectTreeLocator.matchingURL(for: url, in: rootNode)
     }
 
-    func revealInProjectTree(_ url: URL) {
+    func revealInProjectTree(_ url: URL, isDirectory: Bool = false) {
         guard let treeURL = projectTreeURL(for: url) else {
             showNotification("This file is not in the current workspace")
             return
         }
         selectedSidebar = .project
-        documentFeature.requestProjectTreeReveal(for: treeURL)
+        documentFeature.requestProjectTreeReveal(for: treeURL, isDirectory: isDirectory)
     }
 
     func consumeProjectTreeRevealRequest(id: UUID) {
@@ -67,12 +71,57 @@ extension AppModel {
         }
     }
 
+    var editorTabItems: [EditorTabItem] { editorTabOrderFeature.items }
+
     func moveOpenDocument(_ documentID: UUID, before targetDocumentID: UUID) {
-        documentFeature.moveDocument(documentID, before: targetDocumentID)
+        moveEditorTab(.document(documentID), before: .document(targetDocumentID))
     }
 
     func moveOpenDocument(_ documentID: UUID, after targetDocumentID: UUID) {
-        documentFeature.moveDocument(documentID, after: targetDocumentID)
+        moveEditorTab(.document(documentID), after: .document(targetDocumentID))
+    }
+
+    func moveEditorTab(_ item: EditorTabItem, before target: EditorTabItem) {
+        moveEditorTab(item, relativeTo: target, insertAfter: false)
+    }
+
+    func moveEditorTab(_ item: EditorTabItem, after target: EditorTabItem) {
+        moveEditorTab(item, relativeTo: target, insertAfter: true)
+    }
+
+    private func moveEditorTab(
+        _ item: EditorTabItem,
+        relativeTo target: EditorTabItem,
+        insertAfter: Bool
+    ) {
+        guard item != target, editorTabOrderFeature.contains(target) else { return }
+        let moved = insertAfter
+            ? editorTabOrderFeature.move(item, after: target)
+            : editorTabOrderFeature.move(item, before: target)
+        guard moved else { return }
+
+        switch item {
+        case .document(let documentID):
+            guard let document = openDocuments.first(where: { $0.id == documentID }) else {
+                editorTabOrderFeature.remove(item)
+                return
+            }
+            documentFeature.reorderDocuments(orderedIDs: editorTabOrderFeature.documentIDs)
+            selectEditorDocument(document)
+        case .terminal(let sessionID):
+            guard let session = terminalSessions.first(where: { $0.id == sessionID }) else {
+                editorTabOrderFeature.remove(item)
+                return
+            }
+            let wasAlreadyInEditor = terminalPlacementFeature.editorSessionIDs.contains(sessionID)
+            if !wasAlreadyInEditor {
+                terminalPlacementFeature.moveToEditor(sessionID)
+            }
+            terminalPlacementFeature.reorderEditorSessions(
+                orderedIDs: editorTabOrderFeature.terminalIDs
+            )
+            selectEditorTerminalSession(session)
+        }
     }
     var pendingCloseDocument: EditorDocument? { documentFeature.pendingCloseDocument }
     var isPendingProjectClose: Bool { documentFeature.isPendingProjectClose }
@@ -198,13 +247,13 @@ extension AppModel {
     var isPerformingBranchOperation: Bool { gitFeatureIfActive?.isPerformingBranchOperation ?? false }
     var isCloningRepository: Bool { gitFeatureIfActive?.isCloningRepository ?? false }
     var languageNavigationResults: [LanguageNavigationLocation] {
-        languageNavigationLocations
+        languageNavigationState.locations
     }
     var languageNavigationKind: LanguageNavigationResultKind {
-        languageNavigationResultKind
+        languageNavigationState.kind
     }
     var isLoadingNavigation: Bool {
-        isLoadingLanguageNavigation
+        languageNavigationState.isLoading
     }
     var isLoadingWorkspace: Bool { workspaceFeature.isLoadingWorkspace }
     var isRefreshingWorkspace: Bool { workspaceFeature.isRefreshingWorkspace }
