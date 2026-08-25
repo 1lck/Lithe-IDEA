@@ -9,8 +9,7 @@ extension AppSettings {
     convenience init(store: any KeyValueStore) {
         self.init(
             store: store,
-            logDirectoryProvider: TestLogDirectoryProvider(),
-            workbenchBackgroundPlatform: UnavailableWorkbenchBackgroundPlatform()
+            logDirectoryProvider: TestLogDirectoryProvider()
         )
     }
 }

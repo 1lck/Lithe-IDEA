@@ -257,7 +257,7 @@ struct SettingsView: View {
 
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(settings.workbenchBackgroundDisplayName ?? "No background image selected")
+                        Text(model.workbenchBackgroundFeature.displayName ?? "No background image selected")
                             .lineLimit(1)
                         Text("Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar.")
                             .font(LitheTheme.smallFont)
@@ -267,13 +267,13 @@ struct SettingsView: View {
                     Spacer(minLength: 8)
 
                     Button("Choose Image…") {
-                        settings.chooseWorkbenchBackgroundImage()
+                        model.workbenchBackgroundFeature.chooseCustomImage()
                     }
                     .buttonStyle(LitheSecondaryButtonStyle())
 
                     if settings.hasConfiguredWorkbenchBackground {
                         Button("Remove") {
-                            settings.clearWorkbenchBackgroundImage()
+                            model.workbenchBackgroundFeature.clear()
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(LitheTheme.accent)
@@ -281,7 +281,7 @@ struct SettingsView: View {
                     }
                 }
 
-                if let error = settings.workbenchBackgroundImageError {
+                if let error = model.workbenchBackgroundFeature.imageError {
                     Label {
                         Text(LocalizedStringKey(error))
                     } icon: {
@@ -290,10 +290,17 @@ struct SettingsView: View {
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.warning)
                     .fixedSize(horizontal: false, vertical: true)
+
+                    Button("Retry") {
+                        model.workbenchBackgroundFeature.retry()
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(LitheTheme.accent)
+                    .lithePointer()
                 }
 
                 if settings.hasConfiguredWorkbenchBackground {
-                    row("Workbench background transparency") {
+                    row("Workbench background opacity") {
                         Slider(value: $settings.workbenchBackgroundOpacity, in: 0.05...1.0, step: 0.01)
                             .frame(width: 180)
                         Text("\(Int((settings.workbenchBackgroundOpacity * 100).rounded()))%")

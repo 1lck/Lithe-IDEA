@@ -139,8 +139,7 @@ struct LitheApp: App {
         let store = MacUserDefaultsStore()
         let settings = AppSettings(
             store: store,
-            logDirectoryProvider: MacServiceContainer.makeLogDirectoryProvider(),
-            workbenchBackgroundPlatform: MacServiceContainer.makeWorkbenchBackgroundPlatform()
+            logDirectoryProvider: MacServiceContainer.makeLogDirectoryProvider()
         )
         let applicationLogWriter = MacServiceContainer.makeApplicationLogWriter()
         if !Self.redirectApplicationLogs(applicationLogWriter, to: settings.logDirectory),

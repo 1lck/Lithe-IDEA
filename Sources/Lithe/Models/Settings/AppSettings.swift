@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import LitheCoreContracts
 import LitheGitModule
@@ -24,15 +25,6 @@ final class AppSettings: ObservableObject {
         static let keyboardShortcutOverrides = "settings.keyboardShortcutOverrides"
         static let customLogDirectory = "settings.customLogDirectory"
         static let workbenchBackground = "settings.workbenchBackground"
-        // This value is platform-private. The portable preference only records
-        // `custom`; each platform owns the opaque local-image authorization.
-        static let macOSWorkbenchBackgroundImageAccess = "platform.macos.workbenchBackgroundImageAccess"
-        static let legacyMacOSWorkbenchBackgroundImageBookmark = "platform.macos.workbenchBackgroundImageBookmark"
-        static let legacyMacOSWorkbenchBackgroundImageName = "platform.macos.workbenchBackgroundImageName"
-        static let legacyWorkbenchBackgroundImageBookmark = "settings.workbenchBackgroundImageBookmark"
-        static let legacyWorkbenchBackgroundImageName = "settings.workbenchBackgroundImageName"
-        static let legacyWorkbenchBackgroundPreset = "settings.workbenchBackgroundPreset"
-        static let legacyWorkbenchBackgroundOpacity = "settings.workbenchBackgroundOpacity"
     }
 
     private struct KeyboardShortcutOverridesPayload: Codable {
@@ -44,7 +36,6 @@ final class AppSettings: ObservableObject {
 
     private let defaults: any KeyValueStore
     private let logDirectoryProvider: any LogDirectoryProviding
-    private let workbenchBackgroundPlatform: any WorkbenchBackgroundPlatformProviding
 
     @Published var colorTheme: AppColorTheme {
         didSet {
@@ -91,7 +82,6 @@ final class AppSettings: ObservableObject {
     }
     @Published private(set) var keyboardShortcutOverrides: [String: [KeyboardShortcutBinding]]
     @Published private(set) var customLogDirectory: URL?
-    @Published private(set) var workbenchBackgroundImageAccess: WorkbenchBackgroundImageAccess?
     @Published private(set) var workbenchBackground: WorkbenchBackgroundConfiguration
     @Published var workbenchBackgroundOpacity: Double {
         didSet {
@@ -104,19 +94,17 @@ final class AppSettings: ObservableObject {
             saveWorkbenchBackgroundConfiguration()
         }
     }
-    @Published private(set) var workbenchBackgroundImageError: String?
 
     private var fileVisibilityRulesObservers: [UUID: () -> Void] = [:]
     private var logDirectoryObservers: [UUID: (URL) -> Void] = [:]
+    private let workbenchBackgroundSourceDidChange = PassthroughSubject<Void, Never>()
 
     init(
         store: any KeyValueStore,
-        logDirectoryProvider: any LogDirectoryProviding,
-        workbenchBackgroundPlatform: any WorkbenchBackgroundPlatformProviding
+        logDirectoryProvider: any LogDirectoryProviding
     ) {
         self.defaults = store
         self.logDirectoryProvider = logDirectoryProvider
-        self.workbenchBackgroundPlatform = workbenchBackgroundPlatform
         colorTheme = AppColorTheme(
             rawValue: defaults.string(forKey: Key.colorTheme) ?? ""
         ) ?? .lithe
@@ -149,34 +137,15 @@ final class AppSettings: ObservableObject {
             guard !path.isEmpty else { return nil }
             return URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
         }
-        let backgroundAccess = Self.loadWorkbenchBackgroundImageAccess(from: defaults)
-        let legacyPreset = defaults.string(forKey: Key.legacyWorkbenchBackgroundPreset)
-            .flatMap(WorkbenchBackgroundPreset.init(rawValue:))
-        let legacyOpacity = defaults.object(forKey: Key.legacyWorkbenchBackgroundOpacity) as? Double ?? 0.22
-        let backgroundConfiguration = Self.loadWorkbenchBackgroundConfiguration(
-            from: defaults,
-            legacyPreset: legacyPreset,
-            hasLegacyCustomImage: backgroundAccess != nil,
-            legacyOpacity: legacyOpacity
-        )
-        workbenchBackgroundImageAccess = backgroundAccess
+        let backgroundConfiguration = Self.loadWorkbenchBackgroundConfiguration(from: defaults)
         workbenchBackground = backgroundConfiguration
         workbenchBackgroundOpacity = backgroundConfiguration.opacity
-        workbenchBackgroundImageError = nil
         if let data = defaults.data(forKey: Key.commitMessageAI),
            let saved = try? JSONDecoder().decode(CommitMessageAISettings.self, from: data) {
             commitMessageAI = saved
         } else {
             commitMessageAI = .default
         }
-        saveWorkbenchBackgroundConfiguration()
-        saveWorkbenchBackgroundImageAccess()
-        defaults.set(nil, forKey: Key.legacyMacOSWorkbenchBackgroundImageBookmark)
-        defaults.set(nil, forKey: Key.legacyMacOSWorkbenchBackgroundImageName)
-        defaults.set(nil, forKey: Key.legacyWorkbenchBackgroundImageBookmark)
-        defaults.set(nil, forKey: Key.legacyWorkbenchBackgroundImageName)
-        defaults.set(nil, forKey: Key.legacyWorkbenchBackgroundPreset)
-        defaults.set(nil, forKey: Key.legacyWorkbenchBackgroundOpacity)
         AppThemeRuntime.shared.activate(colorTheme)
     }
 
@@ -196,18 +165,6 @@ final class AppSettings: ObservableObject {
         }
     }
 
-    /// Whether the configured background can be rendered in this macOS build.
-    /// A valid cross-platform bundled slot may be absent from an older package;
-    /// preserve the shared selection but do not make the workbench transparent.
-    var hasWorkbenchBackgroundImage: Bool {
-        if let preset = workbenchBackgroundPreset {
-            return workbenchBackgroundPlatform.hasBundledImage(for: preset.bundledImageSlot)
-        }
-        return workbenchBackground.source.isCustom && workbenchBackgroundImageAccess != nil
-    }
-
-    /// Whether the user has selected a background, even if its local resource is
-    /// unavailable in this platform build.
     var hasConfiguredWorkbenchBackground: Bool {
         workbenchBackground.source.isCustom || workbenchBackgroundPreset != nil
     }
@@ -219,81 +176,20 @@ final class AppSettings: ObservableObject {
         return WorkbenchBackgroundPreset(bundledSlot: slot)
     }
 
-    var workbenchBackgroundDisplayName: String? {
-        workbenchBackgroundPreset?.title ?? workbenchBackgroundImageAccess?.displayName
-    }
-
-    func chooseWorkbenchBackgroundImage() {
-        guard let url = workbenchBackgroundPlatform.chooseImage(
-            title: "Choose Workbench Background",
-            prompt: "Choose"
-        ) else {
-            return
-        }
-        _ = setWorkbenchBackgroundImage(url)
-    }
-
-    var isCustomWorkbenchBackground: Bool {
-        workbenchBackground.source.isCustom
-    }
-
-    func hasBundledWorkbenchBackgroundImage(_ preset: WorkbenchBackgroundPreset) -> Bool {
-        workbenchBackgroundPlatform.hasBundledImage(for: preset.bundledImageSlot)
-    }
-
-    func bundledWorkbenchBackgroundImageData(for preset: WorkbenchBackgroundPreset) -> Data? {
-        workbenchBackgroundPlatform.bundledImageData(for: preset.bundledImageSlot)
-    }
-
-    @discardableResult
-    func setWorkbenchBackgroundImage(_ url: URL) -> Bool {
-        guard let access = workbenchBackgroundPlatform.makeImageAccess(for: url) else {
-            workbenchBackgroundImageError = "Could not save access to the selected background image."
-            return false
-        }
-        workbenchBackgroundImageAccess = access
-        workbenchBackground = .custom(opacity: workbenchBackgroundOpacity)
-        workbenchBackgroundImageError = nil
-        saveWorkbenchBackgroundImageAccess()
-        saveWorkbenchBackgroundConfiguration()
-        return true
+    func setWorkbenchBackgroundCustomImage() {
+        updateWorkbenchBackground(.custom(opacity: workbenchBackgroundOpacity))
     }
 
     func setWorkbenchBackgroundPreset(_ preset: WorkbenchBackgroundPreset) {
-        workbenchBackground = .bundled(slot: preset.bundledImageSlot, opacity: workbenchBackgroundOpacity)
-        workbenchBackgroundImageAccess = nil
-        workbenchBackgroundImageError = nil
-        saveWorkbenchBackgroundImageAccess()
-        saveWorkbenchBackgroundConfiguration()
+        updateWorkbenchBackground(.bundled(slot: preset.bundledImageSlot, opacity: workbenchBackgroundOpacity))
     }
 
-    func clearWorkbenchBackgroundImage() {
-        workbenchBackgroundImageAccess = nil
-        workbenchBackground = .none(opacity: workbenchBackgroundOpacity)
-        workbenchBackgroundImageError = nil
-        saveWorkbenchBackgroundImageAccess()
-        saveWorkbenchBackgroundConfiguration()
+    func clearWorkbenchBackground() {
+        updateWorkbenchBackground(.none(opacity: workbenchBackgroundOpacity))
     }
 
-    func loadWorkbenchBackgroundImageData() -> Data? {
-        if let preset = workbenchBackgroundPreset {
-            return workbenchBackgroundPlatform.bundledImageData(for: preset.bundledImageSlot)
-        }
-        guard workbenchBackground.source.isCustom, let access = workbenchBackgroundImageAccess else { return nil }
-        guard let result = workbenchBackgroundPlatform.loadImageData(for: access) else {
-            invalidateWorkbenchBackgroundImage()
-            return nil
-        }
-        if let refreshedAccess = result.refreshedAccess {
-            workbenchBackgroundImageAccess = refreshedAccess
-            saveWorkbenchBackgroundImageAccess()
-        }
-        return result.data
-    }
-
-    func invalidateWorkbenchBackgroundImage() {
-        clearWorkbenchBackgroundImage()
-        workbenchBackgroundImageError = "The selected background image is unavailable and was removed."
+    var workbenchBackgroundSourceChanges: AnyPublisher<Void, Never> {
+        workbenchBackgroundSourceDidChange.eraseToAnyPublisher()
     }
 
     @discardableResult
@@ -345,7 +241,7 @@ final class AppSettings: ObservableObject {
         projectOpenBehavior = .ask
         commitMessageAI = .default
         setCustomLogDirectory(nil)
-        clearWorkbenchBackgroundImage()
+        clearWorkbenchBackground()
         workbenchBackgroundOpacity = 0.22
         setKeyboardShortcutOverrides([:])
     }
@@ -471,51 +367,21 @@ final class AppSettings: ObservableObject {
         defaults.set(data, forKey: Key.workbenchBackground)
     }
 
-    private func saveWorkbenchBackgroundImageAccess() {
-        guard let workbenchBackgroundImageAccess,
-              let data = try? JSONEncoder().encode(workbenchBackgroundImageAccess) else {
-            defaults.set(nil, forKey: Key.macOSWorkbenchBackgroundImageAccess)
-            return
-        }
-        defaults.set(data, forKey: Key.macOSWorkbenchBackgroundImageAccess)
-    }
-
-    private static func loadWorkbenchBackgroundImageAccess(
-        from defaults: any KeyValueStore
-    ) -> WorkbenchBackgroundImageAccess? {
-        if let data = defaults.data(forKey: Key.macOSWorkbenchBackgroundImageAccess),
-           let access = try? JSONDecoder().decode(WorkbenchBackgroundImageAccess.self, from: data) {
-            return access
-        }
-
-        guard let bookmark = defaults.data(forKey: Key.legacyMacOSWorkbenchBackgroundImageBookmark)
-            ?? defaults.data(forKey: Key.legacyWorkbenchBackgroundImageBookmark) else {
-            return nil
-        }
-        let displayName = defaults.string(forKey: Key.legacyMacOSWorkbenchBackgroundImageName)
-            ?? defaults.string(forKey: Key.legacyWorkbenchBackgroundImageName)
-            ?? "Selected image"
-        return WorkbenchBackgroundImageAccess(opaqueData: bookmark, displayName: displayName)
+    private func updateWorkbenchBackground(_ configuration: WorkbenchBackgroundConfiguration) {
+        let sourceChanged = workbenchBackground.source != configuration.source
+        workbenchBackground = configuration
+        saveWorkbenchBackgroundConfiguration()
+        if sourceChanged { workbenchBackgroundSourceDidChange.send() }
     }
 
     private static func loadWorkbenchBackgroundConfiguration(
-        from defaults: any KeyValueStore,
-        legacyPreset: WorkbenchBackgroundPreset?,
-        hasLegacyCustomImage: Bool,
-        legacyOpacity: Double
+        from defaults: any KeyValueStore
     ) -> WorkbenchBackgroundConfiguration {
         if let data = defaults.data(forKey: Key.workbenchBackground),
            let configuration = try? JSONDecoder().decode(WorkbenchBackgroundConfiguration.self, from: data) {
             return configuration.normalized
         }
-
-        if let legacyPreset {
-            return .bundled(slot: legacyPreset.bundledImageSlot, opacity: legacyOpacity)
-        }
-        if hasLegacyCustomImage {
-            return .custom(opacity: legacyOpacity)
-        }
-        return .none(opacity: legacyOpacity)
+        return .none()
     }
 }
 

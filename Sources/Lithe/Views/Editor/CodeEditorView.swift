@@ -353,7 +353,7 @@ struct CodeEditorView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> EditorContainerView {
         let palette = CodeEditorPalette(isDark: colorScheme == .dark, theme: settings.colorTheme)
-        let showsWorkbenchBackground = settings.hasWorkbenchBackgroundImage
+        let showsWorkbenchBackground = model.workbenchBackgroundFeature.hasImage
         let container = EditorContainerView()
         container.displaysTransparentBackground = showsWorkbenchBackground
         let scrollView = NSScrollView(frame: .zero)
@@ -509,7 +509,7 @@ struct CodeEditorView: NSViewRepresentable {
     func updateNSView(_ container: EditorContainerView, context: Context) {
         guard let textView = container.scrollView?.documentView as? NSTextView else { return }
         let palette = CodeEditorPalette(isDark: colorScheme == .dark, theme: settings.colorTheme)
-        let showsWorkbenchBackground = settings.hasWorkbenchBackgroundImage
+        let showsWorkbenchBackground = model.workbenchBackgroundFeature.hasImage
         let appearanceChanged = context.coordinator.isDarkAppearance != palette.isDark
             || context.coordinator.colorTheme != settings.colorTheme
         context.coordinator.document = document

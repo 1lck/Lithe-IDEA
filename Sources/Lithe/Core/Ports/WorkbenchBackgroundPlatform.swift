@@ -1,16 +1,15 @@
 import Foundation
 
-/// Opaque, platform-owned authorization for one user-selected background image.
-struct WorkbenchBackgroundImageAccess: Codable, Equatable {
-    let opaqueData: Data
-    let displayName: String
+enum WorkbenchBackgroundImageLoadResult {
+    case loaded(Data)
+    case temporarilyUnavailable(message: String)
+    case permanentlyUnavailable(message: String)
 }
 
-/// Result of resolving an image access token, including a refreshed token when
-/// a platform needs to rotate its local authorization representation.
-struct WorkbenchBackgroundImageData {
-    let data: Data
-    let refreshedAccess: WorkbenchBackgroundImageAccess?
+enum WorkbenchBackgroundImageSelectionResult {
+    case selected(displayName: String)
+    case cancelled
+    case failed(message: String)
 }
 
 /// Native image resources and file authorization used by the workbench background.
@@ -18,18 +17,24 @@ struct WorkbenchBackgroundImageData {
 /// keep resource paths and authorization data platform-private.
 @MainActor
 protocol WorkbenchBackgroundPlatformProviding: AnyObject {
-    func chooseImage(title: String, prompt: String) -> URL?
+    func chooseCustomImage(title: String, prompt: String) -> WorkbenchBackgroundImageSelectionResult
     func hasBundledImage(for slot: String) -> Bool
-    func bundledImageData(for slot: String) -> Data?
-    func makeImageAccess(for url: URL) -> WorkbenchBackgroundImageAccess?
-    func loadImageData(for access: WorkbenchBackgroundImageAccess) -> WorkbenchBackgroundImageData?
+    func loadBundledImageData(for slot: String) -> WorkbenchBackgroundImageLoadResult
+    func loadCustomImageData() -> WorkbenchBackgroundImageLoadResult
+    func clearCustomImage()
+    var customImageDisplayName: String? { get }
 }
 
 @MainActor
 final class UnavailableWorkbenchBackgroundPlatform: WorkbenchBackgroundPlatformProviding {
-    func chooseImage(title: String, prompt: String) -> URL? { nil }
+    func chooseCustomImage(title: String, prompt: String) -> WorkbenchBackgroundImageSelectionResult { .cancelled }
     func hasBundledImage(for slot: String) -> Bool { false }
-    func bundledImageData(for slot: String) -> Data? { nil }
-    func makeImageAccess(for url: URL) -> WorkbenchBackgroundImageAccess? { nil }
-    func loadImageData(for access: WorkbenchBackgroundImageAccess) -> WorkbenchBackgroundImageData? { nil }
+    func loadBundledImageData(for slot: String) -> WorkbenchBackgroundImageLoadResult {
+        .temporarilyUnavailable(message: "The selected built-in background is unavailable in this build.")
+    }
+    func loadCustomImageData() -> WorkbenchBackgroundImageLoadResult {
+        .temporarilyUnavailable(message: "Background images are unavailable on this platform.")
+    }
+    func clearCustomImage() {}
+    var customImageDisplayName: String? { nil }
 }

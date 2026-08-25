@@ -57,7 +57,7 @@ struct ChangesSidebarView: View {
                 commitContent
             }
         }
-        .background(settings.hasWorkbenchBackgroundImage ? Color.clear : LitheTheme.sidebar)
+        .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.sidebar)
         .onAppear { selectRequestedStashIfNeeded() }
         .onChange(of: model.requestedStashReference) { _ in
             selectRequestedStashIfNeeded()
@@ -158,7 +158,7 @@ struct ChangesSidebarView: View {
         }
         .padding(.horizontal, 10)
         .frame(height: 40)
-        .background(settings.hasWorkbenchBackgroundImage ? Color.clear : LitheTheme.toolHeader)
+        .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.toolHeader)
     }
 
     private var commitContent: some View {
@@ -263,7 +263,7 @@ struct ChangesSidebarView: View {
                 .disabled(!canShelf)
             }
             .padding(8)
-            .background(settings.hasWorkbenchBackgroundImage ? Color.clear : LitheTheme.toolHeader)
+            .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.toolHeader)
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
@@ -796,7 +796,7 @@ struct ChangesSidebarView: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(settings.hasWorkbenchBackgroundImage ? Color.clear : LitheTheme.toolHeader)
+            .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.toolHeader)
     }
 
     private var noRepository: some View {

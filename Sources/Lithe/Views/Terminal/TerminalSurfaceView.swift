@@ -4,6 +4,7 @@ import LitheTerminalModule
 
 struct TerminalSurfaceView: View {
     @ObservedObject var session: TerminalSession
+    @EnvironmentObject private var model: AppModel
     @State private var focusRequestID = 0
 
     var body: some View {
@@ -11,13 +12,14 @@ struct TerminalSurfaceView: View {
             if let nativeView = session.nativeView as? NSView {
                 TerminalNativeSurface(
                     nativeView: nativeView,
-                    focusRequestID: focusRequestID
+                    focusRequestID: focusRequestID,
+                    showsWorkbenchBackground: model.workbenchBackgroundFeature.hasImage
                 )
             } else {
-                LitheTheme.editor
+                model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.editor
             }
         }
-        .background(LitheTheme.editor)
+        .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.editor)
         .task(id: session.id) {
             requestInputFocus()
         }
@@ -33,6 +35,7 @@ struct TerminalSurfaceView: View {
 private struct TerminalNativeSurface: NSViewRepresentable {
     let nativeView: NSView
     let focusRequestID: Int
+    let showsWorkbenchBackground: Bool
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -41,11 +44,15 @@ private struct TerminalNativeSurface: NSViewRepresentable {
     func makeNSView(context: Context) -> TerminalSurfaceHostView {
         let hostView = TerminalSurfaceHostView(frame: .zero)
         hostView.attach(nativeView)
+        (nativeView as? WorkbenchBackgroundRendering)?
+            .setWorkbenchBackgroundVisible(showsWorkbenchBackground)
         return hostView
     }
 
     func updateNSView(_ hostView: TerminalSurfaceHostView, context: Context) {
         hostView.attach(nativeView)
+        (nativeView as? WorkbenchBackgroundRendering)?
+            .setWorkbenchBackgroundVisible(showsWorkbenchBackground)
         guard context.coordinator.lastFocusRequestID != focusRequestID else { return }
         context.coordinator.lastFocusRequestID = focusRequestID
         DispatchQueue.main.async {

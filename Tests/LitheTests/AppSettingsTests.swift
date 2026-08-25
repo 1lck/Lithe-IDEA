@@ -141,15 +141,16 @@ struct AppSettingsTests {
     }
 
     @Test
-    func legacyWorkbenchBackgroundPresetMigratesToPortableConfiguration() {
+    func backgroundConfigurationDoesNotMigrateUndistributedLegacyKeys() {
         let store = AppSettingsTestStore()
         store.set("builtIn03", forKey: "settings.workbenchBackgroundPreset")
         store.set(0.42, forKey: "settings.workbenchBackgroundOpacity")
 
         let settings = AppSettings(store: store)
 
-        #expect(settings.workbenchBackground == .bundled(slot: "03", opacity: 0.42))
-        #expect(settings.workbenchBackgroundPreset == .builtIn03)
+        #expect(settings.workbenchBackground == .none())
+        #expect(store.string(forKey: "settings.workbenchBackgroundPreset") == "builtIn03")
+        #expect(store.object(forKey: "settings.workbenchBackgroundOpacity") as? Double == 0.42)
     }
 
     @Test
@@ -162,42 +163,39 @@ struct AppSettingsTests {
 
         #expect(settings.workbenchBackgroundPreset == .builtIn04)
         #expect(settings.hasConfiguredWorkbenchBackground)
-        #expect(!settings.hasWorkbenchBackgroundImage)
+        #expect(settings.hasConfiguredWorkbenchBackground)
     }
 
     @Test
-    func workbenchBackgroundUsesTheInjectedPlatformForBundledAssets() {
+    func workbenchBackgroundFeatureLoadsBundledAssetsWithoutChangingOnOpacityUpdates() {
         let imageData = Data([0x01, 0x02])
         let platform = WorkbenchBackgroundPlatformTestDouble(
             bundledImages: ["01": imageData]
         )
-        let settings = AppSettings(
-            store: AppSettingsTestStore(),
-            logDirectoryProvider: TestLogDirectoryProvider(),
-            workbenchBackgroundPlatform: platform
-        )
+        let settings = AppSettings(store: AppSettingsTestStore())
+        let feature = WorkbenchBackgroundFeatureModel(settings: settings, platform: platform)
 
-        settings.setWorkbenchBackgroundPreset(.builtIn01)
+        feature.selectPreset(.builtIn01)
 
-        #expect(settings.hasWorkbenchBackgroundImage)
-        #expect(settings.loadWorkbenchBackgroundImageData() == imageData)
+        #expect(feature.imageData == imageData)
+        #expect(platform.bundledLoadCount == 1)
+
+        settings.workbenchBackgroundOpacity = 0.61
+
+        #expect(feature.imageData == imageData)
+        #expect(platform.bundledLoadCount == 1)
     }
 
     @Test
-    func customBackgroundKeepsOpaqueAccessOutOfPortableConfiguration() throws {
+    func customBackgroundKeepsPlatformAuthorizationOutOfPortableConfiguration() throws {
         let store = AppSettingsTestStore()
-        let access = WorkbenchBackgroundImageAccess(
-            opaqueData: Data([0xAA, 0xBB]),
-            displayName: "wallpaper.png"
+        let platform = WorkbenchBackgroundPlatformTestDouble(
+            selection: .selected(displayName: "wallpaper.png")
         )
-        let platform = WorkbenchBackgroundPlatformTestDouble(imageAccess: access)
-        let settings = AppSettings(
-            store: store,
-            logDirectoryProvider: TestLogDirectoryProvider(),
-            workbenchBackgroundPlatform: platform
-        )
+        let settings = AppSettings(store: store)
+        let feature = WorkbenchBackgroundFeatureModel(settings: settings, platform: platform)
 
-        #expect(settings.setWorkbenchBackgroundImage(URL(fileURLWithPath: "/test/wallpaper.png")))
+        feature.chooseCustomImage()
 
         let data = try #require(store.data(forKey: "settings.workbenchBackground"))
         let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -207,64 +205,79 @@ struct AppSettingsTests {
         #expect(source["path"] == nil)
         #expect(source["bookmark"] == nil)
 
-        let restored = AppSettings(
-            store: store,
-            logDirectoryProvider: TestLogDirectoryProvider(),
-            workbenchBackgroundPlatform: platform
-        )
-        #expect(restored.workbenchBackgroundImageAccess == access)
+        #expect(platform.customImageDisplayName == "wallpaper.png")
     }
 
     @Test
-    func unavailableCustomBackgroundIsClearedThroughThePlatformPort() {
-        let access = WorkbenchBackgroundImageAccess(
-            opaqueData: Data([0xCC]),
-            displayName: "missing.png"
+    func temporaryCustomImageFailurePreservesTheConfiguredSelection() {
+        let platform = WorkbenchBackgroundPlatformTestDouble(
+            customLoadResult: .temporarilyUnavailable(message: "Drive is offline")
         )
-        let platform = WorkbenchBackgroundPlatformTestDouble(imageAccess: access)
-        let settings = AppSettings(
-            store: AppSettingsTestStore(),
-            logDirectoryProvider: TestLogDirectoryProvider(),
-            workbenchBackgroundPlatform: platform
-        )
-        #expect(settings.setWorkbenchBackgroundImage(URL(fileURLWithPath: "/test/missing.png")))
+        let settings = AppSettings(store: AppSettingsTestStore())
+        settings.setWorkbenchBackgroundCustomImage()
+        let feature = WorkbenchBackgroundFeatureModel(settings: settings, platform: platform)
 
-        #expect(settings.loadWorkbenchBackgroundImageData() == nil)
-        #expect(settings.workbenchBackground == .none(opacity: 0.22))
-        #expect(settings.workbenchBackgroundImageError != nil)
+        #expect(feature.imageData == nil)
+        #expect(feature.imageError == "Drive is offline")
+        #expect(settings.workbenchBackground.source.isCustom)
+        #expect(platform.clearCustomImageCount == 0)
+    }
+
+    @Test
+    func permanentCustomImageFailureClearsTheConfiguredSelection() {
+        let platform = WorkbenchBackgroundPlatformTestDouble(
+            customLoadResult: .permanentlyUnavailable(message: "Authorization is invalid")
+        )
+        let settings = AppSettings(store: AppSettingsTestStore())
+        settings.setWorkbenchBackgroundCustomImage()
+        let feature = WorkbenchBackgroundFeatureModel(settings: settings, platform: platform)
+
+        #expect(feature.imageData == nil)
+        #expect(feature.imageError == "Authorization is invalid")
+        #expect(settings.workbenchBackground.source == .none)
+        #expect(platform.clearCustomImageCount == 1)
     }
 }
 
 @MainActor
 private final class WorkbenchBackgroundPlatformTestDouble: WorkbenchBackgroundPlatformProviding {
     private let bundledImages: [String: Data]
-    private let imageAccess: WorkbenchBackgroundImageAccess?
+    private let selection: WorkbenchBackgroundImageSelectionResult
+    private let customLoadResult: WorkbenchBackgroundImageLoadResult
+    private(set) var bundledLoadCount = 0
+    private(set) var clearCustomImageCount = 0
+    var customImageDisplayName: String?
 
     init(
         bundledImages: [String: Data] = [:],
-        imageAccess: WorkbenchBackgroundImageAccess? = nil
+        selection: WorkbenchBackgroundImageSelectionResult = .cancelled,
+        customLoadResult: WorkbenchBackgroundImageLoadResult = .temporarilyUnavailable(message: "Unavailable")
     ) {
         self.bundledImages = bundledImages
-        self.imageAccess = imageAccess
+        self.selection = selection
+        self.customLoadResult = customLoadResult
+        if case let .selected(displayName) = selection {
+            customImageDisplayName = displayName
+        }
     }
 
-    func chooseImage(title: String, prompt: String) -> URL? { nil }
+    func chooseCustomImage(title: String, prompt: String) -> WorkbenchBackgroundImageSelectionResult { selection }
 
     func hasBundledImage(for slot: String) -> Bool {
         bundledImages[slot] != nil
     }
 
-    func bundledImageData(for slot: String) -> Data? {
-        bundledImages[slot]
+    func loadBundledImageData(for slot: String) -> WorkbenchBackgroundImageLoadResult {
+        bundledLoadCount += 1
+        guard let data = bundledImages[slot] else {
+            return .temporarilyUnavailable(message: "Unavailable")
+        }
+        return .loaded(data)
     }
 
-    func makeImageAccess(for url: URL) -> WorkbenchBackgroundImageAccess? {
-        imageAccess
-    }
+    func loadCustomImageData() -> WorkbenchBackgroundImageLoadResult { customLoadResult }
 
-    func loadImageData(for access: WorkbenchBackgroundImageAccess) -> WorkbenchBackgroundImageData? {
-        nil
-    }
+    func clearCustomImage() { clearCustomImageCount += 1 }
 }
 
 private final class AppSettingsTestStore: KeyValueStore, @unchecked Sendable {

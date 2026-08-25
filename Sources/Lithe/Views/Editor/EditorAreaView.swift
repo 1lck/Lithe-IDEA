@@ -80,7 +80,7 @@ struct EditorAreaView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
             }
         }
-        .background(settings.hasWorkbenchBackgroundImage ? Color.clear : LitheTheme.editor)
+        .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.editor)
         .onChange(of: model.openDocuments.map(\.id)) { ids in
             if let splitDocumentID, !ids.contains(splitDocumentID) {
                 self.splitDocumentID = nil
@@ -150,7 +150,7 @@ struct EditorAreaView: View {
         .background(
             isTerminalTabBarDropTargeted
                 ? LitheTheme.accent.opacity(0.08)
-                : (settings.hasWorkbenchBackgroundImage ? Color.clear : LitheTheme.sidebar)
+                : (model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.sidebar)
         )
         .onDrop(
             of: [TerminalTabDragPayload.type],
@@ -1086,7 +1086,7 @@ struct EditorAreaView: View {
                 .id(session.id)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(8)
-                .background(LitheTheme.editor)
+                .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.editor)
         } else if let document = model.activeDocument {
             if isMarkdownFile(document) {
                 switch markdownViewModes[document.id] ?? .editor {

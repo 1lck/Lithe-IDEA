@@ -3,12 +3,12 @@ import SwiftUI
 /// Applies the workbench wallpaper treatment to structural page surfaces while
 /// preserving the normal theme color when no wallpaper is configured.
 private struct WorkbenchSurfaceBackground: ViewModifier {
-    @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var model: AppModel
 
     let fallback: Color
 
     func body(content: Content) -> some View {
-        content.background(settings.hasWorkbenchBackgroundImage ? Color.clear : fallback)
+        content.background(model.workbenchBackgroundFeature.hasImage ? Color.clear : fallback)
     }
 }
 
