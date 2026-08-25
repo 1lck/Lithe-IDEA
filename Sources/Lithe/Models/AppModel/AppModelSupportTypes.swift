@@ -1,6 +1,25 @@
 import Foundation
 import LitheCoreContracts
 
+struct WorkbenchNotification: Identifiable, Equatable {
+    let id: UUID
+    let message: String
+    let createdAt: Date
+    var isRead: Bool
+
+    init(
+        id: UUID = UUID(),
+        message: String,
+        createdAt: Date = Date(),
+        isRead: Bool = false
+    ) {
+        self.id = id
+        self.message = message
+        self.createdAt = createdAt
+        self.isRead = isRead
+    }
+}
+
 enum SidebarDestination: String, CaseIterable, Identifiable {
     case project
     case changes

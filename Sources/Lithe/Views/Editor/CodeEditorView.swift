@@ -105,6 +105,23 @@ enum EditorGutterHitTarget: Equatable {
     case gitChange
 }
 
+struct EditorLanguageFeatureTransition: Equatable {
+    let refreshImplementationMarkers: Bool
+    let clearImplementationMarkers: Bool
+
+    init(
+        previous: LanguageServerFeatureSet?,
+        current: LanguageServerFeatureSet
+    ) {
+        let previouslySupportedImplementation = previous?.contains(.implementation) == true
+        let currentlySupportsImplementation = current.contains(.implementation)
+        refreshImplementationMarkers = !previouslySupportedImplementation
+            && currentlySupportsImplementation
+        clearImplementationMarkers = previouslySupportedImplementation
+            && !currentlySupportsImplementation
+    }
+}
+
 struct EditorGutterLayout: Equatable {
     static let lineNumberTrailingPadding: CGFloat = 3
     static let minimumLineNumberWidth: CGFloat = 28
@@ -119,15 +136,15 @@ struct EditorGutterLayout: Equatable {
 
     init(lineNumberTextWidth: CGFloat) {
         breakpointRange = 0..<14
-        implementationRange = breakpointRange.upperBound..<34
         let requiredLineNumberWidth = max(
             Self.minimumLineNumberWidth,
             ceil(lineNumberTextWidth) + Self.lineNumberTrailingPadding
         )
-        lineNumberRange = implementationRange.upperBound..<(
-            implementationRange.upperBound + requiredLineNumberWidth
+        lineNumberRange = breakpointRange.upperBound..<(
+            breakpointRange.upperBound + requiredLineNumberWidth
         )
-        foldRange = lineNumberRange.upperBound..<(lineNumberRange.upperBound + 15)
+        implementationRange = lineNumberRange.upperBound..<(lineNumberRange.upperBound + 20)
+        foldRange = implementationRange.upperBound..<(implementationRange.upperBound + 15)
         gitChangeRange = foldRange.upperBound..<(foldRange.upperBound + 3)
         width = gitChangeRange.upperBound
     }
@@ -242,7 +259,10 @@ struct EditorOverlayUpdatePlan: Equatable {
     let updateCodeVision: Bool
 
     init(codeVisionChanged: Bool, inlayHintsChanged: Bool, layoutChanged: Bool) {
-        updateInlayHints = inlayHintsChanged || layoutChanged
+        // Inlay spacing is part of the attributed document and only changes
+        // when the hints change. Reapplying it for a viewport resize invalidates
+        // the full text layout even though unwrapped glyph positions are stable.
+        updateInlayHints = inlayHintsChanged
         updateCodeVision = codeVisionChanged || inlayHintsChanged || layoutChanged
     }
 }
@@ -360,7 +380,6 @@ struct CodeEditorView: NSViewRepresentable {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.borderType = .noBorder
         scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = !showsWorkbenchBackground
         scrollView.backgroundColor = palette.background
@@ -394,13 +413,7 @@ struct CodeEditorView: NSViewRepresentable {
         textView.isRichText = false
         textView.importsGraphics = false
         textView.allowsUndo = true
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = false
-        textView.autoresizingMask = [.width]
-        textView.minSize = NSSize(width: 0, height: 0)
-        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.textContainer?.containerSize = NSSize(width: scrollView.contentSize.width, height: CGFloat.greatestFiniteMagnitude)
-        textView.textContainer?.widthTracksTextView = true
+        LitheTextViewportLayout.applyUnwrappedScrolling(to: textView, in: scrollView)
         textView.textContainerInset = NSSize(width: EditorLayoutMetrics.leadingInset, height: 0)
         textView.textContainer?.lineFragmentPadding = EditorLayoutMetrics.lineFragmentPadding
         textView.font = LitheTheme.editorFont(size: settings.editorFontSize)
@@ -1014,6 +1027,10 @@ struct CodeEditorView: NSViewRepresentable {
                     changed = true
                 }
                 if appliedLanguageFeatures != languageFeatures {
+                    let featureTransition = EditorLanguageFeatureTransition(
+                        previous: appliedLanguageFeatures,
+                        current: languageFeatures
+                    )
                     codeTextView.languageServerFeatures = languageFeatures
                     codeTextView.isLanguageNavigationEnabled = !languageFeatures.intersection([
                         .definition, .references, .implementation
@@ -1022,6 +1039,13 @@ struct CodeEditorView: NSViewRepresentable {
                         .hover, .completion, .rename, .formatting, .codeActions
                     ]).isEmpty
                     appliedLanguageFeatures = languageFeatures
+                    if featureTransition.refreshImplementationMarkers {
+                        scheduleJavaNavigationMarkerRefresh()
+                    } else if featureTransition.clearImplementationMarkers,
+                              !implementationMarkers.isEmpty {
+                        implementationMarkers = []
+                        applyFoldState()
+                    }
                     changed = true
                 }
             }

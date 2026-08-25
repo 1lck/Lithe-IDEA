@@ -1208,3 +1208,6 @@
 "Running" = "运行中";
 "Java: Rebuild Index" = "Java：重建索引";
 "Clear the current project's Java index and rebuild it on next use" = "清除当前项目的 Java 索引，并在下次使用时重建";
+"Notifications" = "通知";
+"Clear All" = "全部清除";
+"No notifications" = "暂无通知";

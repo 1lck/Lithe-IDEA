@@ -19,6 +19,8 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
     let rowOverlay: (DiffRow, DiffSide) -> RowOverlay
 
     @State private var horizontalOffset: CGFloat = 0
+    @State private var wheelUpdateBuffer = FrameCoalescedDragUpdateBuffer()
+    @State private var wheelUpdateTask: Task<Void, Never>?
 
     init(
         displayRows: [DiffDisplayRow],
@@ -100,15 +102,17 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
         .frame(width: viewportWidth, height: minimumHeight, alignment: .topLeading)
         .background {
             DiffHorizontalScrollWheelMonitor { delta in
-                horizontalOffset = min(
-                    max(horizontalOffset + delta, 0),
-                    maximumHorizontalOffset
+                let pendingOffset = wheelUpdateBuffer.pendingValue ?? horizontalOffset
+                scheduleWheelOffsetUpdate(
+                    min(max(pendingOffset + delta, 0), maximumHorizontalOffset)
                 )
             }
         }
         .onChange(of: contentWidth) { _ in
+            cancelScheduledWheelOffsetUpdate()
             horizontalOffset = min(horizontalOffset, maximumHorizontalOffset)
         }
+        .onDisappear(perform: cancelScheduledWheelOffsetUpdate)
     }
 
     private func sideViewport(
@@ -123,6 +127,25 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
             .frame(width: viewportWidth, height: height, alignment: .topLeading)
             .clipped()
             .background(LitheTheme.editor)
+    }
+
+    private func scheduleWheelOffsetUpdate(_ nextOffset: CGFloat) {
+        guard wheelUpdateBuffer.submit(nextOffset) else { return }
+        wheelUpdateTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(16))
+            guard !Task.isCancelled else { return }
+            let nextOffset = wheelUpdateBuffer.takePendingValue()
+            wheelUpdateTask = nil
+            if let nextOffset {
+                horizontalOffset = nextOffset
+            }
+        }
+    }
+
+    private func cancelScheduledWheelOffsetUpdate() {
+        wheelUpdateTask?.cancel()
+        wheelUpdateTask = nil
+        wheelUpdateBuffer.cancel()
     }
 
     private var centerGutter: some View {
