@@ -110,7 +110,12 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         return RunConfigurationResolution(
             configurations: configurations,
             diagnostics: diagnostics(from: payload.diagnostics),
-            defaultConfigurationID: payload.defaultRunConfiguration
+            defaultConfigurationID: payload.defaultRunConfiguration,
+            projectToolchain: ProjectToolchainSelection(
+                javaHomePath: payload.toolchain?.java?.homePath ?? "",
+                mavenExecutablePath: payload.toolchain?.maven?.executablePath ?? "",
+                mavenJavaHomePath: payload.toolchain?.maven?.javaHomePath ?? ""
+            )
         )
     }
 
@@ -166,6 +171,26 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             options: options
         )
         try writeMutation(mutation, to: url, root: root)
+    }
+
+    func saveProjectToolchain(_ toolchain: ProjectToolchainSelection, at projectURL: URL) throws {
+        let root = projectURL.standardizedFileURL
+        let url = root.appendingPathComponent(".lithe/run/local.json")
+        let mutation: RustCoreBridge.RunConfigurationMutationPayload
+        switch core.updateProjectRunToolchain(at: root, toolchain: toolchain) {
+        case .success(let value): mutation = value
+        case .failure(let error): throw RunConfigurationOperationFailure(message: error.userMessage)
+        }
+        guard let data = mutation.document.data(using: .utf8) else {
+            throw MacRunConfigurationStoreError.writeFailed(
+                "The shared core returned invalid UTF-8 configuration data."
+            )
+        }
+        try writeMutation(
+            RunConfigurationDocumentMutation(configurationID: mutation.id, document: data),
+            to: url,
+            root: root
+        )
     }
 
     func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String {

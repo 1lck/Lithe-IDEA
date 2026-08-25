@@ -389,6 +389,16 @@ struct RustCoreBridge: Sendable {
     }
 
     struct RunConfigurationPayload: Codable, Sendable {
+        struct Toolchain: Codable, Sendable {
+            struct Java: Codable, Sendable { let homePath: String? }
+            struct Maven: Codable, Sendable {
+                let executablePath: String?
+                let javaHomePath: String?
+            }
+
+            let java: Java?
+            let maven: Maven?
+        }
         struct Generator: Codable, Sendable {
             let fingerprint: String
             let inputs: [String: String]?
@@ -437,6 +447,7 @@ struct RustCoreBridge: Sendable {
         let configurations: [Configuration]
         let diagnostics: [[String: String]]?
         let defaultRunConfiguration: String?
+        let toolchain: Toolchain?
     }
 
     struct RunConfigurationGeneratePayload: Codable, Sendable {
@@ -1567,6 +1578,12 @@ struct RustCoreBridge: Sendable {
         let mavenExecutablePath: String
         let mavenJavaHomePath: String
     }
+    private struct RunConfigurationUpdateToolchainRequest: Encodable {
+        let root: String
+        let scope = "local"
+        let configurationId = "toolchain"
+        let toolchain: ProjectToolchainSelection
+    }
     private struct RunConfigurationCreateUserRequest: Encodable {
         let root: String
         let scope: String
@@ -2321,6 +2338,19 @@ struct RustCoreBridge: Sendable {
                 javaHomePath: options.javaHomePath,
                 mavenExecutablePath: options.mavenExecutablePath,
                 mavenJavaHomePath: options.mavenJavaHomePath
+            )
+        )
+    }
+
+    func updateProjectRunToolchain(
+        at rootURL: URL,
+        toolchain: ProjectToolchainSelection
+    ) -> Result<RunConfigurationMutationPayload, CoreCallError> {
+        executeResult(
+            command: "runConfig.updateOptions",
+            payload: RunConfigurationUpdateToolchainRequest(
+                root: rootURL.standardizedFileURL.path,
+                toolchain: toolchain
             )
         )
     }

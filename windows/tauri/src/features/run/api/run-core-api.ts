@@ -75,8 +75,20 @@ export function updateRunOptions(
   const workingDirectory = scope === "project"
     ? projectScopedPath(root, options.workingDirectoryPath)
     : options.workingDirectoryPath;
-  if (workingDirectory === undefined) {
-    throw new Error("Project working directory must stay inside the workspace.");
+  const scopedToolchainPath = (value: string) => {
+    if (scope !== "project" || !value.trim()) return value;
+    return projectScopedPath(root, value);
+  };
+  const javaHomePath = scopedToolchainPath(options.javaHomePath);
+  const mavenExecutablePath = scopedToolchainPath(options.mavenExecutablePath);
+  const mavenJavaHomePath = scopedToolchainPath(options.mavenJavaHomePath);
+  if (
+    workingDirectory === undefined
+    || javaHomePath === undefined
+    || mavenExecutablePath === undefined
+    || mavenJavaHomePath === undefined
+  ) {
+    throw new Error("Project paths must stay inside the workspace.");
   }
   return runCore<{ document: string }>("runConfig.updateOptions", {
     root,
@@ -87,9 +99,9 @@ export function updateRunOptions(
     arguments: options.programArguments,
     environment: options.environment,
     mavenProfiles: [],
-    javaHomePath: "",
-    mavenExecutablePath: "",
-    mavenJavaHomePath: "",
+    javaHomePath,
+    mavenExecutablePath,
+    mavenJavaHomePath,
   });
 }
 

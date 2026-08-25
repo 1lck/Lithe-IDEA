@@ -19,6 +19,7 @@ package final class RunService: ObservableObject {
     @Published package private(set) var output = ""
     @Published package private(set) var lastExitCode: Int32?
     @Published package private(set) var optionsByConfigurationID: [String: RunOptions] = [:]
+    @Published package private(set) var projectToolchain = ProjectToolchainSelection()
     @Published package private(set) var effectiveSourcesByConfigurationID: [String: RunConfigurationSource] = [:]
     @Published package private(set) var mavenProfiles: [MavenProfile] = []
     @Published package private(set) var moduleSessions: [RunSession] = []
@@ -176,6 +177,7 @@ package final class RunService: ObservableObject {
                 configurationDiagnostics += resolution.diagnostics
                 apply(
                     resolution.configurations,
+                    projectToolchain: resolution.projectToolchain,
                     preferredConfigurationID: preferredID ?? resolution.defaultConfigurationID
                 )
             } catch {
@@ -245,6 +247,7 @@ package final class RunService: ObservableObject {
                 generationState = result.entryCount == 0 ? .noEntries : .succeeded(entryCount: result.entryCount)
                 apply(
                     resolution.configurations,
+                    projectToolchain: resolution.projectToolchain,
                     preferredConfigurationID: selectedConfigurationIDsByProject[projectURL.standardizedFileURL.path]
                         ?? resolution.defaultConfigurationID
                 )
@@ -327,11 +330,44 @@ package final class RunService: ObservableObject {
            ) {
             configurationDiagnostics = runConfigurationOperations.inspect(at: projectURL).diagnostics
                 + resolution.diagnostics
-            apply(resolution.configurations, preferredConfigurationID: configuration.id)
+            apply(
+                resolution.configurations,
+                projectToolchain: resolution.projectToolchain,
+                preferredConfigurationID: configuration.id
+            )
         }
         persist(options, for: configuration.id)
         refreshPortConflicts()
         return true
+    }
+
+    @discardableResult
+    package func updateProjectToolchain(_ toolchain: ProjectToolchainSelection) -> Bool {
+        configurationSaveError = nil
+        guard configurationStatus == .ready, let projectURL else {
+            configurationSaveError = "Identify the project before editing its toolchain."
+            return false
+        }
+        do {
+            try runConfigurationOperations.saveProjectToolchain(toolchain, at: projectURL)
+            let resolution = try resolveWithServiceToolchains(
+                operations: runConfigurationOperations,
+                projectURL: projectURL,
+                mavenProject: mavenProject,
+                preferredConfigurationID: selectedConfigurationID
+            )
+            configurationDiagnostics = runConfigurationOperations.inspect(at: projectURL).diagnostics
+                + resolution.diagnostics
+            apply(
+                resolution.configurations,
+                projectToolchain: resolution.projectToolchain,
+                preferredConfigurationID: selectedConfigurationID
+            )
+            return true
+        } catch {
+            configurationSaveError = error.localizedDescription
+            return false
+        }
     }
 
     package func resetOptions(for configuration: RunConfiguration) {
@@ -361,7 +397,11 @@ package final class RunService: ObservableObject {
             }
             configurationDiagnostics = runConfigurationOperations.inspect(at: projectURL).diagnostics
                 + resolution.diagnostics
-            apply(resolution.configurations, preferredConfigurationID: id)
+            apply(
+                resolution.configurations,
+                projectToolchain: resolution.projectToolchain,
+                preferredConfigurationID: id
+            )
             selectedConfigurationIDsByProject[projectURL.path] = id
             return true
         } catch {
@@ -569,6 +609,7 @@ package final class RunService: ObservableObject {
         configurations = [.currentFile]
         selectedConfigurationID = RunConfiguration.currentFileID
         optionsByConfigurationID = [:]
+        projectToolchain = ProjectToolchainSelection()
         effectiveSourcesByConfigurationID = [:]
         mavenProfiles = []
         moduleSessions = []
@@ -655,6 +696,7 @@ package final class RunService: ObservableObject {
 
     private func apply(
         _ effective: [EffectiveRunConfiguration],
+        projectToolchain: ProjectToolchainSelection = ProjectToolchainSelection(),
         preferredConfigurationID: String? = nil
     ) {
         // Keep the language-neutral Current File entry available even when a
@@ -679,6 +721,7 @@ package final class RunService: ObservableObject {
         optionsByConfigurationID = Dictionary(uniqueKeysWithValues: resolved.map {
             ($0.configuration.id, $0.options)
         })
+        self.projectToolchain = projectToolchain
         let preferredJava = resolved.first { item in
             item.configuration.id == preferredConfigurationID
                 && item.configuration.kind.capabilities.contains(.javaRuntime)

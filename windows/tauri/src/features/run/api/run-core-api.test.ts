@@ -15,7 +15,7 @@ beforeEach(() => {
 });
 
 describe("updateRunOptions", () => {
-  test("sends a project-relative working directory and empty toolchain paths in project scope", async () => {
+  test("sends project-relative working directory and toolchain paths in project scope", async () => {
     await updateRunOptions("D:/fixture/project", "plain-java", "project", {
       javaHomePath: "D:\\fixture\\project\\toolchains\\jdk",
       mavenExecutablePath: "D:/fixture/project/toolchains/maven/bin/mvn.cmd",
@@ -38,19 +38,19 @@ describe("updateRunOptions", () => {
           arguments: "--dev",
           environment: { APP_ENV: "dev" },
           mavenProfiles: [],
-          javaHomePath: "",
-          mavenExecutablePath: "",
-          mavenJavaHomePath: "",
+          javaHomePath: "toolchains/jdk",
+          mavenExecutablePath: "toolchains/maven/bin/mvn.cmd",
+          mavenJavaHomePath: "toolchains/maven-jdk",
         }),
       }),
     );
   });
 
-  test("keeps the working directory absolute when saving to local scope", async () => {
+  test("keeps working directory and toolchain paths absolute in local scope", async () => {
     await updateRunOptions("D:/fixture/project", "plain-java", "local", {
       javaHomePath: "C:/Program Files/Java/jdk-21",
-      mavenExecutablePath: "",
-      mavenJavaHomePath: "",
+      mavenExecutablePath: "D:/Tools/apache-maven",
+      mavenJavaHomePath: "C:/Program Files/Java/jdk-17",
       workingDirectoryPath: "D:/fixture/project/app",
       vmArguments: "",
       programArguments: "",
@@ -61,15 +61,15 @@ describe("updateRunOptions", () => {
       expect.objectContaining({
         payload: expect.objectContaining({
           workingDirectory: "D:/fixture/project/app",
-          javaHomePath: "",
-          mavenExecutablePath: "",
-          mavenJavaHomePath: "",
+          javaHomePath: "C:/Program Files/Java/jdk-21",
+          mavenExecutablePath: "D:/Tools/apache-maven",
+          mavenJavaHomePath: "C:/Program Files/Java/jdk-17",
         }),
       }),
     );
   });
 
-  test("rejects a project working directory outside the workspace", () => {
+  test("rejects a project path outside the workspace", () => {
     expect(() =>
       updateRunOptions("D:/fixture/project", "plain-java", "project", {
         javaHomePath: "",
@@ -80,7 +80,22 @@ describe("updateRunOptions", () => {
         programArguments: "",
         environment: {},
       }),
-    ).toThrow("Project working directory must stay inside the workspace.");
+    ).toThrow("Project paths must stay inside the workspace.");
+    expect(executeCore).not.toHaveBeenCalled();
+  });
+
+  test("rejects a project toolchain path outside the workspace", () => {
+    expect(() =>
+      updateRunOptions("D:/fixture/project", "plain-java", "project", {
+        javaHomePath: "C:/Program Files/Java/jdk-21",
+        mavenExecutablePath: "",
+        mavenJavaHomePath: "",
+        workingDirectoryPath: "",
+        vmArguments: "",
+        programArguments: "",
+        environment: {},
+      }),
+    ).toThrow("Project paths must stay inside the workspace.");
     expect(executeCore).not.toHaveBeenCalled();
   });
 });

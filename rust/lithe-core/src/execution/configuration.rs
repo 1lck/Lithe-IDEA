@@ -923,10 +923,20 @@ fn apply_global_toolchain(configurations: &mut [RunConfiguration], toolchain: &V
             .entry("java".to_string())
             .or_insert_with(|| json!({}));
         if let Some(object) = java.as_object_mut() {
-            object.insert("homePath".to_string(), json!(java_home));
-            object.insert("mavenExecutablePath".to_string(), json!(maven_executable));
-            object.insert("mavenJavaHomePath".to_string(), json!(maven_java_home));
+            insert_toolchain_default(object, "homePath", java_home);
+            insert_toolchain_default(object, "mavenExecutablePath", maven_executable);
+            insert_toolchain_default(object, "mavenJavaHomePath", maven_java_home);
         }
+    }
+}
+
+fn insert_toolchain_default(object: &mut serde_json::Map<String, Value>, key: &str, value: &str) {
+    let has_override = object
+        .get(key)
+        .and_then(Value::as_str)
+        .is_some_and(|configured| !configured.trim().is_empty());
+    if !has_override {
+        object.insert(key.to_string(), json!(value));
     }
 }
 

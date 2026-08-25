@@ -8,6 +8,7 @@ import {
   type RunConfiguration,
   type RunDiagnostic,
   type RunExecution,
+  type RunOptions,
   type RunRecoveryAction,
 } from "../types/run.types";
 
@@ -149,6 +150,27 @@ export function configurationUsesMaven(configuration: { toolchains?: Record<stri
   return Boolean(configuration.toolchains?.maven);
 }
 
+export function configurationOverrides(
+  options: RunOptions,
+  defaults: GlobalToolchain,
+): RunOptions {
+  return {
+    ...options,
+    javaHomePath: sameWindowsPath(options.javaHomePath, defaults.javaHomePath)
+      ? ""
+      : options.javaHomePath,
+    mavenExecutablePath: sameWindowsPath(
+      options.mavenExecutablePath,
+      defaults.mavenExecutablePath,
+    )
+      ? ""
+      : options.mavenExecutablePath,
+    mavenJavaHomePath: sameWindowsPath(options.mavenJavaHomePath, defaults.mavenJavaHomePath)
+      ? ""
+      : options.mavenJavaHomePath,
+  };
+}
+
 export function selectedToolchainCandidates(
   discovered: { java: JavaRuntime[]; maven: MavenRuntime[] },
   selected: GlobalToolchain,
@@ -166,6 +188,7 @@ export function selectedToolchainCandidates(
 }
 
 function sameWindowsPath(left: string, right: string): boolean {
+  if (!left || !right) return false;
   const normalize = (value: string) => value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
   return normalize(left) === normalize(right);
 }

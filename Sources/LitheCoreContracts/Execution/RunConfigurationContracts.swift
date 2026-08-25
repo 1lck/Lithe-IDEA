@@ -87,15 +87,18 @@ package struct RunConfigurationResolution: Sendable {
     package let configurations: [EffectiveRunConfiguration]
     package let diagnostics: [RunConfigurationDiagnostic]
     package let defaultConfigurationID: String?
+    package let projectToolchain: ProjectToolchainSelection
 
     package init(
         configurations: [EffectiveRunConfiguration],
         diagnostics: [RunConfigurationDiagnostic],
-        defaultConfigurationID: String?
+        defaultConfigurationID: String?,
+        projectToolchain: ProjectToolchainSelection = ProjectToolchainSelection()
     ) {
         self.configurations = configurations
         self.diagnostics = diagnostics
         self.defaultConfigurationID = defaultConfigurationID
+        self.projectToolchain = projectToolchain
     }
 }
 
@@ -157,10 +160,20 @@ package protocol RunConfigurationDocumentMutating: Sendable {
     ) throws -> RunConfigurationDocumentMutation
 }
 
-package struct ProjectToolchainSelection: Equatable, Sendable {
+package struct ProjectToolchainSelection: Codable, Equatable, Sendable {
     package var javaHomePath = ""
     package var mavenExecutablePath = ""
     package var mavenJavaHomePath = ""
+
+    package init(
+        javaHomePath: String = "",
+        mavenExecutablePath: String = "",
+        mavenJavaHomePath: String = ""
+    ) {
+        self.javaHomePath = javaHomePath
+        self.mavenExecutablePath = mavenExecutablePath
+        self.mavenJavaHomePath = mavenJavaHomePath
+    }
 }
 
 package protocol RunConfigurationOperations: Sendable {
@@ -187,6 +200,13 @@ package protocol RunConfigurationOperations: Sendable {
         scope: RunConfigurationSaveScope,
         at projectURL: URL
     ) throws
+    func saveProjectToolchain(_ toolchain: ProjectToolchainSelection, at projectURL: URL) throws
     func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String
     func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws
+}
+
+package extension RunConfigurationOperations {
+    func saveProjectToolchain(_: ProjectToolchainSelection, at _: URL) throws {
+        throw RunConfigurationOperationFailure(message: "Project toolchain editing is unavailable.")
+    }
 }

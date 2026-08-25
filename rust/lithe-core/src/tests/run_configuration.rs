@@ -558,13 +558,13 @@ fn resolve_prefers_a_host_provided_local_document() {
 }
 
 #[test]
-fn resolve_applies_a_global_toolchain_to_every_configuration() {
+fn resolve_applies_global_toolchain_defaults_and_preserves_configuration_overrides() {
     let root = temporary_root("run-config-global-toolchain");
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
     fs::write(
         root.join(".lithe/run/generated.json"),
         r#"{"version":2,"configurations":[
-            {"id":"spring","name":"Spring","provider":"spring-boot.maven","execution":"service","toolchains":{"java":"project-jdk","maven":"project-maven"},"extensions":{"maven":{"module":"."}}},
+            {"id":"spring","name":"Spring","provider":"spring-boot.maven","execution":"service","toolchains":{"java":"project-jdk","maven":"project-maven"},"extensions":{"maven":{"module":"."},"java":{"homePath":"C:/service-jdk","mavenExecutablePath":"C:/service-mvn.cmd"}}},
             {"id":"plain","name":"Plain","provider":"java.main","execution":"application","toolchains":{"java":"project-jdk"},"extensions":{"java":{"source":"src/App.java"}}}
         ]}"#,
     )
@@ -600,8 +600,23 @@ fn resolve_applies_a_global_toolchain_to_every_configuration() {
         plain["extensions"]["java"]["mavenExecutablePath"],
         "C:/mvn.cmd"
     );
-    // The global toolchain replaces runtime paths but never the source path.
+    // The project default fills missing runtime paths but never changes the source path.
     assert_eq!(plain["extensions"]["java"]["source"], "src/App.java");
+    let spring = resolved["data"]["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|value| value["id"] == "spring")
+        .unwrap();
+    assert_eq!(spring["extensions"]["java"]["homePath"], "C:/service-jdk");
+    assert_eq!(
+        spring["extensions"]["java"]["mavenExecutablePath"],
+        "C:/service-mvn.cmd"
+    );
+    assert_eq!(
+        spring["extensions"]["java"]["mavenJavaHomePath"],
+        "C:/maven-jdk"
+    );
 
     fs::remove_dir_all(root).unwrap();
 }

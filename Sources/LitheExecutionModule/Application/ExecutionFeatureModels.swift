@@ -89,6 +89,7 @@ package final class RunFeatureModel: ObservableObject {
     package var recoveryAction: RunConfigurationRecoveryAction { service.recoveryAction }
     package var recoveryPath: String? { service.recoveryPath }
     package var configurationSaveError: String? { service.configurationSaveError }
+    package var projectToolchain: ProjectToolchainSelection { service.projectToolchain }
     package var blockingToolchainDiagnostic: RunConfigurationDiagnostic? {
         service.configurationDiagnostics.first {
             $0.code == "missingToolchain" || $0.code == "toolchainVersionMismatch"
@@ -115,6 +116,11 @@ package final class RunFeatureModel: ObservableObject {
         scope: RunConfigurationSaveScope = .local
     ) -> Bool {
         service.updateOptions(options, for: configuration, scope: scope)
+    }
+
+    @discardableResult
+    package func updateProjectToolchain(_ toolchain: ProjectToolchainSelection) -> Bool {
+        service.updateProjectToolchain(toolchain)
     }
 
     package func resetOptions(for configuration: RunConfiguration) {

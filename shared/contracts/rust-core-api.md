@@ -504,8 +504,8 @@ diagnostics for stale, orphaned, missing, disabled, and toolchain mismatch
 states, and the effective global `toolchain`. A document-level `toolchain`
 object in the local layer (e.g.
 `{ "java": { "homePath": ... }, "maven": { "executablePath": ..., "javaHomePath": ... } }`)
-is applied to every configuration's `extensions.java.*` and is authoritative
-over per-configuration toolchain paths.
+provides defaults for every configuration's `extensions.java.*`. A non-empty
+per-configuration toolchain path overrides the corresponding project default.
 
 `runConfig.updateOptions` and `runConfig.createUserConfiguration` are pure
 document transformations. They validate scope, paths, supported types, stable
