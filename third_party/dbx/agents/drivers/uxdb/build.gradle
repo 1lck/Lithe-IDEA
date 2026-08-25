@@ -1,9 +1,0 @@
-dependencies {
-    implementation fileTree(dir: 'libs', include: ['*.jar'])
-}
-
-tasks.named('shadowJar') {
-    manifest {
-        attributes('Agent-Label': 'UXDB', 'Main-Class': 'com.dbx.agent.uxdb.UxdbAgent')
-    }
-}

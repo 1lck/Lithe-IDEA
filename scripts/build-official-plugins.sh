@@ -51,7 +51,7 @@ for stale_package in "$OUTPUT_DIR"/*(/N); do
     rm -rf "$stale_package"
 done
 matched=0
-for plugin_source in "$ROOT_DIR"/Plugins/Official/*(/N); do
+for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
     manifest="$plugin_source/plugin.json"
     info_plist="$plugin_source/Info.plist"
     [[ -f "$manifest" && -f "$info_plist" ]] || continue
@@ -61,7 +61,7 @@ for plugin_source in "$ROOT_DIR"/Plugins/Official/*(/N); do
     fi
     matched=$((matched + 1))
     module_suffix="${plugin_source:t}"
-    source_dir="$ROOT_DIR/Sources/Lithe${module_suffix}Module"
+    source_dir="$plugin_source/Sources/Lithe${module_suffix}Module"
     source_files=("$source_dir"/**/*.swift(N))
     if (( ${#source_files[@]} == 0 )); then
         print -u2 -- "Official plugin $package_id has no Swift sources at $source_dir"

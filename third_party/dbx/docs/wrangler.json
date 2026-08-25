@@ -1,9 +1,0 @@
-{
-  "name": "dbx",
-  "compatibility_date": "2026-05-07",
-  "main": "./worker.ts",
-  "assets": {
-    "directory": "./out",
-    "binding": "ASSETS"
-  }
-}

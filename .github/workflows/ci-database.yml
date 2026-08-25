@@ -130,6 +130,9 @@ jobs:
             ~/.cargo/registry
           key: cargo-dependencies-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock') }}
 
+      - name: Validate database container configuration
+        run: docker compose -f infra/docker/database-validation/compose.yaml config --quiet
+
       - name: Check formatting and test database crates
         run: |
           cargo fmt --manifest-path rust/Cargo.toml -p lithe-db-sidecar -p lithe-db-mcp -- --check

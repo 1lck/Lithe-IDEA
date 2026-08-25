@@ -17,10 +17,10 @@ plugin_fixture="shared/fixtures/plugins/official-v1.json"
 github_fixture="shared/fixtures/github/pull-request-v1.json"
 workbench_background_fixture="shared/fixtures/settings/workbench-background-v1.json"
 syntax_theme_fixture="shared/fixtures/editor-themes/lithe-v1.json"
-macos_syntax_colors="Sources/Lithe/Resources/SyntaxHighlighting/color-mappings.json"
+macos_syntax_colors="macos/Sources/Lithe/Resources/SyntaxHighlighting/color-mappings.json"
 windows_lithe_theme="windows/tauri/src/extensions/themes/builtin/lithe.json"
 fixture_ids=$(/usr/bin/ruby -rjson -e 'puts JSON.parse(File.read(ARGV.fetch(0))).fetch("modules").map { |m| m.fetch("id") }.sort' "$module_fixture")
-swift_ids=$(rg '^[[:space:]]*static let .* = ModuleID\("dev\.lithe\.[^"]+"\)' Sources/LitheModuleAPI/Lifecycle/ModuleTypes.swift \
+swift_ids=$(rg '^[[:space:]]*static let .* = ModuleID\("dev\.lithe\.[^"]+"\)' macos/Sources/LitheModuleAPI/Lifecycle/ModuleTypes.swift \
     | sed -E 's/.*ModuleID\("([^"]+)"\).*/\1/' \
     | sort)
 if [[ "$fixture_ids" != "$swift_ids" ]]; then
@@ -30,7 +30,7 @@ if [[ "$fixture_ids" != "$swift_ids" ]]; then
 fi
 
 fixture_capability_ids=$(/usr/bin/ruby -rjson -e 'puts JSON.parse(File.read(ARGV.fetch(0))).fetch("modules").flat_map { |m| m.fetch("capabilities") }.uniq.sort' "$module_fixture")
-swift_capability_ids=$(rg '^[[:space:]]*static let .* = ModuleCapabilityID\("dev\.lithe\.capability\.[^"]+"\)' Sources/LitheModuleAPI/Lifecycle/ModuleTypes.swift \
+swift_capability_ids=$(rg '^[[:space:]]*static let .* = ModuleCapabilityID\("dev\.lithe\.capability\.[^"]+"\)' macos/Sources/LitheModuleAPI/Lifecycle/ModuleTypes.swift \
     | sed -E 's/.*ModuleCapabilityID\("([^"]+)"\).*/\1/' \
     | sort)
 if [[ "$fixture_capability_ids" != "$swift_capability_ids" ]]; then

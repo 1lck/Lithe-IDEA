@@ -225,7 +225,7 @@ jobs:
           ruby -c scripts/create-macos-update-manifest.rb
           ruby -c scripts/test-macos-update-manifest.rb
           ruby scripts/test-macos-update-manifest.rb
-          plutil -lint Resources/Info.plist
+          plutil -lint macos/Resources/Info.plist
 
       - name: Build and verify host architecture package
         run: ./scripts/verify-macos-package.sh
