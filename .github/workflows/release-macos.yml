@@ -195,6 +195,12 @@ jobs:
             --target "$GITHUB_SHA"
             --title "Lithe $RELEASE_TAG"
           )
+          edit_args=(
+            "$RELEASE_TAG"
+            --repo "$GITHUB_REPOSITORY"
+            --target "$GITHUB_SHA"
+            --title "Lithe $RELEASE_TAG"
+          )
           upload_args=(
             "dist/Lithe-${LITHE_VERSION}-arm64.dmg"
             "dist/Lithe-${LITHE_VERSION}-arm64.dmg.sha256"
@@ -205,6 +211,7 @@ jobs:
 
           if [[ -f "$notes_file" ]]; then
             create_args+=(--notes-file "$notes_file")
+            edit_args+=(--notes-file "$notes_file")
           else
             create_args+=(--generate-notes)
           fi
@@ -213,6 +220,7 @@ jobs:
             gh release create "${create_args[@]}" || \
               gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
           fi
+          gh release edit "${edit_args[@]}"
           gh release upload "$RELEASE_TAG" "${upload_args[@]}" \
             --repo "$GITHUB_REPOSITORY" --clobber
 
