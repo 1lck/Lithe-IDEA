@@ -59,7 +59,7 @@ final class MacWorkbenchBackgroundPlatform: WorkbenchBackgroundPlatformProviding
             return .temporarilyUnavailable(message: "The selected built-in background is unavailable in this build.")
         }
         do {
-            return .loaded(try Data(contentsOf: url))
+            return Self.imageLoadResult(for: try Data(contentsOf: url))
         } catch {
             return .temporarilyUnavailable(message: "Could not read the selected built-in background.")
         }
@@ -93,8 +93,9 @@ final class MacWorkbenchBackgroundPlatform: WorkbenchBackgroundPlatformProviding
         }
         do {
             let data = try Data(contentsOf: url)
-            if isStale { refreshCustomImageAccess(for: url) }
-            return .loaded(data)
+            let result = Self.imageLoadResult(for: data)
+            if isStale, case .loaded = result { refreshCustomImageAccess(for: url) }
+            return result
         } catch {
             // A missing external volume and a temporary permission/I/O failure
             // cannot be distinguished reliably here; preserve the selection.
@@ -108,6 +109,13 @@ final class MacWorkbenchBackgroundPlatform: WorkbenchBackgroundPlatformProviding
 
     var customImageDisplayName: String? {
         customImageAccess?.displayName
+    }
+
+    static func imageLoadResult(for data: Data) -> WorkbenchBackgroundImageLoadResult {
+        guard NSImage(data: data) != nil else {
+            return .permanentlyUnavailable(message: "The selected background image could not be decoded.")
+        }
+        return .loaded(data)
     }
 
     private var customImageAccess: WorkbenchBackgroundImageAccess? {

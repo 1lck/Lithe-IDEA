@@ -209,6 +209,36 @@ struct AppSettingsTests {
     }
 
     @Test
+    func choosingAnotherCustomBackgroundReloadsTheImageCache() {
+        let firstImage = Data([0x01])
+        let replacementImage = Data([0x02])
+        let platform = WorkbenchBackgroundPlatformTestDouble(
+            selection: .selected(displayName: "first.png"),
+            customLoadResult: .loaded(firstImage)
+        )
+        let settings = AppSettings(store: AppSettingsTestStore())
+        let feature = WorkbenchBackgroundFeatureModel(settings: settings, platform: platform)
+
+        feature.chooseCustomImage()
+        platform.setCustomLoadResult(.loaded(replacementImage))
+        feature.chooseCustomImage()
+
+        #expect(feature.imageData == replacementImage)
+        #expect(platform.customLoadCount == 2)
+    }
+
+    @Test
+    func macWorkbenchBackgroundPlatformRejectsReadableButUndecodableImageData() {
+        let result = MacWorkbenchBackgroundPlatform.imageLoadResult(for: Data("not an image".utf8))
+
+        guard case let .permanentlyUnavailable(message) = result else {
+            Issue.record("Undecodable image data must not enable a workbench background.")
+            return
+        }
+        #expect(message == "The selected background image could not be decoded.")
+    }
+
+    @Test
     func temporaryCustomImageFailurePreservesTheConfiguredSelection() {
         let platform = WorkbenchBackgroundPlatformTestDouble(
             customLoadResult: .temporarilyUnavailable(message: "Drive is offline")
@@ -224,7 +254,7 @@ struct AppSettingsTests {
     }
 
     @Test
-    func permanentCustomImageFailureClearsTheConfiguredSelection() {
+    func permanentlyUnavailableCustomImageClearsTheConfiguredSelection() {
         let platform = WorkbenchBackgroundPlatformTestDouble(
             customLoadResult: .permanentlyUnavailable(message: "Authorization is invalid")
         )
@@ -243,8 +273,9 @@ struct AppSettingsTests {
 private final class WorkbenchBackgroundPlatformTestDouble: WorkbenchBackgroundPlatformProviding {
     private let bundledImages: [String: Data]
     private let selection: WorkbenchBackgroundImageSelectionResult
-    private let customLoadResult: WorkbenchBackgroundImageLoadResult
+    private var customLoadResult: WorkbenchBackgroundImageLoadResult
     private(set) var bundledLoadCount = 0
+    private(set) var customLoadCount = 0
     private(set) var clearCustomImageCount = 0
     var customImageDisplayName: String?
 
@@ -275,7 +306,14 @@ private final class WorkbenchBackgroundPlatformTestDouble: WorkbenchBackgroundPl
         return .loaded(data)
     }
 
-    func loadCustomImageData() -> WorkbenchBackgroundImageLoadResult { customLoadResult }
+    func loadCustomImageData() -> WorkbenchBackgroundImageLoadResult {
+        customLoadCount += 1
+        return customLoadResult
+    }
+
+    func setCustomLoadResult(_ result: WorkbenchBackgroundImageLoadResult) {
+        customLoadResult = result
+    }
 
     func clearCustomImage() { clearCustomImageCount += 1 }
 }

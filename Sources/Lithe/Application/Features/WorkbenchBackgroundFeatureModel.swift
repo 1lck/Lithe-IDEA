@@ -54,7 +54,13 @@ final class WorkbenchBackgroundFeatureModel: ObservableObject {
             prompt: "Choose"
         ) {
         case .selected:
+            let replacesCustomImage = settings.workbenchBackground.source.isCustom
             settings.setWorkbenchBackgroundCustomImage()
+            // The portable configuration identifies every local image as
+            // `custom`, so choosing a replacement does not change its source.
+            // Reload explicitly in that case while keeping opacity-only updates
+            // on the cached rendering path.
+            if replacesCustomImage { reload(force: true) }
         case .cancelled:
             break
         case let .failed(message):
