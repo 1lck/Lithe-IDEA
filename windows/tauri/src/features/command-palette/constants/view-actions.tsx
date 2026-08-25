@@ -14,7 +14,6 @@ import {
   MagnifyingGlassPlusIcon as ZoomIn,
   MagnifyingGlassMinusIcon as ZoomOut,
 } from "@/ui/icons";
-import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import type { BottomPaneTab } from "@/features/window/stores/ui-state/types/ui-state.types";
 import { showPromptDialog } from "@/ui/dialog";
@@ -152,7 +151,12 @@ export const createViewActions = (params: ViewActionsParams): Action[] => {
       category: "View",
       commandId: "workbench.toggleDiagnostics",
       action: () => {
-        useBufferStore.getState().actions.openDiagnosticsBuffer();
+        if (isBottomPaneVisible && bottomPaneActiveTab === "diagnostics") {
+          setIsBottomPaneVisible(false);
+        } else {
+          setBottomPaneActiveTab("diagnostics");
+          setIsBottomPaneVisible(true);
+        }
         onClose();
       },
     },

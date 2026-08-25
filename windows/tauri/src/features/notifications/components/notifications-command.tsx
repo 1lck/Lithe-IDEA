@@ -8,6 +8,7 @@ import {
   MagnifyingGlassIcon as Search,
   TrashIcon as Trash,
   WarningCircleIcon as WarningCircle,
+  XIcon as X,
   XCircleIcon as XCircle,
 } from "@/ui/icons";
 import type React from "react";
@@ -44,9 +45,62 @@ import { useTranslation } from "@/i18n/locale-provider";
 interface NotificationsCommandProps {
   isVisible: boolean;
   onClose: () => void;
+  surface?: "dialog" | "tool-window";
 }
 
-export function NotificationsCommand({ isVisible, onClose }: NotificationsCommandProps) {
+interface NotificationsSurfaceProps extends NotificationsCommandProps {
+  children: React.ReactNode;
+  closeLabel: string;
+  title: string;
+}
+
+function NotificationsSurface({
+  children,
+  closeLabel,
+  isVisible,
+  onClose,
+  surface = "dialog",
+  title,
+}: NotificationsSurfaceProps) {
+  if (surface === "tool-window") {
+    return (
+      <section
+        aria-label={title}
+        className={cn("flex h-full min-h-0 flex-col bg-background", !isVisible && "hidden")}
+      >
+        <div className="flex h-8 shrink-0 items-center border-border/70 border-b px-3">
+          <h2 className="font-sans ui-text-sm min-w-0 flex-1 truncate font-semibold text-foreground">
+            {title}
+          </h2>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            onClick={onClose}
+            tooltip={closeLabel}
+            aria-label={closeLabel}
+            tooltipSide="bottom"
+          >
+            <X />
+          </Button>
+        </div>
+        {children}
+      </section>
+    );
+  }
+
+  return (
+    <Command isVisible={isVisible} onClose={onClose} title={title}>
+      {children}
+    </Command>
+  );
+}
+
+export function NotificationsCommand({
+  isVisible,
+  onClose,
+  surface = "dialog",
+}: NotificationsCommandProps) {
   const { t } = useTranslation();
   const notifications = useNotificationsStore.use.notifications();
   const markAllNotificationsRead = useNotificationsStore((state) => state.actions.markAllRead);
@@ -170,8 +224,18 @@ export function NotificationsCommand({ isVisible, onClose }: NotificationsComman
       [
         { id: "all", label: t("notifications.filterAll"), icon: <Funnel />, value: "all" },
         { id: "info", label: t("notifications.filterInfo"), icon: <Info />, value: "info" },
-        { id: "success", label: t("notifications.filterSuccess"), icon: <Check />, value: "success" },
-        { id: "warning", label: t("notifications.filterWarnings"), icon: <WarningCircle />, value: "warning" },
+        {
+          id: "success",
+          label: t("notifications.filterSuccess"),
+          icon: <Check />,
+          value: "success",
+        },
+        {
+          id: "warning",
+          label: t("notifications.filterWarnings"),
+          icon: <WarningCircle />,
+          value: "warning",
+        },
         { id: "error", label: t("notifications.filterErrors"), icon: <XCircle />, value: "error" },
       ].map((item) => ({
         id: item.id,
@@ -328,7 +392,13 @@ export function NotificationsCommand({ isVisible, onClose }: NotificationsComman
 
   return (
     <>
-      <Command isVisible={isVisible} onClose={onClose} title={t("notifications.title")}>
+      <NotificationsSurface
+        isVisible={isVisible}
+        onClose={onClose}
+        surface={surface}
+        closeLabel={t("commandPalette.close")}
+        title={t("notifications.title")}
+      >
         <div
           className="flex h-full min-h-0 flex-col"
           onKeyDownCapture={handleNotificationsKeyDown}
@@ -337,7 +407,11 @@ export function NotificationsCommand({ isVisible, onClose }: NotificationsComman
             panelContextMenu.open(event);
           }}
         >
-          <CommandHeader onClose={onClose}>
+          <CommandHeader
+            onClose={onClose}
+            hideCloseButton={surface === "tool-window"}
+            contentClassName={surface === "tool-window" ? "px-2 py-2" : undefined}
+          >
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <Search className="size-3.5 shrink-0 text-subtle-foreground" />
               <CommandInput
@@ -442,7 +516,7 @@ export function NotificationsCommand({ isVisible, onClose }: NotificationsComman
             </CommandList>
           )}
         </div>
-      </Command>
+      </NotificationsSurface>
       <Dropdown
         isOpen={notificationContextMenu.isOpen}
         point={notificationContextMenu.position}

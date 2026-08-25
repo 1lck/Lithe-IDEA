@@ -47,7 +47,11 @@ const getNavigatorPath = (filePath: string, displayPath: string, fileName: strin
   return displayPath || fileName;
 };
 
-const GlobalSearchBuffer = () => {
+interface GlobalSearchBufferProps {
+  compact?: boolean;
+}
+
+const GlobalSearchBuffer = ({ compact = false }: GlobalSearchBufferProps) => {
   const { t } = useTranslation();
   const handleFileSelect = useFileSystemStore((state) => state.handleFileSelect);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -514,6 +518,7 @@ const GlobalSearchBuffer = () => {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <GlobalSearchToolbar
+        compact={compact}
         inputRef={inputRef}
         replaceInputRef={replaceInputRef}
         query={query}
@@ -543,6 +548,7 @@ const GlobalSearchBuffer = () => {
       <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
         {hasResults && !showInitialBusy ? (
           <GlobalSearchResults
+            compact={compact}
             scrollContainerRef={scrollContainerRef}
             loadMoreRef={loadMoreRef}
             fileNavigatorItems={fileNavigatorItems}

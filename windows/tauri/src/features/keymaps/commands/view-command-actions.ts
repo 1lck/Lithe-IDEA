@@ -60,7 +60,14 @@ export function toggleGitLogPane(): void {
 }
 
 export function openDiagnosticsBuffer(): void {
-  useBufferStore.getState().actions.openDiagnosticsBuffer();
+  const state = useUIState.getState();
+  if (state.isBottomPaneVisible && state.bottomPaneActiveTab === "diagnostics") {
+    state.setIsBottomPaneVisible(false);
+    return;
+  }
+
+  state.setBottomPaneActiveTab("diagnostics");
+  state.setIsBottomPaneVisible(true);
 }
 
 export function openCommandPalette(): void {
@@ -108,7 +115,9 @@ export function showFindReplace(): void {
 }
 
 export function openGlobalSearchBuffer(): void {
-  useBufferStore.getState().actions.openGlobalSearchBuffer();
+  const state = useUIState.getState();
+  state.setActiveView("search");
+  state.setIsSidebarVisible(true);
 }
 
 export function toggleFilesSidebar(): void {
