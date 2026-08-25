@@ -108,6 +108,7 @@ final class AppModel: ObservableObject, Identifiable {
         workspaceFeature.isPerformingProjectItemOperation
     }
     @Published var notificationMessage: String?
+    @Published var notifications: [WorkbenchNotification] = []
     @Published var detectedAIConfigurations: [AIConfigurationSnapshot] = []
     @Published var commitMessage = ""
     @Published var amendCommit = false
@@ -1775,16 +1776,6 @@ final class AppModel: ObservableObject, Identifiable {
     func relativePath(for url: URL) -> String {
         guard let workspaceURL else { return url.lastPathComponent }
         return workspaceRelativePath(for: url, root: workspaceURL) ?? url.lastPathComponent
-    }
-
-    func showNotification(_ message: String) {
-        notificationMessage = message
-        Task {
-            try? await Task.sleep(for: .seconds(2))
-            if notificationMessage == message {
-                notificationMessage = nil
-            }
-        }
     }
 
     func recordSave(_ document: EditorDocument, previousText: String) {

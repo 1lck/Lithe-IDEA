@@ -59,6 +59,17 @@ struct EditorGutterLayoutTests {
     }
 
     @Test
+    func viewportResizeDoesNotReapplyInlaySpacing() {
+        let plan = EditorOverlayUpdatePlan(
+            codeVisionChanged: false,
+            inlayHintsChanged: false,
+            layoutChanged: true
+        )
+        #expect(!plan.updateInlayHints)
+        #expect(plan.updateCodeVision)
+    }
+
+    @Test
     func codeVisionUsesTheSymbolAsItsVisualLineAnchor() {
         #expect(EditorOverlayLayout.codeVisionAnchorCharacterOffset(
             lineStart: 100,
@@ -85,8 +96,8 @@ struct EditorGutterLayoutTests {
     func columnsHaveDistinctHitTargets() {
         let layout = EditorGutterLayout(lineNumberTextWidth: 24)
         #expect(layout.hitTarget(at: 6, hasGitChange: false) == .breakpoint)
-        #expect(layout.hitTarget(at: 22, hasGitChange: false) == .implementation)
-        #expect(layout.hitTarget(at: 45, hasGitChange: false) == .lineNumber)
+        #expect(layout.hitTarget(at: 22, hasGitChange: false) == .lineNumber)
+        #expect(layout.hitTarget(at: 48, hasGitChange: false) == .implementation)
         #expect(layout.hitTarget(at: 68, hasGitChange: false) == .fold)
         #expect(layout.hitTarget(at: 78, hasGitChange: true) == .gitChange)
     }
@@ -98,10 +109,41 @@ struct EditorGutterLayoutTests {
     }
 
     @Test
+    func implementationMarkersRefreshWhenLanguageServerBecomesReady() {
+        let transition = EditorLanguageFeatureTransition(
+            previous: [],
+            current: [.definition, .implementation]
+        )
+        #expect(transition.refreshImplementationMarkers)
+        #expect(!transition.clearImplementationMarkers)
+    }
+
+    @Test
+    func implementationMarkersClearWhenLanguageServerStopsSupportingThem() {
+        let transition = EditorLanguageFeatureTransition(
+            previous: [.definition, .implementation],
+            current: [.definition]
+        )
+        #expect(!transition.refreshImplementationMarkers)
+        #expect(transition.clearImplementationMarkers)
+    }
+
+    @Test
+    func unchangedImplementationSupportDoesNotRefreshMarkers() {
+        let transition = EditorLanguageFeatureTransition(
+            previous: [.definition, .implementation],
+            current: [.definition, .implementation]
+        )
+        #expect(!transition.refreshImplementationMarkers)
+        #expect(!transition.clearImplementationMarkers)
+    }
+
+    @Test
     func lineNumberColumnExpandsWithoutOverlappingFollowingColumns() {
         let layout = EditorGutterLayout(lineNumberTextWidth: 34)
         #expect(layout.lineNumberRange.upperBound - layout.lineNumberRange.lowerBound == 37)
-        #expect(layout.lineNumberRange.upperBound == layout.foldRange.lowerBound)
+        #expect(layout.lineNumberRange.upperBound == layout.implementationRange.lowerBound)
+        #expect(layout.implementationRange.upperBound == layout.foldRange.lowerBound)
         #expect(layout.foldRange.upperBound == layout.gitChangeRange.lowerBound)
         #expect(layout.gitChangeRange.upperBound == layout.width)
     }

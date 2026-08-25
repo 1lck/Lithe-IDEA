@@ -105,6 +105,19 @@ async function assertMacJdkCacheConfiguration() {
 
   const packageScript = await fs.readFile(path.join(repositoryRoot, "scripts/package-app.sh"), "utf8");
   assert.match(packageScript, /LITHE_JDK_TARGET_ARCH="\$jdk_arch"/, "macOS packages must prepare the target-architecture JDK");
+  const previewScript = await fs.readFile(path.join(repositoryRoot, "scripts/preview.sh"), "utf8");
+  assert.match(previewScript, /prepare-jdtls\.sh/, "macOS previews must prepare JDTLS");
+  assert.match(previewScript, /prepare-jdk\.sh/, "macOS previews must prepare the bundled JDK");
+  assert.match(
+    previewScript,
+    /Contents\/Resources\/LanguageServers\/jdtls/,
+    "macOS previews must bundle JDTLS at the runtime lookup path",
+  );
+  assert.match(
+    previewScript,
+    /Contents\/Resources\/LanguageServers\/jdk/,
+    "macOS previews must bundle the JDK at the runtime lookup path",
+  );
   const prepareScript = await fs.readFile(path.join(repositoryRoot, "scripts/prepare-jdk.sh"), "utf8");
   assert.match(prepareScript, /TARGET_ARCH="\$\{LITHE_JDK_TARGET_ARCH:-\$\(uname -m\)\}"/);
   assert.match(prepareScript, /macos-aarch64/);

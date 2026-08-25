@@ -8,6 +8,26 @@ import UniformTypeIdentifiers
 @Suite("Editor tab layout", .serialized)
 struct EditorTabLayoutTests {
     @Test
+    func javaTabsPreferTheSemanticIconResolvedForTheProjectTree() {
+        let url = URL(fileURLWithPath: "/workspace/UploadService.java")
+
+        #expect(
+            EditorDocumentIconResolver.kind(for: url, resolvedJavaKind: .javaInterface)
+                == .javaInterface
+        )
+    }
+
+    @Test
+    func javaTabsUseTheGenericJavaIconUntilSemanticResolutionCompletes() {
+        let url = URL(fileURLWithPath: "/workspace/UploadService.java")
+
+        #expect(
+            EditorDocumentIconResolver.kind(for: url, resolvedJavaKind: nil)
+                == .javaGeneric
+        )
+    }
+
+    @Test
     func flowLayoutWrapsByIntrinsicWidth() {
         let rows = EditorTabFlowPlanner.rows(
             for: [
