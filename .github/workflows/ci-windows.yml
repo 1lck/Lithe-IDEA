@@ -185,6 +185,15 @@ jobs:
           path: .artifacts/jdtls-downloads
           key: lithe-${{ runner.os }}-${{ runner.arch }}-jdtls-v1-${{ hashFiles('third_party/jdtls/manifest.json') }}
 
+      - name: Restore JDK downloads
+        if: needs.changes.outputs.windows == 'true'
+        id: jdk-download-cache
+        continue-on-error: true
+        uses: actions/cache@v6
+        with:
+          path: .artifacts/jdk-downloads
+          key: lithe-${{ runner.os }}-${{ runner.arch }}-jdk-v1-${{ hashFiles('third_party/jdk/manifest.json') }}
+
       - name: Validate restored caches or fall back
         if: always()
         shell: pwsh
@@ -195,6 +204,7 @@ jobs:
             CargoBuildHit = "${{ steps.cargo-build-cache.outputs.cache-hit }}"
             BunOutcome = "${{ steps.bun-download-cache.outcome }}"
             JdtlsOutcome = "${{ steps.jdtls-download-cache.outcome }}"
+            JdkOutcome = "${{ steps.jdk-download-cache.outcome }}"
           }
           if ("${{ needs.changes.outputs.windows }}" -eq "true") {
             $validation.IncludeWindowsAssets = $true

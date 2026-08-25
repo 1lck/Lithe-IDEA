@@ -34,7 +34,59 @@ foreach ($relativePath in @("icon-themes", "themes", "icon-themes/idea/extension
     }
 }
 
-& (Join-Path $root "scripts/prepare-jdtls.ps1") | Out-Null
+$preparedJdtlsOutput = @(& (Join-Path $root "scripts/prepare-jdtls.ps1"))
+if ($preparedJdtlsOutput.Count -eq 0) {
+    throw "JDTLS preparation did not return an output directory."
+}
+$preparedJdtlsRoot = [System.IO.Path]::GetFullPath([string]$preparedJdtlsOutput[-1])
+$preparedJdkOutput = @(& (Join-Path $root "scripts/prepare-jdk.ps1") -RustTarget $RustTarget)
+if ($preparedJdkOutput.Count -eq 0) {
+    throw "JDK preparation did not return an output directory."
+}
+$preparedJdkRoot = [System.IO.Path]::GetFullPath([string]$preparedJdkOutput[-1])
+foreach ($requiredPath in @(
+    (Join-Path $preparedJdtlsRoot "bin/jdtls.bat"),
+    (Join-Path $preparedJdtlsRoot "plugins"),
+    (Join-Path $preparedJdkRoot "bin/java.exe"),
+    (Join-Path $preparedJdkRoot "lib")
+)) {
+    if (-not (Test-Path -LiteralPath $requiredPath)) {
+        throw "Bundled Java tooling preparation is incomplete: $requiredPath"
+    }
+}
+
+function Sync-BundleResource {
+    param([string]$Source, [string]$Destination)
+
+    $sourcePath = [System.IO.Path]::GetFullPath($Source)
+    $destinationPath = [System.IO.Path]::GetFullPath($Destination)
+    if ($sourcePath.Equals($destinationPath, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return
+    }
+    $artifactsRoot = [System.IO.Path]::GetFullPath((Join-Path $root ".artifacts"))
+    $trimCharacters = [char[]]@(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar
+    )
+    $artifactsPrefix = $artifactsRoot.TrimEnd($trimCharacters) +
+        [System.IO.Path]::DirectorySeparatorChar
+    if (-not $destinationPath.StartsWith(
+        $artifactsPrefix,
+        [System.StringComparison]::OrdinalIgnoreCase
+    )) {
+        throw "Bundled Java tooling destination must stay inside $artifactsRoot"
+    }
+    if (Test-Path -LiteralPath $destinationPath) {
+        Remove-Item -Recurse -Force -LiteralPath $destinationPath
+    }
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destinationPath) | Out-Null
+    Copy-Item -Recurse -Force -LiteralPath $sourcePath -Destination $destinationPath
+}
+
+# tauri.jdtls.conf.json consumes these canonical paths even when a developer
+# supplies a verified external runtime through an environment override.
+Sync-BundleResource $preparedJdtlsRoot (Join-Path $root ".artifacts/jdtls")
+Sync-BundleResource $preparedJdkRoot (Join-Path $root ".artifacts/jdk")
 
 $versionOverrides = @{
     version = $Version

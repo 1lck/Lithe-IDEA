@@ -22,7 +22,11 @@ esac
 
 cd "$ROOT_DIR"
 JDTLS_ROOT=$("$ROOT_DIR/scripts/prepare-jdtls.sh")
-JDK_ROOT=$("$ROOT_DIR/scripts/prepare-jdk.sh")
+jdk_arch="$ARCH"
+if [[ "$jdk_arch" == "universal" ]]; then
+    jdk_arch="$(uname -m)"
+fi
+JDK_ROOT=$(LITHE_JDK_TARGET_ARCH="$jdk_arch" "$ROOT_DIR/scripts/prepare-jdk.sh")
 if [[ "$ARCH" == "universal" ]]; then
     scripts/build-macos.sh --configuration release --triple "$ARM64_TRIPLE"
     scripts/build-macos.sh --configuration release --triple "$X86_64_TRIPLE"

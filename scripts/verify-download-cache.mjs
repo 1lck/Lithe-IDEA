@@ -29,6 +29,8 @@ function parseArguments(argv) {
     skipCargo: false,
     jdtlsCache: null,
     jdtlsManifest: null,
+    jdkCache: null,
+    jdkManifest: null,
     swiftpmCache: null,
     swiftpmResolved: null,
     swiftVersion: null,
@@ -60,6 +62,8 @@ function parseArguments(argv) {
     else if (option === "--cargo-lock") options.cargoLocks.push(value);
     else if (option === "--jdtls-cache") options.jdtlsCache = value;
     else if (option === "--jdtls-manifest") options.jdtlsManifest = value;
+    else if (option === "--jdk-cache") options.jdkCache = value;
+    else if (option === "--jdk-manifest") options.jdkManifest = value;
     else if (option === "--swiftpm-cache") options.swiftpmCache = value;
     else if (option === "--swiftpm-resolved") options.swiftpmResolved = value;
     else if (option === "--swift-version") options.swiftVersion = value;
@@ -204,6 +208,34 @@ async function verifyJdtlsCache(cacheRoot, manifestPath) {
     }
   }
   process.stdout.write(`JDTLS download cache verified: ${verified} artifact(s), ${removed} rejected.\n`);
+}
+
+async function verifyJdkCache(cacheRoot, manifestPath) {
+  if (!cacheRoot || !manifestPath) return;
+  const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+  const expected = new Map(
+    Object.entries(manifest.platforms ?? {})
+      .map(([platform, entry]) => [
+        `jdk-${safeVersion(manifest.version)}-${platform}-${entry.sha256.toLowerCase()}${platform.startsWith("windows-") ? ".zip" : ".tar.gz"}`,
+        entry.sha256.toLowerCase(),
+      ]),
+  );
+  let verified = 0;
+  let removed = 0;
+  for (const artifact of await collectFiles(cacheRoot)) {
+    const artifactName = path.basename(artifact);
+    const expectedHash = expected.get(artifactName);
+    const actualHash = expectedHash ? await sha256(artifact) : null;
+    if (!expectedHash || actualHash !== expectedHash) {
+      const reason = expectedHash ? "SHA-256 mismatch" : "not referenced by the JDK manifest";
+      warn("JDK cache entry rejected", `${artifactName}: ${reason}; it will be downloaded normally.`);
+      await fs.rm(artifact, { force: true });
+      removed += 1;
+    } else {
+      verified += 1;
+    }
+  }
+  process.stdout.write(`JDK download cache verified: ${verified} artifact(s), ${removed} rejected.\n`);
 }
 
 function runGit(repository, argumentList) {
@@ -544,6 +576,10 @@ async function main() {
   await verifyJdtlsCache(
     options.jdtlsCache ? path.resolve(options.jdtlsCache) : null,
     options.jdtlsManifest ? path.resolve(options.jdtlsManifest) : null,
+  );
+  await verifyJdkCache(
+    options.jdkCache ? path.resolve(options.jdkCache) : null,
+    options.jdkManifest ? path.resolve(options.jdkManifest) : null,
   );
   await verifySwiftpmCache(
     options.swiftpmCache ? path.resolve(options.swiftpmCache) : null,
