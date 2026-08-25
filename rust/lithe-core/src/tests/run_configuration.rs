@@ -558,13 +558,13 @@ fn resolve_prefers_a_host_provided_local_document() {
 }
 
 #[test]
-fn resolve_applies_a_global_toolchain_to_every_configuration() {
+fn resolve_applies_global_toolchain_defaults_and_preserves_configuration_overrides() {
     let root = temporary_root("run-config-global-toolchain");
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
     fs::write(
         root.join(".lithe/run/generated.json"),
         r#"{"version":2,"configurations":[
-            {"id":"spring","name":"Spring","provider":"spring-boot.maven","execution":"service","toolchains":{"java":"project-jdk","maven":"project-maven"},"extensions":{"maven":{"module":"."}}},
+            {"id":"spring","name":"Spring","provider":"spring-boot.maven","execution":"service","toolchains":{"java":"project-jdk","maven":"project-maven"},"extensions":{"maven":{"module":"."},"java":{"homePath":"C:/service-jdk","mavenExecutablePath":"C:/service-mvn.cmd"}}},
             {"id":"plain","name":"Plain","provider":"java.main","execution":"application","toolchains":{"java":"project-jdk"},"extensions":{"java":{"source":"src/App.java"}}}
         ]}"#,
     )
@@ -600,8 +600,23 @@ fn resolve_applies_a_global_toolchain_to_every_configuration() {
         plain["extensions"]["java"]["mavenExecutablePath"],
         "C:/mvn.cmd"
     );
-    // The global toolchain replaces runtime paths but never the source path.
+    // The project default fills missing runtime paths but never changes the source path.
     assert_eq!(plain["extensions"]["java"]["source"], "src/App.java");
+    let spring = resolved["data"]["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|value| value["id"] == "spring")
+        .unwrap();
+    assert_eq!(spring["extensions"]["java"]["homePath"], "C:/service-jdk");
+    assert_eq!(
+        spring["extensions"]["java"]["mavenExecutablePath"],
+        "C:/service-mvn.cmd"
+    );
+    assert_eq!(
+        spring["extensions"]["java"]["mavenJavaHomePath"],
+        "C:/maven-jdk"
+    );
 
     fs::remove_dir_all(root).unwrap();
 }
@@ -660,6 +675,125 @@ fn global_toolchain_updates_only_in_the_local_layer() {
     ))
     .unwrap();
     assert_eq!(rejected["ok"], false, "{rejected}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn editor_save_clears_local_overrides_and_falls_back_to_project_toolchain() {
+    let root = temporary_root("run-config-editor-clear-overrides");
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        r#"{"version":2,"configurations":[{"id":"spring","name":"Spring","provider":"spring-boot.maven","execution":"service","toolchains":{"java":"project-jdk","maven":"project-maven"},"extensions":{"maven":{"module":"."}}}]}"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join(".lithe/run/local.json"),
+        r#"{"version":2,"toolchain":{"java":{"homePath":"C:/old-default-jdk"},"maven":{"executablePath":"C:/old-maven","javaHomePath":"C:/old-maven-jdk"}},"configurations":[{"id":"spring","extensions":{"java":{"source":"src/App.java","homePath":"C:/override-jdk","mavenExecutablePath":"C:/override-maven","mavenJavaHomePath":"C:/override-maven-jdk"}}}]}"#,
+    )
+    .unwrap();
+
+    let saved: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "save-editor-local",
+            "command": "runConfig.saveEditorChanges",
+            "payload": {
+                "root": root,
+                "scope": "local",
+                "configurationId": "spring",
+                "workingDirectory": ".",
+                "toolchain": {
+                    "javaHomePath": "C:/default-jdk",
+                    "mavenExecutablePath": "C:/apache-maven",
+                    "mavenJavaHomePath": "C:/default-maven-jdk"
+                }
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(saved["ok"], true, "{saved}");
+    assert!(saved["data"]["projectDocument"].is_null());
+    let local: Value =
+        serde_json::from_str(saved["data"]["localDocument"].as_str().unwrap()).unwrap();
+    let java = &local["configurations"][0]["extensions"]["java"];
+    assert_eq!(java["source"], "src/App.java");
+    assert!(java.get("homePath").is_none());
+    assert!(java.get("mavenExecutablePath").is_none());
+    assert!(java.get("mavenJavaHomePath").is_none());
+
+    fs::write(
+        root.join(".lithe/run/local.json"),
+        saved["data"]["localDocument"].as_str().unwrap(),
+    )
+    .unwrap();
+    let resolved: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "resolve-editor-local",
+            "command": "runConfig.resolve",
+            "payload": {"root": root}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    let resolved_java = &resolved["data"]["configurations"][0]["extensions"]["java"];
+    assert_eq!(resolved_java["homePath"], "C:/default-jdk");
+    assert_eq!(resolved_java["mavenExecutablePath"], "C:/apache-maven");
+    assert_eq!(resolved_java["mavenJavaHomePath"], "C:/default-maven-jdk");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn project_editor_save_prepares_local_and_team_documents_without_writing() {
+    let root = temporary_root("run-config-editor-project");
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::create_dir_all(root.join("backend")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        r#"{"version":2,"configurations":[{"id":"spring","name":"Spring","provider":"spring-boot.maven","execution":"service","toolchains":{"java":"project-jdk","maven":"project-maven"},"extensions":{"maven":{"module":"."}}}]}"#,
+    )
+    .unwrap();
+    let original_local = r#"{"version":2,"configurations":[]}"#;
+    fs::write(root.join(".lithe/run/local.json"), original_local).unwrap();
+
+    let saved: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "save-editor-project",
+            "command": "runConfig.saveEditorChanges",
+            "payload": {
+                "root": root,
+                "scope": "project",
+                "configurationId": "spring",
+                "workingDirectory": "backend",
+                "arguments": "--dev",
+                "toolchain": {
+                    "javaHomePath": "C:/jdk-21",
+                    "mavenExecutablePath": "C:/apache-maven",
+                    "mavenJavaHomePath": "C:/jdk-17"
+                }
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(saved["ok"], true, "{saved}");
+    let local: Value =
+        serde_json::from_str(saved["data"]["localDocument"].as_str().unwrap()).unwrap();
+    let project: Value =
+        serde_json::from_str(saved["data"]["projectDocument"].as_str().unwrap()).unwrap();
+    assert_eq!(local["toolchain"]["java"]["homePath"], "C:/jdk-21");
+    assert_eq!(project["configurations"][0]["cwd"], "backend");
+    assert_eq!(
+        project["configurations"][0]["extensions"]["maven"]["programArguments"],
+        serde_json::json!(["--dev"])
+    );
+    assert_eq!(
+        fs::read_to_string(root.join(".lithe/run/local.json")).unwrap(),
+        original_local
+    );
+    assert!(!root.join(".lithe/run/configurations.json").exists());
 
     fs::remove_dir_all(root).unwrap();
 }
@@ -1091,6 +1225,35 @@ fn shared_run_configuration_fixtures_have_the_versioned_contract_shape() {
         }
     }
     assert!(fixture_count >= 6);
+}
+
+#[test]
+fn shared_editor_save_fixture_executes_the_document_contract() {
+    let fixture_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../shared/fixtures/run-configuration/editor-save.json");
+    let fixture: Value = serde_json::from_str(&fs::read_to_string(fixture_path).unwrap()).unwrap();
+    let root = temporary_root("run-config-editor-fixture");
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::create_dir_all(root.join("backend")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        r#"{"version":2,"configurations":[{"id":"spring","name":"Spring","provider":"spring-boot.maven","execution":"service","toolchains":{"java":"project-jdk","maven":"project-maven"},"extensions":{"maven":{"module":"."}}}]}"#,
+    )
+    .unwrap();
+
+    let mut request = fixture["request"].clone();
+    request["payload"]["root"] = serde_json::json!(root);
+    let response: Value = serde_json::from_str(&execute_json(&request.to_string())).unwrap();
+
+    assert_eq!(response["ok"], true, "{response}");
+    for (key, expected_type) in fixture["expected"].as_object().unwrap() {
+        assert_eq!(
+            expected_type, "string",
+            "Unsupported fixture expectation for {key}"
+        );
+        assert!(response["data"][key].is_string(), "{key}: {response}");
+    }
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

@@ -87,15 +87,18 @@ package struct RunConfigurationResolution: Sendable {
     package let configurations: [EffectiveRunConfiguration]
     package let diagnostics: [RunConfigurationDiagnostic]
     package let defaultConfigurationID: String?
+    package let projectToolchain: ProjectToolchainSelection
 
     package init(
         configurations: [EffectiveRunConfiguration],
         diagnostics: [RunConfigurationDiagnostic],
-        defaultConfigurationID: String?
+        defaultConfigurationID: String?,
+        projectToolchain: ProjectToolchainSelection = ProjectToolchainSelection()
     ) {
         self.configurations = configurations
         self.diagnostics = diagnostics
         self.defaultConfigurationID = defaultConfigurationID
+        self.projectToolchain = projectToolchain
     }
 }
 
@@ -105,6 +108,33 @@ package struct RunConfigurationOperationFailure: LocalizedError, Sendable {
     package init(message: String) { self.message = message }
 
     package var errorDescription: String? { message }
+}
+
+package enum RunConfigurationEditorSaveStage: String, Sendable {
+    case prepare
+    case write
+    case reload
+}
+
+package struct RunConfigurationEditorSaveFailure: LocalizedError, Sendable {
+    package let stage: RunConfigurationEditorSaveStage
+    package let message: String
+
+    package init(stage: RunConfigurationEditorSaveStage, message: String) {
+        self.stage = stage
+        self.message = message
+    }
+
+    package var errorDescription: String? {
+        switch stage {
+        case .prepare:
+            "Could not prepare the run configuration: \(message)"
+        case .write:
+            "Could not write the run configuration: \(message)"
+        case .reload:
+            "Changes were saved, but Lithe could not reload them: \(message)"
+        }
+    }
 }
 
 package struct RunConfigurationGenerationResult: Sendable {
@@ -157,10 +187,20 @@ package protocol RunConfigurationDocumentMutating: Sendable {
     ) throws -> RunConfigurationDocumentMutation
 }
 
-package struct ProjectToolchainSelection: Equatable, Sendable {
+package struct ProjectToolchainSelection: Codable, Equatable, Sendable {
     package var javaHomePath = ""
     package var mavenExecutablePath = ""
     package var mavenJavaHomePath = ""
+
+    package init(
+        javaHomePath: String = "",
+        mavenExecutablePath: String = "",
+        mavenJavaHomePath: String = ""
+    ) {
+        self.javaHomePath = javaHomePath
+        self.mavenExecutablePath = mavenExecutablePath
+        self.mavenJavaHomePath = mavenJavaHomePath
+    }
 }
 
 package protocol RunConfigurationOperations: Sendable {
@@ -181,12 +221,28 @@ package protocol RunConfigurationOperations: Sendable {
         classPath: String?,
         debugPort: Int?
     ) throws -> SharedLaunchPlan
-    func saveOptions(
+    func saveEditorChanges(
         _ options: RunOptions,
+        toolchain: ProjectToolchainSelection,
         configurationID: String,
         scope: RunConfigurationSaveScope,
         at projectURL: URL
     ) throws
     func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String
     func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws
+}
+
+package extension RunConfigurationOperations {
+    func saveEditorChanges(
+        _: RunOptions,
+        toolchain _: ProjectToolchainSelection,
+        configurationID _: String,
+        scope _: RunConfigurationSaveScope,
+        at _: URL
+    ) throws {
+        throw RunConfigurationEditorSaveFailure(
+            stage: .prepare,
+            message: "Run configuration editor saving is unavailable."
+        )
+    }
 }

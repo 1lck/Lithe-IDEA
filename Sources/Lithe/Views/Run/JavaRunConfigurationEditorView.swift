@@ -8,6 +8,7 @@ struct RunConfigurationEditorView: View {
     @ObservedObject var feature: RunFeatureModel
     let configuration: RunConfiguration
     @State private var options: RunOptions
+    @State private var projectToolchain: ProjectToolchainSelection
     @State private var environmentText: String
     @State private var saveScope: RunConfigurationSaveScope = .local
     @State private var saveError: String?
@@ -18,7 +19,9 @@ struct RunConfigurationEditorView: View {
         self.feature = feature
         self.configuration = configuration
         let initialOptions = feature.options(for: configuration)
-        _options = State(initialValue: initialOptions)
+        let projectToolchain = feature.projectToolchain
+        _options = State(initialValue: Self.configurationOverrides(initialOptions, defaults: projectToolchain))
+        _projectToolchain = State(initialValue: projectToolchain)
         _environmentText = State(initialValue: Self.environmentText(from: initialOptions.environment))
     }
 
@@ -31,6 +34,7 @@ struct RunConfigurationEditorView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     saveScopeSection
                     configurationSummary
+                    projectToolchainSection
                     runtimeSection
                     argumentsSection
                     if effectiveCapabilities.contains(.environment) {
@@ -47,6 +51,7 @@ struct RunConfigurationEditorView: View {
             HStack {
                 Button("Reset") {
                     options = RunOptions()
+                    projectToolchain = ProjectToolchainSelection()
                     environmentText = ""
                 }
                 .buttonStyle(.borderless)
@@ -63,7 +68,12 @@ struct RunConfigurationEditorView: View {
                 Button("Done") {
                     options.environment = Self.environment(from: environmentText)
                     guard let scopedOptions = scopedOptionsForSave() else { return }
-                    if feature.updateOptions(scopedOptions, for: configuration, scope: saveScope) {
+                    if feature.saveEditorChanges(
+                        scopedOptions,
+                        toolchain: projectToolchain,
+                        for: configuration,
+                        scope: saveScope
+                    ) {
                         dismiss()
                     } else {
                         saveError = feature.configurationSaveError
@@ -163,26 +173,26 @@ struct RunConfigurationEditorView: View {
     }
 
     private var runtimeSection: some View {
-        section(title: "Runtime") {
+        section(title: "Configuration overrides") {
             if effectiveCapabilities.contains(.javaRuntime) {
                 pathRow(
                     title: "JDK Home",
-                    placeholder: "Use project JDK or system default",
+                    placeholder: "Use project default",
                     text: stringBinding(\.javaHomePath),
                     chooseDirectory: { chooseDirectory(for: \.javaHomePath) }
                 )
             }
             if configuration.kind.isMavenBacked {
                 pathRow(
-                    title: "Maven executable",
-                    placeholder: "Use mvnw or detected Maven",
+                    title: "Maven home or executable",
+                    placeholder: "Use project default",
                     text: stringBinding(\.mavenExecutablePath),
                     chooseDirectory: { chooseFileOrDirectory(for: \.mavenExecutablePath) },
                     chooseHelp: "Choose Maven executable or home"
                 )
                 pathRow(
                     title: "Maven JDK Home",
-                    placeholder: "Use service JDK",
+                    placeholder: "Use project default",
                     text: stringBinding(\.mavenJavaHomePath),
                     chooseDirectory: { chooseDirectory(for: \.mavenJavaHomePath) }
                 )
@@ -193,6 +203,34 @@ struct RunConfigurationEditorView: View {
                 text: stringBinding(\.workingDirectoryPath),
                 chooseDirectory: { chooseDirectory(for: \.workingDirectoryPath) }
             )
+        }
+    }
+
+    private var projectToolchainSection: some View {
+        section(title: "Project defaults (This Mac)") {
+            if effectiveCapabilities.contains(.javaRuntime) {
+                pathRow(
+                    title: "JDK Home",
+                    placeholder: "Use detected JDK",
+                    text: projectToolchainBinding(\.javaHomePath),
+                    chooseDirectory: { chooseProjectToolchainDirectory(for: \.javaHomePath) }
+                )
+            }
+            if configuration.kind.isMavenBacked {
+                pathRow(
+                    title: "Maven home or executable",
+                    placeholder: "Use mvnw or detected Maven",
+                    text: projectToolchainBinding(\.mavenExecutablePath),
+                    chooseDirectory: { chooseProjectToolchainFileOrDirectory(for: \.mavenExecutablePath) },
+                    chooseHelp: "Choose Maven executable or home"
+                )
+                pathRow(
+                    title: "Maven JDK Home",
+                    placeholder: "Use project JDK",
+                    text: projectToolchainBinding(\.mavenJavaHomePath),
+                    chooseDirectory: { chooseProjectToolchainDirectory(for: \.mavenJavaHomePath) }
+                )
+            }
         }
     }
 
@@ -321,6 +359,15 @@ struct RunConfigurationEditorView: View {
         )
     }
 
+    private func projectToolchainBinding(
+        _ keyPath: WritableKeyPath<ProjectToolchainSelection, String>
+    ) -> Binding<String> {
+        Binding(
+            get: { projectToolchain[keyPath: keyPath] },
+            set: { projectToolchain[keyPath: keyPath] = $0 }
+        )
+    }
+
     private func profileBinding(for profile: MavenProfile) -> Binding<Bool> {
         Binding(
             get: { options.activeProfiles.contains(profile.id) },
@@ -342,6 +389,18 @@ struct RunConfigurationEditorView: View {
         presentPathPicker(.fileOrDirectory(keyPath))
     }
 
+    private func chooseProjectToolchainDirectory(
+        for keyPath: WritableKeyPath<ProjectToolchainSelection, String>
+    ) {
+        presentPathPicker(.projectToolchainDirectory(keyPath))
+    }
+
+    private func chooseProjectToolchainFileOrDirectory(
+        for keyPath: WritableKeyPath<ProjectToolchainSelection, String>
+    ) {
+        presentPathPicker(.projectToolchainFileOrDirectory(keyPath))
+    }
+
     private func presentPathPicker(_ picker: PathPicker) {
         activePathPicker = picker
         isPathPickerPresented = true
@@ -352,15 +411,15 @@ struct RunConfigurationEditorView: View {
         switch result {
         case .success(let url):
             guard let activePathPicker else { return }
-            if saveScope == .project {
+            if saveScope == .project && !activePathPicker.isProjectToolchain {
                 guard let projectURL = model.workspaceURL,
                       let path = projectRelativePath(url.path, root: projectURL) else {
                     saveError = String(localized: "Project paths must stay inside the current project.")
                     return
                 }
-                options[keyPath: activePathPicker.keyPath] = path
+                activePathPicker.assign(path, options: &options, projectToolchain: &projectToolchain)
             } else {
-                options[keyPath: activePathPicker.keyPath] = url.path
+                activePathPicker.assign(url.path, options: &options, projectToolchain: &projectToolchain)
             }
             saveError = nil
         case .failure(let error):
@@ -408,19 +467,46 @@ struct RunConfigurationEditorView: View {
     private enum PathPicker {
         case directory(WritableKeyPath<RunOptions, String>)
         case fileOrDirectory(WritableKeyPath<RunOptions, String>)
-
-        var keyPath: WritableKeyPath<RunOptions, String> {
-            switch self {
-            case .directory(let keyPath), .fileOrDirectory(let keyPath): keyPath
-            }
-        }
+        case projectToolchainDirectory(WritableKeyPath<ProjectToolchainSelection, String>)
+        case projectToolchainFileOrDirectory(WritableKeyPath<ProjectToolchainSelection, String>)
 
         var allowedContentTypes: [UTType] {
             switch self {
-            case .directory: [.folder]
-            case .fileOrDirectory: [.item]
+            case .directory, .projectToolchainDirectory: [.folder]
+            case .fileOrDirectory, .projectToolchainFileOrDirectory: [.item]
             }
         }
+
+        var isProjectToolchain: Bool {
+            switch self {
+            case .directory, .fileOrDirectory: false
+            case .projectToolchainDirectory, .projectToolchainFileOrDirectory: true
+            }
+        }
+
+        func assign(
+            _ path: String,
+            options: inout RunOptions,
+            projectToolchain: inout ProjectToolchainSelection
+        ) {
+            switch self {
+            case .directory(let keyPath), .fileOrDirectory(let keyPath):
+                options[keyPath: keyPath] = path
+            case .projectToolchainDirectory(let keyPath), .projectToolchainFileOrDirectory(let keyPath):
+                projectToolchain[keyPath: keyPath] = path
+            }
+        }
+    }
+
+    private static func configurationOverrides(
+        _ options: RunOptions,
+        defaults: ProjectToolchainSelection
+    ) -> RunOptions {
+        var overrides = options
+        if overrides.javaHomePath == defaults.javaHomePath { overrides.javaHomePath = "" }
+        if overrides.mavenExecutablePath == defaults.mavenExecutablePath { overrides.mavenExecutablePath = "" }
+        if overrides.mavenJavaHomePath == defaults.mavenJavaHomePath { overrides.mavenJavaHomePath = "" }
+        return overrides
     }
 
     private static func environmentText(from environment: [String: String]) -> String {

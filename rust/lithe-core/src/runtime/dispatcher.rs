@@ -914,6 +914,21 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::RunConfigSaveEditorChanges => {
+            match serde_json::from_value::<crate::execution::UpdateOptionsRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid run configuration editor request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::execution::save_editor_changes)
+            {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::RunConfigCreateUserConfiguration => {
             match serde_json::from_value::<crate::execution::CreateUserConfigurationRequest>(
                 parsed.payload,

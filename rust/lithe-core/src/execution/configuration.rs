@@ -923,36 +923,91 @@ fn apply_global_toolchain(configurations: &mut [RunConfiguration], toolchain: &V
             .entry("java".to_string())
             .or_insert_with(|| json!({}));
         if let Some(object) = java.as_object_mut() {
-            object.insert("homePath".to_string(), json!(java_home));
-            object.insert("mavenExecutablePath".to_string(), json!(maven_executable));
-            object.insert("mavenJavaHomePath".to_string(), json!(maven_java_home));
+            insert_toolchain_default(object, "homePath", java_home);
+            insert_toolchain_default(object, "mavenExecutablePath", maven_executable);
+            insert_toolchain_default(object, "mavenJavaHomePath", maven_java_home);
         }
     }
 }
 
+fn insert_toolchain_default(object: &mut serde_json::Map<String, Value>, key: &str, value: &str) {
+    let has_override = object
+        .get(key)
+        .and_then(Value::as_str)
+        .is_some_and(|configured| !configured.trim().is_empty());
+    if !has_override {
+        object.insert(key.to_string(), json!(value));
+    }
+}
+
 /// Persists editable configuration options in the requested ownership layer.
-pub fn update_options(request: UpdateOptionsRequest) -> Result<Value, CoreError> {
+pub fn update_options(mut request: UpdateOptionsRequest) -> Result<Value, CoreError> {
     let root = existing_root(&request.root)?;
-    if let Some(toolchain) = request.toolchain {
+    if let Some(toolchain) = request.toolchain.take() {
         if request.scope != "local" {
             return Err(CoreError::new(
                 ErrorCode::InvalidRequest,
                 "Toolchain paths can only be saved in the local layer",
             ));
         }
-        let mut document = local_layer_document(&root, request.local_document)?;
-        validate_version_value(&document)?;
-        document["toolchain"] = json!({
-            "java": { "homePath": toolchain.java_home_path },
-            "maven": {
-                "executablePath": toolchain.maven_executable_path,
-                "javaHomePath": toolchain.maven_java_home_path
-            }
-        });
+        let document = update_toolchain_document(&root, request.local_document, toolchain)?;
         return Ok(json!({
             "document": serde_json::to_string_pretty(&document).expect("document should encode")
         }));
     }
+    let document = update_configuration_options(&root, request)?;
+    Ok(json!({
+        "document": serde_json::to_string_pretty(&document).expect("document should encode")
+    }))
+}
+
+/// Produces every document needed to save the run-configuration editor as one operation.
+pub fn save_editor_changes(mut request: UpdateOptionsRequest) -> Result<Value, CoreError> {
+    let root = existing_root(&request.root)?;
+    let toolchain = request.toolchain.take().ok_or_else(|| {
+        CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Run configuration editor changes require a project toolchain",
+        )
+    })?;
+    let mut local_document =
+        update_toolchain_document(&root, request.local_document.take(), toolchain)?;
+    request.local_document = Some(local_document.clone());
+    let scope = request.scope.clone();
+    let options_document = update_configuration_options(&root, request)?;
+    let project_document = if scope == "project" {
+        Some(serde_json::to_string_pretty(&options_document).expect("document should encode"))
+    } else {
+        local_document = options_document;
+        None
+    };
+    Ok(json!({
+        "localDocument": serde_json::to_string_pretty(&local_document).expect("document should encode"),
+        "projectDocument": project_document
+    }))
+}
+
+fn update_toolchain_document(
+    root: &Path,
+    local_document: Option<Value>,
+    toolchain: ToolchainPaths,
+) -> Result<Value, CoreError> {
+    let mut document = local_layer_document(root, local_document)?;
+    validate_version_value(&document)?;
+    document["toolchain"] = json!({
+        "java": { "homePath": toolchain.java_home_path },
+        "maven": {
+            "executablePath": toolchain.maven_executable_path,
+            "javaHomePath": toolchain.maven_java_home_path
+        }
+    });
+    Ok(document)
+}
+
+fn update_configuration_options(
+    root: &Path,
+    request: UpdateOptionsRequest,
+) -> Result<Value, CoreError> {
     let relative = scope_document(&request.scope)?;
     let resolved = resolve(ResolveRequest {
         root: request.root.clone(),
@@ -1015,14 +1070,18 @@ pub fn update_options(request: UpdateOptionsRequest) -> Result<Value, CoreError>
         java_extension.insert("mavenJavaHomePath".to_string(), json!(maven_java_home_path));
     }
     if uses_maven_capability {
-        patch["extensions"] = json!({
-            "maven": {
+        let mut extensions = serde_json::Map::from_iter([(
+            "maven".to_string(),
+            json!({
                 "jvmArguments": split_arguments(&request.jvm_arguments),
                 "programArguments": split_arguments(&request.arguments),
                 "profiles": request.maven_profiles.into_iter().collect::<BTreeSet<_>>()
-            },
-            "java": java_extension
-        });
+            }),
+        )]);
+        if !java_extension.is_empty() {
+            extensions.insert("java".to_string(), Value::Object(java_extension));
+        }
+        patch["extensions"] = Value::Object(extensions);
     } else if !java_extension.is_empty() {
         patch["extensions"] = json!({ "java": java_extension });
     } else {
@@ -1038,6 +1097,7 @@ pub fn update_options(request: UpdateOptionsRequest) -> Result<Value, CoreError>
                 "Run configuration must be an object",
             )
         })?;
+        remove_java_toolchain_overrides(target)?;
         for (key, value) in patch.as_object_mut().expect("patch is an object") {
             if key == "extensions" {
                 merge_extensions(target, value)?;
@@ -1054,9 +1114,39 @@ pub fn update_options(request: UpdateOptionsRequest) -> Result<Value, CoreError>
             .unwrap_or("")
             .cmp(right["id"].as_str().unwrap_or(""))
     });
-    Ok(json!({
-        "document": serde_json::to_string_pretty(&document).expect("document should encode")
-    }))
+    Ok(document)
+}
+
+fn remove_java_toolchain_overrides(
+    configuration: &mut serde_json::Map<String, Value>,
+) -> Result<(), CoreError> {
+    let Some(extensions) = configuration.get_mut("extensions") else {
+        return Ok(());
+    };
+    let extensions = extensions.as_object_mut().ok_or_else(|| {
+        CoreError::new(
+            ErrorCode::ParseFailed,
+            "Run configuration extensions must be an object",
+        )
+    })?;
+    if let Some(java) = extensions.get_mut("java") {
+        let java = java.as_object_mut().ok_or_else(|| {
+            CoreError::new(
+                ErrorCode::ParseFailed,
+                "Run configuration Java extension must be an object",
+            )
+        })?;
+        for key in ["homePath", "mavenExecutablePath", "mavenJavaHomePath"] {
+            java.remove(key);
+        }
+        if java.is_empty() {
+            extensions.remove("java");
+        }
+    }
+    if extensions.is_empty() {
+        configuration.remove("extensions");
+    }
+    Ok(())
 }
 
 /// Creates a user configuration while preserving stable IDs in existing layers.

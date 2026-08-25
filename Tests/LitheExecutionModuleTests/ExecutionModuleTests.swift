@@ -322,7 +322,6 @@ private struct TestRunConfigurationOperations: RunConfigurationOperations {
     func launchPlan(at projectURL: URL, configurationID: String, currentFile: String?, classPath: String?, debugPort: Int?) throws -> SharedLaunchPlan {
         throw RunConfigurationOperationFailure(message: "Unavailable in lifecycle test")
     }
-    func saveOptions(_ options: RunOptions, configurationID: String, scope: RunConfigurationSaveScope, at projectURL: URL) throws {}
     func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String { draft.name }
     func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {}
 }
@@ -347,7 +346,6 @@ private struct TestReadyRunConfigurationOperations: RunConfigurationOperations {
     func launchPlan(at projectURL: URL, configurationID: String, currentFile: String?, classPath: String?, debugPort: Int?) throws -> SharedLaunchPlan {
         throw RunConfigurationOperationFailure(message: "The extension must supply this launch plan")
     }
-    func saveOptions(_ options: RunOptions, configurationID: String, scope: RunConfigurationSaveScope, at projectURL: URL) throws {}
     func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String { draft.name }
     func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {}
 }
@@ -385,7 +383,6 @@ private struct TestGoProjectRunConfigurationOperations: RunConfigurationOperatio
             workingDirectory: "."
         )
     }
-    func saveOptions(_ options: RunOptions, configurationID: String, scope: RunConfigurationSaveScope, at projectURL: URL) throws {}
     func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String { draft.name }
     func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {}
 }
