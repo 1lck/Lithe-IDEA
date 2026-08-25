@@ -525,6 +525,12 @@ export function normalizeSettings(settings: Settings): Settings {
     SIDEBAR_WIDTH_MIN,
     SIDEBAR_WIDTH_MAX,
   );
+  normalizedSettings.rightToolWindowWidth = normalizeBoundedWidth(
+    normalizedSettings.rightToolWindowWidth,
+    defaultSettings.rightToolWindowWidth,
+    SIDEBAR_WIDTH_MIN,
+    SIDEBAR_WIDTH_MAX,
+  );
   normalizedSettings.externalEditor = normalizeExternalEditor(
     (normalizedSettings as { externalEditor?: unknown }).externalEditor,
     normalizedSettings.customEditorCommand,
@@ -636,10 +642,12 @@ export function normalizeSettingValue<K extends keyof Settings>(
     ) as Settings[K];
   }
 
-  if (key === "sidebarWidth") {
+  if (key === "sidebarWidth" || key === "rightToolWindowWidth") {
+    const fallback =
+      key === "sidebarWidth" ? defaultSettings.sidebarWidth : defaultSettings.rightToolWindowWidth;
     return normalizeBoundedWidth(
       value,
-      defaultSettings.sidebarWidth,
+      fallback,
       SIDEBAR_WIDTH_MIN,
       SIDEBAR_WIDTH_MAX,
     ) as Settings[K];

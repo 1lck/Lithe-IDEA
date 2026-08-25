@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
-import { NotificationsTrigger } from "@/features/notifications/components/notifications-trigger";
 import {
   FOOTER_TRAILING_ITEM_IDS,
   normalizeItemOrder,
@@ -23,9 +22,7 @@ const Footer = () => {
   );
   const filePathItem = useFooterFilePathItem();
   const editorStatusItems = useFooterEditorStatusItems();
-  const footerLeadingItemsSource: Array<ChromeItem<FooterLeadingItemId> | null> = [
-    filePathItem,
-  ];
+  const footerLeadingItemsSource: Array<ChromeItem<FooterLeadingItemId> | null> = [filePathItem];
   const footerLeadingItems = footerLeadingItemsSource.filter(
     (item): item is ChromeItem<FooterLeadingItemId> => item !== null,
   );
@@ -38,11 +35,6 @@ const Footer = () => {
 
   const footerTrailingItems: Array<ChromeItem<FooterTrailingItemId> | null> = [
     ...editorStatusItems,
-    {
-      id: "notifications",
-      label: t("notifications.title"),
-      content: <NotificationsTrigger />,
-    },
   ];
   const visibleTrailingItems = footerTrailingItems.filter(
     (item): item is ChromeItem<FooterTrailingItemId> => item !== null,
@@ -64,7 +56,10 @@ const Footer = () => {
           footerLeadingItems.filter((item) => item.id !== "filePath"),
           footerLeadingItemsOrder,
         ).map((item) => (
-          <div key={item.id} className="flex min-h-(--lithe-chrome-control-height) shrink-0 items-center">
+          <div
+            key={item.id}
+            className="flex min-h-(--lithe-chrome-control-height) shrink-0 items-center"
+          >
             {item.content}
           </div>
         ))}

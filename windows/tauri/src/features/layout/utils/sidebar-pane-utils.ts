@@ -7,6 +7,7 @@ export type SidebarView =
   | "outline"
   | "databases"
   | "collaboration"
+  | "notifications"
   | (string & {});
 
 interface SidebarPaneState {
@@ -23,7 +24,12 @@ interface SidebarPaneClickResult {
 
 export type SidebarPaneLevel = "primary" | "edge";
 
-const EDGE_SIDEBAR_VIEWS = new Set<SidebarView>(["outline", "databases", "collaboration"]);
+const EDGE_SIDEBAR_VIEWS = new Set<SidebarView>([
+  "outline",
+  "databases",
+  "collaboration",
+  "notifications",
+]);
 
 export function getSidebarPaneLevel(view: SidebarView): SidebarPaneLevel {
   if (EDGE_SIDEBAR_VIEWS.has(view)) return "edge";

@@ -19,6 +19,30 @@ const DEFAULT_AI_CUSTOM_MODEL_ID = "";
 export const DEFAULT_AI_AUTOCOMPLETE_MODEL_ID = "mistralai/devstral-small";
 const DEFAULT_AI_AUTOCOMPLETE_CUSTOM_BASE_URL = "";
 
+export const DEFAULT_HIDDEN_FILE_PATTERNS = [
+  "*.pyc",
+  "*.pyo",
+  "*.rbc",
+  "*.yarb",
+  "*~",
+  ".DS_Store",
+  "vssver.scc",
+  "vssver2.scc",
+] as const;
+
+export const DEFAULT_HIDDEN_DIRECTORY_PATTERNS = [
+  ".git",
+  ".hg",
+  ".idea",
+  ".mypy_cache",
+  ".pytest_cache",
+  ".ruff_cache",
+  ".svn",
+  "CVS",
+  "__pycache__",
+  "_svn",
+] as const;
+
 export const defaultSettings: Settings = {
   // General
   autoSave: true,
@@ -112,6 +136,7 @@ export const defaultSettings: Settings = {
   showActivityRailProjectIcons: false,
   collapsedActivityRailSections: [],
   sidebarWidth: 320,
+  rightToolWindowWidth: 400,
   showGitHubPullRequests: true,
   showGitHubIssues: true,
   showGitHubActions: true,
@@ -167,8 +192,8 @@ export const defaultSettings: Settings = {
   confirmBeforeFileDelete: true,
   showHiddenFilesInFileTree: true,
   showGitignoredFilesInFileTree: true,
-  hiddenFilePatterns: [],
-  hiddenDirectoryPatterns: [],
+  hiddenFilePatterns: [...DEFAULT_HIDDEN_FILE_PATTERNS],
+  hiddenDirectoryPatterns: [...DEFAULT_HIDDEN_DIRECTORY_PATTERNS],
   gitChangesFolderView: true,
   confirmBeforeDiscard: true,
   autoRefreshGitStatus: true,

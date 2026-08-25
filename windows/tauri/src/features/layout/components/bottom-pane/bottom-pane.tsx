@@ -2,6 +2,7 @@ import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isBackendCapabilityAvailable } from "@/config/backend-capabilities";
 import DebuggerView from "@/features/debugger/components/debugger-view";
+import DiagnosticsBuffer from "@/features/diagnostics/components/diagnostics-buffer";
 import RunPane from "@/features/run/components/run-pane";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useTranslation } from "@/i18n/locale-provider";
@@ -58,10 +59,7 @@ const BottomPane = () => {
   }, []);
 
   useEffect(() => {
-    if (
-      isBottomPaneVisible &&
-      (bottomPaneActiveTab === "diagnostics" || bottomPaneActiveTab === "references")
-    ) {
+    if (isBottomPaneVisible && bottomPaneActiveTab === "references") {
       useUIState.getState().setIsBottomPaneVisible(false);
     }
   }, [bottomPaneActiveTab, isBottomPaneVisible]);
@@ -267,14 +265,25 @@ const BottomPane = () => {
         {debuggerEnabled &&
           isBackendCapabilityAvailable("debugger") &&
           bottomPaneActiveTab === "debugger" && (
-          <div className="h-full">
-            <DebuggerView />
-          </div>
-        )}
+            <div className="h-full">
+              <DebuggerView />
+            </div>
+          )}
 
         {bottomPaneActiveTab === "run" && isBackendCapabilityAvailable("run") && (
           <div className="h-full">
             <RunPane />
+          </div>
+        )}
+
+        {bottomPaneActiveTab === "diagnostics" && (
+          <div className="h-full">
+            <DiagnosticsBuffer
+              onClose={() => useUIState.getState().setIsBottomPaneVisible(false)}
+              onFullScreen={() => setIsFullScreen(!isFullScreen)}
+              isFullScreen={isFullScreen}
+              showCloseButton
+            />
           </div>
         )}
 

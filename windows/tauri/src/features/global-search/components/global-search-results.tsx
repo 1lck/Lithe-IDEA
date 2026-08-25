@@ -10,6 +10,7 @@ import type { SearchExcerpt } from "../utils/search-excerpts";
 import { SearchExcerptResults } from "./search-excerpt-results";
 
 interface GlobalSearchResultsProps {
+  compact?: boolean;
   scrollContainerRef: RefObject<HTMLDivElement | null>;
   loadMoreRef: RefObject<HTMLDivElement | null>;
   fileNavigatorItems: FileNavigatorItem[];
@@ -32,6 +33,7 @@ interface GlobalSearchResultsProps {
 }
 
 export function GlobalSearchResults({
+  compact = false,
   scrollContainerRef,
   loadMoreRef,
   fileNavigatorItems,
@@ -56,19 +58,21 @@ export function GlobalSearchResults({
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden">
-      <FileNavigatorSidebar
-        items={fileNavigatorItems}
-        selectedKey={selectedFileNavigatorKey}
-        onSelect={onFileNavigatorSelect}
-        ariaLabel={t("fileNavigator.searchResultFiles")}
-        viewMode={fileNavigatorViewMode}
-        onViewModeChange={onFileNavigatorViewModeChange}
-        surface="inset"
-        searchMode="fuzzy"
-        compactRows
-        searchResetKey={navigatorSearchResetKey}
-        className="my-2 ml-2 h-auto self-stretch"
-      />
+      {!compact ? (
+        <FileNavigatorSidebar
+          items={fileNavigatorItems}
+          selectedKey={selectedFileNavigatorKey}
+          onSelect={onFileNavigatorSelect}
+          ariaLabel={t("fileNavigator.searchResultFiles")}
+          viewMode={fileNavigatorViewMode}
+          onViewModeChange={onFileNavigatorViewModeChange}
+          surface="inset"
+          searchMode="fuzzy"
+          compactRows
+          searchResetKey={navigatorSearchResetKey}
+          className="my-2 ml-2 h-auto self-stretch"
+        />
+      ) : null}
       <ScrollArea
         className="min-h-0 flex-1 bg-background"
         contentClassName="px-2 pb-2"

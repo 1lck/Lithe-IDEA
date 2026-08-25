@@ -51,6 +51,7 @@ interface DiagnosticsPaneProps {
   onClose: () => void;
   onDiagnosticClick?: (diagnostic: Diagnostic) => void;
   isEmbedded?: boolean;
+  showCloseButton?: boolean;
   onFullScreen?: () => void;
   isFullScreen?: boolean;
 }
@@ -214,6 +215,7 @@ const DiagnosticsPane = ({
   onClose,
   onDiagnosticClick,
   isEmbedded = false,
+  showCloseButton = !isEmbedded,
   onFullScreen,
   isFullScreen = false,
 }: DiagnosticsPaneProps) => {
@@ -699,9 +701,7 @@ const DiagnosticsPane = ({
 
     items.push({
       id: "toggle-wrap",
-      label: preferences.wrapMessages
-        ? t("diagnostics.disableWrap")
-        : t("diagnostics.enableWrap"),
+      label: preferences.wrapMessages ? t("diagnostics.disableWrap") : t("diagnostics.enableWrap"),
       onClick: () => togglePreference("wrapMessages"),
     });
 
@@ -960,7 +960,9 @@ const DiagnosticsPane = ({
               <PaneIconButton
                 type="button"
                 onClick={onFullScreen}
-                tooltip={isFullScreen ? t("diagnostics.exitFullScreen") : t("diagnostics.fullScreen")}
+                tooltip={
+                  isFullScreen ? t("diagnostics.exitFullScreen") : t("diagnostics.fullScreen")
+                }
                 tooltipSide="bottom"
                 aria-label={
                   isFullScreen ? t("diagnostics.exitFullScreen") : t("diagnostics.fullScreen")
@@ -970,7 +972,7 @@ const DiagnosticsPane = ({
               </PaneIconButton>
             )}
 
-            {!isEmbedded && (
+            {showCloseButton && (
               <PaneIconButton type="button" onClick={onClose} tooltip={t("diagnostics.closePane")}>
                 <X />
               </PaneIconButton>

@@ -45,6 +45,7 @@ export type ButtonProps = useRender.ComponentProps<"button"> &
     shortcut?: string;
     commandId?: string;
     tooltipSide?: "top" | "bottom" | "left" | "right";
+    tooltipTriggerClassName?: string;
   };
 
 export function Button({
@@ -58,6 +59,7 @@ export function Button({
   shortcut,
   commandId,
   tooltipSide,
+  tooltipTriggerClassName,
   "aria-label": ariaLabel,
   ...props
 }: ButtonProps) {
@@ -84,7 +86,12 @@ export function Button({
   }
 
   return (
-    <Tooltip content={tooltip} shortcut={effectiveShortcut} side={tooltipSide}>
+    <Tooltip
+      content={tooltip}
+      shortcut={effectiveShortcut}
+      side={tooltipSide}
+      triggerClassName={tooltipTriggerClassName}
+    >
       {element}
     </Tooltip>
   );

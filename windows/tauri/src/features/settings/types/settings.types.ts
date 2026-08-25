@@ -130,6 +130,7 @@ export interface Settings {
   showActivityRailProjectIcons: boolean;
   collapsedActivityRailSections: string[];
   sidebarWidth: number;
+  rightToolWindowWidth: number;
   showGitHubPullRequests: boolean;
   showGitHubIssues: boolean;
   showGitHubActions: boolean;
