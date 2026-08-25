@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "request": {
+    "command": "runConfig.saveEditorChanges",
+    "payload": {
+      "root": "/workspace",
+      "scope": "project",
+      "configurationId": "spring",
+      "workingDirectory": "backend",
+      "jvmArguments": "-Xmx2g",
+      "arguments": "--dev",
+      "environment": { "APP_ENV": "dev" },
+      "mavenProfiles": [],
+      "javaHomePath": "",
+      "mavenExecutablePath": "",
+      "mavenJavaHomePath": "",
+      "toolchain": {
+        "javaHomePath": "C:/lithe-fixture/jdk-21",
+        "mavenExecutablePath": "C:/lithe-fixture/apache-maven",
+        "mavenJavaHomePath": "C:/lithe-fixture/jdk-17"
+      }
+    }
+  },
+  "expected": {
+    "localDocument": "string",
+    "projectDocument": "string"
+  }
+}

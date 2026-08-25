@@ -120,7 +120,7 @@ fn main() {
             lsp::lsp_rebuild_java_index,
             run::run_list_java_sources,
             run::run_write_generated,
-            run::run_write_document,
+            run::run_write_documents,
             run::run_write_stdin,
             run::run_discover_toolchains,
             run::run_resolve_launch,

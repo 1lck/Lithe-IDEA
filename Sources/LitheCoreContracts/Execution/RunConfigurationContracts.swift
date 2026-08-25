@@ -110,6 +110,33 @@ package struct RunConfigurationOperationFailure: LocalizedError, Sendable {
     package var errorDescription: String? { message }
 }
 
+package enum RunConfigurationEditorSaveStage: String, Sendable {
+    case prepare
+    case write
+    case reload
+}
+
+package struct RunConfigurationEditorSaveFailure: LocalizedError, Sendable {
+    package let stage: RunConfigurationEditorSaveStage
+    package let message: String
+
+    package init(stage: RunConfigurationEditorSaveStage, message: String) {
+        self.stage = stage
+        self.message = message
+    }
+
+    package var errorDescription: String? {
+        switch stage {
+        case .prepare:
+            "Could not prepare the run configuration: \(message)"
+        case .write:
+            "Could not write the run configuration: \(message)"
+        case .reload:
+            "Changes were saved, but Lithe could not reload them: \(message)"
+        }
+    }
+}
+
 package struct RunConfigurationGenerationResult: Sendable {
     package let entryCount: Int
     package init(entryCount: Int) { self.entryCount = entryCount }
@@ -194,19 +221,28 @@ package protocol RunConfigurationOperations: Sendable {
         classPath: String?,
         debugPort: Int?
     ) throws -> SharedLaunchPlan
-    func saveOptions(
+    func saveEditorChanges(
         _ options: RunOptions,
+        toolchain: ProjectToolchainSelection,
         configurationID: String,
         scope: RunConfigurationSaveScope,
         at projectURL: URL
     ) throws
-    func saveProjectToolchain(_ toolchain: ProjectToolchainSelection, at projectURL: URL) throws
     func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String
     func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws
 }
 
 package extension RunConfigurationOperations {
-    func saveProjectToolchain(_: ProjectToolchainSelection, at _: URL) throws {
-        throw RunConfigurationOperationFailure(message: "Project toolchain editing is unavailable.")
+    func saveEditorChanges(
+        _: RunOptions,
+        toolchain _: ProjectToolchainSelection,
+        configurationID _: String,
+        scope _: RunConfigurationSaveScope,
+        at _: URL
+    ) throws {
+        throw RunConfigurationEditorSaveFailure(
+            stage: .prepare,
+            message: "Run configuration editor saving is unavailable."
+        )
     }
 }

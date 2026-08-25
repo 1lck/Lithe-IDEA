@@ -297,37 +297,36 @@ package final class RunService: ObservableObject {
     }
 
     @discardableResult
-    package func updateOptions(
+    package func saveEditorChanges(
         _ options: RunOptions,
+        toolchain: ProjectToolchainSelection,
         for configuration: RunConfiguration,
-        scope: RunConfigurationSaveScope = .local
+        scope: RunConfigurationSaveScope
     ) -> Bool {
         configurationSaveError = nil
-        if configurationStatus == .ready, let projectURL {
-            do {
-                try runConfigurationOperations.saveOptions(
-                    options,
-                    configurationID: configuration.id,
-                    scope: scope,
-                    at: projectURL
-                )
-            } catch {
-                configurationSaveError = error.localizedDescription
-                return false
-            }
+        guard configurationStatus == .ready, let projectURL else {
+            configurationSaveError = "Identify the project before editing its run configuration."
+            return false
         }
-        optionsByConfigurationID[configuration.id] = options
-        if configuration.kind.capabilities.contains(.javaRuntime) {
-            runtime.setActiveServiceJavaHomePath(options.javaHomePath)
+        do {
+            try runConfigurationOperations.saveEditorChanges(
+                options,
+                toolchain: toolchain,
+                configurationID: configuration.id,
+                scope: scope,
+                at: projectURL
+            )
+        } catch {
+            configurationSaveError = editorSaveFailureMessage(error, fallbackStage: .write)
+            return false
         }
-        effectiveSourcesByConfigurationID[configuration.id] = scope == .local ? .local : .project
-        if let projectURL,
-           let resolution = try? resolveWithServiceToolchains(
-               operations: runConfigurationOperations,
-               projectURL: projectURL,
-               mavenProject: mavenProject,
-               preferredConfigurationID: configuration.id
-           ) {
+        do {
+            let resolution = try resolveWithServiceToolchains(
+                operations: runConfigurationOperations,
+                projectURL: projectURL,
+                mavenProject: mavenProject,
+                preferredConfigurationID: configuration.id
+            )
             configurationDiagnostics = runConfigurationOperations.inspect(at: projectURL).diagnostics
                 + resolution.diagnostics
             apply(
@@ -335,44 +334,21 @@ package final class RunService: ObservableObject {
                 projectToolchain: resolution.projectToolchain,
                 preferredConfigurationID: configuration.id
             )
+        } catch {
+            configurationSaveError = editorSaveFailureMessage(error, fallbackStage: .reload)
+            return false
         }
         persist(options, for: configuration.id)
-        refreshPortConflicts()
         return true
     }
 
-    @discardableResult
-    package func updateProjectToolchain(_ toolchain: ProjectToolchainSelection) -> Bool {
-        configurationSaveError = nil
-        guard configurationStatus == .ready, let projectURL else {
-            configurationSaveError = "Identify the project before editing its toolchain."
-            return false
-        }
-        do {
-            try runConfigurationOperations.saveProjectToolchain(toolchain, at: projectURL)
-            let resolution = try resolveWithServiceToolchains(
-                operations: runConfigurationOperations,
-                projectURL: projectURL,
-                mavenProject: mavenProject,
-                preferredConfigurationID: selectedConfigurationID
-            )
-            configurationDiagnostics = runConfigurationOperations.inspect(at: projectURL).diagnostics
-                + resolution.diagnostics
-            apply(
-                resolution.configurations,
-                projectToolchain: resolution.projectToolchain,
-                preferredConfigurationID: selectedConfigurationID
-            )
-            return true
-        } catch {
-            configurationSaveError = error.localizedDescription
-            return false
-        }
-    }
-
     package func resetOptions(for configuration: RunConfiguration) {
-        let options = RunOptions()
-        updateOptions(options, for: configuration)
+        saveEditorChanges(
+            RunOptions(),
+            toolchain: projectToolchain,
+            for: configuration,
+            scope: .local
+        )
     }
 
     @discardableResult
@@ -637,6 +613,19 @@ package final class RunService: ObservableObject {
         lastExitCode = 1
         isRunning = false
         runningTitle = nil
+    }
+
+    private func editorSaveFailureMessage(
+        _ error: any Error,
+        fallbackStage: RunConfigurationEditorSaveStage
+    ) -> String {
+        if let failure = error as? RunConfigurationEditorSaveFailure {
+            return failure.localizedDescription
+        }
+        return RunConfigurationEditorSaveFailure(
+            stage: fallbackStage,
+            message: error.localizedDescription
+        ).localizedDescription
     }
 
     private func isGenericCurrentFile(_ fileURL: URL?) -> Bool {

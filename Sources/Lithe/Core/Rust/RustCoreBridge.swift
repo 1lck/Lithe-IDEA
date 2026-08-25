@@ -493,6 +493,11 @@ struct RustCoreBridge: Sendable {
         let document: String
     }
 
+    struct RunConfigurationEditorMutationPayload: Codable, Sendable {
+        let localDocument: String
+        let projectDocument: String?
+    }
+
     struct JavaCodeVisionPayload: Decodable, Sendable {
         struct Hint: Decodable, Sendable {
             let line: Int
@@ -1577,12 +1582,7 @@ struct RustCoreBridge: Sendable {
         let javaHomePath: String
         let mavenExecutablePath: String
         let mavenJavaHomePath: String
-    }
-    private struct RunConfigurationUpdateToolchainRequest: Encodable {
-        let root: String
-        let scope = "local"
-        let configurationId = "toolchain"
-        let toolchain: ProjectToolchainSelection
+        let toolchain: ProjectToolchainSelection?
     }
     private struct RunConfigurationCreateUserRequest: Encodable {
         let root: String
@@ -2337,19 +2337,33 @@ struct RustCoreBridge: Sendable {
                 mavenProfiles: options.activeProfiles.sorted(),
                 javaHomePath: options.javaHomePath,
                 mavenExecutablePath: options.mavenExecutablePath,
-                mavenJavaHomePath: options.mavenJavaHomePath
+                mavenJavaHomePath: options.mavenJavaHomePath,
+                toolchain: nil
             )
         )
     }
 
-    func updateProjectRunToolchain(
+    func saveRunConfigurationEditorChanges(
         at rootURL: URL,
+        configurationID: String,
+        scope: RunConfigurationSaveScope,
+        options: RunOptions,
         toolchain: ProjectToolchainSelection
-    ) -> Result<RunConfigurationMutationPayload, CoreCallError> {
+    ) -> Result<RunConfigurationEditorMutationPayload, CoreCallError> {
         executeResult(
-            command: "runConfig.updateOptions",
-            payload: RunConfigurationUpdateToolchainRequest(
+            command: "runConfig.saveEditorChanges",
+            payload: RunConfigurationUpdateOptionsRequest(
                 root: rootURL.standardizedFileURL.path,
+                scope: scope.rawValue,
+                configurationId: configurationID,
+                workingDirectory: options.workingDirectoryPath,
+                jvmArguments: options.vmArguments,
+                arguments: options.arguments,
+                environment: options.environment,
+                mavenProfiles: options.activeProfiles.sorted(),
+                javaHomePath: options.javaHomePath,
+                mavenExecutablePath: options.mavenExecutablePath,
+                mavenJavaHomePath: options.mavenJavaHomePath,
                 toolchain: toolchain
             )
         )

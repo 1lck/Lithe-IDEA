@@ -54,7 +54,7 @@ const nativeCommands = new Set([
   "run_resolve_launch",
   "run_start_process",
   "run_stop_process",
-  "run_write_document",
+  "run_write_documents",
   "run_write_generated",
   "run_write_stdin",
   "set_native_window_appearance",
@@ -121,7 +121,7 @@ function capabilityForCommand(command: string): BackendCapability | null {
     command === "run_resolve_launch" ||
     command === "run_start_process" ||
     command === "run_stop_process" ||
-    command === "run_write_document" ||
+    command === "run_write_documents" ||
     command === "run_write_generated" ||
     command === "run_write_stdin"
   ) {

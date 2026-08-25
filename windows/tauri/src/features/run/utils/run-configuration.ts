@@ -179,7 +179,10 @@ export function selectedToolchainCandidates(
     ? discovered.java.find((runtime) => sameWindowsPath(runtime.homePath, selected.javaHomePath))
     : discovered.java[0];
   const maven = selected.mavenExecutablePath
-    ? discovered.maven.find((runtime) => sameWindowsPath(runtime.executablePath, selected.mavenExecutablePath))
+    ? discovered.maven.find((runtime) => mavenSelectionMatchesRuntime(
+        selected.mavenExecutablePath,
+        runtime.executablePath,
+      ))
     : discovered.maven[0];
   return [
     ...(java ? [{ id: "project-jdk", type: "java", version: java.version, vendor: java.vendor }] : []),
@@ -187,18 +190,17 @@ export function selectedToolchainCandidates(
   ];
 }
 
+function mavenSelectionMatchesRuntime(selection: string, executable: string): boolean {
+  if (sameWindowsPath(selection, executable)) return true;
+  const home = selection.replace(/[\\/]+$/, "");
+  return ["mvn.cmd", "mvn.bat", "mvn.exe", "mvn"].some((name) =>
+    sameWindowsPath(`${home}/bin/${name}`, executable));
+}
+
 function sameWindowsPath(left: string, right: string): boolean {
   if (!left || !right) return false;
   const normalize = (value: string) => value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
   return normalize(left) === normalize(right);
-}
-
-export async function saveRunConfigurationChanges(
-  saveToolchain: () => Promise<boolean>,
-  saveOptions: () => Promise<boolean>,
-): Promise<boolean> {
-  if (!(await saveToolchain())) return false;
-  return saveOptions();
 }
 
 export function environmentText(environment: Record<string, string>): string {

@@ -8,7 +8,6 @@ import {
   mapCoreConfiguration,
   mergeLaunchEnvironment,
   projectScopedPath,
-  saveRunConfigurationChanges,
   selectedToolchainCandidates,
   workspaceRelativePath,
 } from "./run-configuration";
@@ -104,6 +103,26 @@ describe("run configuration mapping", () => {
     ]);
   });
 
+  test("matches a selected Maven Home to its discovered bin executable", () => {
+    const candidates = selectedToolchainCandidates(
+      {
+        java: [],
+        maven: [
+          { executablePath: "D:\\Tools\\apache-maven\\bin\\mvn.cmd", version: "3.9.9" },
+        ],
+      },
+      {
+        javaHomePath: "",
+        mavenExecutablePath: "d:/tools/apache-maven/",
+        mavenJavaHomePath: "",
+      },
+    );
+
+    expect(candidates).toEqual([
+      { id: "project-maven", type: "maven", version: "3.9.9", vendor: "" },
+    ]);
+  });
+
   test("shows Maven settings from the configuration requirement without discovery", () => {
     expect(configurationUsesMaven({ toolchains: { java: "project-jdk", maven: "project-maven" } })).toBe(true);
     expect(configurationUsesMaven({ toolchains: { java: "project-jdk" } })).toBe(false);
@@ -131,26 +150,6 @@ describe("run configuration mapping", () => {
       mavenExecutablePath: "",
       mavenJavaHomePath: "D:/SDKs/service-jdk",
     });
-  });
-
-  test("serializes toolchain and option saves that share the local document", async () => {
-    const calls: string[] = [];
-    let toolchainWritten = false;
-    const saved = await saveRunConfigurationChanges(
-      async () => {
-        calls.push("toolchain");
-        toolchainWritten = true;
-        return true;
-      },
-      async () => {
-        calls.push("options");
-        expect(toolchainWritten).toBe(true);
-        return true;
-      },
-    );
-
-    expect(saved).toBe(true);
-    expect(calls).toEqual(["toolchain", "options"]);
   });
 
   test("merges user env with toolchain-derived launch environment", () => {

@@ -20,7 +20,6 @@ import {
   configurationUsesMaven,
   environmentFromText,
   environmentText,
-  saveRunConfigurationChanges,
 } from "../utils/run-configuration";
 
 interface RunConfigurationEditorProps {
@@ -31,8 +30,11 @@ interface RunConfigurationEditorProps {
   discoveredMaven: MavenRuntime[];
   globalToolchain: GlobalToolchain;
   onClose: () => void;
-  onSave: (options: RunOptions, scope: RunSaveScope) => Promise<boolean>;
-  onSaveToolchain: (toolchain: GlobalToolchain) => Promise<boolean>;
+  onSave: (
+    options: RunOptions,
+    toolchain: GlobalToolchain,
+    scope: RunSaveScope,
+  ) => Promise<boolean>;
 }
 
 interface ToolchainFieldProps {
@@ -97,7 +99,6 @@ export function RunConfigurationEditor({
   globalToolchain,
   onClose,
   onSave,
-  onSaveToolchain,
 }: RunConfigurationEditorProps) {
   const { t } = useTranslation();
   const [draft, setDraft] = useState(() => configurationOverrides(options, globalToolchain));
@@ -150,13 +151,7 @@ export function RunConfigurationEditor({
     setSaving(true);
     const runOptions = { ...draft, environment: environmentFromText(envText) };
     try {
-      // Local options and the global toolchain share run/local.json. Save them
-      // in sequence so the option mutation reads the toolchain write instead
-      // of racing two complete-document replacements against each other.
-      const saved = await saveRunConfigurationChanges(
-        () => onSaveToolchain(toolchainDraft),
-        () => onSave(runOptions, scope),
-      );
+      const saved = await onSave(runOptions, toolchainDraft, scope);
       if (saved) onClose();
     } finally {
       setSaving(false);

@@ -115,6 +115,7 @@ stable error code and a user-facing message:
 | `runConfig.generate` | Generate deterministic Java/Maven configurations and toolchain requirements |
 | `runConfig.resolve` | Merge generated, project, and local layers and return diagnostics |
 | `runConfig.updateOptions` | Apply typed option edits and return an updated project or local document |
+| `runConfig.saveEditorChanges` | Prepare the local and optional project documents for one editor save |
 | `runConfig.createUserConfiguration` | Validate a typed user configuration and return an updated document |
 | `runConfig.createLaunchPlan` | Project one effective configuration into a platform-neutral Run or Debug plan |
 | `git.status` | Resolve the repository, current branch, and working-tree changes |
@@ -520,6 +521,19 @@ When `updateOptions` carries a `toolchain` object (`javaHomePath`,
 `mavenExecutablePath`, `mavenJavaHomePath`), it writes the document-level
 global toolchain into the local layer instead of patching a configuration;
 project scope rejects this payload because toolchain paths are machine-local.
+
+`runConfig.saveEditorChanges` accepts the normal option-edit payload plus the
+required `toolchain` object. It applies the global toolchain and configuration
+override edits together, returning `localDocument` and either a
+`projectDocument` string or `null`. Local scope combines both edits in the one
+local document. Project scope returns the local defaults and team options as
+two fully prepared documents so the platform adapter can write them as one
+transaction with rollback. Empty per-configuration toolchain paths remove the
+corresponding override keys while preserving unrelated extension fields.
+Platform clients report the editor save as successful only after the written
+documents resolve again. Failures identify whether preparation, document
+writing, or post-save reload failed; a reload failure keeps the last usable UI
+snapshot and states that the documents were already saved.
 
 `runConfig.createLaunchPlan` accepts `root`, `configurationId`, optional
 `currentFile` and `classPath`, optional `debugPort`, and optional

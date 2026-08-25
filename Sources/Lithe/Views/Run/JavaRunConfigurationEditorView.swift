@@ -68,11 +68,12 @@ struct RunConfigurationEditorView: View {
                 Button("Done") {
                     options.environment = Self.environment(from: environmentText)
                     guard let scopedOptions = scopedOptionsForSave() else { return }
-                    guard feature.updateProjectToolchain(projectToolchain) else {
-                        saveError = feature.configurationSaveError
-                        return
-                    }
-                    if feature.updateOptions(scopedOptions, for: configuration, scope: saveScope) {
+                    if feature.saveEditorChanges(
+                        scopedOptions,
+                        toolchain: projectToolchain,
+                        for: configuration,
+                        scope: saveScope
+                    ) {
                         dismiss()
                     } else {
                         saveError = feature.configurationSaveError

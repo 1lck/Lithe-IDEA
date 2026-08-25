@@ -110,17 +110,18 @@ package final class RunFeatureModel: ObservableObject {
     }
 
     @discardableResult
-    package func updateOptions(
+    package func saveEditorChanges(
         _ options: RunOptions,
+        toolchain: ProjectToolchainSelection,
         for configuration: RunConfiguration,
-        scope: RunConfigurationSaveScope = .local
+        scope: RunConfigurationSaveScope
     ) -> Bool {
-        service.updateOptions(options, for: configuration, scope: scope)
-    }
-
-    @discardableResult
-    package func updateProjectToolchain(_ toolchain: ProjectToolchainSelection) -> Bool {
-        service.updateProjectToolchain(toolchain)
+        service.saveEditorChanges(
+            options,
+            toolchain: toolchain,
+            for: configuration,
+            scope: scope
+        )
     }
 
     package func resetOptions(for configuration: RunConfiguration) {
