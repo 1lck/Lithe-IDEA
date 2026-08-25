@@ -22,7 +22,7 @@ struct GenericDebugView: View {
                 emptyState
             }
         }
-        .background(LitheTheme.editor)
+        .litheWorkbenchSurface(LitheTheme.editor)
     }
 
     private var header: some View {
@@ -205,7 +205,7 @@ struct GenericDebugView: View {
                 evaluateRow
             }
         }
-        .background(LitheTheme.sidebar)
+        .litheWorkbenchSurface(LitheTheme.sidebar)
     }
 
     private var evaluateRow: some View {
@@ -285,7 +285,7 @@ struct GenericDebugView: View {
         }
         .padding(.horizontal, 10)
         .frame(height: 27)
-        .background(LitheTheme.toolHeader)
+        .litheWorkbenchSurface(LitheTheme.toolHeader)
     }
 
     private func placeholder(_ text: String) -> some View {

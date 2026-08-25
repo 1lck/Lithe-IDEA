@@ -7,6 +7,7 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { SEARCH_TOGGLE_ICONS, SearchReplaceRow, SearchReplaceToggle } from "@/ui/search";
 import { ToggleGroup, type ToggleGroupOption } from "@/ui/toggle-group";
 import type { ContentSearchOptions } from "../types/global-search.types";
+import { cn } from "@/utils/cn";
 import {
   fromSearchOptionValues,
   toSearchOptionValues,
@@ -14,6 +15,7 @@ import {
 } from "../utils/search-options";
 
 interface GlobalSearchToolbarProps {
+  compact?: boolean;
   inputRef: RefObject<HTMLInputElement | null>;
   replaceInputRef: RefObject<HTMLInputElement | null>;
   query: string;
@@ -42,6 +44,7 @@ interface GlobalSearchToolbarProps {
 }
 
 export const GlobalSearchToolbar = memo(function GlobalSearchToolbar({
+  compact = false,
   inputRef,
   replaceInputRef,
   query,
@@ -87,8 +90,8 @@ export const GlobalSearchToolbar = memo(function GlobalSearchToolbar({
   const activeSearchOptions = toSearchOptionValues(searchOptions);
 
   return (
-    <div className="border-border/70 border-b bg-surface/55 px-3 py-2">
-      <div className="flex min-w-0 items-center gap-2">
+    <div className={cn("border-border/70 border-b bg-surface/55 py-2", compact ? "px-2" : "px-3")}>
+      <div className={cn("flex min-w-0 items-center gap-2", compact && "flex-wrap gap-1.5")}>
         <SearchReplaceToggle
           isExpanded={detailsVisible}
           onToggle={() => onDetailsVisibleChange(!detailsVisible)}
@@ -139,12 +142,12 @@ export const GlobalSearchToolbar = memo(function GlobalSearchToolbar({
           size="xs"
           wrap={false}
           iconOnly
-          className="shrink-0"
+          className={cn("shrink-0", compact && "order-3 ml-7")}
         />
         {searchWarning ? (
           <Badge
             variant="warning"
-            className="max-w-64 shrink-0 truncate"
+            className={cn("max-w-64 shrink-0 truncate", compact && "order-4")}
             title={searchWarning}
             role="status"
             aria-live="polite"
@@ -152,7 +155,11 @@ export const GlobalSearchToolbar = memo(function GlobalSearchToolbar({
             {searchWarning}
           </Badge>
         ) : resultLabel ? (
-          <Badge className="max-w-56 shrink-0 truncate" title={resultLabel} role="status">
+          <Badge
+            className={cn("max-w-56 shrink-0 truncate", compact && "order-4")}
+            title={resultLabel}
+            role="status"
+          >
             {resultLabel}
           </Badge>
         ) : null}
@@ -175,7 +182,7 @@ export const GlobalSearchToolbar = memo(function GlobalSearchToolbar({
               }
             }}
           />
-          <div className="grid grid-cols-2 gap-2">
+          <div className={cn("grid gap-2", compact ? "grid-cols-1" : "grid-cols-2")}>
             <CommandInput
               value={includeQuery}
               onChange={onIncludeQueryChange}

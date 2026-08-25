@@ -49,14 +49,18 @@ export function WindowControls({
   };
 
   return (
-    <ChromeGroup gap={IS_WINDOWS ? "none" : "tight"} className={cn(IS_WINDOWS && "h-(--lithe-title-bar-height)")}>
+    <ChromeGroup
+      gap={IS_WINDOWS ? "none" : "tight"}
+      className={cn(IS_WINDOWS && "h-(--lithe-title-bar-height)")}
+    >
       <Button
         onClick={handleMinimize}
         variant="ghost"
-        className={cn("pointer-events-auto", IS_WINDOWS && "h-full w-11 rounded-none")}
+        className={cn("pointer-events-auto", IS_WINDOWS && "h-full w-14 min-w-14 rounded-none")}
         size="icon-xs"
         tooltip={t("window.minimize")}
         tooltipSide="bottom"
+        tooltipTriggerClassName={IS_WINDOWS ? "h-full" : undefined}
         aria-label={t("window.minimize")}
       >
         <Minus weight="bold" />
@@ -64,10 +68,11 @@ export function WindowControls({
       <Button
         onClick={handleToggleMaximize}
         variant="ghost"
-        className={cn("pointer-events-auto", IS_WINDOWS && "h-full w-11 rounded-none")}
+        className={cn("pointer-events-auto", IS_WINDOWS && "h-full w-14 min-w-14 rounded-none")}
         size="icon-xs"
         tooltip={isMaximized ? t("window.restore") : t("window.maximize")}
         tooltipSide="bottom"
+        tooltipTriggerClassName={IS_WINDOWS ? "h-full" : undefined}
         aria-label={isMaximized ? t("window.restore") : t("window.maximize")}
       >
         {isMaximized ? <Restore /> : <Square />}
@@ -77,11 +82,12 @@ export function WindowControls({
         variant="danger"
         className={cn(
           "pointer-events-auto group hover:text-white",
-          IS_WINDOWS && "h-full w-11 rounded-none hover:bg-destructive",
+          IS_WINDOWS && "h-full w-14 min-w-14 rounded-none hover:bg-destructive",
         )}
         size="icon-xs"
         tooltip={t("window.close")}
         tooltipSide="bottom"
+        tooltipTriggerClassName={IS_WINDOWS ? "h-full" : undefined}
         aria-label={t("window.close")}
       >
         <X weight="bold" />

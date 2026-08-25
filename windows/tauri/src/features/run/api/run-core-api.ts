@@ -17,16 +17,18 @@ function nextRequestId(prefix: string): string {
   return `${prefix}-${Date.now()}-${requestSequence}`;
 }
 
-async function runCore<T>(command: string, payload: unknown, timeoutMilliseconds = 30_000): Promise<T> {
-  const response = await executeCore<T>(
-    {
-      id: nextRequestId(command),
-      operationId: nextRequestId(`${command}-op`),
-      timeoutMilliseconds,
-      command,
-      payload,
-    },
-  );
+async function runCore<T>(
+  command: string,
+  payload: unknown,
+  timeoutMilliseconds = 30_000,
+): Promise<T> {
+  const response = await executeCore<T>({
+    id: nextRequestId(command),
+    operationId: nextRequestId(`${command}-op`),
+    timeoutMilliseconds,
+    command,
+    payload,
+  });
   if (!response.ok) {
     const error = new Error(response.error.message) as Error & { code?: string };
     error.code = response.error.code;
@@ -39,12 +41,12 @@ export function inspectRunConfiguration(root: string) {
   return runCore<CoreInspectResult>("runConfig.inspect", { root });
 }
 
-export function generateRunConfiguration(root: string, paths: string[], modulePaths: string[] = []) {
-  return runCore<CoreGenerateResult>(
-    "runConfig.generate",
-    { root, paths, modulePaths },
-    60_000,
-  );
+export function generateRunConfiguration(
+  root: string,
+  paths: string[],
+  modulePaths: string[] = [],
+) {
+  return runCore<CoreGenerateResult>("runConfig.generate", { root, paths, modulePaths }, 60_000);
 }
 
 export function resolveRunConfiguration(
@@ -54,11 +56,7 @@ export function resolveRunConfiguration(
   return runCore<CoreResolveResult>("runConfig.resolve", { root, toolchainCandidates });
 }
 
-export function createLaunchPlan(
-  root: string,
-  configurationId: string,
-  currentFile?: string,
-) {
+export function createLaunchPlan(root: string, configurationId: string, currentFile?: string) {
   return runCore<LaunchPlan>("runConfig.createLaunchPlan", {
     root,
     configurationId,
@@ -66,38 +64,53 @@ export function createLaunchPlan(
   });
 }
 
-export function updateRunOptions(
+export function saveRunConfigurationEditorChanges(
   root: string,
   configurationId: string,
   scope: RunSaveScope,
   options: RunOptions,
+  toolchain: GlobalToolchain,
 ) {
-  const workingDirectory = scope === "project"
-    ? projectScopedPath(root, options.workingDirectoryPath)
-    : options.workingDirectoryPath;
-  if (workingDirectory === undefined) {
-    throw new Error("Project working directory must stay inside the workspace.");
+  return runCore<{ localDocument: string; projectDocument: string | null }>(
+    "runConfig.saveEditorChanges",
+    {
+      root,
+      scope,
+      configurationId,
+      ...scopedRunOptions(root, scope, options),
+      toolchain,
+    },
+  );
+}
+
+function scopedRunOptions(root: string, scope: RunSaveScope, options: RunOptions) {
+  const workingDirectory =
+    scope === "project"
+      ? projectScopedPath(root, options.workingDirectoryPath)
+      : options.workingDirectoryPath;
+  const scopedToolchainPath = (value: string) => {
+    if (scope !== "project" || !value.trim()) return value;
+    return projectScopedPath(root, value);
+  };
+  const javaHomePath = scopedToolchainPath(options.javaHomePath);
+  const mavenExecutablePath = scopedToolchainPath(options.mavenExecutablePath);
+  const mavenJavaHomePath = scopedToolchainPath(options.mavenJavaHomePath);
+  if (
+    workingDirectory === undefined ||
+    javaHomePath === undefined ||
+    mavenExecutablePath === undefined ||
+    mavenJavaHomePath === undefined
+  ) {
+    throw new Error("Project paths must stay inside the workspace.");
   }
-  return runCore<{ document: string }>("runConfig.updateOptions", {
-    root,
-    scope,
-    configurationId,
+  return {
     workingDirectory,
     jvmArguments: options.vmArguments,
     arguments: options.programArguments,
     environment: options.environment,
     mavenProfiles: [],
-    javaHomePath: "",
-    mavenExecutablePath: "",
-    mavenJavaHomePath: "",
-  });
-}
-
-export function updateGlobalToolchain(root: string, toolchain: GlobalToolchain) {
-  return runCore<{ document: string }>("runConfig.updateOptions", {
-    root,
-    scope: "local",
-    configurationId: "toolchain",
-    toolchain,
-  });
+    javaHomePath,
+    mavenExecutablePath,
+    mavenJavaHomePath,
+  };
 }

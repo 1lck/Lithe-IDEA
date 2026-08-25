@@ -14,10 +14,11 @@ export function writeGeneratedRunDocuments(args: {
   return invoke<void>("run_write_generated", { args });
 }
 
-export function writeRunDocument(root: string, relativePath: string, contents: string) {
-  return invoke<void>("run_write_document", {
-    args: { root, relativePath, contents },
-  });
+export function writeRunDocuments(
+  root: string,
+  documents: Array<{ relativePath: string; contents: string }>,
+) {
+  return invoke<void>("run_write_documents", { args: { root, documents } });
 }
 
 export function writeRunStdin(sessionId: string, input: string) {

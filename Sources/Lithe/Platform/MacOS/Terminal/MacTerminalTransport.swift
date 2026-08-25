@@ -7,6 +7,7 @@ import LitheTerminalModule
 /// link event so workspace-relative paths can open in its own editor instead.
 final class LitheTerminalView: LocalProcessTerminalView {
     var onOpenLink: ((String, [String: String]) -> Void)?
+    private var showsWorkbenchBackground = false
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let menu = NSMenu()
@@ -47,8 +48,8 @@ final class LitheTerminalView: LocalProcessTerminalView {
     func applyThemeColors() {
         let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         nativeBackgroundColor = isDark
-            ? NSColor(srgbRed: 0.071, green: 0.075, blue: 0.081, alpha: 1)
-            : NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
+            ? NSColor(srgbRed: 0.071, green: 0.075, blue: 0.081, alpha: showsWorkbenchBackground ? 0 : 1)
+            : NSColor(srgbRed: 1, green: 1, blue: 1, alpha: showsWorkbenchBackground ? 0 : 1)
         nativeForegroundColor = isDark
             ? NSColor(srgbRed: 0.86, green: 0.87, blue: 0.89, alpha: 1)
             : NSColor(srgbRed: 0.15, green: 0.16, blue: 0.18, alpha: 1)
@@ -61,10 +62,18 @@ final class LitheTerminalView: LocalProcessTerminalView {
         needsDisplay = true
     }
 
+    func setWorkbenchBackgroundVisible(_ isVisible: Bool) {
+        guard showsWorkbenchBackground != isVisible else { return }
+        showsWorkbenchBackground = isVisible
+        applyThemeColors()
+    }
+
     override func requestOpenLink(source: SwiftTerm.TerminalView, link: String, params: [String: String]) {
         onOpenLink?(link, params)
     }
 }
+
+extension LitheTerminalView: WorkbenchBackgroundRendering {}
 
 /// Owns one persistent SwiftTerm surface and the local PTY process connected to it.
 /// The surface intentionally lives with the session instead of the SwiftUI view so

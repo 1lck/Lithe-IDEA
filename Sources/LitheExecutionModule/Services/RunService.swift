@@ -19,6 +19,7 @@ package final class RunService: ObservableObject {
     @Published package private(set) var output = ""
     @Published package private(set) var lastExitCode: Int32?
     @Published package private(set) var optionsByConfigurationID: [String: RunOptions] = [:]
+    @Published package private(set) var projectToolchain = ProjectToolchainSelection()
     @Published package private(set) var effectiveSourcesByConfigurationID: [String: RunConfigurationSource] = [:]
     @Published package private(set) var mavenProfiles: [MavenProfile] = []
     @Published package private(set) var moduleSessions: [RunSession] = []
@@ -176,6 +177,7 @@ package final class RunService: ObservableObject {
                 configurationDiagnostics += resolution.diagnostics
                 apply(
                     resolution.configurations,
+                    projectToolchain: resolution.projectToolchain,
                     preferredConfigurationID: preferredID ?? resolution.defaultConfigurationID
                 )
             } catch {
@@ -245,6 +247,7 @@ package final class RunService: ObservableObject {
                 generationState = result.entryCount == 0 ? .noEntries : .succeeded(entryCount: result.entryCount)
                 apply(
                     resolution.configurations,
+                    projectToolchain: resolution.projectToolchain,
                     preferredConfigurationID: selectedConfigurationIDsByProject[projectURL.standardizedFileURL.path]
                         ?? resolution.defaultConfigurationID
                 )
@@ -294,49 +297,58 @@ package final class RunService: ObservableObject {
     }
 
     @discardableResult
-    package func updateOptions(
+    package func saveEditorChanges(
         _ options: RunOptions,
+        toolchain: ProjectToolchainSelection,
         for configuration: RunConfiguration,
-        scope: RunConfigurationSaveScope = .local
+        scope: RunConfigurationSaveScope
     ) -> Bool {
         configurationSaveError = nil
-        if configurationStatus == .ready, let projectURL {
-            do {
-                try runConfigurationOperations.saveOptions(
-                    options,
-                    configurationID: configuration.id,
-                    scope: scope,
-                    at: projectURL
-                )
-            } catch {
-                configurationSaveError = error.localizedDescription
-                return false
-            }
+        guard configurationStatus == .ready, let projectURL else {
+            configurationSaveError = "Identify the project before editing its run configuration."
+            return false
         }
-        optionsByConfigurationID[configuration.id] = options
-        if configuration.kind.capabilities.contains(.javaRuntime) {
-            runtime.setActiveServiceJavaHomePath(options.javaHomePath)
+        do {
+            try runConfigurationOperations.saveEditorChanges(
+                options,
+                toolchain: toolchain,
+                configurationID: configuration.id,
+                scope: scope,
+                at: projectURL
+            )
+        } catch {
+            configurationSaveError = editorSaveFailureMessage(error, fallbackStage: .write)
+            return false
         }
-        effectiveSourcesByConfigurationID[configuration.id] = scope == .local ? .local : .project
-        if let projectURL,
-           let resolution = try? resolveWithServiceToolchains(
-               operations: runConfigurationOperations,
-               projectURL: projectURL,
-               mavenProject: mavenProject,
-               preferredConfigurationID: configuration.id
-           ) {
+        do {
+            let resolution = try resolveWithServiceToolchains(
+                operations: runConfigurationOperations,
+                projectURL: projectURL,
+                mavenProject: mavenProject,
+                preferredConfigurationID: configuration.id
+            )
             configurationDiagnostics = runConfigurationOperations.inspect(at: projectURL).diagnostics
                 + resolution.diagnostics
-            apply(resolution.configurations, preferredConfigurationID: configuration.id)
+            apply(
+                resolution.configurations,
+                projectToolchain: resolution.projectToolchain,
+                preferredConfigurationID: configuration.id
+            )
+        } catch {
+            configurationSaveError = editorSaveFailureMessage(error, fallbackStage: .reload)
+            return false
         }
         persist(options, for: configuration.id)
-        refreshPortConflicts()
         return true
     }
 
     package func resetOptions(for configuration: RunConfiguration) {
-        let options = RunOptions()
-        updateOptions(options, for: configuration)
+        saveEditorChanges(
+            RunOptions(),
+            toolchain: projectToolchain,
+            for: configuration,
+            scope: .local
+        )
     }
 
     @discardableResult
@@ -361,7 +373,11 @@ package final class RunService: ObservableObject {
             }
             configurationDiagnostics = runConfigurationOperations.inspect(at: projectURL).diagnostics
                 + resolution.diagnostics
-            apply(resolution.configurations, preferredConfigurationID: id)
+            apply(
+                resolution.configurations,
+                projectToolchain: resolution.projectToolchain,
+                preferredConfigurationID: id
+            )
             selectedConfigurationIDsByProject[projectURL.path] = id
             return true
         } catch {
@@ -569,6 +585,7 @@ package final class RunService: ObservableObject {
         configurations = [.currentFile]
         selectedConfigurationID = RunConfiguration.currentFileID
         optionsByConfigurationID = [:]
+        projectToolchain = ProjectToolchainSelection()
         effectiveSourcesByConfigurationID = [:]
         mavenProfiles = []
         moduleSessions = []
@@ -596,6 +613,19 @@ package final class RunService: ObservableObject {
         lastExitCode = 1
         isRunning = false
         runningTitle = nil
+    }
+
+    private func editorSaveFailureMessage(
+        _ error: any Error,
+        fallbackStage: RunConfigurationEditorSaveStage
+    ) -> String {
+        if let failure = error as? RunConfigurationEditorSaveFailure {
+            return failure.localizedDescription
+        }
+        return RunConfigurationEditorSaveFailure(
+            stage: fallbackStage,
+            message: error.localizedDescription
+        ).localizedDescription
     }
 
     private func isGenericCurrentFile(_ fileURL: URL?) -> Bool {
@@ -655,6 +685,7 @@ package final class RunService: ObservableObject {
 
     private func apply(
         _ effective: [EffectiveRunConfiguration],
+        projectToolchain: ProjectToolchainSelection = ProjectToolchainSelection(),
         preferredConfigurationID: String? = nil
     ) {
         // Keep the language-neutral Current File entry available even when a
@@ -679,6 +710,7 @@ package final class RunService: ObservableObject {
         optionsByConfigurationID = Dictionary(uniqueKeysWithValues: resolved.map {
             ($0.configuration.id, $0.options)
         })
+        self.projectToolchain = projectToolchain
         let preferredJava = resolved.first { item in
             item.configuration.id == preferredConfigurationID
                 && item.configuration.kind.capabilities.contains(.javaRuntime)
