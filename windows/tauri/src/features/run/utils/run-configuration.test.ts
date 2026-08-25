@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
   configurationsForExecution,
+  configurationOverrides,
+  configurationUsesMaven,
   defaultGeneratedConfigurationId,
   isBlockingToolchainDiagnostic,
   mapCoreConfiguration,
   mergeLaunchEnvironment,
   projectScopedPath,
-  saveRunConfigurationChanges,
   selectedToolchainCandidates,
   workspaceRelativePath,
 } from "./run-configuration";
@@ -102,24 +103,53 @@ describe("run configuration mapping", () => {
     ]);
   });
 
-  test("serializes toolchain and option saves that share the local document", async () => {
-    const calls: string[] = [];
-    let toolchainWritten = false;
-    const saved = await saveRunConfigurationChanges(
-      async () => {
-        calls.push("toolchain");
-        toolchainWritten = true;
-        return true;
+  test("matches a selected Maven Home to its discovered bin executable", () => {
+    const candidates = selectedToolchainCandidates(
+      {
+        java: [],
+        maven: [
+          { executablePath: "D:\\Tools\\apache-maven\\bin\\mvn.cmd", version: "3.9.9" },
+        ],
       },
-      async () => {
-        calls.push("options");
-        expect(toolchainWritten).toBe(true);
-        return true;
+      {
+        javaHomePath: "",
+        mavenExecutablePath: "d:/tools/apache-maven/",
+        mavenJavaHomePath: "",
       },
     );
 
-    expect(saved).toBe(true);
-    expect(calls).toEqual(["toolchain", "options"]);
+    expect(candidates).toEqual([
+      { id: "project-maven", type: "maven", version: "3.9.9", vendor: "" },
+    ]);
+  });
+
+  test("shows Maven settings from the configuration requirement without discovery", () => {
+    expect(configurationUsesMaven({ toolchains: { java: "project-jdk", maven: "project-maven" } })).toBe(true);
+    expect(configurationUsesMaven({ toolchains: { java: "project-jdk" } })).toBe(false);
+  });
+
+  test("removes inherited toolchain values and keeps configuration overrides", () => {
+    const defaults = {
+      javaHomePath: "C:/SDKs/jdk-21",
+      mavenExecutablePath: "C:/SDKs/maven",
+      mavenJavaHomePath: "C:/SDKs/maven-jdk",
+    };
+    const options = {
+      ...defaults,
+      javaHomePath: "c:\\sdks\\jdk-21\\",
+      mavenJavaHomePath: "D:/SDKs/service-jdk",
+      workingDirectoryPath: "app",
+      vmArguments: "-Xmx2g",
+      programArguments: "--dev",
+      environment: { APP_ENV: "dev" },
+    };
+
+    expect(configurationOverrides(options, defaults)).toEqual({
+      ...options,
+      javaHomePath: "",
+      mavenExecutablePath: "",
+      mavenJavaHomePath: "D:/SDKs/service-jdk",
+    });
   });
 
   test("merges user env with toolchain-derived launch environment", () => {

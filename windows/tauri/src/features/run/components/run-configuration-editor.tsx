@@ -16,9 +16,10 @@ import type {
   RunSaveScope,
 } from "../types/run.types";
 import {
+  configurationOverrides,
+  configurationUsesMaven,
   environmentFromText,
   environmentText,
-  saveRunConfigurationChanges,
 } from "../utils/run-configuration";
 
 interface RunConfigurationEditorProps {
@@ -29,8 +30,11 @@ interface RunConfigurationEditorProps {
   discoveredMaven: MavenRuntime[];
   globalToolchain: GlobalToolchain;
   onClose: () => void;
-  onSave: (options: RunOptions, scope: RunSaveScope) => Promise<boolean>;
-  onSaveToolchain: (toolchain: GlobalToolchain) => Promise<boolean>;
+  onSave: (
+    options: RunOptions,
+    toolchain: GlobalToolchain,
+    scope: RunSaveScope,
+  ) => Promise<boolean>;
 }
 
 interface ToolchainFieldProps {
@@ -95,16 +99,15 @@ export function RunConfigurationEditor({
   globalToolchain,
   onClose,
   onSave,
-  onSaveToolchain,
 }: RunConfigurationEditorProps) {
   const { t } = useTranslation();
-  const [draft, setDraft] = useState(options);
+  const [draft, setDraft] = useState(() => configurationOverrides(options, globalToolchain));
   const [toolchainDraft, setToolchainDraft] = useState(globalToolchain);
   const [scope, setScope] = useState<RunSaveScope>("local");
   const [envText, setEnvText] = useState(environmentText(options.environment));
   const [saving, setSaving] = useState(false);
 
-  const projectUsesMaven = discoveredMaven.length > 0;
+  const projectUsesMaven = configurationUsesMaven(configuration);
   const javaCandidates = discoveredJava.map((runtime) => ({
     value: runtime.homePath,
     label: runtime.version ? `${runtime.homePath} (${runtime.version})` : runtime.homePath,
@@ -132,10 +135,14 @@ export function RunConfigurationEditor({
     });
   };
 
-  const pickMavenExecutable = () => {
-    void open({ multiple: false }).then((selected) => {
+  const pickMavenHome = (target: "configuration" | "project") => {
+    void open({ directory: true, multiple: false }).then((selected) => {
       if (typeof selected === "string" && selected) {
-        setToolchainDraft((current) => ({ ...current, mavenExecutablePath: selected }));
+        if (target === "project") {
+          setToolchainDraft((current) => ({ ...current, mavenExecutablePath: selected }));
+        } else {
+          setDraft((current) => ({ ...current, mavenExecutablePath: selected }));
+        }
       }
     });
   };
@@ -144,13 +151,7 @@ export function RunConfigurationEditor({
     setSaving(true);
     const runOptions = { ...draft, environment: environmentFromText(envText) };
     try {
-      // Local options and the global toolchain share run/local.json. Save them
-      // in sequence so the option mutation reads the toolchain write instead
-      // of racing two complete-document replacements against each other.
-      const saved = await saveRunConfigurationChanges(
-        () => onSaveToolchain(toolchainDraft),
-        () => onSave(runOptions, scope),
-      );
+      const saved = await onSave(runOptions, toolchainDraft, scope);
       if (saved) onClose();
     } finally {
       setSaving(false);
@@ -179,7 +180,7 @@ export function RunConfigurationEditor({
       <div className="space-y-6">
         <div className="space-y-2">
           <div className="font-medium text-subtle-foreground ui-text-sm">
-            {t("run.runtimeSection")} · {t("run.saveScopeLocal")}
+            {t("run.projectDefaultsSection")} · {t("run.saveScopeLocal")}
           </div>
           <p className="text-subtle-foreground ui-text-sm">{t("run.saveScopeLocalHint")}</p>
           <ToolchainField
@@ -204,7 +205,7 @@ export function RunConfigurationEditor({
                 customLabel={t("run.toolchainCurrent")}
                 candidates={mavenCandidates}
                 onSelect={(value) => setToolchainDraft((current) => ({ ...current, mavenExecutablePath: value }))}
-                onPick={pickMavenExecutable}
+                onPick={() => pickMavenHome("project")}
               />
               <ToolchainField
                 id="run-maven-jdk"
@@ -262,6 +263,46 @@ export function RunConfigurationEditor({
           </div>
 
           <div className="mt-4 space-y-4">
+            <div className="font-medium text-subtle-foreground ui-text-sm">
+              {t("run.configurationOverridesSection")}
+            </div>
+            <ToolchainField
+              id="run-configuration-jdk-home"
+              label={t("run.jdkHome")}
+              hint={t("run.configurationOverrideHint")}
+              value={draft.javaHomePath}
+              autoLabel={t("run.toolchainProjectDefault")}
+              customLabel={t("run.toolchainCurrent")}
+              candidates={javaCandidates}
+              onSelect={(value) => setDraft((current) => ({ ...current, javaHomePath: value }))}
+              onPick={() => pickDirectory("javaHomePath")}
+            />
+            {projectUsesMaven ? (
+              <>
+                <ToolchainField
+                  id="run-configuration-maven"
+                  label={t("run.mavenExecutable")}
+                  hint={t("run.configurationOverrideHint")}
+                  value={draft.mavenExecutablePath}
+                  autoLabel={t("run.toolchainProjectDefault")}
+                  customLabel={t("run.toolchainCurrent")}
+                  candidates={mavenCandidates}
+                  onSelect={(value) => setDraft((current) => ({ ...current, mavenExecutablePath: value }))}
+                  onPick={() => pickMavenHome("configuration")}
+                />
+                <ToolchainField
+                  id="run-configuration-maven-jdk"
+                  label={t("run.mavenJdkHome")}
+                  hint={t("run.configurationOverrideHint")}
+                  value={draft.mavenJavaHomePath}
+                  autoLabel={t("run.toolchainProjectDefault")}
+                  customLabel={t("run.toolchainCurrent")}
+                  candidates={javaCandidates}
+                  onSelect={(value) => setDraft((current) => ({ ...current, mavenJavaHomePath: value }))}
+                  onPick={() => pickDirectory("mavenJavaHomePath")}
+                />
+              </>
+            ) : null}
             <Field>
               <FieldLabel htmlFor="run-args">{t("run.programArguments")}</FieldLabel>
               <Input

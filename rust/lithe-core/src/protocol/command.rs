@@ -135,6 +135,8 @@ pub enum CoreCommand {
     RunConfigResolve,
     /// Persists editable run options (`runConfig.updateOptions`).
     RunConfigUpdateOptions,
+    /// Prepares one complete run-configuration editor save (`runConfig.saveEditorChanges`).
+    RunConfigSaveEditorChanges,
     /// Adds a user-authored run configuration (`runConfig.createUserConfiguration`).
     RunConfigCreateUserConfiguration,
     /// Produces the process plan for one configuration (`runConfig.createLaunchPlan`).
@@ -252,6 +254,7 @@ impl CoreCommand {
             "runConfig.generate" => Some(Self::RunConfigGenerate),
             "runConfig.resolve" => Some(Self::RunConfigResolve),
             "runConfig.updateOptions" => Some(Self::RunConfigUpdateOptions),
+            "runConfig.saveEditorChanges" => Some(Self::RunConfigSaveEditorChanges),
             "runConfig.createUserConfiguration" => Some(Self::RunConfigCreateUserConfiguration),
             "runConfig.createLaunchPlan" => Some(Self::RunConfigCreateLaunchPlan),
             "java.codeVision" => Some(Self::JavaCodeVision),

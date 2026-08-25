@@ -6,8 +6,7 @@ import {
   generateRunConfiguration,
   inspectRunConfiguration,
   resolveRunConfiguration,
-  updateGlobalToolchain,
-  updateRunOptions,
+  saveRunConfigurationEditorChanges,
 } from "../api/run-core-api";
 import {
   discoverRunToolchains,
@@ -16,7 +15,7 @@ import {
   startRunProcess,
   stopRunProcess,
   writeGeneratedRunDocuments,
-  writeRunDocument,
+  writeRunDocuments,
   writeRunStdin,
 } from "../api/run-host-api";
 import {
@@ -46,6 +45,7 @@ import {
   recoveryPathFromMessage,
   selectedToolchainCandidates,
 } from "../utils/run-configuration";
+import { editorSaveFailureMessage, runEditorSaveWorkflow } from "../services/run-editor-save";
 
 const MAXIMUM_OUTPUT_CHARACTERS = 500_000;
 const sessionWorkspaces = new Map<string, string>();
@@ -81,17 +81,46 @@ interface RunState {
     runConfiguration: (id: string, currentFile?: string) => Promise<void>;
     stop: (sessionId?: string) => Promise<void>;
     clearOutput: (sessionId?: string) => void;
-    saveOptions: (
+    saveEditorChanges: (
       configuration: RunConfiguration,
       options: RunOptions,
+      toolchain: GlobalToolchain,
       scope: RunSaveScope,
     ) => Promise<boolean>;
-    saveToolchain: (toolchain: GlobalToolchain) => Promise<boolean>;
     writeStdin: (sessionId: string, input: string) => Promise<void>;
     appendOutput: (sessionId: string, chunk: string) => void;
     finishProcess: (sessionId: string, exitCode: number) => void;
   };
 }
+
+interface ResolvedRunProject {
+  configurations: RunConfiguration[];
+  diagnostics: RunDiagnostic[];
+  defaultConfigurationId: string | null;
+  discoveredJava: JavaRuntime[];
+  discoveredMaven: MavenRuntime[];
+  globalToolchain: GlobalToolchain;
+}
+
+type RunProjectSnapshot =
+  | { status: "missing"; diagnostics: RunDiagnostic[] }
+  | ({ status: "ready" } & ResolvedRunProject);
+
+type ReadyRunState = Pick<
+  RunState,
+  | "status"
+  | "recoveryAction"
+  | "recoveryPath"
+  | "invalidMessage"
+  | "diagnostics"
+  | "configurations"
+  | "selectedConfigurationId"
+  | "defaultConfigurationId"
+  | "discoveredJava"
+  | "discoveredMaven"
+  | "globalToolchain"
+  | "isLoading"
+>;
 
 function trimOutput(output: string): string {
   if (output.length <= MAXIMUM_OUTPUT_CHARACTERS) return output;
@@ -110,14 +139,7 @@ function optionsFromConfiguration(configuration: RunConfiguration): RunOptions {
   };
 }
 
-async function resolveConfigurations(root: string): Promise<{
-  configurations: RunConfiguration[];
-  diagnostics: RunDiagnostic[];
-  defaultConfigurationId: string | null;
-  discoveredJava: JavaRuntime[];
-  discoveredMaven: MavenRuntime[];
-  globalToolchain: GlobalToolchain;
-}> {
+async function resolveConfigurations(root: string): Promise<ResolvedRunProject> {
   const automatic = await discoverRunToolchains(root);
   const preliminary = await resolveRunConfiguration(
     root,
@@ -141,6 +163,47 @@ async function resolveConfigurations(root: string): Promise<{
     discoveredJava: discovered.java,
     discoveredMaven: discovered.maven,
     globalToolchain,
+  };
+}
+
+async function readRunProjectSnapshot(root: string): Promise<RunProjectSnapshot> {
+  const inspection = await inspectRunConfiguration(root);
+  const inspectionDiagnostics = mapDiagnostics(inspection.diagnostics);
+  if (inspection.status !== "ready") {
+    return { status: "missing", diagnostics: inspectionDiagnostics };
+  }
+  const resolved = await resolveConfigurations(root);
+  return {
+    status: "ready",
+    ...resolved,
+    diagnostics: [...inspectionDiagnostics, ...resolved.diagnostics],
+  };
+}
+
+function readyRunState(
+  snapshot: Extract<RunProjectSnapshot, { status: "ready" }>,
+  currentSelection: string | null,
+): ReadyRunState {
+  const selectedConfigurationId =
+    currentSelection &&
+    snapshot.configurations.some((configuration) => configuration.id === currentSelection)
+      ? currentSelection
+      : (snapshot.defaultConfigurationId ??
+        snapshot.configurations.find((configuration) => configuration.id !== CURRENT_FILE_ID)?.id ??
+        null);
+  return {
+    status: "ready",
+    recoveryAction: "none",
+    recoveryPath: undefined,
+    invalidMessage: undefined,
+    diagnostics: snapshot.diagnostics,
+    configurations: snapshot.configurations,
+    selectedConfigurationId,
+    defaultConfigurationId: snapshot.defaultConfigurationId,
+    discoveredJava: snapshot.discoveredJava,
+    discoveredMaven: snapshot.discoveredMaven,
+    globalToolchain: snapshot.globalToolchain,
+    isLoading: false,
   };
 }
 
@@ -175,42 +238,23 @@ export const createRunStore = () =>
           generationNotice: null,
         });
         try {
-          const inspection = await inspectRunConfiguration(root);
-          if (inspection.status !== "ready") {
+          const snapshot = await readRunProjectSnapshot(root);
+          if (snapshot.status === "missing") {
             set({
               status: "missing",
               recoveryAction: "regenerate",
-              diagnostics: mapDiagnostics(inspection.diagnostics),
+              diagnostics: snapshot.diagnostics,
               configurations: [],
               isLoading: false,
             });
             return;
           }
-          const resolved = await resolveConfigurations(root);
-          const selectedConfigurationId =
-            get().selectedConfigurationId &&
-            resolved.configurations.some((configuration) => configuration.id === get().selectedConfigurationId)
-              ? get().selectedConfigurationId
-              : resolved.defaultConfigurationId ??
-                resolved.configurations.find((configuration) => configuration.id !== CURRENT_FILE_ID)?.id ??
-                null;
-          set({
-            status: "ready",
-            recoveryAction: "none",
-            recoveryPath: undefined,
-            invalidMessage: undefined,
-            diagnostics: [...mapDiagnostics(inspection.diagnostics), ...resolved.diagnostics],
-            configurations: resolved.configurations,
-            selectedConfigurationId,
-            defaultConfigurationId: resolved.defaultConfigurationId,
-            discoveredJava: resolved.discoveredJava,
-            discoveredMaven: resolved.discoveredMaven,
-            globalToolchain: resolved.globalToolchain,
-            isLoading: false,
-          });
+          set(readyRunState(snapshot, get().selectedConfigurationId));
         } catch (error) {
-          const message = error instanceof Error ? error.message : "Project run configuration is invalid";
-          const code = error instanceof Error ? (error as Error & { code?: string }).code : undefined;
+          const message =
+            error instanceof Error ? error.message : "Project run configuration is invalid";
+          const code =
+            error instanceof Error ? (error as Error & { code?: string }).code : undefined;
           set({
             status: "invalid",
             invalidMessage: message,
@@ -235,9 +279,7 @@ export const createRunStore = () =>
           });
           const resolved = await resolveConfigurations(root);
           const notice =
-            generated.entryCount === 0
-              ? "no-entries"
-              : `generated:${generated.entryCount}`;
+            generated.entryCount === 0 ? "no-entries" : `generated:${generated.entryCount}`;
           set({
             root,
             status: "ready",
@@ -248,7 +290,8 @@ export const createRunStore = () =>
             configurations: resolved.configurations,
             selectedConfigurationId:
               resolved.defaultConfigurationId ??
-              resolved.configurations.find((configuration) => configuration.id !== CURRENT_FILE_ID)?.id ??
+              resolved.configurations.find((configuration) => configuration.id !== CURRENT_FILE_ID)
+                ?.id ??
               null,
             defaultConfigurationId: resolved.defaultConfigurationId,
             discoveredJava: resolved.discoveredJava,
@@ -290,13 +333,16 @@ export const createRunStore = () =>
         }
         if (configuration.id === CURRENT_FILE_ID && !currentFile) {
           set({
-            primaryOutput: trimOutput(`${state.primaryOutput}Open a source file before running Current File.\n`),
+            primaryOutput: trimOutput(
+              `${state.primaryOutput}Open a source file before running Current File.\n`,
+            ),
             primaryRunning: false,
             primaryExitCode: 1,
           });
           return;
         }
-        const sessionId = configuration.execution === "service" ? configuration.id : PRIMARY_SESSION_ID;
+        const sessionId =
+          configuration.execution === "service" ? configuration.id : PRIMARY_SESSION_ID;
         bindRunSessionWorkspace(sessionId);
         await stopRunProcess(sessionId).catch(() => undefined);
         try {
@@ -343,7 +389,8 @@ export const createRunStore = () =>
             environment: resolved.environment,
           });
         } catch (error) {
-          const message = error instanceof Error ? error.message : "Unable to start the run configuration.";
+          const message =
+            error instanceof Error ? error.message : "Unable to start the run configuration.";
           if (sessionId === PRIMARY_SESSION_ID) {
             set({
               primaryRunning: false,
@@ -354,7 +401,12 @@ export const createRunStore = () =>
             set((current) => ({
               sessions: current.sessions.map((session) =>
                 session.id === sessionId
-                  ? { ...session, isRunning: false, exitCode: 1, output: trimOutput(`${session.output}${message}\n`) }
+                  ? {
+                      ...session,
+                      isRunning: false,
+                      exitCode: 1,
+                      output: trimOutput(`${session.output}${message}\n`),
+                    }
                   : session,
               ),
             }));
@@ -389,49 +441,54 @@ export const createRunStore = () =>
         }));
       },
 
-      saveOptions: async (configuration, options, scope) => {
+      saveEditorChanges: async (configuration, options, toolchain, scope) => {
         const root = get().root;
-        if (!root) return false;
-        try {
-          const mutation = await updateRunOptions(root, configuration.id, scope, options);
-          await writeRunDocument(
-            root,
-            scope === "local" ? "run/local.json" : "run/configurations.json",
-            mutation.document,
-          );
-          await get().actions.loadProject(root);
-          set({ saveError: null });
-          return true;
-        } catch (error) {
-          set({
-            saveError: error instanceof Error ? error.message : "Could not save the run configuration.",
-          });
+        if (!root) {
+          set({ saveError: editorSaveFailureMessage("prepare", "Open a project before saving.") });
           return false;
         }
-      },
-
-      saveToolchain: async (toolchain) => {
-        const root = get().root;
-        if (!root) return false;
-        try {
-          const mutation = await updateGlobalToolchain(root, toolchain);
-          await writeRunDocument(root, "run/local.json", mutation.document);
-          await get().actions.loadProject(root);
-          set({ saveError: null });
-          return true;
-        } catch (error) {
-          set({
-            saveError: error instanceof Error ? error.message : "Could not save the toolchain.",
-          });
+        const result = await runEditorSaveWorkflow({
+          prepare: () =>
+            saveRunConfigurationEditorChanges(root, configuration.id, scope, options, toolchain),
+          write: (mutation) => {
+            const documents = [
+              { relativePath: "run/local.json", contents: mutation.localDocument },
+            ];
+            if (mutation.projectDocument !== null) {
+              documents.push({
+                relativePath: "run/configurations.json",
+                contents: mutation.projectDocument,
+              });
+            }
+            return writeRunDocuments(root, documents);
+          },
+          reload: async () => {
+            const snapshot = await readRunProjectSnapshot(root);
+            if (snapshot.status === "missing") {
+              throw new Error(
+                snapshot.diagnostics[0]?.message ?? "Run configuration is not ready.",
+              );
+            }
+            return snapshot;
+          },
+        });
+        if (!result.ok) {
+          set({ saveError: editorSaveFailureMessage(result.stage, result.error) });
           return false;
         }
+        set({
+          ...readyRunState(result.reloaded, configuration.id),
+          saveError: null,
+        });
+        return true;
       },
 
       writeStdin: async (sessionId, input) => {
         try {
           await writeRunStdin(sessionId, input);
         } catch (error) {
-          const message = error instanceof Error ? error.message : "Could not write to process input.";
+          const message =
+            error instanceof Error ? error.message : "Could not write to process input.";
           get().actions.appendOutput(sessionId, `${message}\n`);
         }
       },
@@ -443,7 +500,9 @@ export const createRunStore = () =>
         }
         set((current) => ({
           sessions: current.sessions.map((session) =>
-            session.id === sessionId ? { ...session, output: trimOutput(session.output + chunk) } : session,
+            session.id === sessionId
+              ? { ...session, output: trimOutput(session.output + chunk) }
+              : session,
           ),
         }));
       },
@@ -465,10 +524,7 @@ export const createRunStore = () =>
 export const useRunStore = createWorkspaceScopedStore("run", createRunStore);
 
 export function bindRunSessionWorkspace(sessionId: string, workspaceId?: string): void {
-  sessionWorkspaces.set(
-    sessionId,
-    workspaceId ?? workspaceRuntimeRegistry.getActiveWorkspaceId(),
-  );
+  sessionWorkspaces.set(sessionId, workspaceId ?? workspaceRuntimeRegistry.getActiveWorkspaceId());
 }
 
 export function runStoreForSession(sessionId: string) {

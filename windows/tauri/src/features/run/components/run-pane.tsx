@@ -258,8 +258,8 @@ export default function RunPane() {
           discoveredMaven={discoveredMaven}
           globalToolchain={globalToolchain}
           onClose={() => setEditingId(null)}
-          onSave={(options, scope) => actions.saveOptions(editingConfiguration, options, scope)}
-          onSaveToolchain={(toolchain) => actions.saveToolchain(toolchain)}
+          onSave={(options, toolchain, scope) =>
+            actions.saveEditorChanges(editingConfiguration, options, toolchain, scope)}
         />
       ) : null}
     </div>

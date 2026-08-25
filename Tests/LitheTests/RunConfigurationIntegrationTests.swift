@@ -3586,7 +3586,7 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func projectOptionUpdateForwardsSelectedToolchainPaths() async {
+    func projectEditorSaveForwardsSelectedToolchainPaths() async {
         let configuration = JavaRunConfiguration(
             id: "spring",
             name: "Spring",
@@ -3613,9 +3613,160 @@ struct RunConfigurationIntegrationTests {
             mavenJavaHomePath: "toolchains/maven-jdk"
         )
 
-        #expect(fixture.service.updateOptions(options, for: configuration, scope: .project))
+        #expect(fixture.service.saveEditorChanges(
+            options,
+            toolchain: ProjectToolchainSelection(),
+            for: configuration,
+            scope: .project
+        ))
         #expect(fixture.operations.savedOptions == [options])
         #expect(fixture.operations.savedScopes == [.project])
+    }
+
+    @Test
+    func editorChangesUseOneRunConfigurationOperation() async {
+        let configuration = JavaRunConfiguration(
+            id: "spring",
+            name: "Spring",
+            kind: .springBoot,
+            modulePath: ".",
+            mainClass: nil
+        )
+        let fixture = makeFixture(
+            status: .ready,
+            effective: [EffectiveRunConfiguration(
+                configuration: configuration,
+                options: RunOptions(),
+                source: .generated
+            )]
+        )
+        await fixture.service.loadProject(
+            at: fixture.root,
+            files: [],
+            mavenProject: fixture.mavenProject
+        )
+        let options = RunOptions(programArguments: "--dev")
+        let toolchain = ProjectToolchainSelection(
+            javaHomePath: "/opt/jdk-21",
+            mavenExecutablePath: "/opt/apache-maven",
+            mavenJavaHomePath: "/opt/jdk-17"
+        )
+
+        #expect(fixture.service.saveEditorChanges(
+            options,
+            toolchain: toolchain,
+            for: configuration,
+            scope: .local
+        ))
+        #expect(fixture.operations.editorSaveCalls == 1)
+        #expect(fixture.operations.savedOptions == [options])
+        #expect(fixture.operations.savedScopes == [.local])
+        #expect(fixture.operations.savedToolchains == [toolchain])
+    }
+
+    @Test
+    func editorSaveReportsReloadFailureWithoutApplyingTheDraft() async {
+        let configuration = JavaRunConfiguration(
+            id: "spring",
+            name: "Spring",
+            kind: .springBoot,
+            modulePath: ".",
+            mainClass: nil
+        )
+        let original = RunOptions(programArguments: "--old")
+        let fixture = makeFixture(
+            status: .ready,
+            effective: [EffectiveRunConfiguration(
+                configuration: configuration,
+                options: original,
+                source: .generated
+            )]
+        )
+        await fixture.service.loadProject(
+            at: fixture.root,
+            files: [],
+            mavenProject: fixture.mavenProject
+        )
+        fixture.operations.resolveFailureMessage = "Injected reload failure."
+
+        #expect(!fixture.service.saveEditorChanges(
+            RunOptions(programArguments: "--new"),
+            toolchain: ProjectToolchainSelection(),
+            for: configuration,
+            scope: .local
+        ))
+        #expect(fixture.service.options(for: configuration) == original)
+        #expect(fixture.service.configurationSaveError?.contains(
+            "Changes were saved, but Lithe could not reload them"
+        ) == true)
+    }
+
+    @Test
+    func resettingOptionsUsesTheCombinedEditorSave() async {
+        let configuration = JavaRunConfiguration(
+            id: "spring",
+            name: "Spring",
+            kind: .springBoot,
+            modulePath: ".",
+            mainClass: nil
+        )
+        let fixture = makeFixture(
+            status: .ready,
+            effective: [EffectiveRunConfiguration(
+                configuration: configuration,
+                options: RunOptions(programArguments: "--dev"),
+                source: .local
+            )]
+        )
+        await fixture.service.loadProject(
+            at: fixture.root,
+            files: [],
+            mavenProject: fixture.mavenProject
+        )
+
+        fixture.service.resetOptions(for: configuration)
+
+        #expect(fixture.operations.editorSaveCalls == 1)
+        #expect(fixture.operations.savedOptions == [RunOptions()])
+        #expect(fixture.operations.savedScopes == [.local])
+    }
+
+    @Test
+    func projectEditorSaveRestoresLocalDocumentWhenTeamWriteFails() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-editor-transaction-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let run = root.appendingPathComponent(".lithe/run")
+        try FileManager.default.createDirectory(at: run, withIntermediateDirectories: true)
+        try Data(#"{"version":2,"configurations":[{"id":"spring","name":"Spring","provider":"spring-boot.maven","execution":"service","toolchains":{"java":"project-jdk","maven":"project-maven"},"extensions":{"maven":{"module":"."}}}]}"#.utf8)
+            .write(to: run.appendingPathComponent("generated.json"))
+        let oldLocal = Data(#"{"version":2,"configurations":[]}"#.utf8)
+        let oldProject = Data(#"{"version":2,"configurations":[]}"#.utf8)
+        let localURL = run.appendingPathComponent("local.json")
+        let projectURL = run.appendingPathComponent("configurations.json")
+        try oldLocal.write(to: localURL)
+        try oldProject.write(to: projectURL)
+        let storage = CountingFileStorage(root: root)
+        storage.seed(oldLocal, at: localURL)
+        storage.seed(oldProject, at: projectURL)
+        storage.failOnWriteNumber = 2
+        let store = MacRunConfigurationStore(
+            core: RustCoreBridge(),
+            storage: storage,
+            preferences: RunTestKeyValueStore()
+        )
+
+        #expect(throws: (any Error).self) {
+            try store.saveEditorChanges(
+                RunOptions(),
+                toolchain: ProjectToolchainSelection(javaHomePath: "/opt/jdk-21"),
+                configurationID: "spring",
+                scope: .project,
+                at: root
+            )
+        }
+        #expect(try storage.readData(from: localURL, options: []) == oldLocal)
+        #expect(try storage.readData(from: projectURL, options: []) == oldProject)
     }
 
     @Test
@@ -3799,6 +3950,9 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
     private(set) var lastToolchainCandidates: [ProjectToolchainCandidate] = []
     private(set) var savedOptions: [RunOptions] = []
     private(set) var savedScopes: [RunConfigurationSaveScope] = []
+    private(set) var savedToolchains: [ProjectToolchainSelection] = []
+    private(set) var editorSaveCalls = 0
+    var resolveFailureMessage: String?
 
     init(
         status: ProjectRunConfigurationStatus,
@@ -3826,6 +3980,9 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
     ) throws -> RunConfigurationResolution {
         resolveCalls += 1
         lastToolchainCandidates = toolchainCandidates
+        if let resolveFailureMessage {
+            throw RunConfigurationOperationFailure(message: resolveFailureMessage)
+        }
         return RunConfigurationResolution(
             configurations: effective,
             diagnostics: [],
@@ -3846,14 +4003,17 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
         }
         return plan
     }
-    func saveOptions(
-        _ options: JavaRunOptions,
+    func saveEditorChanges(
+        _ options: RunOptions,
+        toolchain: ProjectToolchainSelection,
         configurationID: String,
         scope: RunConfigurationSaveScope,
         at projectURL: URL
     ) throws {
+        editorSaveCalls += 1
         savedOptions.append(options)
         savedScopes.append(scope)
+        savedToolchains.append(toolchain)
     }
     func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String {
         createdDrafts.append(draft)
@@ -3925,12 +4085,6 @@ private final class BlockingInspectionOperations: RunConfigurationOperations, @u
         throw RunConfigurationOperationFailure(message: "No launch plan")
     }
 
-    func saveOptions(
-        _ options: JavaRunOptions,
-        configurationID: String,
-        scope: RunConfigurationSaveScope,
-        at projectURL: URL
-    ) throws {}
     func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String {
         throw RunConfigurationOperationFailure(message: "Creation is unavailable in this test double")
     }
@@ -3975,13 +4129,6 @@ private final class BlockingGenerationOperations: RunConfigurationOperations, @u
     ) throws -> SharedLaunchPlan {
         throw RunConfigurationOperationFailure(message: "No launch plan")
     }
-
-    func saveOptions(
-        _ options: JavaRunOptions,
-        configurationID: String,
-        scope: RunConfigurationSaveScope,
-        at projectURL: URL
-    ) throws {}
 
     func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String {
         throw RunConfigurationOperationFailure(message: "Creation is unavailable in this test double")
@@ -4634,6 +4781,8 @@ private final class CountingFileStorage: FileStorage, @unchecked Sendable {
     private var files: [String: Data] = [:]
     private(set) var writeCount = 0
     var shouldFailWrites = false
+    var failOnWriteNumber: Int?
+    private var writeAttempts = 0
 
     init(root: URL) {
         self.root = root.standardizedFileURL
@@ -4665,7 +4814,10 @@ private final class CountingFileStorage: FileStorage, @unchecked Sendable {
         return data
     }
     func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) throws {
-        if shouldFailWrites { throw CocoaError(.fileWriteNoPermission) }
+        writeAttempts += 1
+        if shouldFailWrites || writeAttempts == failOnWriteNumber {
+            throw CocoaError(.fileWriteNoPermission)
+        }
         files[url.standardizedFileURL.path] = data
         writeCount += 1
     }

@@ -389,6 +389,16 @@ struct RustCoreBridge: Sendable {
     }
 
     struct RunConfigurationPayload: Codable, Sendable {
+        struct Toolchain: Codable, Sendable {
+            struct Java: Codable, Sendable { let homePath: String? }
+            struct Maven: Codable, Sendable {
+                let executablePath: String?
+                let javaHomePath: String?
+            }
+
+            let java: Java?
+            let maven: Maven?
+        }
         struct Generator: Codable, Sendable {
             let fingerprint: String
             let inputs: [String: String]?
@@ -437,6 +447,7 @@ struct RustCoreBridge: Sendable {
         let configurations: [Configuration]
         let diagnostics: [[String: String]]?
         let defaultRunConfiguration: String?
+        let toolchain: Toolchain?
     }
 
     struct RunConfigurationGeneratePayload: Codable, Sendable {
@@ -480,6 +491,11 @@ struct RustCoreBridge: Sendable {
     struct RunConfigurationMutationPayload: Codable, Sendable {
         let id: String?
         let document: String
+    }
+
+    struct RunConfigurationEditorMutationPayload: Codable, Sendable {
+        let localDocument: String
+        let projectDocument: String?
     }
 
     struct JavaCodeVisionPayload: Decodable, Sendable {
@@ -1566,6 +1582,7 @@ struct RustCoreBridge: Sendable {
         let javaHomePath: String
         let mavenExecutablePath: String
         let mavenJavaHomePath: String
+        let toolchain: ProjectToolchainSelection?
     }
     private struct RunConfigurationCreateUserRequest: Encodable {
         let root: String
@@ -2320,7 +2337,34 @@ struct RustCoreBridge: Sendable {
                 mavenProfiles: options.activeProfiles.sorted(),
                 javaHomePath: options.javaHomePath,
                 mavenExecutablePath: options.mavenExecutablePath,
-                mavenJavaHomePath: options.mavenJavaHomePath
+                mavenJavaHomePath: options.mavenJavaHomePath,
+                toolchain: nil
+            )
+        )
+    }
+
+    func saveRunConfigurationEditorChanges(
+        at rootURL: URL,
+        configurationID: String,
+        scope: RunConfigurationSaveScope,
+        options: RunOptions,
+        toolchain: ProjectToolchainSelection
+    ) -> Result<RunConfigurationEditorMutationPayload, CoreCallError> {
+        executeResult(
+            command: "runConfig.saveEditorChanges",
+            payload: RunConfigurationUpdateOptionsRequest(
+                root: rootURL.standardizedFileURL.path,
+                scope: scope.rawValue,
+                configurationId: configurationID,
+                workingDirectory: options.workingDirectoryPath,
+                jvmArguments: options.vmArguments,
+                arguments: options.arguments,
+                environment: options.environment,
+                mavenProfiles: options.activeProfiles.sorted(),
+                javaHomePath: options.javaHomePath,
+                mavenExecutablePath: options.mavenExecutablePath,
+                mavenJavaHomePath: options.mavenJavaHomePath,
+                toolchain: toolchain
             )
         )
     }

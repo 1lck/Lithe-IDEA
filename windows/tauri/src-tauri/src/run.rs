@@ -66,8 +66,14 @@ pub struct WriteGeneratedArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WriteDocumentArgs {
+pub struct WriteDocumentsArgs {
     pub root: PathBuf,
+    pub documents: Vec<RunDocumentWrite>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunDocumentWrite {
     pub relative_path: String,
     pub contents: String,
 }
@@ -156,23 +162,26 @@ pub fn run_write_generated(args: WriteGeneratedArgs) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn run_write_document(args: WriteDocumentArgs) -> Result<(), String> {
+pub fn run_write_documents(args: WriteDocumentsArgs) -> Result<(), String> {
     let root = existing_directory(&args.root)?;
-    let relative = args.relative_path.replace('\\', "/");
-    if !matches!(
-        relative.as_str(),
-        "run/local.json" | "run/configurations.json" | "project.json"
-    ) {
-        return Err(
-            "Run documents can only be written under .lithe/run or .lithe/project.json".into(),
-        );
+    if args.documents.is_empty() || args.documents.len() > 2 {
+        return Err("A run configuration save must contain one or two documents.".into());
     }
-    let target = join_relative(&root.join(".lithe"), &relative);
-    validate_write_target(&root, &target)?;
-    if let Some(parent) = target.parent() {
-        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    let mut seen = std::collections::HashSet::new();
+    let mut prepared = Vec::with_capacity(args.documents.len());
+    for document in args.documents {
+        let target = run_document_target(&root, &document.relative_path)?;
+        if !seen.insert(target.clone()) {
+            return Err("A run configuration save cannot write the same document twice.".into());
+        }
+        prepared.push((target, document.contents.into_bytes()));
     }
-    atomic_write(&target, args.contents.as_bytes())
+    for (target, _) in &prepared {
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+    }
+    write_document_transaction(&prepared, atomic_write)
 }
 
 #[tauri::command]
@@ -424,7 +433,110 @@ fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), String> {
         .unwrap_or_else(|| "document.tmp".into());
     let temporary = path.with_file_name(format!("{file_name}.tmp"));
     fs::write(&temporary, contents).map_err(|error| error.to_string())?;
-    fs::rename(&temporary, path).map_err(|error| error.to_string())
+    let result = replace_run_document(&temporary, path);
+    if result.is_err() {
+        fs::remove_file(&temporary).ok();
+    }
+    result
+}
+
+#[cfg(target_os = "windows")]
+fn replace_run_document(source: &Path, destination: &Path) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+    };
+
+    let source = source
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let destination = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    // Windows rename does not replace an existing file, so commit through the
+    // native replace primitive without creating a missing-document window.
+    let moved = unsafe {
+        MoveFileExW(
+            source.as_ptr(),
+            destination.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if moved == 0 {
+        Err(std::io::Error::last_os_error().to_string())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn replace_run_document(source: &Path, destination: &Path) -> Result<(), String> {
+    fs::rename(source, destination).map_err(|error| error.to_string())
+}
+
+fn run_document_target(root: &Path, relative_path: &str) -> Result<PathBuf, String> {
+    let relative = relative_path.replace('\\', "/");
+    if !matches!(
+        relative.as_str(),
+        "run/local.json" | "run/configurations.json" | "project.json"
+    ) {
+        return Err(
+            "Run documents can only be written under .lithe/run or .lithe/project.json".into(),
+        );
+    }
+    let target = join_relative(&root.join(".lithe"), &relative);
+    validate_write_target(root, &target)?;
+    Ok(target)
+}
+
+fn write_document_transaction<F>(
+    documents: &[(PathBuf, Vec<u8>)],
+    mut writer: F,
+) -> Result<(), String>
+where
+    F: FnMut(&Path, &[u8]) -> Result<(), String>,
+{
+    let snapshots = documents
+        .iter()
+        .map(|(path, _)| {
+            if path.exists() {
+                fs::read(path).map(Some).map_err(|error| error.to_string())
+            } else {
+                Ok(None)
+            }
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let mut completed: Vec<usize> = Vec::new();
+    for (index, (path, contents)) in documents.iter().enumerate() {
+        if let Err(save_error) = writer(path, contents) {
+            let mut rollback_error = None;
+            for completed_index in completed.into_iter().rev() {
+                let (completed_path, _) = &documents[completed_index];
+                let restored = if let Some(previous) = &snapshots[completed_index] {
+                    writer(completed_path, previous)
+                } else if completed_path.exists() {
+                    fs::remove_file(completed_path).map_err(|error| error.to_string())
+                } else {
+                    Ok(())
+                };
+                if let Err(error) = restored {
+                    rollback_error = Some(error);
+                }
+            }
+            return match rollback_error {
+                Some(error) => Err(format!(
+                    "Run configuration save failed ({save_error}) and rollback failed ({error})."
+                )),
+                None => Err(save_error),
+            };
+        }
+        completed.push(index);
+    }
+    Ok(())
 }
 
 fn join_relative(root: &Path, relative: &str) -> PathBuf {
@@ -472,7 +584,7 @@ fn discover_toolchains_with_overrides(
     let mut seen_executables = std::collections::HashSet::new();
     let mut executables = maven_executable_candidates(project_root);
     if let Some(path) = maven_executable_path.filter(|value| !value.trim().is_empty()) {
-        executables.insert(0, PathBuf::from(path));
+        executables.splice(0..0, custom_maven_executable_candidates(Path::new(path)));
     }
     for executable in executables {
         if !seen_executables.insert(executable.clone()) {
@@ -561,6 +673,19 @@ fn maven_executable_candidates(project_root: Option<&Path>) -> Vec<PathBuf> {
         }
     }
     executables
+}
+
+fn custom_maven_executable_candidates(path: &Path) -> Vec<PathBuf> {
+    if path.is_file() {
+        return vec![path.to_path_buf()];
+    }
+    let bin = path.join("bin");
+    let mut candidates = ["mvn.cmd", "mvn.bat", "mvn.exe", "mvn"]
+        .into_iter()
+        .map(|name| bin.join(name))
+        .collect::<Vec<_>>();
+    candidates.push(path.to_path_buf());
+    candidates
 }
 
 pub(crate) fn probe_java_home(home: &Path) -> Option<JavaRuntime> {
@@ -682,6 +807,8 @@ fn resolve_maven_executable(
         let candidates = [
             path.clone(),
             path.join("bin").join("mvn.cmd"),
+            path.join("bin").join("mvn.bat"),
+            path.join("bin").join("mvn.exe"),
             path.join("bin").join("mvn"),
         ];
         if let Some(found) = candidates.into_iter().find(|candidate| candidate.is_file()) {
@@ -1174,6 +1301,54 @@ mod tests {
         let outside = std::env::temp_dir().join("lithe-run-outside.json");
         let result = validate_write_target(&root, &outside);
         assert!(result.is_err());
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn document_transaction_restores_the_first_file_when_the_second_write_fails() {
+        let root = temp_project();
+        let run = root.join(".lithe/run");
+        fs::create_dir_all(&run).unwrap();
+        let local = run.join("local.json");
+        let project = run.join("configurations.json");
+        fs::write(&local, b"old-local").unwrap();
+        fs::write(&project, b"old-project").unwrap();
+        let documents = vec![
+            (local.clone(), b"new-local".to_vec()),
+            (project.clone(), b"new-project".to_vec()),
+        ];
+        let mut writes = 0;
+        let result = write_document_transaction(&documents, |path, contents| {
+            writes += 1;
+            if writes == 2 {
+                return Err("injected second write failure".into());
+            }
+            atomic_write(path, contents)
+        });
+
+        assert_eq!(result.unwrap_err(), "injected second write failure");
+        assert_eq!(fs::read(&local).unwrap(), b"old-local");
+        assert_eq!(fs::read(&project).unwrap(), b"old-project");
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn custom_maven_home_discovers_its_bin_executable() {
+        let root = temp_project();
+        let home = root.join("apache-maven");
+        let executable = home.join("bin/mvn.cmd");
+        fs::create_dir_all(executable.parent().unwrap()).unwrap();
+        fs::write(&executable, "@echo off\n").unwrap();
+
+        let discovered = discover_toolchains_with_overrides(
+            Some(&root),
+            None,
+            Some(home.to_string_lossy().as_ref()),
+        );
+        assert!(discovered
+            .maven
+            .iter()
+            .any(|runtime| { Path::new(&runtime.executable_path) == normalize_path(&executable) }));
         fs::remove_dir_all(root).ok();
     }
 
