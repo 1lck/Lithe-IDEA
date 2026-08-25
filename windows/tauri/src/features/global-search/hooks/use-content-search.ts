@@ -15,7 +15,7 @@ import { CONTENT_SEARCH_PAGE_SIZE, SEARCH_DEBOUNCE_DELAY } from "../constants/li
 import { mergeSearchResults } from "../utils/content-search-results";
 import { createPathFilterPredicate } from "../utils/path-filters";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
-import type { ContentSearchOptions } from "../types/global-search.types";
+import { useGlobalSearchStore } from "../stores/global-search.store";
 
 export type { ContentSearchOptions } from "../types/global-search.types";
 
@@ -91,31 +91,31 @@ export const useContentSearch = () => {
     () => getNativeWorkspaceRootPaths(rootFolderPath, workspaceFolders),
     [rootFolderPath, workspaceFolders],
   );
-  const [query, setQuery] = useState("");
+  const searchSession = useGlobalSearchStore((state) => state);
+  const {
+    query,
+    results: rawResults,
+    error,
+    searchWarning,
+    nextFileOffset,
+    hasMoreResults,
+    searchedFiles,
+    searchableFiles,
+    isIndexing,
+    indexedFiles,
+    scannedFiles,
+    includeQuery,
+    excludeQuery,
+    searchOptions,
+    resultsSearchKey,
+    requestGeneration,
+    actions: searchActions,
+  } = searchSession;
   const [debouncedQuery] = useDebounce(query, SEARCH_DEBOUNCE_DELAY);
-  const [rawResults, setRawResults] = useState<FileSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [searchWarning, setSearchWarning] = useState<string | null>(null);
-  const [nextFileOffset, setNextFileOffset] = useState(0);
-  const [hasMoreResults, setHasMoreResults] = useState(false);
-  const [searchedFiles, setSearchedFiles] = useState(0);
-  const [searchableFiles, setSearchableFiles] = useState(0);
-  const [isIndexing, setIsIndexing] = useState(false);
-  const [indexedFiles, setIndexedFiles] = useState(0);
-  const [scannedFiles, setScannedFiles] = useState(0);
-  const [includeQuery, setIncludeQuery] = useState("");
-  const [excludeQuery, setExcludeQuery] = useState("");
   const [debouncedIncludeQuery] = useDebounce(includeQuery, SEARCH_DEBOUNCE_DELAY);
   const [debouncedExcludeQuery] = useDebounce(excludeQuery, SEARCH_DEBOUNCE_DELAY);
-  const [searchOptions, setSearchOptions] = useState<ContentSearchOptions>({
-    caseSensitive: false,
-    wholeWord: false,
-    useRegex: false,
-  });
-  const [resultsSearchKey, setResultsSearchKey] = useState<string | null>(null);
-  const requestIdRef = useRef(0);
   const providerFileCacheRef = useRef<ProviderFileCache | null>(null);
   const providerSearchSessionRef = useRef<ProviderSearchSession | null>(null);
   const availability = getSearchAvailability(rootFolderPath);
@@ -146,13 +146,6 @@ export const useContentSearch = () => {
     includeQuery !== debouncedIncludeQuery ||
     excludeQuery !== debouncedExcludeQuery ||
     (Boolean(debouncedQuery.trim()) && availability === "ready" && resultsSearchKey !== searchKey);
-
-  const setSearchOption = useCallback(
-    <K extends keyof ContentSearchOptions>(key: K, value: ContentSearchOptions[K]) => {
-      setSearchOptions((previous) => ({ ...previous, [key]: value }));
-    },
-    [],
-  );
 
   const getProviderFiles = useCallback(
     (rootPath: string, currentSearchKey: string, fileOffset: number) => {
@@ -189,7 +182,7 @@ export const useContentSearch = () => {
 
       if (canUseProviderContentSearch(searchRootPath)) {
         const files = await getProviderFiles(searchRootPath, searchKey, fileOffset);
-        if (currentRequestId !== requestIdRef.current) return null;
+        if (!searchActions.isCurrentRequest(currentRequestId)) return null;
 
         return searchProviderFilesContent({
           files,
@@ -201,7 +194,7 @@ export const useContentSearch = () => {
           contextLines: CONTEXT_LINES,
           includeQuery: debouncedIncludeQuery,
           excludeQuery: debouncedExcludeQuery,
-          isCancelled: () => currentRequestId !== requestIdRef.current,
+          isCancelled: () => !searchActions.isCurrentRequest(currentRequestId),
         });
       }
 
@@ -224,6 +217,7 @@ export const useContentSearch = () => {
       getProviderFiles,
       nativeRootPaths,
       rootFolderPath,
+      searchActions,
       searchKey,
       searchOptions,
     ],
@@ -240,9 +234,9 @@ export const useContentSearch = () => {
       let response: SearchFilesResponse | null = null;
       let nextOffset = fileOffset;
 
-      while (currentRequestId === requestIdRef.current) {
+      while (searchActions.isCurrentRequest(currentRequestId)) {
         const page = await requestSearchPage(nextOffset, currentRequestId);
-        if (!page || currentRequestId !== requestIdRef.current) return null;
+        if (!page || !searchActions.isCurrentRequest(currentRequestId)) return null;
         if (page.is_indexing) return page;
 
         const visibleResults = page.results.filter((result) =>
@@ -267,80 +261,63 @@ export const useContentSearch = () => {
 
       return null;
     },
-    [debouncedExcludeQuery, debouncedIncludeQuery, requestSearchPage, rootFolderPath],
+    [
+      debouncedExcludeQuery,
+      debouncedIncludeQuery,
+      requestSearchPage,
+      rootFolderPath,
+      searchActions,
+    ],
   );
 
-  const performSearch = useCallback(async () => {
-    const currentRequestId = ++requestIdRef.current;
-    const hasQuery = Boolean(debouncedQuery.trim());
+  const performSearch = useCallback(
+    async (force = false) => {
+      const hasQuery = Boolean(debouncedQuery.trim());
 
-    if (!hasQuery || availability !== "ready") {
-      setRawResults([]);
-      setIsSearching(false);
-      setIsLoadingMore(false);
-      setError(null);
-      setSearchWarning(null);
-      setNextFileOffset(0);
-      setHasMoreResults(false);
-      setSearchedFiles(0);
-      setSearchableFiles(0);
-      setIsIndexing(false);
-      setIndexedFiles(0);
-      setScannedFiles(0);
-      setResultsSearchKey(null);
-      return;
-    }
-
-    setIsSearching(true);
-    setIsLoadingMore(false);
-    setError(null);
-    setSearchWarning(null);
-    setRawResults([]);
-    setNextFileOffset(0);
-    setHasMoreResults(false);
-    setSearchedFiles(0);
-    setSearchableFiles(0);
-    setIsIndexing(false);
-
-    try {
-      const response = await requestVisibleSearchPage(0, currentRequestId);
-      if (!response || currentRequestId !== requestIdRef.current) return;
-
-      if (response.is_indexing) {
-        setIsIndexing(true);
-        setIndexedFiles(response.indexed_files);
-        setScannedFiles(response.indexed_files);
+      if (!hasQuery || availability !== "ready") {
+        searchActions.clearSearch();
+        setIsSearching(false);
+        setIsLoadingMore(false);
         return;
       }
 
-      setIndexedFiles(response.indexed_files);
-      setScannedFiles(response.indexed_files);
-      setRawResults(response.results);
-      setNextFileOffset(response.next_file_offset);
-      setHasMoreResults(response.has_more);
-      setSearchedFiles(response.searched_files);
-      setSearchableFiles(response.searchable_files);
-      setSearchWarning(
-        response.regex_fallback_error
-          ? "Invalid regular expression; showing literal matches"
-          : null,
-      );
-      setResultsSearchKey(searchKey);
-    } catch (searchError) {
-      if (currentRequestId !== requestIdRef.current) return;
-      console.error("Search error:", searchError);
-      setError(`Search failed: ${getErrorMessage(searchError)}`);
-      setRawResults([]);
-      setNextFileOffset(0);
-      setHasMoreResults(false);
-      setIsIndexing(false);
-      setResultsSearchKey(searchKey);
-    } finally {
-      if (currentRequestId === requestIdRef.current) {
-        setIsSearching(false);
+      if (!force && resultsSearchKey === searchKey) return;
+
+      const currentRequestId = searchActions.beginSearch();
+      setIsSearching(true);
+      setIsLoadingMore(false);
+
+      try {
+        const response = await requestVisibleSearchPage(0, currentRequestId);
+        if (!response || !searchActions.isCurrentRequest(currentRequestId)) return;
+
+        if (response.is_indexing) {
+          searchActions.setIndexProgress(true, response.indexed_files, response.indexed_files);
+          return;
+        }
+
+        searchActions.completeSearch(searchKey, response);
+      } catch (searchError) {
+        if (!searchActions.isCurrentRequest(currentRequestId)) return;
+        console.error("Search error:", searchError);
+        searchActions.failSearch(searchKey, `Search failed: ${getErrorMessage(searchError)}`);
+      } finally {
+        if (searchActions.isCurrentRequest(currentRequestId)) {
+          setIsSearching(false);
+        }
       }
-    }
-  }, [availability, debouncedQuery, requestVisibleSearchPage, searchKey]);
+    },
+    [
+      availability,
+      debouncedQuery,
+      requestVisibleSearchPage,
+      resultsSearchKey,
+      searchActions,
+      searchKey,
+    ],
+  );
+
+  const refreshSearch = useCallback(() => performSearch(true), [performSearch]);
 
   const loadMoreResults = useCallback(async () => {
     if (
@@ -354,43 +331,26 @@ export const useContentSearch = () => {
       return;
     }
 
-    const currentRequestId = requestIdRef.current;
+    const currentRequestId = requestGeneration;
     setIsLoadingMore(true);
-    setError(null);
+    searchActions.beginLoadMore();
 
     try {
       const response = await requestVisibleSearchPage(nextFileOffset, currentRequestId);
-      if (!response || currentRequestId !== requestIdRef.current) return;
+      if (!response || !searchActions.isCurrentRequest(currentRequestId)) return;
 
       if (response.is_indexing) {
-        setIsIndexing(true);
-        setIndexedFiles(response.indexed_files);
-        setScannedFiles(response.indexed_files);
+        searchActions.setIndexProgress(true, response.indexed_files, response.indexed_files);
         return;
       }
 
-      setIndexedFiles(response.indexed_files);
-      setScannedFiles(response.indexed_files);
-      setRawResults((previousResults) => mergeSearchResults(previousResults, response.results));
-      setNextFileOffset(response.next_file_offset);
-      setHasMoreResults(response.has_more);
-      setSearchedFiles((previous) =>
-        response.searchable_files > 0
-          ? Math.min(previous + response.searched_files, response.searchable_files)
-          : previous + response.searched_files,
-      );
-      setSearchableFiles(response.searchable_files);
-      setSearchWarning(
-        response.regex_fallback_error
-          ? "Invalid regular expression; showing literal matches"
-          : null,
-      );
+      searchActions.completeLoadMore(response);
     } catch (searchError) {
-      if (currentRequestId !== requestIdRef.current) return;
+      if (!searchActions.isCurrentRequest(currentRequestId)) return;
       console.error("Search error:", searchError);
-      setError(`Search failed: ${getErrorMessage(searchError)}`);
+      searchActions.failLoadMore(`Search failed: ${getErrorMessage(searchError)}`);
     } finally {
-      if (currentRequestId === requestIdRef.current) {
+      if (searchActions.isCurrentRequest(currentRequestId)) {
         setIsLoadingMore(false);
       }
     }
@@ -401,13 +361,15 @@ export const useContentSearch = () => {
     isLoadingMore,
     isSearching,
     nextFileOffset,
+    requestGeneration,
     requestVisibleSearchPage,
+    searchActions,
   ]);
 
   useEffect(() => {
     if (!isIndexing || !debouncedQuery.trim() || !canUseContentSearch(rootFolderPath)) return;
 
-    const pollingRequestId = requestIdRef.current;
+    const pollingRequestId = requestGeneration;
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let failureCount = 0;
@@ -415,11 +377,13 @@ export const useContentSearch = () => {
     const pollScanStatus = async () => {
       try {
         const status = await fffScanStatus(nativeRootPaths);
-        if (disposed || pollingRequestId !== requestIdRef.current) return;
+        if (disposed || !searchActions.isCurrentRequest(pollingRequestId)) return;
 
-        setIsIndexing(status.is_scanning);
-        setScannedFiles(status.scanned_files_count);
-        setIndexedFiles(status.indexed_files);
+        searchActions.setIndexProgress(
+          status.is_scanning,
+          status.indexed_files,
+          status.scanned_files_count,
+        );
         failureCount = 0;
 
         if (status.is_scanning) {
@@ -427,15 +391,16 @@ export const useContentSearch = () => {
           return;
         }
 
-        void performSearch();
+        void performSearch(true);
       } catch (statusError) {
-        if (disposed || pollingRequestId !== requestIdRef.current) return;
+        if (disposed || !searchActions.isCurrentRequest(pollingRequestId)) return;
         console.error("Search index status error:", statusError);
         failureCount++;
         if (failureCount >= 3) {
-          setIsIndexing(false);
-          setError(`Search indexing failed: ${getErrorMessage(statusError)}`);
-          setResultsSearchKey(searchKey);
+          searchActions.failIndexing(
+            searchKey,
+            `Search indexing failed: ${getErrorMessage(statusError)}`,
+          );
           return;
         }
         timer = setTimeout(pollScanStatus, INDEX_STATUS_POLL_DELAY);
@@ -448,7 +413,16 @@ export const useContentSearch = () => {
       disposed = true;
       if (timer) clearTimeout(timer);
     };
-  }, [debouncedQuery, isIndexing, nativeRootPaths, performSearch, rootFolderPath, searchKey]);
+  }, [
+    debouncedQuery,
+    isIndexing,
+    nativeRootPaths,
+    performSearch,
+    requestGeneration,
+    rootFolderPath,
+    searchActions,
+    searchKey,
+  ]);
 
   useEffect(() => {
     void performSearch();
@@ -463,7 +437,7 @@ export const useContentSearch = () => {
 
   return {
     query,
-    setQuery,
+    setQuery: searchActions.setQuery,
     debouncedQuery,
     results: rawResults,
     isSearching,
@@ -481,12 +455,12 @@ export const useContentSearch = () => {
     availability,
     searchKey,
     searchOptions,
-    setSearchOption,
+    setSearchOption: searchActions.setSearchOption,
     includeQuery,
-    setIncludeQuery,
+    setIncludeQuery: searchActions.setIncludeQuery,
     excludeQuery,
-    setExcludeQuery,
-    refreshSearch: performSearch,
+    setExcludeQuery: searchActions.setExcludeQuery,
+    refreshSearch,
     loadMoreResults,
   };
 };

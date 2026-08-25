@@ -212,7 +212,7 @@ jobs:
           claude_args: |
             --model "${{ env.LITHE_CLAUDE_MODEL }}"
             --effort "${{ env.LITHE_CLAUDE_EFFORT }}"
-            --max-turns 30
+            --max-turns 100
             --allowedTools "Bash(git status:*),Bash(git diff:*),Bash(git show:*),Bash(git log:*),Bash(git grep:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git cat-file:*),Read,Glob,Grep"
             --json-schema '{"type":"object","properties":{"review_markdown":{"type":"string"}},"required":["review_markdown"],"additionalProperties":false}'
 

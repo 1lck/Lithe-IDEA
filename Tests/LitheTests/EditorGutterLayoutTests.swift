@@ -1,8 +1,41 @@
+import AppKit
 import Testing
 @testable import Lithe
 
 @Suite("Editor gutter layout")
 struct EditorGutterLayoutTests {
+    @MainActor
+    @Test
+    func foldingLinesChangesTheOverlayTargetGeometry() throws {
+        let textView = CodeTextView(frame: NSRect(x: 0, y: 0, width: 480, height: 320))
+        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.string = "package demo\nimport one\nimport two\nclass Example {\n    void run() {}\n}"
+        let layoutManager = try #require(textView.layoutManager)
+        let textContainer = try #require(textView.textContainer)
+        layoutManager.delegate = textView
+        layoutManager.ensureLayout(for: textContainer)
+        let targetLocation = (textView.string as NSString).range(of: "void run").location
+        let targetGlyph = layoutManager.glyphIndexForCharacter(at: targetLocation)
+        let unfoldedRect = layoutManager.lineFragmentRect(forGlyphAt: targetGlyph, effectiveRange: nil)
+
+        let importsRange = (textView.string as NSString).range(of: "import one\nimport two\n")
+        let importFold = JavaFoldRegion(
+            kind: .imports,
+            startLine: 1,
+            endLine: 2,
+            hiddenRange: importsRange
+        )
+        textView.updateFolds(
+            regions: [importFold],
+            collapsedIDs: [importFold.id],
+            onToggle: { _ in }
+        )
+
+        let foldedTargetGlyph = layoutManager.glyphIndexForCharacter(at: targetLocation)
+        let foldedRect = layoutManager.lineFragmentRect(forGlyphAt: foldedTargetGlyph, effectiveRange: nil)
+        #expect(foldedRect.minY < unfoldedRect.minY)
+    }
+
     @Test
     func inlayLayoutChangesForceCodeVisionToReposition() {
         let plan = EditorOverlayUpdatePlan(

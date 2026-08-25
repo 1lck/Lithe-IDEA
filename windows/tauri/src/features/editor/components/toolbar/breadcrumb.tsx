@@ -1,7 +1,6 @@
 import { type ReactNode, useRef, useState } from "react";
 import { DotsThreeIcon as MoreHorizontal } from "@/ui/icons";
 import { useShallow } from "zustand/react/shallow";
-import { EditorStatusActions } from "@/features/editor/components/toolbar/editor-status-actions";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { getBufferById } from "@/features/editor/utils/buffer-index";
 import { useInlineEditToolbarStore } from "@/features/editor/stores/inline-edit-toolbar.store";
@@ -173,10 +172,6 @@ export default function Breadcrumb({
   const defaultActions =
     showDefaultActions && activeBuffer ? (
       <>
-        <EditorStatusActions
-          bufferId={resolvedBufferId ?? undefined}
-          editorViewKey={editorViewKey}
-        />
         <BreadcrumbActionButton
           ref={actionsButtonRef}
           onClick={() => setIsActionsMenuOpen((open) => !open)}

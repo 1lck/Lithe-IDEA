@@ -4,6 +4,7 @@ interface DefinitionHoverSchedulerOptions<Request, Result> {
   delayMilliseconds: number;
   keyOf: (request: Request) => string;
   resolve: (request: Request) => Promise<Result>;
+  onActiveRequest?: (request: Request) => void;
   onActiveResult: (request: Request, result: Result) => void;
   onError?: (error: unknown) => void;
   scheduleTimer?: (callback: () => void, delayMilliseconds: number) => TimerHandle;
@@ -26,6 +27,18 @@ interface InFlightRequest<Result> {
   promise: Promise<Result | undefined>;
 }
 
+interface ActiveRequest<Request> {
+  request: Request;
+  key: string;
+}
+
+interface ScheduledRequest {
+  handle: TimerHandle;
+  key: string;
+}
+
+type SchedulerLifecycle = { phase: "active" } | { phase: "disposed" };
+
 function deferred<Result>() {
   let resolve!: (result: Result | undefined) => void;
   const promise = new Promise<Result | undefined>((next) => {
@@ -38,6 +51,7 @@ export class DefinitionHoverScheduler<Request, Result> {
   private readonly delayMilliseconds: number;
   private readonly keyOf: (request: Request) => string;
   private readonly resolveRequest: (request: Request) => Promise<Result>;
+  private readonly onActiveRequest?: (request: Request) => void;
   private readonly onActiveResult: (request: Request, result: Result) => void;
   private readonly onError?: (error: unknown) => void;
   private readonly scheduleTimer: (callback: () => void, delayMilliseconds: number) => TimerHandle;
@@ -46,18 +60,17 @@ export class DefinitionHoverScheduler<Request, Result> {
   private readonly cache = new Map<string, Result>();
 
   private generation = 0;
-  private activeRequest: Request | null = null;
-  private activeKey: string | null = null;
-  private timer: TimerHandle | null = null;
-  private timerKey: string | null = null;
+  private lifecycle: SchedulerLifecycle = { phase: "active" };
+  private active: ActiveRequest<Request> | null = null;
+  private scheduled: ScheduledRequest | null = null;
   private queued: QueuedRequest<Request, Result> | null = null;
   private inFlight: InFlightRequest<Result> | null = null;
-  private disposed = false;
 
   constructor(options: DefinitionHoverSchedulerOptions<Request, Result>) {
     this.delayMilliseconds = options.delayMilliseconds;
     this.keyOf = options.keyOf;
     this.resolveRequest = options.resolve;
+    this.onActiveRequest = options.onActiveRequest;
     this.onActiveResult = options.onActiveResult;
     this.onError = options.onError;
     this.scheduleTimer =
@@ -68,11 +81,11 @@ export class DefinitionHoverScheduler<Request, Result> {
   }
 
   activate(request: Request): void {
-    if (this.disposed) return;
+    if (this.lifecycle.phase === "disposed") return;
 
     const key = this.keyOf(request);
-    this.activeRequest = request;
-    this.activeKey = key;
+    this.active = { request, key };
+    this.onActiveRequest?.(request);
 
     const cached = this.readCache(key);
     if (cached !== undefined) {
@@ -83,36 +96,41 @@ export class DefinitionHoverScheduler<Request, Result> {
     if (
       (this.inFlight?.key === key && this.inFlight.generation === this.generation) ||
       (this.queued?.key === key && this.queued.generation === this.generation) ||
-      this.timerKey === key
+      this.scheduled?.key === key
     ) {
       return;
     }
 
     this.cancelScheduled();
     const generation = this.generation;
-    this.timerKey = key;
-    this.timer = this.scheduleTimer(() => {
-      this.timer = null;
-      this.timerKey = null;
-      if (this.disposed || generation !== this.generation || this.activeKey !== key) return;
+    let handle!: TimerHandle;
+    handle = this.scheduleTimer(() => {
+      if (this.scheduled?.handle === handle) this.scheduled = null;
+      if (
+        this.lifecycle.phase === "disposed" ||
+        generation !== this.generation ||
+        this.active?.key !== key
+      ) {
+        return;
+      }
       this.queueRequest(request, "hover", generation);
     }, this.delayMilliseconds);
+    this.scheduled = { handle, key };
   }
 
   clearActive(): void {
-    this.activeRequest = null;
-    this.activeKey = null;
+    this.active = null;
     this.cancelScheduled();
   }
 
   resolveNow(request: Request): Promise<Result | undefined> {
-    if (this.disposed) return Promise.resolve(undefined);
+    if (this.lifecycle.phase === "disposed") return Promise.resolve(undefined);
 
     const key = this.keyOf(request);
     const cached = this.readCache(key);
     if (cached !== undefined) return Promise.resolve(cached);
 
-    if (this.timerKey === key) this.cancelScheduled();
+    if (this.scheduled?.key === key) this.cancelScheduled();
     if (this.inFlight?.key === key && this.inFlight.generation === this.generation) {
       return this.inFlight.promise;
     }
@@ -126,8 +144,7 @@ export class DefinitionHoverScheduler<Request, Result> {
 
   reset(): void {
     this.generation += 1;
-    this.activeRequest = null;
-    this.activeKey = null;
+    this.active = null;
     this.cancelScheduled();
     this.cache.clear();
     this.queued?.resolve(undefined);
@@ -135,9 +152,9 @@ export class DefinitionHoverScheduler<Request, Result> {
   }
 
   dispose(): void {
-    if (this.disposed) return;
+    if (this.lifecycle.phase === "disposed") return;
     this.reset();
-    this.disposed = true;
+    this.lifecycle = { phase: "disposed" };
   }
 
   private queueRequest(
@@ -164,13 +181,13 @@ export class DefinitionHoverScheduler<Request, Result> {
   }
 
   private pump(): void {
-    if (this.disposed || this.inFlight || !this.queued) return;
+    if (this.lifecycle.phase === "disposed" || this.inFlight || !this.queued) return;
 
     const queued = this.queued;
     this.queued = null;
     if (
       queued.generation !== this.generation ||
-      (queued.priority === "hover" && this.activeKey !== queued.key)
+      (queued.priority === "hover" && this.active?.key !== queued.key)
     ) {
       queued.resolve(undefined);
       this.pump();
@@ -180,7 +197,7 @@ export class DefinitionHoverScheduler<Request, Result> {
     const cached = this.readCache(queued.key);
     if (cached !== undefined) {
       queued.resolve(cached);
-      if (this.activeKey === queued.key) this.onActiveResult(queued.request, cached);
+      if (this.active?.key === queued.key) this.onActiveResult(queued.request, cached);
       this.pump();
       return;
     }
@@ -197,13 +214,17 @@ export class DefinitionHoverScheduler<Request, Result> {
 
     const work = requestPromise
       .then((result) => {
-        if (this.disposed || queued.generation !== this.generation) return undefined;
+        if (this.lifecycle.phase === "disposed" || queued.generation !== this.generation) {
+          return undefined;
+        }
         this.writeCache(queued.key, result);
-        if (this.activeKey === queued.key) this.onActiveResult(queued.request, result);
+        if (this.active?.key === queued.key) this.onActiveResult(queued.request, result);
         return result;
       })
       .catch((error) => {
-        if (!this.disposed && queued.generation === this.generation) this.onError?.(error);
+        if (this.lifecycle.phase === "active" && queued.generation === this.generation) {
+          this.onError?.(error);
+        }
         return undefined;
       })
       .finally(() => {
@@ -218,24 +239,22 @@ export class DefinitionHoverScheduler<Request, Result> {
 
   private scheduleActiveAfterCurrentWork(completedKey: string): void {
     if (
-      this.disposed ||
+      this.lifecycle.phase === "disposed" ||
       this.inFlight ||
       this.queued ||
-      this.timer ||
-      !this.activeRequest ||
-      !this.activeKey ||
-      this.activeKey === completedKey ||
-      this.cache.has(this.activeKey)
+      this.scheduled ||
+      !this.active ||
+      this.active.key === completedKey ||
+      this.cache.has(this.active.key)
     ) {
       return;
     }
-    this.activate(this.activeRequest);
+    this.activate(this.active.request);
   }
 
   private cancelScheduled(): void {
-    if (this.timer !== null) this.cancelTimer(this.timer);
-    this.timer = null;
-    this.timerKey = null;
+    if (this.scheduled) this.cancelTimer(this.scheduled.handle);
+    this.scheduled = null;
   }
 
   private readCache(key: string): Result | undefined {

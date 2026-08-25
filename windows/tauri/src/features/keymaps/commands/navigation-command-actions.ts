@@ -3,15 +3,14 @@ import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useEditorStateStore } from "@/features/editor/stores/state.store";
 import { useJumpListStore } from "@/features/editor/stores/jump-list.store";
 import { navigateToJumpEntry } from "@/features/editor/utils/jump-navigation";
-import {
-  calculateOffsetFromContentPosition,
-  getLineTextFromContent,
-  getLineTextsFromContent,
-} from "@/features/editor/utils/position";
+import { getLineTextFromContent, getLineTextsFromContent } from "@/features/editor/utils/position";
 import { useReferencesStore } from "@/features/references/stores/references.store";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
-import { languageIdForEditorFile } from "@/features/editor/lsp/built-in-language-support";
-import { languageServerUnavailableMessage } from "@/features/editor/lsp/language-server-navigation";
+import { languageDisplayName } from "@/features/editor/lsp/language-server-feedback";
+import {
+  languageServerNavigationBlock,
+  type LanguageServerNavigationBlock,
+} from "@/features/editor/lsp/language-server-navigation";
 import { resolveLombokAccessorDefinition } from "@/features/editor/lsp/lombok-accessor-navigation";
 import { openLspNavigationLocation } from "@/features/editor/lsp/navigation-target";
 import {
@@ -20,7 +19,12 @@ import {
   type LspDocumentTargetInput,
 } from "@/features/editor/lsp/lsp-document-target";
 import { definitionLocationsFromCommandArgs } from "@/features/editor/lsp/definition-navigation-hint";
+import { navigationLocationPresentation } from "@/features/editor/lsp/navigation-location-presentation";
 import type { LspDocumentAvailability, LspLocation } from "@/features/editor/lsp/lsp-client";
+import {
+  normalizeJavaImplementationMarkers,
+  type JavaImplementationMarker,
+} from "@/features/editor/lsp/java-navigation-models";
 import { useLspStore } from "@/features/editor/lsp/stores/lsp.store";
 import type { EditorContent } from "@/features/panes/types/pane-content.types";
 import { useSpringStore } from "@/features/spring/stores/spring.store";
@@ -53,12 +57,24 @@ type LspNavigationClient = {
     line: number,
     character: number,
   ) => Promise<LspLocation[] | null>;
+  resolveJavaNavigation: (
+    target: LspDocumentTargetInput,
+    marker: JavaImplementationMarker,
+  ) => Promise<LspLocation[]>;
   getDocumentAvailability: (
     target: LspDocumentTargetInput,
     feature?: string,
   ) => LspDocumentAvailability;
+  ensureDocumentReady: (
+    target: LspDocumentTargetInput,
+    workspacePath: string,
+    content: string,
+    feature?: string,
+  ) => Promise<LspDocumentAvailability>;
   getVirtualDocument: (filePath: string, virtualUri: string) => Promise<string | null>;
 };
+
+const NAVIGATION_LANGUAGE_SERVER_TOAST_ID = "navigation-language-server-readiness";
 
 const getCurrentTranslator = () =>
   createTranslator(useSettingsStore.getState().settings.displayLanguage);
@@ -97,26 +113,77 @@ function isCurrentNavigationTarget(
   );
 }
 
-function unavailableLanguageServerToast(
+function navigationBlockMessage(
+  block: LanguageServerNavigationBlock,
+  feature: string,
+): string {
+  const t = getCurrentTranslator();
+  const name = languageDisplayName(block.languageId);
+  switch (block.reason) {
+    case "preparing":
+      return t("lsp.preparingNamed", { name });
+    case "failed":
+      return t("lsp.failedNamed", { name });
+    case "unsupported":
+      return t("lsp.unsupportedFeatureNamed", {
+        name,
+        feature: translateNavigationLabel(feature),
+      });
+    case "notReady":
+      return t("lsp.notReadyNamed", { name });
+  }
+}
+
+function unavailableLanguageServerBlock(
   buffer: EditorContent,
   feature: string,
   lspClient: Pick<LspNavigationClient, "getDocumentAvailability">,
-): string | null {
+): LanguageServerNavigationBlock | null {
   const availability = lspClient.getDocumentAvailability(
     lspDocumentTargetForEditor(buffer),
     feature,
   );
   const globalStatus = useLspStore.getState().lspStatus;
-  return languageServerUnavailableMessage({
-    languageId: availability.languageId,
-    status: availability.hasSession ? availability.status : globalStatus.status,
-    lastError: availability.hasSession ? undefined : globalStatus.lastError,
-    hasSession: availability.hasSession,
-    ready: availability.ready,
-    featuresKnown: availability.featuresKnown,
-    supportsFeature: availability.supportsFeature,
-    featureLabel: feature,
+  return languageServerNavigationBlock({
+    availability,
+    fallbackStatus: globalStatus.status,
   });
+}
+
+async function ensureNavigationLanguageServer(
+  buffer: EditorContent,
+  feature: string,
+  lspClient: Pick<LspNavigationClient, "ensureDocumentReady" | "getDocumentAvailability">,
+): Promise<"proceed" | "deferred"> {
+  const block = unavailableLanguageServerBlock(buffer, feature, lspClient);
+  if (!block) return "proceed";
+
+  const workspacePath = useProjectStore.getState().rootFolderPath;
+  if (!workspacePath) {
+    toast.error(navigationBlockMessage(block, feature), {
+      id: NAVIGATION_LANGUAGE_SERVER_TOAST_ID,
+    });
+    return "deferred";
+  }
+
+  const target = lspDocumentTargetForEditor(buffer);
+  toast.info(
+    navigationBlockMessage(
+      { reason: "preparing", languageId: block.languageId },
+      feature,
+    ),
+    { id: NAVIGATION_LANGUAGE_SERVER_TOAST_ID, duration: 3500 },
+  );
+
+  // Attach the current buffer in the background, but this user action ends
+  // here. Continuing after readiness would move the editor long after the user
+  // has switched context.
+  void lspClient
+    .ensureDocumentReady(target, workspacePath, buffer.content, feature)
+    .catch((error) => {
+      logger.warn("LSPNavigation", "Background document attachment failed", error);
+    });
+  return "deferred";
 }
 
 function springLocationsForActiveFile(
@@ -168,7 +235,7 @@ async function presentSpringReferences(
   ]);
   const referencesActions = useReferencesStore.getState().actions;
   referencesActions.setIsLoading(true);
-  context.bufferStore.actions.openReferencesBuffer();
+  useUIState.getState().setIsReferencesPopoverVisible(true);
 
   const lineContextCache = new Map<string, Map<number, string>>();
   const referenceLinesByFile = new Map<string, Set<number>>();
@@ -216,6 +283,66 @@ async function presentSpringReferences(
   );
 }
 
+async function presentLspLocations(
+  locations: LspLocation[],
+  symbol: string,
+  sourceBuffer: EditorContent,
+): Promise<void> {
+  const [{ readFileContent }, { filePathFromUri }] = await Promise.all([
+    import("@/features/file-system/controllers/file-operations"),
+    import("@/features/editor/lsp/workspace-edit"),
+  ]);
+  const bufferStore = useBufferStore.getState();
+  const referenceLinesByFile = new Map<string, Set<number>>();
+
+  for (const location of locations) {
+    const filePath = filePathFromUri(location.uri);
+    const lines = referenceLinesByFile.get(filePath) ?? new Set<number>();
+    lines.add(location.range.start.line);
+    referenceLinesByFile.set(filePath, lines);
+  }
+
+  const lineContextEntries = await Promise.all(
+    Array.from(referenceLinesByFile, async ([filePath, lineNumbers]) => {
+      const openBuffer = bufferStore.buffers.find((candidate) => candidate.path === filePath);
+      let content =
+        openBuffer && "content" in openBuffer && typeof openBuffer.content === "string"
+          ? openBuffer.content
+          : "";
+      if (!content) {
+        try {
+          content = await readFileContent(filePath);
+        } catch {
+          content = "";
+        }
+      }
+      return [filePath, getLineTextsFromContent(content, lineNumbers)] as const;
+    }),
+  );
+  const lineContextCache = new Map(lineContextEntries);
+  const referencesActions = useReferencesStore.getState().actions;
+  referencesActions.setReferences(
+    {
+      symbol,
+      filePath: sourceBuffer.path,
+      line: useEditorStateStore.getState().cursorPosition.line,
+      column: useEditorStateStore.getState().cursorPosition.column,
+    },
+    locations.map((location) => {
+      const filePath = filePathFromUri(location.uri);
+      return {
+        filePath,
+        line: location.range.start.line,
+        column: location.range.start.character,
+        endLine: location.range.end.line,
+        endColumn: location.range.end.character,
+        lineContent: lineContextCache.get(filePath)?.get(location.range.start.line) ?? "",
+      };
+    }),
+  );
+  useUIState.getState().setIsReferencesPopoverVisible(true);
+}
+
 async function goToActiveLspLocation(
   label: string,
   resolveLocations: (
@@ -224,7 +351,13 @@ async function goToActiveLspLocation(
     line: number,
     character: number,
   ) => Promise<LspLocation[] | null>,
-  options: { requireLanguageServer?: boolean; feature?: string; commandArgs?: unknown } = {},
+  options: {
+    requireLanguageServer?: boolean;
+    feature?: string;
+    commandArgs?: unknown;
+    position?: { line: number; character: number };
+    showMultipleResults?: boolean;
+  } = {},
 ): Promise<void> {
   const [{ LspClient }, { readFileContent }] = await Promise.all([
     import("@/features/editor/lsp/lsp-client"),
@@ -236,34 +369,33 @@ async function goToActiveLspLocation(
   const activeBuffer = bufferStore.buffers.find((b) => b.id === bufferStore.activeBufferId);
   const editorState = useEditorStateStore.getState();
   const cursorPosition = editorState.cursorPosition;
+  const requestLine = options.position?.line ?? cursorPosition.line;
+  const requestCharacter = options.position?.character ?? cursorPosition.column;
 
   if (!activeBuffer || activeBuffer.type !== "editor" || !activeBuffer.path) return;
   const documentTarget = lspDocumentTargetForEditor(activeBuffer);
 
   if (options.requireLanguageServer !== false) {
-    const unavailable = unavailableLanguageServerToast(
+    const readiness = await ensureNavigationLanguageServer(
       activeBuffer,
       options.feature ?? label,
       lspClient,
     );
-    if (unavailable) {
-      toast.error(unavailable);
-      return;
-    }
+    if (readiness !== "proceed") return;
   }
 
   const preResolvedLocations =
     label === "definition"
       ? definitionLocationsFromCommandArgs(options.commandArgs, {
           filePath: activeBuffer.path,
-          line: cursorPosition.line,
-          character: cursorPosition.column,
+          line: requestLine,
+          character: requestCharacter,
         })
       : undefined;
   const hasPreResolvedLocations = preResolvedLocations !== undefined;
   let locations = hasPreResolvedLocations
     ? preResolvedLocations
-    : await resolveLocations(lspClient, documentTarget, cursorPosition.line, cursorPosition.column);
+    : await resolveLocations(lspClient, documentTarget, requestLine, requestCharacter);
 
   if (
     (!locations || locations.length === 0) &&
@@ -278,8 +410,8 @@ async function goToActiveLspLocation(
           source: activeBuffer.content,
           sourceFilePath: activeBuffer.path,
           workspaceRoot,
-          line: cursorPosition.line,
-          character: cursorPosition.column,
+          line: requestLine,
+          character: requestCharacter,
         });
         if (fallback) locations = [fallback];
       } catch (error) {
@@ -307,6 +439,11 @@ async function goToActiveLspLocation(
     scrollLeft: editorState.scrollLeft,
   });
 
+  if (navigationLocationPresentation(locations.length, options.showMultipleResults) === "list") {
+    await presentLspLocations(locations, translateNavigationLabel(label), activeBuffer);
+    return;
+  }
+
   const target = locations[0];
   const openedBufferId = await openLspNavigationLocation({
     location: target,
@@ -326,20 +463,19 @@ async function goToActiveLspLocation(
     return;
   }
 
+  // Position the cursor at the target symbol. The go-to-line event is handled
+  // per-editor with its own retry loop, which survives the async mount of a
+  // newly opened buffer where a one-shot editorAPI call would silently miss.
   setTimeout(() => {
-    const content = editorAPI.getContent();
-    const offset = calculateOffsetFromContentPosition(
-      content,
-      target.range.start.line,
-      target.range.start.character,
+    window.dispatchEvent(
+      new CustomEvent("menu-go-to-line", {
+        detail: {
+          line: target.range.start.line + 1,
+          column: target.range.start.character + 1,
+        },
+      }),
     );
-
-    editorAPI.setCursorPosition({
-      line: target.range.start.line,
-      column: target.range.start.character,
-      offset,
-    });
-  }, 100);
+  }, 50);
 }
 
 export async function promptGoToLine(): Promise<void> {
@@ -388,11 +524,45 @@ export async function goToDefinition(args?: unknown): Promise<void> {
   );
 }
 
-export async function goToImplementation(): Promise<void> {
+export async function goToImplementation(args?: unknown): Promise<void> {
+  const markerCandidate =
+    args && typeof args === "object" && "marker" in args
+      ? (args as { marker?: unknown }).marker
+      : undefined;
+  const marker = normalizeJavaImplementationMarkers([markerCandidate])[0];
+  const markerPosition = marker ? { line: marker.line, character: marker.utf16Column } : undefined;
   await goToActiveLspLocation(
     "implementation",
-    (lspClient, target, line, character) => lspClient.getImplementation(target, line, character),
-    { feature: "implementation" },
+    (lspClient, target, line, character) =>
+      marker
+        ? lspClient.resolveJavaNavigation(target, marker)
+        : lspClient.getImplementation(target, line, character),
+    { feature: "implementation", position: markerPosition, showMultipleResults: true },
+  );
+}
+
+/**
+ * Navigates from an `@Override` method to the declaration it implements in the
+ * parent interface or class. Uses the exact gutter marker position so the
+ * cursor-position race that causes "click does nothing" cannot occur.
+ *
+ * JDTLS resolves `textDocument/definition` on an overriding method name to the
+ * parent declaration, making this the correct LSP operation for "go to super".
+ */
+export async function goToSuperMethod(args?: unknown): Promise<void> {
+  const markerCandidate =
+    args && typeof args === "object" && "marker" in args
+      ? (args as { marker?: unknown }).marker
+      : undefined;
+  const marker = normalizeJavaImplementationMarkers([markerCandidate])[0];
+  const markerPosition = marker ? { line: marker.line, character: marker.utf16Column } : undefined;
+  await goToActiveLspLocation(
+    "definition",
+    (lspClient, target, line, character) =>
+      marker
+        ? lspClient.resolveJavaNavigation(target, marker)
+        : lspClient.getDefinition(target, line, character),
+    { feature: "definition", position: markerPosition, showMultipleResults: true },
   );
 }
 
@@ -438,9 +608,7 @@ export async function goToReferences(): Promise<void> {
 
   if (activeBuffer.type !== "editor") return;
   const documentTarget = lspDocumentTargetForEditor(activeBuffer);
-  const unavailable = unavailableLanguageServerToast(activeBuffer, "references", lspClient);
-  if (unavailable) {
-    toast.error(unavailable);
+  if ((await ensureNavigationLanguageServer(activeBuffer, "references", lspClient)) !== "proceed") {
     return;
   }
 
@@ -492,7 +660,7 @@ export async function goToReferences(): Promise<void> {
 
   const referencesActions = useReferencesStore.getState().actions;
   referencesActions.setIsLoading(true);
-  bufferStore.actions.openReferencesBuffer();
+  useUIState.getState().setIsReferencesPopoverVisible(true);
 
   const lineContextCache = new Map<string, Map<number, string>>();
   const referenceLinesByFile = new Map<string, Set<number>>();

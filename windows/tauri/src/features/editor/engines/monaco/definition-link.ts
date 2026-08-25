@@ -5,7 +5,11 @@ import {
   isEditorLspTargetSupported,
   type LspDocumentTarget,
 } from "@/features/editor/lsp/lsp-document-target";
-import { LspClient, type LspLocation } from "@/features/editor/lsp/lsp-client";
+import {
+  isDocumentFeatureAvailable,
+  LspClient,
+  type LspLocation,
+} from "@/features/editor/lsp/lsp-client";
 import { resolveLombokAccessorDefinition } from "@/features/editor/lsp/lombok-accessor-navigation";
 import { logger } from "@/features/editor/utils/logger";
 import {
@@ -55,8 +59,7 @@ export function registerMonacoDefinitionLinkGesture({
 }: MonacoDefinitionLinkOptions): MonacoDefinitionLinkGesture {
   const decorations = editor.createDecorationsCollection();
   const lspSupported = isEditorLspTargetSupported(documentTarget);
-  const gestureEnabled =
-    enabled && Boolean(documentTarget.filePath) && lspSupported;
+  const gestureEnabled = enabled && Boolean(documentTarget.filePath) && lspSupported;
   const isVirtualDocument = Boolean(documentTarget.documentUri);
   let hoveredPosition: Monaco.Position | null = null;
   let modifierTraceState: "idle" | "active" | "missing-target" = "idle";
@@ -87,6 +90,21 @@ export function registerMonacoDefinitionLinkGesture({
   const scheduler = new DefinitionHoverScheduler<DefinitionWordRequest, DefinitionWordResolution>({
     delayMilliseconds: DEFINITION_HOVER_DELAY_MILLISECONDS,
     keyOf: definitionWordKey,
+    onActiveRequest: (request) => {
+      // IDEA exposes link affordance immediately. Semantic resolution remains
+      // authoritative for click navigation and removes false candidates later.
+      decorations.set([
+        {
+          range: new MonacoRange(
+            request.lineNumber,
+            request.startColumn,
+            request.lineNumber,
+            request.endColumn,
+          ),
+          options: { inlineClassName: "goto-definition-link" },
+        },
+      ]);
+    },
     resolve: async (request) => {
       const line = request.lineNumber - 1;
       if (isVirtualDocument) {
@@ -94,8 +112,27 @@ export function registerMonacoDefinitionLinkGesture({
           language_id: model.getLanguageId(),
         });
       }
+      const lspClient = LspClient.getInstance();
+      if (
+        workspaceRoot &&
+        !isDocumentFeatureAvailable(
+          lspClient.getDocumentAvailability(documentTarget, "definition"),
+        )
+      ) {
+        try {
+          await lspClient.ensureDocumentReady(
+            documentTarget,
+            workspaceRoot,
+            model.getValue(),
+            "definition",
+          );
+        } catch (error) {
+          logger.error("DefinitionLink", "Could not prepare definition session:", error);
+          return { locations: [] };
+        }
+      }
       const locations =
-        (await LspClient.getInstance().getDefinition(documentTarget, line, request.character)) ?? [];
+        (await lspClient.getDefinition(documentTarget, line, request.character)) ?? [];
       if (isVirtualDocument) {
         frontendTrace("info", "definition-link", "resolve:end", {
           location_count: locations.length,
@@ -163,7 +200,6 @@ export function registerMonacoDefinitionLinkGesture({
       clearLink();
       return;
     }
-    decorations.clear();
     scheduler.activate(request);
   };
 

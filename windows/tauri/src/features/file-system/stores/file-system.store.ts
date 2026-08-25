@@ -1,4 +1,5 @@
 import { invoke } from "@/platform/tauri-core";
+import { LspOperationLog } from "@/platform/lsp-session-lifecycle";
 import { basename, dirname, extname, join } from "@tauri-apps/api/path";
 import { copyFile, readFile } from "@tauri-apps/plugin-fs";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
@@ -504,6 +505,51 @@ const initializeLocalWorkspaceInBackground = (
       ) {
         return;
       }
+
+      void (async () => {
+        const operation = new LspOperationLog("javaWorkspaceDetection", crypto.randomUUID(), {
+          workspaceId,
+          workspacePath: path,
+          languageId: "java",
+        });
+        try {
+          const projectFiles = await get().getAllProjectFiles();
+          if (
+            activationVersion !== workspaceServiceActivationVersion ||
+            workspaceRuntimeRegistry.getActiveWorkspaceId() !== workspaceId ||
+            get().rootFolderPath !== path
+          ) {
+            operation.cancelled("workspace-activation-superseded");
+            return;
+          }
+
+          const [{ getRelativePath, pathStartsWithRoot }, { resolveJavaWorkspacePolicy },
+            { getJavaWorkspaceLanguageServerOwner }] = await Promise.all([
+            import("@/utils/path-helpers"),
+            import("@/platform/java-workspace-policy"),
+            import("@/features/editor/lsp/java-workspace-language-server"),
+          ]);
+          const workspaceFiles = projectFiles.filter(
+            (entry) => !entry.isDir && pathStartsWithRoot(entry.path, path),
+          );
+          const relativeToAbsolute = new Map(
+            workspaceFiles.map((entry) => [getRelativePath(entry.path, path), entry.path]),
+          );
+          const policy = await resolveJavaWorkspacePolicy([...relativeToAbsolute.keys()]);
+          const javaFile = policy.representativeJavaPath
+            ? relativeToAbsolute.get(policy.representativeJavaPath)
+            : undefined;
+          if (!policy.shouldStart || !javaFile) {
+            operation.cancelled("java-workspace-not-detected");
+            return;
+          }
+
+          operation.succeeded({ representativeJavaPath: policy.representativeJavaPath });
+          await getJavaWorkspaceLanguageServerOwner().prewarm(path, javaFile);
+        } catch (error) {
+          operation.failed(error);
+        }
+      })();
 
       const gitState = gitStore.getState();
       if (
@@ -3016,6 +3062,13 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
             getScopedFileSystemStore(projectId).getState().persistActiveProjectSession(),
           dispose: async (path) => {
             cancelFileWatcherRefreshes(projectId);
+            const { cancelJavaWorkspaceChanges } = await import(
+              "@/features/editor/lsp/java-workspace-change-scheduler"
+            );
+            cancelJavaWorkspaceChanges(projectId);
+            const { getJavaWorkspaceLanguageServerOwner } =
+              await import("@/features/editor/lsp/java-workspace-language-server");
+            await getJavaWorkspaceLanguageServerOwner().stop(path);
             const terminalSessions = useTerminalStore.getStore(projectId).getState().sessions;
             await Promise.all(
               [...terminalSessions.values()].map(async (session) => {

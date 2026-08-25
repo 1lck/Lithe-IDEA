@@ -20,7 +20,6 @@ final class AppSettings: ObservableObject {
         static let hiddenFilePatterns = "settings.hiddenFilePatterns"
         static let gitSaveChangesPolicy = "settings.gitSaveChangesPolicy"
         static let projectOpenBehavior = "settings.projectOpenBehavior"
-        static let javaLanguageServerJDKPath = "settings.javaLanguageServerJDKPath"
         static let commitMessageAI = "settings.commitMessageAI"
         static let keyboardShortcutOverrides = "settings.keyboardShortcutOverrides"
         static let customLogDirectory = "settings.customLogDirectory"
@@ -87,9 +86,6 @@ final class AppSettings: ObservableObject {
     @Published var projectOpenBehavior: ProjectOpenBehavior {
         didSet { defaults.set(projectOpenBehavior.rawValue, forKey: Key.projectOpenBehavior) }
     }
-    @Published var javaLanguageServerJDKPath: String {
-        didSet { defaults.set(javaLanguageServerJDKPath, forKey: Key.javaLanguageServerJDKPath) }
-    }
     @Published var commitMessageAI: CommitMessageAISettings {
         didSet { saveCommitMessageAI() }
     }
@@ -148,7 +144,6 @@ final class AppSettings: ObservableObject {
         projectOpenBehavior = ProjectOpenBehavior(
             rawValue: defaults.string(forKey: Key.projectOpenBehavior) ?? ""
         ) ?? .ask
-        javaLanguageServerJDKPath = defaults.string(forKey: Key.javaLanguageServerJDKPath) ?? ""
         keyboardShortcutOverrides = Self.loadKeyboardShortcutOverrides(from: defaults)
         customLogDirectory = defaults.string(forKey: Key.customLogDirectory).flatMap { path in
             guard !path.isEmpty else { return nil }
@@ -348,7 +343,6 @@ final class AppSettings: ObservableObject {
         hiddenFilePatterns = FileVisibilityRules.default.hiddenFilePatterns
         gitSaveChangesPolicy = .stash
         projectOpenBehavior = .ask
-        javaLanguageServerJDKPath = ""
         commitMessageAI = .default
         setCustomLogDirectory(nil)
         clearWorkbenchBackgroundImage()

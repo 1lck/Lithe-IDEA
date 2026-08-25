@@ -1,12 +1,13 @@
 export function deferUntilAfterNextPaint(callback: () => void): () => void {
-  let cancelled = false;
+  let state: "scheduled" | "completed" | "cancelled" = "scheduled";
   let firstFrameId: number | undefined;
   let secondFrameId: number | undefined;
   let timeoutId: ReturnType<typeof globalThis.setTimeout> | undefined;
 
   const run = () => {
     timeoutId = globalThis.setTimeout(() => {
-      if (!cancelled) {
+      if (state === "scheduled") {
+        state = "completed";
         callback();
       }
     }, 0);
@@ -21,7 +22,8 @@ export function deferUntilAfterNextPaint(callback: () => void): () => void {
   }
 
   return () => {
-    cancelled = true;
+    if (state !== "scheduled") return;
+    state = "cancelled";
     if (firstFrameId !== undefined) {
       window.cancelAnimationFrame(firstFrameId);
     }

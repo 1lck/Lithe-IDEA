@@ -32,12 +32,13 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
 
     private var sessionID: String?
     private var pendingOperations: [String: PendingOperation] = [:]
+    private var documentVersions: [URL: Int] = [:]
     private var pollTask: Task<Void, Never>?
     private var state: LanguageServerSessionState = .stopped
     private var processID: Int32?
 
     package var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)?
-    package var onLog: ((LanguageServerLogLevel, String, String?) -> Void)?
+    package var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)?
     package var onStateChange: ((LanguageServerSessionState) -> Void)?
     package private(set) var features: LanguageServerFeatureSet = []
     package var onFeaturesChange: ((LanguageServerFeatureSet) -> Void)?
@@ -86,14 +87,15 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         }
     }
 
-    package func start(rootURL: URL) throws {
+    package func start(rootURL: URL, workspaceFingerprint: String?) throws {
         guard sessionID == nil else { return }
         let normalizedRoot = rootURL.standardizedFileURL
         transition(to: .startingProcess)
         onLog?(
             .info,
             "Starting language server",
-            ([executableURL.path] + arguments).joined(separator: " ")
+            ([executableURL.path] + arguments).joined(separator: " "),
+            nil
         )
         switch core.startLanguageServer(
             providerID: providerID,
@@ -105,6 +107,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             initializationOptions: initializationOptions,
             runtimeExecutableURL: runtimeExecutableURL,
             cacheDirectoryURL: cacheDirectoryURL,
+            workspaceFingerprint: workspaceFingerprint,
             initializeTimeout: initializeTimeout,
             requestTimeout: requestTimeout,
             shutdownTimeout: shutdownTimeout
@@ -118,11 +121,15 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             transition(to: Self.sessionState(payload.state) ?? .initializing)
             startPolling()
         case .failure(let error):
-            let failure = LanguageServerRuntimeSessionError.startFailed(error.userMessage)
-            let message = failure.localizedDescription
-            transition(to: .failed(exitCode: nil, message: message))
-            onLog?(.error, "Language server failed to start", message)
-            throw failure
+            let message = "Language server failed to start: \(error.userMessage)"
+            let failure = LanguageServerSessionFailure(
+                code: error.code,
+                stage: "processStart",
+                message: message
+            )
+            transition(to: .failed(failure))
+            onLog?(.error, "Language server failed to start", message, nil)
+            throw LanguageServerSessionStartError(failure: failure)
         }
     }
 
@@ -130,21 +137,126 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         guard let sessionID else { throw LanguageServerRuntimeSessionError.notReady }
         // Documents synced before initialize completes are held by the runtime and
         // opened once the server is ready, so there is nothing to queue here.
-        if case .failure(let error) = core.syncLanguageServerDocument(
+        switch core.syncLanguageServerDocument(
             sessionID: sessionID,
             fileURL: fileURL.standardizedFileURL,
             languageID: languageID,
             text: text
         ) {
+        case .success(let sync):
+            documentVersions[fileURL.standardizedFileURL] = sync.documentVersion
+        case .failure(let error):
+            throw LanguageServerRuntimeSessionError.documentSyncFailed(error.userMessage)
+        }
+    }
+
+    package func notifyWorkspaceFilesChanged(
+        _ changes: [LanguageServerWorkspaceFileChange]
+    ) throws {
+        guard let sessionID else { throw LanguageServerRuntimeSessionError.notReady }
+        guard !changes.isEmpty else { return }
+        switch core.notifyLanguageServerWorkspaceFilesChanged(
+            sessionID: sessionID,
+            changes: changes
+        ) {
+        case .success:
+            onLog?(
+                .info,
+                "Language server workspace changes sent",
+                "changeCount=\(changes.count)",
+                nil
+            )
+        case .failure(let error):
+            onLog?(
+                .error,
+                "Language server workspace changes failed",
+                error.userMessage,
+                nil
+            )
             throw LanguageServerRuntimeSessionError.documentSyncFailed(error.userMessage)
         }
     }
 
     package func closeDocument(_ fileURL: URL) {
         guard let sessionID else { return }
+        documentVersions[fileURL.standardizedFileURL] = nil
         // The runtime owns which documents are open, so closing one it does not
         // know about is simply not its business.
         core.closeLanguageServerDocument(sessionID: sessionID, fileURL: fileURL.standardizedFileURL)
+    }
+
+    package func javaNavigationMarkers(
+        fileURL: URL,
+        completion: @escaping (Result<[JavaNavigationMarker], Error>) -> Void
+    ) throws {
+        let normalizedURL = fileURL.standardizedFileURL
+        guard let sessionID, state == .ready else {
+            throw LanguageServerRuntimeSessionError.notReady
+        }
+        guard let documentVersion = documentVersions[normalizedURL] else {
+            throw LanguageServerRuntimeSessionError.documentNotSynchronized
+        }
+        switch core.requestJavaNavigationMarkers(
+            sessionID: sessionID,
+            fileURL: normalizedURL,
+            documentVersion: documentVersion
+        ) {
+        case .success(let operation):
+            registerPendingOperation(
+                operation,
+                name: "javaNavigationMarkers"
+            ) { [weak self] result in
+                guard let self else { return }
+                completion(result.flatMap {
+                    Self.decodeEventResult($0, as: JavaNavigationMarkersPayload.self)
+                }.flatMap { payload in
+                    guard self.documentVersions[normalizedURL] == payload.documentVersion else {
+                        return .failure(LanguageServerRuntimeSessionError.staleDocument)
+                    }
+                    return .success(payload.makeModels())
+                })
+            }
+        case .failure(let error):
+            throw LanguageServerRuntimeSessionError.requestRejected(error.userMessage)
+        }
+    }
+
+    package func resolveJavaNavigation(
+        fileURL: URL,
+        marker: JavaNavigationMarker,
+        completion: @escaping (Result<[LanguageServerLocation], Error>) -> Void
+    ) throws {
+        let normalizedURL = fileURL.standardizedFileURL
+        guard let sessionID, state == .ready else {
+            throw LanguageServerRuntimeSessionError.notReady
+        }
+        guard let documentVersion = documentVersions[normalizedURL] else {
+            throw LanguageServerRuntimeSessionError.documentNotSynchronized
+        }
+        switch core.resolveJavaNavigation(
+            sessionID: sessionID,
+            fileURL: normalizedURL,
+            marker: marker,
+            documentVersion: documentVersion
+        ) {
+        case .success(let operation):
+            registerPendingOperation(
+                operation,
+                name: "javaResolveNavigation"
+            ) { [weak self] result in
+                guard let self else { return }
+                completion(result.flatMap {
+                    Self.decodeEventResult($0, as: JavaNavigationLocationsPayload.self)
+                }.flatMap { payload in
+                    guard self.documentVersions[normalizedURL] == payload.documentVersion else {
+                        return .failure(LanguageServerRuntimeSessionError.staleDocument)
+                    }
+                    return .success(payload.makeModels())
+                })
+            }
+        case .failure(let error):
+            throw LanguageServerRuntimeSessionError.requestRejected(error.userMessage)
+        }
     }
 
     package func completions(
@@ -322,7 +434,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             command: command
         ) {
         case .success(let payload):
-            pendingOperations[payload.operationID] = PendingOperation(completion: completion)
+            registerPendingOperation(payload, name: operation.rawValue, completion: completion)
         case .failure(let error):
             throw LanguageServerRuntimeSessionError.requestRejected(error.userMessage)
         }
@@ -370,10 +482,23 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                 return false
             }
             if let error = event.error {
+                let outcome = PendingOperationOutcome(errorCode: error.code)
+                onLog?(
+                    outcome.logLevel,
+                    outcome.logMessage,
+                    "operation=\(pending.name); \(Self.message(for: error))",
+                    operationID
+                )
                 pending.completion(.failure(
                     LanguageServerRuntimeSessionError.serverError(Self.message(for: error))
                 ))
             } else {
+                onLog?(
+                    .info,
+                    "Language server request succeeded",
+                    "operation=\(pending.name)",
+                    operationID
+                )
                 pending.completion(.success(event))
             }
             return false
@@ -397,7 +522,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             return false
         case "log":
             let level = event.level.flatMap(LanguageServerLogLevel.init(rawValue:)) ?? .info
-            onLog?(level, event.message ?? "Language server", event.detail)
+            onLog?(level, event.message ?? "Language server", event.detail, event.operationID)
             return false
         default:
             return false
@@ -410,17 +535,17 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         case .failed:
             let failure = Self.failureState(from: event)
             transition(to: failure)
-            if case .failed(_, let message) = failure {
-                onLog?(.error, "Language server session failed", message)
+            if case .failed(let details) = failure {
+                onLog?(.error, "Language server session failed", details.message, nil)
             }
             return true
         case .stopped:
             transition(to: .stopped)
-            onLog?(.info, "Language server terminated", event.message)
+            onLog?(.info, "Language server terminated", event.message, nil)
             return true
         case .ready:
             transition(to: .ready)
-            onLog?(.info, "Language server is ready", serverInfo?.name)
+            onLog?(.info, "Language server is ready", serverInfo?.name, nil)
             return false
         default:
             transition(to: updated)
@@ -436,6 +561,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             core.destroyLanguageServer(sessionID: sessionID)
         }
         sessionID = nil
+        documentVersions = [:]
         if let processID {
             processRegistry?.unregisterLanguageServerProcess(pid: processID, moduleID: moduleID)
             self.processID = nil
@@ -453,9 +579,32 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     private func failPendingOperations(with error: Error) {
         let pending = pendingOperations
         pendingOperations = [:]
-        for operation in pending.values {
+        for (operationID, operation) in pending {
+            onLog?(
+                .warning,
+                "Language server request cancelled",
+                "operation=\(operation.name); \(error.localizedDescription)",
+                operationID
+            )
             operation.completion(.failure(error))
         }
+    }
+
+    private func registerPendingOperation(
+        _ operation: LanguageServerRuntimeOperation,
+        name: String,
+        completion: @escaping (Result<LanguageServerRuntimeEvent, Error>) -> Void
+    ) {
+        pendingOperations[operation.operationID] = PendingOperation(
+            name: name,
+            completion: completion
+        )
+        onLog?(
+            .info,
+            "Language server request started",
+            "operation=\(name)",
+            operation.operationID
+        )
     }
 
     private func transition(to updatedState: LanguageServerSessionState) {
@@ -493,7 +642,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         case "ready": .ready
         case "stopping": .stopping
         case "stopped": .stopped
-        case "failed": .failed(exitCode: nil, message: nil)
+        case "failed": .failed(LanguageServerSessionFailure())
         default: nil
         }
     }
@@ -502,12 +651,14 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         from event: LanguageServerRuntimeEvent
     ) -> LanguageServerSessionState {
         guard let error = event.error else {
-            return .failed(exitCode: nil, message: event.message)
+            return .failed(LanguageServerSessionFailure(message: event.message))
         }
-        return .failed(
+        return .failed(LanguageServerSessionFailure(
+            code: error.code,
+            stage: error.stage,
             exitCode: error.processExitCode.map(Int32.init),
             message: message(for: error)
-        )
+        ))
     }
 
     private static func message(for error: LanguageServerRuntimeError) -> String {
@@ -545,18 +696,52 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     }
 
     private struct PendingOperation {
+        let name: String
         let completion: (Result<LanguageServerRuntimeEvent, Error>) -> Void
+    }
+
+    /// Maps stable Rust runtime error codes to the terminal request state used
+    /// by host logs. This keeps timeout and cancellation semantics out of UI text.
+    private enum PendingOperationOutcome {
+        case failed
+        case cancelled
+        case timedOut
+
+        init(errorCode: String) {
+            switch errorCode {
+            case "requestCancelled": self = .cancelled
+            case "requestTimeout": self = .timedOut
+            default: self = .failed
+            }
+        }
+
+        var logLevel: LanguageServerLogLevel {
+            switch self {
+            case .failed, .timedOut: .error
+            case .cancelled: .warning
+            }
+        }
+
+        var logMessage: String {
+            switch self {
+            case .failed: "Language server request failed"
+            case .cancelled: "Language server request cancelled"
+            case .timedOut: "Language server request timed out"
+            }
+        }
     }
 
     private enum LanguageServerRuntimeSessionError: LocalizedError {
         case notReady
         case startFailed(String)
         case documentSyncFailed(String)
+        case documentNotSynchronized
         case requestRejected(String)
         case unsupportedNavigation(String)
         case missingResult
         case sessionStopped
         case serverError(String)
+        case staleDocument
 
         var errorDescription: String? {
             switch self {
@@ -566,6 +751,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                 "Language server failed to start: \(message)"
             case .documentSyncFailed(let message):
                 "Language server document sync failed: \(message)"
+            case .documentNotSynchronized:
+                "The document is not synchronized with the language server."
             case .requestRejected(let message):
                 "Language server request was rejected: \(message)"
             case .unsupportedNavigation(let method):
@@ -576,6 +763,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                 "Language server session stopped before the request completed."
             case .serverError(let message):
                 message
+            case .staleDocument:
+                "The document changed before Java navigation completed."
             }
         }
     }
@@ -693,6 +882,63 @@ private struct NavigationPayload: Decodable {
     }
 
     let locations: [Location]
+    func makeModels() -> [LanguageServerLocation] { locations.compactMap { $0.makeModel() } }
+}
+
+private struct JavaNavigationMarkersPayload: Decodable {
+    struct Marker: Decodable {
+        let line: Int
+        let utf16Column: Int
+        let implementationCount: Int
+        let direction: JavaNavigationDirection
+        let relation: JavaNavigationRelation
+
+        func makeModel() -> JavaNavigationMarker {
+            JavaNavigationMarker(
+                line: line,
+                utf16Column: utf16Column,
+                implementationCount: implementationCount,
+                direction: direction,
+                relation: relation
+            )
+        }
+    }
+
+    let documentVersion: Int
+    let markers: [Marker]
+
+    func makeModels() -> [JavaNavigationMarker] { markers.map { $0.makeModel() } }
+}
+
+private struct JavaNavigationLocationsPayload: Decodable {
+    struct Location: Decodable {
+        let uri: String?
+        let filePath: String?
+        let range: RangePayload
+        let isReadOnly: Bool
+        let displayPath: String?
+
+        func makeModel() -> LanguageServerLocation? {
+            let url: URL
+            if let filePath {
+                url = URL(fileURLWithPath: filePath)
+            } else if let uri, let virtualURL = URL(string: uri) {
+                url = virtualURL
+            } else {
+                return nil
+            }
+            return LanguageServerLocation(
+                url: url,
+                range: range.makeModel(),
+                isReadOnly: isReadOnly,
+                displayPath: displayPath
+            )
+        }
+    }
+
+    let documentVersion: Int
+    let locations: [Location]
+
     func makeModels() -> [LanguageServerLocation] { locations.compactMap { $0.makeModel() } }
 }
 

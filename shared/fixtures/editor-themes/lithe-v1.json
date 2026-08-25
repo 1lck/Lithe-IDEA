@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "id": "lithe",
+  "fallbacks": {
+    "annotation": "attribute",
+    "documentationComment": "comment",
+    "field": "property",
+    "functionCall": "function",
+    "functionDeclaration": "function",
+    "parameter": "variable",
+    "typeParameter": "type"
+  },
+  "appearances": {
+    "light": {
+      "attribute": "#a15c00",
+      "boolean": "#b83280",
+      "comment": "#68717d",
+      "constant": "#a15c00",
+      "function": "#14777d",
+      "invalid": "#cf3f4f",
+      "jsx": "#14777d",
+      "jsx-attribute": "#a15c00",
+      "keyword": "#b83280",
+      "null": "#7656a8",
+      "number": "#a15c00",
+      "operator": "#b83280",
+      "property": "#075e9e",
+      "punctuation": "#59636f",
+      "regex": "#287d3c",
+      "string": "#287d3c",
+      "tag": "#14777d",
+      "text": "#1f2328",
+      "type": "#4169a8",
+      "variable": "#7656a8"
+    },
+    "dark": {
+      "attribute": "#b3ae60",
+      "boolean": "#cf8e6d",
+      "comment": "#7a7e85",
+      "constant": "#c77dbb",
+      "function": "#56a8f5",
+      "invalid": "#db5c5c",
+      "jsx": "#d5b778",
+      "jsx-attribute": "#b3ae60",
+      "keyword": "#cf8e6d",
+      "null": "#cf8e6d",
+      "number": "#2aacb8",
+      "operator": "#bcbec4",
+      "property": "#c77dbb",
+      "punctuation": "#bcbec4",
+      "regex": "#6aab73",
+      "string": "#6aab73",
+      "tag": "#d5b778",
+      "text": "#dfe1e5",
+      "type": "#bcbec4",
+      "variable": "#bcbec4"
+    }
+  }
+}

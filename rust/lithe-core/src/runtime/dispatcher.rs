@@ -18,8 +18,8 @@ use crate::languages::{
     JavaServerPortRequest, JavaSourceDefinitionRequest, JavaStructureRequest, SpringIndexRequest,
 };
 use crate::project::{
-    self, FileReadRequest, FileWriteRequest, ReplacementPreviewRequest, SearchIndexRequest,
-    SearchIndexUpdateRequest, SearchRequest, WorkspaceSnapshotRequest,
+    self, DocumentLifecycleRequest, FileReadRequest, FileWriteRequest, ReplacementPreviewRequest,
+    SearchIndexRequest, SearchIndexUpdateRequest, SearchRequest, WorkspaceSnapshotRequest,
 };
 use crate::project::{
     HistoryContentRequest, HistoryDeleteRequest, HistoryEntriesRequest, HistoryRecordRequest,
@@ -336,6 +336,24 @@ fn execute(request: &str) -> CoreResponse {
             ),
             Err(error) => CoreResponse::failure(id, error),
         },
+        CoreCommand::DocumentLifecycle => {
+            match serde_json::from_value::<DocumentLifecycleRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid document lifecycle request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(project::decide_document_lifecycle)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("document lifecycle decision should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::HistoryRecord => {
             match serde_json::from_value::<HistoryRecordRequest>(parsed.payload)
                 .map_err(|error| {
@@ -557,6 +575,80 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspJdtWorkspaceKey => {
+            match serde_json::from_value::<crate::lsp::JdtWorkspaceKeyRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid JDT LS workspace-key request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .map(crate::lsp::resolve_workspace_key)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("JDT LS workspace key should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::JavaWorkspacePolicy => {
+            match serde_json::from_value::<crate::lsp::JavaWorkspacePolicyRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Java workspace-policy request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::java_workspace_policy)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Java workspace policy should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::JavaJdtCacheRetention => {
+            match serde_json::from_value::<crate::lsp::JdtCacheRetentionRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid JDT LS cache-retention request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::jdt_cache_retention)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("JDT LS cache retention should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::JavaJdtWorkspaceFingerprint => {
+            match serde_json::from_value::<crate::lsp::JdtWorkspaceFingerprintRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid JDT LS workspace-fingerprint request",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::lsp::jdt_workspace_fingerprint)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("JDT LS workspace fingerprint should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::LspStopServer => {
             match serde_json::from_value::<crate::lsp::SessionRequest>(parsed.payload)
                 .map_err(|error| {
@@ -590,6 +682,25 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspWorkspaceFilesChanged => {
+            match serde_json::from_value::<crate::lsp::WorkspaceFilesChangedRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid LSP workspace-files-changed request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::workspace_files_changed)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("LSP workspace-files-changed response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::LspCloseDocument => {
             match serde_json::from_value::<crate::lsp::CloseDocumentRequest>(parsed.payload)
                 .map_err(|error| {
@@ -619,6 +730,44 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Semantic LSP response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::JavaNavigationMarkers => {
+            match serde_json::from_value::<crate::lsp::JavaNavigationMarkersRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Java navigation-markers request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::java_navigation_markers)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Java navigation marker operation should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::JavaResolveNavigation => {
+            match serde_json::from_value::<crate::lsp::JavaResolveNavigationRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Java resolve-navigation request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::java_resolve_navigation)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Java navigation resolution operation should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

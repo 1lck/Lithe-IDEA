@@ -64,43 +64,40 @@ export function calculateDisplayNames(
     if (items.length === 1) {
       // Only one file with this name, just show the filename
       displayNames.set(items[0].buffer.id, fileName);
-    } else {
-      // Find the minimum number of segments needed to distinguish all files
-      let segmentsNeeded = 1;
-      let allDistinct = false;
+      continue;
+    }
 
-      while (!allDistinct && segmentsNeeded <= maxSegments) {
-        const displayStrings = new Set<string>();
-
-        for (const { segments } of items) {
-          const relevantSegments = segments.slice(-segmentsNeeded);
-          const displayPath = relevantSegments.join("/");
-          displayStrings.add(`${displayPath}/${fileName}`);
+    // Prefer a single distinguishing directory segment, IDE-style:
+    // "X.java · data-carrier-web" instead of a long "../a/b/c/X.java" chain.
+    // Java projects often share deep identical package paths across modules,
+    // which made the suffix-join approach degenerate into near-full paths.
+    let resolved = false;
+    for (let depth = 1; depth <= maxSegments && !resolved; depth++) {
+      const seen = new Set<string>();
+      let allDistinct = true;
+      for (const { segments } of items) {
+        const segment = segments[segments.length - depth] ?? "";
+        if (seen.has(segment)) {
+          allDistinct = false;
+          break;
         }
-
-        if (displayStrings.size === items.length) {
-          // All distinct!
-          allDistinct = true;
-          for (const { buffer, segments } of items) {
-            const relevantSegments = segments.slice(-segmentsNeeded);
-            const displayPath =
-              relevantSegments.length > 0
-                ? `../${relevantSegments.join("/")}/${fileName}`
-                : fileName;
-            displayNames.set(buffer.id, displayPath);
-          }
-        } else {
-          segmentsNeeded++;
-        }
+        seen.add(segment);
       }
-
-      // Fallback: if still not distinct, use full relative path
-      if (!allDistinct) {
+      if (allDistinct) {
         for (const { buffer, segments } of items) {
-          const displayPath =
-            segments.length > 0 ? `../${segments.join("/")}/${fileName}` : fileName;
-          displayNames.set(buffer.id, displayPath);
+          const segment = segments[segments.length - depth];
+          displayNames.set(buffer.id, segment ? `${fileName} · ${segment}` : fileName);
         }
+        resolved = true;
+      }
+    }
+
+    // Fallback: no single directory level tells them apart (e.g. a/p, b/p,
+    // a/q). Use the shortest distinct suffix, capped to avoid huge tab labels.
+    if (!resolved) {
+      for (const { buffer, segments } of items) {
+        const suffix = segments.slice(-2).join("/");
+        displayNames.set(buffer.id, suffix ? `${fileName} · ${suffix}` : fileName);
       }
     }
   }

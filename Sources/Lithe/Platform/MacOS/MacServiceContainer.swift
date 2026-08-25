@@ -217,23 +217,27 @@ final class MacServiceContainer {
                         commandRunner: processRunner,
                         settingsStore: MacLanguageToolSettingsStore(store: store)
                     )
+                    let languageServerCacheDirectory = fileStorage.cacheDirectory()
+                        .appendingPathComponent("Lithe/language-servers", isDirectory: true)
+                    let jdtWorkspaceState = MacJdtWorkspaceState(
+                        core: rustCore,
+                        cacheDirectoryURL: languageServerCacheDirectory
+                    )
                     let runtimeFactory = StdioLanguageProviderRuntimeFactory(
                         runtimeService: runtimeService,
                         languageServerCore: rustCore,
                         languageServerExecutableResolver: { tools.executableURL(for: $0) },
                         languageServerRuntimeResolver: { descriptor in
                             guard descriptor.id == "java" else { return .notRequired }
-                            guard let executableURL = runtimeService.javaLanguageServerExecutableURL(
-                                overridePath: settings.javaLanguageServerJDKPath
-                            ) else {
+                            guard let executableURL = runtimeService.javaLanguageServerExecutableURL() else {
                                 return .unavailable(
-                                    "JDTLS requires JDK 17 or newer. Configure a compatible JDK in Language Server settings."
+                                    runtimeService.javaLanguageServerRuntimeFailureMessage()
+                                        ?? "The bundled Temurin JDK 21 is not prepared."
                                 )
                             }
                             return .available(executableURL)
                         },
-                        languageServerCacheDirectory: fileStorage.cacheDirectory()
-                            .appendingPathComponent("Lithe/language-servers", isDirectory: true),
+                        languageServerCacheDirectory: languageServerCacheDirectory,
                         processRegistry: processRegistry
                     )
                     let runtimes = languagePackDefinitions.packs
@@ -251,7 +255,30 @@ final class MacServiceContainer {
                         runtimes: registry.toolingRuntimes,
                         runtimeFactory: runtimeFactory,
                         builtinCore: rustCore,
-                        extensionRequiredProviderIDs: pluginLanguageIDs
+                        extensionRequiredProviderIDs: pluginLanguageIDs,
+                        workspaceFingerprintProvider: { descriptor, workspaceRootURL in
+                            guard descriptor.id == "java" else { return nil }
+                            return try jdtWorkspaceState.fingerprint(
+                                at: workspaceRootURL,
+                                languageServerExecutableURL: tools.executableURL(for: descriptor)
+                            )
+                        },
+                        workspaceStateResetter: { descriptor, workspaceRootURL, fingerprint in
+                            guard descriptor.id == "java" else {
+                                throw CocoaError(.featureUnsupported)
+                            }
+                            try jdtWorkspaceState.clearIndex(
+                                at: workspaceRootURL,
+                                workspaceFingerprint: fingerprint
+                            )
+                        },
+                        workspaceStateCleaner: { descriptor, workspaceRootURL, fingerprint in
+                            guard descriptor.id == "java" else { return 0 }
+                            return try jdtWorkspaceState.pruneExpiredCaches(
+                                at: workspaceRootURL,
+                                workspaceFingerprint: fingerprint
+                            ).removedWorkspaceKeys.count
+                        }
                     )
                     let graph = LanguageIntelligenceFeatureGraph(
                         sessions: sessions,
@@ -446,6 +473,7 @@ final class MacServiceContainer {
             languageProviderCatalogSource: languageProviderCatalogSource,
             languageProviderCatalogSnapshot: languageProviderCatalogSnapshot,
             workspaceOperations: workspaceOperations,
+            documentLifecycleDecider: RustDocumentLifecycleDecider(core: rustCore),
             javaMavenOperations: javaMavenOperations,
             markdownRenderer: markdownRenderer,
             markdownImageImporter: markdownImageImporter,

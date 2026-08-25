@@ -8,9 +8,21 @@ enum SyntaxHighlightingColorRole: String, CaseIterable {
     case annotation
     case type
     case property
+    case boolean
+    case constant
+    case documentationComment
+    case field
+    case functionCall
+    case functionDeclaration
+    case null
     case number
+    case `operator`
+    case parameter
+    case punctuation
     case string
     case comment
+    case typeParameter
+    case variable
 }
 
 /// A color reference shared by both appearances or split into light and dark values.
@@ -47,9 +59,21 @@ struct SyntaxHighlightingColorOverrides: Decodable, Equatable {
     let annotation: SyntaxHighlightingColorValue?
     let type: SyntaxHighlightingColorValue?
     let property: SyntaxHighlightingColorValue?
+    let boolean: SyntaxHighlightingColorValue?
+    let constant: SyntaxHighlightingColorValue?
+    let documentationComment: SyntaxHighlightingColorValue?
+    let field: SyntaxHighlightingColorValue?
+    let functionCall: SyntaxHighlightingColorValue?
+    let functionDeclaration: SyntaxHighlightingColorValue?
+    let null: SyntaxHighlightingColorValue?
     let number: SyntaxHighlightingColorValue?
+    let `operator`: SyntaxHighlightingColorValue?
+    let parameter: SyntaxHighlightingColorValue?
+    let punctuation: SyntaxHighlightingColorValue?
     let string: SyntaxHighlightingColorValue?
     let comment: SyntaxHighlightingColorValue?
+    let typeParameter: SyntaxHighlightingColorValue?
+    let variable: SyntaxHighlightingColorValue?
 
     init(
         text: SyntaxHighlightingColorValue? = nil,
@@ -57,18 +81,42 @@ struct SyntaxHighlightingColorOverrides: Decodable, Equatable {
         annotation: SyntaxHighlightingColorValue? = nil,
         type: SyntaxHighlightingColorValue? = nil,
         property: SyntaxHighlightingColorValue? = nil,
+        boolean: SyntaxHighlightingColorValue? = nil,
+        constant: SyntaxHighlightingColorValue? = nil,
+        documentationComment: SyntaxHighlightingColorValue? = nil,
+        field: SyntaxHighlightingColorValue? = nil,
+        functionCall: SyntaxHighlightingColorValue? = nil,
+        functionDeclaration: SyntaxHighlightingColorValue? = nil,
+        null: SyntaxHighlightingColorValue? = nil,
         number: SyntaxHighlightingColorValue? = nil,
+        operator: SyntaxHighlightingColorValue? = nil,
+        parameter: SyntaxHighlightingColorValue? = nil,
+        punctuation: SyntaxHighlightingColorValue? = nil,
         string: SyntaxHighlightingColorValue? = nil,
-        comment: SyntaxHighlightingColorValue? = nil
+        comment: SyntaxHighlightingColorValue? = nil,
+        typeParameter: SyntaxHighlightingColorValue? = nil,
+        variable: SyntaxHighlightingColorValue? = nil
     ) {
         self.text = text
         self.keyword = keyword
         self.annotation = annotation
         self.type = type
         self.property = property
+        self.boolean = boolean
+        self.constant = constant
+        self.documentationComment = documentationComment
+        self.field = field
+        self.functionCall = functionCall
+        self.functionDeclaration = functionDeclaration
+        self.null = null
         self.number = number
+        self.operator = `operator`
+        self.parameter = parameter
+        self.punctuation = punctuation
         self.string = string
         self.comment = comment
+        self.typeParameter = typeParameter
+        self.variable = variable
     }
 
     func value(for role: SyntaxHighlightingColorRole) -> SyntaxHighlightingColorValue? {
@@ -78,9 +126,21 @@ struct SyntaxHighlightingColorOverrides: Decodable, Equatable {
         case .annotation: annotation
         case .type: type
         case .property: property
+        case .boolean: boolean
+        case .constant: constant
+        case .documentationComment: documentationComment
+        case .field: field
+        case .functionCall: functionCall
+        case .functionDeclaration: functionDeclaration
+        case .null: null
         case .number: number
+        case .operator: `operator`
+        case .parameter: parameter
+        case .punctuation: punctuation
         case .string: string
         case .comment: comment
+        case .typeParameter: typeParameter
+        case .variable: variable
         }
     }
 }
@@ -176,9 +236,21 @@ struct SyntaxHighlightingPalette {
     let annotation: NSColor
     let type: NSColor
     let property: NSColor
+    let boolean: NSColor
+    let constant: NSColor
+    let documentationComment: NSColor
+    let field: NSColor
+    let functionCall: NSColor
+    let functionDeclaration: NSColor
+    let null: NSColor
     let number: NSColor
+    let `operator`: NSColor
+    let parameter: NSColor
+    let punctuation: NSColor
     let string: NSColor
     let comment: NSColor
+    let typeParameter: NSColor
+    let variable: NSColor
 
     init(
         base: CodeEditorPalette,
@@ -193,6 +265,43 @@ struct SyntaxHighlightingPalette {
         number = Self.resolve(.number, base: base, defaults: defaults, overrides: overrides) ?? base.number
         string = Self.resolve(.string, base: base, defaults: defaults, overrides: overrides) ?? base.string
         comment = Self.resolve(.comment, base: base, defaults: defaults, overrides: overrides) ?? base.comment
+        boolean = Self.resolve(.boolean, base: base, defaults: defaults, overrides: overrides) ?? keyword
+        constant = Self.resolve(.constant, base: base, defaults: defaults, overrides: overrides) ?? property
+        documentationComment = Self.resolve(.documentationComment, base: base, defaults: defaults, overrides: overrides) ?? comment
+        field = Self.resolve(.field, base: base, defaults: defaults, overrides: overrides) ?? property
+        functionCall = Self.resolve(.functionCall, base: base, defaults: defaults, overrides: overrides) ?? type
+        functionDeclaration = Self.resolve(.functionDeclaration, base: base, defaults: defaults, overrides: overrides) ?? functionCall
+        null = Self.resolve(.null, base: base, defaults: defaults, overrides: overrides) ?? keyword
+        `operator` = Self.resolve(.operator, base: base, defaults: defaults, overrides: overrides) ?? text
+        parameter = Self.resolve(.parameter, base: base, defaults: defaults, overrides: overrides) ?? text
+        punctuation = Self.resolve(.punctuation, base: base, defaults: defaults, overrides: overrides) ?? text
+        typeParameter = Self.resolve(.typeParameter, base: base, defaults: defaults, overrides: overrides) ?? type
+        variable = Self.resolve(.variable, base: base, defaults: defaults, overrides: overrides) ?? text
+    }
+
+    func color(for role: SyntaxHighlightingColorRole) -> NSColor {
+        switch role {
+        case .text: text
+        case .keyword: keyword
+        case .annotation: annotation
+        case .type: type
+        case .property: property
+        case .boolean: boolean
+        case .constant: constant
+        case .documentationComment: documentationComment
+        case .field: field
+        case .functionCall: functionCall
+        case .functionDeclaration: functionDeclaration
+        case .null: null
+        case .number: number
+        case .operator: `operator`
+        case .parameter: parameter
+        case .punctuation: punctuation
+        case .string: string
+        case .comment: comment
+        case .typeParameter: typeParameter
+        case .variable: variable
+        }
     }
 
     private static func resolve(

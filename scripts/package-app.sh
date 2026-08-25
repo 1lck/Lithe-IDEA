@@ -22,6 +22,7 @@ esac
 
 cd "$ROOT_DIR"
 JDTLS_ROOT=$("$ROOT_DIR/scripts/prepare-jdtls.sh")
+JDK_ROOT=$("$ROOT_DIR/scripts/prepare-jdk.sh")
 if [[ "$ARCH" == "universal" ]]; then
     scripts/build-macos.sh --configuration release --triple "$ARM64_TRIPLE"
     scripts/build-macos.sh --configuration release --triple "$X86_64_TRIPLE"
@@ -93,6 +94,7 @@ fi
 cp -R "$resource_bundle" "$APP_DIR/Contents/Resources/Lithe_Lithe.bundle"
 mkdir -p "$APP_DIR/Contents/Resources/LanguageServers"
 cp -R "$JDTLS_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdtls"
+cp -R "$JDK_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdk"
 
 OFFICIAL_PLUGIN_DESTINATION="$APP_DIR/Contents/Resources/OfficialPlugins"
 mkdir -p "$OFFICIAL_PLUGIN_DESTINATION"

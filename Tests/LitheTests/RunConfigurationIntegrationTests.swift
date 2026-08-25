@@ -1242,12 +1242,12 @@ struct RunConfigurationIntegrationTests {
 
         #expect(manager.activeLanguageServerIDs.isEmpty)
         #expect(manager.languageServerFeatures["swift"] == nil)
-        guard case .failed(let exitCode, let message)? = manager.languageServerStates["swift"] else {
+        guard case .failed(let failure)? = manager.languageServerStates["swift"] else {
             Issue.record("Expected the Swift language server to fail after process termination")
             return
         }
-        #expect(exitCode == 1)
-        #expect(message?.contains("exit code 1") == true)
+        #expect(failure.exitCode == 1)
+        #expect(failure.message?.contains("exit code 1") == true)
     }
 
     @Test
@@ -1302,11 +1302,11 @@ struct RunConfigurationIntegrationTests {
         })
 
         #expect(harness.manager.activeLanguageServerIDs.isEmpty)
-        guard case .failed(_, let message)? = harness.manager.languageServerStates["swift"] else {
+        guard case .failed(let failure)? = harness.manager.languageServerStates["swift"] else {
             Issue.record("Expected initialize error to fail the language server")
             return
         }
-        #expect(message?.contains("initialize failed") == true)
+        #expect(failure.message?.contains("initialize failed") == true)
         #expect(harness.core.destroyedSessionIDs.count == 1)
     }
 
@@ -1329,11 +1329,11 @@ struct RunConfigurationIntegrationTests {
         })
 
         #expect(harness.manager.activeLanguageServerIDs.isEmpty)
-        guard case .failed(_, let message)? = harness.manager.languageServerStates["swift"] else {
+        guard case .failed(let failure)? = harness.manager.languageServerStates["swift"] else {
             Issue.record("Expected invalid initialize result to fail the language server")
             return
         }
-        #expect(message?.contains("invalid result") == true)
+        #expect(failure.message?.contains("invalid result") == true)
     }
 
     @Test
@@ -1363,11 +1363,11 @@ struct RunConfigurationIntegrationTests {
 
         #expect(didFail)
         #expect(harness.manager.activeLanguageServerIDs.isEmpty)
-        guard case .failed(_, let message)? = harness.manager.languageServerStates["swift"] else {
+        guard case .failed(let failure)? = harness.manager.languageServerStates["swift"] else {
             Issue.record("Expected initialize timeout to fail the language server")
             return
         }
-        #expect(message?.contains("initialize timed out") == true)
+        #expect(failure.message?.contains("initialize timed out") == true)
     }
 
     @Test
@@ -1417,6 +1417,17 @@ struct RunConfigurationIntegrationTests {
         }
         #expect(error.localizedDescription.contains("exit code 9"))
         #expect(harness.manager.activeLanguageServerIDs.isEmpty)
+        let operationID = try #require(
+            harness.core.requestCalls.last(where: { $0.operation == .completion })?.operationID
+        )
+        #expect(harness.manager.languageServerLogs.contains {
+            $0.operationID == operationID
+                && $0.message == "Language server request started"
+        })
+        #expect(harness.manager.languageServerLogs.contains {
+            $0.operationID == operationID
+                && $0.message == "Language server request failed"
+        })
     }
 
     @Test
@@ -1443,7 +1454,7 @@ struct RunConfigurationIntegrationTests {
 
         harness.core.enqueueRequestFailure(
             operation: .completion,
-            code: "requestTimedOut",
+            code: "requestTimeout",
             message: "Language-server request timed out"
         )
 
@@ -1459,6 +1470,58 @@ struct RunConfigurationIntegrationTests {
         #expect(error.localizedDescription.contains("timed out"))
         #expect(harness.core.cancelCalls.isEmpty)
         #expect(harness.manager.languageServerStates["swift"] == .ready)
+        let operationID = try #require(
+            harness.core.requestCalls.last(where: { $0.operation == .completion })?.operationID
+        )
+        #expect(harness.manager.languageServerLogs.contains {
+            $0.operationID == operationID
+                && $0.message == "Language server request started"
+        })
+        #expect(harness.manager.languageServerLogs.contains {
+            $0.operationID == operationID
+                && $0.message == "Language server request timed out"
+        })
+    }
+
+    @Test
+    func cancelledRequestKeepsItsCoreOperationIDInLifecycleLogs() async throws {
+        let harness = makeLanguageServerHarness()
+        try harness.manager.synchronizeLanguageServer(
+            for: harness.source,
+            text: "struct App { let title = 1 }\n",
+            rootURL: harness.root
+        )
+        harness.core.enqueueReady()
+        #expect(await Self.waitForMainActorCondition {
+            harness.manager.languageServerStates["swift"] == .ready
+        })
+
+        var completionResult: Result<[LanguageServerCompletionItem], Error>?
+        try harness.manager.completions(
+            fileURL: harness.source,
+            text: "struct App { let ti = 1 }\n",
+            position: LanguageServerPosition(line: 0, utf16Column: 19),
+            rootURL: harness.root
+        ) { completionResult = $0 }
+        let operationID = try #require(
+            harness.core.requestCalls.last(where: { $0.operation == .completion })?.operationID
+        )
+
+        harness.core.enqueueRequestFailure(
+            operation: .completion,
+            code: "requestCancelled",
+            message: "Language-server request was cancelled"
+        )
+        #expect(await Self.waitForMainActorCondition { completionResult != nil })
+
+        #expect(harness.manager.languageServerLogs.contains {
+            $0.operationID == operationID
+                && $0.message == "Language server request started"
+        })
+        #expect(harness.manager.languageServerLogs.contains {
+            $0.operationID == operationID
+                && $0.message == "Language server request cancelled"
+        })
     }
 
     @Test
@@ -1481,11 +1544,11 @@ struct RunConfigurationIntegrationTests {
         })
 
         #expect(harness.manager.activeLanguageServerIDs.isEmpty)
-        guard case .failed(_, let message)? = harness.manager.languageServerStates["swift"] else {
+        guard case .failed(let failure)? = harness.manager.languageServerStates["swift"] else {
             Issue.record("Expected didOpen transport failure to fail the session")
             return
         }
-        #expect(message?.contains("transport failed") == true)
+        #expect(failure.message?.contains("transport failed") == true)
 
         try harness.manager.synchronizeLanguageServer(
             for: harness.source,
@@ -1707,6 +1770,17 @@ struct RunConfigurationIntegrationTests {
         ])
         #expect(await Self.waitForMainActorCondition { completionsResult != nil })
         #expect(try completionsResult?.get().first?.label == "title")
+        let completionOperationID = try #require(
+            core.requestCalls.last(where: { $0.operation == .completion })?.operationID
+        )
+        #expect(manager.languageServerLogs.contains {
+            $0.operationID == completionOperationID
+                && $0.message == "Language server request started"
+        })
+        #expect(manager.languageServerLogs.contains {
+            $0.operationID == completionOperationID
+                && $0.message == "Language server request succeeded"
+        })
 
         var completionResolveResult: Result<LanguageServerCompletionItem, Error>?
         try manager.resolveCompletion(
@@ -1903,7 +1977,10 @@ struct RunConfigurationIntegrationTests {
             environment: [:],
             core: core
         )
-        try session.start(rootURL: URL(fileURLWithPath: "/test-workspace", isDirectory: true))
+        try session.start(
+            rootURL: URL(fileURLWithPath: "/test-workspace", isDirectory: true),
+            workspaceFingerprint: nil
+        )
         core.enqueueReady(capabilities: ["executeCommand"])
         #expect(await Self.waitForMainActorCondition {
             session.features.contains(.executeCommand)
@@ -4025,6 +4102,7 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         initializationOptions: ToolingJSONValue?,
         runtimeExecutableURL: URL?,
         cacheDirectoryURL: URL?,
+        workspaceFingerprint: String?,
         initializeTimeout: TimeInterval,
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
@@ -4060,14 +4138,17 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         fileURL: URL,
         languageID: String,
         text: String
-    ) -> Result<Void, LanguageServerRuntimeFailure> {
+    ) -> Result<LanguageServerDocumentSync, LanguageServerRuntimeFailure> {
         syncCalls.append(SyncCall(
             sessionID: sessionID,
             fileURL: fileURL,
             languageID: languageID,
             text: text
         ))
-        return .success(())
+        return .success(LanguageServerDocumentSync(
+            documentVersion: syncCalls.count,
+            changed: true
+        ))
     }
 
     func closeLanguageServerDocument(sessionID: String, fileURL: URL) {
@@ -4228,8 +4309,9 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         underlyingMessage: String?,
         processExitCode: Int?
     ) -> LanguageServerRuntimeError {
-        _ = code
         return LanguageServerRuntimeError(
+            code: code,
+            stage: "test",
             message: message,
             underlyingMessage: underlyingMessage,
             processExitCode: processExitCode

@@ -13,6 +13,7 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
         initializationOptions: ToolingJSONValue?,
         runtimeExecutableURL: URL?,
         cacheDirectoryURL: URL?,
+        workspaceFingerprint: String?,
         initializeTimeout: TimeInterval,
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
@@ -27,6 +28,7 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
             initializationOptions: initializationOptions,
             runtimeExecutableURL: runtimeExecutableURL,
             cacheDirectoryURL: cacheDirectoryURL,
+            workspaceFingerprint: workspaceFingerprint,
             initializeTimeout: initializeTimeout,
             requestTimeout: requestTimeout,
             shutdownTimeout: shutdownTimeout
@@ -48,13 +50,26 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
         fileURL: URL,
         languageID: String,
         text: String
-    ) -> Result<Void, LanguageServerRuntimeFailure> {
+    ) -> Result<LanguageServerDocumentSync, LanguageServerRuntimeFailure> {
         lspSyncDocument(
             sessionID: sessionID,
             fileURL: fileURL,
             languageID: languageID,
             text: text
-        ).mapError(Self.runtimeFailure)
+        ).map {
+            LanguageServerDocumentSync(
+                documentVersion: $0.documentVersion,
+                changed: $0.changed
+            )
+        }.mapError(Self.runtimeFailure)
+    }
+
+    func notifyLanguageServerWorkspaceFilesChanged(
+        sessionID: String,
+        changes: [LanguageServerWorkspaceFileChange]
+    ) -> Result<Void, LanguageServerRuntimeFailure> {
+        lspWorkspaceFilesChanged(sessionID: sessionID, changes: changes)
+            .mapError(Self.runtimeFailure)
     }
 
     func closeLanguageServerDocument(sessionID: String, fileURL: URL) {
@@ -90,6 +105,34 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
             .mapError(Self.runtimeFailure)
     }
 
+    func requestJavaNavigationMarkers(
+        sessionID: String,
+        fileURL: URL,
+        documentVersion: Int
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        lspJavaNavigationMarkers(
+            sessionID: sessionID,
+            fileURL: fileURL,
+            documentVersion: documentVersion
+        ).map { LanguageServerRuntimeOperation(operationID: $0.operationId) }
+            .mapError(Self.runtimeFailure)
+    }
+
+    func resolveJavaNavigation(
+        sessionID: String,
+        fileURL: URL,
+        marker: JavaNavigationMarker,
+        documentVersion: Int
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        lspResolveJavaNavigation(
+            sessionID: sessionID,
+            fileURL: fileURL,
+            marker: marker,
+            documentVersion: documentVersion
+        ).map { LanguageServerRuntimeOperation(operationID: $0.operationId) }
+            .mapError(Self.runtimeFailure)
+    }
+
     func cancelLanguageServerOperation(sessionID: String, operationID: String) {
         lspCancelOperation(sessionID: sessionID, operationID: operationID)
     }
@@ -105,6 +148,8 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
                 result: event.result,
                 error: event.error.map {
                     LanguageServerRuntimeError(
+                        code: $0.code,
+                        stage: $0.stage,
                         message: $0.message,
                         underlyingMessage: $0.underlyingMessage,
                         processExitCode: $0.processExitCode

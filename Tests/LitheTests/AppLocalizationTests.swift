@@ -149,6 +149,17 @@ struct AppLocalizationTests {
         #expect(translations["Collapsed"] == "已收起")
     }
 
+    @Test
+    func simplifiedChineseResourcesCoverJavaLanguageServiceFeedback() throws {
+        let translations = try simplifiedChineseTranslations()
+
+        #expect(translations["Java service is preparing"] == "Java 服务正在准备")
+        #expect(translations["Java service is ready"] == "Java 服务已就绪")
+        #expect(translations["Java service preparation timed out"] == "Java 服务准备超时")
+        #expect(translations["Java service failed to start"] == "Java 服务启动失败")
+        #expect(translations["Java service failed to start: %@"] == "Java 服务启动失败：%@")
+    }
+
     private func simplifiedChineseTranslations() throws -> [String: String] {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

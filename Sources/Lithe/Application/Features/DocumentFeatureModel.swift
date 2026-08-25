@@ -53,6 +53,7 @@ final class DocumentFeatureModel: ObservableObject {
     @Published private(set) var projectTreeRevealRequest: ProjectTreeRevealRequest?
 
     private let operations: any WorkspaceOperations
+    private let documentLifecycleDecider: any DocumentLifecycleDeciding
     private let fileOperations: any WorkspaceFileOperations
     private let fileStorage: any FileStorage
     private let binaryFileViewerRegistry: BinaryFileViewerRegistry
@@ -78,11 +79,13 @@ final class DocumentFeatureModel: ObservableObject {
 
     init(
         operations: any WorkspaceOperations,
+        documentLifecycleDecider: any DocumentLifecycleDeciding,
         fileOperations: any WorkspaceFileOperations,
         fileStorage: any FileStorage,
         binaryFileViewerRegistry: BinaryFileViewerRegistry
     ) {
         self.operations = operations
+        self.documentLifecycleDecider = documentLifecycleDecider
         self.fileOperations = fileOperations
         self.fileStorage = fileStorage
         self.binaryFileViewerRegistry = binaryFileViewerRegistry
@@ -561,7 +564,14 @@ final class DocumentFeatureModel: ObservableObject {
     }
 
     func loadExternalVersion(of document: EditorDocument) {
+        let operationID = UUID().uuidString
         do {
+            let decision = try documentLifecycleDecider.decide(
+                state: document.lifecycleState,
+                event: .loadDisk,
+                operationID: operationID
+            )
+            guard decision.action == .reloadFromDisk else { return }
             if document.isDirty {
                 onRecordDiscard?(document)
             }
@@ -574,8 +584,19 @@ final class DocumentFeatureModel: ObservableObject {
     }
 
     func keepEditorVersion(of document: EditorDocument) {
-        document.keepEditorVersion()
-        notify?("Kept editor version")
+        let operationID = UUID().uuidString
+        do {
+            let decision = try documentLifecycleDecider.decide(
+                state: document.lifecycleState,
+                event: .keepEditor,
+                operationID: operationID
+            )
+            document.applyLifecycleState(decision.state)
+            document.acknowledgeExternalModification()
+            notify?("Kept editor version")
+        } catch {
+            notify?("Could not resolve the external file change")
+        }
     }
 
     @discardableResult
@@ -583,11 +604,26 @@ final class DocumentFeatureModel: ObservableObject {
         let changedPathSet = Set(urls.map { $0.standardizedFileURL.path })
         var conflictDetected = false
         for document in openDocuments where changedPathSet.contains(document.url.standardizedFileURL.path) {
-            if document.processPossibleExternalChange() {
-                onDocumentChanged?(document)
-                if document.hasExternalConflict {
+            guard document.hasPossibleExternalChange() else { continue }
+            let operationID = UUID().uuidString
+            do {
+                let decision = try documentLifecycleDecider.decide(
+                    state: document.lifecycleState,
+                    event: .externalChanged,
+                    operationID: operationID
+                )
+                document.applyLifecycleState(decision.state)
+                switch decision.action {
+                case .reloadFromDisk:
+                    try document.reloadFromDisk()
+                case .showConflict:
                     conflictDetected = true
+                case .none, .writeToDisk, .reportSaveFailure, .ignoreStaleResult:
+                    break
                 }
+                onDocumentChanged?(document)
+            } catch {
+                notify?("Could not process an external change to \(document.url.lastPathComponent)")
             }
         }
         onRecordExternalChanges?(urls)
@@ -641,15 +677,55 @@ final class DocumentFeatureModel: ObservableObject {
 
     private func saveDocument(_ document: EditorDocument) throws {
         guard !document.isReadOnly else { throw EditorDocument.DocumentError.readOnly }
-        if let workspaceURLProvider,
-           let workspaceURL = workspaceURLProvider(),
-           let relativePath = workspaceRelativePath(for: document.url, root: workspaceURL),
-           operations.writeFile(document.text, at: workspaceURL, relativePath: relativePath) {
-            document.markSavedWithoutWriting()
-            return
+        let operationID = UUID().uuidString
+        let saving = try documentLifecycleDecider.decide(
+            state: document.lifecycleState,
+            event: .saveStarted(operationID: operationID),
+            operationID: operationID
+        )
+        guard saving.action == .writeToDisk else {
+            document.applyLifecycleState(saving.state)
+            throw CocoaError(.userCancelled)
         }
-        try fileOperations.writeText(document.text, to: document.url)
-        document.markSavedWithoutWriting()
+        document.applyLifecycleState(saving.state)
+
+        do {
+            if let workspaceURLProvider,
+               let workspaceURL = workspaceURLProvider(),
+               let relativePath = workspaceRelativePath(for: document.url, root: workspaceURL),
+               operations.writeFile(document.text, at: workspaceURL, relativePath: relativePath) {
+                try completeSave(document, operationID: operationID)
+                return
+            }
+            try fileOperations.writeText(document.text, to: document.url)
+            try completeSave(document, operationID: operationID)
+        } catch let saveError {
+            do {
+                let failed = try documentLifecycleDecider.decide(
+                    state: document.lifecycleState,
+                    event: .saveFailed(operationID: operationID),
+                    operationID: operationID
+                )
+                document.applyLifecycleState(failed.state)
+            } catch let recoveryError {
+                NSLog(
+                    "[document.lifecycle] outcome=failed stage=save-state-recovery operationID=%@ documentID=%@ error=%@",
+                    operationID,
+                    document.id.uuidString,
+                    recoveryError.localizedDescription
+                )
+            }
+            throw saveError
+        }
+    }
+
+    private func completeSave(_ document: EditorDocument, operationID: String) throws {
+        let completed = try documentLifecycleDecider.decide(
+            state: document.lifecycleState,
+            event: .saveSucceeded(operationID: operationID),
+            operationID: operationID
+        )
+        document.markSavedWithoutWriting(state: completed.state)
     }
 
     private func workspaceRelativePath(for url: URL, root: URL) -> String? {

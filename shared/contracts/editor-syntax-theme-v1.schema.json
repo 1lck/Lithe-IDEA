@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lithe.dev/contracts/editor-syntax-theme-v1.schema.json",
+  "title": "Lithe Editor Syntax Theme v1",
+  "type": "object",
+  "required": ["version", "id", "fallbacks", "appearances"],
+  "properties": {
+    "version": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+    "fallbacks": {
+      "type": "object",
+      "required": [
+        "annotation",
+        "documentationComment",
+        "field",
+        "functionCall",
+        "functionDeclaration",
+        "parameter",
+        "typeParameter"
+      ],
+      "properties": {
+        "annotation": { "$ref": "#/$defs/role" },
+        "documentationComment": { "$ref": "#/$defs/role" },
+        "field": { "$ref": "#/$defs/role" },
+        "functionCall": { "$ref": "#/$defs/role" },
+        "functionDeclaration": { "$ref": "#/$defs/role" },
+        "parameter": { "$ref": "#/$defs/role" },
+        "typeParameter": { "$ref": "#/$defs/role" }
+      },
+      "additionalProperties": false
+    },
+    "appearances": {
+      "type": "object",
+      "required": ["light", "dark"],
+      "properties": {
+        "light": { "$ref": "#/$defs/palette" },
+        "dark": { "$ref": "#/$defs/palette" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "role": {
+      "enum": [
+        "annotation",
+        "attribute",
+        "boolean",
+        "comment",
+        "constant",
+        "documentationComment",
+        "field",
+        "function",
+        "functionCall",
+        "functionDeclaration",
+        "invalid",
+        "jsx",
+        "jsx-attribute",
+        "keyword",
+        "null",
+        "number",
+        "operator",
+        "parameter",
+        "property",
+        "punctuation",
+        "regex",
+        "string",
+        "tag",
+        "text",
+        "type",
+        "typeParameter",
+        "variable"
+      ]
+    },
+    "color": {
+      "type": "string",
+      "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+    },
+    "palette": {
+      "type": "object",
+      "required": [
+        "attribute",
+        "boolean",
+        "comment",
+        "constant",
+        "function",
+        "invalid",
+        "jsx",
+        "jsx-attribute",
+        "keyword",
+        "null",
+        "number",
+        "operator",
+        "property",
+        "punctuation",
+        "regex",
+        "string",
+        "tag",
+        "text",
+        "type",
+        "variable"
+      ],
+      "properties": {
+        "attribute": { "$ref": "#/$defs/color" },
+        "boolean": { "$ref": "#/$defs/color" },
+        "comment": { "$ref": "#/$defs/color" },
+        "constant": { "$ref": "#/$defs/color" },
+        "function": { "$ref": "#/$defs/color" },
+        "invalid": { "$ref": "#/$defs/color" },
+        "jsx": { "$ref": "#/$defs/color" },
+        "jsx-attribute": { "$ref": "#/$defs/color" },
+        "keyword": { "$ref": "#/$defs/color" },
+        "null": { "$ref": "#/$defs/color" },
+        "number": { "$ref": "#/$defs/color" },
+        "operator": { "$ref": "#/$defs/color" },
+        "property": { "$ref": "#/$defs/color" },
+        "punctuation": { "$ref": "#/$defs/color" },
+        "regex": { "$ref": "#/$defs/color" },
+        "string": { "$ref": "#/$defs/color" },
+        "tag": { "$ref": "#/$defs/color" },
+        "text": { "$ref": "#/$defs/color" },
+        "type": { "$ref": "#/$defs/color" },
+        "variable": { "$ref": "#/$defs/color" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

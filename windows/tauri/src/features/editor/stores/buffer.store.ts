@@ -1,10 +1,21 @@
 import { invoke } from "@/platform/tauri-core";
+import {
+  applyLocalDocumentEdit,
+  restoreDocumentLifecycle,
+  type DocumentLifecycleState,
+} from "@/platform/document-lifecycle";
 import { immer } from "zustand/middleware/immer";
 import { createStore } from "zustand/vanilla";
 import type { DatabaseType } from "@/features/database/types/provider.types";
 import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
 import { evictLeastRecentAutoClosableBuffer } from "@/features/editor/stores/buffer-eviction";
 import { createPaneContent } from "@/features/editor/stores/buffer-content-factory";
+import {
+  handleExternalDocumentChange,
+  resolveExternalDocumentConflict,
+  type DocumentBufferOwner,
+  type ExternalBufferChangeResult,
+} from "@/features/editor/services/document-external-change-workflow";
 import {
   closeNewTabInActivePane as closeNewTabInActivePaneForWorkspace,
   getWritablePaneForBuffer as getWritablePaneForWorkspace,
@@ -188,11 +199,16 @@ interface BufferActions {
     content: string,
     markDirty?: boolean,
     diffData?: GitDiff | MultiFileDiff,
-    options?: { local?: boolean },
   ) => void;
   updateBufferTokens: (bufferId: string, tokens: TokenEntry[]) => void;
   updateBufferLanguage: (bufferId: string, language: string) => void;
   markBufferDirty: (bufferId: string, isDirty: boolean) => void;
+  applyDocumentLifecycle: (bufferId: string, lifecycle: DocumentLifecycleState) => void;
+  recordSuccessfulBufferSave: (
+    bufferId: string,
+    savedContent: string,
+    lifecycle: DocumentLifecycleState,
+  ) => void;
   updateBufferPath: (bufferId: string, newPath: string) => void;
   updateBuffer: (updatedBuffer: PaneContent) => void;
   handleTabClick: (bufferId: string) => void;
@@ -209,6 +225,11 @@ interface BufferActions {
   getActiveBuffer: () => PaneContent | null;
   setMaxOpenTabs: (max: number) => void;
   reloadBufferFromDisk: (bufferId: string) => Promise<void>;
+  handleExternalBufferChange: (
+    bufferId: string,
+    operationId: string,
+  ) => Promise<ExternalBufferChangeResult>;
+  resolveExternalConflict: (bufferId: string, resolution: "keepEditor" | "loadDisk") => Promise<void>;
   setPendingClose: (pending: PendingClose | null) => void;
   confirmCloseWithoutSaving: () => void;
   cancelPendingClose: () => void;
@@ -218,6 +239,48 @@ interface BufferActions {
 const generateBufferId = (path: string): string => {
   return `buffer_${path.replace(/[^a-zA-Z0-9]/g, "_")}_${Date.now()}`;
 };
+
+function lifecycleStateForBuffer(buffer: EditorContent): DocumentLifecycleState {
+  return restoreDocumentLifecycle(
+    buffer.documentLifecycle,
+    buffer.contentRevision ?? 0,
+    buffer.isDirty,
+  );
+}
+
+function makeDocumentBufferOwner(
+  bufferId: string,
+  getEditorBuffer: () => EditorContent | null,
+  mutateEditorBuffer: (mutation: (buffer: EditorContent) => void) => void,
+): DocumentBufferOwner {
+  return {
+    getSnapshot: () => {
+      const buffer = getEditorBuffer();
+      if (!buffer || buffer.isVirtual) return null;
+      return {
+        bufferId,
+        path: buffer.path,
+        lifecycle: lifecycleStateForBuffer(buffer),
+      };
+    },
+    applyLifecycle: (lifecycle) => {
+      mutateEditorBuffer((buffer) => {
+        buffer.documentLifecycle = lifecycle;
+        buffer.isDirty = lifecycle.status !== "clean";
+      });
+    },
+    replaceWithDiskContent: (content) => {
+      mutateEditorBuffer((buffer) => {
+        const revision = (buffer.contentRevision ?? 0) + 1;
+        buffer.content = content;
+        buffer.savedContent = content;
+        buffer.contentRevision = revision;
+        buffer.documentLifecycle = { status: "clean", revision };
+        buffer.isDirty = false;
+      });
+    },
+  };
+}
 
 const applyWorkspaceAutoEviction = (
   buffers: PaneContent[],
@@ -1295,6 +1358,9 @@ const createBufferStore = (workspaceId: string) => {
           if (shouldStartLsp(closedBuffer)) {
             import("@/features/editor/lsp/lsp-client")
               .then(({ LspClient }) => {
+                if (getBufferByPath(get().buffers, closedBuffer.path)?.type === "editor") {
+                  return;
+                }
                 const lspClient = LspClient.getInstance();
                 logger.info("BufferStore", `Stopping LSP for ${closedBuffer.path}`);
                 return lspClient.stopForFile(closedBuffer.path);
@@ -1403,7 +1469,6 @@ const createBufferStore = (workspaceId: string) => {
           content: string,
           markDirty = true,
           diffData?: GitDiff | MultiFileDiff,
-          options?: { local?: boolean },
         ) => {
           const buffer = getBufferById(get().buffers, bufferId);
           if (!buffer) return;
@@ -1414,15 +1479,12 @@ const createBufferStore = (workspaceId: string) => {
           if (buffer.content === content && !diffData) return;
 
           let promotedPreviewBufferId: string | null = null;
-          const bumpContentRevision = options?.local !== true;
           set((state) => {
             const buf = state.buffers.find((b) => b.id === bufferId);
             if (!buf || !isEditableContent(buf)) return;
 
             buf.content = content;
-            if (bumpContentRevision) {
-              buf.contentRevision = (buf.contentRevision ?? 0) + 1;
-            }
+            buf.contentRevision = (buf.contentRevision ?? 0) + 1;
             if (diffData && buf.type === "diff") {
               buf.diffData = diffData;
             }
@@ -1430,8 +1492,17 @@ const createBufferStore = (workspaceId: string) => {
               if (!markDirty) {
                 buf.savedContent = content;
                 buf.isDirty = false;
+                buf.documentLifecycle = {
+                  status: "clean",
+                  revision: buf.contentRevision,
+                };
               } else {
-                buf.isDirty = content !== buf.savedContent;
+                buf.documentLifecycle = applyLocalDocumentEdit(
+                  buf.documentLifecycle,
+                  buf.contentRevision,
+                  content === buf.savedContent,
+                );
+                buf.isDirty = buf.documentLifecycle.status !== "clean";
                 if (buf.isPreview && content !== buf.savedContent) {
                   buf.isPreview = false;
                   promotedPreviewBufferId = buf.id;
@@ -1473,8 +1544,44 @@ const createBufferStore = (workspaceId: string) => {
               buffer.isDirty = isDirty;
               if (!isDirty) {
                 buffer.savedContent = buffer.content;
+                buffer.documentLifecycle = {
+                  status: "clean",
+                  revision: buffer.contentRevision ?? 0,
+                };
+              } else if (buffer.documentLifecycle?.status !== "conflict") {
+                buffer.documentLifecycle = {
+                  status: "dirty",
+                  revision: buffer.contentRevision ?? 0,
+                  savedRevision:
+                    buffer.documentLifecycle?.status === "dirty"
+                      ? buffer.documentLifecycle.savedRevision
+                      : 0,
+                };
               }
             }
+          });
+        },
+
+        applyDocumentLifecycle: (bufferId: string, lifecycle: DocumentLifecycleState) => {
+          set((state) => {
+            const buffer = state.buffers.find((candidate) => candidate.id === bufferId);
+            if (!buffer || buffer.type !== "editor") return;
+            buffer.documentLifecycle = lifecycle;
+            buffer.isDirty = lifecycle.status !== "clean";
+          });
+        },
+
+        recordSuccessfulBufferSave: (
+          bufferId: string,
+          savedContent: string,
+          lifecycle: DocumentLifecycleState,
+        ) => {
+          set((state) => {
+            const buffer = state.buffers.find((candidate) => candidate.id === bufferId);
+            if (!buffer || buffer.type !== "editor") return;
+            buffer.savedContent = savedContent;
+            buffer.documentLifecycle = lifecycle;
+            buffer.isDirty = lifecycle.status !== "clean";
           });
         },
 
@@ -1487,6 +1594,11 @@ const createBufferStore = (workspaceId: string) => {
               buffer.name = newName;
               buffer.isVirtual = false;
               buffer.savedContent = buffer.content;
+              buffer.isDirty = false;
+              buffer.documentLifecycle = {
+                status: "clean",
+                revision: buffer.contentRevision ?? 0,
+              };
               buffer.language = detectLanguageFromFileName(newName);
             }
           });
@@ -1730,6 +1842,46 @@ const createBufferStore = (workspaceId: string) => {
               error,
             );
           }
+        },
+
+        handleExternalBufferChange: async (
+          bufferId: string,
+          operationId: string,
+        ): Promise<ExternalBufferChangeResult> => {
+          const owner = makeDocumentBufferOwner(
+            bufferId,
+            () => {
+              const buffer = getBufferById(get().buffers, bufferId);
+              return buffer?.type === "editor" ? buffer : null;
+            },
+            (mutation) => {
+              set((state) => {
+                const buffer = state.buffers.find((candidate) => candidate.id === bufferId);
+                if (buffer?.type === "editor") mutation(buffer);
+              });
+            },
+          );
+          return handleExternalDocumentChange({ owner, operationId });
+        },
+
+        resolveExternalConflict: async (
+          bufferId: string,
+          resolution: "keepEditor" | "loadDisk",
+        ): Promise<void> => {
+          const owner = makeDocumentBufferOwner(
+            bufferId,
+            () => {
+              const buffer = getBufferById(get().buffers, bufferId);
+              return buffer?.type === "editor" ? buffer : null;
+            },
+            (mutation) => {
+              set((state) => {
+                const buffer = state.buffers.find((candidate) => candidate.id === bufferId);
+                if (buffer?.type === "editor") mutation(buffer);
+              });
+            },
+          );
+          await resolveExternalDocumentConflict(owner, resolution, crypto.randomUUID());
         },
 
         setPendingClose: (pending: PendingClose | null) => {

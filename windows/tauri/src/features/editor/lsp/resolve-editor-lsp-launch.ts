@@ -1,7 +1,6 @@
 import type { BackendLanguageToolConfigSet } from "@/extensions/registry/extension-store-runtime";
 import { isJavaSourcePath, JAVA_LANGUAGE_ID, JAVA_PROVIDER_ID } from "./built-in-language-support";
 import { resolveJavaLspLaunch } from "./java-lsp-host-api";
-import { useSettingsStore } from "@/features/settings/stores/settings.store";
 
 export interface EditorLspLaunch {
   providerId: string;
@@ -13,6 +12,8 @@ export interface EditorLspLaunch {
   runtimeExecutablePath?: string | null;
   cacheDirectory?: string;
   environment?: Record<string, string>;
+  /** Workspace structure digest forwarded to the Rust core. */
+  workspaceFingerprint?: string | null;
 }
 
 export async function resolveEditorLspLaunch(
@@ -20,8 +21,7 @@ export async function resolveEditorLspLaunch(
   workspacePath: string,
 ): Promise<EditorLspLaunch | null> {
   if (isJavaSourcePath(filePath)) {
-    const javaHomePath = useSettingsStore.getState().settings.jdtlsJavaHomePath.trim();
-    const launch = await resolveJavaLspLaunch(workspacePath, javaHomePath || undefined);
+    const launch = await resolveJavaLspLaunch(workspacePath);
     const environment: Record<string, string> = {};
     if (launch.environment.JAVA_HOME) {
       environment.JAVA_HOME = launch.environment.JAVA_HOME;
@@ -34,6 +34,7 @@ export async function resolveEditorLspLaunch(
       runtimeExecutablePath: launch.runtimeExecutablePath,
       cacheDirectory: launch.cacheDirectory,
       environment,
+      workspaceFingerprint: launch.workspaceFingerprint,
     };
   }
 

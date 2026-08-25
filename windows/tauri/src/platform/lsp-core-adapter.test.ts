@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
 const emit = mock(async () => undefined);
@@ -30,6 +30,7 @@ let scenario:
   | "delayed-start"
   | "failure"
   | "multi-session"
+  | "runtime-ready-transition"
   | "semantic-request"
   | "virtual-document" = "failure";
 let startPayload: Record<string, unknown> | undefined;
@@ -40,7 +41,9 @@ const sessionPollCounts = new Map<string, number>();
 let virtualDocumentPending = false;
 let semanticRequestPending = false;
 let semanticOperationId = "";
+let semanticRequestResult: unknown = { locations: [] };
 let releaseInitialization: (() => void) | undefined;
+let releaseRuntimeReady: (() => void) | undefined;
 
 function readyEvents(sessionId: string) {
   return [
@@ -92,6 +95,9 @@ const executeCore = mock(
       const sessionId = String(request.payload?.sessionId ?? "java-session");
       const sessionPollCount = (sessionPollCounts.get(sessionId) ?? 0) + 1;
       sessionPollCounts.set(sessionId, sessionPollCount);
+      // Core's waitEvents command is a blocking long poll. Yield a task here
+      // so empty mock responses cannot create a tight microtask-only pump.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
       if (scenario === "delayed-start") {
         if (pollCount === 1) {
           await new Promise<void>((resolve) => {
@@ -121,6 +127,51 @@ const executeCore = mock(
           data: { events: sessionPollCount === 1 ? readyEvents(sessionId) : [] },
         };
       }
+      if (scenario === "runtime-ready-transition") {
+        if (sessionPollCount === 1) {
+          return {
+            id: request.id,
+            ok: true as const,
+            data: { events: readyEvents(sessionId) },
+          };
+        }
+        if (sessionPollCount === 2) {
+          return {
+            id: request.id,
+            ok: true as const,
+            data: {
+              events: [
+                {
+                  type: "stateChanged",
+                  state: "initializing",
+                  providerId: "java",
+                  sessionId,
+                },
+              ],
+            },
+          };
+        }
+        if (sessionPollCount === 3) {
+          await new Promise<void>((resolve) => {
+            releaseRuntimeReady = resolve;
+          });
+          return {
+            id: request.id,
+            ok: true as const,
+            data: {
+              events: [
+                {
+                  type: "stateChanged",
+                  state: "ready",
+                  providerId: "java",
+                  sessionId,
+                },
+              ],
+            },
+          };
+        }
+        return { id: request.id, ok: true as const, data: { events: [] } };
+      }
       if (scenario === "semantic-request") {
         if (sessionPollCount === 1) {
           return {
@@ -141,7 +192,7 @@ const executeCore = mock(
                   providerId: "java",
                   sessionId,
                   operationId: semanticOperationId,
-                  result: { locations: [] },
+                  result: semanticRequestResult,
                 },
               ],
             },
@@ -219,9 +270,9 @@ const executeCore = mock(
         },
       };
     }
-    if (request.command === "lsp.request") {
+    if (request.command === "lsp.request" || request.command === "java.resolveNavigation") {
       requestPayload = request.payload;
-      const operation = String(request.payload?.operation ?? "request");
+      const operation = String(request.payload?.operation ?? request.command);
       const operationId = `${operation}-operation`;
       if (scenario === "semantic-request") {
         semanticRequestPending = true;
@@ -245,6 +296,7 @@ mock.module("@/utils/frontend-trace", () => ({ frontendTrace }));
 
 const {
   getLspSessionSnapshot,
+  getLspWorkspaceSessionSnapshot,
   invokeLsp,
   LSP_EXPLICITLY_UNAVAILABLE_COMMANDS,
   LSP_OPERATION_BY_COMMAND,
@@ -288,10 +340,20 @@ describe("Rust Core LSP adapter failures", () => {
     virtualDocumentPending = false;
     semanticRequestPending = false;
     semanticOperationId = "";
+    semanticRequestResult = { locations: [] };
     releaseInitialization = undefined;
+    releaseRuntimeReady = undefined;
     emit.mockClear();
     frontendTrace.mockClear();
     executeCore.mockClear();
+  });
+
+  afterEach(async () => {
+    releaseInitialization?.();
+    releaseRuntimeReady?.();
+    await invokeLsp("lsp_stop", { workspacePath: "C:/work/project" });
+    await invokeLsp("lsp_stop", { workspacePath: "C:/work" });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
   });
 
   test("logs Core output, preserves failure details, and destroys the session", async () => {
@@ -348,32 +410,104 @@ describe("Rust Core LSP adapter failures", () => {
         id: "java-session",
         workspacePath: "C:/work",
         languageId: "java",
-        ready: true,
-        features: [
-          "codeActions",
-          "completion",
-          "definition",
-          "executeCommand",
-          "hover",
-          "implementation",
-          "references",
-          "rename",
-          "typeDefinition",
-        ],
-        featuresKnown: true,
+        phase: "ready",
+        operationId: expect.any(String),
+        featureState: {
+          phase: "known",
+          features: [
+            "codeActions",
+            "completion",
+            "definition",
+            "executeCommand",
+            "hover",
+            "implementation",
+            "references",
+            "rename",
+            "typeDefinition",
+          ],
+        },
       });
-      expect(JSON.parse(testStorage.values.get("lithe:lsp-core-sessions:v1") ?? "[]")).toEqual([
+      const persisted = JSON.parse(
+        testStorage.values.get("lithe:lsp-core-sessions:v1") ?? "[]",
+      );
+      expect(persisted).toEqual([
         expect.objectContaining({
-          ready: true,
           features: expect.arrayContaining(["definition", "references", "executeCommand"]),
         }),
       ]);
+      expect(persisted[0]).not.toHaveProperty("ready");
       expect(emit).toHaveBeenCalledWith(
         "lsp://features-changed",
         expect.objectContaining({ sessionId: "java-session", languageId: "java" }),
       );
 
-      await invokeLsp("lsp_stop_for_file", { filePath });
+      await invokeLsp("lsp_stop", { workspacePath: "C:/work" });
+    } finally {
+      testStorage.restore();
+    }
+  });
+
+  test("starts and exposes a workspace-owned Java session before a file attaches", async () => {
+    scenario = "capabilities";
+
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    expect(
+      getLspWorkspaceSessionSnapshot({ workspacePath: "C:\\work", languageId: "java" }),
+    ).toEqual(expect.objectContaining({ id: "java-session", phase: "ready" }));
+    expect(getLspSessionSnapshot({ filePath: "C:/work/Main.java" })).toBeNull();
+
+    await invokeLsp("lsp_stop", { workspacePath: "C:/work" });
+    expect(
+      getLspWorkspaceSessionSnapshot({ workspacePath: "C:/work", languageId: "java" }),
+    ).toBeNull();
+  });
+
+  test("projects readiness changes consumed by the long-lived event pump", async () => {
+    scenario = "runtime-ready-transition";
+    const testStorage = installSessionStorage();
+    const filePath = "C:/work/Main.java";
+
+    try {
+      await invokeLsp("lsp_start_for_file", {
+        workspacePath: "C:/work",
+        filePath,
+        languageId: "java",
+        providerId: "java",
+        serverPath: "C:/Lithe/jdtls.bat",
+      });
+      for (
+        let attempt = 0;
+        attempt < 20 && getLspSessionSnapshot({ filePath })?.phase === "ready";
+        attempt += 1
+      ) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
+
+      expect(getLspSessionSnapshot({ filePath })?.phase).toBe("initializing");
+      const persistedWhileInitializing = JSON.parse(
+        testStorage.values.get("lithe:lsp-core-sessions:v1") ?? "[]",
+      );
+      expect(persistedWhileInitializing[0]).not.toHaveProperty("ready");
+
+      for (let attempt = 0; attempt < 20 && !releaseRuntimeReady; attempt += 1) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
+      expect(releaseRuntimeReady).toBeDefined();
+      releaseRuntimeReady?.();
+      for (
+        let attempt = 0;
+        attempt < 20 && getLspSessionSnapshot({ filePath })?.phase !== "ready";
+        attempt += 1
+      ) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
+      expect(getLspSessionSnapshot({ filePath })?.phase).toBe("ready");
     } finally {
       testStorage.restore();
     }
@@ -408,7 +542,63 @@ describe("Rust Core LSP adapter failures", () => {
     });
     expect(requestPayload?.uri).not.toStartWith("file:");
 
-    await invokeLsp("lsp_stop_for_file", { filePath });
+    await invokeLsp("lsp_stop", { workspacePath: "C:/work" });
+  });
+
+  test("normalizes Core Java navigation locations to standard LSP positions", async () => {
+    scenario = "semantic-request";
+    const filePath = "C:/work/Main.java";
+    semanticRequestResult = {
+      locations: [
+        {
+          uri: "file:///C:/work/Service.java",
+          filePath: "C:/work/Service.java",
+          range: {
+            start: { line: 9, utf16Column: 16 },
+            end: { line: 9, utf16Column: 23 },
+          },
+        },
+      ],
+    };
+    await invokeLsp("lsp_start_for_file", {
+      workspacePath: "C:/work",
+      filePath,
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    const result = await invokeLsp("java_resolve_navigation", {
+      filePath,
+      line: 3,
+      character: 9,
+      direction: "down",
+      relation: "interface",
+    });
+
+    expect(result).toEqual({
+      locations: [
+        {
+          uri: "file:///C:/work/Service.java",
+          filePath: "C:/work/Service.java",
+          range: {
+            start: { line: 9, character: 16 },
+            end: { line: 9, character: 23 },
+          },
+        },
+      ],
+    });
+    expect(requestPayload).toEqual({
+      sessionId: "java-session",
+      uri: "file:///C:/work/Main.java",
+      line: 3,
+      utf16Column: 9,
+      direction: "down",
+      relation: "interface",
+      documentVersion: undefined,
+    });
+
+    await invokeLsp("lsp_stop", { workspacePath: "C:/work" });
   });
 
   test("moves one normalized file to the new workspace session and stops the empty owner", async () => {
@@ -458,8 +648,12 @@ describe("Rust Core LSP adapter failures", () => {
     expect(commands.filter((command) => command === "lsp.startServer")).toHaveLength(3);
 
     await invokeLsp("lsp_stop_for_file", { filePath });
+    expect(commands.filter((command) => command === "lsp.stopServer")).toHaveLength(1);
+    await invokeLsp("lsp_stop", { workspacePath: "C:/work/project" });
     expect(commands.filter((command) => command === "lsp.stopServer")).toHaveLength(2);
     await invokeLsp("lsp_stop_for_file", { filePath: parentFilePath });
+    expect(commands.filter((command) => command === "lsp.stopServer")).toHaveLength(2);
+    await invokeLsp("lsp_stop", { workspacePath: "C:/work" });
     expect(commands.filter((command) => command === "lsp.stopServer")).toHaveLength(3);
   });
 
@@ -504,6 +698,7 @@ describe("Rust Core LSP adapter failures", () => {
       "lsp_start_for_file",
       "lsp_stop",
       "lsp_stop_for_file",
+      "lsp_workspace_files_changed",
     ]);
     const clientSource = readFileSync(
       new URL("../features/editor/lsp/lsp-client.ts", import.meta.url),
@@ -542,6 +737,8 @@ describe("Rust Core LSP adapter failures", () => {
     expect(requestPayload).not.toHaveProperty("uri");
 
     await invokeLsp("lsp_stop_for_file", { filePath });
+    expect(commands).not.toContain("lsp.stopServer");
+    await invokeLsp("lsp_stop", { workspacePath: "C:/work" });
     expect(commands).toContain("lsp.stopServer");
     expect(commands).toContain("lsp.destroyServer");
   });
@@ -572,8 +769,50 @@ describe("Rust Core LSP adapter failures", () => {
     expect(commands.filter((command) => command === "lsp.stopServer")).toHaveLength(0);
 
     await invokeLsp("lsp_stop_for_file", { filePath: "C:\\work\\Other.java" });
+    expect(commands.filter((command) => command === "lsp.stopServer")).toHaveLength(0);
+    await invokeLsp("lsp_stop", { workspacePath: "C:/work" });
     expect(commands.filter((command) => command === "lsp.stopServer")).toHaveLength(1);
     expect(commands.filter((command) => command === "lsp.destroyServer")).toHaveLength(1);
+  });
+
+  test("ignores a stale file stop after the same path is attached again", async () => {
+    scenario = "capabilities";
+    const filePath = "C:/work/Main.java";
+
+    await invokeLsp("lsp_start_for_file", {
+      workspacePath: "C:/work",
+      filePath,
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+      attachmentId: "attachment-old",
+    });
+    await invokeLsp("lsp_start_for_file", {
+      workspacePath: "C:/work",
+      filePath: "C:\\work\\Main.java",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+      attachmentId: "attachment-new",
+    });
+
+    await invokeLsp("lsp_stop_for_file", {
+      filePath,
+      attachmentId: "attachment-old",
+    });
+
+    expect(getLspSessionSnapshot({ filePath })).toEqual(
+      expect.objectContaining({ id: "java-session", phase: "ready" }),
+    );
+    expect(commands.filter((command) => command === "lsp.startServer")).toHaveLength(1);
+    expect(commands.filter((command) => command === "lsp.stopServer")).toHaveLength(0);
+
+    await invokeLsp("lsp_stop_for_file", {
+      filePath,
+      attachmentId: "attachment-new",
+    });
+    expect(getLspSessionSnapshot({ filePath })).toBeNull();
+    await invokeLsp("lsp_stop", { workspacePath: "C:/work" });
   });
 
   test("keeps initializing sessions recoverable and makes an in-flight file stop deterministic", async () => {
@@ -601,13 +840,17 @@ describe("Rust Core LSP adapter failures", () => {
         serverPath: "C:/Lithe/jdtls.bat",
       });
       for (let attempt = 0; attempt < 10 && !releaseInitialization; attempt += 1) {
-        await Promise.resolve();
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
       }
 
       expect(releaseInitialization).toBeDefined();
-      expect(JSON.parse(values.get("lithe:lsp-core-sessions:v1") ?? "[]")).toEqual([
-        expect.objectContaining({ id: "java-session", ready: false }),
+      const persistedWhileStarting = JSON.parse(
+        values.get("lithe:lsp-core-sessions:v1") ?? "[]",
+      );
+      expect(persistedWhileStarting).toEqual([
+        expect.objectContaining({ id: "java-session" }),
       ]);
+      expect(persistedWhileStarting[0]).not.toHaveProperty("ready");
 
       const secondStart = invokeLsp("lsp_start_for_file", {
         workspacePath: "C:/work",
@@ -623,11 +866,21 @@ describe("Rust Core LSP adapter failures", () => {
 
       expect(commands.filter((command) => command === "lsp.startServer")).toHaveLength(1);
       expect(commands.filter((command) => command === "lsp.stopServer")).toHaveLength(0);
-      expect(JSON.parse(values.get("lithe:lsp-core-sessions:v1") ?? "[]")).toEqual([
-        expect.objectContaining({ files: ["C:\\work\\Main.java"], ready: true }),
+      const persistedReady = JSON.parse(values.get("lithe:lsp-core-sessions:v1") ?? "[]");
+      expect(persistedReady).toEqual([
+        expect.objectContaining({ files: ["C:\\work\\Main.java"] }),
       ]);
+      expect(persistedReady[0]).not.toHaveProperty("ready");
 
       await invokeLsp("lsp_stop_for_file", { filePath: "C:/work/Main.java" });
+      expect(commands.filter((command) => command === "lsp.stopServer")).toHaveLength(0);
+      expect(
+        getLspWorkspaceSessionSnapshot({ workspacePath: "C:/work", languageId: "java" }),
+      ).toEqual(expect.objectContaining({ id: "java-session", phase: "ready" }));
+      expect(JSON.parse(values.get("lithe:lsp-core-sessions:v1") ?? "[]")).toEqual([
+        expect.objectContaining({ files: [] }),
+      ]);
+      await invokeLsp("lsp_stop", { workspacePath: "C:/work" });
       expect(commands.filter((command) => command === "lsp.stopServer")).toHaveLength(1);
       expect(values.has("lithe:lsp-core-sessions:v1")).toBe(false);
     } finally {

@@ -2,6 +2,7 @@ import type { DatabaseType } from "@/features/database/types/provider.types";
 import type { MultiFileDiff } from "@/features/git/types/git-diff.types";
 import type { GitDiff } from "@/features/git/types/git.types";
 import type { OnboardingMode } from "@/features/onboarding/lib/onboarding-state";
+import type { DocumentLifecycleState } from "@/platform/document-lifecycle";
 
 // ── Token entry for syntax highlighting cache ───────────────────────
 
@@ -65,6 +66,8 @@ export interface EditorContent extends PaneContentBase {
   content: string;
   savedContent: string;
   isDirty: boolean;
+  /** Shared persistence state; optional only for restored pre-contract sessions. */
+  documentLifecycle?: DocumentLifecycleState;
   isVirtual: boolean;
   readOnly?: boolean;
   language?: string;
@@ -72,9 +75,8 @@ export interface EditorContent extends PaneContentBase {
   lspDocument?: EditorLspDocumentBinding;
   tokens: TokenEntry[];
   /**
-   * Bumped only for content that did not originate from the local editor
-   * model (reload, undo-restore, format-on-save). Local typing must not
-   * change this so Monaco can stay the in-session source of truth.
+   * Bumped for every accepted text change. React selectors use this revision
+   * to recover the latest document text when a Monaco surface is rebuilt.
    */
   contentRevision?: number;
 }
