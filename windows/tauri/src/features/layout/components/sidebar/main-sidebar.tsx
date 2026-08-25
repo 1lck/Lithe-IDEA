@@ -25,11 +25,13 @@ import {
   getProjectSwipeBounds,
 } from "@/features/layout/utils/project-carousel";
 import type { SidebarView } from "@/features/layout/utils/sidebar-pane-utils";
+import {
+  openGlobalSearchSidebar,
+  toggleDiagnosticsPane,
+} from "@/features/layout/actions/workbench-tool-window-actions";
 import { RunIcon } from "@/features/run/components/run-icon";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import {
-  openDiagnosticsBuffer,
-  openGlobalSearchBuffer,
   toggleGitLogPane,
   toggleRunPane,
   toggleTerminalPane,
@@ -660,7 +662,7 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
                   onSettingsClick={() => openSettingsDialog()}
                   onTerminalClick={() => toggleTerminalPane()}
                   isTerminalActive={isBottomPaneVisible && bottomPaneActiveTab === "terminal"}
-                  onDiagnosticsClick={() => openDiagnosticsBuffer()}
+                  onDiagnosticsClick={() => toggleDiagnosticsPane()}
                   isDiagnosticsActive={isBottomPaneVisible && bottomPaneActiveTab === "diagnostics"}
                   onRunClick={() => toggleRunPane()}
                   isRunActive={isBottomPaneVisible && bottomPaneActiveTab === "run"}
@@ -728,7 +730,7 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
             <FolderOpenIcon />
             {t("welcome.openProject")}
           </ContextMenuItem>
-          <ContextMenuItem onClick={() => openGlobalSearchBuffer()}>
+          <ContextMenuItem onClick={() => openGlobalSearchSidebar()}>
             <MagnifyingGlassIcon />
             {t("workbench.search")}
           </ContextMenuItem>

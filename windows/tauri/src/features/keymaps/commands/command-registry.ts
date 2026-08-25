@@ -1,5 +1,9 @@
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import {
+  openGlobalSearchSidebar,
+  toggleDiagnosticsPane,
+} from "@/features/layout/actions/workbench-tool-window-actions";
+import {
   closeActiveEditorGroup,
   closeOtherEditorGroups,
   moveActiveEditorToAdjacentGroup,
@@ -83,11 +87,13 @@ import {
   openOutlineSidebar,
   promptGoToLine,
 } from "./navigation-command-actions";
-import { rebuildJavaIndex, restartAllLanguageServers, stopAllLanguageServers } from "./lsp-command-actions";
+import {
+  rebuildJavaIndex,
+  restartAllLanguageServers,
+  stopAllLanguageServers,
+} from "./lsp-command-actions";
 import {
   openCommandPalette,
-  openDiagnosticsBuffer,
-  openGlobalSearchBuffer,
   openKeyboardShortcuts,
   resetZoom,
   showFind,
@@ -599,7 +605,7 @@ const viewCommands: Command[] = [
     title: "Show Diagnostics",
     category: "View",
     keybinding: "cmd+shift+j",
-    execute: openDiagnosticsBuffer,
+    execute: toggleDiagnosticsPane,
   },
   {
     id: "workbench.commandPalette",
@@ -640,7 +646,7 @@ const viewCommands: Command[] = [
     title: "Global Search",
     category: "View",
     keybinding: "cmd+shift+f",
-    execute: openGlobalSearchBuffer,
+    execute: openGlobalSearchSidebar,
   },
   {
     id: "workbench.searchEverywhere",
@@ -653,7 +659,7 @@ const viewCommands: Command[] = [
     title: "Project Search",
     category: "View",
     keybinding: "cmd+shift+h",
-    execute: openGlobalSearchBuffer,
+    execute: openGlobalSearchSidebar,
   },
   {
     id: "workbench.showFileExplorer",

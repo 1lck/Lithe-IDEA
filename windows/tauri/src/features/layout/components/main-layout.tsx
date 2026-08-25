@@ -23,7 +23,8 @@ import { frontendTrace } from "@/utils/frontend-trace";
 import { recordStartupMilestone } from "@/features/bootstrap/startup-performance";
 import { prewarmCommonLanguageTokenizers } from "@/features/editor/engines/monaco/language-contributions";
 import { ReferencesPopover } from "@/features/references/components/references-popover";
-import { NotificationsCommand } from "@/features/notifications/components/notifications-command";
+import { closeNotificationsToolWindow } from "@/features/notifications/actions/notifications-tool-window-actions";
+import { NotificationsToolWindow } from "@/features/notifications/components/notifications-tool-window";
 import { getInternalTabDragData } from "@/features/tabs/utils/internal-tab-drag";
 import { PendingBufferCloseDialog } from "@/features/window/components/pending-buffer-close-dialog";
 import TitleBarWithSettings from "../../window/components/title-bar/title-bar";
@@ -85,7 +86,6 @@ export function MainLayout() {
   const isSidebarVisible = useUIState((state) => state.isSidebarVisible);
   const isRightSidebarVisible = useUIState((state) => state.isRightSidebarVisible);
   const activeRightSidebarView = useUIState((state) => state.activeRightSidebarView);
-  const setIsRightSidebarVisible = useUIState((state) => state.setIsRightSidebarVisible);
   const sidebarWidth = useSettingsStore((state) => state.settings.sidebarWidth);
   const showStatusBar = useSettingsStore((state) => state.settings.showStatusBar);
   const isDatabaseConnectionVisible = useUIState((state) => state.isDatabaseConnectionVisible);
@@ -312,10 +312,9 @@ export function MainLayout() {
                 outerEdge={false}
                 reservedWidth={leftPaneReservedWidth + COLLAPSED_ACTIVITY_RAIL_WIDTH}
               >
-                <NotificationsCommand
+                <NotificationsToolWindow
                   isVisible={isNotificationsVisible}
-                  onClose={() => setIsRightSidebarVisible(false)}
-                  surface="tool-window"
+                  onClose={closeNotificationsToolWindow}
                 />
               </ResizablePane>
               <PluginActivityRail />

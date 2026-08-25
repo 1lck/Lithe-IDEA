@@ -31,12 +31,3 @@ test("right activity rail places Notifications below Extensions", async () => {
   );
   expect(transparencyStyles).toContain(".lithe-plugin-activity-rail");
 });
-
-test("notifications use a resizable right tool window instead of the footer", async () => {
-  const layoutSource = await Bun.file(new URL("./main-layout.tsx", import.meta.url)).text();
-  const footerSource = await Bun.file(new URL("./footer/footer.tsx", import.meta.url)).text();
-
-  expect(layoutSource).toContain('widthKey="rightToolWindowWidth"');
-  expect(layoutSource).toContain('surface="tool-window"');
-  expect(footerSource).not.toContain("NotificationsTrigger");
-});

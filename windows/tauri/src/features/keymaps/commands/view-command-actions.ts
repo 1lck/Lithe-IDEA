@@ -1,6 +1,6 @@
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { editorAPI } from "@/features/editor/extensions/api";
-import { OPEN_NOTIFICATIONS_COMMAND_EVENT } from "@/features/notifications/constants/notifications-events";
+import { openNotificationsToolWindow } from "@/features/notifications/actions/notifications-tool-window-actions";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useWhatsNewStore } from "@/features/settings/stores/whats-new.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
@@ -59,23 +59,12 @@ export function toggleGitLogPane(): void {
   }
 }
 
-export function openDiagnosticsBuffer(): void {
-  const state = useUIState.getState();
-  if (state.isBottomPaneVisible && state.bottomPaneActiveTab === "diagnostics") {
-    state.setIsBottomPaneVisible(false);
-    return;
-  }
-
-  state.setBottomPaneActiveTab("diagnostics");
-  state.setIsBottomPaneVisible(true);
-}
-
 export function openCommandPalette(): void {
   useUIState.getState().setIsCommandPaletteVisible(true);
 }
 
 export function showNotifications(): void {
-  window.dispatchEvent(new CustomEvent(OPEN_NOTIFICATIONS_COMMAND_EVENT));
+  openNotificationsToolWindow();
 }
 
 export function toggleAgentLauncher(): void {
@@ -112,12 +101,6 @@ export function showFindReplace(): void {
 
   const state = useUIState.getState();
   state.setIsFindVisible(true);
-}
-
-export function openGlobalSearchBuffer(): void {
-  const state = useUIState.getState();
-  state.setActiveView("search");
-  state.setIsSidebarVisible(true);
 }
 
 export function toggleFilesSidebar(): void {

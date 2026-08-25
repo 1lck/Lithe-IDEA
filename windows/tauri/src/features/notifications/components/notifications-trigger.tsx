@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { useCommandShortcut } from "@/features/keymaps/hooks/use-command-shortcut";
-import { OPEN_NOTIFICATIONS_COMMAND_EVENT } from "@/features/notifications/constants/notifications-events";
+import { toggleNotificationsToolWindow } from "@/features/notifications/actions/notifications-tool-window-actions";
 import { useNotificationsStore } from "@/features/notifications/stores/notifications.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { Button } from "@/ui/button";
@@ -17,8 +17,6 @@ export const NotificationsTrigger = ({ className }: NotificationsTriggerProps) =
   const notifications = useNotificationsStore.use.notifications();
   const isRightSidebarVisible = useUIState((state) => state.isRightSidebarVisible);
   const activeRightSidebarView = useUIState((state) => state.activeRightSidebarView);
-  const setIsRightSidebarVisible = useUIState((state) => state.setIsRightSidebarVisible);
-  const setActiveRightSidebarView = useUIState((state) => state.setActiveRightSidebarView);
   const shortcut = useCommandShortcut("workbench.showNotifications");
   const isActive = isRightSidebarVisible && activeRightSidebarView === "notifications";
   const unreadCount = useMemo(
@@ -28,29 +26,9 @@ export const NotificationsTrigger = ({ className }: NotificationsTriggerProps) =
     [notifications],
   );
 
-  const showNotifications = useCallback(() => {
-    setActiveRightSidebarView("notifications");
-    setIsRightSidebarVisible(true);
-  }, [setActiveRightSidebarView, setIsRightSidebarVisible]);
-
-  useEffect(() => {
-    const handleShowNotifications = () => showNotifications();
-
-    window.addEventListener(OPEN_NOTIFICATIONS_COMMAND_EVENT, handleShowNotifications);
-    return () => {
-      window.removeEventListener(OPEN_NOTIFICATIONS_COMMAND_EVENT, handleShowNotifications);
-    };
-  }, [showNotifications]);
-
   return (
     <Button
-      onClick={() => {
-        if (isActive) {
-          setIsRightSidebarVisible(false);
-        } else {
-          showNotifications();
-        }
-      }}
+      onClick={toggleNotificationsToolWindow}
       type="button"
       variant="ghost"
       size="icon-sm"
