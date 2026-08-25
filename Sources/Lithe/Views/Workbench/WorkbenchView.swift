@@ -2,9 +2,15 @@ import AppKit
 import SwiftUI
 import LitheGitModule
 
+enum WorkbenchLayoutMetrics {
+    static let rightActivityBarWidth: CGFloat = 40
+    static let rightActivityBarDividerWidth: CGFloat = 1
+    static let workspaceTrailingInset = rightActivityBarWidth + rightActivityBarDividerWidth
+}
+
 private enum ActivityBarMetrics {
     static let width: CGFloat = 38
-    static let rightWidth: CGFloat = 40
+    static let rightWidth = WorkbenchLayoutMetrics.rightActivityBarWidth
     static let buttonWidth: CGFloat = 30
     static let buttonHeight: CGFloat = 30
     static let spacing: CGFloat = 4
@@ -30,6 +36,7 @@ struct WorkbenchView: View {
     @State private var pendingTopBarPushReference: GitReference?
     @State private var isProjectSwitcherPresented = false
     @State private var isPluginPanelPresented = false
+    @State private var isNotificationCenterPresented = false
     @State private var didRestoreLayout = false
     @State private var hoveredProjectTabID: UUID?
     @State private var workbenchBackgroundImage: NSImage?
@@ -51,6 +58,7 @@ struct WorkbenchView: View {
                     .fill(LitheTheme.divider)
                     .frame(width: 1)
                 workspaceArea
+                    .padding(.trailing, WorkbenchLayoutMetrics.workspaceTrailingInset)
             }
             .frame(maxHeight: .infinity)
             .overlay(alignment: .trailing) {
@@ -613,6 +621,44 @@ struct WorkbenchView: View {
 
     private var pluginActivityBar: some View {
         VStack {
+            Button {
+                isNotificationCenterPresented.toggle()
+                if isNotificationCenterPresented {
+                    model.markAllNotificationsRead()
+                }
+            } label: {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: unreadNotificationCount > 0 ? "bell.fill" : "bell")
+                        .frame(width: ActivityBarMetrics.buttonWidth, height: ActivityBarMetrics.buttonHeight)
+                        .litheRowHover(
+                            isActive: isNotificationCenterPresented,
+                            cornerRadius: 4,
+                            activeBackground: LitheTheme.subtleSelection
+                        )
+
+                    if unreadNotificationCount > 0 {
+                        Circle()
+                            .fill(LitheTheme.error)
+                            .frame(width: 7, height: 7)
+                            .overlay(Circle().stroke(LitheTheme.titlebar, lineWidth: 1))
+                            .offset(x: -2, y: 3)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .lithePointer()
+            .foregroundStyle(
+                unreadNotificationCount > 0 || isNotificationCenterPresented
+                    ? LitheTheme.primaryText
+                    : LitheTheme.secondaryText
+            )
+            .help(LocalizedStringKey("Notifications"))
+            .accessibilityLabel("Notifications")
+            .popover(isPresented: $isNotificationCenterPresented, arrowEdge: .trailing) {
+                WorkbenchNotificationCenterView()
+                    .environmentObject(model)
+            }
+
             ForEach(model.rightSidebarContributions) { contribution in
                 if let renderer = moduleUIRegistry.renderer(for: contribution),
                    renderer.isVisible(model) {
@@ -658,6 +704,10 @@ struct WorkbenchView: View {
         .padding(.top, ActivityBarMetrics.edgeInset)
         .frame(width: ActivityBarMetrics.rightWidth)
         .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.titlebar)
+    }
+
+    private var unreadNotificationCount: Int {
+        model.notifications.lazy.filter { !$0.isRead }.count
     }
 
     private var rightHoverRegion: some View {
@@ -1047,6 +1097,93 @@ struct WorkbenchView: View {
 
 }
 
+private struct WorkbenchNotificationCenterView: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Notifications")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(LitheTheme.primaryText)
+
+                Spacer()
+
+                Button("Clear All") {
+                    model.clearNotifications()
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(
+                    model.notifications.isEmpty
+                        ? LitheTheme.tertiaryText
+                        : LitheTheme.accent
+                )
+                .disabled(model.notifications.isEmpty)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 38)
+
+            Rectangle()
+                .fill(LitheTheme.divider)
+                .frame(height: 1)
+
+            if model.notifications.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "bell")
+                        .font(.system(size: 22, weight: .regular))
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                    Text("No notifications")
+                        .font(.system(size: 12))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(model.notifications) { notification in
+                            HStack(alignment: .top, spacing: 10) {
+                                Image(systemName: "info.circle.fill")
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(LitheTheme.accent)
+                                    .padding(.top, 2)
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(LocalizedStringKey(notification.message))
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(LitheTheme.primaryText)
+                                        .fixedSize(horizontal: false, vertical: true)
+
+                                    Text(notification.createdAt, style: .relative)
+                                        .font(.system(size: 10.5))
+                                        .foregroundStyle(LitheTheme.tertiaryText)
+                                }
+
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+
+                            Rectangle()
+                                .fill(LitheTheme.divider.opacity(0.7))
+                                .frame(height: 1)
+                                .padding(.leading, 37)
+                        }
+                    }
+                }
+            }
+        }
+        .frame(width: 340, height: 360)
+        .background(LitheTheme.raised)
+        .onAppear {
+            model.markAllNotificationsRead()
+        }
+        .onChange(of: model.notifications.count) { _ in
+            model.markAllNotificationsRead()
+        }
+    }
+}
+
 private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTool: View>: View {
     let sidebarWidth: CGFloat
     let topPaneHeight: CGFloat?
@@ -1142,9 +1279,14 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                                     maximum: maximumSidebarWidth
                                 )
                             },
-                            onDragEnded: {
-                                liveSidebarWidth = resolvedSidebarWidth
-                                onSidebarWidthCommitted(resolvedSidebarWidth)
+                            onDragEnded: { translation in
+                                let finalWidth = constrained(
+                                    sidebarDragStart + translation,
+                                    minimum: minimumSidebarWidth,
+                                    maximum: maximumSidebarWidth
+                                )
+                                liveSidebarWidth = finalWidth
+                                onSidebarWidthCommitted(finalWidth)
                             }
                         )
                         .offset(x: resolvedSidebarWidth - SplitHandleView.thickness / 2)
@@ -1164,9 +1306,14 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                                     maximum: maximumTopPaneHeight
                                 )
                             },
-                            onDragEnded: {
-                                liveTopPaneHeight = resolvedTopPaneHeight
-                                onTopPaneHeightCommitted(resolvedTopPaneHeight)
+                            onDragEnded: { translation in
+                                let finalHeight = constrained(
+                                    topPaneDragStart + translation,
+                                    minimum: minimumTopPaneHeight,
+                                    maximum: maximumTopPaneHeight
+                                )
+                                liveTopPaneHeight = finalHeight
+                                onTopPaneHeightCommitted(finalHeight)
                             }
                         )
                         .padding(.horizontal, 6)

@@ -11,6 +11,8 @@ case "$(uname -m)" in
 esac
 
 scripts/build-macos.sh --configuration debug --triple "$TRIPLE"
+JDTLS_ROOT=$(scripts/prepare-jdtls.sh)
+JDK_ROOT=$(LITHE_JDK_TARGET_ARCH="$(uname -m)" scripts/prepare-jdk.sh)
 
 # 必须打成 .app 再启动：裸可执行文件没有 Info.plist，macOS 不会把它当成
 # 前台应用，窗口能收到鼠标点击但永远拿不到键盘焦点。
@@ -22,8 +24,14 @@ mkdir -p "$PREVIEW_ROOT"
 # project tree and tool windows.
 INSTANCE_DIR=$(mktemp -d "$PREVIEW_ROOT/instance.XXXXXX")
 APP_DIR="$INSTANCE_DIR/Lithe.app"
-mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources/OfficialPlugins" "$APP_DIR/Contents/Helpers"
+mkdir -p \
+    "$APP_DIR/Contents/MacOS" \
+    "$APP_DIR/Contents/Resources/LanguageServers" \
+    "$APP_DIR/Contents/Resources/OfficialPlugins" \
+    "$APP_DIR/Contents/Helpers"
 cp ".build/$TRIPLE/debug/Lithe" "$APP_DIR/Contents/MacOS/Lithe"
+cp -R "$JDTLS_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdtls"
+cp -R "$JDK_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdk"
 plugin_root=$(scripts/build-official-plugins.sh --configuration debug --triple "$TRIPLE")
 for plugin_package in "$plugin_root"/*(/N); do
     cp -R "$plugin_package" "$APP_DIR/Contents/Resources/OfficialPlugins/${plugin_package:t}"

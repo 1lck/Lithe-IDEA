@@ -385,9 +385,12 @@ private struct OutputTextStorageView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let textContainer = NSTextContainer(
-            containerSize: NSSize(width: 1, height: CGFloat.greatestFiniteMagnitude)
+            containerSize: NSSize(
+                width: CGFloat.greatestFiniteMagnitude,
+                height: CGFloat.greatestFiniteMagnitude
+            )
         )
-        textContainer.widthTracksTextView = true
+        textContainer.widthTracksTextView = false
         let layoutManager = NSLayoutManager()
         layoutManager.allowsNonContiguousLayout = true
         layoutManager.addTextContainer(textContainer)
@@ -400,14 +403,6 @@ private struct OutputTextStorageView: NSViewRepresentable {
         textView.isRichText = true
         textView.drawsBackground = false
         textView.textContainerInset = NSSize(width: 12, height: 12)
-        textView.isHorizontallyResizable = false
-        textView.isVerticallyResizable = true
-        textView.autoresizingMask = NSView.AutoresizingMask.width
-        textView.minSize = NSSize.zero
-        textView.maxSize = NSSize(
-            width: CGFloat.greatestFiniteMagnitude,
-            height: CGFloat.greatestFiniteMagnitude
-        )
         textView.linkTextAttributes = [
             NSAttributedString.Key.foregroundColor: LitheTheme.nsColor(
                 .accent,
@@ -421,6 +416,7 @@ private struct OutputTextStorageView: NSViewRepresentable {
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
+        LitheTextViewportLayout.applyUnwrappedScrolling(to: textView, in: scrollView)
         scrollView.documentView = textView
         scrollView.contentView.postsBoundsChangedNotifications = true
         context.coordinator.attach(scrollView: scrollView, textView: textView)

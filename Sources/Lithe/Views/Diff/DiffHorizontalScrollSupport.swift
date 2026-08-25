@@ -12,6 +12,8 @@ struct DiffHorizontalScroller: View {
     @State private var dragStartOffset: CGFloat = 0
     @State private var isDragging = false
     @State private var isHovering = false
+    @State private var dragUpdateBuffer = FrameCoalescedDragUpdateBuffer()
+    @State private var dragUpdateTask: Task<Void, Never>?
 
     private var maximumOffset: CGFloat {
         max(0, contentWidth - viewportWidth)
@@ -51,11 +53,18 @@ struct DiffHorizontalScroller: View {
                                     dragStartOffset = offset
                                 }
                                 guard travel > 0 else { return }
-                                offset = constrained(
+                                scheduleOffsetUpdate(constrained(
                                     dragStartOffset + (value.translation.width / travel) * maximumOffset
-                                )
+                                ))
                             }
-                            .onEnded { _ in
+                            .onEnded { value in
+                                if travel > 0 {
+                                    let finalOffset = constrained(
+                                        dragStartOffset + (value.translation.width / travel) * maximumOffset
+                                    )
+                                    cancelScheduledOffsetUpdate()
+                                    offset = finalOffset
+                                }
                                 isDragging = false
                             }
                     )
@@ -70,6 +79,7 @@ struct DiffHorizontalScroller: View {
         .opacity(maximumOffset > 0.5 ? 1 : 0)
         .allowsHitTesting(maximumOffset > 0.5)
         .accessibilityLabel("Synchronized diff horizontal scroll")
+        .onDisappear(perform: cancelScheduledOffsetUpdate)
         .onChange(of: maximumOffset) { newMaximum in
             offset = min(max(offset, 0), newMaximum)
         }
@@ -77,6 +87,25 @@ struct DiffHorizontalScroller: View {
 
     private func constrained(_ value: CGFloat) -> CGFloat {
         min(max(value, 0), maximumOffset)
+    }
+
+    private func scheduleOffsetUpdate(_ nextOffset: CGFloat) {
+        guard dragUpdateBuffer.submit(nextOffset) else { return }
+        dragUpdateTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(16))
+            guard !Task.isCancelled else { return }
+            let nextOffset = dragUpdateBuffer.takePendingValue()
+            dragUpdateTask = nil
+            if let nextOffset {
+                offset = nextOffset
+            }
+        }
+    }
+
+    private func cancelScheduledOffsetUpdate() {
+        dragUpdateTask?.cancel()
+        dragUpdateTask = nil
+        dragUpdateBuffer.cancel()
     }
 }
 

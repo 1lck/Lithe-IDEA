@@ -4,6 +4,18 @@ import LitheTerminalModule
 
 private let editorTabCoordinateSpaceName = "lithe.editor-tab-strip"
 
+enum EditorDocumentIconResolver {
+    static func kind(
+        for url: URL,
+        resolvedJavaKind: LitheIconKind?
+    ) -> LitheIconKind {
+        if url.pathExtension.lowercased() == "java", let resolvedJavaKind {
+            return resolvedJavaKind
+        }
+        return LitheIcons.kind(for: url, isDirectory: false)
+    }
+}
+
 private enum MarkdownViewMode: String, CaseIterable, Identifiable, Equatable {
     case editor
     case split
@@ -44,6 +56,7 @@ struct EditorAreaView: View {
     @State private var markdownScrollPositions: [UUID: MarkdownScrollPosition] = [:]
     @State private var editorViewportStore = EditorViewportStore()
     @State private var hoveredMarkdownMode: MarkdownViewMode?
+    @State private var resolvedJavaDocumentIconKinds: [String: LitheIconKind] = [:]
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -552,10 +565,7 @@ struct EditorAreaView: View {
         isActive: Bool
     ) -> some View {
         let label = HStack(spacing: 7) {
-            LitheIcon(
-                kind: LitheIcons.kind(for: document.url, isDirectory: false),
-                size: 13
-            )
+            editorDocumentIcon(document, size: 13)
             editorTabTitle(document)
             EditorTabDirtyIndicator(document: document)
         }
@@ -622,11 +632,8 @@ struct EditorAreaView: View {
 
     private func editorTabDragPreview(_ document: EditorDocument) -> some View {
         HStack(spacing: 7) {
-            LitheIcon(
-                kind: LitheIcons.kind(for: document.url, isDirectory: false),
-                size: 13
-            )
-            .foregroundStyle(LitheTheme.accent)
+            editorDocumentIcon(document, size: 13)
+                .foregroundStyle(LitheTheme.accent)
 
             Text(document.displayName)
                 .font(.system(size: 12.5, weight: .medium))
@@ -962,10 +969,7 @@ struct EditorAreaView: View {
         VStack(spacing: 0) {
             if showsHeader, let document {
                 HStack(spacing: 7) {
-                    LitheIcon(
-                        kind: LitheIcons.kind(for: document.url, isDirectory: false),
-                        size: 13
-                    )
+                    editorDocumentIcon(document, size: 13)
                     Text(document.displayName)
                         .font(.system(size: 11.5, weight: .medium))
                         .foregroundStyle(LitheTheme.primaryText)
@@ -1000,6 +1004,28 @@ struct EditorAreaView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func editorDocumentIcon(
+        _ document: EditorDocument,
+        size: CGFloat
+    ) -> some View {
+        let path = document.url.standardizedFileURL.path
+        let resolvedKind = resolvedJavaDocumentIconKinds[path]
+        return LitheIcon(
+            kind: EditorDocumentIconResolver.kind(
+                for: document.url,
+                resolvedJavaKind: resolvedKind
+            ),
+            size: size
+        )
+        .task(id: path) {
+            guard document.url.pathExtension.lowercased() == "java",
+                  resolvedKind == nil else { return }
+            let kind = await model.javaIconKind(for: document.url)
+            guard !Task.isCancelled, let kind else { return }
+            resolvedJavaDocumentIconKinds[path] = kind
+        }
     }
 
     @ViewBuilder

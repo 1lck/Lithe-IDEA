@@ -11,6 +11,7 @@ struct LanguageTestsView: View {
     @State private var collapsedProviderIDs: Set<String> = []
     @AppStorage("lithe.tests.itemListWidth") private var itemListWidth = 250.0
     @AppStorage("lithe.tests.itemListCollapsed") private var isItemListCollapsed = false
+    @State private var liveItemListWidth: CGFloat?
     @State private var itemListDragStart: CGFloat = 250
 
     var body: some View {
@@ -30,7 +31,7 @@ struct LanguageTestsView: View {
                         geometry.size.width - SplitHandleView.thickness - minimumContentWidth
                     )
                     let resolvedListWidth = min(
-                        max(CGFloat(itemListWidth), minimumListWidth),
+                        max(liveItemListWidth ?? CGFloat(itemListWidth), minimumListWidth),
                         maximumListWidth
                     )
 
@@ -48,14 +49,19 @@ struct LanguageTestsView: View {
                                 axis: .horizontal,
                                 onDragStarted: { itemListDragStart = resolvedListWidth },
                                 onDragChanged: { translation in
-                                    itemListWidth = Double(
-                                        min(
-                                            max(itemListDragStart + translation, minimumListWidth),
-                                            maximumListWidth
-                                        )
+                                    liveItemListWidth = min(
+                                        max(itemListDragStart + translation, minimumListWidth),
+                                        maximumListWidth
                                     )
                                 },
-                                onDragEnded: {}
+                                onDragEnded: { translation in
+                                    let finalWidth = min(
+                                        max(itemListDragStart + translation, minimumListWidth),
+                                        maximumListWidth
+                                    )
+                                    itemListWidth = Double(finalWidth)
+                                    liveItemListWidth = nil
+                                }
                             )
                         }
 
