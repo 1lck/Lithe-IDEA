@@ -6,7 +6,6 @@ import {
   ListBulletsIcon as ListBullets,
   MagnifyingGlassIcon as Search,
 } from "@/ui/icons";
-import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import type { SidebarView } from "@/features/layout/utils/sidebar-pane-utils";
 import type { SettingsTab } from "@/features/window/stores/ui-state/types/ui-state.types";
 import type { Action } from "../types/action.types";
@@ -83,8 +82,9 @@ export const createNavigationActions = (params: NavigationActionsParams): Action
       category: "Navigation",
       commandId: "workbench.showGlobalSearch",
       action: () => {
+        setActiveView("search");
+        setIsSidebarVisible(true);
         onClose();
-        useBufferStore.getState().actions.openGlobalSearchBuffer();
       },
     },
     {

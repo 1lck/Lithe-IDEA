@@ -5,6 +5,7 @@ import {
   getDefaultSettingsSnapshot,
 } from "@/features/settings/config/default-settings";
 import type { Settings } from "@/features/settings/types/settings.types";
+import { migrateHiddenPatternDefaults } from "./settings-migrations";
 
 let storeInstance: Store | null = null;
 let storePromise: Promise<Store> | null = null;
@@ -15,8 +16,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 async function initializeStoreDefaults(store: Store) {
-  const entries = new Map(await store.entries<unknown>());
-  const changes: Array<[string, unknown]> = [];
+  const migration = migrateHiddenPatternDefaults(new Map(await store.entries<unknown>()));
+  const entries = migration.entries;
+  const changes = [...migration.changes];
 
   for (const [key, defaultValue] of Object.entries(defaultSettings)) {
     const currentValue = entries.get(key);

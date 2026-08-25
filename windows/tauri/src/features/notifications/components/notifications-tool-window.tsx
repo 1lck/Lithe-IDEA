@@ -8,6 +8,7 @@ import {
   MagnifyingGlassIcon as Search,
   TrashIcon as Trash,
   WarningCircleIcon as WarningCircle,
+  XIcon as X,
   XCircleIcon as XCircle,
 } from "@/ui/icons";
 import type React from "react";
@@ -41,12 +42,12 @@ import { writeClipboardText } from "@/utils/clipboard";
 import { cn } from "@/utils/cn";
 import { useTranslation } from "@/i18n/locale-provider";
 
-interface NotificationsCommandProps {
+interface NotificationsToolWindowProps {
   isVisible: boolean;
   onClose: () => void;
 }
 
-export function NotificationsCommand({ isVisible, onClose }: NotificationsCommandProps) {
+export function NotificationsToolWindow({ isVisible, onClose }: NotificationsToolWindowProps) {
   const { t } = useTranslation();
   const notifications = useNotificationsStore.use.notifications();
   const markAllNotificationsRead = useNotificationsStore((state) => state.actions.markAllRead);
@@ -170,8 +171,18 @@ export function NotificationsCommand({ isVisible, onClose }: NotificationsComman
       [
         { id: "all", label: t("notifications.filterAll"), icon: <Funnel />, value: "all" },
         { id: "info", label: t("notifications.filterInfo"), icon: <Info />, value: "info" },
-        { id: "success", label: t("notifications.filterSuccess"), icon: <Check />, value: "success" },
-        { id: "warning", label: t("notifications.filterWarnings"), icon: <WarningCircle />, value: "warning" },
+        {
+          id: "success",
+          label: t("notifications.filterSuccess"),
+          icon: <Check />,
+          value: "success",
+        },
+        {
+          id: "warning",
+          label: t("notifications.filterWarnings"),
+          icon: <WarningCircle />,
+          value: "warning",
+        },
         { id: "error", label: t("notifications.filterErrors"), icon: <XCircle />, value: "error" },
       ].map((item) => ({
         id: item.id,
@@ -328,7 +339,26 @@ export function NotificationsCommand({ isVisible, onClose }: NotificationsComman
 
   return (
     <>
-      <Command isVisible={isVisible} onClose={onClose} title={t("notifications.title")}>
+      <section
+        aria-label={t("notifications.title")}
+        className={cn("flex h-full min-h-0 flex-col bg-background", !isVisible && "hidden")}
+      >
+        <div className="flex h-8 shrink-0 items-center border-border/70 border-b px-3">
+          <h2 className="font-sans ui-text-sm min-w-0 flex-1 truncate font-semibold text-foreground">
+            {t("notifications.title")}
+          </h2>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            onClick={onClose}
+            tooltip={t("commandPalette.close")}
+            aria-label={t("commandPalette.close")}
+            tooltipSide="bottom"
+          >
+            <X />
+          </Button>
+        </div>
         <div
           className="flex h-full min-h-0 flex-col"
           onKeyDownCapture={handleNotificationsKeyDown}
@@ -337,7 +367,7 @@ export function NotificationsCommand({ isVisible, onClose }: NotificationsComman
             panelContextMenu.open(event);
           }}
         >
-          <CommandHeader onClose={onClose}>
+          <CommandHeader onClose={onClose} hideCloseButton contentClassName="px-2 py-2">
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <Search className="size-3.5 shrink-0 text-subtle-foreground" />
               <CommandInput
@@ -442,7 +472,7 @@ export function NotificationsCommand({ isVisible, onClose }: NotificationsComman
             </CommandList>
           )}
         </div>
-      </Command>
+      </section>
       <Dropdown
         isOpen={notificationContextMenu.isOpen}
         point={notificationContextMenu.position}

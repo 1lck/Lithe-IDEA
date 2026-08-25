@@ -4,7 +4,19 @@ import { useDiagnosticsStore } from "../stores/diagnostics.store";
 import type { Diagnostic } from "../types/diagnostics.types";
 import DiagnosticsPane from "./diagnostics-pane";
 
-const DiagnosticsBuffer = () => {
+interface DiagnosticsBufferProps {
+  onClose?: () => void;
+  onFullScreen?: () => void;
+  isFullScreen?: boolean;
+  showCloseButton?: boolean;
+}
+
+const DiagnosticsBuffer = ({
+  onClose = () => {},
+  onFullScreen,
+  isFullScreen = false,
+  showCloseButton = false,
+}: DiagnosticsBufferProps) => {
   const diagnosticsByFile = useDiagnosticsStore.use.diagnosticsByFile();
   const handleFileSelect = useFileSystemStore.use.handleFileSelect?.();
 
@@ -43,9 +55,12 @@ const DiagnosticsBuffer = () => {
     <DiagnosticsPane
       diagnostics={diagnostics}
       isVisible={true}
-      onClose={() => {}}
+      onClose={onClose}
       onDiagnosticClick={handleDiagnosticClick}
       isEmbedded={true}
+      showCloseButton={showCloseButton}
+      onFullScreen={onFullScreen}
+      isFullScreen={isFullScreen}
     />
   );
 };

@@ -13,7 +13,7 @@ import {
   MIN_RESPONSIVE_PANE_WIDTH,
 } from "../utils/resizable-pane-layout";
 
-type WidthSettingKey = "sidebarWidth" | "aiChatWidth";
+type WidthSettingKey = "sidebarWidth" | "rightToolWindowWidth" | "aiChatWidth";
 
 const MIN_SIDEBAR_WIDTH = 140;
 const MIN_AI_CHAT_WIDTH = 300;

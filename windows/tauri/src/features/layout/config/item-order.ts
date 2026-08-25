@@ -24,7 +24,6 @@ export const FOOTER_TRAILING_ITEM_IDS = [
   "readOnly",
   "memory",
   "gitChanges",
-  "notifications",
 ] as const;
 
 export type HeaderTrailingItemId = "account";
