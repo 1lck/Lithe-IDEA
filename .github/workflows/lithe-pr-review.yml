@@ -12,8 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  LITHE_CLAUDE_MODEL: claude-opus-5
-  LITHE_CLAUDE_EFFORT: high
+  LITHE_CODEX_MODEL: gpt-5.6-sol
 
 jobs:
   prepare:
@@ -30,7 +29,6 @@ jobs:
       authorized: ${{ steps.prepare.outputs.authorized }}
       base_sha: ${{ steps.prepare.outputs.base_sha }}
       head_sha: ${{ steps.prepare.outputs.head_sha }}
-
     steps:
       - name: Check out trusted review tooling
         uses: actions/checkout@v7
@@ -45,7 +43,7 @@ jobs:
           node-version: "24"
 
       - name: Test review context builder
-        run: node --test scripts/test-prepare-lithe-pr-review.mjs
+        run: node --test scripts/test-prepare-lithe-*review*.mjs
 
       - name: Prepare trusted review context
         id: prepare
@@ -64,7 +62,7 @@ jobs:
           github-token: ${{ github.token }}
           script: |
             const marker = `<!-- lithe-review:${context.issue.number}:${process.env.LITHE_HEAD_SHA} -->`;
-            const body = `${marker}\n## Lithe Review\n\n⏳ 正在审查当前提交，完成或失败后会更新本评论。`;
+            const body = `${marker}\n## Lithe Review\n\n⏳ 正在规划并行审查，完成或失败后会更新本评论。`;
             const comments = await github.paginate(github.rest.issues.listComments, {
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -74,21 +72,10 @@ jobs:
             const previous = comments.find((comment) =>
               comment.user?.login === 'github-actions[bot]' && comment.body?.startsWith(marker)
             );
-
             if (previous) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: previous.id,
-                body,
-              });
+              await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: previous.id, body });
             } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body,
-              });
+              await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body });
             }
 
       - name: Upload trusted review input
@@ -100,19 +87,15 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  review:
+  planner:
     needs: prepare
     if: needs.prepare.outputs.authorized == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
     permissions:
       contents: read
-      issues: read
-      pull-requests: read
     outputs:
-      review_outcome: ${{ steps.diagnostics.outputs.review_outcome }}
-      final_message: ${{ steps.result.outputs.final_message }}
-
+      plan_source: ${{ steps.ensure.outputs.plan_source }}
     steps:
       - name: Check out trusted review tooling
         uses: actions/checkout@v7
@@ -121,11 +104,26 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Stage trusted planner tooling
+        env:
+          LITHE_TOOLING: ${{ runner.temp }}/lithe-review-tooling
+        run: |
+          set -euo pipefail
+          mkdir -p "$LITHE_TOOLING"
+          install -m 755 scripts/prepare-lithe-review-stage.mjs "$LITHE_TOOLING/stage.mjs"
+          install -m 600 .github/lithe-review/planner.schema.json "$LITHE_TOOLING/planner.schema.json"
+
       - name: Download trusted review input
         uses: actions/download-artifact@v4
         with:
           name: lithe-review-input-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/lithe-review-input
+
+      - name: Build planner prompt
+        run: >-
+          node "${{ runner.temp }}/lithe-review-tooling/stage.mjs" planner
+          --base-prompt "${{ runner.temp }}/lithe-review-input/lithe-pr-review-prompt.md"
+          --output "${{ runner.temp }}/lithe-review-planner-prompt.md"
 
       - name: Check out the complete pull request head
         uses: actions/checkout@v7
@@ -134,183 +132,302 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Inspect checked-out repository
+      - name: Verify checked-out revision
         env:
           LITHE_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
           LITHE_HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
         run: |
           set -euo pipefail
-          actual_head="$(git rev-parse HEAD)"
-          if [ "$actual_head" != "$LITHE_HEAD_SHA" ]; then
-            echo "Checked-out HEAD ${actual_head} does not match expected ${LITHE_HEAD_SHA}" >&2
-            exit 1
-          fi
+          test "$(git rev-parse HEAD)" = "$LITHE_HEAD_SHA"
           git cat-file -e "${LITHE_BASE_SHA}^{commit}"
 
-          echo "[lithe-review] repository=${GITHUB_REPOSITORY}"
-          echo "[lithe-review] base_sha=${LITHE_BASE_SHA}"
-          echo "[lithe-review] head_sha=${LITHE_HEAD_SHA}"
-          echo "[lithe-review] commit_count=$(git rev-list --count HEAD)"
-          echo "[lithe-review] tracked_files=$(git ls-files | wc -l | tr -d ' ')"
-          echo "[lithe-review] changed_files=$(git diff --name-only "${LITHE_BASE_SHA}...${LITHE_HEAD_SHA}" | wc -l | tr -d ' ')"
-          echo "[lithe-review] diff_summary=$(git diff --shortstat "${LITHE_BASE_SHA}...${LITHE_HEAD_SHA}" || true)"
-          echo "[lithe-review] git_objects=$(git count-objects -vH | tr '\n' ';')"
-
-      - name: Validate Claude configuration
-        env:
-          LITHE_ANTHROPIC_API_KEY: ${{ secrets.LITHE_ANTHROPIC_API_KEY || secrets.LITHE_OPENAI_API_KEY }}
-          LITHE_ANTHROPIC_BASE_URL: ${{ secrets.LITHE_ANTHROPIC_BASE_URL || secrets.LITHE_OPENAI_RESPONSES_URL }}
-        run: |
-          set -euo pipefail
-          if [ -z "$LITHE_ANTHROPIC_API_KEY" ]; then
-            echo "LITHE_ANTHROPIC_API_KEY is not configured" >&2
-            exit 1
-          fi
-          if [ -z "$LITHE_ANTHROPIC_BASE_URL" ]; then
-            echo "LITHE_ANTHROPIC_BASE_URL is not configured" >&2
-            exit 1
-          fi
-          node <<'NODE'
-          const { appendFileSync } = require('node:fs');
-          const baseUrl = new URL(process.env.LITHE_ANTHROPIC_BASE_URL);
-          const normalizedPath = baseUrl.pathname.replace(/\/$/, '');
-          if (normalizedPath === '/v1/responses') {
-            baseUrl.pathname = '/';
-            baseUrl.search = '';
-            baseUrl.hash = '';
-          }
-          const normalizedBaseUrl = baseUrl.toString().replace(/\/$/, '');
-          appendFileSync(process.env.GITHUB_ENV, `ANTHROPIC_BASE_URL=${normalizedBaseUrl}\n`);
-          NODE
-          echo "[lithe-review] Claude model=${LITHE_CLAUDE_MODEL}"
-          echo "[lithe-review] Claude effort=${LITHE_CLAUDE_EFFORT}"
-
-      - name: Load trusted Claude prompt
-        id: prompt
-        env:
-          LITHE_PROMPT_FILE: ${{ runner.temp }}/lithe-review-input/lithe-pr-review-prompt.md
-        run: |
-          node <<'NODE'
-          const { randomUUID } = require('node:crypto');
-          const { appendFileSync, readFileSync } = require('node:fs');
-          const delimiter = `lithe_${randomUUID()}`;
-          const prompt = readFileSync(process.env.LITHE_PROMPT_FILE, 'utf8');
-          appendFileSync(process.env.GITHUB_OUTPUT, `content<<${delimiter}\n${prompt}\n${delimiter}\n`);
-          NODE
-
-      - name: Run read-only Lithe review with Claude
-        id: claude
+      - name: Plan Lithe review with Codex
+        id: codex
         continue-on-error: true
-        uses: anthropics/claude-code-action@v1
+        uses: openai/codex-action@v1
         with:
-          anthropic_api_key: ${{ secrets.LITHE_ANTHROPIC_API_KEY || secrets.LITHE_OPENAI_API_KEY }}
-          github_token: ${{ github.token }}
-          prompt: ${{ steps.prompt.outputs.content }}
-          include_fix_links: false
-          display_report: false
-          show_full_output: false
-          claude_args: |
-            --model "${{ env.LITHE_CLAUDE_MODEL }}"
-            --effort "${{ env.LITHE_CLAUDE_EFFORT }}"
-            --max-turns 100
-            --allowedTools "Bash(git status:*),Bash(git diff:*),Bash(git show:*),Bash(git log:*),Bash(git grep:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git cat-file:*),Read,Glob,Grep"
-            --json-schema '{"type":"object","properties":{"review_markdown":{"type":"string"}},"required":["review_markdown"],"additionalProperties":false}'
+          openai-api-key: ${{ secrets.LITHE_CODEX_API_KEY }}
+          responses-api-endpoint: ${{ secrets.LITHE_CODEX_RESPONSES_URL }}
+          prompt-file: ${{ runner.temp }}/lithe-review-planner-prompt.md
+          output-file: ${{ runner.temp }}/lithe-review-plan-candidate.json
+          output-schema-file: ${{ runner.temp }}/lithe-review-tooling/planner.schema.json
+          model: ${{ env.LITHE_CODEX_MODEL }}
+          effort: xhigh
+          sandbox: read-only
+          safety-strategy: drop-sudo
+          allow-users: ${{ github.actor }}
 
-      - name: Extract Claude review
-        if: steps.claude.outcome == 'success'
-        id: result
-        env:
-          LITHE_STRUCTURED_OUTPUT: ${{ steps.claude.outputs.structured_output }}
-          LITHE_FINAL_MESSAGE_FILE: ${{ runner.temp }}/lithe-review-final.md
-        run: |
-          node <<'NODE'
-          const { randomUUID } = require('node:crypto');
-          const { appendFileSync, writeFileSync } = require('node:fs');
-          const parsed = JSON.parse(process.env.LITHE_STRUCTURED_OUTPUT || '{}');
-          const message = String(parsed.review_markdown || '').trim();
-          if (!message) {
-            throw new Error('Claude returned an empty review_markdown');
-          }
-          writeFileSync(process.env.LITHE_FINAL_MESSAGE_FILE, `${message}\n`, { mode: 0o600 });
-          const delimiter = `lithe_${randomUUID()}`;
-          appendFileSync(process.env.GITHUB_OUTPUT, `final_message<<${delimiter}\n${message}\n${delimiter}\n`);
-          NODE
-
-      - name: Record review diagnostics
+      - name: Validate or replace planner output
+        id: ensure
         if: always()
-        id: diagnostics
-        env:
-          CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
-          EXTRACT_OUTCOME: ${{ steps.result.outcome }}
-          DIAGNOSTICS_FILE: ${{ runner.temp }}/lithe-review-diagnostics.txt
-          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
-          FINAL_MESSAGE_FILE: ${{ runner.temp }}/lithe-review-final.md
-          LITHE_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
-          LITHE_HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
         run: |
           set -euo pipefail
-          execution_file_exists=false
-          execution_file_bytes=0
-          final_message_exists=false
-          final_message_bytes=0
-          review_outcome=failure
+          plan_source="$(node "${{ runner.temp }}/lithe-review-tooling/stage.mjs" ensure-plan \
+            --candidate "${{ runner.temp }}/lithe-review-plan-candidate.json" \
+            --output "${{ runner.temp }}/lithe-review-plan.json")"
+          echo "plan_source=$plan_source" >> "$GITHUB_OUTPUT"
+          echo "[lithe-review] planner_outcome=${{ steps.codex.outcome }} plan_source=${plan_source}"
 
-          if [ -n "$EXECUTION_FILE" ] && [ -f "$EXECUTION_FILE" ]; then
-            execution_file_exists=true
-            execution_file_bytes="$(wc -c < "$EXECUTION_FILE" | tr -d ' ')"
-          fi
-          if [ -f "$FINAL_MESSAGE_FILE" ]; then
-            final_message_exists=true
-            final_message_bytes="$(wc -c < "$FINAL_MESSAGE_FILE" | tr -d ' ')"
-          fi
-          if [ "$CLAUDE_OUTCOME" = success ] && [ "$EXTRACT_OUTCOME" = success ]; then
-            review_outcome=success
-          fi
-
-          {
-            echo "recorded_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            echo "run_id=${GITHUB_RUN_ID}"
-            echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
-            echo "pull_request=${{ github.event.issue.number }}"
-            echo "base_sha=${LITHE_BASE_SHA}"
-            echo "head_sha=${LITHE_HEAD_SHA}"
-            echo "provider=claude"
-            echo "model=${LITHE_CLAUDE_MODEL}"
-            echo "effort=${LITHE_CLAUDE_EFFORT}"
-            echo "claude_outcome=${CLAUDE_OUTCOME}"
-            echo "extract_outcome=${EXTRACT_OUTCOME}"
-            echo "review_outcome=${review_outcome}"
-            echo "execution_file_exists=${execution_file_exists}"
-            echo "execution_file_bytes=${execution_file_bytes}"
-            echo "final_message_exists=${final_message_exists}"
-            echo "final_message_bytes=${final_message_bytes}"
-          } | tee "$DIAGNOSTICS_FILE"
-
-          echo "review_outcome=${review_outcome}" >> "$GITHUB_OUTPUT"
-
-      - name: Upload review diagnostics
+      - name: Upload review plan
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: lithe-review-diagnostics-${{ github.event.issue.number }}-${{ github.run_attempt }}
+          name: lithe-review-plan-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            ${{ runner.temp }}/lithe-review-diagnostics.txt
-            ${{ steps.claude.outputs.execution_file }}
-            ${{ runner.temp }}/lithe-review-final.md
+            ${{ runner.temp }}/lithe-review-plan.json
+            ${{ runner.temp }}/lithe-review-plan-candidate.json
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Report Claude execution failure
-        if: always() && steps.diagnostics.outputs.review_outcome != 'success'
+  reviewers:
+    needs: [prepare, planner]
+    if: needs.prepare.outputs.authorized == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - role_id: correctness
+            role_title: Correctness and end-to-end behavior
+          - role_id: architecture
+            role_title: Architecture, contracts, and cross-platform behavior
+          - role_id: resilience
+            role_title: Concurrency, security, lifecycle, and diagnostics
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Check out trusted review tooling
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Stage trusted reviewer tooling
         env:
-          CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
-          EXTRACT_OUTCOME: ${{ steps.result.outcome }}
+          LITHE_TOOLING: ${{ runner.temp }}/lithe-review-tooling
         run: |
-          echo "Claude review did not complete successfully: claude=${CLAUDE_OUTCOME}, extract=${EXTRACT_OUTCOME}" >&2
+          set -euo pipefail
+          mkdir -p "$LITHE_TOOLING"
+          install -m 755 scripts/prepare-lithe-review-stage.mjs "$LITHE_TOOLING/stage.mjs"
+          install -m 600 .github/lithe-review/reviewer.schema.json "$LITHE_TOOLING/reviewer.schema.json"
+
+      - name: Download trusted review input
+        uses: actions/download-artifact@v4
+        with:
+          name: lithe-review-input-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/lithe-review-input
+
+      - name: Download review plan
+        uses: actions/download-artifact@v4
+        with:
+          name: lithe-review-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/lithe-review-plan
+
+      - name: Build focused reviewer prompt
+        env:
+          LITHE_ROLE_ID: ${{ matrix.role_id }}
+        run: >-
+          node "${{ runner.temp }}/lithe-review-tooling/stage.mjs" reviewer
+          --base-prompt "${{ runner.temp }}/lithe-review-input/lithe-pr-review-prompt.md"
+          --plan "${{ runner.temp }}/lithe-review-plan/lithe-review-plan.json"
+          --role-id "$LITHE_ROLE_ID"
+          --output "${{ runner.temp }}/lithe-reviewer-prompt.md"
+
+      - name: Check out the complete pull request head
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify checked-out revision
+        env:
+          LITHE_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
+          LITHE_HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$LITHE_HEAD_SHA"
+          git cat-file -e "${LITHE_BASE_SHA}^{commit}"
+
+      - name: Run ${{ matrix.role_title }} review
+        id: codex
+        continue-on-error: true
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.LITHE_CODEX_API_KEY }}
+          responses-api-endpoint: ${{ secrets.LITHE_CODEX_RESPONSES_URL }}
+          prompt-file: ${{ runner.temp }}/lithe-reviewer-prompt.md
+          output-file: ${{ runner.temp }}/lithe-review-${{ matrix.role_id }}.json
+          output-schema-file: ${{ runner.temp }}/lithe-review-tooling/reviewer.schema.json
+          model: ${{ env.LITHE_CODEX_MODEL }}
+          effort: medium
+          sandbox: read-only
+          safety-strategy: drop-sudo
+          allow-users: ${{ github.actor }}
+
+      - name: Record reviewer status
+        if: always()
+        env:
+          LITHE_ROLE_ID: ${{ matrix.role_id }}
+          LITHE_CODEX_OUTCOME: ${{ steps.codex.outcome }}
+        run: |
+          set -euo pipefail
+          {
+            echo "role_id=${LITHE_ROLE_ID}"
+            echo "codex_outcome=${LITHE_CODEX_OUTCOME}"
+            echo "base_sha=${{ needs.prepare.outputs.base_sha }}"
+            echo "head_sha=${{ needs.prepare.outputs.head_sha }}"
+            echo "model=${LITHE_CODEX_MODEL}"
+            echo "effort=medium"
+          } > "${{ runner.temp }}/lithe-review-${LITHE_ROLE_ID}.status"
+
+      - name: Upload reviewer result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lithe-review-worker-${{ matrix.role_id }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/lithe-review-${{ matrix.role_id }}.json
+            ${{ runner.temp }}/lithe-review-${{ matrix.role_id }}.status
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Report reviewer failure
+        if: always() && steps.codex.outcome != 'success'
+        env:
+          LITHE_ROLE_ID: ${{ matrix.role_id }}
+        run: |
+          echo "Codex reviewer ${LITHE_ROLE_ID} did not complete successfully" >&2
           exit 1
 
+  aggregate:
+    needs: [prepare, planner, reviewers]
+    if: >-
+      always() &&
+      needs.prepare.outputs.authorized == 'true' &&
+      needs.planner.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    outputs:
+      final_message: ${{ steps.finalize.outputs.final_message }}
+      review_outcome: ${{ steps.finalize.outputs.review_outcome }}
+    steps:
+      - name: Check out trusted review tooling
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Stage trusted aggregator tooling
+        env:
+          LITHE_TOOLING: ${{ runner.temp }}/lithe-review-tooling
+        run: |
+          set -euo pipefail
+          mkdir -p "$LITHE_TOOLING"
+          install -m 755 scripts/prepare-lithe-review-stage.mjs "$LITHE_TOOLING/stage.mjs"
+          install -m 600 .github/lithe-review/final.schema.json "$LITHE_TOOLING/final.schema.json"
+
+      - name: Download trusted review input
+        uses: actions/download-artifact@v4
+        with:
+          name: lithe-review-input-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/lithe-review-input
+
+      - name: Download review plan
+        uses: actions/download-artifact@v4
+        with:
+          name: lithe-review-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/lithe-review-plan
+
+      - name: Download reviewer results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: lithe-review-worker-*-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/lithe-review-workers
+          merge-multiple: true
+
+      - name: Build aggregation prompt
+        run: >-
+          node "${{ runner.temp }}/lithe-review-tooling/stage.mjs" aggregator
+          --base-prompt "${{ runner.temp }}/lithe-review-input/lithe-pr-review-prompt.md"
+          --plan "${{ runner.temp }}/lithe-review-plan/lithe-review-plan.json"
+          --workers "${{ runner.temp }}/lithe-review-workers"
+          --output "${{ runner.temp }}/lithe-review-aggregator-prompt.md"
+
+      - name: Check out the complete pull request head
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify checked-out revision
+        env:
+          LITHE_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
+          LITHE_HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$LITHE_HEAD_SHA"
+          git cat-file -e "${LITHE_BASE_SHA}^{commit}"
+
+      - name: Verify and aggregate review with Codex
+        id: codex
+        continue-on-error: true
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.LITHE_CODEX_API_KEY }}
+          responses-api-endpoint: ${{ secrets.LITHE_CODEX_RESPONSES_URL }}
+          prompt-file: ${{ runner.temp }}/lithe-review-aggregator-prompt.md
+          output-file: ${{ runner.temp }}/lithe-review-final-candidate.json
+          output-schema-file: ${{ runner.temp }}/lithe-review-tooling/final.schema.json
+          model: ${{ env.LITHE_CODEX_MODEL }}
+          effort: xhigh
+          sandbox: read-only
+          safety-strategy: drop-sudo
+          allow-users: ${{ github.actor }}
+
+      - name: Finalize review output
+        if: always()
+        id: finalize
+        run: >-
+          node "${{ runner.temp }}/lithe-review-tooling/stage.mjs" finalize
+          --candidate "${{ runner.temp }}/lithe-review-final-candidate.json"
+          --workers "${{ runner.temp }}/lithe-review-workers"
+          --base-sha "${{ needs.prepare.outputs.base_sha }}"
+          --head-sha "${{ needs.prepare.outputs.head_sha }}"
+          --output "${{ runner.temp }}/lithe-review-final.md"
+
+      - name: Upload aggregation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lithe-review-aggregation-${{ github.event.issue.number }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/lithe-review-final-candidate.json
+            ${{ runner.temp }}/lithe-review-final.md
+            ${{ runner.temp }}/lithe-review-plan/lithe-review-plan.json
+            ${{ runner.temp }}/lithe-review-workers
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Report aggregation failure
+        if: always() && steps.finalize.outputs.review_outcome == 'failure'
+        run: |
+          echo "Codex review aggregation did not produce a valid final review" >&2
+          exit 1
+
+      - name: Warn about partial aggregation
+        if: always() && steps.finalize.outputs.review_outcome == 'partial'
+        run: echo "::warning title=Lithe review partially aggregated::Publishing unverified reviewer candidates because the final verifier did not complete"
+
   publish:
-    needs: [prepare, review]
+    needs: [prepare, planner, reviewers, aggregate]
     if: >-
       always() &&
       needs.prepare.outputs.authorized == 'true'
@@ -319,15 +436,14 @@ jobs:
     permissions:
       issues: write
       pull-requests: write
-
     steps:
       - name: Publish or update the review
         uses: actions/github-script@v7
         env:
-          LITHE_FINAL_MESSAGE: ${{ needs.review.outputs.final_message }}
+          LITHE_FINAL_MESSAGE: ${{ needs.aggregate.outputs.final_message }}
           LITHE_HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
-          LITHE_REVIEW_OUTCOME: ${{ needs.review.outputs.review_outcome }}
-          LITHE_REVIEW_JOB_RESULT: ${{ needs.review.result }}
+          LITHE_REVIEW_OUTCOME: ${{ needs.aggregate.outputs.review_outcome }}
+          LITHE_AGGREGATE_JOB_RESULT: ${{ needs.aggregate.result }}
           LITHE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         with:
           github-token: ${{ github.token }}
@@ -340,8 +456,8 @@ jobs:
               '',
               '**结论：** ❓ 审查未完成',
               '',
-              `模型执行状态：\`${process.env.LITHE_REVIEW_OUTCOME || process.env.LITHE_REVIEW_JOB_RESULT}\`。`,
-              `请查看[本次 Actions 日志与诊断附件](${process.env.LITHE_RUN_URL})后重新召唤。`,
+              `聚合状态：\`${process.env.LITHE_REVIEW_OUTCOME || process.env.LITHE_AGGREGATE_JOB_RESULT}\`。`,
+              `请查看[本次 Actions 日志与分阶段诊断附件](${process.env.LITHE_RUN_URL})后重新召唤。`,
             ].join('\n');
             const body = `${marker}\n${message || failureMessage}`.slice(0, limit);
             const comments = await github.paginate(github.rest.issues.listComments, {
@@ -353,19 +469,8 @@ jobs:
             const previous = comments.find((comment) =>
               comment.user?.login === 'github-actions[bot]' && comment.body?.startsWith(marker)
             );
-
             if (previous) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: previous.id,
-                body,
-              });
+              await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: previous.id, body });
             } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body,
-              });
+              await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body });
             }

@@ -1,0 +1,8 @@
+{
+  "type": "object",
+  "properties": {
+    "review_markdown": { "type": "string" }
+  },
+  "required": ["review_markdown"],
+  "additionalProperties": false
+}

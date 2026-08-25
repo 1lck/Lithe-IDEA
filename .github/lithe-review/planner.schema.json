@@ -1,0 +1,23 @@
+{
+  "type": "object",
+  "properties": {
+    "change_summary": { "type": "string" },
+    "assignments": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "properties": {
+          "role_id": { "type": "string", "enum": ["correctness", "architecture", "resilience"] },
+          "focus_paths": { "type": "array", "items": { "type": "string" } },
+          "questions": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["role_id", "focus_paths", "questions"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["change_summary", "assignments"],
+  "additionalProperties": false
+}
