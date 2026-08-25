@@ -9,6 +9,7 @@ struct RunView: View {
     @AppStorage("lithe.run.pinnedConfigurationIDs") private var pinnedConfigurationTokens = ""
     @AppStorage("lithe.run.configurationListWidth") private var configurationListWidth = 230.0
     @AppStorage("lithe.run.configurationListCollapsed") private var isConfigurationListCollapsed = false
+    @State private var liveConfigurationListWidth: CGFloat?
     @State private var configurationListDragStart: CGFloat = 230
     /// The configuration whose editor popover is open. Held separately from the list
     /// selection so opening an editor does not switch which log is shown.
@@ -48,7 +49,7 @@ struct RunView: View {
                         min(420, geometry.size.width - SplitHandleView.thickness - minimumContentWidth)
                     )
                     let resolvedListWidth = constrained(
-                        CGFloat(configurationListWidth),
+                        liveConfigurationListWidth ?? CGFloat(configurationListWidth),
                         minimum: minimumListWidth,
                         maximum: maximumListWidth
                     )
@@ -70,15 +71,21 @@ struct RunView: View {
                                     configurationListDragStart = resolvedListWidth
                                 },
                                 onDragChanged: { translation in
-                                    configurationListWidth = Double(
-                                        constrained(
-                                            configurationListDragStart + translation,
-                                            minimum: minimumListWidth,
-                                            maximum: maximumListWidth
-                                        )
+                                    liveConfigurationListWidth = constrained(
+                                        configurationListDragStart + translation,
+                                        minimum: minimumListWidth,
+                                        maximum: maximumListWidth
                                     )
                                 },
-                                onDragEnded: {}
+                                onDragEnded: { translation in
+                                    let finalWidth = constrained(
+                                        configurationListDragStart + translation,
+                                        minimum: minimumListWidth,
+                                        maximum: maximumListWidth
+                                    )
+                                    configurationListWidth = Double(finalWidth)
+                                    liveConfigurationListWidth = nil
+                                }
                             )
                         }
 

@@ -17,9 +17,9 @@ struct EditorLayoutMetricsTests {
     @Test
     func standardGutterUsesDistinctBreakpointImplementationLineNumberAndFoldColumns() {
         let layout = EditorGutterLayout(lineNumberTextWidth: 0)
-        #expect(layout.breakpointRange.upperBound == layout.implementationRange.lowerBound)
-        #expect(layout.implementationRange.upperBound == layout.lineNumberRange.lowerBound)
-        #expect(layout.lineNumberRange.upperBound == layout.foldRange.lowerBound)
+        #expect(layout.breakpointRange.upperBound == layout.lineNumberRange.lowerBound)
+        #expect(layout.lineNumberRange.upperBound == layout.implementationRange.lowerBound)
+        #expect(layout.implementationRange.upperBound == layout.foldRange.lowerBound)
         #expect(layout.foldRange.upperBound == layout.gitChangeRange.lowerBound)
         #expect(layout.gitChangeRange.upperBound == EditorLayoutMetrics.standardGutterWidth)
     }

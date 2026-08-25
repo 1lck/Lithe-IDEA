@@ -1,8 +1,18 @@
 import Foundation
 import Testing
+@testable import Lithe
 
 @Suite("Workbench rendering safety")
 struct WorkbenchRenderingSafetyTests {
+    @Test
+    func workspaceReservesTheRightActivityBarAndItsDivider() {
+        #expect(
+            WorkbenchLayoutMetrics.workspaceTrailingInset
+                == WorkbenchLayoutMetrics.rightActivityBarWidth
+                    + WorkbenchLayoutMetrics.rightActivityBarDividerWidth
+        )
+    }
+
     @Test
     func workbenchDoesNotFlattenPlatformBackedViews() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)

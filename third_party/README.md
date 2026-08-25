@@ -14,4 +14,3 @@ Do not copy complete upstream repositories, release binaries, documentation
 sites, screenshots, tests, or CI configuration here for reference alone.
 Build-time downloads belong in ignored artifact caches and runtime assets
 belong in the platform, plugin, or resource directory that packages them.
-

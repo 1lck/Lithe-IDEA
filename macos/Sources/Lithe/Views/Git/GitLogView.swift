@@ -92,7 +92,13 @@ struct GitLogView: View {
                                 maximum: maximumReferencePaneWidth
                             )
                         },
-                        onDragEnded: {}
+                        onDragEnded: { translation in
+                            referencePaneWidth = constrained(
+                                referencePaneDragStart + translation,
+                                minimum: minimumReferencePaneWidth,
+                                maximum: maximumReferencePaneWidth
+                            )
+                        }
                     )
 
                     commitPane
@@ -110,7 +116,13 @@ struct GitLogView: View {
                                 maximum: maximumDetailPaneWidth
                             )
                         },
-                        onDragEnded: {}
+                        onDragEnded: { translation in
+                            detailPaneWidth = constrained(
+                                detailPaneDragStart - translation,
+                                minimum: minimumDetailPaneWidth,
+                                maximum: maximumDetailPaneWidth
+                            )
+                        }
                     )
 
                     detailPane
@@ -790,7 +802,13 @@ struct GitLogView: View {
                             maximum: maximumFilesPaneHeight
                         )
                     },
-                    onDragEnded: {}
+                    onDragEnded: { translation in
+                        filesPaneHeight = constrained(
+                            filesPaneDragStart + translation,
+                            minimum: minimumFilesPaneHeight,
+                            maximum: maximumFilesPaneHeight
+                        )
+                    }
                 )
 
                 commitDetail

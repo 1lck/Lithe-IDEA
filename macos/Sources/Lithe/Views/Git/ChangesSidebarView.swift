@@ -197,8 +197,12 @@ struct ChangesSidebarView: View {
                             maximum: maximumCommitHeight
                         )
                     },
-                    onDragEnded: {
-                        commitAreaHeight = resolvedCommitHeight
+                    onDragEnded: { translation in
+                        commitAreaHeight = constrained(
+                            commitAreaDragStart - translation,
+                            minimum: minimumCommitHeight,
+                            maximum: maximumCommitHeight
+                        )
                     }
                 )
                 commitArea
