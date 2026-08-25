@@ -38,6 +38,16 @@ struct AppLocalizationTests {
     }
 
     @Test
+    func simplifiedChineseResourcesCoverWorkbenchBackgroundSettings() throws {
+        let translations = try simplifiedChineseTranslations()
+
+        #expect(translations["Workbench background"] == "工作台背景")
+        #expect(translations["No background image selected"] == "未选择背景图片")
+        #expect(translations["Choose Image…"] == "选择图片…")
+        #expect(translations["Workbench background opacity"] == "工作台不透明度")
+    }
+
+    @Test
     func simplifiedChineseResourcesCoverLogDirectorySettings() throws {
         let translations = try simplifiedChineseTranslations()
 

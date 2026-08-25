@@ -50,7 +50,7 @@ struct PluginManagementView: View {
             footer
         }
         .frame(minWidth: 820, minHeight: 560)
-        .background(LitheTheme.window)
+        .litheWorkbenchSurface(LitheTheme.window)
         .onAppear {
             let initialContent = PluginManagementListContent(plugins: model.pluginSnapshots)
             selectedPluginID = initialContent.standalonePlugins.first?.id
@@ -83,7 +83,7 @@ struct PluginManagementView: View {
         }
         .padding(.horizontal, 20)
         .frame(height: 52)
-        .background(LitheTheme.toolHeader)
+        .litheWorkbenchSurface(LitheTheme.toolHeader)
     }
 
     private var sidebar: some View {
@@ -121,7 +121,7 @@ struct PluginManagementView: View {
             }
         }
         .frame(width: 320)
-        .background(LitheTheme.sidebar)
+        .litheWorkbenchSurface(LitheTheme.sidebar)
     }
 
     private var languageExtensionsDisclosure: some View {
@@ -307,7 +307,7 @@ struct PluginManagementView: View {
         }
         .padding(.horizontal, 14)
         .frame(height: 58)
-        .background(LitheTheme.toolHeader)
+        .litheWorkbenchSurface(LitheTheme.toolHeader)
         .animation(.easeOut(duration: 0.15), value: pendingEnabledStates.isEmpty)
     }
 

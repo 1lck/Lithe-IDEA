@@ -40,6 +40,7 @@ final class AppServices {
     let recentProjectsStore: RecentProjectsStore
     let workspaceSessionStore: WorkspaceSessionStore
     let workbenchLayoutStore: WorkbenchLayoutStore
+    let workbenchBackgroundPlatform: any WorkbenchBackgroundPlatformProviding
     let directoryWatcherFactory: any DirectoryWatcherFactory
     let platformUI: any PlatformUI
     let shortcutDetectorFactory: any ShortcutDetectorFactory
@@ -71,6 +72,7 @@ final class AppServices {
         recentProjectsStore: RecentProjectsStore,
         workspaceSessionStore: WorkspaceSessionStore,
         workbenchLayoutStore: WorkbenchLayoutStore,
+        workbenchBackgroundPlatform: any WorkbenchBackgroundPlatformProviding,
         directoryWatcherFactory: any DirectoryWatcherFactory,
         platformUI: any PlatformUI,
         shortcutDetectorFactory: any ShortcutDetectorFactory
@@ -106,6 +108,7 @@ final class AppServices {
         self.recentProjectsStore = recentProjectsStore
         self.workspaceSessionStore = workspaceSessionStore
         self.workbenchLayoutStore = workbenchLayoutStore
+        self.workbenchBackgroundPlatform = workbenchBackgroundPlatform
         self.directoryWatcherFactory = directoryWatcherFactory
         self.platformUI = platformUI
         self.shortcutDetectorFactory = shortcutDetectorFactory

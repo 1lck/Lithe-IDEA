@@ -353,15 +353,18 @@ struct CodeEditorView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> EditorContainerView {
         let palette = CodeEditorPalette(isDark: colorScheme == .dark, theme: settings.colorTheme)
+        let showsWorkbenchBackground = model.workbenchBackgroundFeature.hasImage
         let container = EditorContainerView()
+        container.displaysTransparentBackground = showsWorkbenchBackground
         let scrollView = NSScrollView(frame: .zero)
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.borderType = .noBorder
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
-        scrollView.drawsBackground = true
+        scrollView.drawsBackground = !showsWorkbenchBackground
         scrollView.backgroundColor = palette.background
+        scrollView.contentView.drawsBackground = !showsWorkbenchBackground
         scrollView.wantsLayer = true
         scrollView.layer?.masksToBounds = true
 
@@ -403,7 +406,8 @@ struct CodeEditorView: NSViewRepresentable {
         textView.font = LitheTheme.editorFont(size: settings.editorFontSize)
         textView.defaultParagraphStyle = LitheTheme.editorParagraphStyle
         textView.indentationWidth = settings.tabWidth
-        textView.applyAppearance(palette)
+        textView.applyAppearance(palette, isTransparent: showsWorkbenchBackground)
+        textView.drawsBackground = !showsWorkbenchBackground
         textView.isEditable = !document.isReadOnly
         textView.isSelectable = true
         textView.onWindowAttached = { [weak coordinator = context.coordinator] in
@@ -477,7 +481,7 @@ struct CodeEditorView: NSViewRepresentable {
             coordinator?.updateStandardGutterWidth(width)
         }
         gutter.attach(textView: textView, scrollView: scrollView)
-        gutter.applyAppearance(palette)
+        gutter.applyAppearance(palette, isTransparent: showsWorkbenchBackground)
         context.coordinator.attachMarkdownScrollSync(to: scrollView)
         context.coordinator.attachViewportTracking(to: scrollView)
 
@@ -505,6 +509,7 @@ struct CodeEditorView: NSViewRepresentable {
     func updateNSView(_ container: EditorContainerView, context: Context) {
         guard let textView = container.scrollView?.documentView as? NSTextView else { return }
         let palette = CodeEditorPalette(isDark: colorScheme == .dark, theme: settings.colorTheme)
+        let showsWorkbenchBackground = model.workbenchBackgroundFeature.hasImage
         let appearanceChanged = context.coordinator.isDarkAppearance != palette.isDark
             || context.coordinator.colorTheme != settings.colorTheme
         context.coordinator.document = document
@@ -512,10 +517,11 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.debugService = debugService
         context.coordinator.shouldFocus = shouldFocus
         context.coordinator.markdownScrollPosition = markdownScrollPosition
+        container.displaysTransparentBackground = showsWorkbenchBackground
         if let scrollView = container.scrollView {
-            if appearanceChanged {
-                scrollView.backgroundColor = palette.background
-            }
+            scrollView.drawsBackground = !showsWorkbenchBackground
+            scrollView.backgroundColor = palette.background
+            scrollView.contentView.drawsBackground = !showsWorkbenchBackground
             context.coordinator.attachMarkdownScrollSync(to: scrollView)
             context.coordinator.attachMarkdownImagePasteMonitor(to: scrollView)
             context.coordinator.attachViewportTracking(to: scrollView)
@@ -532,6 +538,7 @@ struct CodeEditorView: NSViewRepresentable {
             tabWidth: tabWidth,
             languageFeatures: languageFeatures,
             isReadOnly: document.isReadOnly,
+            isTransparent: showsWorkbenchBackground,
             palette: palette,
             textView: textView,
             gutter: container.gutter
@@ -971,6 +978,7 @@ struct CodeEditorView: NSViewRepresentable {
             tabWidth: Int,
             languageFeatures: LanguageServerFeatureSet,
             isReadOnly: Bool,
+            isTransparent: Bool,
             palette: CodeEditorPalette,
             textView: NSTextView,
             gutter: LineNumberGutterView?
@@ -999,7 +1007,7 @@ struct CodeEditorView: NSViewRepresentable {
                 changed = true
             }
             if let codeTextView = textView as? CodeTextView {
-                codeTextView.applyAppearance(palette)
+                codeTextView.applyAppearance(palette, isTransparent: isTransparent)
                 if appliedTabWidth != tabWidth {
                     codeTextView.indentationWidth = tabWidth
                     appliedTabWidth = tabWidth
@@ -1017,7 +1025,7 @@ struct CodeEditorView: NSViewRepresentable {
                     changed = true
                 }
             }
-            gutter?.applyAppearance(palette)
+            gutter?.applyAppearance(palette, isTransparent: isTransparent)
             if appliedReadOnly != isReadOnly {
                 textView.isEditable = !isReadOnly
                 textView.isSelectable = true
@@ -1495,6 +1503,7 @@ private struct TextLineIndex {
 }
 
 final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
+    override var isOpaque: Bool { false }
     var onCaretPresentationChanged: (() -> Void)?
     var onLayoutGeometryChanged: (() -> Void)?
     var indentationWidth = 4
@@ -1558,12 +1567,13 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         }
     }
 
-    fileprivate func applyAppearance(_ palette: CodeEditorPalette) {
+    fileprivate func applyAppearance(_ palette: CodeEditorPalette, isTransparent: Bool = false) {
         guard appliedDarkAppearance != palette.isDark
-            || appliedColorTheme != palette.theme else { return }
+            || appliedColorTheme != palette.theme
+            || (isTransparent ? backgroundColor != .clear : backgroundColor != palette.background) else { return }
         appliedDarkAppearance = palette.isDark
         appliedColorTheme = palette.theme
-        backgroundColor = palette.background
+        backgroundColor = isTransparent ? .clear : palette.background
         textColor = palette.text
         insertionPointColor = palette.caret
         selectedTextAttributes = [
@@ -3066,6 +3076,11 @@ final class EditorContainerView: NSView {
     weak var scrollView: NSScrollView?
     weak var gutter: LineNumberGutterView?
     var gutterWidthConstraint: NSLayoutConstraint?
+    var displaysTransparentBackground = false {
+        didSet { needsDisplay = true }
+    }
+
+    override var isOpaque: Bool { !displaysTransparentBackground }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -3080,6 +3095,8 @@ final class EditorContainerView: NSView {
 
 @MainActor
 final class LineNumberGutterView: NSView {
+    private var displaysTransparentBackground = false
+    override var isOpaque: Bool { !displaysTransparentBackground }
     var onStandardWidthChange: ((CGFloat) -> Void)?
     private weak var textView: NSTextView?
     private weak var scrollView: NSScrollView?
@@ -3170,10 +3187,13 @@ final class LineNumberGutterView: NSView {
         needsDisplay = true
     }
 
-    fileprivate func applyAppearance(_ palette: CodeEditorPalette) {
-        guard self.palette.isDark != palette.isDark || self.palette.theme != palette.theme else { return }
+    fileprivate func applyAppearance(_ palette: CodeEditorPalette, isTransparent: Bool = false) {
+        guard self.palette.isDark != palette.isDark
+            || self.palette.theme != palette.theme
+            || displaysTransparentBackground != isTransparent else { return }
         self.palette = palette
-        layer?.backgroundColor = palette.gutterBackground.cgColor
+        displaysTransparentBackground = isTransparent
+        layer?.backgroundColor = (isTransparent ? NSColor.clear : palette.gutterBackground).cgColor
         needsDisplay = true
     }
 
@@ -3390,13 +3410,14 @@ final class LineNumberGutterView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
+        if !displaysTransparentBackground {
+            palette.gutterBackground.setFill()
+            dirtyRect.fill()
+        }
         guard let textView,
               let scrollView,
               let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer else { return }
-
-        palette.gutterBackground.setFill()
-        dirtyRect.fill()
 
         let visibleRect = scrollView.documentVisibleRect
         let textContainerVisibleRect = NSRect(

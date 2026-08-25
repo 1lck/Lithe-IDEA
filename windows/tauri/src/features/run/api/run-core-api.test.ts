@@ -8,27 +8,39 @@ const executeCore = mock(async () => ({
 
 mock.module("@/core/lithe-core-client", () => ({ executeCore }));
 
-const { updateGlobalToolchain, updateRunOptions } = await import("./run-core-api");
+const { saveRunConfigurationEditorChanges } = await import("./run-core-api");
+
+const emptyToolchain = {
+  javaHomePath: "",
+  mavenExecutablePath: "",
+  mavenJavaHomePath: "",
+};
 
 beforeEach(() => {
   executeCore.mockClear();
 });
 
-describe("updateRunOptions", () => {
-  test("sends a project-relative working directory and empty toolchain paths in project scope", async () => {
-    await updateRunOptions("D:/fixture/project", "plain-java", "project", {
-      javaHomePath: "D:\\fixture\\project\\toolchains\\jdk",
-      mavenExecutablePath: "D:/fixture/project/toolchains/maven/bin/mvn.cmd",
-      mavenJavaHomePath: "D:/fixture/project/toolchains/maven-jdk",
-      workingDirectoryPath: "D:/fixture/project/app",
-      vmArguments: "-Xmx2g",
-      programArguments: "--dev",
-      environment: { APP_ENV: "dev" },
-    });
+describe("saveRunConfigurationEditorChanges", () => {
+  test("sends project-relative working directory and toolchain paths in project scope", async () => {
+    await saveRunConfigurationEditorChanges(
+      "D:/fixture/project",
+      "plain-java",
+      "project",
+      {
+        javaHomePath: "D:\\fixture\\project\\toolchains\\jdk",
+        mavenExecutablePath: "D:/fixture/project/toolchains/maven/bin/mvn.cmd",
+        mavenJavaHomePath: "D:/fixture/project/toolchains/maven-jdk",
+        workingDirectoryPath: "D:/fixture/project/app",
+        vmArguments: "-Xmx2g",
+        programArguments: "--dev",
+        environment: { APP_ENV: "dev" },
+      },
+      emptyToolchain,
+    );
 
     expect(executeCore).toHaveBeenCalledWith(
       expect.objectContaining({
-        command: "runConfig.updateOptions",
+        command: "runConfig.saveEditorChanges",
         payload: expect.objectContaining({
           root: "D:/fixture/project",
           scope: "project",
@@ -38,74 +50,119 @@ describe("updateRunOptions", () => {
           arguments: "--dev",
           environment: { APP_ENV: "dev" },
           mavenProfiles: [],
-          javaHomePath: "",
-          mavenExecutablePath: "",
-          mavenJavaHomePath: "",
+          javaHomePath: "toolchains/jdk",
+          mavenExecutablePath: "toolchains/maven/bin/mvn.cmd",
+          mavenJavaHomePath: "toolchains/maven-jdk",
         }),
       }),
     );
   });
 
-  test("keeps the working directory absolute when saving to local scope", async () => {
-    await updateRunOptions("D:/fixture/project", "plain-java", "local", {
-      javaHomePath: "C:/Program Files/Java/jdk-21",
-      mavenExecutablePath: "",
-      mavenJavaHomePath: "",
-      workingDirectoryPath: "D:/fixture/project/app",
-      vmArguments: "",
-      programArguments: "",
-      environment: {},
-    });
+  test("keeps working directory and toolchain paths absolute in local scope", async () => {
+    await saveRunConfigurationEditorChanges(
+      "D:/fixture/project",
+      "plain-java",
+      "local",
+      {
+        javaHomePath: "C:/Program Files/Java/jdk-21",
+        mavenExecutablePath: "D:/Tools/apache-maven",
+        mavenJavaHomePath: "C:/Program Files/Java/jdk-17",
+        workingDirectoryPath: "D:/fixture/project/app",
+        vmArguments: "",
+        programArguments: "",
+        environment: {},
+      },
+      emptyToolchain,
+    );
 
     expect(executeCore).toHaveBeenCalledWith(
       expect.objectContaining({
         payload: expect.objectContaining({
           workingDirectory: "D:/fixture/project/app",
-          javaHomePath: "",
-          mavenExecutablePath: "",
-          mavenJavaHomePath: "",
+          javaHomePath: "C:/Program Files/Java/jdk-21",
+          mavenExecutablePath: "D:/Tools/apache-maven",
+          mavenJavaHomePath: "C:/Program Files/Java/jdk-17",
         }),
       }),
     );
   });
 
-  test("rejects a project working directory outside the workspace", () => {
+  test("rejects a project path outside the workspace", () => {
     expect(() =>
-      updateRunOptions("D:/fixture/project", "plain-java", "project", {
+      saveRunConfigurationEditorChanges(
+        "D:/fixture/project",
+        "plain-java",
+        "project",
+        {
+          javaHomePath: "",
+          mavenExecutablePath: "",
+          mavenJavaHomePath: "",
+          workingDirectoryPath: "E:/outside",
+          vmArguments: "",
+          programArguments: "",
+          environment: {},
+        },
+        emptyToolchain,
+      ),
+    ).toThrow("Project paths must stay inside the workspace.");
+    expect(executeCore).not.toHaveBeenCalled();
+  });
+
+  test("rejects a project toolchain path outside the workspace", () => {
+    expect(() =>
+      saveRunConfigurationEditorChanges(
+        "D:/fixture/project",
+        "plain-java",
+        "project",
+        {
+          javaHomePath: "C:/Program Files/Java/jdk-21",
+          mavenExecutablePath: "",
+          mavenJavaHomePath: "",
+          workingDirectoryPath: "",
+          vmArguments: "",
+          programArguments: "",
+          environment: {},
+        },
+        emptyToolchain,
+      ),
+    ).toThrow("Project paths must stay inside the workspace.");
+    expect(executeCore).not.toHaveBeenCalled();
+  });
+  test("sends toolchain defaults and project options in one core request", async () => {
+    await saveRunConfigurationEditorChanges(
+      "D:/fixture/project",
+      "spring",
+      "project",
+      {
         javaHomePath: "",
         mavenExecutablePath: "",
         mavenJavaHomePath: "",
-        workingDirectoryPath: "E:/outside",
-        vmArguments: "",
-        programArguments: "",
-        environment: {},
-      }),
-    ).toThrow("Project working directory must stay inside the workspace.");
-    expect(executeCore).not.toHaveBeenCalled();
-  });
-});
-
-describe("updateGlobalToolchain", () => {
-  test("writes the global toolchain into the local layer", async () => {
-    await updateGlobalToolchain("D:/fixture/project", {
-      javaHomePath: "C:/Program Files/Java/jdk-21",
-      mavenExecutablePath: "D:/Tools/apache-maven/bin/mvn.cmd",
-      mavenJavaHomePath: "C:/Program Files/Java/jdk-17",
-    });
+        workingDirectoryPath: "D:/fixture/project/backend",
+        vmArguments: "-Xmx2g",
+        programArguments: "--dev",
+        environment: { APP_ENV: "dev" },
+      },
+      {
+        javaHomePath: "C:/Java/jdk-21",
+        mavenExecutablePath: "D:/Tools/apache-maven",
+        mavenJavaHomePath: "C:/Java/jdk-17",
+      },
+    );
 
     expect(executeCore).toHaveBeenCalledWith(
       expect.objectContaining({
-        command: "runConfig.updateOptions",
-        payload: {
+        command: "runConfig.saveEditorChanges",
+        payload: expect.objectContaining({
           root: "D:/fixture/project",
-          scope: "local",
-          configurationId: "toolchain",
+          scope: "project",
+          configurationId: "spring",
+          workingDirectory: "backend",
           toolchain: {
-            javaHomePath: "C:/Program Files/Java/jdk-21",
-            mavenExecutablePath: "D:/Tools/apache-maven/bin/mvn.cmd",
-            mavenJavaHomePath: "C:/Program Files/Java/jdk-17",
+            javaHomePath: "C:/Java/jdk-21",
+            mavenExecutablePath: "D:/Tools/apache-maven",
+            mavenJavaHomePath: "C:/Java/jdk-17",
           },
-        },
+        }),
       }),
     );
   });

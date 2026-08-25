@@ -19,7 +19,7 @@ struct BranchComparisonView: View {
                 reviewPane
             }
         }
-        .background(LitheTheme.editor)
+        .litheWorkbenchSurface(LitheTheme.editor)
     }
 
     private var header: some View {
@@ -46,7 +46,7 @@ struct BranchComparisonView: View {
         .padding(.leading, 12)
         .padding(.trailing, 5)
         .frame(height: 36)
-        .background(LitheTheme.sidebar)
+        .litheWorkbenchSurface(LitheTheme.sidebar)
         .overlay(alignment: .bottom) {
             Rectangle().fill(LitheTheme.accent).frame(height: 2)
         }
@@ -98,7 +98,7 @@ struct BranchComparisonView: View {
         }
         .padding(.horizontal, 10)
         .frame(height: 38)
-        .background(LitheTheme.toolHeader)
+        .litheWorkbenchSurface(LitheTheme.toolHeader)
     }
 
     private var filePane: some View {
@@ -114,7 +114,7 @@ struct BranchComparisonView: View {
             }
             .padding(.horizontal, 10)
             .frame(height: 34)
-            .background(LitheTheme.toolHeader)
+            .litheWorkbenchSurface(LitheTheme.toolHeader)
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
@@ -176,7 +176,7 @@ struct BranchComparisonView: View {
                 }
             }
         }
-        .background(LitheTheme.sidebar)
+        .litheWorkbenchSurface(LitheTheme.sidebar)
     }
 
     private var reviewPane: some View {
@@ -209,7 +209,7 @@ struct BranchComparisonView: View {
                 )
             }
         }
-        .background(LitheTheme.editor)
+        .litheWorkbenchSurface(LitheTheme.editor)
     }
 
     private var versionHeader: some View {

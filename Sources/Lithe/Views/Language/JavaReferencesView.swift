@@ -12,7 +12,7 @@ struct LanguageReferencesView: View {
                 results
             }
         }
-        .background(LitheTheme.sidebar)
+        .litheWorkbenchSurface(LitheTheme.sidebar)
     }
 
     private var toolbar: some View {
@@ -97,7 +97,7 @@ struct LanguageImplementationChooserView: View {
             }
             .padding(.horizontal, 10)
             .frame(height: 34)
-            .background(LitheTheme.editor)
+            .litheWorkbenchSurface(LitheTheme.editor)
 
             ScrollView(.vertical) {
                 LazyVStack(spacing: 1) {

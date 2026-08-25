@@ -43,7 +43,7 @@ struct GitCommitDiffReviewView: View {
                 }
             }
         }
-        .background(LitheTheme.editor)
+        .litheWorkbenchSurface(LitheTheme.editor)
         .onChange(of: model.diffRows.count) { _ in
             selectedDifferenceIndex = 0
         }
@@ -82,7 +82,7 @@ struct GitCommitDiffReviewView: View {
         .padding(.leading, 12)
         .padding(.trailing, 5)
         .frame(height: 34)
-        .background(LitheTheme.sidebar)
+        .litheWorkbenchSurface(LitheTheme.sidebar)
         .overlay(alignment: .bottom) {
             Rectangle().fill(LitheTheme.accent).frame(height: 2)
         }
@@ -162,7 +162,7 @@ struct GitCommitDiffReviewView: View {
         }
         .padding(.horizontal, 8)
         .frame(height: 40)
-        .background(LitheTheme.toolHeader)
+        .litheWorkbenchSurface(LitheTheme.toolHeader)
     }
 
     private var versionHeader: some View {

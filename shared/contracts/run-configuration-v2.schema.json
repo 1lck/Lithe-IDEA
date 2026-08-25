@@ -21,7 +21,7 @@
     },
     "toolchain": {
       "type": "object",
-      "description": "Machine-local global toolchain applied to every configuration. Stored only in the local layer.",
+      "description": "Machine-local project toolchain defaults. Stored only in the local layer; non-empty per-configuration paths override matching defaults.",
       "properties": {
         "java": {
           "type": "object",

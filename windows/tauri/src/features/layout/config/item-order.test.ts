@@ -18,7 +18,7 @@ describe("footer item order", () => {
     expect(ordered).toContain("gitChanges");
     expect(ordered).toContain("cursor");
     expect(ordered).toContain("memory");
-    expect(ordered).toContain("notifications");
+    expect(ordered).not.toContain("notifications");
   });
 });
 

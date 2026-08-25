@@ -144,6 +144,7 @@ final class AppModel: ObservableObject, Identifiable {
     private var sidebarRefreshTask: Task<Void, Never>?
     private var shortcutSettingsObservation: AnyCancellable?
     private var shortcutRecordingObservation: AnyCancellable?
+    private var workbenchBackgroundFeatureObservation: AnyCancellable?
     private var isProjectSessionActive = true
     private var fileVisibilityRulesObserverID: UUID?
     private var requestProjectOpen: ((URL) -> Void)?
@@ -153,6 +154,7 @@ final class AppModel: ObservableObject, Identifiable {
     let platformUI: any PlatformUI
     let settings: AppSettings
     let keyboardShortcutFeature: KeyboardShortcutFeatureModel
+    let workbenchBackgroundFeature: WorkbenchBackgroundFeatureModel
     let runtimeFeature: RuntimeSettingsFeatureModel
     let languageToolingFeature: LanguageToolingFeatureModel
     let debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver
@@ -357,6 +359,7 @@ final class AppModel: ObservableObject, Identifiable {
         self.services = services
         platformUI = services.platformUI
         keyboardShortcutFeature = KeyboardShortcutFeatureModel(settings: settings)
+        workbenchBackgroundFeature = WorkbenchBackgroundFeatureModel(settings: settings, platform: services.workbenchBackgroundPlatform)
         discourseCommunityFeature = DiscourseCommunityFeatureModel(service: services.discourseCommunityService)
         terminalPlacementFeature = TerminalPlacementFeatureModel()
         workspaceFeature = WorkspaceFeatureModel(
@@ -396,6 +399,7 @@ final class AppModel: ObservableObject, Identifiable {
         languageToolingFeature.configureSessions { [weak self] in
             self?.languageToolingSessionsIfActive
         }
+        workbenchBackgroundFeatureObservation = workbenchBackgroundFeature.objectWillChange.sink { [weak self] _ in self?.scheduleObjectWillChangeRelay() }
         moduleRuntimeObservationID = services.moduleRuntime.observeEvents { [weak self] event in
             guard let self else { return }
             if event.name == "module.sleeping" || event.name == "module.shutdown" {

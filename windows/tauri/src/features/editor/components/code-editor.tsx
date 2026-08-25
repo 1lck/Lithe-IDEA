@@ -136,7 +136,7 @@ const CodeEditor = ({
   paneId,
   bufferId: propBufferId,
   isActiveSurface = true,
-  showToolbar = true,
+  showToolbar = false,
   readOnly = false,
   breadcrumbProps,
   scrollable = true,
@@ -172,9 +172,7 @@ const CodeEditor = ({
   );
   const editorViewKey = paneId && activeBufferId ? `${paneId}:${activeBufferId}` : activeBufferId;
   const { handleContentChange } = useEditorAppStore.use.actions();
-  const handleBufferContentChange = useCallback<
-    NonNullable<CodeEditorProps["onContentChange"]>
-  >(
+  const handleBufferContentChange = useCallback<NonNullable<CodeEditorProps["onContentChange"]>>(
     (content, previousContent, previousCursorPosition, previousSelection, options) => {
       if (!activeBufferId) return;
       void handleContentChange(
@@ -496,7 +494,9 @@ const CodeEditor = ({
               toast.success(t("notebook.rChunkCapturedErrorOutput"));
               return;
             }
-            toast.success(stdout ? t("notebook.rChunkOutput", { output: stdout }) : t("notebook.rChunkRan"));
+            toast.success(
+              stdout ? t("notebook.rChunkOutput", { output: stdout }) : t("notebook.rChunkRan"),
+            );
           })
           .catch((error) => {
             toast.error(error instanceof Error ? error.message : t("notebook.rChunkRunFailed"));

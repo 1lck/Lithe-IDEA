@@ -19,7 +19,7 @@ struct TerminalView: View {
                 model.moveTerminalToTool(sessionID)
             }
         )
-        .background(LitheTheme.editor)
+        .litheWorkbenchSurface(LitheTheme.editor)
     }
 
     private var terminalToolbar: some View {
@@ -118,7 +118,7 @@ struct TerminalView: View {
         .padding(.leading, 12)
         .padding(.trailing, 7)
         .frame(height: LitheTheme.Metrics.toolWindowHeaderHeight)
-        .background(LitheTheme.toolHeader)
+        .litheWorkbenchSurface(LitheTheme.toolHeader)
         .overlay(alignment: .bottom) {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
         }

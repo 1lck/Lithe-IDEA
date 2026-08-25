@@ -2,6 +2,7 @@ import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import { PuzzlePieceIcon } from "@/ui/icons";
+import { NotificationsTrigger } from "@/features/notifications/components/notifications-trigger";
 
 export function PluginActivityRail() {
   const { t } = useTranslation();
@@ -34,6 +35,7 @@ export function PluginActivityRail() {
       >
         <PuzzlePieceIcon className="size-4.5" />
       </Button>
+      <NotificationsTrigger />
     </aside>
   );
 }

@@ -26,7 +26,7 @@ struct LinuxDoCommunityView: View {
                 )
             }
         }
-        .background(LitheTheme.sidebar)
+        .litheWorkbenchSurface(LitheTheme.sidebar)
         .onAppear { webSession.resume() }
         .onDisappear { webSession.releaseAfterInactivity() }
     }

@@ -9,6 +9,14 @@ describe("default settings", () => {
   test("enables auto-save unless the user turns it off", () => {
     expect(getDefaultSettingsSnapshot().autoSave).toBe(true);
   });
+
+  test("starts with IDEA-style hidden file and directory patterns", () => {
+    const settings = getDefaultSettingsSnapshot();
+
+    expect(settings.hiddenDirectoryPatterns).toContain(".git");
+    expect(settings.hiddenDirectoryPatterns).toContain(".idea");
+    expect(settings.hiddenFilePatterns).toContain(".DS_Store");
+  });
 });
 
 describe("retired JDTLS JDK setting normalization", () => {

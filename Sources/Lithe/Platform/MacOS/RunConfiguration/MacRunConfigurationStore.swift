@@ -110,7 +110,12 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         return RunConfigurationResolution(
             configurations: configurations,
             diagnostics: diagnostics(from: payload.diagnostics),
-            defaultConfigurationID: payload.defaultRunConfiguration
+            defaultConfigurationID: payload.defaultRunConfiguration,
+            projectToolchain: ProjectToolchainSelection(
+                javaHomePath: payload.toolchain?.java?.homePath ?? "",
+                mavenExecutablePath: payload.toolchain?.maven?.executablePath ?? "",
+                mavenJavaHomePath: payload.toolchain?.maven?.javaHomePath ?? ""
+            )
         )
     }
 
@@ -166,6 +171,56 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             options: options
         )
         try writeMutation(mutation, to: url, root: root)
+    }
+
+    func saveEditorChanges(
+        _ options: RunOptions,
+        toolchain: ProjectToolchainSelection,
+        configurationID: String,
+        scope: RunConfigurationSaveScope,
+        at projectURL: URL
+    ) throws {
+        let root = projectURL.standardizedFileURL
+        let mutation: RustCoreBridge.RunConfigurationEditorMutationPayload
+        switch core.saveRunConfigurationEditorChanges(
+            at: root,
+            configurationID: configurationID,
+            scope: scope,
+            options: options,
+            toolchain: toolchain
+        ) {
+        case .success(let value): mutation = value
+        case .failure(let error):
+            throw RunConfigurationEditorSaveFailure(stage: .prepare, message: error.userMessage)
+        }
+        guard let localData = mutation.localDocument.data(using: .utf8) else {
+            throw RunConfigurationEditorSaveFailure(
+                stage: .prepare,
+                message: "The shared core returned invalid UTF-8 local configuration data."
+            )
+        }
+        var writes = [PreparedRunDocumentWrite(
+            url: root.appendingPathComponent(".lithe/run/local.json"),
+            data: localData
+        )]
+        if scope == .project {
+            guard let projectDocument = mutation.projectDocument,
+                  let projectData = projectDocument.data(using: .utf8) else {
+                throw RunConfigurationEditorSaveFailure(
+                    stage: .prepare,
+                    message: "The shared core did not return the project configuration data."
+                )
+            }
+            writes.append(PreparedRunDocumentWrite(
+                url: root.appendingPathComponent(".lithe/run/configurations.json"),
+                data: projectData
+            ))
+        }
+        do {
+            try writeTransaction(writes, root: root)
+        } catch {
+            throw RunConfigurationEditorSaveFailure(stage: .write, message: error.localizedDescription)
+        }
     }
 
     func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String {
@@ -362,6 +417,49 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         try atomicWrite(mutation.document, to: url, root: root)
     }
 
+    private func writeTransaction(_ writes: [PreparedRunDocumentWrite], root: URL) throws {
+        let snapshots = try writes.map { write -> PreparedRunDocumentSnapshot in
+            try validateWriteTarget(write.url, root: root)
+            let existing = storage.fileExists(at: write.url)
+                ? try storage.readData(from: write.url, options: [])
+                : nil
+            return PreparedRunDocumentSnapshot(url: write.url, data: existing)
+        }
+        for write in writes {
+            try storage.createDirectory(
+                at: write.url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+        }
+        var completedSnapshots: [PreparedRunDocumentSnapshot] = []
+        do {
+            for (write, snapshot) in zip(writes, snapshots) {
+                try atomicWrite(write.data, to: write.url, root: root)
+                completedSnapshots.append(snapshot)
+            }
+        } catch {
+            var rollbackError: (any Error)?
+            for snapshot in completedSnapshots.reversed() {
+                do {
+                    if let data = snapshot.data {
+                        try storage.writeData(data, to: snapshot.url, options: .atomic)
+                    } else if storage.fileExists(at: snapshot.url) {
+                        try storage.removeItem(at: snapshot.url)
+                    }
+                    MacFileWriteEventSuppression.markWritten(snapshot.url)
+                } catch {
+                    rollbackError = error
+                }
+            }
+            if let rollbackError {
+                throw MacRunConfigurationStoreError.writeFailed(
+                    "The save failed and the previous configuration could not be restored: \(rollbackError.localizedDescription)"
+                )
+            }
+            throw error
+        }
+    }
+
     private func validateWriteTarget(_ url: URL, root: URL) throws {
         let resolvedRoot = root.standardizedFileURL.resolvingSymlinksInPath().path
         let resolvedParent = url.deletingLastPathComponent()
@@ -388,6 +486,16 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             }
         }
     }
+}
+
+private struct PreparedRunDocumentWrite {
+    let url: URL
+    let data: Data
+}
+
+private struct PreparedRunDocumentSnapshot {
+    let url: URL
+    let data: Data?
 }
 
 private struct RustRunConfigurationDocumentMutator: RunConfigurationDocumentMutating {

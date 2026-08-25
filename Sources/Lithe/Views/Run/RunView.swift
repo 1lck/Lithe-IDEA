@@ -87,7 +87,7 @@ struct RunView: View {
                 }
             }
         }
-        .background(LitheTheme.editor)
+        .litheWorkbenchSurface(LitheTheme.editor)
         .onChange(of: feature.configurations) { _ in
             if let selectedSessionID,
                !feature.configurations.contains(where: { $0.id == selectedSessionID }) {
@@ -537,7 +537,7 @@ struct RunView: View {
             }
                 .padding(7)
         }
-        .background(LitheTheme.sidebar)
+        .litheWorkbenchSurface(LitheTheme.sidebar)
     }
 
     private func pinnedSectionHeader(count: Int) -> some View {
@@ -611,7 +611,7 @@ struct RunView: View {
             Spacer(minLength: 0)
         }
         .frame(maxHeight: .infinity)
-        .background(LitheTheme.sidebar)
+        .litheWorkbenchSurface(LitheTheme.sidebar)
     }
 
     private func configurationContent(_ configuration: RunConfiguration) -> some View {
@@ -647,7 +647,7 @@ struct RunView: View {
                 }
             }
         }
-        .background(LitheTheme.editor)
+        .litheWorkbenchSurface(LitheTheme.editor)
     }
 
     private func configurationDetail(

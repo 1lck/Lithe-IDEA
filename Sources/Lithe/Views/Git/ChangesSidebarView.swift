@@ -3,6 +3,7 @@ import LitheGitModule
 
 struct ChangesSidebarView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var settings: AppSettings
     @State private var selectedTab = CommitTab.commit
     @State private var trackedExpanded = true
     @State private var untrackedExpanded = true
@@ -56,7 +57,7 @@ struct ChangesSidebarView: View {
                 commitContent
             }
         }
-        .background(LitheTheme.sidebar)
+        .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.sidebar)
         .onAppear { selectRequestedStashIfNeeded() }
         .onChange(of: model.requestedStashReference) { _ in
             selectRequestedStashIfNeeded()
@@ -157,7 +158,7 @@ struct ChangesSidebarView: View {
         }
         .padding(.horizontal, 10)
         .frame(height: 40)
-        .background(LitheTheme.toolHeader)
+        .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.toolHeader)
     }
 
     private var commitContent: some View {
@@ -262,7 +263,7 @@ struct ChangesSidebarView: View {
                 .disabled(!canShelf)
             }
             .padding(8)
-            .background(LitheTheme.toolHeader)
+            .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.toolHeader)
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
@@ -795,7 +796,7 @@ struct ChangesSidebarView: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(LitheTheme.toolHeader)
+            .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.toolHeader)
     }
 
     private var noRepository: some View {

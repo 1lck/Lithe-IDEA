@@ -19,6 +19,16 @@
 "Dark" = "深色";
 "Choose whether Lithe follows the system appearance or always uses a light or dark theme." = "选择跟随系统外观，或始终使用浅色或深色主题。";
 "Choose a color theme and whether Lithe follows the system appearance." = "选择配色主题，并设置是否跟随系统外观。";
+"Workbench background" = "工作台背景";
+"Built-in backgrounds" = "内置背景";
+"Change workbench background" = "更换工作台背景";
+"No background image selected" = "未选择背景图片";
+"Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar." = "显示在整个工作台内，包括工具栏、项目文件树、编辑区、标签栏、终端和状态栏。";
+"Choose Image…" = "选择图片…";
+"Choose Workbench Background" = "选择工作台背景";
+"Workbench background opacity" = "工作台不透明度";
+"Could not save access to the selected background image." = "无法保存所选背景图片的访问权限。";
+"The selected background image is unavailable and was removed." = "所选背景图片不可用，已移除。";
 "Editor" = "编辑器";
 "Keymap" = "快捷键";
 "Customize shortcuts for Lithe actions. Changes apply immediately." = "自定义 Lithe 操作的快捷键，修改后立即生效。";

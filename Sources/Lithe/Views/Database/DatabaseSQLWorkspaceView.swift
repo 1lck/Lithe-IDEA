@@ -30,7 +30,7 @@ struct DatabaseWorkspaceView: View {
                 sqlWorkspace
             }
         }
-        .background(LitheTheme.editor)
+        .litheWorkbenchSurface(LitheTheme.editor)
     }
 
     private var sqlWorkspace: some View {
@@ -76,7 +76,7 @@ struct DatabaseWorkspaceView: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 42)
-        .background(LitheTheme.toolHeader)
+        .litheWorkbenchSurface(LitheTheme.toolHeader)
     }
 
     private var mongoWorkspace: some View {
@@ -98,7 +98,7 @@ struct DatabaseWorkspaceView: View {
             }
             .padding(.horizontal, 12)
             .frame(height: 44)
-            .background(LitheTheme.toolHeader)
+            .litheWorkbenchSurface(LitheTheme.toolHeader)
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             DatabaseTableView()
         }
@@ -191,7 +191,7 @@ private struct DatabaseDashboardView: View {
                 }
             }
         }
-        .background(LitheTheme.editor)
+        .litheWorkbenchSurface(LitheTheme.editor)
         .sheet(isPresented: $showsConnectionEditor) {
             DatabaseConnectionEditor(isPresented: $showsConnectionEditor)
                 .environment(\.locale, model.settings.language.locale)
@@ -421,7 +421,7 @@ private struct DatabaseHistoryView: View {
             }
             .padding(.horizontal, 14)
             .frame(height: 42)
-            .background(LitheTheme.toolHeader)
+            .litheWorkbenchSurface(LitheTheme.toolHeader)
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
             if entries.isEmpty {
@@ -502,7 +502,7 @@ struct DatabaseSQLWorkspaceView: View {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             results
         }
-        .background(LitheTheme.editor)
+        .litheWorkbenchSurface(LitheTheme.editor)
         .alert("Confirm database change", isPresented: $showsRiskConfirmation, presenting: pendingRisk) { analysis in
             Button("Cancel", role: .cancel) {
                 pendingRisk = nil
@@ -566,7 +566,7 @@ struct DatabaseSQLWorkspaceView: View {
                 .padding(.horizontal, 5)
         }
         .frame(height: 32)
-        .background(LitheTheme.sidebar)
+        .litheWorkbenchSurface(LitheTheme.sidebar)
     }
 
     private var commandBar: some View {
@@ -637,7 +637,7 @@ struct DatabaseSQLWorkspaceView: View {
         }
         .padding(.horizontal, 10)
         .frame(height: 37)
-        .background(LitheTheme.toolHeader)
+        .litheWorkbenchSurface(LitheTheme.toolHeader)
     }
 
     @ViewBuilder
