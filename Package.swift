@@ -109,7 +109,8 @@ let package = Package(
             path: "Sources/Lithe",
             resources: [
                 .copy("Resources/MarkdownPreview"),
-                .copy("Resources/SyntaxHighlighting")
+                .copy("Resources/SyntaxHighlighting"),
+                .copy("Resources/WorkbenchBackgrounds")
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v5)

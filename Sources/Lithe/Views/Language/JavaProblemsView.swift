@@ -22,10 +22,10 @@ struct ProblemsView: View {
                     }
                     .padding(.vertical, 5)
                 }
-                .background(LitheTheme.editor)
+                .litheWorkbenchSurface(LitheTheme.editor)
             }
         }
-        .background(LitheTheme.editor)
+        .litheWorkbenchSurface(LitheTheme.editor)
     }
 
     private var header: some View {

@@ -64,7 +64,7 @@ struct DatabaseTableView: View {
                 grid
             }
         }
-        .background(LitheTheme.editor)
+        .litheWorkbenchSurface(LitheTheme.editor)
         .onChange(of: model.databaseFeature.selectedTable) { _ in
             discard()
             appliedFilters = []
@@ -221,7 +221,7 @@ struct DatabaseTableView: View {
                 .help("Batch table tools")
             }
         }
-        .padding(.horizontal, 12).frame(height: 44).foregroundStyle(LitheTheme.primaryText).background(LitheTheme.toolHeader)
+        .padding(.horizontal, 12).frame(height: 44).foregroundStyle(LitheTheme.primaryText).litheWorkbenchSurface(LitheTheme.toolHeader)
     }
 
     private var queryClauseBar: some View {

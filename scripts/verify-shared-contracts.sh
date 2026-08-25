@@ -15,6 +15,7 @@ done
 module_fixture="shared/fixtures/modules/built-in-v1.json"
 plugin_fixture="shared/fixtures/plugins/official-v1.json"
 github_fixture="shared/fixtures/github/pull-request-v1.json"
+workbench_background_fixture="shared/fixtures/settings/workbench-background-v1.json"
 syntax_theme_fixture="shared/fixtures/editor-themes/lithe-v1.json"
 macos_syntax_colors="Sources/Lithe/Resources/SyntaxHighlighting/color-mappings.json"
 windows_lithe_theme="windows/tauri/src/extensions/themes/builtin/lithe.json"
@@ -202,5 +203,21 @@ fi
     abort "Windows #{appearance} invalid differs from shared palette" unless colors.fetch("destructive").casecmp?(resolve_role.call(appearance, "invalid"))
   end
 ' "$syntax_theme_fixture" "$macos_syntax_colors" "$windows_lithe_theme"
+
+/usr/bin/ruby -rjson -e '
+  background = JSON.parse(File.read(ARGV.fetch(0)))
+  abort "workbench background fixture version must be 1" unless background.fetch("version") == 1
+  abort "workbench background fixture has unexpected fields" unless background.keys.sort == ["opacity", "source", "version"]
+  opacity = background.fetch("opacity")
+  abort "workbench background opacity must be between 0.05 and 1" unless opacity.is_a?(Numeric) && opacity.between?(0.05, 1)
+  source = background.fetch("source")
+  kind = source.fetch("kind")
+  abort "invalid workbench background source" unless ["none", "bundled", "custom"].include?(kind)
+  if kind == "bundled"
+    abort "bundled workbench background requires a stable slot" unless source.keys.sort == ["bundledSlot", "kind"] && source.fetch("bundledSlot").match?(/^(0[1-9]|10)$/)
+  else
+    abort "non-bundled workbench background must not carry platform data" unless source.keys == ["kind"]
+  end
+' "$workbench_background_fixture"
 
 print "Shared contract verification passed: JSON fixtures are valid"

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lithe.dev/contracts/workbench-background-v1.schema.json",
+  "title": "Lithe Workbench Background v1",
+  "type": "object",
+  "required": ["version", "source", "opacity"],
+  "properties": {
+    "version": { "const": 1 },
+    "source": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["none", "bundled", "custom"] },
+        "bundledSlot": { "type": "string", "pattern": "^(0[1-9]|10)$" }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "bundled" } } },
+          "then": { "required": ["bundledSlot"] },
+          "else": { "not": { "required": ["bundledSlot"] } }
+        }
+      ]
+    },
+    "opacity": { "type": "number", "minimum": 0.05, "maximum": 1 }
+  },
+  "additionalProperties": false
+}

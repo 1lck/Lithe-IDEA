@@ -49,6 +49,7 @@ struct ProjectSidebarView: View {
                                 alignment: .topLeading
                             )
                         }
+                        .scrollContentBackground(.hidden)
                         .task(
                             id: ProjectTreeTaskID(
                                 rootPath: root.url.standardizedFileURL.path,

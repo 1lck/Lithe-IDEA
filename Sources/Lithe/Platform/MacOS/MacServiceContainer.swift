@@ -488,6 +488,7 @@ final class MacServiceContainer {
             recentProjectsStore: RecentProjectsStore(store: store),
             workspaceSessionStore: WorkspaceSessionStore(store: store),
             workbenchLayoutStore: WorkbenchLayoutStore(store: store),
+            workbenchBackgroundPlatform: MacWorkbenchBackgroundPlatform(store: store),
             directoryWatcherFactory: MacDirectoryWatcherFactory(),
             platformUI: platformUI,
             shortcutDetectorFactory: MacShortcutDetectorFactory()
