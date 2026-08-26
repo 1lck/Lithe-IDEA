@@ -199,7 +199,7 @@ CodeLens、implementation 或 `java/findLinks` 请求。没有语义目标的声
 
 ## 真实 gopls 验证
 
-[`RealGoplsIntegrationTests.swift`](../../Tests/LitheTests/RealGoplsIntegrationTests.swift)
+[`RealGoplsIntegrationTests.swift`](../../macos/Tests/LitheTests/RealGoplsIntegrationTests.swift)
 会穿过 manager、Swift semantic facade 和拥有进程的真实 Rust Core。测试默认不启动外部工具，需要显式开启：
 
 ```bash

@@ -1,37 +1,47 @@
 # Lithe PR 审查机器人配置
 
 `Lithe PR review` 工作流只响应 PR 对话区中完全匹配 `@lithe review` 的
-评论，普通 Issue 不会触发。审查会锁定 PR 的准确 head 提交，并读取完整 Git
+评论，普通 Issue 不会触发。审查锁定 PR 的准确 base/head，并读取完整 Git
 历史、关联 Issue、PR 讨论、Review 和 CI 检查结果。
 
-使用前，请在仓库 Actions 中配置以下 Secrets：
+## Codex 中转站
 
-- `LITHE_ANTHROPIC_API_KEY`：Anthropic 或兼容中转站的 API Key。
-- `LITHE_ANTHROPIC_BASE_URL`：Anthropic Messages 兼容的 Base URL。它不是
-  OpenAI `/v1/responses` 地址，是否包含 `/v1` 以服务商说明为准。
+在仓库 Actions 中配置以下 Secrets：
 
-为兼容原有配置，未提供上述 Secret 时会复用 `LITHE_OPENAI_API_KEY`，并从
-`LITHE_OPENAI_RESPONSES_URL` 中去掉末尾的 `/v1/responses` 后作为 Claude Base
-URL。中转站仍需支持 Anthropic `/v1/messages` 协议。
+- `LITHE_CODEX_API_KEY`：Codex Responses API 兼容中转站的 API Key。
+- `LITHE_CODEX_RESPONSES_URL`：完整的 Responses API 地址，通常以
+  `/v1/responses` 结尾。服务必须接受 `Authorization: Bearer <key>`，并支持
+  Codex 所需的流式响应、工具调用和结构化输出。
 
-审查固定使用 `claude-opus-5` 模型和 `high` 思考强度，无需额外配置模型变量。
+不要把 API Key、私人中转地址或其他凭据提交到仓库。工作流通过官方
+`openai/codex-action@v1` 的安全代理把 Secret 传给中转站。
 
-默认只有仓库所有者能够触发审查。如需指定白名单，请创建 Actions 仓库变量
-`LITHE_ALLOWED_REVIEWERS`，值为 GitHub 用户名组成的 JSON 数组：
+所有阶段固定使用 `gpt-5.6-sol`。planner 和最终 aggregator 使用 `xhigh`
+reasoning effort，三个并行 reviewer 使用 `medium`。中转站必须支持这一模型名和
+两种思考强度。
+
+## 审查流水线
+
+授权召唤按以下阶段执行：
+
+1. `prepare` 构建可信上下文并发布占位评论。
+2. `planner` 理解变更，为三个固定审查视角分配重点；模型失败时使用确定性默认计划。
+3. `reviewers` 从正确性、架构契约、韧性安全三个视角并行审查，最大并发为 2。
+4. `aggregate` 重新读取代码验证候选发现、去重并生成最终评论。
+5. `publish` 更新对应 head SHA 的机器人评论。
+
+各模型阶段都 checkout 相同的不可变 head SHA，使用只读 sandbox，并通过 JSON
+Schema 交换结构化结果。planner、每个 reviewer 和 aggregator 位于独立 job，拥有
+独立超时和 artifact；单个 reviewer 失败不会阻止其余结果进入最终聚合。planner、
+reviewer 和聚合产物保留 14 天，便于定位中转站或模型失败。
+
+默认只有仓库所有者能够触发审查。如需指定白名单，请创建 Actions repository
+variable `LITHE_ALLOWED_REVIEWERS`，值为 GitHub 用户名组成的 JSON 数组：
 
 ```json
 ["1lck", "maintainer"]
 ```
 
-显式白名单会替代默认的仓库所有者规则。每个 PR head SHA 只保留一条机器人
-评论；对同一个 head 重复召唤时会更新原评论。
-
-每次授权召唤会先添加 👀 reaction，并创建一条“正在审查”的占位评论。准备、
-模型执行和评论发布使用三个独立 job，模型 job 卡死不会阻止发布 job 更新失败
-状态。Claude 通过官方 `anthropics/claude-code-action@v1` 以只读 GitHub 权限
-运行，仅允许读取仓库和执行 `git` 命令。Claude execution output、最终消息和
-诊断摘要会作为 artifact 保留 14 天；即使模型失败或超时，占位评论也会附上
-本次 Actions 运行链接。
-
-GitHub 只从仓库默认分支加载 `issue_comment` 工作流，因此这些文件进入默认
-分支后，机器人才能正式响应评论。
+显式白名单会替代默认规则。同一 head SHA 重复召唤时会更新原评论。GitHub 只从
+仓库默认分支加载 `issue_comment` 工作流，因此这些文件进入默认分支后机器人才能
+使用新流程。

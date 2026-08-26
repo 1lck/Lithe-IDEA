@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="${0:A:h:h}"
-COMPOSE_FILE="$ROOT_DIR/docker/database-validation/compose.yaml"
+COMPOSE_FILE="$ROOT_DIR/infra/docker/database-validation/compose.yaml"
 SIDECAR="${LITHE_DB_SIDECAR_EXECUTABLE:-$ROOT_DIR/rust/target/debug/lithe-db-sidecar}"
 BIND_ADDRESS="${LITHE_BIND_ADDRESS:-127.0.0.1}"
 MARIADB_PORT="${LITHE_MARIADB_PORT:-53307}"

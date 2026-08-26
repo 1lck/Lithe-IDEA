@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="${0:A:h:h}"
 DESTINATION="${1:-/tmp/lithe-spring-boot-git-graph}"
-SOURCE_DIR="$ROOT_DIR/Fixtures/lithe-spring-boot-git-graph"
+SOURCE_DIR="$ROOT_DIR/shared/fixtures/projects/lithe-spring-boot-git-graph"
 
 rm -rf "$DESTINATION"
 mkdir -p "$DESTINATION"

@@ -122,60 +122,66 @@ while IFS=$'\t' read -r status first_path _; do
             swift_database=true
             macos_release=true
             ;;
-        plugins/official/*|sources/lithegosupportmodule/*|sources/lithelinuxdosupportmodule/*|tests/lithegosupportmoduletests/*|tests/litheofficialpluginverifier/*)
+        plugins/mac/*|macos/tests/litheofficialpluginverifier/*)
             plugins=true
             ;;
-        tests/lithetests/nativepluginloadertests.swift|tests/lithetests/pluginmanagementpresentationtests.swift|tests/lithetests/pluginmanagertests.swift|tests/lithetests/pluginpackagestoretests.swift|tests/lithetests/linuxdoanonymouswebsessiontests.swift|tests/lithetests/linuxdocommunityformattingtests.swift|tests/lithetests/macexternalauthorizationcallbackroutertests.swift|tests/lithetests/webkitintegrationtests.swift)
+        plugins/win/*)
+            # Windows plugin packages may contain frontend and native host code.
+            # Until their per-language layout is narrower, validate both lanes.
+            windows=true
+            windows_rust=true
+            ;;
+        macos/tests/lithetests/nativepluginloadertests.swift|macos/tests/lithetests/pluginmanagementpresentationtests.swift|macos/tests/lithetests/pluginmanagertests.swift|macos/tests/lithetests/pluginpackagestoretests.swift|macos/tests/lithetests/linuxdoanonymouswebsessiontests.swift|macos/tests/lithetests/linuxdocommunityformattingtests.swift|macos/tests/lithetests/macexternalauthorizationcallbackroutertests.swift|macos/tests/lithetests/webkitintegrationtests.swift)
             plugins=true
             ;;
-        sources/lithe/litheapp.swift|sources/lithe/application/features/pluginmanagement.swift|sources/lithe/core/language/pluginlanguageprovidercatalogsource.swift|sources/lithe/models/appmodel/appmodel+pluginmanagement.swift|sources/lithe/platform/macos/community/*|sources/lithe/platform/macos/plugins/*|sources/lithe/views/app/pluginmanagementview.swift|sources/lithe/views/community/*|sources/lithe/views/workbench/workbenchmoduleuicomposition.swift|sources/litheapplicationkernel/plugins/*|sources/lithemoduleapi/catalog/bundledlanguageplugincatalog.swift|sources/lithemoduleapi/plugins/*)
+        macos/sources/lithe/litheapp.swift|macos/sources/lithe/application/features/pluginmanagement.swift|macos/sources/lithe/core/language/pluginlanguageprovidercatalogsource.swift|macos/sources/lithe/models/appmodel/appmodel+pluginmanagement.swift|macos/sources/lithe/platform/macos/community/*|macos/sources/lithe/platform/macos/plugins/*|macos/sources/lithe/views/app/pluginmanagementview.swift|macos/sources/lithe/views/community/*|macos/sources/lithe/views/workbench/workbenchmoduleuicomposition.swift|macos/sources/litheapplicationkernel/plugins/*|macos/sources/lithemoduleapi/catalog/bundledlanguageplugincatalog.swift|macos/sources/lithemoduleapi/plugins/*)
             # Host-side plugin APIs are product code, while their focused
             # behavior is owned by the plugin lane.
             swift=true
             plugins=true
             macos_release=true
             ;;
-        tests/litheapplicationkerneltests/moduleruntimetests.swift|tests/lithelanguageintelligencemoduletests/languageintelligencemoduletests.swift|tests/lithetests/applocalizationtests.swift)
+        macos/tests/litheapplicationkerneltests/moduleruntimetests.swift|macos/tests/lithelanguageintelligencemoduletests/languageintelligencemoduletests.swift|macos/tests/lithetests/applocalizationtests.swift)
             swift=true
             plugins=true
             ;;
-        sources/lithedatabasemodule/*|tests/lithedatabasemoduletests/*)
+        macos/sources/lithedatabasemodule/*|macos/tests/lithedatabasemoduletests/*)
             swift_database=true
-            if [[ "$lowercase_path" == sources/* ]]; then
+            if [[ "$lowercase_path" == macos/sources/* ]]; then
                 macos_release=true
             fi
             ;;
-        sources/lithe/platform/macos/persistence/macdatabaserecoverystore.swift|sources/lithe/platform/macos/process/macdatabasesidecarlocator.swift|sources/lithe/platform/macos/storage/macdatabaseadapters.swift|sources/lithe/theme/databasebrandicon.swift|sources/lithe/views/database/*|resources/databaseicons/*)
+        macos/sources/lithe/platform/macos/persistence/macdatabaserecoverystore.swift|macos/sources/lithe/platform/macos/process/macdatabasesidecarlocator.swift|macos/sources/lithe/platform/macos/storage/macdatabaseadapters.swift|macos/sources/lithe/theme/databasebrandicon.swift|macos/sources/lithe/views/database/*|macos/resources/databaseicons/*)
             swift_database=true
             macos_release=true
             ;;
-        sources/lithe/models/appmodel/appmodel.swift)
+        macos/sources/lithe/models/appmodel/appmodel.swift)
             # This is a shared app composition point for the database module.
             swift=true
             swift_database=true
             macos_release=true
             ;;
-        sources/lithe/platform/macos/macservicecontainer.swift)
+        macos/sources/lithe/platform/macos/macservicecontainer.swift)
             # The service container composes both database and plugin runtime dependencies.
             swift=true
             plugins=true
             swift_database=true
             macos_release=true
             ;;
-        sources/lithe/views/workbench/workbenchview.swift)
+        macos/sources/lithe/views/workbench/workbenchview.swift)
             # The root workbench composes both database and plugin-owned UI.
             swift=true
             plugins=true
             swift_database=true
             macos_release=true
             ;;
-        sources/lithemoduleapi/catalog/builtinmodulecatalog.swift)
+        macos/sources/lithemoduleapi/catalog/builtinmodulecatalog.swift)
             swift=true
             plugins=true
             swift_database=true
             macos_release=true
             ;;
-        sources/lithemoduleapi/*|sources/litheapplicationkernel/*|sources/lithecorecontracts/*)
+        macos/sources/lithemoduleapi/*|macos/sources/litheapplicationkernel/*|macos/sources/lithecorecontracts/*)
             # These contracts and runtime primitives are direct dependencies of
             # both isolated Swift module suites.
             swift=true
@@ -183,35 +189,35 @@ while IFS=$'\t' read -r status first_path _; do
             swift_database=true
             macos_release=true
             ;;
-        sources/lithelanguageintelligencemodule/*)
+        macos/sources/lithelanguageintelligencemodule/*)
             # Go support is an official plugin and depends on this runtime.
             swift=true
             plugins=true
             macos_release=true
             ;;
-        tests/lithetests/lithecorelogictests.swift)
+        macos/tests/lithetests/lithecorelogictests.swift)
             # This legacy mixed suite still contains the database integration
             # tests; both filtered lanes must run until the suite is separated.
             swift=true
             swift_database=true
             ;;
-        resources/*.lproj/*)
+        macos/resources/*.lproj/*)
             # Localization files contain both database and plugin-facing copy.
             swift=true
             plugins=true
             swift_database=true
             macos_release=true
             ;;
-        sources/litherustcore/*)
+        macos/sources/litherustcore/*)
             rust_core=true
             swift=true
             macos_release=true
             ;;
-        sources/*|resources/*)
+        macos/sources/*|macos/resources/*)
             swift=true
             macos_release=true
             ;;
-        tests/*|fixtures/*)
+        macos/tests/*)
             swift=true
             ;;
         rust/lithe-core/src/*.rs)
@@ -321,7 +327,7 @@ while IFS=$'\t' read -r status first_path _; do
             ;;
         scripts/prepare-lithe-pr-review.mjs|scripts/test-prepare-lithe-pr-review.mjs|scripts/run-lithe-codex-with-timeout.sh|scripts/update-repo-charts.py)
             ;;
-        docker/*)
+        infra/docker/*)
             rust_database=true
             ;;
         *)
