@@ -17,6 +17,12 @@ private enum ActivityBarMetrics {
     static let edgeInset: CGFloat = 4
 }
 
+private enum WorkbenchWorkspaceMetrics {
+    static let paneInset: CGFloat = 6
+    static let paneSpacing: CGFloat = 6
+    static let paneCornerRadius: CGFloat = 10
+}
+
 struct WorkbenchView: View {
     private let moduleUIRegistry = WorkbenchModuleUIComposition.builtIn
     @EnvironmentObject private var model: AppModel
@@ -719,11 +725,22 @@ struct WorkbenchView: View {
                 )
                 .environmentObject(linuxDoWebSession)
                 .frame(width: rightSidebarWidth)
-                .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.sidebar)
-                .overlay(alignment: .leading) {
-                    Rectangle().fill(LitheTheme.panelBorder).frame(width: 1)
-                }
-                .shadow(color: LitheTheme.popupShadow, radius: 14, x: -5, y: 0)
+                .frame(maxHeight: .infinity)
+                .workbenchPaneChrome(
+                    background: model.workbenchBackgroundFeature.hasImage
+                        ? Color.clear
+                        : LitheTheme.editor,
+                    surrounding: model.workbenchBackgroundFeature.hasImage
+                        ? Color.clear
+                        : LitheTheme.titlebar,
+                    roundsCorners: !model.workbenchBackgroundFeature.hasImage
+                )
+                .padding(WorkbenchWorkspaceMetrics.paneInset)
+                .background(
+                    model.workbenchBackgroundFeature.hasImage
+                        ? Color.clear
+                        : LitheTheme.titlebar
+                )
                 .transition(
                     reduceMotion
                         ? .opacity
@@ -914,13 +931,6 @@ struct WorkbenchView: View {
                 }
             }
         }
-        // Do not clip this container: Changes, Search, and Database sidebars
-        // contain AppKit-backed controls that SwiftUI cannot composite through
-        // a mask without showing its yellow unavailable placeholder.
-        .litheRoundedControlBackground(
-            model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.sidebar,
-            cornerRadius: 10
-        )
     }
 
     private var isBottomToolVisible: Bool {
@@ -1233,8 +1243,12 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
 
     var body: some View {
         GeometryReader { geometry in
-            let horizontalPadding: CGFloat = 6
-            let availableTopWidth = max(0, geometry.size.width - (horizontalPadding * 2))
+            let availableTopWidth = max(
+                0,
+                geometry.size.width
+                    - (WorkbenchWorkspaceMetrics.paneInset * 2)
+                    - WorkbenchWorkspaceMetrics.paneSpacing
+            )
             let minimumSidebarWidth: CGFloat = 220
             let minimumEditorWidth: CGFloat = 400
             let maximumSidebarWidth = max(
@@ -1251,7 +1265,9 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
             let minimumGitPaneHeight: CGFloat = 260
             let maximumTopPaneHeight = max(
                 minimumTopPaneHeight,
-                geometry.size.height - SplitHandleView.thickness - minimumGitPaneHeight
+                geometry.size.height
+                    - WorkbenchWorkspaceMetrics.paneSpacing
+                    - minimumGitPaneHeight
             )
             let resolvedTopPaneHeight = constrained(
                 liveTopPaneHeight ?? max(255, geometry.size.height * 0.40),
@@ -1260,15 +1276,34 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
             )
 
             ZStack(alignment: .topLeading) {
-                VStack(spacing: 0) {
-                    HStack(spacing: 0) {
+                VStack(spacing: isBottomToolVisible ? WorkbenchWorkspaceMetrics.paneSpacing : 0) {
+                    HStack(spacing: WorkbenchWorkspaceMetrics.paneSpacing) {
                         sidebar
                             .frame(width: resolvedSidebarWidth)
+                            .frame(maxHeight: .infinity)
+                            .workbenchPaneChrome(
+                                background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
+                                surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
+                                roundsCorners: !hasWorkbenchBackground
+                            )
                         editor
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .workbenchPaneChrome(
+                                background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
+                                surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
+                                roundsCorners: !hasWorkbenchBackground
+                            )
                     }
+                    .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
+                    .padding(.top, WorkbenchWorkspaceMetrics.paneInset)
+                    .padding(
+                        .bottom,
+                        isBottomToolVisible ? 0 : WorkbenchWorkspaceMetrics.paneInset
+                    )
                     .overlay(alignment: .topLeading) {
                         SplitHandleView(
                             axis: .horizontal,
+                            showsIdleDivider: false,
                             onDragStarted: {
                                 sidebarDragStart = resolvedSidebarWidth
                             },
@@ -1289,40 +1324,64 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                                 onSidebarWidthCommitted(finalWidth)
                             }
                         )
-                        .offset(x: resolvedSidebarWidth - SplitHandleView.thickness / 2)
+                        .padding(.top, WorkbenchWorkspaceMetrics.paneInset)
+                        .padding(
+                            .bottom,
+                            isBottomToolVisible ? 0 : WorkbenchWorkspaceMetrics.paneInset
+                        )
+                        .offset(
+                            x: WorkbenchWorkspaceMetrics.paneInset
+                                + resolvedSidebarWidth
+                                + WorkbenchWorkspaceMetrics.paneSpacing / 2
+                                - SplitHandleView.thickness / 2
+                        )
                     }
                     .frame(height: isBottomToolVisible ? resolvedTopPaneHeight : geometry.size.height)
 
                     if isBottomToolVisible {
-                        SplitHandleView(
-                            axis: .vertical,
-                            onDragStarted: {
-                                topPaneDragStart = resolvedTopPaneHeight
-                            },
-                            onDragChanged: { translation in
-                                liveTopPaneHeight = constrained(
-                                    topPaneDragStart + translation,
-                                    minimum: minimumTopPaneHeight,
-                                    maximum: maximumTopPaneHeight
-                                )
-                            },
-                            onDragEnded: { translation in
-                                let finalHeight = constrained(
-                                    topPaneDragStart + translation,
-                                    minimum: minimumTopPaneHeight,
-                                    maximum: maximumTopPaneHeight
-                                )
-                                liveTopPaneHeight = finalHeight
-                                onTopPaneHeightCommitted(finalHeight)
-                            }
-                        )
-                        .padding(.horizontal, 6)
-
                         bottomTool
-                            .padding(.horizontal, 6)
-                            .padding(.bottom, 6)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .workbenchPaneChrome(
+                                background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
+                                surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
+                                roundsCorners: !hasWorkbenchBackground
+                            )
+                            .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
+                            .padding(.bottom, WorkbenchWorkspaceMetrics.paneInset)
                             .frame(maxHeight: .infinity)
                     }
+                }
+
+                if isBottomToolVisible {
+                    SplitHandleView(
+                        axis: .vertical,
+                        showsIdleDivider: false,
+                        onDragStarted: {
+                            topPaneDragStart = resolvedTopPaneHeight
+                        },
+                        onDragChanged: { translation in
+                            liveTopPaneHeight = constrained(
+                                topPaneDragStart + translation,
+                                minimum: minimumTopPaneHeight,
+                                maximum: maximumTopPaneHeight
+                            )
+                        },
+                        onDragEnded: { translation in
+                            let finalHeight = constrained(
+                                topPaneDragStart + translation,
+                                minimum: minimumTopPaneHeight,
+                                maximum: maximumTopPaneHeight
+                            )
+                            liveTopPaneHeight = finalHeight
+                            onTopPaneHeightCommitted(finalHeight)
+                        }
+                    )
+                    .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
+                    .offset(
+                        y: resolvedTopPaneHeight
+                            + WorkbenchWorkspaceMetrics.paneSpacing / 2
+                            - SplitHandleView.thickness / 2
+                    )
                 }
 
                 if isBottomToolVisible, showsBottomToolMinimize {
@@ -1335,7 +1394,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                     .accessibilityLabel("Collapse tool window")
                     .position(
                         x: geometry.size.width - ActivityBarMetrics.rightWidth - 20,
-                        y: resolvedTopPaneHeight + SplitHandleView.thickness + 16
+                        y: resolvedTopPaneHeight + WorkbenchWorkspaceMetrics.paneSpacing + 16
                     )
                 }
             }
@@ -1360,6 +1419,62 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
 
     private func constrained(_ value: CGFloat, minimum: CGFloat, maximum: CGFloat) -> CGFloat {
         min(max(value, minimum), maximum)
+    }
+}
+
+private extension View {
+    /// Draws pane rounding without masking AppKit-backed editor and tool views.
+    func workbenchPaneChrome(
+        background: Color,
+        surrounding: Color,
+        roundsCorners: Bool = true
+    ) -> some View {
+        modifier(
+            WorkbenchPaneChromeModifier(
+                background: background,
+                surrounding: surrounding,
+                roundsCorners: roundsCorners
+            )
+        )
+    }
+}
+
+private struct WorkbenchPaneChromeModifier: ViewModifier {
+    let background: Color
+    let surrounding: Color
+    let roundsCorners: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if roundsCorners {
+            content
+                .background(background)
+                .overlay {
+                    WorkbenchPaneCornerCutouts(
+                        cornerRadius: WorkbenchWorkspaceMetrics.paneCornerRadius
+                    )
+                    .fill(surrounding, style: FillStyle(eoFill: true))
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
+        } else {
+            content.background(background)
+        }
+    }
+}
+
+private struct WorkbenchPaneCornerCutouts: Shape {
+    let cornerRadius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.addRect(rect)
+        path.addRoundedRect(
+            in: rect,
+            cornerSize: CGSize(width: cornerRadius, height: cornerRadius),
+            style: .continuous
+        )
+        return path
     }
 }
 

@@ -14,6 +14,7 @@ struct SplitHandleView: View {
     let axis: LitheSplitAxis
     let leadingBackground: Color
     let trailingBackground: Color
+    let showsIdleDivider: Bool
     let onDragStarted: () -> Void
     let onDragChanged: (CGFloat) -> Void
     let onDragEnded: (CGFloat) -> Void
@@ -29,6 +30,7 @@ struct SplitHandleView: View {
         axis: LitheSplitAxis,
         leadingBackground: Color = .clear,
         trailingBackground: Color = .clear,
+        showsIdleDivider: Bool = true,
         onDragStarted: @escaping () -> Void,
         onDragChanged: @escaping (CGFloat) -> Void,
         onDragEnded: @escaping (CGFloat) -> Void
@@ -36,6 +38,7 @@ struct SplitHandleView: View {
         self.axis = axis
         self.leadingBackground = leadingBackground
         self.trailingBackground = trailingBackground
+        self.showsIdleDivider = showsIdleDivider
         self.onDragStarted = onDragStarted
         self.onDragChanged = onDragChanged
         self.onDragEnded = onDragEnded
@@ -118,18 +121,20 @@ struct SplitHandleView: View {
     @ViewBuilder
     private var dividerLine: some View {
         let isHighlighted = isHovering || isDragging
-        let color = isHighlighted ? LitheTheme.accent : LitheTheme.divider
+        if showsIdleDivider || isHighlighted {
+            let color = isHighlighted ? LitheTheme.accent : LitheTheme.divider
 
-        if axis == .horizontal {
-            Rectangle()
-                .fill(color)
-                .frame(width: isDragging ? 3 : 1)
-                .frame(maxHeight: .infinity)
-        } else {
-            Rectangle()
-                .fill(color)
-                .frame(height: isDragging ? 3 : 1)
-                .frame(maxWidth: .infinity)
+            if axis == .horizontal {
+                Rectangle()
+                    .fill(color)
+                    .frame(width: isDragging ? 3 : 1)
+                    .frame(maxHeight: .infinity)
+            } else {
+                Rectangle()
+                    .fill(color)
+                    .frame(height: isDragging ? 3 : 1)
+                    .frame(maxWidth: .infinity)
+            }
         }
     }
 

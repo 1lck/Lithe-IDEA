@@ -126,18 +126,15 @@ enum LitheTheme {
                 contrast = 0.45
             }
 
-            let chromeAmount = (isDark ? 0.045 : 0.035) * (contrast / 0.45)
             let strongChromeAmount = (isDark ? 0.075 : 0.055) * (contrast / 0.45)
             let subtleAccent = surface.mixed(with: accent, amount: isDark ? 0.20 : 0.11)
 
             return Palette(
                 window: surface,
                 titlebar: surface.mixed(with: ink, amount: strongChromeAmount),
-                toolHeader: surface.mixed(with: ink, amount: chromeAmount),
-                toolHeaderInactive: surface.mixed(with: ink, amount: strongChromeAmount),
-                sidebar: isDark
-                    ? surface.mixed(with: RGBA(0x000000), amount: 0.10)
-                    : surface.mixed(with: ink, amount: chromeAmount),
+                toolHeader: surface,
+                toolHeaderInactive: surface,
+                sidebar: surface,
                 editor: surface,
                 raised: surface.mixed(with: ink, amount: isDark ? 0.085 : 0.018),
                 selection: accent,
@@ -185,9 +182,9 @@ enum LitheTheme {
             return Palette(
                 window: adaptive(light: (0.965, 0.969, 0.976, 1), dark: (0.157, 0.161, 0.173, 1)),
                 titlebar: adaptive(light: (0.925, 0.933, 0.945, 1), dark: (0.157, 0.161, 0.173, 1)),
-                toolHeader: adaptive(light: (0.925, 0.933, 0.945, 1), dark: (0.157, 0.161, 0.173, 1)),
-                toolHeaderInactive: adaptive(light: (0.902, 0.910, 0.925, 1), dark: (0.224, 0.231, 0.251, 1)),
-                sidebar: adaptive(light: (0.925, 0.933, 0.945, 1), dark: (0.157, 0.161, 0.173, 1)),
+                toolHeader: adaptive(light: (1, 1, 1, 1), dark: (0.110, 0.114, 0.122, 1)),
+                toolHeaderInactive: adaptive(light: (1, 1, 1, 1), dark: (0.110, 0.114, 0.122, 1)),
+                sidebar: adaptive(light: (1, 1, 1, 1), dark: (0.110, 0.114, 0.122, 1)),
                 editor: adaptive(light: (1, 1, 1, 1), dark: (0.110, 0.114, 0.122, 1)),
                 raised: adaptive(light: (1, 1, 1, 1), dark: (0.165, 0.175, 0.190, 1)),
                 selection: adaptive(light: (0.275, 0.455, 0.945, 1), dark: (0.208, 0.455, 0.941, 1)),
@@ -229,6 +226,7 @@ enum LitheTheme {
     enum ResolvedColorToken {
         case editor
         case sidebar
+        case toolHeader
         case primaryText
         case secondaryText
         case accent
@@ -250,6 +248,7 @@ enum LitheTheme {
         return switch token {
         case .editor: palette.editor.nsColor
         case .sidebar: palette.sidebar.nsColor
+        case .toolHeader: palette.toolHeader.nsColor
         case .primaryText: palette.primaryText.nsColor
         case .secondaryText: palette.secondaryText.nsColor
         case .accent: palette.accent.nsColor

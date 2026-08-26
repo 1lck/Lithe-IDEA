@@ -446,6 +446,20 @@ struct CommitMessageSettingsTests {
         }
     }
 
+    @Test
+    func bundledToolWindowSurfacesMatchTheEditorSurface() {
+        for theme in AppColorTheme.allCases {
+            for isDark in [false, true] {
+                let editor = rgbHex(LitheTheme.nsColor(.editor, theme: theme, isDark: isDark))
+                let sidebar = rgbHex(LitheTheme.nsColor(.sidebar, theme: theme, isDark: isDark))
+                let toolHeader = rgbHex(LitheTheme.nsColor(.toolHeader, theme: theme, isDark: isDark))
+
+                #expect(sidebar == editor)
+                #expect(toolHeader == editor)
+            }
+        }
+    }
+
     private func rgbHex(_ color: NSColor) -> UInt32? {
         guard let color = color.usingColorSpace(.sRGB) else { return nil }
         let red = UInt32((color.redComponent * 255).rounded())

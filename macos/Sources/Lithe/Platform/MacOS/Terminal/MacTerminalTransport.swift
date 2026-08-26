@@ -47,9 +47,8 @@ final class LitheTerminalView: LocalProcessTerminalView {
 
     func applyThemeColors() {
         let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        nativeBackgroundColor = isDark
-            ? NSColor(srgbRed: 0.071, green: 0.075, blue: 0.081, alpha: showsWorkbenchBackground ? 0 : 1)
-            : NSColor(srgbRed: 1, green: 1, blue: 1, alpha: showsWorkbenchBackground ? 0 : 1)
+        nativeBackgroundColor = LitheTheme.nsColor(.editor, isDark: isDark)
+            .withAlphaComponent(showsWorkbenchBackground ? 0 : 1)
         nativeForegroundColor = isDark
             ? NSColor(srgbRed: 0.86, green: 0.87, blue: 0.89, alpha: 1)
             : NSColor(srgbRed: 0.15, green: 0.16, blue: 0.18, alpha: 1)
