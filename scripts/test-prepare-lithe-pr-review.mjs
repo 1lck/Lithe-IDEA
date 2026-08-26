@@ -51,7 +51,7 @@ test("builds a prompt with complete revision and Issue context", () => {
             number: 456,
             title: "Fix cancellation",
             body: "Fixes #123",
-            base: { ref: "preview/0.3.0", sha: "base123" },
+            base: { ref: "preview", sha: "base123" },
             head: { ref: "fix/cancellation", sha: "head456" },
         },
         triggerComment: { user: { login: "1lck" } },
