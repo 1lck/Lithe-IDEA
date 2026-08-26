@@ -12,7 +12,7 @@ int32_t lithe_core_cancel(const char *operation_id);
 void lithe_core_free_string(char *value);
 ```
 
-The macOS package uses the small C bridge in `Sources/LitheRustCore/`. The
+The macOS package uses the small C bridge in `macos/Sources/LitheRustCore/`. The
 canonical C declarations are in `rust/lithe-core/include/lithe_core.h`.
 Native clients can link the same `staticlib` or `cdylib`; Rust hosts call
 `lithe_core::execute_json` and `lithe_core::cancel_operation` directly.

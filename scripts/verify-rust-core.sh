@@ -34,7 +34,7 @@ BRIDGE_BINARY="$(mktemp -t lithe-rust-bridge).out"
 trap 'rm -f "$BRIDGE_BINARY"' EXIT
 MACOS_SDK="$(xcrun --sdk macosx --show-sdk-path)"
 swiftc scripts/RustCoreBridgeVerification.swift \
-    Sources/LitheRustCore/bridge.c \
+    macos/Sources/LitheRustCore/bridge.c \
     -sdk "$MACOS_SDK" \
     -target "${TRIPLE}13.0" \
     -Xlinker -force_load \

@@ -23,15 +23,18 @@ framework conventions.
 
 | Path | Responsibility |
 | --- | --- |
-| `Sources/Lithe/Views/` | SwiftUI/AppKit presentation and view-local rendering |
-| `Sources/Lithe/Models/` | UI-facing models and the `AppModel` aggregate |
-| `Sources/Lithe/Application/` | Feature models, state transitions, and user actions |
-| `Sources/Lithe/Services/` | Product workflow orchestration |
-| `Sources/Lithe/Core/` | Platform-neutral ports and typed Rust operations |
-| `Sources/Lithe/Platform/MacOS/` | macOS adapters and composition |
+| `macos/Sources/Lithe/Views/` | SwiftUI/AppKit presentation and view-local rendering |
+| `macos/Sources/Lithe/Models/` | UI-facing models and the `AppModel` aggregate |
+| `macos/Sources/Lithe/Application/` | Feature models, state transitions, and user actions |
+| `macos/Sources/Lithe/Services/` | Product workflow orchestration |
+| `macos/Sources/Lithe/Core/` | Platform-neutral ports and typed Rust operations |
+| `macos/Sources/Lithe/Platform/MacOS/` | macOS adapters and composition |
 | `rust/lithe-core/` | Deterministic shared commands, models, validation, and C ABI |
 | `windows/` | React/Tauri Windows product and Rust platform adapters |
+| `Plugins/mac/` | macOS-owned plugin packages |
+| `Plugins/win/` | Windows-owned plugin packages |
 | `shared/` | Cross-platform contracts and fixtures, not compiled implementation |
+| `infra/` | Repository-level development and validation infrastructure |
 | `third_party/` | Upstream code; leave unchanged unless the task explicitly targets it |
 
 macOS is the current reference product. Windows is an independent React/Tauri
@@ -50,7 +53,7 @@ implementation and must not import Swift source or depend on macOS types.
 - Core and application code must remain free of SwiftUI, AppKit, CoreServices,
   Tauri, WebView2, Win32, and concrete platform implementations.
 - `MacServiceContainer` is the macOS composition root. Platform capabilities
-  belong in `Sources/Lithe/Platform/MacOS/`.
+  belong in `macos/Sources/Lithe/Platform/MacOS/`.
 - Deterministic behavior shared by both products belongs in `rust/lithe-core/`.
   Native filesystem, process, terminal, runtime, security, persistence, and UI
   behavior belongs in platform adapters.
@@ -91,7 +94,7 @@ the existing stack can reasonably avoid.
   modes as part of unrelated work.
 - Put presentation in Views, feature state in Application, orchestration in
   Services, interfaces in Core ports, and native APIs in Platform/MacOS.
-- Use the existing Swift Testing patterns under `Tests/LitheTests/`.
+- Use the existing Swift Testing patterns under `macos/Tests/LitheTests/`.
 - Keep platform-specific types from leaking through shared or application
   interfaces.
 

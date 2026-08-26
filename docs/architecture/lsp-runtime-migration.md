@@ -119,11 +119,11 @@ Primary files:
 
 Primary files:
 
-- `Sources/LitheLanguageIntelligenceModule/Runtime/LanguageServerSession.swift`
-- `Sources/LitheLanguageIntelligenceModule/Runtime/LanguageProviderRuntime.swift`
-- `Sources/LitheLanguageIntelligenceModule/Services/LanguageToolingSessionManager.swift`
-- `Sources/Lithe/Core/Rust/RustCoreBridge.swift`
-- `Sources/Lithe/Core/Ports/LanguageTooling.swift`
+- `macos/Sources/LitheLanguageIntelligenceModule/Runtime/LanguageServerSession.swift`
+- `macos/Sources/LitheLanguageIntelligenceModule/Runtime/LanguageProviderRuntime.swift`
+- `macos/Sources/LitheLanguageIntelligenceModule/Services/LanguageToolingSessionManager.swift`
+- `macos/Sources/Lithe/Core/Rust/RustCoreBridge.swift`
+- `macos/Sources/Lithe/Core/Ports/LanguageTooling.swift`
 
 ### 4. Provider convergence and legacy deletion
 
@@ -139,9 +139,9 @@ Primary files:
 Primary files:
 
 - `rust/lithe-core/src/lsp/languages/jdt.rs`
-- `Sources/Lithe/Application/Features/JavaFeatureModel.swift`
-- `Sources/Lithe/Models/Java/JavaDiagnosticModels.swift`
-- `Sources/Lithe/Views/Editor/CodeEditorView.swift`
+- `macos/Sources/Lithe/Application/Features/JavaFeatureModel.swift`
+- `macos/Sources/Lithe/Models/Java/JavaDiagnosticModels.swift`
+- `macos/Sources/Lithe/Views/Editor/CodeEditorView.swift`
 
 ## Completion evidence
 

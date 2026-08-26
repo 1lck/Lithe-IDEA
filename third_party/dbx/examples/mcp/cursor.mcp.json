@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "dbx": {
-      "command": "npx",
-      "args": ["-y", "@dbx-app/mcp-server"]
-    }
-  }
-}

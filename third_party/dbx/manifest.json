@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "name": "DBX",
+  "upstreamRepository": "https://github.com/t8y2/dbx",
+  "revision": "996ce42e80387bba4b33a2bf1713f590ef79d476",
+  "sourceArchiveURL": "https://github.com/t8y2/dbx/archive/996ce42e80387bba4b33a2bf1713f590ef79d476.tar.gz",
+  "usage": "reference-only",
+  "buildDependency": false,
+  "runtimeDependency": false,
+  "packaged": false,
+  "retainedArtifacts": [
+    {
+      "path": "macos/Resources/DatabaseIcons",
+      "notice": "macos/Resources/DatabaseIcons/NOTICE.txt",
+      "license": "macos/Resources/DatabaseIcons/LICENSE-APACHE-2.0.txt"
+    }
+  ]
+}

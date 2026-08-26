@@ -48,15 +48,15 @@ MACOSX_DEPLOYMENT_TARGET=13.0 \
     CARGO_TARGET_DIR="$ROOT_DIR/rust/target/macos" \
     cargo build --manifest-path "$ROOT_DIR/rust/Cargo.toml" -p lithe-db-mcp --target "$RUST_TARGET"
 cp "rust/target/macos/$RUST_TARGET/debug/lithe-db-mcp" "$APP_DIR/Contents/Helpers/lithe-db-mcp"
-cp Resources/Info.plist "$APP_DIR/Contents/Info.plist"
+cp macos/Resources/Info.plist "$APP_DIR/Contents/Info.plist"
 "$ROOT_DIR/scripts/stamp-macos-app-build-info.sh" "$APP_DIR/Contents/Info.plist"
-cp Resources/AppIcon.icns "$APP_DIR/Contents/Resources/AppIcon.icns"
-cp -R Resources/IDEAIcons "$APP_DIR/Contents/Resources/IDEAIcons"
-cp -R Resources/DatabaseIcons "$APP_DIR/Contents/Resources/DatabaseIcons"
-cp -R Resources/Fonts "$APP_DIR/Contents/Resources/Fonts"
+cp macos/Resources/AppIcon.icns "$APP_DIR/Contents/Resources/AppIcon.icns"
+cp -R macos/Resources/IDEAIcons "$APP_DIR/Contents/Resources/IDEAIcons"
+cp -R macos/Resources/DatabaseIcons "$APP_DIR/Contents/Resources/DatabaseIcons"
+cp -R macos/Resources/Fonts "$APP_DIR/Contents/Resources/Fonts"
 for localization in en.lproj zh-Hans.lproj; do
-    if [[ -d "Resources/$localization" ]]; then
-        cp -R "Resources/$localization" "$APP_DIR/Contents/Resources/$localization"
+    if [[ -d "macos/Resources/$localization" ]]; then
+        cp -R "macos/Resources/$localization" "$APP_DIR/Contents/Resources/$localization"
     fi
 done
 codesign --force --deep --sign - "$APP_DIR"

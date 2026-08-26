@@ -93,7 +93,7 @@ Settings 左侧在 Editor 与 Terminal 之间新增 `Keymap`。右侧沿用当�
 
 ### Models
 
-`Sources/Lithe/Models/` 拥有命令元数据、快捷键值类型、默认目录和持久化覆盖值。模型只依赖 Foundation，不导入 SwiftUI 或 AppKit。
+`macos/Sources/Lithe/Models/` 拥有命令元数据、快捷键值类型、默认目录和持久化覆盖值。模型只依赖 Foundation，不导入 SwiftUI 或 AppKit。
 
 ### Application
 

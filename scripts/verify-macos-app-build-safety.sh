@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="${0:A:h:h}"
 cd "$ROOT_DIR"
 
-workbench_path="Sources/Lithe/Views/Workbench/WorkbenchView.swift"
+workbench_path="macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift"
 drawing_group_pattern='\.drawingGroup[[:space:]]*\('
 workbench_rasterization_violations=$(
     /usr/bin/grep -En -- "$drawing_group_pattern" "$workbench_path" || true
@@ -38,7 +38,7 @@ done
 temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/lithe-build-info-verification.XXXXXX")
 trap 'rm -rf -- "$temporary_directory"' EXIT
 test_plist="$temporary_directory/Info.plist"
-cp Resources/Info.plist "$test_plist"
+cp macos/Resources/Info.plist "$test_plist"
 
 LITHE_BUILD_GIT_REVISION="0123456789abcdef0123456789abcdef01234567" \
 LITHE_BUILD_GIT_BRANCH="test/rendering-safety" \

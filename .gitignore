@@ -7,7 +7,7 @@ DerivedData/
 /windows/build*/
 dist/
 .artifacts/
-Fixtures/**/target/
+shared/fixtures/projects/**/target/
 *.xcuserstate
 *.xcuserdata/
 design-qa-artifacts/

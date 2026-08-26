@@ -14,28 +14,28 @@
 
 ### 新建文件
 
-- `Sources/Lithe/Models/Keymap/KeyboardShortcutModels.swift`：快捷键值、修饰键、触发类型、显示文本和 Codable 兼容格式。
-- `Sources/Lithe/Models/Keymap/LitheCommandCatalog.swift`：27 个稳定命令 ID、分组、标题、说明和默认绑定。
-- `Sources/Lithe/Application/Features/KeyboardShortcutFeatureModel.swift`：默认值与覆盖值合成、过滤、冲突、录制、重置。
-- `Sources/Lithe/Views/App/KeyboardShortcutSettingsView.swift`：Keymap 页面、分组命令行、空状态和恢复操作。
-- `Sources/Lithe/Views/App/KeyboardShortcutRecorderView.swift`：AppKit 按键录制控件，只捕获输入并返回候选绑定。
-- `Sources/Lithe/Views/App/KeyboardShortcut+SwiftUI.swift`：有效快捷键到 SwiftUI `KeyEquivalent` 与 `EventModifiers` 的显示桥接。
-- `Tests/LitheTests/KeyboardShortcutTests.swift`：目录、值模型、覆盖合成、冲突、持久化和过滤单元测试。
-- `Tests/LitheTests/MacKeyboardShortcutTests.swift`：AppKit 事件映射和匹配单元测试。
+- `macos/Sources/Lithe/Models/Keymap/KeyboardShortcutModels.swift`：快捷键值、修饰键、触发类型、显示文本和 Codable 兼容格式。
+- `macos/Sources/Lithe/Models/Keymap/LitheCommandCatalog.swift`：27 个稳定命令 ID、分组、标题、说明和默认绑定。
+- `macos/Sources/Lithe/Application/Features/KeyboardShortcutFeatureModel.swift`：默认值与覆盖值合成、过滤、冲突、录制、重置。
+- `macos/Sources/Lithe/Views/App/KeyboardShortcutSettingsView.swift`：Keymap 页面、分组命令行、空状态和恢复操作。
+- `macos/Sources/Lithe/Views/App/KeyboardShortcutRecorderView.swift`：AppKit 按键录制控件，只捕获输入并返回候选绑定。
+- `macos/Sources/Lithe/Views/App/KeyboardShortcut+SwiftUI.swift`：有效快捷键到 SwiftUI `KeyEquivalent` 与 `EventModifiers` 的显示桥接。
+- `macos/Tests/LitheTests/KeyboardShortcutTests.swift`：目录、值模型、覆盖合成、冲突、持久化和过滤单元测试。
+- `macos/Tests/LitheTests/MacKeyboardShortcutTests.swift`：AppKit 事件映射和匹配单元测试。
 
 ### 修改文件
 
-- `Sources/Lithe/Models/Settings/AppSettings.swift`：加载、保存和恢复快捷键覆盖值。
-- `Sources/Lithe/Core/Ports/PlatformUI.swift`：把双击 Shift 专用检测接口扩展为可更新的快捷键检测接口。
-- `Sources/Lithe/Platform/MacOS/UI/MacShortcutDetector.swift`：统一处理普通按键、双击修饰键、挂起和动态注册。
-- `Sources/Lithe/Application/Composition/AppServices.swift`：保留平台检测器工厂依赖并使用新接口。
-- `Sources/Lithe/Models/AppModel/AppModel.swift`：持有功能模型、监听设置变化并更新检测器。
-- `Sources/Lithe/Models/AppModel/AppModel+FeatureState.swift`：按稳定命令 ID 路由 27 个操作。
-- `Sources/Lithe/Models/LitheAction.swift`：从命令目录生成元数据，并展示当前有效快捷键。
-- `Sources/Lithe/LitheApp.swift`：菜单使用当前主按键，而非硬编码组合。
-- `Sources/Lithe/Views/App/SettingsView.swift`：新增 Keymap 分类并嵌入专用页面。
-- `Tests/LitheTests/AppLocalizationTests.swift`：验证新增简体中文资源完整。
-- `Resources/zh-Hans.lproj/Localizable.strings`：新增 Keymap 页面中文文案。
+- `macos/Sources/Lithe/Models/Settings/AppSettings.swift`：加载、保存和恢复快捷键覆盖值。
+- `macos/Sources/Lithe/Core/Ports/PlatformUI.swift`：把双击 Shift 专用检测接口扩展为可更新的快捷键检测接口。
+- `macos/Sources/Lithe/Platform/MacOS/UI/MacShortcutDetector.swift`：统一处理普通按键、双击修饰键、挂起和动态注册。
+- `macos/Sources/Lithe/Application/Composition/AppServices.swift`：保留平台检测器工厂依赖并使用新接口。
+- `macos/Sources/Lithe/Models/AppModel/AppModel.swift`：持有功能模型、监听设置变化并更新检测器。
+- `macos/Sources/Lithe/Models/AppModel/AppModel+FeatureState.swift`：按稳定命令 ID 路由 27 个操作。
+- `macos/Sources/Lithe/Models/LitheAction.swift`：从命令目录生成元数据，并展示当前有效快捷键。
+- `macos/Sources/Lithe/LitheApp.swift`：菜单使用当前主按键，而非硬编码组合。
+- `macos/Sources/Lithe/Views/App/SettingsView.swift`：新增 Keymap 分类并嵌入专用页面。
+- `macos/Tests/LitheTests/AppLocalizationTests.swift`：验证新增简体中文资源完整。
+- `macos/Resources/zh-Hans.lproj/Localizable.strings`：新增 Keymap 页面中文文案。
 
 ---
 
@@ -43,9 +43,9 @@
 
 **文件：**
 
-- 创建：`Tests/LitheTests/KeyboardShortcutTests.swift`
-- 创建：`Sources/Lithe/Models/Keymap/KeyboardShortcutModels.swift`
-- 创建：`Sources/Lithe/Models/Keymap/LitheCommandCatalog.swift`
+- 创建：`macos/Tests/LitheTests/KeyboardShortcutTests.swift`
+- 创建：`macos/Sources/Lithe/Models/Keymap/KeyboardShortcutModels.swift`
+- 创建：`macos/Sources/Lithe/Models/Keymap/LitheCommandCatalog.swift`
 
 - [ ] **步骤 1：编写目录和显示格式的失败测试**
 
@@ -200,7 +200,7 @@ static let commands: [LitheCommandDefinition] = [
 - [ ] **步骤 6：提交模型与目录**
 
 ```bash
-git add Tests/LitheTests/KeyboardShortcutTests.swift Sources/Lithe/Models/Keymap/KeyboardShortcutModels.swift Sources/Lithe/Models/Keymap/LitheCommandCatalog.swift
+git add macos/Tests/LitheTests/KeyboardShortcutTests.swift macos/Sources/Lithe/Models/Keymap/KeyboardShortcutModels.swift macos/Sources/Lithe/Models/Keymap/LitheCommandCatalog.swift
 git commit -m "feat(macOS): 添加快捷键命令目录"
 ```
 
@@ -210,9 +210,9 @@ git commit -m "feat(macOS): 添加快捷键命令目录"
 
 **文件：**
 
-- 修改：`Tests/LitheTests/KeyboardShortcutTests.swift`
-- 修改：`Sources/Lithe/Models/Settings/AppSettings.swift`
-- 创建：`Sources/Lithe/Application/Features/KeyboardShortcutFeatureModel.swift`
+- 修改：`macos/Tests/LitheTests/KeyboardShortcutTests.swift`
+- 修改：`macos/Sources/Lithe/Models/Settings/AppSettings.swift`
+- 创建：`macos/Sources/Lithe/Application/Features/KeyboardShortcutFeatureModel.swift`
 
 - [ ] **步骤 1：编写持久化、禁用、恢复和冲突的失败测试**
 
@@ -325,7 +325,7 @@ final class KeyboardShortcutFeatureModel: ObservableObject {
 - [ ] **步骤 6：提交持久化与功能模型**
 
 ```bash
-git add Tests/LitheTests/KeyboardShortcutTests.swift Sources/Lithe/Models/Settings/AppSettings.swift Sources/Lithe/Application/Features/KeyboardShortcutFeatureModel.swift
+git add macos/Tests/LitheTests/KeyboardShortcutTests.swift macos/Sources/Lithe/Models/Settings/AppSettings.swift macos/Sources/Lithe/Application/Features/KeyboardShortcutFeatureModel.swift
 git commit -m "feat(macOS): 持久化快捷键覆盖设置"
 ```
 
@@ -335,11 +335,11 @@ git commit -m "feat(macOS): 持久化快捷键覆盖设置"
 
 **文件：**
 
-- 创建：`Tests/LitheTests/MacKeyboardShortcutTests.swift`
-- 修改：`Sources/Lithe/Core/Ports/PlatformUI.swift`
-- 修改：`Sources/Lithe/Platform/MacOS/UI/MacShortcutDetector.swift`
-- 修改：`Sources/Lithe/Application/Composition/AppServices.swift`
-- 修改：`Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`
+- 创建：`macos/Tests/LitheTests/MacKeyboardShortcutTests.swift`
+- 修改：`macos/Sources/Lithe/Core/Ports/PlatformUI.swift`
+- 修改：`macos/Sources/Lithe/Platform/MacOS/UI/MacShortcutDetector.swift`
+- 修改：`macos/Sources/Lithe/Application/Composition/AppServices.swift`
+- 修改：`macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`
 
 - [ ] **步骤 1：为纯事件映射与匹配编写失败测试**
 
@@ -442,7 +442,7 @@ private final class MacShortcutDetector: ShortcutDetector, @unchecked Sendable {
 - [ ] **步骤 6：提交 macOS 检测器**
 
 ```bash
-git add Tests/LitheTests/MacKeyboardShortcutTests.swift Sources/Lithe/Core/Ports/PlatformUI.swift Sources/Lithe/Platform/MacOS/UI/MacShortcutDetector.swift Sources/Lithe/Application/Composition/AppServices.swift Sources/Lithe/Platform/MacOS/MacServiceContainer.swift
+git add macos/Tests/LitheTests/MacKeyboardShortcutTests.swift macos/Sources/Lithe/Core/Ports/PlatformUI.swift macos/Sources/Lithe/Platform/MacOS/UI/MacShortcutDetector.swift macos/Sources/Lithe/Application/Composition/AppServices.swift macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift
 git commit -m "feat(macOS): 统一动态快捷键检测"
 ```
 
@@ -452,12 +452,12 @@ git commit -m "feat(macOS): 统一动态快捷键检测"
 
 **文件：**
 
-- 修改：`Tests/LitheTests/KeyboardShortcutTests.swift`
-- 修改：`Sources/Lithe/Models/AppModel/AppModel.swift`
-- 修改：`Sources/Lithe/Models/AppModel/AppModel+FeatureState.swift`
-- 修改：`Sources/Lithe/Models/LitheAction.swift`
-- 创建：`Sources/Lithe/Views/App/KeyboardShortcut+SwiftUI.swift`
-- 修改：`Sources/Lithe/LitheApp.swift`
+- 修改：`macos/Tests/LitheTests/KeyboardShortcutTests.swift`
+- 修改：`macos/Sources/Lithe/Models/AppModel/AppModel.swift`
+- 修改：`macos/Sources/Lithe/Models/AppModel/AppModel+FeatureState.swift`
+- 修改：`macos/Sources/Lithe/Models/LitheAction.swift`
+- 创建：`macos/Sources/Lithe/Views/App/KeyboardShortcut+SwiftUI.swift`
+- 修改：`macos/Sources/Lithe/LitheApp.swift`
 
 - [ ] **步骤 1：编写有效主按键与展示投影的失败测试**
 
@@ -554,7 +554,7 @@ extension View {
 - [ ] **步骤 7：提交命令路由与消费者同步**
 
 ```bash
-git add Tests/LitheTests/KeyboardShortcutTests.swift Sources/Lithe/Models/AppModel/AppModel.swift Sources/Lithe/Models/AppModel/AppModel+FeatureState.swift Sources/Lithe/Models/LitheAction.swift Sources/Lithe/Views/App/KeyboardShortcut+SwiftUI.swift Sources/Lithe/LitheApp.swift
+git add macos/Tests/LitheTests/KeyboardShortcutTests.swift macos/Sources/Lithe/Models/AppModel/AppModel.swift macos/Sources/Lithe/Models/AppModel/AppModel+FeatureState.swift macos/Sources/Lithe/Models/LitheAction.swift macos/Sources/Lithe/Views/App/KeyboardShortcut+SwiftUI.swift macos/Sources/Lithe/LitheApp.swift
 git commit -m "feat(macOS): 同步快捷键命令入口"
 ```
 
@@ -564,11 +564,11 @@ git commit -m "feat(macOS): 同步快捷键命令入口"
 
 **文件：**
 
-- 修改：`Tests/LitheTests/KeyboardShortcutTests.swift`
-- 创建：`Sources/Lithe/Views/App/KeyboardShortcutSettingsView.swift`
-- 创建：`Sources/Lithe/Views/App/KeyboardShortcutRecorderView.swift`
-- 修改：`Sources/Lithe/Views/App/SettingsView.swift`
-- 修改：`Sources/Lithe/Models/AppModel/AppModel.swift`
+- 修改：`macos/Tests/LitheTests/KeyboardShortcutTests.swift`
+- 创建：`macos/Sources/Lithe/Views/App/KeyboardShortcutSettingsView.swift`
+- 创建：`macos/Sources/Lithe/Views/App/KeyboardShortcutRecorderView.swift`
+- 修改：`macos/Sources/Lithe/Views/App/SettingsView.swift`
+- 修改：`macos/Sources/Lithe/Models/AppModel/AppModel.swift`
 
 - [ ] **步骤 1：编写搜索与分组的失败测试**
 
@@ -640,7 +640,7 @@ case keymap = "Keymap"
 - [ ] **步骤 8：提交设置页**
 
 ```bash
-git add Tests/LitheTests/KeyboardShortcutTests.swift Sources/Lithe/Views/App/KeyboardShortcutSettingsView.swift Sources/Lithe/Views/App/KeyboardShortcutRecorderView.swift Sources/Lithe/Views/App/SettingsView.swift Sources/Lithe/Models/AppModel/AppModel.swift
+git add macos/Tests/LitheTests/KeyboardShortcutTests.swift macos/Sources/Lithe/Views/App/KeyboardShortcutSettingsView.swift macos/Sources/Lithe/Views/App/KeyboardShortcutRecorderView.swift macos/Sources/Lithe/Views/App/SettingsView.swift macos/Sources/Lithe/Models/AppModel/AppModel.swift
 git commit -m "feat(macOS): 添加快捷键设置界面"
 ```
 
@@ -650,9 +650,9 @@ git commit -m "feat(macOS): 添加快捷键设置界面"
 
 **文件：**
 
-- 修改：`Tests/LitheTests/AppLocalizationTests.swift`
-- 修改：`Resources/zh-Hans.lproj/Localizable.strings`
-- 修改：`Tests/LitheTests/KeyboardShortcutTests.swift`
+- 修改：`macos/Tests/LitheTests/AppLocalizationTests.swift`
+- 修改：`macos/Resources/zh-Hans.lproj/Localizable.strings`
+- 修改：`macos/Tests/LitheTests/KeyboardShortcutTests.swift`
 
 - [ ] **步骤 1：编写简体中文资源失败测试**
 
@@ -677,7 +677,7 @@ func simplifiedChineseResourcesCoverKeymapControls() throws {
 
 - [ ] **步骤 3：补齐所有新增界面文案**
 
-向 `Resources/zh-Hans.lproj/Localizable.strings` 添加测试中的键，以及「Conflicts with %@」「No matching commands」「Add Shortcut」「Remove」「Reset」等界面实际使用键。保持 plist 字符串格式有效和键唯一。
+向 `macos/Resources/zh-Hans.lproj/Localizable.strings` 添加测试中的键，以及「Conflicts with %@」「No matching commands」「Add Shortcut」「Remove」「Reset」等界面实际使用键。保持 plist 字符串格式有效和键唯一。
 
 - [ ] **步骤 4：补充应用级恢复默认测试**
 
@@ -698,7 +698,7 @@ func simplifiedChineseResourcesCoverKeymapControls() throws {
 - [ ] **步骤 6：提交本地化与回归测试**
 
 ```bash
-git add Tests/LitheTests/AppLocalizationTests.swift Tests/LitheTests/KeyboardShortcutTests.swift Resources/zh-Hans.lproj/Localizable.strings
+git add macos/Tests/LitheTests/AppLocalizationTests.swift macos/Tests/LitheTests/KeyboardShortcutTests.swift macos/Resources/zh-Hans.lproj/Localizable.strings
 git commit -m "test(macOS): 覆盖快捷键设置本地化"
 ```
 

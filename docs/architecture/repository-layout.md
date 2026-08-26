@@ -9,26 +9,30 @@ types.
 
 ```text
 Lithe-IDEA/
-├── Sources/Lithe/          # macOS SwiftUI/AppKit application
+├── macos/Sources/Lithe/          # macOS SwiftUI/AppKit application
 │   ├── Application/        # composition, feature models, and lifecycle policy
 │   ├── Core/               # ports, language catalogs, and typed Rust operations
 │   ├── Models/             # UI aggregate, bridges, and domain-grouped value types
 │   ├── Platform/MacOS/     # macOS composition root and adapters
 │   ├── Services/           # workflows grouped by product domain
 │   └── Views/              # SwiftUI/AppKit presentation grouped by feature
-├── Sources/Lithe*Module/   # independently owned built-in and plugin modules
-├── Sources/LitheModuleAPI/ # module lifecycle, catalog, and plugin contracts
-├── Sources/LitheCoreContracts/ # platform-neutral feature contracts
-├── Sources/LitheRustCore/  # Swift Package C bridge declarations
-├── Plugins/Official/       # source manifests and Bundle metadata for official plugins
-├── Tests/LitheTests/       # Swift Testing unit tests
+├── macos/Sources/Lithe*Module/   # independently owned built-in modules
+├── macos/Sources/LitheModuleAPI/ # module lifecycle, catalog, and plugin contracts
+├── macos/Sources/LitheCoreContracts/ # platform-neutral feature contracts
+├── macos/Sources/LitheRustCore/  # Swift Package C bridge declarations
+├── macos/Resources/        # macOS metadata, icons, localization, and assets
+├── Plugins/
+│   ├── mac/Official/       # macOS plugin manifests, source, tests, and Bundle metadata
+│   └── win/                # Windows-owned plugin packages
+├── macos/Tests/LitheTests/       # Swift Testing unit tests
 ├── rust/lithe-core/        # shared Rust commands, models, and C ABI
 ├── windows/                # React/Tauri Windows application and Rust adapters
 ├── shared/                 # contracts and cross-platform fixtures
-├── Fixtures/               # reusable Java, Maven, Spring Boot, and Git data
+├── shared/fixtures/projects/ # reusable Java, Maven, Spring Boot, and Git data
 ├── scripts/                # build, packaging, fixture, and verification tools
 ├── docs/                   # product, architecture, release, and QA docs
-├── Resources/              # macOS metadata, icons, localization, and assets
+├── infra/docker/           # repository-owned containerized validation environments
+├── third_party/            # pinned upstream manifests and narrowly required source patches
 └── Package.swift           # macOS Swift Package Manager definition
 ```
 
@@ -63,7 +67,7 @@ visibility. SwiftPM discovers them recursively, so moving a file between these
 directories must not require a target or product change:
 
 ```text
-Sources/Lithe/
+macos/Sources/Lithe/
 ├── Application/
 │   ├── Composition/  # application service graphs and module resource owners
 │   ├── Features/     # UI-facing state transitions and user actions
@@ -85,7 +89,7 @@ convention. A directory should exist only when the target owns that kind of
 code:
 
 ```text
-Sources/Lithe<Feature>Module/
+macos/Sources/Lithe<Feature>Module/
 ├── Module/       # module entrypoint and feature graph
 ├── Application/  # feature state and UI-facing coordination
 ├── Models/       # domain and value types
@@ -101,6 +105,11 @@ and shared identifiers. New files should be named after their primary type;
 use `Type+Concern.swift` only for a focused extension or executable-target
 bridge. Do not rename module IDs, capability IDs, JSON fields, C symbols, or
 plugin entrypoint names as part of physical source reorganization.
+
+Plugin packages are platform-owned. macOS plugins live under `Plugins/mac/`
+and Windows plugins under `Plugins/win/`; neither platform may compile source
+from the other platform's plugin tree. Shared plugin wire contracts and
+fixtures remain under `shared/` rather than either platform directory.
 
 ## Rust Core packages
 
@@ -162,3 +171,14 @@ Do not commit generated outputs such as `.build/`, `.swiftpm/`, `dist/`,
 `DerivedData/`, fixture build directories, or local IDE configuration. Keep
 release notes, contract fixtures, verification scripts, and the screenshots
 referenced by the public README files.
+
+`third_party/` is not a general upstream archive. Prefer an immutable manifest,
+verified build-time download, and an artifact-local license/notice over a full
+repository snapshot. Complete upstream source belongs there only when Lithe
+actually compiles a documented local patch. Platform runtime assets and plugin
+payloads stay with their owning platform resource or plugin package.
+
+`infra/` owns repository-level development and validation infrastructure that
+is not an implementation detail of macOS, Windows, or the shared Rust Core.
+Container definitions used to validate database helpers belong under
+`infra/docker/`; product Docker features remain in their owning platform code.

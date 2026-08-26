@@ -15,16 +15,18 @@ git config user.email "ci@example.invalid"
 git config user.name "CI Test"
 mkdir -p \
     Casks \
-    Plugins/Official/GoSupport \
-    Sources/Lithe/Platform/MacOS/Plugins \
-    Sources/Lithe/Views/Community \
-    Sources/Lithe/Views/Database \
-    Sources/LitheCoreContracts \
-    Sources/LitheDatabaseModule \
-    Sources/LitheGoSupportModule \
-    Tests/LitheDatabaseModuleTests \
-    Tests/LitheGoSupportModuleTests \
-    Tests/LitheTests \
+    Plugins/mac/Official/GoSupport \
+    Plugins/win/ExampleSupport \
+    macos/Sources/Lithe/Platform/MacOS/Plugins \
+    macos/Sources/Lithe/Views/Community \
+    macos/Sources/Lithe/Views/Database \
+    macos/Sources/LitheCoreContracts \
+    macos/Sources/LitheDatabaseModule \
+    Plugins/mac/Official/GoSupport/Sources/LitheGoSupportModule \
+    macos/Tests/LitheDatabaseModuleTests \
+    Plugins/mac/Official/GoSupport/Tests/LitheGoSupportModuleTests \
+    macos/Tests/LitheTests \
+    infra/docker/database-validation \
     rust/lithe-core/src/tests \
     rust/lithe-core/src/lsp \
     rust/lithe-core/tests \
@@ -36,22 +38,24 @@ printf '%s\n' '//! Test module.' 'pub fn value() -> u8 { 1 }' > rust/lithe-core/
 printf '%s\n' '#[test]' 'fn source_test() { assert_eq!(1, 1); }' > rust/lithe-core/src/lsp/tests.rs
 printf '%s\n' '#[test]' 'fn value_is_one() { assert_eq!(1, 1); }' > rust/lithe-core/tests/value.rs
 printf '%s\n' 'fn main() {}' > rust/lithe-db-sidecar/src/main.rs
+printf '%s\n' 'services: {}' > infra/docker/database-validation/compose.yaml
 printf '%s\n' '#!/bin/zsh' 'print -- package' > scripts/verify-macos-package.sh
-printf '%s\n' 'struct App {}' > Sources/Lithe/App.swift
-printf '%s\n' 'struct PluginManager {}' > Sources/Lithe/Platform/MacOS/Plugins/MacPluginManager.swift
-printf '%s\n' 'struct LinuxDoCommunityView {}' > Sources/Lithe/Views/Community/LinuxDoCommunityView.swift
-printf '%s\n' 'struct DatabaseView {}' > Sources/Lithe/Views/Database/DatabaseView.swift
-printf '%s\n' 'struct CoreContracts {}' > Sources/LitheCoreContracts/CoreContracts.swift
-printf '%s\n' 'struct DatabaseModule {}' > Sources/LitheDatabaseModule/DatabaseModule.swift
-printf '%s\n' 'struct GoSupportModule {}' > Sources/LitheGoSupportModule/GoSupportModule.swift
-printf '%s\n' 'struct AppTests {}' > Tests/LitheTests/AppTests.swift
-printf '%s\n' 'struct PluginManagerTests {}' > Tests/LitheTests/PluginManagerTests.swift
-printf '%s\n' 'struct LinuxDoCommunityFormattingTests {}' > Tests/LitheTests/LinuxDoCommunityFormattingTests.swift
-printf '%s\n' 'struct WebKitIntegrationTests {}' > Tests/LitheTests/WebKitIntegrationTests.swift
-printf '%s\n' 'struct LitheCoreLogicTests {}' > Tests/LitheTests/LitheCoreLogicTests.swift
-printf '%s\n' 'struct DatabaseTests {}' > Tests/LitheDatabaseModuleTests/DatabaseTests.swift
-printf '%s\n' 'struct GoSupportTests {}' > Tests/LitheGoSupportModuleTests/GoSupportTests.swift
-printf '%s\n' '{"id":"dev.lithe.go-support"}' > Plugins/Official/GoSupport/plugin.json
+printf '%s\n' 'struct App {}' > macos/Sources/Lithe/App.swift
+printf '%s\n' 'struct PluginManager {}' > macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginManager.swift
+printf '%s\n' 'struct LinuxDoCommunityView {}' > macos/Sources/Lithe/Views/Community/LinuxDoCommunityView.swift
+printf '%s\n' 'struct DatabaseView {}' > macos/Sources/Lithe/Views/Database/DatabaseView.swift
+printf '%s\n' 'struct CoreContracts {}' > macos/Sources/LitheCoreContracts/CoreContracts.swift
+printf '%s\n' 'struct DatabaseModule {}' > macos/Sources/LitheDatabaseModule/DatabaseModule.swift
+printf '%s\n' 'struct GoSupportModule {}' > Plugins/mac/Official/GoSupport/Sources/LitheGoSupportModule/GoSupportModule.swift
+printf '%s\n' 'struct AppTests {}' > macos/Tests/LitheTests/AppTests.swift
+printf '%s\n' 'struct PluginManagerTests {}' > macos/Tests/LitheTests/PluginManagerTests.swift
+printf '%s\n' 'struct LinuxDoCommunityFormattingTests {}' > macos/Tests/LitheTests/LinuxDoCommunityFormattingTests.swift
+printf '%s\n' 'struct WebKitIntegrationTests {}' > macos/Tests/LitheTests/WebKitIntegrationTests.swift
+printf '%s\n' 'struct LitheCoreLogicTests {}' > macos/Tests/LitheTests/LitheCoreLogicTests.swift
+printf '%s\n' 'struct DatabaseTests {}' > macos/Tests/LitheDatabaseModuleTests/DatabaseTests.swift
+printf '%s\n' 'struct GoSupportTests {}' > Plugins/mac/Official/GoSupport/Tests/LitheGoSupportModuleTests/GoSupportTests.swift
+printf '%s\n' '{"id":"dev.lithe.go-support"}' > Plugins/mac/Official/GoSupport/plugin.json
+printf '%s\n' '{"id":"dev.lithe.win.example-support"}' > Plugins/win/ExampleSupport/plugin.json
 printf '%s\n' '{"operation":"test"}' > shared/fixtures/core/test.json
 printf '%s\n' 'export const value = 1;' > windows/tauri/src/value.ts
 printf '%s\n' 'fn main() {}' > windows/tauri/src-tauri/src/main.rs
@@ -111,22 +115,24 @@ modify_rust_code() { printf '%s\n' '//! Test module.' 'pub fn value() -> u8 { 2 
 modify_rust_test() { printf '%s\n' '#[test]' 'fn value_is_two() { assert_eq!(2, 2); }' > rust/lithe-core/tests/value.rs; }
 modify_rust_source_test() { printf '%s\n' '#[test]' 'fn source_test() { assert_eq!(2, 2); }' > rust/lithe-core/src/lsp/tests.rs; }
 modify_database_rust() { printf '%s\n' 'fn main() { println!("updated"); }' > rust/lithe-db-sidecar/src/main.rs; }
+modify_database_docker() { printf '%s\n' 'services:' '  mariadb: {}' > infra/docker/database-validation/compose.yaml; }
 modify_macos_package_verifier() { printf '%s\n' '#!/bin/zsh' 'print -- updated-package' > scripts/verify-macos-package.sh; }
-modify_swift_source() { printf '%s\n' 'struct UpdatedApp {}' > Sources/Lithe/App.swift; }
-modify_swift_test() { printf '%s\n' 'struct UpdatedAppTests {}' > Tests/LitheTests/AppTests.swift; }
-modify_plugin_manifest() { printf '%s\n' '{"id":"dev.lithe.go-support","version":"2.0.0"}' > Plugins/Official/GoSupport/plugin.json; }
-modify_plugin_source() { printf '%s\n' 'struct UpdatedGoSupportModule {}' > Sources/LitheGoSupportModule/GoSupportModule.swift; }
-modify_plugin_test() { printf '%s\n' 'struct UpdatedGoSupportTests {}' > Tests/LitheGoSupportModuleTests/GoSupportTests.swift; }
-modify_plugin_host_source() { printf '%s\n' 'struct UpdatedPluginManager {}' > Sources/Lithe/Platform/MacOS/Plugins/MacPluginManager.swift; }
-modify_plugin_host_test() { printf '%s\n' 'struct UpdatedPluginManagerTests {}' > Tests/LitheTests/PluginManagerTests.swift; }
-modify_linux_do_source() { printf '%s\n' 'struct UpdatedLinuxDoCommunityView {}' > Sources/Lithe/Views/Community/LinuxDoCommunityView.swift; }
-modify_linux_do_test() { printf '%s\n' 'struct UpdatedLinuxDoCommunityFormattingTests {}' > Tests/LitheTests/LinuxDoCommunityFormattingTests.swift; }
-modify_plugin_webkit_test() { printf '%s\n' 'struct UpdatedWebKitIntegrationTests {}' > Tests/LitheTests/WebKitIntegrationTests.swift; }
-modify_shared_swift_contract() { printf '%s\n' 'struct UpdatedCoreContracts {}' > Sources/LitheCoreContracts/CoreContracts.swift; }
-modify_database_swift() { printf '%s\n' 'struct UpdatedDatabaseModule {}' > Sources/LitheDatabaseModule/DatabaseModule.swift; }
-modify_database_swift_test() { printf '%s\n' 'struct UpdatedDatabaseTests {}' > Tests/LitheDatabaseModuleTests/DatabaseTests.swift; }
-modify_database_app_source() { printf '%s\n' 'struct UpdatedDatabaseView {}' > Sources/Lithe/Views/Database/DatabaseView.swift; }
-modify_mixed_core_logic_test() { printf '%s\n' 'struct UpdatedLitheCoreLogicTests {}' > Tests/LitheTests/LitheCoreLogicTests.swift; }
+modify_swift_source() { printf '%s\n' 'struct UpdatedApp {}' > macos/Sources/Lithe/App.swift; }
+modify_swift_test() { printf '%s\n' 'struct UpdatedAppTests {}' > macos/Tests/LitheTests/AppTests.swift; }
+modify_plugin_manifest() { printf '%s\n' '{"id":"dev.lithe.go-support","version":"2.0.0"}' > Plugins/mac/Official/GoSupport/plugin.json; }
+modify_plugin_source() { printf '%s\n' 'struct UpdatedGoSupportModule {}' > Plugins/mac/Official/GoSupport/Sources/LitheGoSupportModule/GoSupportModule.swift; }
+modify_plugin_test() { printf '%s\n' 'struct UpdatedGoSupportTests {}' > Plugins/mac/Official/GoSupport/Tests/LitheGoSupportModuleTests/GoSupportTests.swift; }
+modify_windows_plugin_manifest() { printf '%s\n' '{"id":"dev.lithe.win.example-support","version":"2.0.0"}' > Plugins/win/ExampleSupport/plugin.json; }
+modify_plugin_host_source() { printf '%s\n' 'struct UpdatedPluginManager {}' > macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginManager.swift; }
+modify_plugin_host_test() { printf '%s\n' 'struct UpdatedPluginManagerTests {}' > macos/Tests/LitheTests/PluginManagerTests.swift; }
+modify_linux_do_source() { printf '%s\n' 'struct UpdatedLinuxDoCommunityView {}' > macos/Sources/Lithe/Views/Community/LinuxDoCommunityView.swift; }
+modify_linux_do_test() { printf '%s\n' 'struct UpdatedLinuxDoCommunityFormattingTests {}' > macos/Tests/LitheTests/LinuxDoCommunityFormattingTests.swift; }
+modify_plugin_webkit_test() { printf '%s\n' 'struct UpdatedWebKitIntegrationTests {}' > macos/Tests/LitheTests/WebKitIntegrationTests.swift; }
+modify_shared_swift_contract() { printf '%s\n' 'struct UpdatedCoreContracts {}' > macos/Sources/LitheCoreContracts/CoreContracts.swift; }
+modify_database_swift() { printf '%s\n' 'struct UpdatedDatabaseModule {}' > macos/Sources/LitheDatabaseModule/DatabaseModule.swift; }
+modify_database_swift_test() { printf '%s\n' 'struct UpdatedDatabaseTests {}' > macos/Tests/LitheDatabaseModuleTests/DatabaseTests.swift; }
+modify_database_app_source() { printf '%s\n' 'struct UpdatedDatabaseView {}' > macos/Sources/Lithe/Views/Database/DatabaseView.swift; }
+modify_mixed_core_logic_test() { printf '%s\n' 'struct UpdatedLitheCoreLogicTests {}' > macos/Tests/LitheTests/LitheCoreLogicTests.swift; }
 modify_shared_fixture() { printf '%s\n' '{"operation":"updated"}' > shared/fixtures/core/test.json; }
 modify_windows_frontend() { printf '%s\n' 'export const value = 2;' > windows/tauri/src/value.ts; }
 modify_windows_rust() { printf '%s\n' 'fn main() { println!("updated"); }' > windows/tauri/src-tauri/src/main.rs; }
@@ -164,6 +170,9 @@ assert_classification rust-source-test \
 assert_classification database-rust \
     "$(classification false false false false true true false false false false)" \
     modify_database_rust
+assert_classification database-docker \
+    "$(classification false false false false true false false false false false)" \
+    modify_database_docker
 assert_classification macos-package-verifier \
     "$(classification false false false false false true false false false false)" \
     modify_macos_package_verifier
@@ -182,6 +191,9 @@ assert_classification plugin-source \
 assert_classification plugin-test \
     "$(classification false true false false false false false false false false)" \
     modify_plugin_test
+assert_classification windows-plugin-manifest \
+    "$(classification false false false false false false true true false false)" \
+    modify_windows_plugin_manifest
 assert_classification plugin-host-source \
     "$(classification true true false false false true false false false false)" \
     modify_plugin_host_source
