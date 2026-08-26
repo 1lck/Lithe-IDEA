@@ -37,32 +37,43 @@ struct EditorGutterLayoutTests {
     }
 
     @Test
-    func collapsedFoldKeepsItsStartLineAndHidesItsContents() {
+    func collapsedFoldKeepsItsBoundaryLinesAndHidesItsContents() {
+        let source = """
+        void run() {
+            execute();
+            finish();
+        }
+        """ as NSString
+        let hiddenRange = source.range(of: "    execute();\n    finish();\n")
         let region = JavaFoldRegion(
             kind: .method,
-            startLine: 4,
-            endLine: 8,
-            hiddenRange: NSRange(location: 0, length: 0)
+            startLine: 0,
+            endLine: 3,
+            hiddenRange: hiddenRange
         )
         let collapsedIDs: Set<String> = [region.id]
 
         #expect(!EditorFoldVisibility.isLineHidden(
-            4,
+            0,
+            in: source,
             regions: [region],
             collapsedIDs: collapsedIDs
         ))
         #expect(EditorFoldVisibility.isLineHidden(
-            5,
+            1,
+            in: source,
             regions: [region],
             collapsedIDs: collapsedIDs
         ))
         #expect(EditorFoldVisibility.isLineHidden(
-            8,
+            2,
+            in: source,
             regions: [region],
             collapsedIDs: collapsedIDs
         ))
         #expect(!EditorFoldVisibility.isLineHidden(
-            9,
+            3,
+            in: source,
             regions: [region],
             collapsedIDs: collapsedIDs
         ))
@@ -70,15 +81,17 @@ struct EditorGutterLayoutTests {
 
     @Test
     func expandedFoldDoesNotHideAnyLines() {
+        let source = "class Example {\n    void run() {}\n}" as NSString
         let region = JavaFoldRegion(
             kind: .type,
-            startLine: 2,
-            endLine: 10,
-            hiddenRange: NSRange(location: 0, length: 0)
+            startLine: 0,
+            endLine: 2,
+            hiddenRange: source.range(of: "    void run() {}\n")
         )
 
         #expect(!EditorFoldVisibility.isLineHidden(
-            6,
+            1,
+            in: source,
             regions: [region],
             collapsedIDs: []
         ))
@@ -86,15 +99,21 @@ struct EditorGutterLayoutTests {
 
     @Test
     func codeVisionExcludesHintsInsideCollapsedFolds() {
+        let source = """
+        class Example {
+            void run() {}
+        }
+        class After {}
+        """ as NSString
         let region = JavaFoldRegion(
             kind: .type,
-            startLine: 2,
-            endLine: 8,
-            hiddenRange: NSRange(location: 0, length: 0)
+            startLine: 0,
+            endLine: 2,
+            hiddenRange: source.range(of: "    void run() {}\n")
         )
         let hints = [
             JavaCodeVisionHint(
-                line: 2,
+                line: 0,
                 utf16Column: 6,
                 symbol: "Example",
                 usageCount: 1,
@@ -102,7 +121,7 @@ struct EditorGutterLayoutTests {
                 authorName: "Ada"
             ),
             JavaCodeVisionHint(
-                line: 5,
+                line: 1,
                 utf16Column: 9,
                 symbol: "run",
                 usageCount: 2,
@@ -110,7 +129,7 @@ struct EditorGutterLayoutTests {
                 authorName: "Grace"
             ),
             JavaCodeVisionHint(
-                line: 9,
+                line: 3,
                 utf16Column: 4,
                 symbol: "After",
                 usageCount: 3,
@@ -121,11 +140,61 @@ struct EditorGutterLayoutTests {
 
         let visibleHints = EditorFoldVisibility.visibleCodeVisionHints(
             hints,
+            in: source,
             regions: [region],
             collapsedIDs: [region.id]
         )
 
         #expect(visibleHints.map(\.symbol) == ["Example", "After"])
+    }
+
+    @Test
+    func collapsedFoldKeepsCodeVisionOnItsClosingLine() {
+        let source = """
+        void first() {
+            execute();
+        } void next() {
+        }
+        """ as NSString
+        let region = JavaFoldRegion(
+            kind: .method,
+            startLine: 0,
+            endLine: 2,
+            hiddenRange: source.range(of: "    execute();\n")
+        )
+        let hints = [
+            JavaCodeVisionHint(
+                line: 1,
+                utf16Column: 4,
+                symbol: "execute",
+                usageCount: 1,
+                implementationCount: 0,
+                authorName: nil
+            ),
+            JavaCodeVisionHint(
+                line: 2,
+                utf16Column: 7,
+                symbol: "next",
+                usageCount: 2,
+                implementationCount: 0,
+                authorName: "Ada"
+            )
+        ]
+
+        let visibleHints = EditorFoldVisibility.visibleCodeVisionHints(
+            hints,
+            in: source,
+            regions: [region],
+            collapsedIDs: [region.id]
+        )
+
+        #expect(visibleHints.map(\.symbol) == ["next"])
+        #expect(!EditorFoldVisibility.isLineHidden(
+            2,
+            in: source,
+            regions: [region],
+            collapsedIDs: [region.id]
+        ))
     }
 
     @MainActor
