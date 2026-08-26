@@ -1,10 +1,17 @@
 import Foundation
 
 public struct GitProcessResult: Sendable {
+    public let arguments: [String]
     public let output: String
     public let exitCode: Int32
     public let stashRestoreConflict: GitStashRestoreConflict?
-    public init(output: String, exitCode: Int32, stashRestoreConflict: GitStashRestoreConflict? = nil) {
+    public init(
+        arguments: [String] = [],
+        output: String,
+        exitCode: Int32,
+        stashRestoreConflict: GitStashRestoreConflict? = nil
+    ) {
+        self.arguments = arguments
         self.output = output
         self.exitCode = exitCode
         self.stashRestoreConflict = stashRestoreConflict

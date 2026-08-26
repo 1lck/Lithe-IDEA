@@ -107,3 +107,5 @@
 "Notifications" = "Notifications";
 "Clear All" = "Clear All";
 "No notifications" = "No notifications";
+"Log: %@" = "Log: %@";
+"Console" = "Console";

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import LitheGitModule
 
@@ -21,6 +22,8 @@ struct GitLogView: View {
     @State private var pendingBranchOperation: GitBranchOperationRequest?
     @State private var comparisonSourceReference: GitReference?
     @State private var showCommitDecorations = true
+    @State private var selectedGitToolTab = GitToolTab.log
+    @State private var gitConsoleAutoScrolls = true
     @State private var graphLayout = GitGraphLayout(
         rows: [],
         laneCount: 0,
@@ -44,90 +47,99 @@ struct GitLogView: View {
         static let toolbarHeight: CGFloat = 38
     }
 
+    private enum GitToolTab {
+        case log
+        case console
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             toolWindowHeader
-            primaryActionBar
+            if selectedGitToolTab == .log {
+                primaryActionBar
 
-            GeometryReader { geometry in
-                let minimumReferencePaneWidth: CGFloat = 220
-                let minimumCommitPaneWidth: CGFloat = 340
-                let minimumDetailPaneWidth: CGFloat = 280
-                let availablePaneWidth = max(
-                    0,
-                    geometry.size.width - (SplitHandleView.thickness * 2)
-                )
-                let maximumDetailPaneWidth = max(
-                    minimumDetailPaneWidth,
-                    min(520, availablePaneWidth - minimumReferencePaneWidth - minimumCommitPaneWidth)
-                )
-                let resolvedDetailPaneWidth = constrained(
-                    detailPaneWidth,
-                    minimum: minimumDetailPaneWidth,
-                    maximum: maximumDetailPaneWidth
-                )
-                let maximumReferencePaneWidth = max(
-                    minimumReferencePaneWidth,
-                    min(480, availablePaneWidth - resolvedDetailPaneWidth - minimumCommitPaneWidth)
-                )
-                let resolvedReferencePaneWidth = constrained(
-                    referencePaneWidth,
-                    minimum: minimumReferencePaneWidth,
-                    maximum: maximumReferencePaneWidth
-                )
-
-                HStack(spacing: 0) {
-                    referencePane
-                        .frame(width: resolvedReferencePaneWidth)
-
-                    SplitHandleView(
-                        axis: .horizontal,
-                        onDragStarted: {
-                            referencePaneDragStart = resolvedReferencePaneWidth
-                        },
-                        onDragChanged: { translation in
-                            referencePaneWidth = constrained(
-                                referencePaneDragStart + translation,
-                                minimum: minimumReferencePaneWidth,
-                                maximum: maximumReferencePaneWidth
-                            )
-                        },
-                        onDragEnded: { translation in
-                            referencePaneWidth = constrained(
-                                referencePaneDragStart + translation,
-                                minimum: minimumReferencePaneWidth,
-                                maximum: maximumReferencePaneWidth
-                            )
-                        }
+                GeometryReader { geometry in
+                    let minimumReferencePaneWidth: CGFloat = 220
+                    let minimumCommitPaneWidth: CGFloat = 340
+                    let minimumDetailPaneWidth: CGFloat = 280
+                    let availablePaneWidth = max(
+                        0,
+                        geometry.size.width - (SplitHandleView.thickness * 2)
+                    )
+                    let maximumDetailPaneWidth = max(
+                        minimumDetailPaneWidth,
+                        min(520, availablePaneWidth - minimumReferencePaneWidth - minimumCommitPaneWidth)
+                    )
+                    let resolvedDetailPaneWidth = constrained(
+                        detailPaneWidth,
+                        minimum: minimumDetailPaneWidth,
+                        maximum: maximumDetailPaneWidth
+                    )
+                    let maximumReferencePaneWidth = max(
+                        minimumReferencePaneWidth,
+                        min(480, availablePaneWidth - resolvedDetailPaneWidth - minimumCommitPaneWidth)
+                    )
+                    let resolvedReferencePaneWidth = constrained(
+                        referencePaneWidth,
+                        minimum: minimumReferencePaneWidth,
+                        maximum: maximumReferencePaneWidth
                     )
 
-                    commitPane
-                        .frame(minWidth: minimumCommitPaneWidth, maxWidth: .infinity)
+                    HStack(spacing: 0) {
+                        referencePane
+                            .frame(width: resolvedReferencePaneWidth)
 
-                    SplitHandleView(
-                        axis: .horizontal,
-                        onDragStarted: {
-                            detailPaneDragStart = resolvedDetailPaneWidth
-                        },
-                        onDragChanged: { translation in
-                            detailPaneWidth = constrained(
-                                detailPaneDragStart - translation,
-                                minimum: minimumDetailPaneWidth,
-                                maximum: maximumDetailPaneWidth
-                            )
-                        },
-                        onDragEnded: { translation in
-                            detailPaneWidth = constrained(
-                                detailPaneDragStart - translation,
-                                minimum: minimumDetailPaneWidth,
-                                maximum: maximumDetailPaneWidth
-                            )
-                        }
-                    )
+                        SplitHandleView(
+                            axis: .horizontal,
+                            onDragStarted: {
+                                referencePaneDragStart = resolvedReferencePaneWidth
+                            },
+                            onDragChanged: { translation in
+                                referencePaneWidth = constrained(
+                                    referencePaneDragStart + translation,
+                                    minimum: minimumReferencePaneWidth,
+                                    maximum: maximumReferencePaneWidth
+                                )
+                            },
+                            onDragEnded: { translation in
+                                referencePaneWidth = constrained(
+                                    referencePaneDragStart + translation,
+                                    minimum: minimumReferencePaneWidth,
+                                    maximum: maximumReferencePaneWidth
+                                )
+                            }
+                        )
 
-                    detailPane
-                        .frame(width: resolvedDetailPaneWidth)
+                        commitPane
+                            .frame(minWidth: minimumCommitPaneWidth, maxWidth: .infinity)
+
+                        SplitHandleView(
+                            axis: .horizontal,
+                            onDragStarted: {
+                                detailPaneDragStart = resolvedDetailPaneWidth
+                            },
+                            onDragChanged: { translation in
+                                detailPaneWidth = constrained(
+                                    detailPaneDragStart - translation,
+                                    minimum: minimumDetailPaneWidth,
+                                    maximum: maximumDetailPaneWidth
+                                )
+                            },
+                            onDragEnded: { translation in
+                                detailPaneWidth = constrained(
+                                    detailPaneDragStart - translation,
+                                    minimum: minimumDetailPaneWidth,
+                                    maximum: maximumDetailPaneWidth
+                                )
+                            }
+                        )
+
+                        detailPane
+                            .frame(width: resolvedDetailPaneWidth)
+                    }
                 }
+            } else {
+                gitConsolePane
             }
         }
         .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.sidebar)
@@ -146,6 +158,10 @@ struct GitLogView: View {
                 return
             }
             await model.applyGitLogFilter(model.gitLogSearchQuery)
+        }
+        .onChange(of: model.gitConsoleEntries.last?.id) { _ in
+            guard model.gitConsoleEntries.last?.succeeded == false else { return }
+            selectedGitToolTab = .console
         }
         .sheet(item: $branchDialogRequest) { request in
             GitBranchNameDialog(request: request) { name, checkout in
@@ -255,7 +271,7 @@ struct GitLogView: View {
     }
 
     private var toolWindowHeader: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 4) {
             LitheIDEAIcon(
                 resourcePath: "toolwindows/toolWindowVcs.svg",
                 size: 14,
@@ -266,34 +282,16 @@ struct GitLogView: View {
             Text("Git")
                 .font(GitVisual.title)
                 .foregroundStyle(LitheTheme.primaryText)
+                .padding(.trailing, 4)
+
+            gitToolTabButton(
+                .log,
+                title: "Log: \(model.selectedGitReference?.shortName ?? model.currentBranch)"
+            )
+            gitToolTabButton(.console, title: "Console")
 
             Button {
-                Task { await model.selectGitReference(nil) }
-            } label: {
-                HStack(spacing: 6) {
-                    Text("Log: \(model.selectedGitReference?.shortName ?? model.currentBranch)")
-                        .font(GitVisual.title)
-                        .foregroundStyle(LitheTheme.primaryText)
-                        .lineLimit(1)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                }
-                .padding(.horizontal, 8)
-                .frame(height: 28)
-                .background(LitheTheme.inputBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 5))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 5)
-                        .stroke(LitheTheme.inputFocusBorder.opacity(0.72), lineWidth: 1)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .lithePointer()
-            .help("Show all references")
-
-            Button {
+                selectedGitToolTab = .log
                 Task { await model.selectGitReference(nil) }
             } label: {
                 Image(systemName: "plus")
@@ -336,6 +334,146 @@ struct GitLogView: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
         }
+    }
+
+    private func gitToolTabButton(_ tab: GitToolTab, title: LocalizedStringKey) -> some View {
+        let isSelected = selectedGitToolTab == tab
+        return Button {
+            selectedGitToolTab = tab
+        } label: {
+            Text(title)
+                .font(GitVisual.toolbar)
+                .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
+                .lineLimit(1)
+                .padding(.horizontal, 9)
+                .frame(height: 27)
+                .background(isSelected ? LitheTheme.subtleSelection : .clear)
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 5)
+                        .stroke(isSelected ? LitheTheme.inputFocusBorder.opacity(0.72) : .clear, lineWidth: 1)
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .lithePointer()
+    }
+
+    private var gitConsolePane: some View {
+        HStack(spacing: 0) {
+            VStack(spacing: 2) {
+                Button {
+                    gitConsoleAutoScrolls.toggle()
+                } label: {
+                    Image(systemName: gitConsoleAutoScrolls ? "arrow.down.to.line.compact" : "arrow.down.to.line")
+                }
+                .litheIconButton()
+                .foregroundStyle(gitConsoleAutoScrolls ? LitheTheme.accent : LitheTheme.secondaryText)
+                .help(gitConsoleAutoScrolls ? "Disable automatic scrolling" : "Scroll to new Git output")
+
+                Button(action: copyGitConsole) {
+                    Image(systemName: "doc.on.doc")
+                }
+                .litheIconButton()
+                .foregroundStyle(LitheTheme.secondaryText)
+                .disabled(model.gitConsoleEntries.isEmpty)
+                .help("Copy Git console")
+
+                Button(action: model.clearGitConsole) {
+                    Image(systemName: "trash")
+                }
+                .litheIconButton()
+                .foregroundStyle(LitheTheme.secondaryText)
+                .disabled(model.gitConsoleEntries.isEmpty)
+                .help("Clear Git console")
+
+                Spacer(minLength: 0)
+            }
+            .padding(.top, 6)
+            .frame(width: 34)
+            .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.toolHeader)
+
+            Rectangle()
+                .fill(LitheTheme.divider)
+                .frame(width: 1)
+
+            ScrollViewReader { proxy in
+                ScrollView([.horizontal, .vertical]) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        if model.gitConsoleEntries.isEmpty {
+                            Text("Git command output will appear here.")
+                                .font(GitVisual.monoMeta)
+                                .foregroundStyle(LitheTheme.secondaryText)
+                                .padding(.top, 8)
+                        } else {
+                            ForEach(model.gitConsoleEntries) { entry in
+                                gitConsoleEntry(entry)
+                                    .id(entry.id)
+                            }
+                        }
+
+                        Color.clear
+                            .frame(width: 1, height: 1)
+                            .id("git-console-bottom")
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+                .litheScrollViewChrome()
+                .onAppear {
+                    guard gitConsoleAutoScrolls else { return }
+                    proxy.scrollTo("git-console-bottom", anchor: .bottom)
+                }
+                .onChange(of: model.gitConsoleEntries.last?.id) { _ in
+                    guard gitConsoleAutoScrolls else { return }
+                    proxy.scrollTo("git-console-bottom", anchor: .bottom)
+                }
+            }
+        }
+        .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.editor)
+    }
+
+    private func gitConsoleEntry(_ entry: GitConsoleEntry) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 5) {
+                Text("\(gitConsoleTimestamp(entry.timestamp)):")
+                    .foregroundStyle(LitheTheme.accent)
+                Text("[\(entry.workingDirectory.path)]")
+                    .foregroundStyle(LitheTheme.accent)
+                Text(entry.commandLine)
+                    .foregroundStyle(LitheTheme.primaryText)
+            }
+            .fixedSize(horizontal: true, vertical: false)
+
+            if entry.output.isEmpty {
+                if !entry.succeeded {
+                    Text("Git exited with code \(entry.exitCode)")
+                        .foregroundStyle(LitheTheme.warning)
+                }
+            } else {
+                Text(entry.output.trimmingCharacters(in: .newlines))
+                    .foregroundStyle(entry.succeeded ? LitheTheme.primaryText : LitheTheme.warning)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+        }
+        .font(.system(size: 12.5, weight: .regular, design: .monospaced))
+        .textSelection(.enabled)
+        .padding(.vertical, 2)
+    }
+
+    private func gitConsoleTimestamp(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm:ss.SSS"
+        return formatter.string(from: date)
+    }
+
+    private func copyGitConsole() {
+        let text = model.gitConsoleEntries.map(\.copyText).joined(separator: "\n")
+        guard !text.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     private var primaryActionBar: some View {

@@ -11,6 +11,7 @@ struct RustGitOperations: GitOperations, Sendable {
 
     private func makeProcessResult(_ response: RustCoreBridge.GitCommandPayload) -> GitProcessResult {
         GitProcessResult(
+            arguments: response.arguments ?? [],
             output: response.output,
             exitCode: response.exitCode,
             stashRestoreConflict: response.stashRestore.map {

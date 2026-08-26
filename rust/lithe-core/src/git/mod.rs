@@ -77,6 +77,8 @@ pub struct GitCommandRequest {
 #[serde(rename_all = "camelCase")]
 /// Stable output returned by argument-based Git execution.
 pub struct GitCommandResponse {
+    /// Exact arguments passed to the Git executable, excluding the executable name.
+    pub arguments: Vec<String>,
     pub output: String,
     pub exit_code: i32,
     /// Present when a stash restore kept its entry because the working tree
@@ -95,10 +97,11 @@ struct GitProcessOutput {
 }
 
 impl GitProcessOutput {
-    fn into_command_response(self) -> GitCommandResponse {
+    fn into_command_response(self, arguments: &[String]) -> GitCommandResponse {
         let mut output = String::from_utf8_lossy(&self.stdout).to_string();
         output.push_str(&String::from_utf8_lossy(&self.stderr));
         GitCommandResponse {
+            arguments: arguments.to_vec(),
             output,
             exit_code: self.exit_code,
             stash_restore: None,
@@ -547,7 +550,7 @@ fn execute_git_with_options(
     disable_optional_locks: bool,
 ) -> Result<GitCommandResponse, CoreError> {
     capture_git_with_options(root, arguments, input, disable_optional_locks)
-        .map(GitProcessOutput::into_command_response)
+        .map(|output| output.into_command_response(arguments))
 }
 
 fn capture_git_with_options(
@@ -1734,6 +1737,7 @@ fn is_current_reference(root: &str, reference: &str) -> Result<bool, CoreError> 
 
 fn failed_git_result(message: impl Into<String>) -> GitCommandResponse {
     GitCommandResponse {
+        arguments: Vec::new(),
         output: message.into(),
         exit_code: 1,
         stash_restore: None,
@@ -1788,6 +1792,7 @@ fn discard_all(root: &str, paths: &[String]) -> Result<GitCommandResponse, CoreE
         return execute_git(root, &arguments, None);
     }
     Ok(GitCommandResponse {
+        arguments: Vec::new(),
         output: String::new(),
         exit_code: 0,
         stash_restore: None,
@@ -2893,6 +2898,21 @@ mod tests {
             .right
             .as_deref()
             .is_some_and(|line| line.contains("warning:"))));
+    }
+
+    #[test]
+    fn git_process_response_preserves_executed_arguments() {
+        let arguments = vec!["status".to_string(), "--short".to_string()];
+        let response = GitProcessOutput {
+            stdout: b" M README.md\n".to_vec(),
+            stderr: Vec::new(),
+            exit_code: 0,
+        }
+        .into_command_response(&arguments);
+
+        assert_eq!(response.arguments, arguments);
+        assert_eq!(response.output, " M README.md\n");
+        assert_eq!(response.exit_code, 0);
     }
 
     fn entries(texts: &[&str]) -> Vec<DiffEntry> {

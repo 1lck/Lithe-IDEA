@@ -216,8 +216,10 @@ standard error envelope.
 
 The core validates pathspecs, revisions, branch names, references, reset modes,
 stash references, and operation-specific required fields before invoking Git.
-Successful process launch returns `{ "output": string, "exitCode": number }`
-even when Git exits non-zero. Invalid arguments use the standard
+Successful process launch returns `{ "arguments": string[], "output": string,
+"exitCode": number }` even when Git exits non-zero. `arguments` is the exact
+argument vector passed to the Git executable, excluding the executable name.
+Invalid arguments use the standard
 `invalid_request` error envelope. `checkout` uses `referenceKind` values
 `local`, `remote`, or `tag`; `clone` uses `remote` as its source and
 `destination` as its target path. `publishBranch` validates `name`, creates
@@ -229,7 +231,7 @@ the user can fix credentials or connectivity and retry without losing commits.
 to select the active merge, rebase, cherry-pick, or revert instead of accepting
 an operation kind from the caller. Continue is rejected while conflicted paths
 remain, and skip is supported only for a rebase. All three return the normal
-`{ "output": string, "exitCode": number }` process result when Git is invoked;
+Git process result when Git is invoked;
 an absent or unsupported operation state uses the `invalid_request` envelope.
 
 `git.checkoutPreflight` accepts `{ "root": string, "reference": string }` and
@@ -277,8 +279,7 @@ clients group `rows` by `hunkID` instead.
 `unstage`, `discard`, `restoreIndex`, `worktree`, `restoreIndexCheck`, and
 `worktreeCheck`. The two `*Check` modes only test whether the reverse patch
 already applies, so Shelf restoration can be retried after a partial failure.
-It returns
-`{ "output": string, "exitCode": number }`. `restoreIndex` applies a saved
+It returns the normal Git process result. `restoreIndex` applies a saved
 index patch to both the index and worktree; `worktree` applies only to the
 worktree. Pathspecs must be workspace-relative and must not contain absolute
 paths or `..` components.

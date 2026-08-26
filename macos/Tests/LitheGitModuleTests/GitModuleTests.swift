@@ -127,6 +127,50 @@ struct GitModuleTests {
     }
 
     @Test
+    func gitConsoleCommandFormatterQuotesArgumentsAndRedactsURLCredentials() {
+        let commandLine = GitConsoleCommandFormatter.commandLine(arguments: [
+            "push",
+            "feature branch",
+            "John's change\nnext line",
+            "https://alice:secret@example.com/org/repository.git",
+            ""
+        ])
+
+        #expect(commandLine.hasPrefix("git push 'feature branch'"))
+        #expect(commandLine.contains(#"'John'\''s change\nnext line'"#))
+        #expect(commandLine.contains("redacted"))
+        #expect(!commandLine.contains("alice"))
+        #expect(!commandLine.contains("secret"))
+        #expect(commandLine.hasSuffix(" ''"))
+    }
+
+    @Test
+    func gitServicePreservesExecutedArgumentsAndWorkingDirectory() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let change = GitChange(
+            repositoryRoot: root,
+            path: "README.md",
+            originalPath: nil,
+            indexStatus: " ",
+            workTreeStatus: "M"
+        )
+        let service = GitService(operations: TestGitOperations(
+            stageResult: GitProcessResult(
+                arguments: ["add", "--", "README.md"],
+                output: "staged",
+                exitCode: 0
+            )
+        ))
+
+        let result = await service.stage(change)
+
+        #expect(result.workingDirectory == root)
+        #expect(result.arguments == ["add", "--", "README.md"])
+        #expect(result.output == "staged")
+        #expect(result.succeeded)
+    }
+
+    @Test
     func workingTreeComparisonMergesTrackedAndUntrackedFiles() async {
         let root = URL(fileURLWithPath: "/workspace")
         let reference = GitReference(
@@ -357,17 +401,20 @@ private struct TestGitOperations: GitOperations {
     private let comparisonValue: GitBranchComparison?
     private let untrackedDiffDocumentValue: DiffDocument?
     private let comparisonDiffDocumentValue: DiffDocument?
+    private let stageResult: GitProcessResult?
 
     init(
         snapshotValue: GitSnapshot? = nil,
         comparisonValue: GitBranchComparison? = nil,
         untrackedDiffDocumentValue: DiffDocument? = nil,
-        comparisonDiffDocumentValue: DiffDocument? = nil
+        comparisonDiffDocumentValue: DiffDocument? = nil,
+        stageResult: GitProcessResult? = nil
     ) {
         self.snapshotValue = snapshotValue
         self.comparisonValue = comparisonValue
         self.untrackedDiffDocumentValue = untrackedDiffDocumentValue
         self.comparisonDiffDocumentValue = comparisonDiffDocumentValue
+        self.stageResult = stageResult
     }
 
     func snapshot(at rootURL: URL) -> GitSnapshot? { snapshotValue }
@@ -385,7 +432,7 @@ private struct TestGitOperations: GitOperations {
     func comparison(for reference: GitReference, at rootURL: URL) -> GitBranchComparison? { comparisonValue }
     func stashes(at rootURL: URL) -> [GitStash]? { nil }
     func blame(at rootURL: URL, relativePath: String) -> [GitBlameLine]? { nil }
-    func stage(_ change: GitChange) -> GitProcessResult? { nil }
+    func stage(_ change: GitChange) -> GitProcessResult? { stageResult }
     func unstage(_ change: GitChange) -> GitProcessResult? { nil }
     func discard(_ change: GitChange) -> GitProcessResult? { nil }
     func discardAll(_ change: GitChange) -> GitProcessResult? { nil }

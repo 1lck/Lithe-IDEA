@@ -109,15 +109,21 @@ package struct GitService: Sendable {
     }
 
     package struct CommandResult: Sendable {
+        package let workingDirectory: URL?
+        package let arguments: [String]
         package let output: String
         package let exitCode: Int32
         package let stashRestoreConflict: GitStashRestoreConflict?
 
         package init(
+            workingDirectory: URL? = nil,
+            arguments: [String] = [],
             output: String,
             exitCode: Int32,
             stashRestoreConflict: GitStashRestoreConflict? = nil
         ) {
+            self.workingDirectory = workingDirectory
+            self.arguments = arguments
             self.output = output
             self.exitCode = exitCode
             self.stashRestoreConflict = stashRestoreConflict
@@ -203,7 +209,7 @@ package struct GitService: Sendable {
     /// Shelve uses `restoreIndex` to restore the index and worktree together,
     /// then `worktree` for the unstaged part.
     func applyPatch(_ patch: String, at repositoryRoot: URL, mode: String) async -> CommandResult {
-        await command { $0.applyPatch(patch, at: repositoryRoot, mode: mode) }
+        await command(at: repositoryRoot) { $0.applyPatch(patch, at: repositoryRoot, mode: mode) }
     }
 
     /// A failed restore can leave one half of a Shelf already applied. Check
@@ -236,49 +242,49 @@ package struct GitService: Sendable {
     }
 
     func stage(_ change: GitChange) async -> CommandResult {
-        await command { $0.stage(change) }
+        await command(at: change.repositoryRoot) { $0.stage(change) }
     }
 
     func unstage(_ change: GitChange) async -> CommandResult {
-        await command { $0.unstage(change) }
+        await command(at: change.repositoryRoot) { $0.unstage(change) }
     }
 
     func discard(_ change: GitChange) async -> CommandResult {
-        return await command { $0.discard(change) }
+        return await command(at: change.repositoryRoot) { $0.discard(change) }
     }
 
     func discardAll(_ change: GitChange) async -> CommandResult {
-        await command { $0.discardAll(change) }
+        await command(at: change.repositoryRoot) { $0.discardAll(change) }
     }
 
     func stage(hunk: DiffHunk, of change: GitChange) async -> CommandResult {
-        await command {
+        await command(at: change.repositoryRoot, fallbackArguments: ["apply", "--cached", "-"]) {
             $0.applyPatch(hunk.patch, at: change.repositoryRoot, mode: "stage")
         }
     }
 
     func unstage(hunk: DiffHunk, of change: GitChange) async -> CommandResult {
-        await command {
+        await command(at: change.repositoryRoot, fallbackArguments: ["apply", "--cached", "--reverse", "-"]) {
             $0.applyPatch(hunk.patch, at: change.repositoryRoot, mode: "unstage")
         }
     }
 
     func discard(hunk: DiffHunk, of change: GitChange) async -> CommandResult {
-        await command {
+        await command(at: change.repositoryRoot, fallbackArguments: ["apply", "--reverse", "-"]) {
             $0.applyPatch(hunk.patch, at: change.repositoryRoot, mode: "discard")
         }
     }
 
     func commit(at repositoryRoot: URL, message: String, amend: Bool = false) async -> CommandResult {
-        await command { $0.commit(at: repositoryRoot, message: message, amend: amend) }
+        await command(at: repositoryRoot) { $0.commit(at: repositoryRoot, message: message, amend: amend) }
     }
 
     func cherryPick(_ hash: String, at repositoryRoot: URL) async -> CommandResult {
-        await command { $0.cherryPick(hash, at: repositoryRoot) }
+        await command(at: repositoryRoot) { $0.cherryPick(hash, at: repositoryRoot) }
     }
 
     func revert(_ hash: String, at repositoryRoot: URL) async -> CommandResult {
-        await command { $0.revert(hash, at: repositoryRoot) }
+        await command(at: repositoryRoot) { $0.revert(hash, at: repositoryRoot) }
     }
 
     func resetCurrentBranch(
@@ -286,7 +292,7 @@ package struct GitService: Sendable {
         at repositoryRoot: URL,
         mode: String = "--mixed"
     ) async -> CommandResult {
-        await command { $0.resetCurrentBranch(to: hash, mode: mode, at: repositoryRoot) }
+        await command(at: repositoryRoot) { $0.resetCurrentBranch(to: hash, mode: mode, at: repositoryRoot) }
     }
 
     func history(
@@ -446,7 +452,9 @@ package struct GitService: Sendable {
         checkout: Bool,
         at repositoryRoot: URL
     ) async -> CommandResult {
-        await command { $0.createBranch(named: name, from: reference, checkout: checkout, at: repositoryRoot) }
+        await command(at: repositoryRoot) {
+            $0.createBranch(named: name, from: reference, checkout: checkout, at: repositoryRoot)
+        }
     }
 
     func renameBranch(
@@ -454,26 +462,26 @@ package struct GitService: Sendable {
         to newName: String,
         at repositoryRoot: URL
     ) async -> CommandResult {
-        await command { $0.renameBranch(reference, to: newName, at: repositoryRoot) }
+        await command(at: repositoryRoot) { $0.renameBranch(reference, to: newName, at: repositoryRoot) }
     }
 
     func deleteBranch(_ reference: GitReference, at repositoryRoot: URL) async -> CommandResult {
-        await command { $0.deleteBranch(reference, at: repositoryRoot) }
+        await command(at: repositoryRoot) { $0.deleteBranch(reference, at: repositoryRoot) }
     }
 
     func mergeBranch(_ reference: GitReference, at repositoryRoot: URL) async -> CommandResult {
-        await command { $0.mergeBranch(reference, at: repositoryRoot) }
+        await command(at: repositoryRoot) { $0.mergeBranch(reference, at: repositoryRoot) }
     }
 
     func rebaseCurrentBranch(onto reference: GitReference, at repositoryRoot: URL) async -> CommandResult {
-        await command { $0.rebaseCurrentBranch(onto: reference, at: repositoryRoot) }
+        await command(at: repositoryRoot) { $0.rebaseCurrentBranch(onto: reference, at: repositoryRoot) }
     }
 
     func updateCurrentBranch(
         at repositoryRoot: URL,
         strategy: GitPullStrategy = .ffOnly
     ) async -> CommandResult {
-        await command { $0.updateCurrentBranch(at: repositoryRoot, strategy: strategy) }
+        await command(at: repositoryRoot) { $0.updateCurrentBranch(at: repositoryRoot, strategy: strategy) }
     }
 
     func pullPreflight(at repositoryRoot: URL) async -> GitPullPreflightState? {
@@ -495,7 +503,7 @@ package struct GitService: Sendable {
     }
 
     func fetch(at repositoryRoot: URL) async -> CommandResult {
-        await command { $0.fetch(at: repositoryRoot) }
+        await command(at: repositoryRoot) { $0.fetch(at: repositoryRoot) }
     }
 
     func checkout(
@@ -504,7 +512,7 @@ package struct GitService: Sendable {
         force: Bool = false,
         autoStash: Bool = false
     ) async -> CommandResult {
-        await command {
+        await command(at: repositoryRoot) {
             $0.checkout(reference, at: repositoryRoot, force: force, autoStash: autoStash)
         }
     }
@@ -521,27 +529,29 @@ package struct GitService: Sendable {
     }
 
     func continueOperation(at repositoryRoot: URL) async -> CommandResult {
-        await command { $0.continueOperation(at: repositoryRoot) }
+        await command(at: repositoryRoot) { $0.continueOperation(at: repositoryRoot) }
     }
 
     func abortOperation(at repositoryRoot: URL) async -> CommandResult {
-        await command { $0.abortOperation(at: repositoryRoot) }
+        await command(at: repositoryRoot) { $0.abortOperation(at: repositoryRoot) }
     }
 
     func skipOperationStep(at repositoryRoot: URL) async -> CommandResult {
-        await command { $0.skipOperationStep(at: repositoryRoot) }
+        await command(at: repositoryRoot) { $0.skipOperationStep(at: repositoryRoot) }
     }
 
     func checkoutRevision(_ revision: String, at repositoryRoot: URL) async -> CommandResult {
-        await command { $0.checkoutRevision(revision, at: repositoryRoot) }
+        await command(at: repositoryRoot) { $0.checkoutRevision(revision, at: repositoryRoot) }
     }
 
     func push(_ reference: GitReference, at repositoryRoot: URL) async -> CommandResult {
-        await command { $0.push(reference, at: repositoryRoot) }
+        await command(at: repositoryRoot) { $0.push(reference, at: repositoryRoot) }
     }
 
     func cloneRepository(from remote: String, to destination: URL) async -> CommandResult {
-        await command { $0.cloneRepository(from: remote, to: destination) }
+        await command(at: destination.deletingLastPathComponent()) {
+            $0.cloneRepository(from: remote, to: destination)
+        }
     }
 
     func stashes(at repositoryRoot: URL) async -> [GitStash] {
@@ -553,34 +563,40 @@ package struct GitService: Sendable {
         includeUntracked: Bool,
         at repositoryRoot: URL
     ) async -> CommandResult {
-        await command {
+        await command(at: repositoryRoot) {
             $0.stash(message: message, includeUntracked: includeUntracked, at: repositoryRoot)
         }
     }
 
     func applyStash(_ stash: GitStash, at repositoryRoot: URL) async -> CommandResult {
-        await command { $0.applyStash(stash, at: repositoryRoot) }
+        await command(at: repositoryRoot) { $0.applyStash(stash, at: repositoryRoot) }
     }
 
     func popStash(_ stash: GitStash, at repositoryRoot: URL) async -> CommandResult {
-        await command { $0.popStash(stash, at: repositoryRoot) }
+        await command(at: repositoryRoot) { $0.popStash(stash, at: repositoryRoot) }
     }
 
     func dropStash(_ stash: GitStash, at repositoryRoot: URL) async -> CommandResult {
-        await command { $0.dropStash(stash, at: repositoryRoot) }
+        await command(at: repositoryRoot) { $0.dropStash(stash, at: repositoryRoot) }
     }
 
     func stageAll(at repositoryRoot: URL) async -> CommandResult {
-        await command { $0.stageAll(at: repositoryRoot) }
+        await command(at: repositoryRoot) { $0.stageAll(at: repositoryRoot) }
     }
 
     private func command(
+        at workingDirectory: URL? = nil,
+        fallbackArguments: [String] = [],
         _ operation: @escaping @Sendable (any GitOperations) -> GitProcessResult?
     ) async -> CommandResult {
         let operations = self.operations
         return await Task.detached(priority: .userInitiated) {
             let result = operation(operations)
             return CommandResult(
+                workingDirectory: workingDirectory,
+                arguments: result?.arguments.isEmpty == false
+                    ? result?.arguments ?? fallbackArguments
+                    : fallbackArguments,
                 output: result?.output ?? "Rust Core Git operation failed",
                 exitCode: result?.exitCode ?? 1,
                 stashRestoreConflict: result?.stashRestoreConflict

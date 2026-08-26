@@ -787,6 +787,7 @@ struct RustCoreBridge: Sendable {
             let conflictedPaths: [String]
         }
 
+        let arguments: [String]?
         let output: String
         let exitCode: Int32
         let stashRestore: StashRestore?
