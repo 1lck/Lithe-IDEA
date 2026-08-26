@@ -32,6 +32,43 @@ struct WorkbenchNotificationTests {
         #expect(model.notifications.isEmpty)
         #expect(model.notificationMessage == nil)
     }
+
+    @Test
+    func disabledYAMLLanguageServerDoesNotShowAStartupError() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-disabled-yaml-lsp-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = WorkbenchNotificationTestStore()
+        let settings = AppSettings(store: store)
+        let services = MacServiceContainer(
+            store: store,
+            settings: settings,
+            moduleLaunchMode: .safeMode
+        ).services
+        let model = AppModel(settings: settings, services: services)
+        model.openProjectDirectly(root)
+        model.clearNotifications()
+
+        let document = EditorDocument(
+            url: root.appendingPathComponent("config.yaml"),
+            text: "enabled: true\n",
+            modificationDate: nil
+        )
+
+        #expect(!model.activateLanguageServerIfAvailable(for: document))
+
+        // A regression used to enqueue activation and report moduleDisabled on
+        // the next task turn, so yield before checking the notification queue.
+        for _ in 0..<5 {
+            await Task.yield()
+        }
+        #expect(!model.notifications.contains {
+            $0.message.contains("Could not start YAML language server")
+        })
+    }
+
 }
 
 private final class WorkbenchNotificationTestStore: KeyValueStore, @unchecked Sendable {

@@ -78,6 +78,7 @@ done
 required_resources=(
     "$app_path/Contents/Info.plist"
     "$app_path/Contents/Resources/Lithe_Lithe.bundle"
+    "$app_path/Contents/Resources/SwiftTerm_SwiftTerm.bundle/Shaders.metal"
     "$app_path/Contents/Resources/LanguageServers/jdtls/bin/jdtls"
     "$app_path/Contents/Resources/LanguageServers/jdk/bin/java"
     "$app_path/Contents/Resources/LanguageServers/jdk/lib"

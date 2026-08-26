@@ -11,6 +11,12 @@ public struct BundledLanguagePluginSpecification: Sendable {
     public let languageIdentifier: String
     public let supportsExecution: Bool
 
+    /// A language-server module is only real when the host has at least one
+    /// executable candidate it can launch through the generic LSP runtime.
+    public var supportsLanguageServer: Bool {
+        !executableNames.isEmpty
+    }
+
     public init(
         id: String,
         displayName: String,
@@ -34,8 +40,9 @@ public struct BundledLanguagePluginSpecification: Sendable {
     }
 }
 
-/// Non-Java language providers are independently manageable bundled plugins.
-/// Go remains an official native package and is therefore not duplicated here.
+/// Describes bundled non-Java language recognition and the process-backed
+/// features that are independently manageable as plugins. Go remains an
+/// official native package and is therefore not duplicated here.
 public enum BundledLanguagePluginCatalog {
     public static let specifications: [BundledLanguagePluginSpecification] = [
         .init(id: "python", displayName: "Python", fileExtensions: ["py", "pyw"], executableNames: ["basedpyright-langserver", "pyright-langserver"], arguments: ["--stdio"], supportsExecution: true),
@@ -84,14 +91,24 @@ public enum BundledLanguagePluginCatalog {
         .init(id: "solidity", displayName: "Solidity", fileExtensions: ["sol"])
     ]
 
-    public static let manifests: [PluginManifest] = specifications.map(makeManifest).sorted { $0.id < $1.id }
+    public static let languageSupports: [LanguageSupportDeclaration] = specifications
+        .map(makeLanguageSupport)
+        .sorted { $0.id < $1.id }
+
+    public static let manifests: [PluginManifest] = specifications
+        .filter { $0.supportsLanguageServer || $0.supportsExecution }
+        .map(makeManifest)
+        .sorted { $0.id < $1.id }
 
     public static func specification(languageID: String) -> BundledLanguagePluginSpecification? {
         specifications.first { $0.id == languageID }
     }
 
     private static func makeManifest(_ specification: BundledLanguagePluginSpecification) -> PluginManifest {
-        var modules = [PluginModuleDeclaration(manifest: languageServerManifest(specification))]
+        var modules: [PluginModuleDeclaration] = []
+        if specification.supportsLanguageServer {
+            modules.append(PluginModuleDeclaration(manifest: languageServerManifest(specification)))
+        }
         if specification.supportsExecution {
             modules.append(PluginModuleDeclaration(manifest: executionManifest(specification)))
         }
@@ -106,15 +123,27 @@ public enum BundledLanguagePluginCatalog {
             vendor: BuiltInPluginCatalog.vendor,
             entrypoint: .builtIn(targetName: "LitheLanguageSupportModules"),
             modules: modules,
-            languageSupports: [LanguageSupportDeclaration(
-                id: specification.id,
-                displayName: specification.displayName,
-                fileExtensions: specification.fileExtensions,
-                fileNames: specification.fileNames,
-                languageServerModuleID: .languageServerExtension(specification.id),
-                executionModuleID: specification.supportsExecution ? .languageExecutionExtension(specification.id) : nil,
-                testingModuleID: specification.supportsExecution ? .languageExecutionExtension(specification.id) : nil
-            )]
+            languageSupports: [makeLanguageSupport(specification)]
+        )
+    }
+
+    private static func makeLanguageSupport(
+        _ specification: BundledLanguagePluginSpecification
+    ) -> LanguageSupportDeclaration {
+        LanguageSupportDeclaration(
+            id: specification.id,
+            displayName: specification.displayName,
+            fileExtensions: specification.fileExtensions,
+            fileNames: specification.fileNames,
+            languageServerModuleID: specification.supportsLanguageServer
+                ? .languageServerExtension(specification.id)
+                : nil,
+            executionModuleID: specification.supportsExecution
+                ? .languageExecutionExtension(specification.id)
+                : nil,
+            testingModuleID: specification.supportsExecution
+                ? .languageExecutionExtension(specification.id)
+                : nil
         )
     }
 

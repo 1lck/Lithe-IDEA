@@ -87,15 +87,20 @@ else
     cp "$arch_binary" "$APP_DIR/Contents/MacOS/Lithe"
 fi
 if [[ "$ARCH" == "universal" ]]; then
-    resource_bundle="$ROOT_DIR/.build/$ARM64_TRIPLE/release/Lithe_Lithe.bundle"
+    swiftpm_resource_root="$ROOT_DIR/.build/$ARM64_TRIPLE/release"
 else
-    resource_bundle="$ROOT_DIR/.build/$ARCH-apple-macosx/release/Lithe_Lithe.bundle"
+    swiftpm_resource_root="$ROOT_DIR/.build/$ARCH-apple-macosx/release"
 fi
-if [[ ! -d "$resource_bundle" ]]; then
-    print -u2 -- "Missing SwiftPM resource bundle: $resource_bundle"
-    exit 1
-fi
-cp -R "$resource_bundle" "$APP_DIR/Contents/Resources/Lithe_Lithe.bundle"
+# SwiftTerm compiles its Metal shaders from this SwiftPM bundle at runtime.
+# Without it, setUseMetal(true) falls back to Core Graphics in packaged apps.
+for bundle_name in Lithe_Lithe.bundle SwiftTerm_SwiftTerm.bundle; do
+    resource_bundle="$swiftpm_resource_root/$bundle_name"
+    if [[ ! -d "$resource_bundle" ]]; then
+        print -u2 -- "Missing SwiftPM resource bundle: $resource_bundle"
+        exit 1
+    fi
+    cp -R "$resource_bundle" "$APP_DIR/Contents/Resources/$bundle_name"
+done
 mkdir -p "$APP_DIR/Contents/Resources/LanguageServers"
 cp -R "$JDTLS_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdtls"
 cp -R "$JDK_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdk"
