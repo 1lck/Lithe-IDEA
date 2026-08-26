@@ -35,7 +35,7 @@ An OAuth client secret, personal access token, and GitHub password are never
 requested from the user. Tokens are never placed in Rust requests, logs,
 fixtures, user defaults, or error details.
 
-The macOS product reads `LitheGitHubOAuthClientID` from `Resources/Info.plist`.
+The macOS product reads `LitheGitHubOAuthClientID` from `macos/Resources/Info.plist`.
 The checked-in public client ID identifies Lithe's product-owned GitHub OAuth
 App for every installation. It is not a credential or secret. Development runs
 may override it with `LITHE_GITHUB_CLIENT_ID`; an empty configuration leaves

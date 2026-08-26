@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./Resources/AppIcon.png" width="112" alt="Lithe app icon">
+  <img src="./macos/Resources/AppIcon.png" width="112" alt="Lithe app icon">
 
   <h1>Lithe</h1>
 

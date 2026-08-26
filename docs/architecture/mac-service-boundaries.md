@@ -32,13 +32,13 @@ implementations.
 
 | Directory | Responsibility |
 | --- | --- |
-| `Sources/Lithe/Views/` | SwiftUI/AppKit presentation, input, navigation destinations, and view-local rendering. |
-| `Sources/Lithe/Models/` | UI-facing models and value types. `AppModel` is the observable aggregate, not the platform composition root. |
-| `Sources/Lithe/Application/` | Workspace, Document, Git, Search, Java, Terminal, Project History, and UI Feature Models. These coordinate state and user actions. |
-| `Sources/Lithe/Services/` | Product workflow orchestration. Language feature routing plus Maven/Run/Debug lifecycles remain Swift workflows; the LSP service is a semantic facade over the Rust runtime. |
-| `Sources/Lithe/Core/Ports/` | Platform-neutral interfaces for process, terminal, storage, runtime discovery, file operations, watchers, and native UI capabilities. |
-| `Sources/Lithe/Core/Rust/` | Typed operations and model conversion for the shared Rust JSON contract. |
-| `Sources/Lithe/Platform/MacOS/` | FSEvents, file operations, persistence, process sessions, PTY, runtime discovery, native UI, shortcuts, and updates. |
+| `macos/Sources/Lithe/Views/` | SwiftUI/AppKit presentation, input, navigation destinations, and view-local rendering. |
+| `macos/Sources/Lithe/Models/` | UI-facing models and value types. `AppModel` is the observable aggregate, not the platform composition root. |
+| `macos/Sources/Lithe/Application/` | Workspace, Document, Git, Search, Java, Terminal, Project History, and UI Feature Models. These coordinate state and user actions. |
+| `macos/Sources/Lithe/Services/` | Product workflow orchestration. Language feature routing plus Maven/Run/Debug lifecycles remain Swift workflows; the LSP service is a semantic facade over the Rust runtime. |
+| `macos/Sources/Lithe/Core/Ports/` | Platform-neutral interfaces for process, terminal, storage, runtime discovery, file operations, watchers, and native UI capabilities. |
+| `macos/Sources/Lithe/Core/Rust/` | Typed operations and model conversion for the shared Rust JSON contract. |
+| `macos/Sources/Lithe/Platform/MacOS/` | FSEvents, file operations, persistence, process sessions, PTY, runtime discovery, native UI, shortcuts, and updates. |
 | `rust/lithe-core/` | Shared commands, validation, parsing, ordering, Git operations, history, and JSON/C ABI. |
 
 ## Rules

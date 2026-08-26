@@ -11,14 +11,16 @@ ui_service_pattern='\b(MavenService|JavaRunService|JavaDebugService|ProjectRunti
 composition_pattern='\bMac[A-Z][A-Za-z]+\b'
 application_ui_pattern='import AppKit|\b(NSOpenPanel|NSWorkspace|NSPasteboard|NSEvent)\b'
 appmodel_business_pattern='Task\.detached|LocalHistoryService|WorkspaceTextFilePolicy|DirectoryChangeSource|fileOperations\.(fileExists|isDirectory|createFile|createDirectory|copyItem|moveItem|removeItem|trashItem|writeText)|mavenFeature\.loadProject|runFeature\.loadProject|configuration\.kind|debugFeature\.(startMaven|toggleBreakpoint|attachRemote)'
+model_platform_pattern='\b(FileManager|UserDefaults|NSWorkspace|NSApp)\b|(^|[^A-Za-z])Process\(|(^|[^A-Za-z])Pipe\(|FileHandle'
 
-core_violations=$(rg -n "$core_pattern" Sources/Lithe/Core || true)
-service_violations=$(rg -n "$service_pattern" Sources/Lithe/Services || true)
-ui_violations=$(rg -n "$ui_service_pattern" Sources/Lithe/Views || true)
-appmodel_path=Sources/Lithe/Models/AppModel/AppModel.swift
+core_violations=$(rg -n "$core_pattern" macos/Sources/Lithe/Core || true)
+service_violations=$(rg -n "$service_pattern" macos/Sources/Lithe/Services || true)
+ui_violations=$(rg -n "$ui_service_pattern" macos/Sources/Lithe/Views || true)
+appmodel_path=macos/Sources/Lithe/Models/AppModel/AppModel.swift
 composition_violations=$(rg -n "$composition_pattern" "$appmodel_path" || true)
 application_ui_violations=$(rg -n "$application_ui_pattern" "$appmodel_path" || true)
 appmodel_business_violations=$(rg -n "$appmodel_business_pattern" "$appmodel_path" || true)
+model_platform_violations=$(rg -n "$model_platform_pattern" macos/Sources/Lithe/Models || true)
 appmodel_line_count=$(wc -l < "$appmodel_path" | tr -d ' ')
 
 if [[ -n "$core_violations" ]]; then
@@ -54,6 +56,12 @@ fi
 if [[ -n "$appmodel_business_violations" ]]; then
     print -u2 "AppModel business ownership violations:"
     print -u2 "$appmodel_business_violations"
+    exit 1
+fi
+
+if [[ -n "$model_platform_violations" ]]; then
+    print -u2 "Model platform boundary violations:"
+    print -u2 "$model_platform_violations"
     exit 1
 fi
 

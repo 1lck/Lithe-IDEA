@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="${0:A:h:h}"
-INFO_PLIST="$ROOT_DIR/Resources/Info.plist"
+INFO_PLIST="$ROOT_DIR/macos/Resources/Info.plist"
 DEFAULT_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INFO_PLIST")
 VERSION="${LITHE_VERSION:-$DEFAULT_VERSION}"
 ARCH="${LITHE_ARCH:-universal}"
