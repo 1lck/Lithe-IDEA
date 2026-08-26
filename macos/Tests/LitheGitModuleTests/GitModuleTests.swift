@@ -127,6 +127,37 @@ struct GitModuleTests {
     }
 
     @Test
+    func gitLogQueryMatchesInclusiveAfterAndExclusiveBeforeDates() {
+        let insideRange = GitCommit(
+            hash: "1111111111111111",
+            shortHash: "1111111",
+            parentHashes: [],
+            authorName: "Ada Lovelace",
+            authorEmail: "ada@example.com",
+            date: "2026-08-16T09:30:00+08:00",
+            subject: "Inside range",
+            decorations: ""
+        )
+        let atExclusiveEnd = GitCommit(
+            hash: "2222222222222222",
+            shortHash: "2222222",
+            parentHashes: [],
+            authorName: "Ada Lovelace",
+            authorEmail: "ada@example.com",
+            date: "2026-08-18T00:00:00+08:00",
+            subject: "Outside range",
+            decorations: ""
+        )
+        let query = GitLogQuery.parse("after:2026-08-16 before:2026-08-18")
+
+        #expect(!query.isEmpty)
+        #expect(query.afterDate != nil)
+        #expect(query.beforeDate != nil)
+        #expect(query.matchesMetadata(insideRange, identity: nil))
+        #expect(!query.matchesMetadata(atExclusiveEnd, identity: nil))
+    }
+
+    @Test
     func workingTreeComparisonMergesTrackedAndUntrackedFiles() async {
         let root = URL(fileURLWithPath: "/workspace")
         let reference = GitReference(

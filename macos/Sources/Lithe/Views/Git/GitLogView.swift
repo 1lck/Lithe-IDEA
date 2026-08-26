@@ -21,6 +21,11 @@ struct GitLogView: View {
     @State private var pendingBranchOperation: GitBranchOperationRequest?
     @State private var comparisonSourceReference: GitReference?
     @State private var showCommitDecorations = true
+    @State private var selectedGitLogAuthor: GitLogAuthorSelection?
+    @State private var selectedGitLogDatePreset = GitLogDatePreset.anyTime
+    @State private var gitLogPathFilter = ""
+    @State private var gitLogPathDraft = ""
+    @State private var showsGitLogPathPopover = false
     @State private var graphLayout = GitGraphLayout(
         rows: [],
         laneCount: 0,
@@ -145,7 +150,13 @@ struct GitLogView: View {
             } catch {
                 return
             }
-            await model.applyGitLogFilter(model.gitLogSearchQuery)
+            await model.applyGitLogFilter(gitLogCombinedQuery)
+        }
+        .onChange(of: model.gitRepositoryRoot) { _ in
+            selectedGitLogAuthor = nil
+            selectedGitLogDatePreset = .anyTime
+            gitLogPathFilter = ""
+            gitLogPathDraft = ""
         }
         .sheet(item: $branchDialogRequest) { request in
             GitBranchNameDialog(request: request) { name, checkout in
@@ -682,11 +693,7 @@ struct GitLogView: View {
                         .stroke(LitheTheme.inputBorder, lineWidth: 1)
                 }
 
-                Text("Branch: \(model.selectedGitReference?.shortName ?? "All")")
-                    .font(GitVisual.toolbar)
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .lineLimit(1)
-                    .padding(.leading, 2)
+                gitLogFilterBar
 
                 Spacer()
 
@@ -946,14 +953,254 @@ struct GitLogView: View {
     }
 
     private var visibleCommitHashes: Set<String>? {
-        let query = model.gitLogSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = gitLogCombinedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return nil }
         return model.gitLogMatchedCommitHashes
     }
 
     private var gitLogFilterTaskIdentity: String {
         let commits = model.gitCommits.map(\.hash).joined(separator: ",")
-        return "\(model.gitLogSearchQuery)|\(commits)"
+        return "\(gitLogCombinedQuery)|\(commits)"
+    }
+
+    private var gitLogCombinedQuery: String {
+        var terms: [String] = []
+        let textQuery = model.gitLogSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !textQuery.isEmpty { terms.append(textQuery) }
+        if let selectedGitLogAuthor { terms.append(selectedGitLogAuthor.queryToken) }
+        terms.append(contentsOf: selectedGitLogDatePreset.queryTokens(now: Date()))
+        let path = gitLogPathFilter.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !path.isEmpty { terms.append("path:\(quotedGitLogFilterValue(path))") }
+        return terms.joined(separator: " ")
+    }
+
+    private var gitLogAuthorOptions: [GitLogAuthorOption] {
+        var authorsByID: [String: GitLogAuthorOption] = [:]
+        for commit in model.gitCommits {
+            let id = "\(commit.authorName.lowercased())|\(commit.authorEmail.lowercased())"
+            authorsByID[id] = GitLogAuthorOption(
+                id: id,
+                name: commit.authorName,
+                email: commit.authorEmail
+            )
+        }
+        return authorsByID.values.sorted {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+    }
+
+    private var gitLogFilterBar: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 2) {
+                Menu {
+                    Button {
+                        Task { await model.selectGitReference(nil) }
+                    } label: {
+                        gitLogMenuItem("All Branches", selected: model.selectedGitReference == nil)
+                    }
+                    Divider()
+                    ForEach(model.gitReferences) { reference in
+                        Button {
+                            Task { await model.selectGitReference(reference) }
+                        } label: {
+                            gitLogMenuItem(
+                                reference.shortName,
+                                selected: model.selectedGitReference?.id == reference.id,
+                                systemImage: referenceIcon(reference)
+                            )
+                        }
+                    }
+                } label: {
+                    gitLogFilterLabel(
+                        title: "Branch",
+                        selection: model.selectedGitReference?.shortName
+                    )
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .lithePointer()
+
+                if model.selectedGitReference != nil {
+                    gitLogFilterClearButton(help: "Clear branch filter") {
+                        Task { await model.selectGitReference(nil) }
+                    }
+                }
+            }
+
+            HStack(spacing: 2) {
+                Menu {
+                    Button {
+                        selectedGitLogAuthor = nil
+                    } label: {
+                        gitLogMenuItem("All Users", selected: selectedGitLogAuthor == nil)
+                    }
+                    Button {
+                        selectedGitLogAuthor = .currentUser
+                    } label: {
+                        gitLogMenuItem("Me", selected: selectedGitLogAuthor == .currentUser)
+                    }
+                    if !gitLogAuthorOptions.isEmpty { Divider() }
+                    ForEach(gitLogAuthorOptions) { author in
+                        Button {
+                            selectedGitLogAuthor = .author(name: author.name, email: author.email)
+                        } label: {
+                            gitLogMenuItem(
+                                author.name,
+                                selected: selectedGitLogAuthor == .author(name: author.name, email: author.email)
+                            )
+                        }
+                    }
+                } label: {
+                    gitLogFilterLabel(title: "User", selection: selectedGitLogAuthor?.displayName)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .lithePointer()
+
+                if selectedGitLogAuthor != nil {
+                    gitLogFilterClearButton(help: "Clear user filter") {
+                        selectedGitLogAuthor = nil
+                    }
+                }
+            }
+
+            HStack(spacing: 2) {
+                Menu {
+                    ForEach(GitLogDatePreset.allCases) { preset in
+                        Button {
+                            selectedGitLogDatePreset = preset
+                        } label: {
+                            gitLogMenuItem(
+                                preset.menuTitle,
+                                selected: selectedGitLogDatePreset == preset
+                            )
+                        }
+                    }
+                } label: {
+                    gitLogFilterLabel(title: "Date", selection: selectedGitLogDatePreset.filterTitle)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .lithePointer()
+
+                if selectedGitLogDatePreset != .anyTime {
+                    gitLogFilterClearButton(help: "Clear date filter") {
+                        selectedGitLogDatePreset = .anyTime
+                    }
+                }
+            }
+
+            HStack(spacing: 2) {
+                Button {
+                    gitLogPathDraft = gitLogPathFilter
+                    showsGitLogPathPopover = true
+                } label: {
+                    gitLogFilterLabel(
+                        title: "Path",
+                        selection: gitLogPathFilter.isEmpty ? nil : gitLogPathFilter
+                    )
+                }
+                .buttonStyle(.plain)
+                .lithePointer()
+                .popover(isPresented: $showsGitLogPathPopover, arrowEdge: .bottom) {
+                    gitLogPathPopover
+                }
+
+                if !gitLogPathFilter.isEmpty {
+                    gitLogFilterClearButton(help: "Clear path filter") {
+                        gitLogPathFilter = ""
+                        gitLogPathDraft = ""
+                    }
+                }
+            }
+        }
+        .lineLimit(1)
+    }
+
+    private var gitLogPathPopover: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Filter by changed path")
+                .font(GitVisual.bodyMedium)
+                .foregroundStyle(LitheTheme.primaryText)
+            TextField("Directory or file name", text: $gitLogPathDraft)
+                .textFieldStyle(.roundedBorder)
+                .font(GitVisual.body)
+                .onSubmit { applyGitLogPathFilter() }
+            HStack(spacing: 8) {
+                Button("Clear") {
+                    gitLogPathDraft = ""
+                    gitLogPathFilter = ""
+                    showsGitLogPathPopover = false
+                }
+                Spacer()
+                Button("Cancel") {
+                    showsGitLogPathPopover = false
+                }
+                Button("Apply") {
+                    applyGitLogPathFilter()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+            .controlSize(.small)
+        }
+        .padding(12)
+        .frame(width: 300)
+    }
+
+    private func gitLogFilterLabel(title: String, selection: String?) -> some View {
+        HStack(spacing: 3) {
+            Text(selection.map { "\(title): \($0)" } ?? title)
+                .font(GitVisual.toolbar)
+                .foregroundStyle(LitheTheme.secondaryText)
+            if selection == nil {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8.5, weight: .semibold))
+                    .foregroundStyle(LitheTheme.tertiaryText)
+            }
+        }
+        .frame(height: 22)
+        .contentShape(Rectangle())
+    }
+
+    private func gitLogFilterClearButton(help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "xmark")
+                .font(.system(size: 9.5, weight: .medium))
+                .foregroundStyle(LitheTheme.tertiaryText)
+                .frame(width: 14, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .lithePointer()
+        .help(LocalizedStringKey(help))
+    }
+
+    private func gitLogMenuItem(
+        _ title: String,
+        selected: Bool,
+        systemImage: String? = nil
+    ) -> some View {
+        HStack {
+            if let systemImage {
+                Image(systemName: systemImage)
+            }
+            Text(title)
+            Spacer()
+            if selected { Image(systemName: "checkmark") }
+        }
+    }
+
+    private func applyGitLogPathFilter() {
+        gitLogPathFilter = gitLogPathDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        gitLogPathDraft = gitLogPathFilter
+        showsGitLogPathPopover = false
+    }
+
+    private func quotedGitLogFilterValue(_ value: String) -> String {
+        guard value.contains(where: \.isWhitespace) else { return value }
+        if !value.contains("\"") { return "\"\(value)\"" }
+        if !value.contains("'") { return "'\(value)'" }
+        return "\"\(value.replacingOccurrences(of: "\"", with: ""))\""
     }
 
     private var commitFileTree: GitCommitFileTreeNode {
@@ -1122,6 +1369,100 @@ struct GitLogView: View {
         }
         .buttonStyle(.plain)
         .lithePointer()
+    }
+}
+
+private enum GitLogAuthorSelection: Equatable {
+    case currentUser
+    case author(name: String, email: String)
+
+    var displayName: String {
+        switch self {
+        case .currentUser:
+            return "Me"
+        case .author(let name, _):
+            return name
+        }
+    }
+
+    var queryToken: String {
+        switch self {
+        case .currentUser:
+            return "me"
+        case .author(let name, let email):
+            return "author:\(Self.quoted(email.isEmpty ? name : email))"
+        }
+    }
+
+    private static func quoted(_ value: String) -> String {
+        guard value.contains(where: \.isWhitespace) else { return value }
+        if !value.contains("\"") { return "\"\(value)\"" }
+        if !value.contains("'") { return "'\(value)'" }
+        return "\"\(value.replacingOccurrences(of: "\"", with: ""))\""
+    }
+}
+
+private struct GitLogAuthorOption: Identifiable {
+    let id: String
+    let name: String
+    let email: String
+}
+
+private enum GitLogDatePreset: String, CaseIterable, Identifiable {
+    case anyTime
+    case today
+    case yesterday
+    case lastSevenDays
+    case lastThirtyDays
+
+    var id: String { rawValue }
+
+    var menuTitle: String {
+        switch self {
+        case .anyTime: return "Any Time"
+        case .today: return "Today"
+        case .yesterday: return "Yesterday"
+        case .lastSevenDays: return "Last 7 Days"
+        case .lastThirtyDays: return "Last 30 Days"
+        }
+    }
+
+    var filterTitle: String? {
+        self == .anyTime ? nil : menuTitle
+    }
+
+    func queryTokens(now: Date) -> [String] {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let today = calendar.startOfDay(for: now)
+        switch self {
+        case .anyTime:
+            return []
+        case .today:
+            return ["after:\(Self.dateToken(today, calendar: calendar))"]
+        case .yesterday:
+            guard let yesterday = calendar.date(byAdding: .day, value: -1, to: today) else { return [] }
+            return [
+                "after:\(Self.dateToken(yesterday, calendar: calendar))",
+                "before:\(Self.dateToken(today, calendar: calendar))"
+            ]
+        case .lastSevenDays:
+            guard let firstDay = calendar.date(byAdding: .day, value: -6, to: today) else { return [] }
+            return ["after:\(Self.dateToken(firstDay, calendar: calendar))"]
+        case .lastThirtyDays:
+            guard let firstDay = calendar.date(byAdding: .day, value: -29, to: today) else { return [] }
+            return ["after:\(Self.dateToken(firstDay, calendar: calendar))"]
+        }
+    }
+
+    private static func dateToken(_ date: Date, calendar: Calendar) -> String {
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(
+            format: "%04d-%02d-%02d",
+            components.year ?? 0,
+            components.month ?? 0,
+            components.day ?? 0
+        )
     }
 }
 
