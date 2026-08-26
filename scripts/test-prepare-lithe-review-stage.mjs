@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -15,106 +15,63 @@ function runStage(argumentsList, environment = {}) {
         env: { ...process.env, ...environment },
     });
     assert.equal(result.status, 0, result.stderr);
-    return result.stdout.trim();
 }
 
-test("uses deterministic assignments when planner output is missing", async () => {
+test("exports a valid single-pass review", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "lithe-review-stage-"));
-    const planPath = path.join(directory, "plan.json");
-    const source = runStage([
-        "ensure-plan",
-        "--candidate", path.join(directory, "missing.json"),
-        "--output", planPath,
-    ]);
-    const plan = JSON.parse(await readFile(planPath, "utf8"));
-
-    assert.equal(source, "fallback");
-    assert.deepEqual(
-        plan.assignments.map((assignment) => assignment.role_id),
-        ["correctness", "architecture", "resilience"],
-    );
-});
-
-test("builds focused and aggregate prompts without trusting intermediate findings", async () => {
-    const directory = await mkdtemp(path.join(os.tmpdir(), "lithe-review-stage-"));
-    const workersDirectory = path.join(directory, "workers");
-    await mkdir(workersDirectory);
-    const basePromptPath = path.join(directory, "base.md");
-    const planPath = path.join(directory, "plan.json");
-    const reviewerPromptPath = path.join(directory, "reviewer.md");
-    const aggregatorPromptPath = path.join(directory, "aggregator.md");
-    await writeFile(basePromptPath, "Original trusted review instructions.\n");
-    await writeFile(planPath, JSON.stringify({
-        change_summary: "Changes cancellation.",
-        assignments: [
-            { role_id: "correctness", focus_paths: ["Sources/Feature.swift"], questions: ["Is cancellation correct?"] },
-            { role_id: "architecture", focus_paths: [], questions: [] },
-            { role_id: "resilience", focus_paths: [], questions: [] },
-        ],
-    }));
-    await writeFile(path.join(workersDirectory, "correctness.json"), JSON.stringify({
-        role_id: "correctness",
-        summary: "Candidate issue.",
-        findings: [],
-    }));
-
-    runStage([
-        "reviewer",
-        "--base-prompt", basePromptPath,
-        "--plan", planPath,
-        "--role-id", "correctness",
-        "--output", reviewerPromptPath,
-    ]);
-    runStage([
-        "aggregator",
-        "--base-prompt", basePromptPath,
-        "--plan", planPath,
-        "--workers", workersDirectory,
-        "--output", aggregatorPromptPath,
-    ]);
-
-    const reviewerPrompt = await readFile(reviewerPromptPath, "utf8");
-    const aggregatorPrompt = await readFile(aggregatorPromptPath, "utf8");
-    assert.match(reviewerPrompt, /正确性与端到端行为/);
-    assert.match(reviewerPrompt, /不可信的模型中间结果/);
-    assert.match(aggregatorPrompt, /必须重新读取 head\/base/);
-    assert.match(aggregatorPrompt, /Candidate issue/);
-});
-
-test("publishes a clearly marked partial review when final aggregation fails", async () => {
-    const directory = await mkdtemp(path.join(os.tmpdir(), "lithe-review-stage-"));
-    const workersDirectory = path.join(directory, "workers");
+    const candidatePath = path.join(directory, "candidate.json");
     const outputPath = path.join(directory, "final.md");
     const githubOutputPath = path.join(directory, "github-output.txt");
-    await mkdir(workersDirectory);
-    await writeFile(path.join(workersDirectory, "correctness.json"), JSON.stringify({
-        role_id: "correctness",
-        summary: "Found a regression.",
-        findings: [{
-            priority: "P1",
-            title: "Cancellation result can escape",
-            path: "Sources/Feature.swift",
-            line: 42,
-            evidence: "The completion callback ignores the operation ID.",
-            impact: "A stale result can replace current state.",
-            suggestion: "Check the operation ID before publishing.",
-            confidence: "high",
-        }],
+    await writeFile(candidatePath, JSON.stringify({
+        review_markdown: "## Lithe Review\n\n**结论：** ✅ 未发现明确问题\n\nLGTM",
     }));
 
     runStage([
         "finalize",
-        "--candidate", path.join(directory, "missing.json"),
-        "--workers", workersDirectory,
-        "--base-sha", "base1234",
-        "--head-sha", "head5678",
+        "--candidate", candidatePath,
         "--output", outputPath,
     ], { GITHUB_OUTPUT: githubOutputPath });
 
     const markdown = await readFile(outputPath, "utf8");
     const githubOutput = await readFile(githubOutputPath, "utf8");
-    assert.match(markdown, /❓ 信息不足/);
-    assert.match(markdown, /尚未经过最终 verifier 复核/);
-    assert.match(markdown, /Sources\/Feature\.swift:42/);
-    assert.match(githubOutput, /review_outcome<<.*\npartial\n/s);
+    assert.match(markdown, /LGTM/);
+    assert.match(githubOutput, /final_message<<.*## Lithe Review/s);
+    assert.match(githubOutput, /review_outcome<<.*\nsuccess\n/s);
+});
+
+test("reports failure when the model output is missing or malformed", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "lithe-review-stage-"));
+    const outputPath = path.join(directory, "final.md");
+    const githubOutputPath = path.join(directory, "github-output.txt");
+
+    runStage([
+        "finalize",
+        "--candidate", path.join(directory, "missing.json"),
+        "--output", outputPath,
+    ], { GITHUB_OUTPUT: githubOutputPath });
+
+    const markdown = await readFile(outputPath, "utf8");
+    const githubOutput = await readFile(githubOutputPath, "utf8");
+    assert.equal(markdown, "Review candidate missing or invalid.\n");
+    assert.match(githubOutput, /final_message<<.*\n\n.*\n/s);
+    assert.match(githubOutput, /review_outcome<<.*\nfailure\n/s);
+});
+
+test("workflow uses one model call and publishes after review failure or timeout", async () => {
+    const workflow = await readFile(".github/workflows/lithe-pr-review.yml", "utf8");
+    const codexActionCalls = workflow.match(/uses: openai\/codex-action@v1/g) ?? [];
+
+    assert.equal(codexActionCalls.length, 1);
+    assert.doesNotMatch(workflow, /^  (planner|reviewers|aggregate):/m);
+    assert.match(workflow, /group: lithe-pr-review-.*needs\.prepare\.outputs\.head_sha/);
+    assert.match(workflow, /publish:\n[\s\S]*?if: >-\n\s+always\(\)/);
+});
+
+test("review prompt enforces high-signal findings and bounded searches", async () => {
+    const prompt = await readFile(".github/lithe-review/review-prompt.md", "utf8");
+
+    assert.match(prompt, /低于 80\/100 时不要报告/);
+    assert.match(prompt, /不得运行无路径限制、无 glob 限制的全仓库/);
+    assert.match(prompt, /--max-filesize 1M --max-columns 240/);
+    assert.match(prompt, /LGTM/);
 });
