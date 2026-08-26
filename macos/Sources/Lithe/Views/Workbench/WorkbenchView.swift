@@ -1164,7 +1164,7 @@ private struct WorkbenchNotificationCenterView: View {
                                         .foregroundStyle(LitheTheme.primaryText)
                                         .fixedSize(horizontal: false, vertical: true)
 
-                                    Text(notification.createdAt, style: .relative)
+                                    Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
                                         .font(.system(size: 10.5))
                                         .foregroundStyle(LitheTheme.tertiaryText)
                                 }
