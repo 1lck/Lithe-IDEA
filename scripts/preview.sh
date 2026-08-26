@@ -30,6 +30,12 @@ mkdir -p \
     "$APP_DIR/Contents/Resources/OfficialPlugins" \
     "$APP_DIR/Contents/Helpers"
 cp ".build/$TRIPLE/debug/Lithe" "$APP_DIR/Contents/MacOS/Lithe"
+swiftterm_resource_bundle=".build/$TRIPLE/debug/SwiftTerm_SwiftTerm.bundle"
+if [[ ! -d "$swiftterm_resource_bundle" ]]; then
+    print -u2 -- "Missing SwiftTerm Metal resource bundle: $swiftterm_resource_bundle"
+    exit 1
+fi
+cp -R "$swiftterm_resource_bundle" "$APP_DIR/Contents/Resources/SwiftTerm_SwiftTerm.bundle"
 cp -R "$JDTLS_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdtls"
 cp -R "$JDK_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdk"
 plugin_root=$(scripts/build-official-plugins.sh --configuration debug --triple "$TRIPLE")
