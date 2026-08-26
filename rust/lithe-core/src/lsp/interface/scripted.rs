@@ -34,7 +34,17 @@ struct ScriptedShared {
     input_closed: AtomicBool,
     /// Set when the test wants writes to fail, standing in for a broken pipe.
     input_broken: AtomicBool,
+    /// Deterministic write barrier used by concurrency-ordering tests.
+    input_pause: Mutex<ScriptedInputPause>,
+    input_pause_changed: Condvar,
     spec: Mutex<Option<LaunchedSpec>>,
+}
+
+#[derive(Default)]
+struct ScriptedInputPause {
+    requested: bool,
+    blocked: bool,
+    release_requested: bool,
 }
 
 /// What the engine asked the launcher for, so tests can assert provider
@@ -56,6 +66,8 @@ impl ScriptedServer {
                 exit: Mutex::new(None),
                 input_closed: AtomicBool::new(false),
                 input_broken: AtomicBool::new(false),
+                input_pause: Mutex::new(ScriptedInputPause::default()),
+                input_pause_changed: Condvar::new(),
                 spec: Mutex::new(None),
             }),
         }
@@ -214,6 +226,43 @@ impl ScriptedServer {
     pub fn break_input(&self) {
         self.shared.input_broken.store(true, Ordering::Release);
     }
+
+    /// Stops the next engine write before any bytes reach the scripted server.
+    pub fn pause_input(&self) {
+        let mut pause = self.shared.input_pause.lock().unwrap();
+        pause.requested = true;
+        pause.blocked = false;
+        pause.release_requested = false;
+    }
+
+    /// Waits until an engine write is held at the deterministic pause barrier.
+    pub fn await_input_pause(&self) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut pause = self.shared.input_pause.lock().unwrap();
+        while !pause.blocked {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return false;
+            }
+            let (guard, timeout) = self
+                .shared
+                .input_pause_changed
+                .wait_timeout(pause, remaining)
+                .unwrap();
+            pause = guard;
+            if timeout.timed_out() && !pause.blocked {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Releases a paused engine write and disables the pause barrier.
+    pub fn resume_input(&self) {
+        let mut pause = self.shared.input_pause.lock().unwrap();
+        pause.release_requested = true;
+        self.shared.input_pause_changed.notify_all();
+    }
 }
 
 struct ScriptedLauncher {
@@ -245,6 +294,19 @@ struct ScriptedProcess {
 
 impl LspProcessHandle for ScriptedProcess {
     fn write_input(&self, frame: &[u8]) -> Result<(), CoreError> {
+        {
+            let mut pause = self.shared.input_pause.lock().unwrap();
+            if pause.requested {
+                pause.requested = false;
+                pause.blocked = true;
+                self.shared.input_pause_changed.notify_all();
+                while !pause.release_requested {
+                    pause = self.shared.input_pause_changed.wait(pause).unwrap();
+                }
+                pause.blocked = false;
+                pause.release_requested = false;
+            }
+        }
         if self.shared.input_broken.load(Ordering::Acquire)
             || self.shared.input_closed.load(Ordering::Acquire)
         {

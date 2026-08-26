@@ -444,6 +444,10 @@ struct RuntimeSession {
     provider_id: String,
     #[cfg(test)]
     root_uri: String,
+    /// Serializes protocol-state commits with complete outbound message batches.
+    /// Callers acquire this before `state` whenever an action can write to the
+    /// server, preserving the same order in memory and on the wire.
+    outbound_order: Mutex<()>,
     state: Mutex<SessionState>,
     event_signal: Condvar,
     process: Arc<dyn LspProcessHandle>,
@@ -719,6 +723,7 @@ impl LspEngine {
             provider_id: request.provider_id,
             #[cfg(test)]
             root_uri: request.root_uri,
+            outbound_order: Mutex::new(()),
             state: Mutex::new(SessionState {
                 lifecycle: LspLifecycleState::Created,
                 client: initialize.state,
@@ -758,7 +763,8 @@ impl LspEngine {
             .insert(session_id.clone(), session.clone());
         session.spawn_readers(process.output, process.errors);
         session.spawn_monitor();
-        if let Err(error) = session.send_messages(initialize.messages) {
+        let outbound_order = session.lock_outbound_order()?;
+        if let Err(error) = session.send_messages(&outbound_order, initialize.messages) {
             session.fail(
                 "transportFailed",
                 "initialize",
@@ -830,6 +836,7 @@ impl RuntimeSession {
             // and prevents a watcher burst from causing redundant imports.
             normalized.insert(change.uri, change.kind);
         }
+        let outbound_order = self.lock_outbound_order()?;
         let message = {
             let mut state = self.lock_state()?;
             ensure_not_terminal(state.lifecycle)?;
@@ -842,7 +849,7 @@ impl RuntimeSession {
             }
             workspace_file_changes_notification(normalized)
         };
-        self.send_messages_or_fail(vec![message], "workspaceFilesChanged")
+        self.send_messages_or_fail(&outbound_order, vec![message], "workspaceFilesChanged")
     }
 
     fn sync_document(
@@ -853,6 +860,7 @@ impl RuntimeSession {
         let mut messages = Vec::new();
         let mut stale_cancellations = Vec::new();
         let document_version;
+        let outbound_order = self.lock_outbound_order()?;
         {
             let mut state = self.lock_state()?;
             ensure_not_terminal(state.lifecycle)?;
@@ -928,7 +936,7 @@ impl RuntimeSession {
             }
         }
         messages.extend(stale_cancellations);
-        self.send_messages_or_fail(messages, "documentSync")?;
+        self.send_messages_or_fail(&outbound_order, messages, "documentSync")?;
         Ok(SyncDocumentResponse {
             document_version,
             changed: true,
@@ -938,6 +946,7 @@ impl RuntimeSession {
     fn close_document(&self, uri: &str) -> Result<(), CoreError> {
         let mut messages = Vec::new();
         let cleared;
+        let outbound_order = self.lock_outbound_order()?;
         {
             let mut state = self.lock_state()?;
             ensure_not_terminal(state.lifecycle)?;
@@ -965,7 +974,7 @@ impl RuntimeSession {
                 push_diagnostics_event(self, &mut state, uri, None, Vec::new());
             }
         }
-        self.send_messages_or_fail(messages, "documentClose")
+        self.send_messages_or_fail(&outbound_order, messages, "documentClose")
     }
 
     fn complete_cached_java_navigation_markers(
@@ -1049,6 +1058,7 @@ impl RuntimeSession {
         requested_kind: PendingKind,
         requested_document_version: Option<i64>,
     ) -> Result<(), CoreError> {
+        let outbound_order = self.lock_outbound_order()?;
         let (messages, request_id) = {
             let mut state = self.lock_state()?;
             if state.lifecycle != LspLifecycleState::Ready || !state.client.initialized {
@@ -1227,7 +1237,7 @@ impl RuntimeSession {
                 .insert(operation_id, request_id.clone());
             (response.messages, request_id)
         };
-        if let Err(error) = self.send_messages(messages) {
+        if let Err(error) = self.send_messages(&outbound_order, messages) {
             self.complete_request_with_error(
                 &request_id,
                 "transportFailed",
@@ -1250,6 +1260,7 @@ impl RuntimeSession {
     }
 
     fn cancel_operation(&self, operation_id: &str) -> Result<(), CoreError> {
+        let outbound_order = self.lock_outbound_order()?;
         let request_id = {
             let mut state = self.lock_state()?;
             let request_id = state
@@ -1295,10 +1306,11 @@ impl RuntimeSession {
             "params": { "id": request_id }
         })
         .to_string();
-        self.send_messages_or_fail(vec![cancellation], "requestCancel")
+        self.send_messages_or_fail(&outbound_order, vec![cancellation], "requestCancel")
     }
 
     fn stop(&self) -> Result<(), CoreError> {
+        let outbound_order = self.lock_outbound_order()?;
         let (messages, force_kill) = {
             let mut state = self.lock_state()?;
             if matches!(
@@ -1349,7 +1361,7 @@ impl RuntimeSession {
                 (Vec::new(), true)
             }
         };
-        self.send_messages_or_fail(messages, "shutdown")?;
+        self.send_messages_or_fail(&outbound_order, messages, "shutdown")?;
         if force_kill {
             self.kill_process();
         }
@@ -1531,10 +1543,15 @@ impl RuntimeSession {
             value.get("method").and_then(Value::as_str),
             value.get("params"),
         );
+        let outbound_order = self.lock_outbound_order()?;
 
         if value.get("method").and_then(Value::as_str) == Some("workspace/configuration") {
             if let Some(response) = self.provider_configuration_response(&value)? {
-                return self.send_messages_or_fail(vec![response], "serverRequest");
+                return self.send_messages_or_fail(
+                    &outbound_order,
+                    vec![response],
+                    "serverRequest",
+                );
             }
         }
 
@@ -1947,7 +1964,7 @@ impl RuntimeSession {
             if !waits_for_service_ready(&self.provider_id) {
                 outbound.extend(self.flush_queued_documents()?);
             }
-            self.send_messages_or_fail(outbound, "serverResponse")?;
+            self.send_messages_or_fail(&outbound_order, outbound, "serverResponse")?;
             let mut state = self.lock_state()?;
             if let Some(info) = ready_server_info {
                 push_server_info_event(self, &mut state, info);
@@ -1967,12 +1984,16 @@ impl RuntimeSession {
             }
             return Ok(());
         }
-        self.send_messages_or_fail(outbound, "serverResponse")?;
+        self.send_messages_or_fail(&outbound_order, outbound, "serverResponse")?;
         if service_ready {
             let queued_messages = {
                 let mut state = self.lock_state()?;
                 state.initialize_deadline = None;
-                let messages = flush_queued_documents_locked(&mut state)?;
+                flush_queued_documents_locked(&mut state)?
+            };
+            self.send_messages_or_fail(&outbound_order, queued_messages, "serviceReady")?;
+            {
+                let mut state = self.lock_state()?;
                 transition_locked(self, &mut state, LspLifecycleState::Ready, None);
                 let capabilities = state.client.server_capabilities.clone();
                 push_features_event(self, &mut state, capabilities);
@@ -1983,9 +2004,7 @@ impl RuntimeSession {
                     "Java language service finished project import",
                     None,
                 );
-                messages
-            };
-            self.send_messages_or_fail(queued_messages, "serviceReady")?;
+            }
         }
         Ok(())
     }
@@ -2114,7 +2133,20 @@ impl RuntimeSession {
                 );
             }
         }
-        if !cancellations.is_empty() {
+        if initialize_timeout {
+            // Timeout termination must not wait behind a blocked stdin write;
+            // killing the process is what releases that write.
+            self.fail(
+                "initializeTimeout",
+                "initialize",
+                "Language-server initialization timed out.",
+                None,
+                None,
+            );
+            self.kill_process();
+        } else if shutdown_timeout {
+            self.kill_process();
+        } else if !cancellations.is_empty() {
             let messages = cancellations
                 .into_iter()
                 .map(|id| {
@@ -2126,19 +2158,21 @@ impl RuntimeSession {
                     .to_string()
                 })
                 .collect();
-            let _ = self.send_messages(messages);
-        }
-        if initialize_timeout {
-            self.fail(
-                "initializeTimeout",
-                "initialize",
-                "Language-server initialization timed out.",
-                None,
-                None,
-            );
-            self.kill_process();
-        } else if shutdown_timeout {
-            self.kill_process();
+            match self.lock_outbound_order() {
+                Ok(outbound_order) => {
+                    let _ = self.send_messages(&outbound_order, messages);
+                }
+                Err(error) => {
+                    self.fail(
+                        "transportFailed",
+                        "outboundOrder",
+                        "Language-server outbound ordering failed.",
+                        Some(core_error_detail(&error)),
+                        None,
+                    );
+                    self.kill_process();
+                }
+            }
         }
     }
 
@@ -2268,11 +2302,16 @@ impl RuntimeSession {
         }
     }
 
-    fn send_messages_or_fail(&self, messages: Vec<String>, stage: &str) -> Result<(), CoreError> {
+    fn send_messages_or_fail(
+        &self,
+        outbound_order: &MutexGuard<'_, ()>,
+        messages: Vec<String>,
+        stage: &str,
+    ) -> Result<(), CoreError> {
         if messages.is_empty() {
             return Ok(());
         }
-        if let Err(error) = self.send_messages(messages) {
+        if let Err(error) = self.send_messages(outbound_order, messages) {
             self.fail(
                 "transportFailed",
                 stage,
@@ -2286,7 +2325,11 @@ impl RuntimeSession {
         Ok(())
     }
 
-    fn send_messages(&self, messages: Vec<String>) -> Result<(), CoreError> {
+    fn send_messages(
+        &self,
+        _outbound_order: &MutexGuard<'_, ()>,
+        messages: Vec<String>,
+    ) -> Result<(), CoreError> {
         for message in messages {
             let frame = frame_message(FrameMessageRequest { message })?.frame;
             self.process.write_input(frame.as_bytes())?;
@@ -2296,6 +2339,15 @@ impl RuntimeSession {
 
     fn kill_process(&self) {
         self.process.terminate();
+    }
+
+    fn lock_outbound_order(&self) -> Result<MutexGuard<'_, ()>, CoreError> {
+        self.outbound_order.lock().map_err(|_| {
+            CoreError::new(
+                ErrorCode::Unknown,
+                "Language-server outbound ordering lock was poisoned.",
+            )
+        })
     }
 
     fn lock_state(&self) -> Result<MutexGuard<'_, SessionState>, CoreError> {
@@ -3536,6 +3588,118 @@ mod tests {
             "class Main { int value; }"
         );
         assert_eq!(harness.snapshot().open_documents[uri].version, 1);
+    }
+
+    #[test]
+    fn java_ready_flush_precedes_concurrent_edits_and_closes() {
+        let mut harness = Harness::start(|request| {
+            request.provider_id = "java".to_string();
+        });
+        let first_uri = "file:///workspace/First.java";
+        let second_uri = "file:///workspace/Second.java";
+        harness.sync(first_uri, "class First {}");
+        harness.sync(second_uri, "class Second {}");
+        harness.server.complete_initialize(ready_capabilities());
+        assert!(harness
+            .server
+            .await_notification("workspace/didChangeConfiguration"));
+
+        // Hold the first restored didOpen before it reaches the server. The
+        // complete ready flush must retain outbound ownership and keep Ready
+        // private until every restored document has been written.
+        harness.server.pause_input();
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "method": "language/status",
+            "params": { "type": "ServiceReady" }
+        }));
+        assert!(
+            harness.server.await_input_pause(),
+            "the restored document flush should reach the write barrier"
+        );
+        assert_eq!(
+            harness.snapshot().state,
+            LspLifecycleState::Initializing,
+            "Ready must not be published before queued didOpen messages are written"
+        );
+
+        let start = Arc::new(std::sync::Barrier::new(3));
+        let edit_session = harness.session();
+        let edit_session_id = harness.session_id.clone();
+        let edit_start = start.clone();
+        let edit = thread::spawn(move || {
+            edit_start.wait();
+            edit_session.sync_document(SyncDocumentRequest {
+                session_id: edit_session_id,
+                uri: second_uri.to_string(),
+                language_id: "java".to_string(),
+                text: "class Second { int value; }".to_string(),
+                content_changes: Vec::new(),
+            })
+        });
+        let close_session = harness.session();
+        let close_start = start.clone();
+        let close = thread::spawn(move || {
+            close_start.wait();
+            close_session.close_document(first_uri)
+        });
+        start.wait();
+
+        assert!(
+            harness.session().outbound_order.try_lock().is_err(),
+            "the ready flush should exclude concurrent protocol state commits"
+        );
+        harness.server.resume_input();
+        edit.join()
+            .expect("the concurrent edit thread should finish")
+            .expect("the concurrent edit should succeed after Ready");
+        close
+            .join()
+            .expect("the concurrent close thread should finish")
+            .expect("the concurrent close should succeed after Ready");
+        harness.await_state(LspLifecycleState::Ready);
+
+        let document_messages: Vec<_> = harness
+            .server
+            .messages()
+            .into_iter()
+            .filter(|message| {
+                matches!(
+                    message["method"].as_str(),
+                    Some(
+                        "textDocument/didOpen" | "textDocument/didChange" | "textDocument/didClose"
+                    )
+                )
+            })
+            .collect();
+        assert_eq!(document_messages.len(), 4);
+        assert_eq!(document_messages[0]["method"], "textDocument/didOpen");
+        assert_eq!(
+            document_messages[0]["params"]["textDocument"]["uri"],
+            first_uri
+        );
+        assert_eq!(document_messages[1]["method"], "textDocument/didOpen");
+        assert_eq!(
+            document_messages[1]["params"]["textDocument"]["uri"],
+            second_uri
+        );
+        assert!(document_messages[2..].iter().any(|message| {
+            message["method"] == "textDocument/didChange"
+                && message["params"]["textDocument"]["uri"] == second_uri
+                && message["params"]["textDocument"]["version"] == 2
+        }));
+        assert!(document_messages[2..].iter().any(|message| {
+            message["method"] == "textDocument/didClose"
+                && message["params"]["textDocument"]["uri"] == first_uri
+        }));
+
+        let snapshot = harness.snapshot();
+        assert!(!snapshot.open_documents.contains_key(first_uri));
+        assert_eq!(snapshot.open_documents[second_uri].version, 2);
+        assert_eq!(
+            snapshot.open_documents[second_uri].text,
+            "class Second { int value; }"
+        );
     }
 
     /// Criterion 3: two syncs emit open version 1 then change version 2.
