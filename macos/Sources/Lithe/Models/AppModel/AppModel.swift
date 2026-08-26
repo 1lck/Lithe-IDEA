@@ -1325,8 +1325,14 @@ final class AppModel: ObservableObject, Identifiable {
             }
         }
         if let ownership = services.pluginCatalog.languageSupport(for: document.url),
-           ownership.declaration.languageServerModuleID != nil {
+           let moduleID = ownership.declaration.languageServerModuleID {
             let support = ownership.declaration
+            // Static plugin metadata may exist before a native plugin is loaded.
+            // Only a registered and enabled module may enter LSP activation.
+            guard let snapshot = try? services.moduleRuntime.snapshot(for: moduleID),
+                  snapshot.state != .disabled else {
+                return false
+            }
             let capabilityID = ModuleCapabilityID.languageServerExtension(support.id)
             if services.moduleRuntime.capability(capabilityID) == nil {
                 Task { [weak self, weak document] in
