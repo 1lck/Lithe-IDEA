@@ -479,7 +479,7 @@ fn detached_worktree_context_can_publish_a_pull_request_branch() {
     assert!(run(&repository, &["commit", "-qm", "initial"])
         .status
         .success());
-    assert!(run(&repository, &["branch", "-M", "preview/0.3.0"])
+    assert!(run(&repository, &["branch", "-M", "preview"])
         .status
         .success());
     assert!(run(
@@ -488,11 +488,9 @@ fn detached_worktree_context_can_publish_a_pull_request_branch() {
     )
     .status
     .success());
-    assert!(
-        run(&repository, &["push", "-qu", "origin", "preview/0.3.0"],)
-            .status
-            .success()
-    );
+    assert!(run(&repository, &["push", "-qu", "origin", "preview"],)
+        .status
+        .success());
     assert!(run(
         &repository,
         &[
@@ -501,7 +499,7 @@ fn detached_worktree_context_can_publish_a_pull_request_branch() {
             "--detach",
             "-q",
             root.to_string_lossy().as_ref(),
-            "preview/0.3.0",
+            "preview",
         ],
     )
     .status
@@ -523,7 +521,7 @@ fn detached_worktree_context_can_publish_a_pull_request_branch() {
     assert_eq!(context["ok"], true, "{context:?}");
     assert_eq!(context["data"]["detached"], true);
     assert_eq!(
-        context["data"]["suggestedBaseBranch"], "preview/0.3.0",
+        context["data"]["suggestedBaseBranch"], "preview",
         "{context:?}"
     );
     assert_eq!(context["data"]["requiresPublish"], true);
@@ -551,7 +549,7 @@ fn detached_worktree_context_can_publish_a_pull_request_branch() {
         .expect("refreshed context should be JSON");
     assert_eq!(refreshed["data"]["currentBranch"], suggested);
     assert_eq!(
-        refreshed["data"]["suggestedBaseBranch"], "preview/0.3.0",
+        refreshed["data"]["suggestedBaseBranch"], "preview",
         "publishing must preserve the detached worktree's inferred base: {refreshed:?}"
     );
     assert_eq!(refreshed["data"]["requiresPublish"], false);

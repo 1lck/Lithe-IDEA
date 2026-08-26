@@ -716,8 +716,8 @@ git commit -m "test(macOS): 覆盖快捷键设置本地化"
 运行：
 
 ```bash
-git diff --check upstream/preview/0.3.0...HEAD
-git diff --name-only upstream/preview/0.3.0...HEAD
+git diff --check upstream/preview...HEAD
+git diff --name-only upstream/preview...HEAD
 git status --short
 ```
 
@@ -756,7 +756,7 @@ git status --short
 
 ```bash
 git push -u origin codex/issue-10-custom-keymap
-lithe_pr_url="$(gh pr create --repo 1lck/Lithe-IDEA --base preview/0.3.0 --head Sunwenzhi58:codex/issue-10-custom-keymap --title 'feat(macOS): 支持自定义快捷键' --body-file /tmp/lithe-issue-10-pr.md)"
+lithe_pr_url="$(gh pr create --repo 1lck/Lithe-IDEA --base preview --head Sunwenzhi58:codex/issue-10-custom-keymap --title 'feat(macOS): 支持自定义快捷键' --body-file /tmp/lithe-issue-10-pr.md)"
 ```
 
 PR 正文包含摘要、完整测试计划、Agent 归属、`Closes #10`、风险和回退方式。临时 PR 正文文件只写入 `/tmp`，不进入仓库。
@@ -772,7 +772,7 @@ gh pr diff "$lithe_pr_number" --repo 1lck/Lithe-IDEA --name-only
 gh pr checks "$lithe_pr_number" --repo 1lck/Lithe-IDEA
 ```
 
-预期：PR 为 OPEN、非 Draft、目标为 `preview/0.3.0`、diff 范围正确、mergeable 明确且所有必需 checks 通过。任何信号未知、失败或等待中时不合并。
+预期：PR 为 OPEN、非 Draft、目标为 `preview`、diff 范围正确、mergeable 明确且所有必需 checks 通过。任何信号未知、失败或等待中时不合并。
 
 - [ ] **步骤 7：根据 review 修正并重新验证**
 

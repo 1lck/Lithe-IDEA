@@ -9,7 +9,7 @@ on:
       source_branch:
         description: "Preview branch to build"
         required: true
-        default: "preview/0.3.0"
+        default: "preview"
         type: string
 
 permissions:
@@ -20,7 +20,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  PREVIEW_BRANCH: preview/0.3.0
+  PREVIEW_BRANCH: preview
   PREVIEW_VERSION: 0.3.0
   PREVIEW_TAG: preview-0.3.0
 

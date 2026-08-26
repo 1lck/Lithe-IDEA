@@ -11,7 +11,7 @@ const COMMIT: GitCommit = {
   author: "Lithe Developer",
   email: "dev@example.com",
   date: "2026-08-16T10:00:00Z",
-  decorations: "HEAD -> preview/0.3.0, origin/preview/0.3.0, tag: v0.3.0",
+  decorations: "HEAD -> preview, origin/preview, tag: v0.3.0",
 };
 
 describe("Git Log filters", () => {
