@@ -149,6 +149,29 @@ struct LanguageProviderCatalogSourceTests {
         #expect(provider.languageServerLaunch == nil)
     }
 
+    @Test
+    func syntaxOnlyBundledLanguagesDoNotAdvertiseAnUnimplementedServer() throws {
+        let source = PluginLanguageProviderCatalogSource(
+            base: RustLanguageProviderCatalogSource(loader: CatalogPayloadLoader(
+                isAvailable: false,
+                data: nil
+            )),
+            languageSupports: BundledLanguagePluginCatalog.languageSupports
+        )
+        let catalog = source.load().catalog
+        let markdown = try #require(catalog.provider(
+            for: URL(fileURLWithPath: "/tmp/README.md")
+        ))
+        let yaml = try #require(catalog.provider(
+            for: URL(fileURLWithPath: "/tmp/config.yaml")
+        ))
+
+        #expect(!markdown.capabilities.contains(.languageServer))
+        #expect(yaml.capabilities.contains(.languageServer))
+        #expect(markdown.languageServerLaunch == nil)
+        #expect(yaml.languageServerLaunch == nil)
+    }
+
     private func catalogPayload(origin: String, diagnostics: String = "[]") -> Data {
         Data("""
         {

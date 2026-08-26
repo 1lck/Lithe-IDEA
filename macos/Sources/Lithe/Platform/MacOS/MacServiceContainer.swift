@@ -183,7 +183,7 @@ final class MacServiceContainer {
         // manifests below contribute factories; keeping static ownership here
         // prevents the host from silently restoring its legacy process path.
         let installedPluginManifests = pluginStartup.installedManifests
-        let installedLanguageSupports = bundledLanguageManifests.flatMap { $0.languageSupports ?? [] }
+        let installedLanguageSupports = BundledLanguagePluginCatalog.languageSupports
             + pluginStartup.installedLanguageSupports
         let languageProviderCatalogSource = PluginLanguageProviderCatalogSource(
             base: rustLanguageProviderCatalogSource,
@@ -420,10 +420,12 @@ final class MacServiceContainer {
                 }
             }
             for specification in BundledLanguagePluginCatalog.specifications {
-                let languageServerModule = BundledLanguageServerModule(specification: specification)
-                try moduleRegistry.register(ModuleFactory(manifest: languageServerModule.manifest) {
-                    BundledLanguageServerModule(specification: specification)
-                })
+                if specification.supportsLanguageServer {
+                    let languageServerModule = BundledLanguageServerModule(specification: specification)
+                    try moduleRegistry.register(ModuleFactory(manifest: languageServerModule.manifest) {
+                        BundledLanguageServerModule(specification: specification)
+                    })
+                }
                 if specification.supportsExecution {
                     let executionModule = BundledLanguageExecutionModule(
                         languageID: specification.id,
