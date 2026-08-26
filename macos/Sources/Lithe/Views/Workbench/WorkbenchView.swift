@@ -15,6 +15,7 @@ private enum ActivityBarMetrics {
     static let buttonHeight: CGFloat = 30
     static let spacing: CGFloat = 4
     static let edgeInset: CGFloat = 4
+    static let toolViewportHeight: CGFloat = 292
 }
 
 private enum WorkbenchWorkspaceMetrics {
@@ -592,31 +593,37 @@ struct WorkbenchView: View {
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: ActivityBarMetrics.spacing) {
-                    ForEach(model.activityBarContributions) { contribution in
-                        if let renderer = moduleUIRegistry.renderer(for: contribution),
-                           renderer.isVisible(model) {
-                            activityToolButton(
-                                systemImage: contribution.icon ?? "square.grid.2x2",
-                                ideaAssetPath: renderer.ideaAssetPath,
-                                help: contribution.title,
-                                isSelected: renderer.isSelected(model)
-                            ) {
-                                moduleUIRegistry.perform(contribution, model: model)
+                        ForEach(model.activityBarContributions) { contribution in
+                            if let renderer = moduleUIRegistry.renderer(for: contribution),
+                               renderer.isVisible(model) {
+                                activityToolButton(
+                                    systemImage: contribution.icon ?? "square.grid.2x2",
+                                    ideaAssetPath: renderer.ideaAssetPath,
+                                    help: contribution.title,
+                                    isSelected: renderer.isSelected(model)
+                                ) {
+                                    moduleUIRegistry.perform(contribution, model: model)
+                                }
                             }
                         }
-                    }
 
-                    activityToolButton(
-                        systemImage: "gearshape",
-                        ideaAssetPath: "general/gear.svg",
-                        help: "Settings",
-                        isSelected: model.isSettingsPresented
-                    ) {
-                        model.showSettings()
+                        activityToolButton(
+                            systemImage: "gearshape",
+                            ideaAssetPath: "general/gear.svg",
+                            help: "Settings",
+                            isSelected: model.isSettingsPresented
+                        ) {
+                            model.showSettings()
+                        }
                     }
-                    }
+                    // Keep short tool lists against the status bar while preserving
+                    // vertical scrolling when modules add more activity buttons.
+                    .frame(
+                        minHeight: ActivityBarMetrics.toolViewportHeight,
+                        alignment: .bottom
+                    )
                 }
-                .frame(height: 292)
+                .frame(height: ActivityBarMetrics.toolViewportHeight)
                 .padding(.bottom, ActivityBarMetrics.edgeInset)
             }
             .frame(width: ActivityBarMetrics.width, height: geometry.size.height, alignment: .top)
@@ -1164,7 +1171,7 @@ private struct WorkbenchNotificationCenterView: View {
                                         .foregroundStyle(LitheTheme.primaryText)
                                         .fixedSize(horizontal: false, vertical: true)
 
-                                    Text(notification.createdAt, style: .relative)
+                                    Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
                                         .font(.system(size: 10.5))
                                         .foregroundStyle(LitheTheme.tertiaryText)
                                 }

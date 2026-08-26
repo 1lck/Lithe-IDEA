@@ -26,7 +26,10 @@ struct ProjectSidebarView: View {
                         ScrollView([.vertical, .horizontal]) {
                             // The recursive tree is one scroll-content child. An eager stack
                             // must measure its full height so AppKit receives a real scroll range.
-                            VStack(alignment: .leading, spacing: 1) {
+                            VStack(
+                                alignment: .leading,
+                                spacing: LitheTheme.Metrics.projectTreeRowSpacing
+                            ) {
                                 ProjectFileTreeContent(
                                     root: root,
                                     availableWidth: geometry.size.width,
@@ -42,7 +45,7 @@ struct ProjectSidebarView: View {
                                 )
                                 .equatable()
                             }
-                            .padding(.vertical, 5)
+                            .padding(.vertical, LitheTheme.Metrics.projectTreeContentVerticalInset)
                             .frame(
                                 minWidth: geometry.size.width,
                                 minHeight: geometry.size.height,
@@ -308,8 +311,6 @@ private struct ProjectFileTreeContent: View, Equatable {
 }
 
 private struct FileNodeRow: View {
-    private static let horizontalInset: CGFloat = 10
-
     let node: FileNode
     let depth: Int
     let availableWidth: CGFloat
@@ -322,7 +323,7 @@ private struct FileNodeRow: View {
 
     private var rowWidth: CGFloat {
         max(
-            availableWidth - (Self.horizontalInset * 2),
+            availableWidth - (LitheTheme.Metrics.projectTreeContentHorizontalInset * 2),
             CGFloat(depth * 14 + 8 + 180)
         )
     }
@@ -333,20 +334,25 @@ private struct FileNodeRow: View {
 
     var body: some View {
         if node.isDirectory {
-            directoryRow
-            if isExpanded {
-                ForEach(node.children ?? []) { child in
-                    FileNodeRow(
-                        node: child,
-                        depth: depth + 1,
-                        availableWidth: availableWidth,
-                        rowHeight: rowHeight,
-                        activeDocumentURL: activeDocumentURL,
-                        gitStatus: gitStatus,
-                        actions: actions,
-                        expandedDirectoryPaths: $expandedDirectoryPaths
-                    )
-                    .id(child.url.standardizedFileURL.path)
+            VStack(
+                alignment: .leading,
+                spacing: LitheTheme.Metrics.projectTreeRowSpacing
+            ) {
+                directoryRow
+                if isExpanded {
+                    ForEach(node.children ?? []) { child in
+                        FileNodeRow(
+                            node: child,
+                            depth: depth + 1,
+                            availableWidth: availableWidth,
+                            rowHeight: rowHeight,
+                            activeDocumentURL: activeDocumentURL,
+                            gitStatus: gitStatus,
+                            actions: actions,
+                            expandedDirectoryPaths: $expandedDirectoryPaths
+                        )
+                        .id(child.url.standardizedFileURL.path)
+                    }
                 }
             }
         } else {
@@ -386,13 +392,13 @@ private struct FileNodeRow: View {
             .frame(height: rowHeight)
             .contentShape(Rectangle())
             .litheRowHover(
-                cornerRadius: 4,
+                cornerRadius: LitheTheme.Metrics.projectTreeSelectionCornerRadius,
                 animation: nil
             )
         }
         .buttonStyle(LitheTreeRowButtonStyle())
         .lithePointer()
-        .padding(.horizontal, Self.horizontalInset)
+        .padding(.horizontal, LitheTheme.Metrics.projectTreeContentHorizontalInset)
         .contextMenu { directoryContextMenu }
     }
 
@@ -426,14 +432,14 @@ private struct FileNodeRow: View {
             .litheRowHover(
                 isActive: activeDocumentURL?.standardizedFileURL.path
                     == node.url.standardizedFileURL.path,
-                cornerRadius: 4,
+                cornerRadius: LitheTheme.Metrics.projectTreeSelectionCornerRadius,
                 activeBackground: LitheTheme.subtleSelection,
                 animation: nil
             )
         }
         .buttonStyle(LitheTreeRowButtonStyle())
         .lithePointer()
-        .padding(.horizontal, Self.horizontalInset)
+        .padding(.horizontal, LitheTheme.Metrics.projectTreeContentHorizontalInset)
         .contextMenu { fileContextMenu }
         .task(id: node.url.standardizedFileURL.path) {
             guard node.url.pathExtension.lowercased() == "java" else { return }
