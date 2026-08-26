@@ -8,6 +8,45 @@ import LitheTerminalModule
 final class LitheTerminalView: LocalProcessTerminalView {
     var onOpenLink: ((String, [String: String]) -> Void)?
     private var showsWorkbenchBackground = false
+    private weak var metalActivationFailedWindow: NSWindow?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        configureRendererPolicy()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configureRendererPolicy()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let currentWindow = window,
+              !isUsingMetalRenderer,
+              currentWindow !== metalActivationFailedWindow else { return }
+
+        do {
+            try setUseMetal(true)
+            metalActivationFailedWindow = nil
+        } catch {
+            // A different window gets one fresh attempt because SwiftTerm's
+            // CAMetalLayer must be rebound when the persistent terminal moves.
+            metalActivationFailedWindow = currentWindow
+            NSLog(
+                "Lithe terminal Metal renderer could not be enabled; using Core Graphics: %@",
+                String(describing: error)
+            )
+        }
+    }
+
+    private func configureRendererPolicy() {
+        // Ghostty's renderer keeps unchanged terminal content on the GPU and
+        // redraws only invalidated cells. SwiftTerm's persistent row mode gives
+        // Lithe the same workload shape while its paused MTKView remains
+        // event-driven instead of running a continuous display loop.
+        metalBufferingMode = .perRowPersistent
+    }
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let menu = NSMenu()
