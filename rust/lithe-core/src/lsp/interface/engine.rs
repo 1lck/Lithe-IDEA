@@ -833,7 +833,10 @@ impl RuntimeSession {
         let message = {
             let mut state = self.lock_state()?;
             ensure_not_terminal(state.lifecycle)?;
-            if !state.client.initialized {
+            if !state.client.initialized
+                || (waits_for_service_ready(&self.provider_id)
+                    && state.lifecycle != LspLifecycleState::Ready)
+            {
                 state.pending_workspace_file_changes.extend(normalized);
                 return Ok(());
             }
@@ -865,11 +868,14 @@ impl RuntimeSession {
                 }
             }
             state.java_navigation_marker_cache.remove(&uri);
-            // JDT LS has a second readiness phase after standard initialize.
-            // Once the protocol handshake is complete, edits must still reach
-            // the server while project import is finishing so its model cannot
-            // fall behind the editor buffer.
-            if state.client.initialized {
+            // JDT LS associates working copies with the Java project model that
+            // exists when `didOpen` arrives. Opening restored documents before
+            // `ServiceReady` can permanently bind them to an incomplete Maven
+            // model, so retain only their latest text until import finishes.
+            let can_sync_on_wire = state.client.initialized
+                && (!waits_for_service_ready(&self.provider_id)
+                    || state.lifecycle == LspLifecycleState::Ready);
+            if can_sync_on_wire {
                 let response = if state
                     .client
                     .open_documents
@@ -1938,7 +1944,9 @@ impl RuntimeSession {
                     .to_string(),
                 );
             }
-            outbound.extend(self.flush_queued_documents()?);
+            if !waits_for_service_ready(&self.provider_id) {
+                outbound.extend(self.flush_queued_documents()?);
+            }
             self.send_messages_or_fail(outbound, "serverResponse")?;
             let mut state = self.lock_state()?;
             if let Some(info) = ready_server_info {
@@ -1961,18 +1969,23 @@ impl RuntimeSession {
         }
         self.send_messages_or_fail(outbound, "serverResponse")?;
         if service_ready {
-            let mut state = self.lock_state()?;
-            state.initialize_deadline = None;
-            transition_locked(self, &mut state, LspLifecycleState::Ready, None);
-            let capabilities = state.client.server_capabilities.clone();
-            push_features_event(self, &mut state, capabilities);
-            push_log_event(
-                self,
-                &mut state,
-                "info",
-                "Java language service finished project import",
-                None,
-            );
+            let queued_messages = {
+                let mut state = self.lock_state()?;
+                state.initialize_deadline = None;
+                let messages = flush_queued_documents_locked(&mut state)?;
+                transition_locked(self, &mut state, LspLifecycleState::Ready, None);
+                let capabilities = state.client.server_capabilities.clone();
+                push_features_event(self, &mut state, capabilities);
+                push_log_event(
+                    self,
+                    &mut state,
+                    "info",
+                    "Java language service finished project import",
+                    None,
+                );
+                messages
+            };
+            self.send_messages_or_fail(queued_messages, "serviceReady")?;
         }
         Ok(())
     }
@@ -2022,29 +2035,7 @@ impl RuntimeSession {
 
     fn flush_queued_documents(&self) -> Result<Vec<String>, CoreError> {
         let mut state = self.lock_state()?;
-        let queued: Vec<_> = state
-            .client
-            .open_documents
-            .values()
-            .filter(|document| document.version == 0)
-            .cloned()
-            .collect();
-        let mut messages = Vec::new();
-        for document in queued {
-            let response = client_open_document(ClientOpenDocumentRequest {
-                state: state.client.clone(),
-                uri: document.uri,
-                language_id: document.language_id,
-                text: document.text,
-            })?;
-            state.client = response.state;
-            messages.extend(response.messages);
-        }
-        if !state.pending_workspace_file_changes.is_empty() {
-            let changes = std::mem::take(&mut state.pending_workspace_file_changes);
-            messages.push(workspace_file_changes_notification(changes));
-        }
-        Ok(messages)
+        flush_queued_documents_locked(&mut state)
     }
 
     fn expire_deadlines(&self) {
@@ -3003,6 +2994,32 @@ fn clear_runtime_state(session: &RuntimeSession, state: &mut SessionState) {
     push_features_event(session, state, Vec::new());
 }
 
+fn flush_queued_documents_locked(state: &mut SessionState) -> Result<Vec<String>, CoreError> {
+    let queued: Vec<_> = state
+        .client
+        .open_documents
+        .values()
+        .filter(|document| document.version == 0)
+        .cloned()
+        .collect();
+    let mut messages = Vec::new();
+    for document in queued {
+        let response = client_open_document(ClientOpenDocumentRequest {
+            state: state.client.clone(),
+            uri: document.uri,
+            language_id: document.language_id,
+            text: document.text,
+        })?;
+        state.client = response.state;
+        messages.extend(response.messages);
+    }
+    if !state.pending_workspace_file_changes.is_empty() {
+        let changes = std::mem::take(&mut state.pending_workspace_file_changes);
+        messages.push(workspace_file_changes_notification(changes));
+    }
+    Ok(messages)
+}
+
 fn workspace_file_changes_notification(
     changes: BTreeMap<String, WorkspaceFileChangeKind>,
 ) -> String {
@@ -3468,25 +3485,57 @@ mod tests {
     }
 
     #[test]
-    fn java_edits_stay_incremental_while_project_import_is_finishing() {
+    fn java_documents_wait_for_service_ready_and_latest_text_wins() {
         let mut harness = Harness::start(|request| {
             request.provider_id = "java".to_string();
         });
         let uri = "file:///workspace/Main.java";
         harness.sync(uri, "class Main {}");
         harness.server.complete_initialize(ready_capabilities());
-        assert!(harness.server.await_notification("textDocument/didOpen"));
-        harness.sync(uri, "class Main { int value; }");
-        assert!(harness.server.await_notification("textDocument/didChange"));
+        assert!(harness
+            .server
+            .await_notification("workspace/didChangeConfiguration"));
+        assert!(!harness
+            .server
+            .messages()
+            .iter()
+            .any(|message| message["method"] == "textDocument/didOpen"));
 
+        harness.sync(uri, "class Main { int value; }");
         assert_eq!(harness.snapshot().state, LspLifecycleState::Initializing);
-        assert_eq!(harness.snapshot().open_documents[uri].version, 2);
+        assert_eq!(harness.snapshot().open_documents[uri].version, 0);
+        assert!(!harness.server.messages().iter().any(|message| {
+            matches!(
+                message["method"].as_str(),
+                Some("textDocument/didOpen" | "textDocument/didChange")
+            )
+        }));
+
         harness.server.send(json!({
             "jsonrpc": "2.0",
             "method": "language/status",
             "params": { "type": "ServiceReady" }
         }));
         harness.await_state(LspLifecycleState::Ready);
+
+        let document_messages: Vec<_> = harness
+            .server
+            .messages()
+            .into_iter()
+            .filter(|message| {
+                matches!(
+                    message["method"].as_str(),
+                    Some("textDocument/didOpen" | "textDocument/didChange")
+                )
+            })
+            .collect();
+        assert_eq!(document_messages.len(), 1);
+        assert_eq!(document_messages[0]["method"], "textDocument/didOpen");
+        assert_eq!(
+            document_messages[0]["params"]["textDocument"]["text"],
+            "class Main { int value; }"
+        );
+        assert_eq!(harness.snapshot().open_documents[uri].version, 1);
     }
 
     /// Criterion 3: two syncs emit open version 1 then change version 2.
@@ -3594,6 +3643,47 @@ mod tests {
                 { "uri": "file:///workspace/pom.xml", "type": 2 },
                 { "uri": "file:///workspace/src/Main.java", "type": 2 }
             ])
+        );
+    }
+
+    #[test]
+    fn java_workspace_changes_wait_for_service_ready() {
+        let mut harness = Harness::start(|request| {
+            request.provider_id = "java".to_string();
+        });
+        harness
+            .session()
+            .workspace_files_changed(vec![WorkspaceFileChange {
+                uri: "file:///workspace/src/Main.java".to_string(),
+                kind: WorkspaceFileChangeKind::Changed,
+            }])
+            .expect("Java watcher events should queue while project import is pending");
+        harness.server.complete_initialize(ready_capabilities());
+        assert!(harness
+            .server
+            .await_notification("workspace/didChangeConfiguration"));
+        assert!(!harness
+            .server
+            .messages()
+            .iter()
+            .any(|message| { message["method"] == "workspace/didChangeWatchedFiles" }));
+
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "method": "language/status",
+            "params": { "type": "ServiceReady" }
+        }));
+        harness.await_state(LspLifecycleState::Ready);
+
+        let notification = harness
+            .server
+            .messages()
+            .into_iter()
+            .find(|message| message["method"] == "workspace/didChangeWatchedFiles")
+            .expect("queued Java watcher events should flush after project import");
+        assert_eq!(
+            notification["params"]["changes"],
+            json!([{ "uri": "file:///workspace/src/Main.java", "type": 2 }])
         );
     }
 
