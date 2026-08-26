@@ -7,10 +7,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: lithe-pr-review-${{ github.event.issue.number }}
-  cancel-in-progress: true
-
 env:
   LITHE_CODEX_MODEL: gpt-5.6-sol
 
@@ -29,6 +25,7 @@ jobs:
       authorized: ${{ steps.prepare.outputs.authorized }}
       base_sha: ${{ steps.prepare.outputs.base_sha }}
       head_sha: ${{ steps.prepare.outputs.head_sha }}
+      review_mode: ${{ steps.prepare.outputs.review_mode }}
     steps:
       - name: Check out trusted review tooling
         uses: actions/checkout@v7
@@ -58,11 +55,13 @@ jobs:
         uses: actions/github-script@v7
         env:
           LITHE_HEAD_SHA: ${{ steps.prepare.outputs.head_sha }}
+          LITHE_REVIEW_MODE: ${{ steps.prepare.outputs.review_mode }}
         with:
           github-token: ${{ github.token }}
           script: |
             const marker = `<!-- lithe-review:${context.issue.number}:${process.env.LITHE_HEAD_SHA} -->`;
-            const body = `${marker}\n## Lithe Review\n\n⏳ 正在规划并行审查，完成或失败后会更新本评论。`;
+            const mode = process.env.LITHE_REVIEW_MODE === 'large' ? '大型变更' : '标准';
+            const body = `${marker}\n## Lithe Review\n\n⏳ 正在以${mode}模式审查，完成或失败后会更新本评论。`;
             const comments = await github.paginate(github.rest.issues.listComments, {
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -87,230 +86,14 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  planner:
+  review:
     needs: prepare
     if: needs.prepare.outputs.authorized == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: read
-    outputs:
-      plan_source: ${{ steps.ensure.outputs.plan_source }}
-    steps:
-      - name: Check out trusted review tooling
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Stage trusted planner tooling
-        env:
-          LITHE_TOOLING: ${{ runner.temp }}/lithe-review-tooling
-        run: |
-          set -euo pipefail
-          mkdir -p "$LITHE_TOOLING"
-          install -m 755 scripts/prepare-lithe-review-stage.mjs "$LITHE_TOOLING/stage.mjs"
-          install -m 600 .github/lithe-review/planner.schema.json "$LITHE_TOOLING/planner.schema.json"
-
-      - name: Download trusted review input
-        uses: actions/download-artifact@v4
-        with:
-          name: lithe-review-input-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/lithe-review-input
-
-      - name: Build planner prompt
-        run: >-
-          node "${{ runner.temp }}/lithe-review-tooling/stage.mjs" planner
-          --base-prompt "${{ runner.temp }}/lithe-review-input/lithe-pr-review-prompt.md"
-          --output "${{ runner.temp }}/lithe-review-planner-prompt.md"
-
-      - name: Check out the complete pull request head
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.prepare.outputs.head_sha }}
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Verify checked-out revision
-        env:
-          LITHE_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
-          LITHE_HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$LITHE_HEAD_SHA"
-          git cat-file -e "${LITHE_BASE_SHA}^{commit}"
-
-      - name: Plan Lithe review with Codex
-        id: codex
-        continue-on-error: true
-        uses: openai/codex-action@v1
-        with:
-          openai-api-key: ${{ secrets.LITHE_CODEX_API_KEY }}
-          responses-api-endpoint: ${{ secrets.LITHE_CODEX_RESPONSES_URL }}
-          prompt-file: ${{ runner.temp }}/lithe-review-planner-prompt.md
-          output-file: ${{ runner.temp }}/lithe-review-plan-candidate.json
-          output-schema-file: ${{ runner.temp }}/lithe-review-tooling/planner.schema.json
-          model: ${{ env.LITHE_CODEX_MODEL }}
-          effort: xhigh
-          sandbox: read-only
-          safety-strategy: drop-sudo
-          allow-users: ${{ github.actor }}
-
-      - name: Validate or replace planner output
-        id: ensure
-        if: always()
-        run: |
-          set -euo pipefail
-          plan_source="$(node "${{ runner.temp }}/lithe-review-tooling/stage.mjs" ensure-plan \
-            --candidate "${{ runner.temp }}/lithe-review-plan-candidate.json" \
-            --output "${{ runner.temp }}/lithe-review-plan.json")"
-          echo "plan_source=$plan_source" >> "$GITHUB_OUTPUT"
-          echo "[lithe-review] planner_outcome=${{ steps.codex.outcome }} plan_source=${plan_source}"
-
-      - name: Upload review plan
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: lithe-review-plan-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/lithe-review-plan.json
-            ${{ runner.temp }}/lithe-review-plan-candidate.json
-          if-no-files-found: warn
-          retention-days: 14
-
-  reviewers:
-    needs: [prepare, planner]
-    if: needs.prepare.outputs.authorized == 'true'
-    strategy:
-      fail-fast: false
-      max-parallel: 2
-      matrix:
-        include:
-          - role_id: correctness
-            role_title: Correctness and end-to-end behavior
-          - role_id: architecture
-            role_title: Architecture, contracts, and cross-platform behavior
-          - role_id: resilience
-            role_title: Concurrency, security, lifecycle, and diagnostics
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    permissions:
-      contents: read
-    steps:
-      - name: Check out trusted review tooling
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Stage trusted reviewer tooling
-        env:
-          LITHE_TOOLING: ${{ runner.temp }}/lithe-review-tooling
-        run: |
-          set -euo pipefail
-          mkdir -p "$LITHE_TOOLING"
-          install -m 755 scripts/prepare-lithe-review-stage.mjs "$LITHE_TOOLING/stage.mjs"
-          install -m 600 .github/lithe-review/reviewer.schema.json "$LITHE_TOOLING/reviewer.schema.json"
-
-      - name: Download trusted review input
-        uses: actions/download-artifact@v4
-        with:
-          name: lithe-review-input-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/lithe-review-input
-
-      - name: Download review plan
-        uses: actions/download-artifact@v4
-        with:
-          name: lithe-review-plan-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/lithe-review-plan
-
-      - name: Build focused reviewer prompt
-        env:
-          LITHE_ROLE_ID: ${{ matrix.role_id }}
-        run: >-
-          node "${{ runner.temp }}/lithe-review-tooling/stage.mjs" reviewer
-          --base-prompt "${{ runner.temp }}/lithe-review-input/lithe-pr-review-prompt.md"
-          --plan "${{ runner.temp }}/lithe-review-plan/lithe-review-plan.json"
-          --role-id "$LITHE_ROLE_ID"
-          --output "${{ runner.temp }}/lithe-reviewer-prompt.md"
-
-      - name: Check out the complete pull request head
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.prepare.outputs.head_sha }}
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Verify checked-out revision
-        env:
-          LITHE_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
-          LITHE_HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$LITHE_HEAD_SHA"
-          git cat-file -e "${LITHE_BASE_SHA}^{commit}"
-
-      - name: Run ${{ matrix.role_title }} review
-        id: codex
-        continue-on-error: true
-        uses: openai/codex-action@v1
-        with:
-          openai-api-key: ${{ secrets.LITHE_CODEX_API_KEY }}
-          responses-api-endpoint: ${{ secrets.LITHE_CODEX_RESPONSES_URL }}
-          prompt-file: ${{ runner.temp }}/lithe-reviewer-prompt.md
-          output-file: ${{ runner.temp }}/lithe-review-${{ matrix.role_id }}.json
-          output-schema-file: ${{ runner.temp }}/lithe-review-tooling/reviewer.schema.json
-          model: ${{ env.LITHE_CODEX_MODEL }}
-          effort: medium
-          sandbox: read-only
-          safety-strategy: drop-sudo
-          allow-users: ${{ github.actor }}
-
-      - name: Record reviewer status
-        if: always()
-        env:
-          LITHE_ROLE_ID: ${{ matrix.role_id }}
-          LITHE_CODEX_OUTCOME: ${{ steps.codex.outcome }}
-        run: |
-          set -euo pipefail
-          {
-            echo "role_id=${LITHE_ROLE_ID}"
-            echo "codex_outcome=${LITHE_CODEX_OUTCOME}"
-            echo "base_sha=${{ needs.prepare.outputs.base_sha }}"
-            echo "head_sha=${{ needs.prepare.outputs.head_sha }}"
-            echo "model=${LITHE_CODEX_MODEL}"
-            echo "effort=medium"
-          } > "${{ runner.temp }}/lithe-review-${LITHE_ROLE_ID}.status"
-
-      - name: Upload reviewer result
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: lithe-review-worker-${{ matrix.role_id }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/lithe-review-${{ matrix.role_id }}.json
-            ${{ runner.temp }}/lithe-review-${{ matrix.role_id }}.status
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: Report reviewer failure
-        if: always() && steps.codex.outcome != 'success'
-        env:
-          LITHE_ROLE_ID: ${{ matrix.role_id }}
-        run: |
-          echo "Codex reviewer ${LITHE_ROLE_ID} did not complete successfully" >&2
-          exit 1
-
-  aggregate:
-    needs: [prepare, planner, reviewers]
-    if: >-
-      always() &&
-      needs.prepare.outputs.authorized == 'true' &&
-      needs.planner.result == 'success'
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 45
+    concurrency:
+      group: lithe-pr-review-${{ github.repository }}-${{ github.event.issue.number }}-${{ needs.prepare.outputs.head_sha }}
+      cancel-in-progress: false
     permissions:
       contents: read
     outputs:
@@ -324,7 +107,7 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Stage trusted aggregator tooling
+      - name: Stage trusted review tooling
         env:
           LITHE_TOOLING: ${{ runner.temp }}/lithe-review-tooling
         run: |
@@ -339,27 +122,6 @@ jobs:
           name: lithe-review-input-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/lithe-review-input
 
-      - name: Download review plan
-        uses: actions/download-artifact@v4
-        with:
-          name: lithe-review-plan-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/lithe-review-plan
-
-      - name: Download reviewer results
-        uses: actions/download-artifact@v4
-        with:
-          pattern: lithe-review-worker-*-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/lithe-review-workers
-          merge-multiple: true
-
-      - name: Build aggregation prompt
-        run: >-
-          node "${{ runner.temp }}/lithe-review-tooling/stage.mjs" aggregator
-          --base-prompt "${{ runner.temp }}/lithe-review-input/lithe-pr-review-prompt.md"
-          --plan "${{ runner.temp }}/lithe-review-plan/lithe-review-plan.json"
-          --workers "${{ runner.temp }}/lithe-review-workers"
-          --output "${{ runner.temp }}/lithe-review-aggregator-prompt.md"
-
       - name: Check out the complete pull request head
         uses: actions/checkout@v7
         with:
@@ -376,18 +138,18 @@ jobs:
           test "$(git rev-parse HEAD)" = "$LITHE_HEAD_SHA"
           git cat-file -e "${LITHE_BASE_SHA}^{commit}"
 
-      - name: Verify and aggregate review with Codex
+      - name: Review pull request with Codex
         id: codex
         continue-on-error: true
         uses: openai/codex-action@v1
         with:
           openai-api-key: ${{ secrets.LITHE_CODEX_API_KEY }}
           responses-api-endpoint: ${{ secrets.LITHE_CODEX_RESPONSES_URL }}
-          prompt-file: ${{ runner.temp }}/lithe-review-aggregator-prompt.md
+          prompt-file: ${{ runner.temp }}/lithe-review-input/lithe-pr-review-prompt.md
           output-file: ${{ runner.temp }}/lithe-review-final-candidate.json
           output-schema-file: ${{ runner.temp }}/lithe-review-tooling/final.schema.json
           model: ${{ env.LITHE_CODEX_MODEL }}
-          effort: xhigh
+          effort: medium
           sandbox: read-only
           safety-strategy: drop-sudo
           allow-users: ${{ github.actor }}
@@ -398,36 +160,27 @@ jobs:
         run: >-
           node "${{ runner.temp }}/lithe-review-tooling/stage.mjs" finalize
           --candidate "${{ runner.temp }}/lithe-review-final-candidate.json"
-          --workers "${{ runner.temp }}/lithe-review-workers"
-          --base-sha "${{ needs.prepare.outputs.base_sha }}"
-          --head-sha "${{ needs.prepare.outputs.head_sha }}"
           --output "${{ runner.temp }}/lithe-review-final.md"
 
-      - name: Upload aggregation diagnostics
+      - name: Upload review diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: lithe-review-aggregation-${{ github.event.issue.number }}-${{ github.run_attempt }}
+          name: lithe-review-${{ github.event.issue.number }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/lithe-review-final-candidate.json
             ${{ runner.temp }}/lithe-review-final.md
-            ${{ runner.temp }}/lithe-review-plan/lithe-review-plan.json
-            ${{ runner.temp }}/lithe-review-workers
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Report aggregation failure
-        if: always() && steps.finalize.outputs.review_outcome == 'failure'
+      - name: Report review failure
+        if: always() && steps.finalize.outputs.review_outcome != 'success'
         run: |
-          echo "Codex review aggregation did not produce a valid final review" >&2
+          echo "Codex review did not produce a valid final result" >&2
           exit 1
 
-      - name: Warn about partial aggregation
-        if: always() && steps.finalize.outputs.review_outcome == 'partial'
-        run: echo "::warning title=Lithe review partially aggregated::Publishing unverified reviewer candidates because the final verifier did not complete"
-
   publish:
-    needs: [prepare, planner, reviewers, aggregate]
+    needs: [prepare, review]
     if: >-
       always() &&
       needs.prepare.outputs.authorized == 'true'
@@ -440,10 +193,10 @@ jobs:
       - name: Publish or update the review
         uses: actions/github-script@v7
         env:
-          LITHE_FINAL_MESSAGE: ${{ needs.aggregate.outputs.final_message }}
+          LITHE_FINAL_MESSAGE: ${{ needs.review.outputs.final_message }}
           LITHE_HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
-          LITHE_REVIEW_OUTCOME: ${{ needs.aggregate.outputs.review_outcome }}
-          LITHE_AGGREGATE_JOB_RESULT: ${{ needs.aggregate.result }}
+          LITHE_REVIEW_OUTCOME: ${{ needs.review.outputs.review_outcome }}
+          LITHE_REVIEW_JOB_RESULT: ${{ needs.review.result }}
           LITHE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         with:
           github-token: ${{ github.token }}
@@ -456,8 +209,8 @@ jobs:
               '',
               '**结论：** ❓ 审查未完成',
               '',
-              `聚合状态：\`${process.env.LITHE_REVIEW_OUTCOME || process.env.LITHE_AGGREGATE_JOB_RESULT}\`。`,
-              `请查看[本次 Actions 日志与分阶段诊断附件](${process.env.LITHE_RUN_URL})后重新召唤。`,
+              `审查状态：\`${process.env.LITHE_REVIEW_OUTCOME || process.env.LITHE_REVIEW_JOB_RESULT}\`。`,
+              `请查看[本次 Actions 日志与诊断附件](${process.env.LITHE_RUN_URL})后重新召唤。`,
             ].join('\n');
             const body = `${marker}\n${message || failureMessage}`.slice(0, limit);
             const comments = await github.paginate(github.rest.issues.listComments, {
