@@ -64,6 +64,47 @@ struct JavaLanguageServerRuntimeTests {
     }
 
     @Test
+    func macJdtlsResolverRejectsConfigurationForTheWrongArchitecture() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("lithe-jdtls-architecture-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        for directory in ["bin", "plugins", "lombok"] {
+            try fileManager.createDirectory(
+                at: root.appendingPathComponent(directory, isDirectory: true),
+                withIntermediateDirectories: true
+            )
+        }
+        #if arch(arm64)
+        let wrongConfigurationName = "config_mac"
+        #elseif arch(x86_64)
+        let wrongConfigurationName = "config_mac_arm"
+        #else
+        Issue.record("Unsupported macOS test architecture")
+        return
+        #endif
+        try fileManager.createDirectory(
+            at: root.appendingPathComponent(wrongConfigurationName, isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        for file in [
+            root.appendingPathComponent("bin/jdtls"),
+            root.appendingPathComponent("plugins/org.eclipse.equinox.launcher_1.0.0.jar"),
+            root.appendingPathComponent("lombok/lombok.jar")
+        ] {
+            try Data().write(to: file)
+        }
+        let resolver = MacJDTLSLaunchResourceResolver(bundledJdtlsRootURL: root)
+
+        guard case .unavailable = resolver.resolve(
+            for: root.appendingPathComponent("bin/jdtls")
+        ) else {
+            Issue.record("Expected bundled JDTLS with the wrong architecture configuration to fail")
+            return
+        }
+    }
+
+    @Test
     func parsesModernAndLegacyJavaVersions() {
         #expect(javaRuntime("/jdk-17", "17.0.18").majorVersion == 17)
         #expect(javaRuntime("/jdk-21", "21-ea").majorVersion == 21)

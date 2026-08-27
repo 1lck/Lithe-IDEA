@@ -5,8 +5,8 @@ ROOT_DIR="${0:A:h:h}"
 cd "$ROOT_DIR"
 
 case "$(uname -m)" in
-    arm64) ARCH="arm64" ;;
-    x86_64) ARCH="x86_64" ;;
+    arm64) ARCH="arm64"; JDTLS_CONFIGURATION="config_mac_arm" ;;
+    x86_64) ARCH="x86_64"; JDTLS_CONFIGURATION="config_mac" ;;
     *) print -u2 -- "Unsupported host architecture: $(uname -m)"; exit 1 ;;
 esac
 
@@ -23,7 +23,7 @@ dmg_log="$temporary_directory/dmg.log"
 # keeping CI deterministic and independent of the Eclipse download service.
 mkdir -p \
     "$jdtls_root/plugins" \
-    "$jdtls_root/config_mac" \
+    "$jdtls_root/$JDTLS_CONFIGURATION" \
     "$jdtls_root/config_win" \
     "$jdtls_root/bin" \
     "$jdtls_root/lombok"
@@ -82,7 +82,7 @@ required_resources=(
     "$app_path/Contents/Resources/SwiftTerm_SwiftTerm.bundle/Shaders.metal"
     "$app_path/Contents/Resources/LanguageServers/jdtls/bin/jdtls"
     "$app_path/Contents/Resources/LanguageServers/jdtls/plugins/org.eclipse.equinox.launcher_1.0.0.jar"
-    "$app_path/Contents/Resources/LanguageServers/jdtls/config_mac"
+    "$app_path/Contents/Resources/LanguageServers/jdtls/$JDTLS_CONFIGURATION"
     "$app_path/Contents/Resources/LanguageServers/jdtls/lombok/lombok.jar"
     "$app_path/Contents/Resources/LanguageServers/jdk/bin/java"
     "$app_path/Contents/Resources/LanguageServers/jdk/lib"

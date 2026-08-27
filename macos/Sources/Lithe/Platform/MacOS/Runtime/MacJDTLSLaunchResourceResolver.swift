@@ -71,10 +71,13 @@ struct MacJDTLSLaunchResourceResolver {
 
     private func configurationDirectory(in rootURL: URL) -> URL? {
         #if arch(arm64)
-        let armConfiguration = rootURL.appendingPathComponent("config_mac_arm", isDirectory: true)
-        if isDirectory(armConfiguration) { return armConfiguration }
+        let configurationName = "config_mac_arm"
+        #elseif arch(x86_64)
+        let configurationName = "config_mac"
+        #else
+        return nil
         #endif
-        let configuration = rootURL.appendingPathComponent("config_mac", isDirectory: true)
+        let configuration = rootURL.appendingPathComponent(configurationName, isDirectory: true)
         return isDirectory(configuration) ? configuration : nil
     }
 
