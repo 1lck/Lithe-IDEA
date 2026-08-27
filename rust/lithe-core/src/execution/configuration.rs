@@ -722,10 +722,9 @@ fn within_maven_module(path: &str, module: &str, maven_root: Option<&str>) -> bo
 /// Translates detector output into the run-configuration contract.
 ///
 /// Nearly every detection is process-based: the detector resolved the command,
-/// so there is no toolchain binding and no ecosystem-specific launch assembly,
-/// which is what keeps a new ecosystem from needing changes in
-/// `create_launch_plan`. A detection that names toolchains instead carries a
-/// provider `create_launch_plan` already handles.
+/// so there is no ecosystem-specific launch assembly. A process may still name
+/// a runtime requirement for scoped compatibility diagnostics; a detection that
+/// transfers executable ownership to toolchains carries no command.
 fn detected_configurations(
     root: &Path,
     maven_root: Option<&Path>,
@@ -733,46 +732,22 @@ fn detected_configurations(
 ) -> Result<Vec<RunConfiguration>, CoreError> {
     Ok(super::detectors::detect_all(root, maven_root)?
         .into_iter()
-        .map(|item| {
-            let id = item.id();
-            let provider = item.provider;
-            let mut toolchains = item.toolchains;
-            match provider.split('.').next().unwrap_or("") {
-                "npm" => {
-                    toolchains.insert("runtime".to_string(), "project-node".to_string());
-                }
-                "go" => {
-                    toolchains.insert("runtime".to_string(), "project-go".to_string());
-                }
-                "python" => {
-                    toolchains.insert("runtime".to_string(), "project-python".to_string());
-                }
-                "cargo" => {
-                    toolchains.insert("runtime".to_string(), "project-cargo".to_string());
-                }
-                "gradle" => {
-                    toolchains.insert("runtime".to_string(), "project-gradle".to_string());
-                    toolchains.insert("java".to_string(), "project-jdk".to_string());
-                }
-                _ => {}
-            }
-            RunConfiguration {
-                id,
-                name: item.name,
-                provider,
-                execution: item.execution,
-                command: item.command,
-                args: item.args,
-                cwd: item.cwd,
-                env: item.env,
-                confidence: item.confidence,
-                toolchains,
-                debug: item.debug.map(|adapter| DebugCapability { adapter }),
-                members: Vec::new(),
-                extensions: item.extensions,
-                disabled: false,
-                source: Some(item.source),
-            }
+        .map(|item| RunConfiguration {
+            id: item.id(),
+            name: item.name,
+            provider: item.provider,
+            execution: item.execution,
+            command: item.command,
+            args: item.args,
+            cwd: item.cwd,
+            env: item.env,
+            confidence: item.confidence,
+            toolchains: item.toolchains,
+            debug: item.debug.map(|adapter| DebugCapability { adapter }),
+            members: Vec::new(),
+            extensions: item.extensions,
+            disabled: false,
+            source: Some(item.source),
         })
         .filter(|item| !claimed.contains(&item.id))
         .filter(|item| validate_configuration(item).is_ok())
@@ -2233,55 +2208,19 @@ fn detect_requirements(
     if maven_root.join("pom.xml").is_file() || maven_root.join("mvnw").is_file() {
         toolchains.insert("project-maven".to_string(), maven);
     }
-    let providers = configurations
-        .iter()
-        .map(|configuration| configuration.provider.as_str())
-        .collect::<Vec<_>>();
-    if providers.iter().any(|provider| provider.starts_with("go.")) {
-        toolchains.insert(
-            "project-go".to_string(),
-            generic_requirement("go", declared_go_version(root)),
-        );
-    }
-    if providers
-        .iter()
-        .any(|provider| provider.starts_with("python."))
-    {
-        toolchains.insert(
-            "project-python".to_string(),
-            generic_requirement("python", declared_python_version(root)),
-        );
-    }
-    if providers
-        .iter()
-        .any(|provider| provider.starts_with("npm."))
-    {
+    let consumes = |toolchain: &str| {
+        configurations.iter().any(|configuration| {
+            configuration
+                .toolchains
+                .values()
+                .any(|candidate| candidate == toolchain)
+        })
+    };
+    if consumes("project-node") {
         toolchains.insert(
             "project-node".to_string(),
             generic_requirement("node", declared_node_version(root)),
         );
-    }
-    if providers
-        .iter()
-        .any(|provider| provider.starts_with("cargo."))
-    {
-        toolchains.insert(
-            "project-cargo".to_string(),
-            generic_requirement("rust", declared_rust_version(root)),
-        );
-    }
-    if providers
-        .iter()
-        .any(|provider| provider.starts_with("gradle."))
-    {
-        let mut gradle = generic_requirement("gradle", None);
-        // A Gradle build runs on the JVM, so the requirement carries the same
-        // JDK binding Maven uses rather than resolving a runtime of its own.
-        gradle.java = Some("project-jdk".to_string());
-        if root.join("gradlew").exists() {
-            gradle.wrapper = Some("./gradlew".to_string());
-        }
-        toolchains.insert("project-gradle".to_string(), gradle);
     }
     Ok(ToolchainRequirementsDocument {
         version: SIDECAR_VERSION,
@@ -2543,39 +2482,6 @@ fn fingerprint_input(path: &Path) -> bool {
     )
 }
 
-fn declared_go_version(root: &Path) -> Option<String> {
-    highest_version(
-        project_manifest_paths(root, &["go.mod"])
-            .into_iter()
-            .filter_map(|path| fs::read_to_string(path).ok())
-            .filter_map(|text| {
-                text.lines().find_map(|line| {
-                    line.trim()
-                        .strip_prefix("go ")
-                        .and_then(first_numeric_version)
-                })
-            })
-            .collect(),
-    )
-}
-
-fn declared_python_version(root: &Path) -> Option<String> {
-    let expression =
-        regex::Regex::new(r#"(?m)^\s*(?:requires-python|python)\s*=\s*["']([^"']+)["']"#).ok()?;
-    highest_version(
-        project_manifest_paths(root, &["pyproject.toml"])
-            .into_iter()
-            .filter_map(|path| fs::read_to_string(path).ok())
-            .filter_map(|text| {
-                expression
-                    .captures(&text)
-                    .and_then(|capture| capture.get(1))
-                    .and_then(|value| first_numeric_version(value.as_str()))
-            })
-            .collect(),
-    )
-}
-
 fn declared_node_version(root: &Path) -> Option<String> {
     highest_version(
         project_manifest_paths(root, &["package.json"])
@@ -2591,35 +2497,6 @@ fn declared_node_version(root: &Path) -> Option<String> {
             })
             .collect(),
     )
-}
-
-fn declared_rust_version(root: &Path) -> Option<String> {
-    let mut versions = Vec::new();
-    for path in project_manifest_paths(root, &["Cargo.toml"]) {
-        let Some(document) = fs::read_to_string(path)
-            .ok()
-            .and_then(|text| text.parse::<toml::Table>().ok())
-        else {
-            continue;
-        };
-        if let Some(version) = document
-            .get("package")
-            .and_then(|package| package.get("rust-version"))
-            .and_then(|value| value.as_str())
-            .and_then(first_numeric_version)
-        {
-            versions.push(version);
-        }
-    }
-    for path in project_manifest_paths(root, &["rust-toolchain", "rust-toolchain.toml"]) {
-        let Ok(text) = fs::read_to_string(path) else {
-            continue;
-        };
-        if let Some(version) = first_numeric_version(&text) {
-            versions.push(version);
-        }
-    }
-    highest_version(versions)
 }
 
 fn first_numeric_version(value: &str) -> Option<String> {

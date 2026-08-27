@@ -187,6 +187,40 @@ fn npm_detector_inherits_the_workspace_package_manager() {
 }
 
 #[test]
+fn bun_scripts_keep_the_bun_command_without_consuming_node() {
+    let root = temporary_root("detect-bun-runtime");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("bun.lock"), "").unwrap();
+    fs::write(
+        root.join("package.json"),
+        r#"{"packageManager":"bun@1.2.0","scripts":{"dev":"vite"}}"#,
+    )
+    .unwrap();
+
+    let dev = generated_configurations(&root)
+        .into_iter()
+        .find(|item| item["id"] == "npm.script:dev")
+        .unwrap();
+    assert_eq!(dev["command"], "bun");
+    assert!(dev["toolchains"].as_object().unwrap().is_empty(), "{dev}");
+    let generated: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "generate-bun-runtime",
+            "command": "runConfig.generate",
+            "payload": {"root": root}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert!(
+        generated["data"]["toolchainRequirements"]["toolchains"]["project-node"].is_null(),
+        "{generated}"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn detectors_preserve_application_service_and_task_semantics() {
     let root = temporary_root("detect-execution-semantics");
     fs::create_dir_all(&root).unwrap();
@@ -669,11 +703,11 @@ fn gradle_detector_ignores_commented_plugins() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// A Gradle service runs on the JVM, so it must reach the host's JDK and Gradle
-/// wrapper the same way a Maven module does. Without the requirement the host has
-/// no toolchain to resolve and the wrapper in the project is ignored.
+/// Gradle consumes a JDK but remains a process command until every host provides
+/// a Gradle registry. Binding a synthetic Gradle toolchain would block PATH-based
+/// execution on hosts that cannot discover or configure it.
 #[test]
-fn gradle_projects_require_a_jdk_and_prefer_the_wrapper() {
+fn gradle_projects_require_a_jdk_without_replacing_the_path_command() {
     let root = temporary_root("detect-gradle-toolchain");
     fs::create_dir_all(&root).unwrap();
     fs::write(
@@ -695,12 +729,19 @@ fn gradle_projects_require_a_jdk_and_prefer_the_wrapper() {
     assert_eq!(response["ok"], true, "{response}");
     let toolchains = &response["data"]["toolchainRequirements"]["toolchains"];
 
-    assert_eq!(toolchains["project-gradle"]["type"], "gradle");
-    assert_eq!(toolchains["project-gradle"]["wrapper"], "./gradlew");
-    assert_eq!(toolchains["project-gradle"]["java"], "project-jdk");
+    assert!(toolchains["project-gradle"].is_null(), "{toolchains}");
     // Kotlin and Groovy sources mean a Gradle build can need a JDK with no
     // `.java` file anywhere in the project.
     assert_eq!(toolchains["project-jdk"]["type"], "java");
+    let configuration = response["data"]["generated"]["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["provider"] == "gradle.service")
+        .unwrap();
+    assert_eq!(configuration["command"], "gradle");
+    assert_eq!(configuration["toolchains"]["java"], "project-jdk");
+    assert!(configuration["toolchains"]["runtime"].is_null());
 
     fs::remove_dir_all(root).unwrap();
 }

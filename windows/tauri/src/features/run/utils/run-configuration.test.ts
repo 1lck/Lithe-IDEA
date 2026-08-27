@@ -5,6 +5,7 @@ import {
   configurationOverrides,
   configurationUsesMaven,
   defaultGeneratedConfigurationId,
+  effectiveRuntimeExecutablePaths,
   isBlockingToolchainDiagnostic,
   mapCoreConfiguration,
   mergeLaunchEnvironment,
@@ -229,6 +230,39 @@ describe("run configuration mapping", () => {
 
     expect(candidates).toEqual([
       { id: "project-node", type: "node", version: "20.18.0", vendor: "Node.js" },
+    ]);
+  });
+
+  test("uses the same automatic runtime path for validation and launch", () => {
+    const runtimes = [
+      {
+        id: "project-node",
+        type: "node",
+        executablePath: "C:/Program Files/nodejs/node.exe",
+        version: "22.5.1",
+        vendor: "Node.js",
+      },
+      {
+        id: "project-node",
+        type: "node",
+        executablePath: "D:/path-node/node.exe",
+        version: "18.20.4",
+        vendor: "Node.js",
+      },
+    ];
+    const effectivePaths = effectiveRuntimeExecutablePaths(runtimes, {});
+    const selected = {
+      javaHomePath: "",
+      mavenExecutablePath: "",
+      mavenJavaHomePath: "",
+      runtimeExecutablePaths: effectivePaths,
+    };
+
+    expect(effectivePaths).toEqual({
+      "project-node": "C:/Program Files/nodejs/node.exe",
+    });
+    expect(selectedToolchainCandidates({ java: [], maven: [], runtimes }, selected)).toEqual([
+      { id: "project-node", type: "node", version: "22.5.1", vendor: "Node.js" },
     ]);
   });
 });

@@ -38,6 +38,7 @@ import {
 import {
   defaultGeneratedConfigurationId,
   blockingToolchainDiagnosticForConfiguration,
+  effectiveRuntimeExecutablePaths,
   mapCoreConfiguration,
   mapCoreToolchain,
   mapDiagnostics,
@@ -75,6 +76,7 @@ interface RunState {
   discoveredMaven: MavenRuntime[];
   discoveredRuntimes: GenericRuntime[];
   globalToolchain: GlobalToolchain;
+  effectiveRuntimeExecutablePaths: Record<string, string>;
   actions: {
     loadProject: (root: string) => Promise<void>;
     generate: (root: string) => Promise<void>;
@@ -103,6 +105,7 @@ interface ResolvedRunProject {
   discoveredMaven: MavenRuntime[];
   discoveredRuntimes: GenericRuntime[];
   globalToolchain: GlobalToolchain;
+  effectiveRuntimeExecutablePaths: Record<string, string>;
 }
 
 type RunProjectSnapshot =
@@ -123,6 +126,7 @@ type ReadyRunState = Pick<
   | "discoveredMaven"
   | "discoveredRuntimes"
   | "globalToolchain"
+  | "effectiveRuntimeExecutablePaths"
   | "isLoading"
 >;
 
@@ -145,9 +149,13 @@ function optionsFromConfiguration(configuration: RunConfiguration): RunOptions {
 
 async function resolveConfigurations(root: string): Promise<ResolvedRunProject> {
   const automatic = await discoverRunToolchains(root);
+  const automaticRuntimePaths = effectiveRuntimeExecutablePaths(automatic.runtimes, {});
   const preliminary = await resolveRunConfiguration(
     root,
-    selectedToolchainCandidates(automatic, EMPTY_GLOBAL_TOOLCHAIN),
+    selectedToolchainCandidates(automatic, {
+      ...EMPTY_GLOBAL_TOOLCHAIN,
+      runtimeExecutablePaths: automaticRuntimePaths,
+    }),
   );
   const globalToolchain = mapCoreToolchain(
     preliminary.toolchain,
@@ -161,7 +169,14 @@ async function resolveConfigurations(root: string): Promise<ResolvedRunProject> 
   const discovered = hasSelectedToolchain
     ? await discoverRunToolchains(root, globalToolchain)
     : automatic;
-  const candidates = selectedToolchainCandidates(discovered, globalToolchain);
+  const effectiveRuntimePaths = effectiveRuntimeExecutablePaths(
+    discovered.runtimes,
+    globalToolchain.runtimeExecutablePaths,
+  );
+  const candidates = selectedToolchainCandidates(discovered, {
+    ...globalToolchain,
+    runtimeExecutablePaths: effectiveRuntimePaths,
+  });
   const resolved = hasSelectedToolchain
     ? await resolveRunConfiguration(root, candidates)
     : preliminary;
@@ -173,6 +188,7 @@ async function resolveConfigurations(root: string): Promise<ResolvedRunProject> 
     discoveredMaven: discovered.maven,
     discoveredRuntimes: discovered.runtimes,
     globalToolchain,
+    effectiveRuntimeExecutablePaths: effectiveRuntimePaths,
   };
 }
 
@@ -214,6 +230,7 @@ function readyRunState(
     discoveredMaven: snapshot.discoveredMaven,
     discoveredRuntimes: snapshot.discoveredRuntimes,
     globalToolchain: snapshot.globalToolchain,
+    effectiveRuntimeExecutablePaths: snapshot.effectiveRuntimeExecutablePaths,
     isLoading: false,
   };
 }
@@ -241,6 +258,7 @@ export const createRunStore = () =>
     discoveredMaven: [],
     discoveredRuntimes: [],
     globalToolchain: EMPTY_GLOBAL_TOOLCHAIN,
+    effectiveRuntimeExecutablePaths: {},
     actions: {
       loadProject: async (root) => {
         set({
@@ -310,6 +328,7 @@ export const createRunStore = () =>
             discoveredMaven: resolved.discoveredMaven,
             discoveredRuntimes: resolved.discoveredRuntimes,
             globalToolchain: resolved.globalToolchain,
+            effectiveRuntimeExecutablePaths: resolved.effectiveRuntimeExecutablePaths,
             generationNotice: notice,
             isGenerating: false,
             isLoading: false,
@@ -370,7 +389,7 @@ export const createRunStore = () =>
             javaHomePath: configuration.javaHomePath,
             mavenExecutablePath: configuration.mavenExecutablePath,
             mavenJavaHomePath: configuration.mavenJavaHomePath,
-            runtimeExecutablePaths: state.globalToolchain.runtimeExecutablePaths,
+            runtimeExecutablePaths: state.effectiveRuntimeExecutablePaths,
             environment: mergeLaunchEnvironment(configuration.env, plan),
           });
           const commandLine = `$ ${resolved.executable.split(/[\\/]/).pop()} ${plan.arguments.join(" ")}\n\n`;

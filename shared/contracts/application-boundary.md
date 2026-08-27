@@ -227,3 +227,7 @@ executables such as Node are selected in `.lithe/toolchains/local.json`; this
 machine-local document is also excluded from Git by default. Missing or
 incompatible toolchains block only configurations that consume the affected
 toolchain, while diagnostics without a configuration ID apply to the project.
+Runtime consumption is declared by the detector from the actual command rather
+than inferred from the provider namespace. An automatically discovered runtime
+path is session-effective: validation and launch share it, but persistence
+still requires an explicit user selection.

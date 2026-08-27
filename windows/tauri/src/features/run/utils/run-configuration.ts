@@ -214,14 +214,14 @@ export function selectedToolchainCandidates(
         runtime.executablePath,
       ))
     : discovered.maven[0];
-  const runtimeIds = new Set(discovered.runtimes.map((runtime) => runtime.id));
-  const runtimes = [...runtimeIds].flatMap((id) => {
-    const selectedPath = selected.runtimeExecutablePaths[id];
-    const runtime = selectedPath
-      ? discovered.runtimes.find(
-          (candidate) => candidate.id === id && sameWindowsPath(candidate.executablePath, selectedPath),
-        )
-      : discovered.runtimes.find((candidate) => candidate.id === id);
+  const effectiveRuntimePaths = effectiveRuntimeExecutablePaths(
+    discovered.runtimes,
+    selected.runtimeExecutablePaths,
+  );
+  const runtimes = Object.entries(effectiveRuntimePaths).flatMap(([id, executablePath]) => {
+    const runtime = discovered.runtimes.find(
+      (candidate) => candidate.id === id && sameWindowsPath(candidate.executablePath, executablePath),
+    );
     return runtime
       ? [{ id: runtime.id, type: runtime.type, version: runtime.version, vendor: runtime.vendor }]
       : [];
@@ -231,6 +231,25 @@ export function selectedToolchainCandidates(
     ...(maven ? [{ id: "project-maven", type: "maven", version: maven.version, vendor: "" }] : []),
     ...runtimes,
   ];
+}
+
+export function effectiveRuntimeExecutablePaths(
+  discovered: GenericRuntime[],
+  configured: Record<string, string>,
+): Record<string, string> {
+  const runtimeIds = new Set(discovered.map((runtime) => runtime.id));
+  return Object.fromEntries(
+    [...runtimeIds].flatMap((id) => {
+      const configuredPath = configured[id];
+      const runtime = configuredPath
+        ? discovered.find(
+            (candidate) =>
+              candidate.id === id && sameWindowsPath(candidate.executablePath, configuredPath),
+          )
+        : discovered.find((candidate) => candidate.id === id);
+      return runtime ? [[id, runtime.executablePath]] : [];
+    }),
+  );
 }
 
 function mavenSelectionMatchesRuntime(selection: string, executable: string): boolean {

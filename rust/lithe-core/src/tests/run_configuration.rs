@@ -1436,6 +1436,73 @@ fn shared_run_configuration_fixtures_have_the_versioned_contract_shape() {
 }
 
 #[test]
+fn shared_hybrid_fixture_executes_scoped_toolchain_expectations() {
+    let fixture_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../shared/fixtures/run-configuration/hybrid-spring-vue.json");
+    let fixture: Value = serde_json::from_str(&fs::read_to_string(fixture_path).unwrap()).unwrap();
+    let root = temporary_root("run-config-hybrid-fixture");
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        serde_json::to_string(&fixture["generated"]).unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        root.join(".lithe/toolchains/requirements.json"),
+        serde_json::to_string(&fixture["requirements"]).unwrap(),
+    )
+    .unwrap();
+
+    let resolved: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "resolve-hybrid-fixture",
+            "command": "runConfig.resolve",
+            "payload": {
+                "root": root,
+                "toolchainCandidates": [
+                    {"id":"project-jdk","type":"java","version":"21","vendor":"Temurin"},
+                    {"id":"project-maven","type":"maven","version":"3.9.9","vendor":""}
+                ]
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(resolved["ok"], true, "{resolved}");
+    let missing_node_ids = resolved["data"]["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| diagnostic["toolchain"] == "project-node")
+        .filter_map(|diagnostic| diagnostic["id"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        missing_node_ids,
+        fixture["expected"]["missingNodeDiagnosticConfigurationIds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+    );
+    for id in fixture["expected"]["unblockedConfigurationIds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+    {
+        assert!(resolved["data"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|diagnostic| diagnostic["id"] != id));
+    }
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn shared_editor_save_fixture_executes_the_document_contract() {
     let fixture_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../shared/fixtures/run-configuration/editor-save.json");
@@ -1747,7 +1814,7 @@ fn pure_go_generation_does_not_require_java_or_add_java_current_file() {
 }
 
 #[test]
-fn multi_language_generation_declares_runtime_requirements_and_versions() {
+fn multi_language_generation_declares_only_consumed_runtime_requirements() {
     let root = temporary_root("generic-toolchain-requirements");
     for directory in ["python", "web", "worker/src"] {
         fs::create_dir_all(root.join(directory)).unwrap();
@@ -1782,19 +1849,27 @@ fn multi_language_generation_declares_runtime_requirements_and_versions() {
     .unwrap();
     assert_eq!(generated["ok"], true, "{generated}");
     let requirements = &generated["data"]["toolchainRequirements"]["toolchains"];
-    for (id, kind, version) in [
-        ("project-go", "go", "1.24"),
-        ("project-python", "python", "3.12"),
-        ("project-node", "node", "22.4"),
-        ("project-cargo", "rust", "1.82"),
-    ] {
-        assert_eq!(requirements[id]["type"], kind, "{requirements}");
-        assert_eq!(
-            requirements[id]["minimumVersion"], version,
-            "{requirements}"
-        );
+    assert_eq!(
+        requirements["project-node"]["type"], "node",
+        "{requirements}"
+    );
+    assert_eq!(
+        requirements["project-node"]["minimumVersion"], "22.4",
+        "{requirements}"
+    );
+    for id in ["project-go", "project-python", "project-cargo"] {
+        assert!(requirements[id].is_null(), "{id}: {requirements}");
     }
     assert!(requirements["project-jdk"].is_null(), "{requirements}");
+    for provider in ["go.main", "python.script", "cargo.binary"] {
+        let configuration = generated["data"]["generated"]["configurations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|configuration| configuration["provider"] == provider)
+            .unwrap();
+        assert!(configuration["toolchains"].as_object().unwrap().is_empty());
+    }
 
     fs::remove_dir_all(root).unwrap();
 }
