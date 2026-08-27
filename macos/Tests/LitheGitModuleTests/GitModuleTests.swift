@@ -127,6 +127,69 @@ struct GitModuleTests {
     }
 
     @Test
+    func gitLogStructuredFiltersPreserveQuotedPathsAndMatchSelectedAuthorExactly() {
+        let selectedAuthor = GitCommit(
+            hash: "1111111111111111",
+            shortHash: "1111111",
+            parentHashes: [],
+            authorName: "Ada Lovelace",
+            authorEmail: "dev@example.com",
+            date: "2026-08-27T09:30:00+08:00",
+            subject: "Update quoted path",
+            decorations: ""
+        )
+        let similarAuthor = GitCommit(
+            hash: "2222222222222222",
+            shortHash: "2222222",
+            parentHashes: [],
+            authorName: "Ada Lovelace",
+            authorEmail: "dev@example.com.invalid",
+            date: "2026-08-27T09:30:00+08:00",
+            subject: "Update quoted path",
+            decorations: ""
+        )
+        let path = #"Sources/It's a "quoted" file.swift"#
+        let query = GitLogQuery.parse("Update").addingStructuredFilters(
+            exactAuthor: GitIdentity(name: selectedAuthor.authorName, email: selectedAuthor.authorEmail),
+            paths: [path]
+        )
+
+        #expect(query.paths == [path])
+        #expect(query.matchesMetadata(selectedAuthor, identity: nil))
+        #expect(!query.matchesMetadata(similarAuthor, identity: nil))
+        #expect(query.matchesPaths([path]))
+        #expect(!query.matchesPaths([#"Sources/Its a "quoted" file.swift"#]))
+    }
+
+    @Test
+    func gitLogStructuredAuthorFallsBackToExactNameWhenEmailIsBlank() {
+        let exactName = GitCommit(
+            hash: "3333333333333333",
+            shortHash: "3333333",
+            parentHashes: [],
+            authorName: "Alice",
+            authorEmail: "",
+            date: "2026-08-27T09:30:00+08:00",
+            subject: "Exact author",
+            decorations: ""
+        )
+        let similarName = GitCommit(
+            hash: "4444444444444444",
+            shortHash: "4444444",
+            parentHashes: [],
+            authorName: "Alice Smith",
+            authorEmail: "",
+            date: "2026-08-27T09:30:00+08:00",
+            subject: "Similar author",
+            decorations: ""
+        )
+        let query = GitLogQuery(exactAuthor: GitIdentity(name: "Alice", email: nil))
+
+        #expect(query.matchesMetadata(exactName, identity: nil))
+        #expect(!query.matchesMetadata(similarName, identity: nil))
+    }
+
+    @Test
     func gitLogQueryMatchesInclusiveAfterAndExclusiveBeforeDates() {
         let insideRange = GitCommit(
             hash: "1111111111111111",

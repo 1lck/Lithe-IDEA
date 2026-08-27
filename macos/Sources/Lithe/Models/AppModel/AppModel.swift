@@ -1597,6 +1597,10 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     func applyGitLogFilter(_ query: String) async {
+        await applyGitLogFilter(GitLogQuery.parse(query))
+    }
+
+    func applyGitLogFilter(_ query: GitLogQuery) async {
         guard let gitFeature = await activateGitModule() else { return }
         await gitFeature.applyGitLogFilter(query)
     }

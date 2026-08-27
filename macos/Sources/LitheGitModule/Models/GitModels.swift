@@ -252,6 +252,27 @@ package struct GitLogQuery: Equatable, Sendable {
     package let afterDate: Date?
     package let beforeDate: Date?
     package let currentUserOnly: Bool
+    package let exactAuthor: GitIdentity?
+
+    package init(
+        textTerms: [String] = [],
+        authors: [String] = [],
+        branches: [String] = [],
+        paths: [String] = [],
+        afterDate: Date? = nil,
+        beforeDate: Date? = nil,
+        currentUserOnly: Bool = false,
+        exactAuthor: GitIdentity? = nil
+    ) {
+        self.textTerms = textTerms
+        self.authors = authors
+        self.branches = branches
+        self.paths = paths.map { $0.replacingOccurrences(of: "\\", with: "/") }
+        self.afterDate = afterDate
+        self.beforeDate = beforeDate
+        self.currentUserOnly = currentUserOnly
+        self.exactAuthor = exactAuthor
+    }
 
     package var isEmpty: Bool {
         textTerms.isEmpty
@@ -261,6 +282,7 @@ package struct GitLogQuery: Equatable, Sendable {
             && afterDate == nil
             && beforeDate == nil
             && !currentUserOnly
+            && exactAuthor == nil
     }
 
     package static func parse(_ rawValue: String) -> GitLogQuery {
@@ -313,6 +335,25 @@ package struct GitLogQuery: Equatable, Sendable {
         )
     }
 
+    package func addingStructuredFilters(
+        currentUserOnly: Bool = false,
+        exactAuthor: GitIdentity? = nil,
+        paths: [String] = [],
+        afterDate: Date? = nil,
+        beforeDate: Date? = nil
+    ) -> GitLogQuery {
+        GitLogQuery(
+            textTerms: textTerms,
+            authors: authors,
+            branches: branches,
+            paths: self.paths + paths,
+            afterDate: Self.laterBoundary(afterDate, self.afterDate),
+            beforeDate: Self.earlierBoundary(beforeDate, self.beforeDate),
+            currentUserOnly: self.currentUserOnly || currentUserOnly,
+            exactAuthor: exactAuthor ?? self.exactAuthor
+        )
+    }
+
     package func matchesMetadata(_ commit: GitCommit, identity: GitIdentity?) -> Bool {
         if afterDate != nil || beforeDate != nil {
             guard let commitDate = Self.parseCommitDate(commit.date) else { return false }
@@ -328,6 +369,17 @@ package struct GitLogQuery: Equatable, Sendable {
                 commit.authorEmail.caseInsensitiveCompare($0) == .orderedSame
             } ?? false
             guard matchesName || matchesEmail else { return false }
+        }
+        if let exactAuthor {
+            let matchesExactAuthor: Bool
+            if let email = exactAuthor.email {
+                matchesExactAuthor = commit.authorEmail.caseInsensitiveCompare(email) == .orderedSame
+            } else if let name = exactAuthor.name {
+                matchesExactAuthor = commit.authorName.caseInsensitiveCompare(name) == .orderedSame
+            } else {
+                matchesExactAuthor = false
+            }
+            guard matchesExactAuthor else { return false }
         }
         if !authors.isEmpty {
             guard authors.contains(where: { author in
@@ -369,6 +421,24 @@ package struct GitLogQuery: Equatable, Sendable {
         }
         if !current.isEmpty { tokens.append(current) }
         return tokens
+    }
+
+    private static func laterBoundary(_ first: Date?, _ second: Date?) -> Date? {
+        switch (first, second) {
+        case let (.some(first), .some(second)): return max(first, second)
+        case let (.some(first), .none): return first
+        case let (.none, .some(second)): return second
+        case (.none, .none): return nil
+        }
+    }
+
+    private static func earlierBoundary(_ first: Date?, _ second: Date?) -> Date? {
+        switch (first, second) {
+        case let (.some(first), .some(second)): return min(first, second)
+        case let (.some(first), .none): return first
+        case let (.none, .some(second)): return second
+        case (.none, .none): return nil
+        }
     }
 
     private static func parseBoundaryDate(_ value: String) -> Date? {

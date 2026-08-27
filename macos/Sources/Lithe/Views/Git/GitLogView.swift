@@ -150,7 +150,7 @@ struct GitLogView: View {
             } catch {
                 return
             }
-            await model.applyGitLogFilter(gitLogCombinedQuery)
+            await model.applyGitLogFilter(gitLogQuery)
         }
         .onChange(of: model.gitRepositoryRoot) { _ in
             selectedGitLogAuthor = nil
@@ -953,25 +953,28 @@ struct GitLogView: View {
     }
 
     private var visibleCommitHashes: Set<String>? {
-        let query = gitLogCombinedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return nil }
+        guard !gitLogQuery.isEmpty else { return nil }
         return model.gitLogMatchedCommitHashes
     }
 
-    private var gitLogFilterTaskIdentity: String {
-        let commits = model.gitCommits.map(\.hash).joined(separator: ",")
-        return "\(gitLogCombinedQuery)|\(commits)"
+    private var gitLogFilterTaskIdentity: GitLogFilterTaskIdentity {
+        GitLogFilterTaskIdentity(
+            searchQuery: model.gitLogSearchQuery,
+            author: selectedGitLogAuthor,
+            datePreset: selectedGitLogDatePreset,
+            path: gitLogPathFilter,
+            commitHashes: model.gitCommits.map(\.hash)
+        )
     }
 
-    private var gitLogCombinedQuery: String {
-        var terms: [String] = []
-        let textQuery = model.gitLogSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !textQuery.isEmpty { terms.append(textQuery) }
-        if let selectedGitLogAuthor { terms.append(selectedGitLogAuthor.queryToken) }
-        terms.append(contentsOf: selectedGitLogDatePreset.queryTokens(now: Date()))
+    private var gitLogQuery: GitLogQuery {
         let path = gitLogPathFilter.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !path.isEmpty { terms.append("path:\(quotedGitLogFilterValue(path))") }
-        return terms.joined(separator: " ")
+        let query = GitLogQuery.parse(model.gitLogSearchQuery).addingStructuredFilters(
+            currentUserOnly: selectedGitLogAuthor == .currentUser,
+            exactAuthor: selectedGitLogAuthor?.exactAuthor,
+            paths: path.isEmpty ? [] : [path]
+        )
+        return selectedGitLogDatePreset.applying(to: query, now: Date())
     }
 
     private var gitLogAuthorOptions: [GitLogAuthorOption] {
@@ -1196,13 +1199,6 @@ struct GitLogView: View {
         showsGitLogPathPopover = false
     }
 
-    private func quotedGitLogFilterValue(_ value: String) -> String {
-        guard value.contains(where: \.isWhitespace) else { return value }
-        if !value.contains("\"") { return "\"\(value)\"" }
-        if !value.contains("'") { return "'\(value)'" }
-        return "\"\(value.replacingOccurrences(of: "\"", with: ""))\""
-    }
-
     private var commitFileTree: GitCommitFileTreeNode {
         GitCommitFileTreeNode.build(
             from: model.selectedGitCommitFiles,
@@ -1372,7 +1368,7 @@ struct GitLogView: View {
     }
 }
 
-private enum GitLogAuthorSelection: Equatable {
+private enum GitLogAuthorSelection: Hashable {
     case currentUser
     case author(name: String, email: String)
 
@@ -1385,21 +1381,22 @@ private enum GitLogAuthorSelection: Equatable {
         }
     }
 
-    var queryToken: String {
+    var exactAuthor: GitIdentity? {
         switch self {
         case .currentUser:
-            return "me"
+            return nil
         case .author(let name, let email):
-            return "author:\(Self.quoted(email.isEmpty ? name : email))"
+            return GitIdentity(name: name, email: email)
         }
     }
+}
 
-    private static func quoted(_ value: String) -> String {
-        guard value.contains(where: \.isWhitespace) else { return value }
-        if !value.contains("\"") { return "\"\(value)\"" }
-        if !value.contains("'") { return "'\(value)'" }
-        return "\"\(value.replacingOccurrences(of: "\"", with: ""))\""
-    }
+private struct GitLogFilterTaskIdentity: Hashable {
+    let searchQuery: String
+    let author: GitLogAuthorSelection?
+    let datePreset: GitLogDatePreset
+    let path: String
+    let commitHashes: [String]
 }
 
 private struct GitLogAuthorOption: Identifiable {
@@ -1408,7 +1405,7 @@ private struct GitLogAuthorOption: Identifiable {
     let email: String
 }
 
-enum GitLogDatePreset: String, CaseIterable, Identifiable {
+enum GitLogDatePreset: String, CaseIterable, Identifiable, Hashable {
     case anyTime
     case today
     case yesterday
@@ -1431,50 +1428,28 @@ enum GitLogDatePreset: String, CaseIterable, Identifiable {
         self == .anyTime ? nil : menuTitle
     }
 
-    func queryTokens(now: Date) -> [String] {
+    func applying(to query: GitLogQuery, now: Date) -> GitLogQuery {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = .current
         let today = calendar.startOfDay(for: now)
         switch self {
         case .anyTime:
-            return []
+            return query
         case .today:
-            guard let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) else { return [] }
-            return [
-                "after:\(Self.dateToken(today, calendar: calendar))",
-                "before:\(Self.dateToken(tomorrow, calendar: calendar))"
-            ]
+            guard let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) else { return query }
+            return query.addingStructuredFilters(afterDate: today, beforeDate: tomorrow)
         case .yesterday:
-            guard let yesterday = calendar.date(byAdding: .day, value: -1, to: today) else { return [] }
-            return [
-                "after:\(Self.dateToken(yesterday, calendar: calendar))",
-                "before:\(Self.dateToken(today, calendar: calendar))"
-            ]
+            guard let yesterday = calendar.date(byAdding: .day, value: -1, to: today) else { return query }
+            return query.addingStructuredFilters(afterDate: yesterday, beforeDate: today)
         case .lastSevenDays:
             guard let firstDay = calendar.date(byAdding: .day, value: -6, to: today),
-                  let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) else { return [] }
-            return [
-                "after:\(Self.dateToken(firstDay, calendar: calendar))",
-                "before:\(Self.dateToken(tomorrow, calendar: calendar))"
-            ]
+                  let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) else { return query }
+            return query.addingStructuredFilters(afterDate: firstDay, beforeDate: tomorrow)
         case .lastThirtyDays:
             guard let firstDay = calendar.date(byAdding: .day, value: -29, to: today),
-                  let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) else { return [] }
-            return [
-                "after:\(Self.dateToken(firstDay, calendar: calendar))",
-                "before:\(Self.dateToken(tomorrow, calendar: calendar))"
-            ]
+                  let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) else { return query }
+            return query.addingStructuredFilters(afterDate: firstDay, beforeDate: tomorrow)
         }
-    }
-
-    private static func dateToken(_ date: Date, calendar: Calendar) -> String {
-        let components = calendar.dateComponents([.year, .month, .day], from: date)
-        return String(
-            format: "%04d-%02d-%02d",
-            components.year ?? 0,
-            components.month ?? 0,
-            components.day ?? 0
-        )
     }
 }
 

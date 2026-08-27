@@ -28,7 +28,7 @@ struct GitLogDatePresetTests {
         )
 
         for preset in [GitLogDatePreset.today, .lastSevenDays, .lastThirtyDays] {
-            let query = GitLogQuery.parse(preset.queryTokens(now: now).joined(separator: " "))
+            let query = preset.applying(to: GitLogQuery(), now: now)
 
             #expect(query.beforeDate == tomorrow)
             #expect(!query.matchesMetadata(futureCommit, identity: nil))
