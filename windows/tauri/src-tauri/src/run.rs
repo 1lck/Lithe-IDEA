@@ -35,7 +35,7 @@ const SKIPPED_DIRECTORIES: &[&str] = &[
     ".hg",
 ];
 const MAX_JAVA_SOURCES: usize = 8_000;
-const LITHE_GITIGNORE: &str = "run/local.json\n**/*.tmp\n";
+const LITHE_GITIGNORE_ENTRIES: &[&str] = &["run/local.json", "toolchains/local.json", "**/*.tmp"];
 
 pub struct RunProcessManager;
 
@@ -83,6 +83,7 @@ pub struct RunDocumentWrite {
 pub struct DiscoveredToolchains {
     pub java: Vec<JavaRuntime>,
     pub maven: Vec<MavenRuntime>,
+    pub runtimes: Vec<GenericRuntime>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -100,6 +101,17 @@ pub struct MavenRuntime {
     pub version: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenericRuntime {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub executable_path: String,
+    pub version: String,
+    pub vendor: String,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResolveLaunchArgs {
@@ -112,6 +124,8 @@ pub struct ResolveLaunchArgs {
     pub maven_executable_path: String,
     #[serde(default)]
     pub maven_java_home_path: String,
+    #[serde(default)]
+    pub runtime_executable_paths: HashMap<String, String>,
     #[serde(default)]
     pub environment: Map<String, Value>,
 }
@@ -164,8 +178,8 @@ pub fn run_write_generated(args: WriteGeneratedArgs) -> Result<(), String> {
 #[tauri::command]
 pub fn run_write_documents(args: WriteDocumentsArgs) -> Result<(), String> {
     let root = existing_directory(&args.root)?;
-    if args.documents.is_empty() || args.documents.len() > 2 {
-        return Err("A run configuration save must contain one or two documents.".into());
+    if args.documents.is_empty() || args.documents.len() > 3 {
+        return Err("A run configuration save must contain one to three documents.".into());
     }
     let mut seen = std::collections::HashSet::new();
     let mut prepared = Vec::with_capacity(args.documents.len());
@@ -181,6 +195,7 @@ pub fn run_write_documents(args: WriteDocumentsArgs) -> Result<(), String> {
             fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         }
     }
+    ensure_lithe_gitignore(&root.join(".lithe").join(".gitignore"))?;
     write_document_transaction(&prepared, atomic_write)
 }
 
@@ -189,12 +204,14 @@ pub fn run_discover_toolchains(
     root: PathBuf,
     java_home_path: Option<String>,
     maven_executable_path: Option<String>,
+    runtime_executable_paths: Option<HashMap<String, String>>,
 ) -> Result<DiscoveredToolchains, String> {
     let project_root = existing_directory(&root).ok();
     Ok(discover_toolchains_with_overrides(
         project_root.as_deref(),
         java_home_path.as_deref(),
         maven_executable_path.as_deref(),
+        runtime_executable_paths.as_ref(),
     ))
 }
 
@@ -214,6 +231,7 @@ pub fn run_resolve_launch(args: ResolveLaunchArgs) -> Result<ResolvedLaunch, Str
         &args.executable,
         &args.maven_executable_path,
         java_home.as_deref(),
+        &args.runtime_executable_paths,
     )?;
     let mut environment = std::env::vars().collect::<HashMap<_, _>>();
     if let Some(home) = &java_home {
@@ -229,6 +247,11 @@ pub fn run_resolve_launch(args: ResolveLaunchArgs) -> Result<ResolvedLaunch, Str
     if let Some(home) = maven_java_home.or(java_home) {
         environment.entry("JAVA_HOME".into()).or_insert(home);
     }
+    prepend_runtime_paths(
+        &mut environment,
+        &args.runtime_executable_paths,
+        &executable,
+    )?;
     Ok(ResolvedLaunch {
         executable,
         working_directory: working_directory.to_string_lossy().into_owned(),
@@ -332,9 +355,7 @@ fn write_generated_documents(
     fs::create_dir_all(&run_directory).map_err(|error| error.to_string())?;
     fs::create_dir_all(&toolchain_directory).map_err(|error| error.to_string())?;
     atomic_write(&requirements_path, pretty_json(requirements)?.as_bytes())?;
-    if !ignore_path.exists() {
-        atomic_write(&ignore_path, LITHE_GITIGNORE.as_bytes())?;
-    }
+    ensure_lithe_gitignore(&ignore_path)?;
     if !manifest_path.exists() {
         let mut manifest = json!({ "version": 1 });
         if let Some(default_id) = default_run_configuration.filter(|value| !value.is_empty()) {
@@ -440,6 +461,22 @@ fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), String> {
     result
 }
 
+fn ensure_lithe_gitignore(path: &Path) -> Result<(), String> {
+    let existing = if path.is_file() {
+        fs::read_to_string(path).map_err(|error| error.to_string())?
+    } else {
+        String::new()
+    };
+    let mut lines = existing.lines().map(str::to_string).collect::<Vec<_>>();
+    for entry in LITHE_GITIGNORE_ENTRIES {
+        if !lines.iter().any(|line| line.trim() == *entry) {
+            lines.push((*entry).to_string());
+        }
+    }
+    let contents = lines.join("\n") + "\n";
+    atomic_write(path, contents.as_bytes())
+}
+
 #[cfg(target_os = "windows")]
 fn replace_run_document(source: &Path, destination: &Path) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
@@ -482,11 +519,9 @@ fn run_document_target(root: &Path, relative_path: &str) -> Result<PathBuf, Stri
     let relative = relative_path.replace('\\', "/");
     if !matches!(
         relative.as_str(),
-        "run/local.json" | "run/configurations.json" | "project.json"
+        "run/local.json" | "run/configurations.json" | "toolchains/local.json" | "project.json"
     ) {
-        return Err(
-            "Run documents can only be written under .lithe/run or .lithe/project.json".into(),
-        );
+        return Err("Run documents can only be written to supported .lithe paths".into());
     }
     let target = join_relative(&root.join(".lithe"), &relative);
     validate_write_target(root, &target)?;
@@ -551,13 +586,14 @@ fn pretty_json(value: &Value) -> Result<String, String> {
 }
 
 pub(crate) fn discover_toolchains(project_root: Option<&Path>) -> DiscoveredToolchains {
-    discover_toolchains_with_overrides(project_root, None, None)
+    discover_toolchains_with_overrides(project_root, None, None, None)
 }
 
 fn discover_toolchains_with_overrides(
     project_root: Option<&Path>,
     java_home_path: Option<&str>,
     maven_executable_path: Option<&str>,
+    runtime_executable_paths: Option<&HashMap<String, String>>,
 ) -> DiscoveredToolchains {
     let mut java = Vec::new();
     let mut seen_homes = std::collections::HashSet::new();
@@ -594,7 +630,104 @@ fn discover_toolchains_with_overrides(
             maven.push(runtime);
         }
     }
-    DiscoveredToolchains { java, maven }
+
+    let mut runtimes = Vec::new();
+    let mut seen_runtimes = std::collections::HashSet::new();
+    let mut node_executables = node_executable_candidates(project_root);
+    if let Some(path) = runtime_executable_paths
+        .and_then(|paths| paths.get("project-node"))
+        .filter(|value| !value.trim().is_empty())
+    {
+        node_executables.splice(0..0, custom_node_executable_candidates(Path::new(path)));
+    }
+    for executable in node_executables {
+        let normalized = normalize_path(&executable);
+        if !seen_runtimes.insert(normalized.clone()) {
+            continue;
+        }
+        if let Some(runtime) = probe_node(&normalized) {
+            runtimes.push(runtime);
+        }
+    }
+    runtimes.sort_by(|left, right| {
+        runtime_version_parts(&right.version)
+            .cmp(&runtime_version_parts(&left.version))
+            .then(left.executable_path.cmp(&right.executable_path))
+    });
+    DiscoveredToolchains {
+        java,
+        maven,
+        runtimes,
+    }
+}
+
+fn node_executable_candidates(project_root: Option<&Path>) -> Vec<PathBuf> {
+    let mut executables = Vec::new();
+    for name in ["node.exe", "node"] {
+        if let Some(path) = lookup_on_path(name) {
+            executables.push(path);
+        }
+    }
+    for key in ["NVM_SYMLINK", "NODE_HOME"] {
+        if let Ok(path) = std::env::var(key) {
+            executables.extend(custom_node_executable_candidates(Path::new(&path)));
+        }
+    }
+    for key in ["ProgramFiles", "LOCALAPPDATA"] {
+        if let Ok(base) = std::env::var(key) {
+            let base = PathBuf::from(base);
+            executables.push(base.join("nodejs").join("node.exe"));
+            executables.push(base.join("Programs").join("nodejs").join("node.exe"));
+        }
+    }
+    for key in ["NVM_HOME", "APPDATA"] {
+        if let Ok(base) = std::env::var(key) {
+            append_node_versions(&mut executables, Path::new(&base));
+            append_node_versions(&mut executables, &PathBuf::from(base).join("nvm"));
+        }
+    }
+    if let Ok(profile) = std::env::var("USERPROFILE") {
+        let profile = PathBuf::from(profile);
+        executables.push(profile.join("scoop/apps/nodejs/current/node.exe"));
+        executables.push(profile.join("scoop/apps/nodejs-lts/current/node.exe"));
+        append_node_versions(&mut executables, &profile.join("AppData/Roaming/nvm"));
+    }
+    if let Some(root) = project_root {
+        executables.push(root.join(".lithe/toolchains/node/node.exe"));
+    }
+    executables
+}
+
+fn append_node_versions(executables: &mut Vec<PathBuf>, root: &Path) {
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if entry.path().is_dir() {
+            executables.push(entry.path().join("node.exe"));
+        }
+    }
+}
+
+fn custom_node_executable_candidates(path: &Path) -> Vec<PathBuf> {
+    if path.is_file() {
+        return vec![path.to_path_buf()];
+    }
+    vec![path.join("node.exe"), path.join("node")]
+}
+
+fn probe_node(executable: &Path) -> Option<GenericRuntime> {
+    if !executable.is_file() {
+        return None;
+    }
+    let output = command_output(executable, &["--version"]);
+    Some(GenericRuntime {
+        id: "project-node".to_string(),
+        kind: "node".to_string(),
+        executable_path: normalize_path(executable).to_string_lossy().into_owned(),
+        version: node_version(&output)?,
+        vendor: "Node.js".to_string(),
+    })
 }
 
 fn java_home_candidates(project_root: Option<&Path>) -> Vec<PathBuf> {
@@ -761,6 +894,7 @@ fn resolve_executable(
     executable: &LaunchExecutable,
     maven_override: &str,
     java_home: Option<&str>,
+    runtime_executable_paths: &HashMap<String, String>,
 ) -> Result<String, String> {
     if let Some(toolchain) = executable.toolchain.as_deref() {
         return match toolchain {
@@ -775,7 +909,7 @@ fn resolve_executable(
                     })
             }
             "project-maven" => resolve_maven_executable(root, working_directory, maven_override),
-            other => Err(format!("No resolver is registered for toolchain {other}.")),
+            other => resolve_generic_runtime(root, other, runtime_executable_paths),
         };
     }
     if let Some(command) = executable
@@ -783,13 +917,132 @@ fn resolve_executable(
         .as_deref()
         .filter(|value| !value.is_empty())
     {
-        return lookup_on_path(command)
-            .or_else(|| lookup_on_path(&format!("{command}.cmd")))
-            .or_else(|| lookup_on_path(&format!("{command}.exe")))
+        return resolve_command_executable(command, runtime_executable_paths)
             .map(|path| path.to_string_lossy().into_owned())
             .ok_or_else(|| format!("Could not find executable: {command}"));
     }
     Err("The launch plan names neither a toolchain nor a command.".into())
+}
+
+fn resolve_generic_runtime(
+    root: &Path,
+    toolchain: &str,
+    runtime_executable_paths: &HashMap<String, String>,
+) -> Result<String, String> {
+    if let Some(configured) = runtime_executable_paths
+        .get(toolchain)
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        let path = if Path::new(configured).is_absolute() {
+            PathBuf::from(configured)
+        } else {
+            root.join(configured)
+        };
+        let candidates = if toolchain == "project-node" {
+            custom_node_executable_candidates(&path)
+        } else {
+            vec![path]
+        };
+        return candidates
+            .into_iter()
+            .find(|candidate| candidate.is_file())
+            .map(|candidate| normalize_path(&candidate).to_string_lossy().into_owned())
+            .ok_or_else(|| format!("Configured executable for {toolchain} does not exist."));
+    }
+    discover_toolchains(Some(root))
+        .runtimes
+        .into_iter()
+        .find(|runtime| runtime.id == toolchain)
+        .map(|runtime| runtime.executable_path)
+        .ok_or_else(|| format!("No executable was found for toolchain {toolchain}."))
+}
+
+fn resolve_command_executable(
+    command: &str,
+    runtime_executable_paths: &HashMap<String, String>,
+) -> Option<PathBuf> {
+    let command_lower = command.to_ascii_lowercase();
+    if matches!(
+        command_lower.as_str(),
+        "node"
+            | "node.exe"
+            | "npm"
+            | "npm.cmd"
+            | "pnpm"
+            | "pnpm.cmd"
+            | "yarn"
+            | "yarn.cmd"
+            | "bun"
+            | "bun.exe"
+    ) {
+        for directory in selected_runtime_directories(runtime_executable_paths) {
+            for name in command_file_names(command) {
+                let candidate = directory.join(name);
+                if candidate.is_file() {
+                    return Some(candidate);
+                }
+            }
+        }
+    }
+    command_file_names(command)
+        .into_iter()
+        .find_map(|name| lookup_on_path(&name))
+}
+
+fn command_file_names(command: &str) -> Vec<String> {
+    if Path::new(command).extension().is_some() {
+        return vec![command.to_string()];
+    }
+    vec![
+        command.to_string(),
+        format!("{command}.cmd"),
+        format!("{command}.exe"),
+        format!("{command}.bat"),
+    ]
+}
+
+fn selected_runtime_directories(
+    runtime_executable_paths: &HashMap<String, String>,
+) -> Vec<PathBuf> {
+    runtime_executable_paths
+        .values()
+        .filter_map(|value| {
+            let path = PathBuf::from(value.trim());
+            if path.is_dir() {
+                Some(path)
+            } else {
+                path.parent().map(Path::to_path_buf)
+            }
+        })
+        .collect()
+}
+
+fn prepend_runtime_paths(
+    environment: &mut HashMap<String, String>,
+    runtime_executable_paths: &HashMap<String, String>,
+    resolved_executable: &str,
+) -> Result<(), String> {
+    let mut directories = selected_runtime_directories(runtime_executable_paths);
+    if let Some(parent) = Path::new(resolved_executable).parent() {
+        directories.push(parent.to_path_buf());
+    }
+    if directories.is_empty() {
+        return Ok(());
+    }
+    if let Some(existing) = environment
+        .iter()
+        .find(|(key, _)| key.eq_ignore_ascii_case("PATH"))
+        .map(|(_, value)| value.clone())
+    {
+        directories.extend(std::env::split_paths(&existing));
+    }
+    let mut seen = std::collections::HashSet::new();
+    directories.retain(|path| seen.insert(path.to_string_lossy().to_ascii_lowercase()));
+    let joined = std::env::join_paths(directories).map_err(|error| error.to_string())?;
+    environment.retain(|key, _| !key.eq_ignore_ascii_case("PATH"));
+    environment.insert("PATH".to_string(), joined.to_string_lossy().into_owned());
+    Ok(())
 }
 
 fn resolve_maven_executable(
@@ -1127,6 +1380,27 @@ fn maven_version(output: &str) -> Option<String> {
     })
 }
 
+fn node_version(output: &str) -> Option<String> {
+    output
+        .lines()
+        .map(str::trim)
+        .find_map(|line| line.strip_prefix('v'))
+        .filter(|version| {
+            !version.is_empty()
+                && version
+                    .chars()
+                    .all(|character| character.is_ascii_digit() || character == '.')
+        })
+        .map(str::to_string)
+}
+
+fn runtime_version_parts(version: &str) -> Vec<u32> {
+    version
+        .split('.')
+        .filter_map(|part| part.parse::<u32>().ok())
+        .collect()
+}
+
 fn spawn_output_reader<T: Read + Send + 'static>(
     app: AppHandle,
     session_id: String,
@@ -1282,7 +1556,7 @@ mod tests {
             .is_file());
         assert_eq!(
             fs::read_to_string(root.join(".lithe").join(".gitignore")).expect("gitignore"),
-            LITHE_GITIGNORE
+            LITHE_GITIGNORE_ENTRIES.join("\n") + "\n"
         );
         let manifest: Value = serde_json::from_str(
             &fs::read_to_string(root.join(".lithe").join("project.json")).expect("manifest"),
@@ -1333,6 +1607,58 @@ mod tests {
     }
 
     #[test]
+    fn three_document_transaction_restores_run_and_toolchain_documents() {
+        let root = temp_project();
+        let run = root.join(".lithe/run");
+        let toolchains = root.join(".lithe/toolchains");
+        fs::create_dir_all(&run).unwrap();
+        fs::create_dir_all(&toolchains).unwrap();
+        let local = run.join("local.json");
+        let project = run.join("configurations.json");
+        let runtime = toolchains.join("local.json");
+        fs::write(&local, b"old-local").unwrap();
+        fs::write(&project, b"old-project").unwrap();
+        fs::write(&runtime, b"old-runtime").unwrap();
+        let documents = vec![
+            (local.clone(), b"new-local".to_vec()),
+            (project.clone(), b"new-project".to_vec()),
+            (runtime.clone(), b"new-runtime".to_vec()),
+        ];
+        let mut writes = 0;
+        let result = write_document_transaction(&documents, |path, contents| {
+            writes += 1;
+            if writes == 3 {
+                return Err("injected third write failure".into());
+            }
+            atomic_write(path, contents)
+        });
+
+        assert_eq!(result.unwrap_err(), "injected third write failure");
+        assert_eq!(fs::read(&local).unwrap(), b"old-local");
+        assert_eq!(fs::read(&project).unwrap(), b"old-project");
+        assert_eq!(fs::read(&runtime).unwrap(), b"old-runtime");
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn gitignore_update_preserves_existing_entries_and_adds_local_toolchains() {
+        let root = temp_project();
+        let lithe = root.join(".lithe");
+        fs::create_dir_all(&lithe).unwrap();
+        let path = lithe.join(".gitignore");
+        fs::write(&path, "custom-cache/\nrun/local.json\n").unwrap();
+
+        ensure_lithe_gitignore(&path).unwrap();
+
+        let contents = fs::read_to_string(path).unwrap();
+        assert!(contents.starts_with("custom-cache/\nrun/local.json\n"));
+        assert_eq!(contents.matches("run/local.json").count(), 1);
+        assert!(contents.contains("toolchains/local.json\n"));
+        assert!(contents.contains("**/*.tmp\n"));
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
     fn custom_maven_home_discovers_its_bin_executable() {
         let root = temp_project();
         let home = root.join("apache-maven");
@@ -1344,6 +1670,7 @@ mod tests {
             Some(&root),
             None,
             Some(home.to_string_lossy().as_ref()),
+            None,
         );
         assert!(discovered
             .maven
@@ -1370,6 +1697,79 @@ mod tests {
             java_version(r#"openjdk version "17.0.18" 2026-01-20"#).as_deref(),
             Some("17.0.18")
         );
+    }
+
+    #[test]
+    fn node_version_reads_standard_banner() {
+        assert_eq!(node_version("v22.14.0\r\n").as_deref(), Some("22.14.0"));
+        assert_eq!(node_version("node 22.14.0"), None);
+    }
+
+    #[test]
+    fn custom_node_path_accepts_an_executable_or_install_directory() {
+        let root = temp_project();
+        let executable = root.join("node.exe");
+        fs::write(&executable, b"node").unwrap();
+        assert_eq!(
+            custom_node_executable_candidates(&executable),
+            vec![executable]
+        );
+        assert_eq!(
+            custom_node_executable_candidates(&root),
+            vec![root.join("node.exe"), root.join("node")]
+        );
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn selected_node_directory_resolves_package_manager_before_path() {
+        let root = temp_project();
+        let node = root.join("node.exe");
+        let npm = root.join("npm.cmd");
+        fs::write(&node, b"node").unwrap();
+        fs::write(&npm, b"npm").unwrap();
+        let paths = HashMap::from([(
+            "project-node".to_string(),
+            node.to_string_lossy().into_owned(),
+        )]);
+        assert_eq!(
+            resolve_command_executable("npm", &paths).as_deref(),
+            Some(npm.as_path())
+        );
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn selected_runtime_directories_are_prepended_to_launch_path() {
+        let root = temp_project();
+        let node = root.join("node/node.exe");
+        let package_manager = root.join("tools/npm.cmd");
+        let original = root.join("existing");
+        let mut environment = HashMap::from([(
+            "PATH".to_string(),
+            std::env::join_paths([&original])
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+        )]);
+        let paths = HashMap::from([(
+            "project-node".to_string(),
+            node.to_string_lossy().into_owned(),
+        )]);
+
+        prepend_runtime_paths(
+            &mut environment,
+            &paths,
+            package_manager.to_string_lossy().as_ref(),
+        )
+        .unwrap();
+        let launch_path = environment.get("PATH").unwrap();
+        let directories = std::env::split_paths(launch_path).collect::<Vec<_>>();
+        assert_eq!(
+            directories,
+            vec![root.join("node"), root.join("tools"), original]
+        );
+        fs::remove_dir_all(root).ok();
     }
 
     #[test]

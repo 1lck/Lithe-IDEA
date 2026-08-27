@@ -799,6 +799,89 @@ fn project_editor_save_prepares_local_and_team_documents_without_writing() {
 }
 
 #[test]
+fn editor_save_updates_generic_local_toolchains_without_dropping_other_entries() {
+    let root = temporary_root("run-config-editor-runtime-toolchain");
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
+    fs::create_dir_all(root.join("web")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        r#"{"version":2,"configurations":[{"id":"npm:dev","name":"dev","provider":"npm.script","execution":"service","command":"npm","args":["run","dev"],"cwd":"web","toolchains":{"runtime":"project-node"}}]}"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join(".lithe/toolchains/local.json"),
+        r#"{"version":1,"toolchains":{"project-go":{"executable":"C:/Go/bin/go.exe"}}}"#,
+    )
+    .unwrap();
+
+    let save = |node_path: &str| -> Value {
+        serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "save-runtime-toolchain",
+                "command": "runConfig.saveEditorChanges",
+                "payload": {
+                    "root": root,
+                    "scope": "local",
+                    "configurationId": "npm:dev",
+                    "workingDirectory": "web",
+                    "toolchain": {
+                        "runtimeExecutablePaths": {"project-node": node_path}
+                    }
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap()
+    };
+
+    let saved = save("C:/Program Files/nodejs/node.exe");
+    assert_eq!(saved["ok"], true, "{saved}");
+    let toolchains: Value =
+        serde_json::from_str(saved["data"]["toolchainDocument"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        toolchains["toolchains"]["project-node"]["executable"],
+        "C:/Program Files/nodejs/node.exe"
+    );
+    assert_eq!(
+        toolchains["toolchains"]["project-go"]["executable"],
+        "C:/Go/bin/go.exe"
+    );
+    fs::write(
+        root.join(".lithe/toolchains/local.json"),
+        saved["data"]["toolchainDocument"].as_str().unwrap(),
+    )
+    .unwrap();
+
+    let removed = save("");
+    let removed_toolchains: Value =
+        serde_json::from_str(removed["data"]["toolchainDocument"].as_str().unwrap()).unwrap();
+    assert!(removed_toolchains["toolchains"]
+        .get("project-node")
+        .is_none());
+    assert_eq!(
+        removed_toolchains["toolchains"]["project-go"]["executable"],
+        "C:/Go/bin/go.exe"
+    );
+
+    let inspected: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "inspect-runtime-toolchain",
+            "command": "runConfig.inspect",
+            "payload": {"root": root}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(
+        inspected["data"]["localToolchains"]["toolchains"]["project-node"]["executable"],
+        "C:/Program Files/nodejs/node.exe"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn run_configuration_inspect_reports_malformed_and_unsupported_documents() {
     let root = temporary_root("run-config-errors");
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
@@ -1166,6 +1249,131 @@ fn run_configuration_resolve_matches_toolchains_and_rejects_unsafe_paths() {
     let unsafe_path = resolve("21.0.5", "Eclipse Temurin");
     assert_eq!(unsafe_path["ok"], false);
     assert_eq!(unsafe_path["error"]["code"], "invalid_request");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn hybrid_project_scopes_node_diagnostics_to_npm_configurations() {
+    let root = temporary_root("run-config-hybrid-toolchains");
+    let java_source = "src/main/java/com/example/DemoApplication.java";
+    fs::create_dir_all(root.join("src/main/java/com/example")).unwrap();
+    fs::create_dir_all(root.join("web")).unwrap();
+    fs::write(
+        root.join(java_source),
+        "package com.example; @SpringBootApplication class DemoApplication { public static void main(String[] args) {} }",
+    )
+    .unwrap();
+    fs::write(
+        root.join("pom.xml"),
+        "<project><artifactId>demo</artifactId><properties><java.version>21</java.version></properties><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+    )
+    .unwrap();
+    fs::write(
+        root.join("web/package.json"),
+        r#"{"engines":{"node":">=22.0"},"scripts":{"dev":"vite","build":"vite build"}}"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("package.json"),
+        r#"{"private":true,"engines":{"node":">=22.0"}}"#,
+    )
+    .unwrap();
+
+    let generated: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "generate-hybrid",
+            "command": "runConfig.generate",
+            "payload": {"root": root, "paths": [java_source]}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(generated["ok"], true, "{generated}");
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        serde_json::to_string(&generated["data"]["generated"]).unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        root.join(".lithe/toolchains/requirements.json"),
+        serde_json::to_string(&generated["data"]["toolchainRequirements"]).unwrap(),
+    )
+    .unwrap();
+
+    let resolve = |node_version: Option<&str>| -> Value {
+        let mut candidates = vec![
+            serde_json::json!({"id":"project-jdk","type":"java","version":"21","vendor":"Temurin"}),
+            serde_json::json!({"id":"project-maven","type":"maven","version":"3.9.9","vendor":""}),
+        ];
+        if let Some(version) = node_version {
+            candidates.push(serde_json::json!({
+                "id":"project-node","type":"node","version":version,"vendor":"Node.js"
+            }));
+        }
+        serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "resolve-hybrid",
+                "command": "runConfig.resolve",
+                "payload": {"root": root, "toolchainCandidates": candidates}
+            })
+            .to_string(),
+        ))
+        .unwrap()
+    };
+
+    let missing = resolve(None);
+    let configurations = missing["data"]["configurations"].as_array().unwrap();
+    let npm_ids = configurations
+        .iter()
+        .filter(|configuration| configuration["provider"] == "npm.script")
+        .map(|configuration| configuration["id"].as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    assert!(!npm_ids.is_empty(), "{missing}");
+    let node_diagnostics = missing["data"]["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| diagnostic["toolchain"] == "project-node")
+        .collect::<Vec<_>>();
+    assert_eq!(node_diagnostics.len(), npm_ids.len(), "{missing}");
+    assert!(node_diagnostics
+        .iter()
+        .all(|diagnostic| npm_ids.iter().any(|id| diagnostic["id"] == id.as_str())));
+
+    let spring_id = configurations
+        .iter()
+        .find(|configuration| configuration["provider"] == "spring-boot.maven")
+        .and_then(|configuration| configuration["id"].as_str())
+        .unwrap();
+    let spring_plan: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "plan-hybrid-spring",
+            "command": "runConfig.createLaunchPlan",
+            "payload": {"root": root, "configurationId": spring_id}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(spring_plan["ok"], true, "{spring_plan}");
+    assert_eq!(
+        spring_plan["data"]["executable"]["toolchain"],
+        "project-maven"
+    );
+
+    let mismatch = resolve(Some("18.20.4"));
+    let version_mismatches = mismatch["data"]["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| diagnostic["code"] == "toolchainVersionMismatch")
+        .collect::<Vec<_>>();
+    assert!(!version_mismatches.is_empty(), "{mismatch}");
+    assert!(version_mismatches
+        .iter()
+        .all(|diagnostic| npm_ids.iter().any(|id| diagnostic["id"] == id.as_str())));
 
     fs::remove_dir_all(root).unwrap();
 }

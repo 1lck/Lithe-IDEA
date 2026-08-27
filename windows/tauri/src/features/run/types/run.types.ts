@@ -68,6 +68,14 @@ export interface MavenRuntime {
   version: string;
 }
 
+export interface GenericRuntime {
+  id: string;
+  type: string;
+  executablePath: string;
+  version: string;
+  vendor: string;
+}
+
 export interface LaunchPlan {
   executable: {
     toolchain?: string | null;
@@ -82,6 +90,7 @@ export interface LaunchPlan {
 export interface CoreInspectResult {
   status: string;
   diagnostics?: Array<Record<string, string>>;
+  localToolchains?: CoreLocalToolchains | null;
 }
 
 export interface CoreGenerateResult {
@@ -95,6 +104,7 @@ export interface CoreResolveResult {
   diagnostics?: Array<Record<string, string>>;
   defaultRunConfiguration?: string | null;
   toolchain?: CoreGlobalToolchain | null;
+  localToolchains?: CoreLocalToolchains | null;
 }
 
 export interface CoreGlobalToolchain {
@@ -102,10 +112,16 @@ export interface CoreGlobalToolchain {
   maven?: { executablePath?: string; javaHomePath?: string };
 }
 
+export interface CoreLocalToolchains {
+  version: number;
+  toolchains?: Record<string, { executable?: string }>;
+}
+
 export interface GlobalToolchain {
   javaHomePath: string;
   mavenExecutablePath: string;
   mavenJavaHomePath: string;
+  runtimeExecutablePaths: Record<string, string>;
 }
 
 export interface CoreResolvedConfiguration {
@@ -152,4 +168,5 @@ export const EMPTY_GLOBAL_TOOLCHAIN: GlobalToolchain = {
   javaHomePath: "",
   mavenExecutablePath: "",
   mavenJavaHomePath: "",
+  runtimeExecutablePaths: {},
 };

@@ -1,6 +1,8 @@
 import {
   CURRENT_FILE_ID,
   type CoreGlobalToolchain,
+  type CoreLocalToolchains,
+  type GenericRuntime,
   type CoreResolvedConfiguration,
   type GlobalToolchain,
   type JavaRuntime,
@@ -63,11 +65,20 @@ export function normalizeExecution(execution: string | undefined, provider: stri
   return "application";
 }
 
-export function mapCoreToolchain(toolchain: CoreGlobalToolchain | null | undefined): GlobalToolchain {
+export function mapCoreToolchain(
+  toolchain: CoreGlobalToolchain | null | undefined,
+  localToolchains?: CoreLocalToolchains | null,
+): GlobalToolchain {
+  const runtimeExecutablePaths = Object.fromEntries(
+    Object.entries(localToolchains?.toolchains ?? {})
+      .filter((entry): entry is [string, { executable: string }] => Boolean(entry[1].executable))
+      .map(([id, value]) => [id, value.executable]),
+  );
   return {
     javaHomePath: toolchain?.java?.homePath ?? "",
     mavenExecutablePath: toolchain?.maven?.executablePath ?? "",
     mavenJavaHomePath: toolchain?.maven?.javaHomePath ?? "",
+    runtimeExecutablePaths,
   };
 }
 
@@ -86,6 +97,17 @@ export function configurationsForExecution(
 
 export function isBlockingToolchainDiagnostic(diagnostic: RunDiagnostic): boolean {
   return diagnostic.code === "missingToolchain" || diagnostic.code === "toolchainVersionMismatch";
+}
+
+export function blockingToolchainDiagnosticForConfiguration(
+  diagnostics: RunDiagnostic[],
+  configurationId: string | null | undefined,
+): RunDiagnostic | undefined {
+  return diagnostics.find(
+    (diagnostic) =>
+      isBlockingToolchainDiagnostic(diagnostic) &&
+      (diagnostic.id === undefined || diagnostic.id === configurationId),
+  );
 }
 
 export function recoveryActionForError(code: string | undefined): RunRecoveryAction {
@@ -150,6 +172,14 @@ export function configurationUsesMaven(configuration: { toolchains?: Record<stri
   return Boolean(configuration.toolchains?.maven);
 }
 
+export function configurationUsesJava(configuration: { toolchains?: Record<string, string> }): boolean {
+  return Boolean(configuration.toolchains?.java || configuration.toolchains?.maven);
+}
+
+export function configurationUsesNode(configuration: { toolchains?: Record<string, string> }): boolean {
+  return configuration.toolchains?.runtime === "project-node";
+}
+
 export function configurationOverrides(
   options: RunOptions,
   defaults: GlobalToolchain,
@@ -172,7 +202,7 @@ export function configurationOverrides(
 }
 
 export function selectedToolchainCandidates(
-  discovered: { java: JavaRuntime[]; maven: MavenRuntime[] },
+  discovered: { java: JavaRuntime[]; maven: MavenRuntime[]; runtimes: GenericRuntime[] },
   selected: GlobalToolchain,
 ): Array<{ id: string; type: string; version: string; vendor: string }> {
   const java = selected.javaHomePath
@@ -184,9 +214,22 @@ export function selectedToolchainCandidates(
         runtime.executablePath,
       ))
     : discovered.maven[0];
+  const runtimeIds = new Set(discovered.runtimes.map((runtime) => runtime.id));
+  const runtimes = [...runtimeIds].flatMap((id) => {
+    const selectedPath = selected.runtimeExecutablePaths[id];
+    const runtime = selectedPath
+      ? discovered.runtimes.find(
+          (candidate) => candidate.id === id && sameWindowsPath(candidate.executablePath, selectedPath),
+        )
+      : discovered.runtimes.find((candidate) => candidate.id === id);
+    return runtime
+      ? [{ id: runtime.id, type: runtime.type, version: runtime.version, vendor: runtime.vendor }]
+      : [];
+  });
   return [
     ...(java ? [{ id: "project-jdk", type: "java", version: java.version, vendor: java.vendor }] : []),
     ...(maven ? [{ id: "project-maven", type: "maven", version: maven.version, vendor: "" }] : []),
+    ...runtimes,
   ];
 }
 

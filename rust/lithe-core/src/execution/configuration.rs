@@ -92,6 +92,9 @@ pub struct ToolchainPaths {
     pub maven_executable_path: String,
     #[serde(default)]
     pub maven_java_home_path: String,
+    /// Explicit executables for generic runtime toolchain IDs such as `project-node`.
+    #[serde(default)]
+    pub runtime_executable_paths: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -340,6 +343,7 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
     let root = existing_root(&request.root)?;
     let generated = read_document(&root, "run/generated.json")?;
     let requirements = read_requirements(&root)?;
+    let local_toolchains = read_local_toolchains(&root)?;
     for relative in [
         "run/configurations.json",
         "run/local.json",
@@ -403,6 +407,7 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
         "status": if generated.is_some() { "ready" } else { "missing" },
         "generated": generated,
         "toolchainRequirements": requirements,
+        "localToolchains": local_toolchains,
         "diagnostics": diagnostics,
         "paths": { "generated": ".lithe/run/generated.json", "configurations": ".lithe/run/configurations.json", "local": ".lithe/run/local.json" }
     }))
@@ -728,22 +733,46 @@ fn detected_configurations(
 ) -> Result<Vec<RunConfiguration>, CoreError> {
     Ok(super::detectors::detect_all(root, maven_root)?
         .into_iter()
-        .map(|item| RunConfiguration {
-            id: item.id(),
-            name: item.name,
-            provider: item.provider,
-            execution: item.execution,
-            command: item.command,
-            args: item.args,
-            cwd: item.cwd,
-            env: item.env,
-            confidence: item.confidence,
-            toolchains: item.toolchains,
-            debug: item.debug.map(|adapter| DebugCapability { adapter }),
-            members: Vec::new(),
-            extensions: item.extensions,
-            disabled: false,
-            source: Some(item.source),
+        .map(|item| {
+            let id = item.id();
+            let provider = item.provider;
+            let mut toolchains = item.toolchains;
+            match provider.split('.').next().unwrap_or("") {
+                "npm" => {
+                    toolchains.insert("runtime".to_string(), "project-node".to_string());
+                }
+                "go" => {
+                    toolchains.insert("runtime".to_string(), "project-go".to_string());
+                }
+                "python" => {
+                    toolchains.insert("runtime".to_string(), "project-python".to_string());
+                }
+                "cargo" => {
+                    toolchains.insert("runtime".to_string(), "project-cargo".to_string());
+                }
+                "gradle" => {
+                    toolchains.insert("runtime".to_string(), "project-gradle".to_string());
+                    toolchains.insert("java".to_string(), "project-jdk".to_string());
+                }
+                _ => {}
+            }
+            RunConfiguration {
+                id,
+                name: item.name,
+                provider,
+                execution: item.execution,
+                command: item.command,
+                args: item.args,
+                cwd: item.cwd,
+                env: item.env,
+                confidence: item.confidence,
+                toolchains,
+                debug: item.debug.map(|adapter| DebugCapability { adapter }),
+                members: Vec::new(),
+                extensions: item.extensions,
+                disabled: false,
+                source: Some(item.source),
+            }
         })
         .filter(|item| !claimed.contains(&item.id))
         .filter(|item| validate_configuration(item).is_ok())
@@ -813,6 +842,7 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
     let team = read_document_value(&root, "run/configurations.json")?
         .unwrap_or_else(|| json!({"version": VERSION, "configurations": []}));
     let local = local_layer_document(&root, request.local_document)?;
+    let local_toolchains = read_local_toolchains(&root)?;
     let manifest = read_document_value(&root, "project.json")?;
     validate_version_value(&generated)?;
     validate_version_value(&team)?;
@@ -822,7 +852,6 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
     }
     let generated_ids = configuration_ids(&generated)?;
     let mut diagnostics = Vec::new();
-    diagnostics.extend(toolchain_diagnostics(&root, &request.toolchain_candidates)?);
     for source in [&team, &local] {
         for id in configuration_ids(source)?.keys() {
             if !generated_ids.contains_key(id) && !id.starts_with("user:") {
@@ -839,6 +868,11 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
     if let Some(toolchain) = global_toolchain.as_ref() {
         apply_global_toolchain(&mut configurations, toolchain);
     }
+    diagnostics.extend(toolchain_diagnostics(
+        &root,
+        &request.toolchain_candidates,
+        &configurations,
+    )?);
     for configuration in &mut configurations {
         validate_configuration(configuration)?;
         if configuration.disabled {
@@ -904,7 +938,8 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
         "configurations": configurations,
         "diagnostics": diagnostics,
         "defaultRunConfiguration": default_run_configuration,
-        "toolchain": global_toolchain
+        "toolchain": global_toolchain,
+        "localToolchains": local_toolchains
     }))
 }
 
@@ -970,6 +1005,8 @@ pub fn save_editor_changes(mut request: UpdateOptionsRequest) -> Result<Value, C
             "Run configuration editor changes require a project toolchain",
         )
     })?;
+    let toolchain_document =
+        update_local_toolchains_document(&root, &toolchain.runtime_executable_paths)?;
     let mut local_document =
         update_toolchain_document(&root, request.local_document.take(), toolchain)?;
     request.local_document = Some(local_document.clone());
@@ -983,7 +1020,10 @@ pub fn save_editor_changes(mut request: UpdateOptionsRequest) -> Result<Value, C
     };
     Ok(json!({
         "localDocument": serde_json::to_string_pretty(&local_document).expect("document should encode"),
-        "projectDocument": project_document
+        "projectDocument": project_document,
+        "toolchainDocument": toolchain_document.map(|document| {
+            serde_json::to_string_pretty(&document).expect("document should encode")
+        })
     }))
 }
 
@@ -1002,6 +1042,35 @@ fn update_toolchain_document(
         }
     });
     Ok(document)
+}
+
+fn update_local_toolchains_document(
+    root: &Path,
+    runtime_executable_paths: &BTreeMap<String, String>,
+) -> Result<Option<Value>, CoreError> {
+    if runtime_executable_paths.is_empty() {
+        return Ok(None);
+    }
+    let mut document = read_local_toolchains(root)?
+        .unwrap_or_else(|| json!({"version": SIDECAR_VERSION, "toolchains": {}}));
+    validate_sidecar_version_value(&document)?;
+    let toolchains = document
+        .get_mut("toolchains")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| {
+            CoreError::new(
+                ErrorCode::ParseFailed,
+                "Local toolchains must contain a toolchains object",
+            )
+        })?;
+    for (id, executable_path) in runtime_executable_paths {
+        if executable_path.trim().is_empty() {
+            toolchains.remove(id);
+        } else {
+            toolchains.insert(id.clone(), json!({ "executable": executable_path.trim() }));
+        }
+    }
+    Ok(Some(document))
 }
 
 fn update_configuration_options(
@@ -2099,6 +2168,24 @@ fn read_requirements(root: &Path) -> Result<Option<ToolchainRequirementsDocument
     })
 }
 
+fn read_local_toolchains(root: &Path) -> Result<Option<Value>, CoreError> {
+    let Some(document) = read_document_value(root, "toolchains/local.json")? else {
+        return Ok(None);
+    };
+    validate_sidecar_version_value(&document)?;
+    if document
+        .get("toolchains")
+        .and_then(Value::as_object)
+        .is_none()
+    {
+        return Err(CoreError::new(
+            ErrorCode::ParseFailed,
+            "Local toolchains must contain a toolchains object",
+        ));
+    }
+    Ok(Some(document))
+}
+
 fn detect_requirements(
     root: &Path,
     maven_root: Option<&Path>,
@@ -2216,6 +2303,7 @@ fn generic_requirement(kind: &str, minimum_version: Option<String>) -> Toolchain
 fn toolchain_diagnostics(
     root: &Path,
     candidates: &[ToolchainCandidate],
+    configurations: &[RunConfiguration],
 ) -> Result<Vec<Value>, CoreError> {
     let Some(requirements) = read_requirements(root)? else {
         return Ok(Vec::new());
@@ -2223,15 +2311,31 @@ fn toolchain_diagnostics(
     validate_sidecar_version(requirements.version)?;
     let mut diagnostics = Vec::new();
     for (id, requirement) in requirements.toolchains {
+        let mut consumer_ids = configurations
+            .iter()
+            .filter(|configuration| {
+                configuration
+                    .toolchains
+                    .values()
+                    .any(|toolchain| toolchain == &id)
+            })
+            .map(|configuration| configuration.id.clone())
+            .collect::<Vec<_>>();
+        consumer_ids.sort();
+        consumer_ids.dedup();
         let Some(candidate) = candidates
             .iter()
             .find(|candidate| candidate.id == id && candidate.kind == requirement.kind)
         else {
-            diagnostics.push(json!({
-                "code": "missingToolchain",
-                "toolchain": id,
-                "message": format!("No local {} toolchain is selected", requirement.kind)
-            }));
+            append_toolchain_diagnostics(
+                &mut diagnostics,
+                &consumer_ids,
+                json!({
+                    "code": "missingToolchain",
+                    "toolchain": id,
+                    "message": format!("No local {} toolchain is selected", requirement.kind)
+                }),
+            );
             continue;
         };
         let required_version = requirement
@@ -2244,14 +2348,18 @@ fn toolchain_diagnostics(
                 required,
                 requirement.minimum_version.is_some(),
             ) {
-                diagnostics.push(json!({
-                    "code": "toolchainVersionMismatch",
-                    "toolchain": id,
-                    "message": format!(
-                        "{} {} does not satisfy required version {}",
-                        requirement.kind, candidate.version, required
-                    )
-                }));
+                append_toolchain_diagnostics(
+                    &mut diagnostics,
+                    &consumer_ids,
+                    json!({
+                        "code": "toolchainVersionMismatch",
+                        "toolchain": id,
+                        "message": format!(
+                            "{} {} does not satisfy required version {}",
+                            requirement.kind, candidate.version, required
+                        )
+                    }),
+                );
             }
         }
         if let Some(vendor) = requirement.preferred_vendor.as_deref() {
@@ -2260,15 +2368,35 @@ fn toolchain_diagnostics(
                 .to_lowercase()
                 .contains(&vendor.to_lowercase())
             {
-                diagnostics.push(json!({
-                    "code": "toolchainVendorMismatch",
-                    "toolchain": id,
-                    "message": format!("Preferred Java vendor is {vendor}")
-                }));
+                append_toolchain_diagnostics(
+                    &mut diagnostics,
+                    &consumer_ids,
+                    json!({
+                        "code": "toolchainVendorMismatch",
+                        "toolchain": id,
+                        "message": format!("Preferred Java vendor is {vendor}")
+                    }),
+                );
             }
         }
     }
     Ok(diagnostics)
+}
+
+fn append_toolchain_diagnostics(
+    diagnostics: &mut Vec<Value>,
+    consumer_ids: &[String],
+    diagnostic: Value,
+) {
+    if consumer_ids.is_empty() {
+        diagnostics.push(diagnostic);
+        return;
+    }
+    for configuration_id in consumer_ids {
+        let mut scoped = diagnostic.clone();
+        scoped["id"] = json!(configuration_id);
+        diagnostics.push(scoped);
+    }
 }
 
 fn version_satisfies(actual: &str, required: &str, minimum: bool) -> bool {
