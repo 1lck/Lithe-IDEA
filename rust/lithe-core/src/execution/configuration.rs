@@ -12,6 +12,7 @@ use std::path::{Component, Path, PathBuf};
 
 const VERSION: u32 = 2;
 const LEGACY_VERSION: u32 = 1;
+const GENERATOR_REVISION: &str = "2";
 /// Toolchain requirements and `project.json` are separate documents that happen
 /// to live under `.lithe`. Their schema did not change with run-config v2, so
 /// they keep their own version and must not be validated against `VERSION`.
@@ -394,6 +395,8 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
         if metadata.fingerprint != fingerprint_from_inputs(&current_inputs) {
             let message = if metadata.inputs.is_empty() {
                 "Project inputs changed after run configuration generation".to_string()
+            } else if metadata.inputs == current_inputs {
+                "Run configuration generator changed; regenerate configurations".to_string()
             } else {
                 input_change_summary(&metadata.inputs, &current_inputs)
             };
@@ -461,21 +464,37 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         .iter()
         .map(|value| (value.qualified_name.clone(), value.path.clone()))
         .collect::<BTreeMap<_, _>>();
+    let mut maven_owners = BTreeMap::<Option<String>, Option<(PathBuf, String)>>::new();
     let configurations = scanned
         .configurations
         .into_iter()
-        .map(|value| {
+        .map(|value| -> Result<RunConfiguration, CoreError> {
             let provider = match value.kind.as_str() {
                 "javaMain" | "springBoot" => "java.main",
                 "mavenModule" => "maven.module",
                 _ => "java.current-file",
             };
             let id = java_configuration_id(&value);
+            let owner_key = value.module_path.clone();
+            let maven_owner = if let Some(owner) = maven_owners.get(&owner_key) {
+                owner.clone()
+            } else {
+                let owner = maven_owner_for_module(
+                    &root,
+                    maven_root.as_ref(),
+                    value.module_path.as_deref(),
+                )?;
+                maven_owners.insert(owner_key, owner.clone());
+                owner
+            };
+            let owner_relative_path = maven_owner
+                .as_ref()
+                .map(|(_, relative_path)| relative_path.as_str());
             let mut maven = serde_json::Map::new();
             let module_path = value
                 .module_path
                 .as_deref()
-                .map(|path| maven_module_path(maven_relative_path, path))
+                .map(|path| maven_module_path(owner_relative_path, path))
                 .unwrap_or_else(|| ".".to_string());
             maven.insert("module".to_string(), json!(module_path));
             if let Some(main_class) = value.main_class.as_ref() {
@@ -486,9 +505,9 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
                 .as_ref()
                 .and_then(|name| main_class_sources.get(name))
                 .cloned();
-            // A workspace without Maven still produces java.main entries. Binding
-            // project-maven there would force every plain Java class through mvn.
-            let uses_maven_toolchain = has_maven_project && provider != "java.current-file";
+            // Maven ownership is per entry: one workspace can contain standalone
+            // Java files or multiple independent reactors in the same request.
+            let uses_maven_toolchain = maven_owner.is_some() && provider != "java.current-file";
             let mut toolchains = BTreeMap::new();
             toolchains.insert("java".to_string(), "project-jdk".to_string());
             if uses_maven_toolchain {
@@ -499,7 +518,7 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
             if let Some(path) = source_path.as_ref() {
                 extensions.insert("java".to_string(), json!({ "source": path }));
             }
-            RunConfiguration {
+            Ok(RunConfiguration {
                 id,
                 name: value.name,
                 provider: provider.to_string(),
@@ -512,7 +531,7 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
                 cwd: if provider == "java.current-file" {
                     ".".to_string()
                 } else {
-                    maven_relative_path.unwrap_or(".").to_string()
+                    owner_relative_path.unwrap_or(".").to_string()
                 },
                 env: BTreeMap::new(),
                 confidence: Confidence::Native,
@@ -524,9 +543,9 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
                 extensions,
                 disabled: false,
                 source: source_path,
-            }
+            })
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, _>>()?;
     let mut configurations = deduplicate_java_configurations(configurations);
     let java_entry_count = configurations.len();
     if has_java_sources {
@@ -611,6 +630,27 @@ fn maven_module_path(maven_root: Option<&str>, path: &str) -> String {
             .unwrap_or(path)
             .to_string()
     }
+}
+
+fn maven_owner_for_module(
+    root: &Path,
+    workspace_maven_root: Option<&(PathBuf, String)>,
+    module_path: Option<&str>,
+) -> Result<Option<(PathBuf, String)>, CoreError> {
+    if let Some(module_path) = module_path {
+        let descriptor = if module_path == "." {
+            "pom.xml".to_string()
+        } else {
+            format!("{module_path}/pom.xml")
+        };
+        return crate::project::maven_root(root, &[descriptor]);
+    }
+
+    // A root-level Maven project has no relative module path. Nested reactors
+    // always contribute at least their reactor directory through module inference.
+    Ok(workspace_maven_root
+        .filter(|(_, relative_path)| relative_path == ".")
+        .cloned())
 }
 
 /// Whether a service is a Spring Boot service is decided by the build, not by an
@@ -1299,6 +1339,7 @@ pub fn create_user_configuration(
 
 /// Resolves one configuration into the exact executable, arguments, and environment.
 pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError> {
+    let workspace_root = existing_root(&request.root)?;
     let resolved = resolve(ResolveRequest {
         root: request.root,
         toolchain_candidates: Vec::new(),
@@ -1422,6 +1463,13 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
                 ErrorCode::InvalidRequest,
                 "Java source path is invalid",
             ));
+        }
+        if crate::project::maven_root(&workspace_root, &[source.to_string()])?.is_some() {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Java application belongs to a Maven project; regenerate run configurations",
+            )
+            .with_details(source));
         }
         arguments.push(json!(source));
         arguments.extend(program_arguments);
@@ -2414,6 +2462,10 @@ fn project_inputs(root: &Path) -> Result<BTreeMap<String, String>, CoreError> {
 
 fn fingerprint_from_inputs(inputs: &BTreeMap<String, String>) -> String {
     let mut digest = Sha256::new();
+    // Detection changes invalidate persisted output even when project files are
+    // unchanged, so an application upgrade cannot keep launching a stale plan.
+    digest.update(GENERATOR_REVISION.as_bytes());
+    digest.update([0]);
     for (relative, content_hash) in inputs {
         digest.update(relative.as_bytes());
         digest.update([0]);
