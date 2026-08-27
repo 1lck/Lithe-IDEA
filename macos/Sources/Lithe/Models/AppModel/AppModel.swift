@@ -136,9 +136,6 @@ final class AppModel: ObservableObject, Identifiable {
     var javaCodeVisionHints: [URL: [JavaCodeVisionHint]] {
         javaFeature.javaCodeVisionHints
     }
-    var javaInlayHints: [URL: [JavaInlayHint]] {
-        javaFeature.javaInlayHints
-    }
     @Published var blameVisibleURL: URL?
     @Published var gitLogSearchQuery = ""
     private var shortcutDetector: (any ShortcutDetector)?
@@ -391,10 +388,7 @@ final class AppModel: ObservableObject, Identifiable {
             binaryFileViewerRegistry: services.binaryFileViewerRegistry
         )
         navigationHistoryFeature = NavigationHistoryFeatureModel()
-        javaFeature = JavaFeatureModel(
-            operations: services.javaMavenOperations,
-            workspaceOperations: services.workspaceOperations
-        )
+        javaFeature = JavaFeatureModel(operations: services.javaMavenOperations)
         springFeature = SpringFeatureModel(operations: services.javaMavenOperations)
         recentProjects = services.recentProjectsStore.load()
         languageToolingFeature.configureSessions { [weak self] in
@@ -557,11 +551,6 @@ final class AppModel: ObservableObject, Identifiable {
                 self.activateLanguageServerIfAvailable(for: document)
                 guard self.javaFeature.handles(fileURL: document.url) else { return }
                 Task { await self.refreshCodeVision(for: document.url) }
-                self.javaFeature.refreshInlayHints(
-                    for: document,
-                    projectFiles: self.projectFiles,
-                    workspaceRoot: self.workspaceURL
-                )
             },
             onDocumentChanged: { [weak self] document in
                 self?.handleDocumentChanged(document)
@@ -1297,7 +1286,6 @@ final class AppModel: ObservableObject, Identifiable {
             guard !Task.isCancelled, let self, let document else { return }
             guard self.javaFeature.handles(fileURL: document.url) else { return }
             await self.refreshCodeVision(for: document.url)
-            self.refreshJavaInlayHints(for: document)
         }
     }
 

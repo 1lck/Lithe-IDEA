@@ -746,16 +746,6 @@ struct RustCoreBridge: Sendable {
             }
         }
 
-        struct InlayHint: Decodable, Sendable {
-            let line: Int
-            let utf16Column: Int
-            let label: String
-
-            func makeModel() -> JavaInlayHint {
-                JavaInlayHint(line: line, utf16Column: utf16Column, label: label)
-            }
-        }
-
         struct SyntaxHighlight: Decodable, Sendable {
             let utf16Start: Int
             let utf16Length: Int
@@ -771,11 +761,9 @@ struct RustCoreBridge: Sendable {
         }
 
         let foldRegions: [FoldRegion]
-        let inlayHints: [InlayHint]
         let syntaxHighlights: [SyntaxHighlight]
 
         func makeFoldRegions() -> [JavaFoldRegion] { foldRegions.compactMap { $0.makeModel() } }
-        func makeInlayHints() -> [JavaInlayHint] { inlayHints.map { $0.makeModel() } }
         func makeSyntaxHighlights() -> [JavaSyntaxHighlight] {
             syntaxHighlights.compactMap { $0.makeModel() }
         }
