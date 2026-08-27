@@ -1408,7 +1408,7 @@ private struct GitLogAuthorOption: Identifiable {
     let email: String
 }
 
-private enum GitLogDatePreset: String, CaseIterable, Identifiable {
+enum GitLogDatePreset: String, CaseIterable, Identifiable {
     case anyTime
     case today
     case yesterday
@@ -1439,7 +1439,11 @@ private enum GitLogDatePreset: String, CaseIterable, Identifiable {
         case .anyTime:
             return []
         case .today:
-            return ["after:\(Self.dateToken(today, calendar: calendar))"]
+            guard let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) else { return [] }
+            return [
+                "after:\(Self.dateToken(today, calendar: calendar))",
+                "before:\(Self.dateToken(tomorrow, calendar: calendar))"
+            ]
         case .yesterday:
             guard let yesterday = calendar.date(byAdding: .day, value: -1, to: today) else { return [] }
             return [
@@ -1447,11 +1451,19 @@ private enum GitLogDatePreset: String, CaseIterable, Identifiable {
                 "before:\(Self.dateToken(today, calendar: calendar))"
             ]
         case .lastSevenDays:
-            guard let firstDay = calendar.date(byAdding: .day, value: -6, to: today) else { return [] }
-            return ["after:\(Self.dateToken(firstDay, calendar: calendar))"]
+            guard let firstDay = calendar.date(byAdding: .day, value: -6, to: today),
+                  let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) else { return [] }
+            return [
+                "after:\(Self.dateToken(firstDay, calendar: calendar))",
+                "before:\(Self.dateToken(tomorrow, calendar: calendar))"
+            ]
         case .lastThirtyDays:
-            guard let firstDay = calendar.date(byAdding: .day, value: -29, to: today) else { return [] }
-            return ["after:\(Self.dateToken(firstDay, calendar: calendar))"]
+            guard let firstDay = calendar.date(byAdding: .day, value: -29, to: today),
+                  let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) else { return [] }
+            return [
+                "after:\(Self.dateToken(firstDay, calendar: calendar))",
+                "before:\(Self.dateToken(tomorrow, calendar: calendar))"
+            ]
         }
     }
 

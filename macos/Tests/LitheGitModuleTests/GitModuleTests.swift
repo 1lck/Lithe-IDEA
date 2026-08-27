@@ -144,7 +144,7 @@ struct GitModuleTests {
             parentHashes: [],
             authorName: "Ada Lovelace",
             authorEmail: "ada@example.com",
-            date: "2026-08-18T00:00:00+08:00",
+            date: "2026-08-18T00:00:00Z",
             subject: "Outside range",
             decorations: ""
         )
