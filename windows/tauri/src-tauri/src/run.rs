@@ -962,32 +962,38 @@ fn resolve_command_executable(
     command: &str,
     runtime_executable_paths: &HashMap<String, String>,
 ) -> Option<PathBuf> {
+    resolve_command_executable_with(command, runtime_executable_paths, lookup_on_path)
+}
+
+fn resolve_command_executable_with(
+    command: &str,
+    runtime_executable_paths: &HashMap<String, String>,
+    lookup: impl Fn(&str) -> Option<PathBuf>,
+) -> Option<PathBuf> {
     let command_lower = command.to_ascii_lowercase();
-    if matches!(
+    let consumes_node = matches!(
         command_lower.as_str(),
-        "node"
-            | "node.exe"
-            | "npm"
-            | "npm.cmd"
-            | "pnpm"
-            | "pnpm.cmd"
-            | "yarn"
-            | "yarn.cmd"
-            | "bun"
-            | "bun.exe"
-    ) {
-        for directory in selected_runtime_directories(runtime_executable_paths) {
+        "node" | "node.exe" | "npm" | "npm.cmd" | "pnpm" | "pnpm.cmd" | "yarn" | "yarn.cmd"
+    );
+    if consumes_node {
+        if let Some(directory) =
+            selected_runtime_directory(runtime_executable_paths, "project-node")
+        {
             for name in command_file_names(command) {
                 let candidate = directory.join(name);
                 if candidate.is_file() {
                     return Some(candidate);
                 }
             }
+            // A package-manager shim can bind to a node.exe beside itself. Once
+            // Node is selected, falling back to PATH could launch a different
+            // runtime from the one Core validated.
+            return None;
         }
     }
     command_file_names(command)
         .into_iter()
-        .find_map(|name| lookup_on_path(&name))
+        .find_map(|name| lookup(&name))
 }
 
 fn command_file_names(command: &str) -> Vec<String> {
@@ -995,11 +1001,23 @@ fn command_file_names(command: &str) -> Vec<String> {
         return vec![command.to_string()];
     }
     vec![
-        command.to_string(),
-        format!("{command}.cmd"),
         format!("{command}.exe"),
+        format!("{command}.cmd"),
         format!("{command}.bat"),
+        command.to_string(),
     ]
+}
+
+fn selected_runtime_directory(
+    runtime_executable_paths: &HashMap<String, String>,
+    toolchain: &str,
+) -> Option<PathBuf> {
+    let path = PathBuf::from(runtime_executable_paths.get(toolchain)?.trim());
+    if path.is_dir() {
+        Some(path)
+    } else {
+        path.parent().map(Path::to_path_buf)
+    }
 }
 
 fn selected_runtime_directories(
@@ -1725,8 +1743,10 @@ mod tests {
     fn selected_node_directory_resolves_package_manager_before_path() {
         let root = temp_project();
         let node = root.join("node.exe");
+        let shell_script = root.join("npm");
         let npm = root.join("npm.cmd");
         fs::write(&node, b"node").unwrap();
+        fs::write(&shell_script, b"#!/bin/sh\n").unwrap();
         fs::write(&npm, b"npm").unwrap();
         let paths = HashMap::from([(
             "project-node".to_string(),
@@ -1735,6 +1755,27 @@ mod tests {
         assert_eq!(
             resolve_command_executable("npm", &paths).as_deref(),
             Some(npm.as_path())
+        );
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn selected_node_does_not_fall_back_to_another_installations_npm() {
+        let root = temp_project();
+        let selected_node = root.join("selected/node.exe");
+        let path_npm = root.join("path/npm.cmd");
+        fs::create_dir_all(selected_node.parent().unwrap()).unwrap();
+        fs::create_dir_all(path_npm.parent().unwrap()).unwrap();
+        fs::write(&selected_node, b"node").unwrap();
+        fs::write(&path_npm, b"npm").unwrap();
+        let paths = HashMap::from([(
+            "project-node".to_string(),
+            selected_node.to_string_lossy().into_owned(),
+        )]);
+
+        assert_eq!(
+            resolve_command_executable_with("npm", &paths, |_| Some(path_npm.clone())),
+            None
         );
         fs::remove_dir_all(root).ok();
     }

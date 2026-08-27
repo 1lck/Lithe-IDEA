@@ -505,13 +505,17 @@ diagnostics for stale, orphaned, missing, disabled, and toolchain mismatch
 states, the effective global `toolchain`, and the machine-local
 `localToolchains` document. Toolchain diagnostics carry the affected run
 configuration ID when a requirement is consumed by one or more configurations;
-requirements with no configuration consumer remain project-level diagnostics.
+requirements with no configuration consumer do not emit a blocking diagnostic.
 A process detector declares a runtime binding only when that command genuinely
 consumes the runtime. npm, pnpm, and Yarn scripts consume `project-node`; Bun
 scripts keep their independent `bun` command and do not acquire a Node
 requirement. Go, Python, Cargo, and Gradle remain command-based until every host
 provides the corresponding configurable runtime registry, so their PATH-based
 launch behavior is not blocked by an unavailable platform selector.
+During resolution, Core also reconciles npm, pnpm, and Yarn commands from older
+v2 generated documents with the same `project-node` binding. This compatibility
+normalization is based on the effective command, does not mutate the stored
+document, and keeps legacy hybrid projects scoped without requiring regeneration.
 A document-level `toolchain`
 object in the local layer (e.g.
 `{ "java": { "homePath": ... }, "maven": { "executablePath": ..., "javaHomePath": ... } }`)
@@ -555,6 +559,10 @@ current session. Platforms use that same path both to construct
 `toolchainCandidates` and to resolve the launch command. An automatic path is
 not a persisted user selection and is written to `.lithe/toolchains/local.json`
 only after an explicit editor save.
+On Windows, Node-backed commands resolve their package-manager shim from the
+selected Node installation. They do not fall back to a PATH shim from another
+installation, and Windows executable extensions take precedence over extensionless
+shell scripts.
 
 `runConfig.createLaunchPlan` accepts `root`, `configurationId`, optional
 `currentFile` and `classPath`, optional `debugPort`, and optional

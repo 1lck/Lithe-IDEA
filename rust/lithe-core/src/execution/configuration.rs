@@ -839,6 +839,7 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
         }
     }
     let mut configurations = merge_values(&generated, &team, &local)?;
+    normalize_runtime_consumption(&mut configurations);
     let global_toolchain = local.get("toolchain").cloned();
     if let Some(toolchain) = global_toolchain.as_ref() {
         apply_global_toolchain(&mut configurations, toolchain);
@@ -1781,6 +1782,31 @@ fn merge_values(
         .collect()
 }
 
+/// Reconciles runtime bindings from the effective command for generated v2
+/// documents written before detectors declared their consumption explicitly.
+fn normalize_runtime_consumption(configurations: &mut [RunConfiguration]) {
+    for configuration in configurations {
+        let command = configuration
+            .command
+            .as_deref()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if matches!(
+            command.as_str(),
+            "npm" | "npm.cmd" | "pnpm" | "pnpm.cmd" | "yarn" | "yarn.cmd"
+        ) {
+            configuration
+                .toolchains
+                .entry("runtime".to_string())
+                .or_insert_with(|| "project-node".to_string());
+        } else if matches!(command.as_str(), "bun" | "bun.exe")
+            && configuration.toolchains.get("runtime").map(String::as_str) == Some("project-node")
+        {
+            configuration.toolchains.remove("runtime");
+        }
+    }
+}
+
 /// Deep-merges the `extensions` object one namespace at a time.
 ///
 /// A shallow insert would let a layer that touches a single maven key drop the
@@ -2202,12 +2228,6 @@ fn detect_requirements(
     }
     maven.version = maven_wrapper_version(maven_root);
     let mut toolchains = BTreeMap::new();
-    if has_java_ecosystem {
-        toolchains.insert("project-jdk".to_string(), jdk);
-    }
-    if maven_root.join("pom.xml").is_file() || maven_root.join("mvnw").is_file() {
-        toolchains.insert("project-maven".to_string(), maven);
-    }
     let consumes = |toolchain: &str| {
         configurations.iter().any(|configuration| {
             configuration
@@ -2216,6 +2236,12 @@ fn detect_requirements(
                 .any(|candidate| candidate == toolchain)
         })
     };
+    if has_java_ecosystem || consumes("project-jdk") {
+        toolchains.insert("project-jdk".to_string(), jdk);
+    }
+    if maven_root.join("pom.xml").is_file() || maven_root.join("mvnw").is_file() {
+        toolchains.insert("project-maven".to_string(), maven);
+    }
     if consumes("project-node") {
         toolchains.insert(
             "project-node".to_string(),
@@ -2328,7 +2354,6 @@ fn append_toolchain_diagnostics(
     diagnostic: Value,
 ) {
     if consumer_ids.is_empty() {
-        diagnostics.push(diagnostic);
         return;
     }
     for configuration_id in consumer_ids {

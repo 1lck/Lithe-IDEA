@@ -746,6 +746,34 @@ fn gradle_projects_require_a_jdk_without_replacing_the_path_command() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn nested_gradle_service_declares_the_jdk_requirement_from_its_consumer() {
+    let root = temporary_root("detect-nested-gradle-toolchain");
+    fs::create_dir_all(root.join("services/orders")).unwrap();
+    fs::write(root.join("settings.gradle"), "include 'services:orders'\n").unwrap();
+    fs::write(
+        root.join("services/orders/build.gradle"),
+        "plugins {\n  id 'org.springframework.boot'\n}\n",
+    )
+    .unwrap();
+
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "generate-nested-gradle",
+            "command": "runConfig.generate",
+            "payload": {"root": root}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(response["ok"], true, "{response}");
+    let toolchains = &response["data"]["toolchainRequirements"]["toolchains"];
+    assert_eq!(toolchains["project-jdk"]["type"], "java", "{response}");
+    assert!(toolchains["project-gradle"].is_null(), "{response}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// The panel needs to say *what* a service is, not just that a script exists.
 /// The framework comes from the declared dependencies, which is the only place
 /// a JavaScript project states it.

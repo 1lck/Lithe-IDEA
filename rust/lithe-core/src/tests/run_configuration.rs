@@ -1195,7 +1195,7 @@ fn run_configuration_resolve_matches_toolchains_and_rejects_unsafe_paths() {
     fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
     fs::write(
         root.join(".lithe/run/generated.json"),
-        r#"{"version":1,"configurations":[{"id":"current-file","name":"Current File","type":"java.current-file"}]}"#,
+        r#"{"version":1,"configurations":[{"id":"current-file","name":"Current File","type":"java.current-file","toolchains":{"java":"project-jdk"}}]}"#,
     )
     .unwrap();
     fs::write(
@@ -1374,6 +1374,73 @@ fn hybrid_project_scopes_node_diagnostics_to_npm_configurations() {
     assert!(version_mismatches
         .iter()
         .all(|diagnostic| npm_ids.iter().any(|id| diagnostic["id"] == id.as_str())));
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn legacy_v2_runtime_requirements_are_reconciled_without_regeneration() {
+    let root = temporary_root("run-config-legacy-runtime-consumption");
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
+    fs::create_dir_all(root.join("web")).unwrap();
+    fs::create_dir_all(root.join("bun-web")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        r#"{"version":2,"configurations":[
+            {"id":"spring","name":"backend","provider":"spring-boot.maven","execution":"service","cwd":".","toolchains":{"java":"project-jdk","maven":"project-maven"}},
+            {"id":"npm","name":"web","provider":"npm.script","execution":"service","command":"npm","args":["run","dev"],"cwd":"web","toolchains":{}},
+            {"id":"bun","name":"bun web","provider":"npm.script","execution":"service","command":"bun","args":["run","dev"],"cwd":"bun-web","toolchains":{"runtime":"project-node"}}
+        ]}"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join(".lithe/toolchains/requirements.json"),
+        r#"{"version":1,"toolchains":{
+            "project-jdk":{"type":"java"},
+            "project-maven":{"type":"maven","java":"project-jdk"},
+            "project-node":{"type":"node","minimumVersion":"22"}
+        }}"#,
+    )
+    .unwrap();
+
+    let resolved: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "resolve-legacy-runtime-consumption",
+            "command": "runConfig.resolve",
+            "payload": {
+                "root": root,
+                "toolchainCandidates": [
+                    {"id":"project-jdk","type":"java","version":"21","vendor":"Temurin"},
+                    {"id":"project-maven","type":"maven","version":"3.9.9","vendor":""}
+                ]
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(resolved["ok"], true, "{resolved}");
+    let node_diagnostics = resolved["data"]["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| diagnostic["toolchain"] == "project-node")
+        .collect::<Vec<_>>();
+    assert_eq!(node_diagnostics.len(), 1, "{resolved}");
+    assert_eq!(node_diagnostics[0]["id"], "npm");
+    let configurations = resolved["data"]["configurations"].as_array().unwrap();
+    assert_eq!(
+        configurations
+            .iter()
+            .find(|configuration| configuration["id"] == "npm")
+            .unwrap()["toolchains"]["runtime"],
+        "project-node"
+    );
+    assert!(configurations
+        .iter()
+        .find(|configuration| configuration["id"] == "bun")
+        .unwrap()["toolchains"]["runtime"]
+        .is_null());
 
     fs::remove_dir_all(root).unwrap();
 }
