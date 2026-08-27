@@ -236,58 +236,6 @@ enum EditorFoldVisibility {
 }
 
 enum EditorOverlayLayout {
-    static let inlayHintVerticalPadding: CGFloat = 4
-
-    static func inlayHintBoxHeight(
-        fontAscender: CGFloat,
-        fontDescender: CGFloat,
-        fontLeading: CGFloat
-    ) -> CGFloat {
-        ceil(fontAscender - fontDescender + fontLeading + inlayHintVerticalPadding)
-    }
-
-    static func centeredBoxOriginY(
-        textContainerOriginY: CGFloat,
-        lineOriginY: CGFloat,
-        lineHeight: CGFloat,
-        boxHeight: CGFloat
-    ) -> CGFloat {
-        textContainerOriginY
-            + lineOriginY
-            + (lineHeight - boxHeight) / 2
-    }
-
-    static func inlayHintOriginY(
-        textView: NSTextView,
-        layoutManager: NSLayoutManager,
-        glyphIndex: Int,
-        boxHeight: CGFloat
-    ) -> CGFloat {
-        let lineRect = layoutManager.lineFragmentRect(
-            forGlyphAt: glyphIndex,
-            effectiveRange: nil
-        )
-        return centeredBoxOriginY(
-            textContainerOriginY: textView.textContainerOrigin.y,
-            lineOriginY: lineRect.minY,
-            lineHeight: lineRect.height,
-            boxHeight: boxHeight
-        )
-    }
-
-    static func boxOriginYAlignedToTextCenter(
-        textContainerOriginY: CGFloat,
-        lineOriginY: CGFloat,
-        baselineOffsetY: CGFloat,
-        textAscender: CGFloat,
-        textDescender: CGFloat,
-        boxHeight: CGFloat
-    ) -> CGFloat {
-        let baselineY = lineOriginY + baselineOffsetY
-        let textCenterY = baselineY - (textAscender + textDescender) / 2
-        return textContainerOriginY + textCenterY - boxHeight / 2
-    }
-
     static func centeredFontOriginY(
         textContainerOriginY: CGFloat,
         lineOriginY: CGFloat,
@@ -315,64 +263,6 @@ enum EditorOverlayLayout {
 
     static func requiresRelayout(previousWidth: CGFloat, newWidth: CGFloat) -> Bool {
         previousWidth != newWidth
-    }
-}
-
-struct EditorOverlayUpdatePlan: Equatable {
-    let updateInlayHints: Bool
-    let updateCodeVision: Bool
-
-    init(codeVisionChanged: Bool, inlayHintsChanged: Bool, layoutChanged: Bool) {
-        // Inlay spacing is part of the attributed document and only changes
-        // when the hints change. Reapplying it for a viewport resize invalidates
-        // the full text layout even though unwrapped glyph positions are stable.
-        updateInlayHints = inlayHintsChanged
-        updateCodeVision = codeVisionChanged || inlayHintsChanged || layoutChanged
-    }
-}
-
-private final class InlayHintLabelView: NSView {
-    let title: String
-    let font: NSFont
-    let textColor: NSColor
-
-    init(title: String) {
-        self.title = title
-        font = .systemFont(ofSize: 10.5, weight: .medium)
-        textColor = NSColor(white: 0.61, alpha: 1)
-        super.init(frame: .zero)
-        wantsLayer = true
-        layer?.backgroundColor = NSColor(white: 0.23, alpha: 0.88).cgColor
-        layer?.cornerRadius = 3
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { nil }
-
-    var intrinsicTitleWidth: CGFloat {
-        ceil((title as NSString).size(withAttributes: [.font: font]).width)
-    }
-
-    var intrinsicContentHeight: CGFloat {
-        EditorOverlayLayout.inlayHintBoxHeight(
-            fontAscender: font.ascender,
-            fontDescender: font.descender,
-            fontLeading: font.leading
-        )
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: textColor
-        ]
-        let titleSize = (title as NSString).size(withAttributes: attributes)
-        let origin = NSPoint(
-            x: (bounds.width - titleSize.width) / 2,
-            y: (bounds.height - titleSize.height) / 2
-        )
-        (title as NSString).draw(at: origin, withAttributes: attributes)
     }
 }
 
@@ -567,7 +457,6 @@ struct CodeEditorView: NSViewRepresentable {
         }
         context.coordinator.attachMarkdownImagePasteMonitor(to: scrollView)
         context.coordinator.codeVisionOverlay = CodeVisionOverlayController(textView: textView)
-        context.coordinator.inlayHintOverlay = JavaInlayHintOverlayController(textView: textView)
         context.coordinator.isDarkAppearance = palette.isDark
         context.coordinator.colorTheme = settings.colorTheme
         context.coordinator.highlight()
@@ -673,7 +562,6 @@ struct CodeEditorView: NSViewRepresentable {
         weak var gutter: LineNumberGutterView?
         weak var container: EditorContainerView?
         var codeVisionOverlay: CodeVisionOverlayController?
-        var inlayHintOverlay: JavaInlayHintOverlayController?
         var isApplyingEditorChange = false
         var isDarkAppearance = true
         var colorTheme: AppColorTheme = .lithe
@@ -700,7 +588,6 @@ struct CodeEditorView: NSViewRepresentable {
         private var appliedLanguageFeatures: LanguageServerFeatureSet?
         private var appliedReadOnly: Bool?
         private var appliedCodeVisionHints: [JavaCodeVisionHint]?
-        private var appliedInlayHints: [JavaInlayHint]?
         private var editorOverlayLayoutRevision = 0
         private var appliedEditorOverlayLayoutRevision = -1
         private var editorOverlayRelayoutTask: Task<Void, Never>?
@@ -1306,23 +1193,10 @@ struct CodeEditorView: NSViewRepresentable {
                 regions: foldRegions,
                 collapsedIDs: collapsedFoldIDs
             )
-            let inlayHints = model.javaInlayHints[url] ?? []
             let overlayLayoutChanged = appliedEditorOverlayLayoutRevision != editorOverlayLayoutRevision
-            let updatePlan = EditorOverlayUpdatePlan(
-                codeVisionChanged: appliedCodeVisionHints != hints,
-                inlayHintsChanged: appliedInlayHints != inlayHints,
-                layoutChanged: overlayLayoutChanged
-            )
 
-            // Inlay hints reserve horizontal space in the text layout. Apply
-            // that input first, then position Code Vision from the final glyph
-            // geometry so the overlays cannot drift when wrapping changes.
-            if updatePlan.updateInlayHints {
-                appliedInlayHints = inlayHints
-                inlayHintOverlay?.update(hints: inlayHints)
-            }
-            if updatePlan.updateCodeVision {
-                appliedCodeVisionHints = hints
+            if appliedCodeVisionHints != visibleCodeVisionHints || overlayLayoutChanged {
+                appliedCodeVisionHints = visibleCodeVisionHints
                 codeVisionOverlay?.update(
                     hints: visibleCodeVisionHints,
                     onUsages: { [weak model] hint in model?.findUsages(for: hint, in: url) },
@@ -4224,92 +4098,6 @@ final class CodeVisionOverlayController {
     private func buttonWidth(_ button: NSButton) -> CGFloat {
         button.sizeToFit()
         return ceil(button.frame.width)
-    }
-}
-
-@MainActor
-final class JavaInlayHintOverlayController {
-    private weak var textView: NSTextView?
-    private var labels: [InlayHintLabelView] = []
-    private var currentHints: [JavaInlayHint] = []
-
-    init(textView: NSTextView) {
-        self.textView = textView
-    }
-
-    func update(hints: [JavaInlayHint]) {
-        guard let textView,
-              let layoutManager = textView.layoutManager,
-              let textStorage = textView.textStorage,
-              let textContainer = textView.textContainer else { return }
-        currentHints = hints
-        labels.forEach { $0.removeFromSuperview() }
-        labels = []
-        let fullRange = NSRange(location: 0, length: textView.string.utf16.count)
-        let source = textView.string as NSString
-        var placements: [(hint: JavaInlayHint, location: Int, label: InlayHintLabelView, width: CGFloat)] = []
-
-        for hint in hints {
-            let lineStart = characterOffset(forLine: hint.line, in: source)
-            let location = min(source.length, lineStart + hint.utf16Column)
-            guard location > 0, location < source.length else { continue }
-            let label = InlayHintLabelView(title: normalizedLabel(hint.label))
-            let width = label.intrinsicTitleWidth + 9
-            placements.append((hint, location, label, width))
-        }
-
-        textStorage.beginEditing()
-        textStorage.removeAttribute(.kern, range: fullRange)
-        for placement in placements {
-            textStorage.addAttribute(
-                .kern,
-                value: placement.width + 3,
-                range: NSRange(location: placement.location - 1, length: 1)
-            )
-        }
-        textStorage.endEditing()
-        layoutManager.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
-        layoutManager.ensureLayout(for: textContainer)
-
-        for placement in placements {
-            let glyph = layoutManager.glyphIndexForCharacter(at: placement.location)
-            let point = layoutManager.location(forGlyphAt: glyph)
-            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
-            let label = placement.label
-            let labelHeight = min(lineRect.height, label.intrinsicContentHeight)
-            let y = EditorOverlayLayout.inlayHintOriginY(
-                textView: textView,
-                layoutManager: layoutManager,
-                glyphIndex: glyph,
-                boxHeight: labelHeight
-            )
-            label.frame = NSRect(
-                x: textView.textContainerOrigin.x + point.x - placement.width - 3,
-                y: y,
-                width: placement.width,
-                height: labelHeight
-            )
-            label.setAccessibilityLabel("Parameter \(placement.hint.label)")
-            textView.addSubview(label)
-            labels.append(label)
-        }
-    }
-
-    private func normalizedLabel(_ label: String) -> String {
-        label.hasSuffix(":") ? label : "\(label):"
-    }
-
-    private func characterOffset(forLine targetLine: Int, in source: NSString) -> Int {
-        if let codeTextView = textView as? CodeTextView {
-            return codeTextView.characterOffset(forLine: targetLine, in: source)
-        }
-        var line = 0
-        var offset = 0
-        while line < targetLine, offset < source.length {
-            offset = NSMaxRange(source.lineRange(for: NSRange(location: offset, length: 0)))
-            line += 1
-        }
-        return offset
     }
 }
 

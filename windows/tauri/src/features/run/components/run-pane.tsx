@@ -23,7 +23,7 @@ import { runOptionsFor, useRunStore } from "../stores/run.store";
 import { PRIMARY_SESSION_ID, type RunConfiguration } from "../types/run.types";
 import {
   configurationsForExecution,
-  isBlockingToolchainDiagnostic,
+  blockingToolchainDiagnosticForConfiguration,
   workspaceRelativePath,
 } from "../utils/run-configuration";
 import { RunConfigurationEditor } from "./run-configuration-editor";
@@ -56,6 +56,7 @@ export default function RunPane() {
   const generationNotice = useRunStore((state) => state.generationNotice);
   const discoveredJava = useRunStore((state) => state.discoveredJava);
   const discoveredMaven = useRunStore((state) => state.discoveredMaven);
+  const discoveredRuntimes = useRunStore((state) => state.discoveredRuntimes);
   const globalToolchain = useRunStore((state) => state.globalToolchain);
   const actions = useRunStore((state) => state.actions);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -77,7 +78,10 @@ export default function RunPane() {
   const selectedConfiguration =
     configurations.find((configuration) => configuration.id === selectedConfigurationId) ?? null;
   const selectedSession = sessions.find((session) => session.id === selectedSessionId);
-  const blockingDiagnostic = diagnostics.find(isBlockingToolchainDiagnostic);
+  const blockingDiagnostic = blockingToolchainDiagnosticForConfiguration(
+    diagnostics,
+    selectedConfiguration?.id,
+  );
   const staleDiagnostic = diagnostics.find((diagnostic) => diagnostic.code === "staleFingerprint");
   const isSelectedRunning = selectedSession ? selectedSession.isRunning : primaryRunning;
   const output = selectedSession ? selectedSession.output : primaryOutput;
@@ -258,6 +262,7 @@ export default function RunPane() {
           saveError={saveError}
           discoveredJava={discoveredJava}
           discoveredMaven={discoveredMaven}
+          discoveredRuntimes={discoveredRuntimes}
           globalToolchain={globalToolchain}
           onClose={() => setEditingId(null)}
           onSave={(options, toolchain, scope) =>

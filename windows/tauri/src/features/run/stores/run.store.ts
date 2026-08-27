@@ -23,6 +23,7 @@ import {
   EMPTY_GLOBAL_TOOLCHAIN,
   EMPTY_RUN_OPTIONS,
   PRIMARY_SESSION_ID,
+  type GenericRuntime,
   type GlobalToolchain,
   type JavaRuntime,
   type MavenRuntime,
@@ -36,7 +37,8 @@ import {
 } from "../types/run.types";
 import {
   defaultGeneratedConfigurationId,
-  isBlockingToolchainDiagnostic,
+  blockingToolchainDiagnosticForConfiguration,
+  effectiveRuntimeExecutablePaths,
   mapCoreConfiguration,
   mapCoreToolchain,
   mapDiagnostics,
@@ -74,7 +76,9 @@ interface RunState {
   generationNotice: string | null;
   discoveredJava: JavaRuntime[];
   discoveredMaven: MavenRuntime[];
+  discoveredRuntimes: GenericRuntime[];
   globalToolchain: GlobalToolchain;
+  effectiveRuntimeExecutablePaths: Record<string, string>;
   actions: {
     loadProject: (root: string) => Promise<void>;
     generate: (root: string) => Promise<void>;
@@ -101,7 +105,9 @@ interface ResolvedRunProject {
   defaultConfigurationId: string | null;
   discoveredJava: JavaRuntime[];
   discoveredMaven: MavenRuntime[];
+  discoveredRuntimes: GenericRuntime[];
   globalToolchain: GlobalToolchain;
+  effectiveRuntimeExecutablePaths: Record<string, string>;
 }
 
 type RunProjectSnapshot =
@@ -120,7 +126,9 @@ type ReadyRunState = Pick<
   | "defaultConfigurationId"
   | "discoveredJava"
   | "discoveredMaven"
+  | "discoveredRuntimes"
   | "globalToolchain"
+  | "effectiveRuntimeExecutablePaths"
   | "isLoading"
 >;
 
@@ -164,18 +172,34 @@ function optionsFromConfiguration(configuration: RunConfiguration): RunOptions {
 
 async function resolveConfigurations(root: string): Promise<ResolvedRunProject> {
   const automatic = await discoverRunToolchains(root);
+  const automaticRuntimePaths = effectiveRuntimeExecutablePaths(automatic.runtimes, {});
   const preliminary = await resolveRunConfiguration(
     root,
-    selectedToolchainCandidates(automatic, EMPTY_GLOBAL_TOOLCHAIN),
+    selectedToolchainCandidates(automatic, {
+      ...EMPTY_GLOBAL_TOOLCHAIN,
+      runtimeExecutablePaths: automaticRuntimePaths,
+    }),
   );
-  const globalToolchain = mapCoreToolchain(preliminary.toolchain);
+  const globalToolchain = mapCoreToolchain(
+    preliminary.toolchain,
+    preliminary.localToolchains,
+  );
   const hasSelectedToolchain = Boolean(
-    globalToolchain.javaHomePath || globalToolchain.mavenExecutablePath,
+    globalToolchain.javaHomePath ||
+      globalToolchain.mavenExecutablePath ||
+      Object.values(globalToolchain.runtimeExecutablePaths).some(Boolean),
   );
   const discovered = hasSelectedToolchain
     ? await discoverRunToolchains(root, globalToolchain)
     : automatic;
-  const candidates = selectedToolchainCandidates(discovered, globalToolchain);
+  const effectiveRuntimePaths = effectiveRuntimeExecutablePaths(
+    discovered.runtimes,
+    globalToolchain.runtimeExecutablePaths,
+  );
+  const candidates = selectedToolchainCandidates(discovered, {
+    ...globalToolchain,
+    runtimeExecutablePaths: effectiveRuntimePaths,
+  });
   const resolved = hasSelectedToolchain
     ? await resolveRunConfiguration(root, candidates)
     : preliminary;
@@ -185,7 +209,9 @@ async function resolveConfigurations(root: string): Promise<ResolvedRunProject> 
     defaultConfigurationId: resolved.defaultRunConfiguration ?? null,
     discoveredJava: discovered.java,
     discoveredMaven: discovered.maven,
+    discoveredRuntimes: discovered.runtimes,
     globalToolchain,
+    effectiveRuntimeExecutablePaths: effectiveRuntimePaths,
   };
 }
 
@@ -225,7 +251,9 @@ function readyRunState(
     defaultConfigurationId: snapshot.defaultConfigurationId,
     discoveredJava: snapshot.discoveredJava,
     discoveredMaven: snapshot.discoveredMaven,
+    discoveredRuntimes: snapshot.discoveredRuntimes,
     globalToolchain: snapshot.globalToolchain,
+    effectiveRuntimeExecutablePaths: snapshot.effectiveRuntimeExecutablePaths,
     isLoading: false,
   };
 }
@@ -251,7 +279,9 @@ export const createRunStore = () =>
     generationNotice: null,
     discoveredJava: [],
     discoveredMaven: [],
+    discoveredRuntimes: [],
     globalToolchain: EMPTY_GLOBAL_TOOLCHAIN,
+    effectiveRuntimeExecutablePaths: {},
     actions: {
       loadProject: async (root) => {
         set({
@@ -319,7 +349,9 @@ export const createRunStore = () =>
             defaultConfigurationId: resolved.defaultConfigurationId,
             discoveredJava: resolved.discoveredJava,
             discoveredMaven: resolved.discoveredMaven,
+            discoveredRuntimes: resolved.discoveredRuntimes,
             globalToolchain: resolved.globalToolchain,
+            effectiveRuntimeExecutablePaths: resolved.effectiveRuntimeExecutablePaths,
             generationNotice: notice,
             isGenerating: false,
             isLoading: false,
@@ -345,7 +377,10 @@ export const createRunStore = () =>
         const root = state.root;
         const configuration = state.configurations.find((item) => item.id === id);
         if (!root || !configuration) return;
-        const blocking = state.diagnostics.find(isBlockingToolchainDiagnostic);
+        const blocking = blockingToolchainDiagnosticForConfiguration(
+          state.diagnostics,
+          configuration.id,
+        );
         if (blocking) {
           set({
             primaryOutput: trimOutput(`${state.primaryOutput}${blocking.message}\n`),
@@ -378,6 +413,7 @@ export const createRunStore = () =>
             javaHomePath: configuration.javaHomePath,
             mavenExecutablePath: configuration.mavenExecutablePath,
             mavenJavaHomePath: configuration.mavenJavaHomePath,
+            runtimeExecutablePaths: state.effectiveRuntimeExecutablePaths,
             environment: mergeLaunchEnvironment(configuration.env, plan),
           });
           const commandLine = `$ ${resolved.executable.split(/[\\/]/).pop()} ${plan.arguments.join(" ")}\n\n`;
@@ -484,6 +520,12 @@ export const createRunStore = () =>
               documents.push({
                 relativePath: "run/configurations.json",
                 contents: mutation.projectDocument,
+              });
+            }
+            if (mutation.toolchainDocument !== null) {
+              documents.push({
+                relativePath: "toolchains/local.json",
+                contents: mutation.toolchainDocument,
               });
             }
             return writeRunDocuments(root, documents);

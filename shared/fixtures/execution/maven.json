@@ -6,6 +6,7 @@
     "Only Spring Boot's goal accepts a main class. Quarkus and Micronaut resolve it from the build -- the Micronaut mojo's `mainClass` has no user property at all -- so the annotation scan grafts a class onto `spring-boot.maven` configurations only.",
     "Debugging is per framework too. `spring-boot:run` forwards JVM arguments verbatim, so JDWP travels among them. Quarkus (`-Ddebug=<port> -Dsuspend=y`) and Micronaut (`-Dmn.debug=true -Dmn.debug.port=<port> -Dmn.debug.suspend=true`) start the agent themselves, so JDWP must NOT also be injected into their JVM arguments: two agents on one port fail to bind and the service never starts. Both are told to suspend because a breakpoint in initialisation is otherwise unreachable -- neither suspends by default.",
     "Maven modules are declared, not discovered: the detector reads the graph from the root `pom.xml` instead of judging each directory the shared walk visits. A directory-driven scan is wrong in both directions -- `<modules>` may name a directory the walk prunes (one called `build` or `out` is invisible), while a leftover `pom.xml` outside the graph is not part of the build at all.",
+    "A caller only needs to supply workspace-relative Java paths. Maven root discovery checks their ancestor directories, so a reactor nested below the opened workspace is still selected even when the platform does not include `pom.xml` in the request.",
     "Only `<build><plugins>` counts. A plugin under `<pluginManagement>` pins a version for children without applying it, and one under `<reporting>` never runs. `pom` packaging is an aggregator: it produces no artifact to run, so a plugin declared there configures its children rather than describing a service.",
     "Maven is reached through the project toolchain binding rather than a bare program name, because the build may be driven by `./mvnw` instead of an installed `mvn`. Every configuration runs from the reactor root and addresses its module with `-pl`, so `cwd` stays `.` and the module travels in `extensions.maven.module`. The name is therefore what keeps two modules apart: `artifactId` where unique, the module path where two modules share one.",
     "The annotation scan still supplies the main class, which is the only place it is named. Where a Spring Boot module holds exactly one annotated class, it becomes `extensions.maven.mainClass`; two candidates are ambiguous and are left for `spring-boot:run` to resolve. A class in a module with no framework plugin is still a runnable `java.main` entry."
@@ -40,6 +41,37 @@
         ],
         "absentIds": ["spring-boot.maven:shared-lib", "spring:com.demo.DemoApplication"],
         "reason": "The library module applies no boot plugin. The annotated class contributes its name to the module's service rather than a service of its own."
+      }
+    },
+    {
+      "command": "runConfig.generate",
+      "payload": { "root": "/workspace", "paths": ["projects/demo/backend/src/main/java/com/demo/DemoApplication.java", "samples/Standalone.java"] },
+      "workspace": {
+        "projects/demo/pom.xml": "<project><artifactId>platform</artifactId><packaging>pom</packaging><modules><module>backend</module></modules></project>",
+        "projects/demo/backend/pom.xml": "<project><artifactId>backend</artifactId><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "projects/demo/backend/src/main/java/com/demo/DemoApplication.java": "package com.demo;\n@SpringBootApplication\npublic class DemoApplication { public static void main(String[] a) {} }\n",
+        "samples/Standalone.java": "public class Standalone { public static void main(String[] a) {} }\n"
+      },
+      "expected": {
+        "configurations": [
+          {
+            "id": "spring-boot.maven:backend",
+            "provider": "spring-boot.maven",
+            "cwd": "projects/demo",
+            "source": "projects/demo/backend/pom.xml",
+            "toolchains": { "java": "project-jdk", "maven": "project-maven" },
+            "extensions": { "maven": { "module": "backend", "mainClass": "com.demo.DemoApplication" } }
+          },
+          {
+            "id": "java-main:Standalone",
+            "provider": "java.main",
+            "cwd": ".",
+            "source": "samples/Standalone.java",
+            "toolchains": { "java": "project-jdk" },
+            "extensions": { "maven": { "module": ".", "mainClass": "Standalone" }, "java": { "source": "samples/Standalone.java" } }
+          }
+        ],
+        "reason": "The Maven Java source discovers and binds to the nested reactor, while the standalone source in the same request remains a direct JDK launch."
       }
     },
     {

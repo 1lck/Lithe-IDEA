@@ -12,6 +12,7 @@ use std::path::{Component, Path, PathBuf};
 
 const VERSION: u32 = 2;
 const LEGACY_VERSION: u32 = 1;
+const GENERATOR_REVISION: &str = "2";
 /// Toolchain requirements and `project.json` are separate documents that happen
 /// to live under `.lithe`. Their schema did not change with run-config v2, so
 /// they keep their own version and must not be validated against `VERSION`.
@@ -92,6 +93,9 @@ pub struct ToolchainPaths {
     pub maven_executable_path: String,
     #[serde(default)]
     pub maven_java_home_path: String,
+    /// Explicit executables for generic runtime toolchain IDs such as `project-node`.
+    #[serde(default)]
+    pub runtime_executable_paths: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -340,6 +344,7 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
     let root = existing_root(&request.root)?;
     let generated = read_document(&root, "run/generated.json")?;
     let requirements = read_requirements(&root)?;
+    let local_toolchains = read_local_toolchains(&root)?;
     for relative in [
         "run/configurations.json",
         "run/local.json",
@@ -390,6 +395,8 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
         if metadata.fingerprint != fingerprint_from_inputs(&current_inputs) {
             let message = if metadata.inputs.is_empty() {
                 "Project inputs changed after run configuration generation".to_string()
+            } else if metadata.inputs == current_inputs {
+                "Run configuration generator changed; regenerate configurations".to_string()
             } else {
                 input_change_summary(&metadata.inputs, &current_inputs)
             };
@@ -403,6 +410,7 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
         "status": if generated.is_some() { "ready" } else { "missing" },
         "generated": generated,
         "toolchainRequirements": requirements,
+        "localToolchains": local_toolchains,
         "diagnostics": diagnostics,
         "paths": { "generated": ".lithe/run/generated.json", "configurations": ".lithe/run/configurations.json", "local": ".lithe/run/local.json" }
     }))
@@ -456,21 +464,37 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         .iter()
         .map(|value| (value.qualified_name.clone(), value.path.clone()))
         .collect::<BTreeMap<_, _>>();
+    let mut maven_owners = BTreeMap::<Option<String>, Option<(PathBuf, String)>>::new();
     let configurations = scanned
         .configurations
         .into_iter()
-        .map(|value| {
+        .map(|value| -> Result<RunConfiguration, CoreError> {
             let provider = match value.kind.as_str() {
                 "javaMain" | "springBoot" => "java.main",
                 "mavenModule" => "maven.module",
                 _ => "java.current-file",
             };
             let id = java_configuration_id(&value);
+            let owner_key = value.module_path.clone();
+            let maven_owner = if let Some(owner) = maven_owners.get(&owner_key) {
+                owner.clone()
+            } else {
+                let owner = maven_owner_for_module(
+                    &root,
+                    maven_root.as_ref(),
+                    value.module_path.as_deref(),
+                )?;
+                maven_owners.insert(owner_key, owner.clone());
+                owner
+            };
+            let owner_relative_path = maven_owner
+                .as_ref()
+                .map(|(_, relative_path)| relative_path.as_str());
             let mut maven = serde_json::Map::new();
             let module_path = value
                 .module_path
                 .as_deref()
-                .map(|path| maven_module_path(maven_relative_path, path))
+                .map(|path| maven_module_path(owner_relative_path, path))
                 .unwrap_or_else(|| ".".to_string());
             maven.insert("module".to_string(), json!(module_path));
             if let Some(main_class) = value.main_class.as_ref() {
@@ -481,9 +505,9 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
                 .as_ref()
                 .and_then(|name| main_class_sources.get(name))
                 .cloned();
-            // A workspace without Maven still produces java.main entries. Binding
-            // project-maven there would force every plain Java class through mvn.
-            let uses_maven_toolchain = has_maven_project && provider != "java.current-file";
+            // Maven ownership is per entry: one workspace can contain standalone
+            // Java files or multiple independent reactors in the same request.
+            let uses_maven_toolchain = maven_owner.is_some() && provider != "java.current-file";
             let mut toolchains = BTreeMap::new();
             toolchains.insert("java".to_string(), "project-jdk".to_string());
             if uses_maven_toolchain {
@@ -494,7 +518,7 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
             if let Some(path) = source_path.as_ref() {
                 extensions.insert("java".to_string(), json!({ "source": path }));
             }
-            RunConfiguration {
+            Ok(RunConfiguration {
                 id,
                 name: value.name,
                 provider: provider.to_string(),
@@ -507,7 +531,7 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
                 cwd: if provider == "java.current-file" {
                     ".".to_string()
                 } else {
-                    maven_relative_path.unwrap_or(".").to_string()
+                    owner_relative_path.unwrap_or(".").to_string()
                 },
                 env: BTreeMap::new(),
                 confidence: Confidence::Native,
@@ -519,9 +543,9 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
                 extensions,
                 disabled: false,
                 source: source_path,
-            }
+            })
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, _>>()?;
     let mut configurations = deduplicate_java_configurations(configurations);
     let java_entry_count = configurations.len();
     if has_java_sources {
@@ -606,6 +630,27 @@ fn maven_module_path(maven_root: Option<&str>, path: &str) -> String {
             .unwrap_or(path)
             .to_string()
     }
+}
+
+fn maven_owner_for_module(
+    root: &Path,
+    workspace_maven_root: Option<&(PathBuf, String)>,
+    module_path: Option<&str>,
+) -> Result<Option<(PathBuf, String)>, CoreError> {
+    if let Some(module_path) = module_path {
+        let descriptor = if module_path == "." {
+            "pom.xml".to_string()
+        } else {
+            format!("{module_path}/pom.xml")
+        };
+        return crate::project::maven_root(root, &[descriptor]);
+    }
+
+    // A root-level Maven project has no relative module path. Nested reactors
+    // always contribute at least their reactor directory through module inference.
+    Ok(workspace_maven_root
+        .filter(|(_, relative_path)| relative_path == ".")
+        .cloned())
 }
 
 /// Whether a service is a Spring Boot service is decided by the build, not by an
@@ -717,10 +762,9 @@ fn within_maven_module(path: &str, module: &str, maven_root: Option<&str>) -> bo
 /// Translates detector output into the run-configuration contract.
 ///
 /// Nearly every detection is process-based: the detector resolved the command,
-/// so there is no toolchain binding and no ecosystem-specific launch assembly,
-/// which is what keeps a new ecosystem from needing changes in
-/// `create_launch_plan`. A detection that names toolchains instead carries a
-/// provider `create_launch_plan` already handles.
+/// so there is no ecosystem-specific launch assembly. A process may still name
+/// a runtime requirement for scoped compatibility diagnostics; a detection that
+/// transfers executable ownership to toolchains carries no command.
 fn detected_configurations(
     root: &Path,
     maven_root: Option<&Path>,
@@ -813,6 +857,7 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
     let team = read_document_value(&root, "run/configurations.json")?
         .unwrap_or_else(|| json!({"version": VERSION, "configurations": []}));
     let local = local_layer_document(&root, request.local_document)?;
+    let local_toolchains = read_local_toolchains(&root)?;
     let manifest = read_document_value(&root, "project.json")?;
     validate_version_value(&generated)?;
     validate_version_value(&team)?;
@@ -822,7 +867,6 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
     }
     let generated_ids = configuration_ids(&generated)?;
     let mut diagnostics = Vec::new();
-    diagnostics.extend(toolchain_diagnostics(&root, &request.toolchain_candidates)?);
     for source in [&team, &local] {
         for id in configuration_ids(source)?.keys() {
             if !generated_ids.contains_key(id) && !id.starts_with("user:") {
@@ -835,10 +879,16 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
         }
     }
     let mut configurations = merge_values(&generated, &team, &local)?;
+    normalize_runtime_consumption(&mut configurations);
     let global_toolchain = local.get("toolchain").cloned();
     if let Some(toolchain) = global_toolchain.as_ref() {
         apply_global_toolchain(&mut configurations, toolchain);
     }
+    diagnostics.extend(toolchain_diagnostics(
+        &root,
+        &request.toolchain_candidates,
+        &configurations,
+    )?);
     for configuration in &mut configurations {
         validate_configuration(configuration)?;
         if configuration.disabled {
@@ -904,7 +954,8 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
         "configurations": configurations,
         "diagnostics": diagnostics,
         "defaultRunConfiguration": default_run_configuration,
-        "toolchain": global_toolchain
+        "toolchain": global_toolchain,
+        "localToolchains": local_toolchains
     }))
 }
 
@@ -970,6 +1021,8 @@ pub fn save_editor_changes(mut request: UpdateOptionsRequest) -> Result<Value, C
             "Run configuration editor changes require a project toolchain",
         )
     })?;
+    let toolchain_document =
+        update_local_toolchains_document(&root, &toolchain.runtime_executable_paths)?;
     let mut local_document =
         update_toolchain_document(&root, request.local_document.take(), toolchain)?;
     request.local_document = Some(local_document.clone());
@@ -983,7 +1036,10 @@ pub fn save_editor_changes(mut request: UpdateOptionsRequest) -> Result<Value, C
     };
     Ok(json!({
         "localDocument": serde_json::to_string_pretty(&local_document).expect("document should encode"),
-        "projectDocument": project_document
+        "projectDocument": project_document,
+        "toolchainDocument": toolchain_document.map(|document| {
+            serde_json::to_string_pretty(&document).expect("document should encode")
+        })
     }))
 }
 
@@ -1002,6 +1058,35 @@ fn update_toolchain_document(
         }
     });
     Ok(document)
+}
+
+fn update_local_toolchains_document(
+    root: &Path,
+    runtime_executable_paths: &BTreeMap<String, String>,
+) -> Result<Option<Value>, CoreError> {
+    if runtime_executable_paths.is_empty() {
+        return Ok(None);
+    }
+    let mut document = read_local_toolchains(root)?
+        .unwrap_or_else(|| json!({"version": SIDECAR_VERSION, "toolchains": {}}));
+    validate_sidecar_version_value(&document)?;
+    let toolchains = document
+        .get_mut("toolchains")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| {
+            CoreError::new(
+                ErrorCode::ParseFailed,
+                "Local toolchains must contain a toolchains object",
+            )
+        })?;
+    for (id, executable_path) in runtime_executable_paths {
+        if executable_path.trim().is_empty() {
+            toolchains.remove(id);
+        } else {
+            toolchains.insert(id.clone(), json!({ "executable": executable_path.trim() }));
+        }
+    }
+    Ok(Some(document))
 }
 
 fn update_configuration_options(
@@ -1254,6 +1339,7 @@ pub fn create_user_configuration(
 
 /// Resolves one configuration into the exact executable, arguments, and environment.
 pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError> {
+    let workspace_root = existing_root(&request.root)?;
     let resolved = resolve(ResolveRequest {
         root: request.root,
         toolchain_candidates: Vec::new(),
@@ -1377,6 +1463,13 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
                 ErrorCode::InvalidRequest,
                 "Java source path is invalid",
             ));
+        }
+        if crate::project::maven_root(&workspace_root, &[source.to_string()])?.is_some() {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Java application belongs to a Maven project; regenerate run configurations",
+            )
+            .with_details(source));
         }
         arguments.push(json!(source));
         arguments.extend(program_arguments);
@@ -1735,6 +1828,31 @@ fn merge_values(
             })
         })
         .collect()
+}
+
+/// Reconciles runtime bindings from the effective command for generated v2
+/// documents written before detectors declared their consumption explicitly.
+fn normalize_runtime_consumption(configurations: &mut [RunConfiguration]) {
+    for configuration in configurations {
+        let command = configuration
+            .command
+            .as_deref()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if matches!(
+            command.as_str(),
+            "npm" | "npm.cmd" | "pnpm" | "pnpm.cmd" | "yarn" | "yarn.cmd"
+        ) {
+            configuration
+                .toolchains
+                .entry("runtime".to_string())
+                .or_insert_with(|| "project-node".to_string());
+        } else if matches!(command.as_str(), "bun" | "bun.exe")
+            && configuration.toolchains.get("runtime").map(String::as_str) == Some("project-node")
+        {
+            configuration.toolchains.remove("runtime");
+        }
+    }
 }
 
 /// Deep-merges the `extensions` object one namespace at a time.
@@ -2099,6 +2217,24 @@ fn read_requirements(root: &Path) -> Result<Option<ToolchainRequirementsDocument
     })
 }
 
+fn read_local_toolchains(root: &Path) -> Result<Option<Value>, CoreError> {
+    let Some(document) = read_document_value(root, "toolchains/local.json")? else {
+        return Ok(None);
+    };
+    validate_sidecar_version_value(&document)?;
+    if document
+        .get("toolchains")
+        .and_then(Value::as_object)
+        .is_none()
+    {
+        return Err(CoreError::new(
+            ErrorCode::ParseFailed,
+            "Local toolchains must contain a toolchains object",
+        ));
+    }
+    Ok(Some(document))
+}
+
 fn detect_requirements(
     root: &Path,
     maven_root: Option<&Path>,
@@ -2140,61 +2276,25 @@ fn detect_requirements(
     }
     maven.version = maven_wrapper_version(maven_root);
     let mut toolchains = BTreeMap::new();
-    if has_java_ecosystem {
+    let consumes = |toolchain: &str| {
+        configurations.iter().any(|configuration| {
+            configuration
+                .toolchains
+                .values()
+                .any(|candidate| candidate == toolchain)
+        })
+    };
+    if has_java_ecosystem || consumes("project-jdk") {
         toolchains.insert("project-jdk".to_string(), jdk);
     }
     if maven_root.join("pom.xml").is_file() || maven_root.join("mvnw").is_file() {
         toolchains.insert("project-maven".to_string(), maven);
     }
-    let providers = configurations
-        .iter()
-        .map(|configuration| configuration.provider.as_str())
-        .collect::<Vec<_>>();
-    if providers.iter().any(|provider| provider.starts_with("go.")) {
-        toolchains.insert(
-            "project-go".to_string(),
-            generic_requirement("go", declared_go_version(root)),
-        );
-    }
-    if providers
-        .iter()
-        .any(|provider| provider.starts_with("python."))
-    {
-        toolchains.insert(
-            "project-python".to_string(),
-            generic_requirement("python", declared_python_version(root)),
-        );
-    }
-    if providers
-        .iter()
-        .any(|provider| provider.starts_with("npm."))
-    {
+    if consumes("project-node") {
         toolchains.insert(
             "project-node".to_string(),
             generic_requirement("node", declared_node_version(root)),
         );
-    }
-    if providers
-        .iter()
-        .any(|provider| provider.starts_with("cargo."))
-    {
-        toolchains.insert(
-            "project-cargo".to_string(),
-            generic_requirement("rust", declared_rust_version(root)),
-        );
-    }
-    if providers
-        .iter()
-        .any(|provider| provider.starts_with("gradle."))
-    {
-        let mut gradle = generic_requirement("gradle", None);
-        // A Gradle build runs on the JVM, so the requirement carries the same
-        // JDK binding Maven uses rather than resolving a runtime of its own.
-        gradle.java = Some("project-jdk".to_string());
-        if root.join("gradlew").exists() {
-            gradle.wrapper = Some("./gradlew".to_string());
-        }
-        toolchains.insert("project-gradle".to_string(), gradle);
     }
     Ok(ToolchainRequirementsDocument {
         version: SIDECAR_VERSION,
@@ -2216,6 +2316,7 @@ fn generic_requirement(kind: &str, minimum_version: Option<String>) -> Toolchain
 fn toolchain_diagnostics(
     root: &Path,
     candidates: &[ToolchainCandidate],
+    configurations: &[RunConfiguration],
 ) -> Result<Vec<Value>, CoreError> {
     let Some(requirements) = read_requirements(root)? else {
         return Ok(Vec::new());
@@ -2223,15 +2324,31 @@ fn toolchain_diagnostics(
     validate_sidecar_version(requirements.version)?;
     let mut diagnostics = Vec::new();
     for (id, requirement) in requirements.toolchains {
+        let mut consumer_ids = configurations
+            .iter()
+            .filter(|configuration| {
+                configuration
+                    .toolchains
+                    .values()
+                    .any(|toolchain| toolchain == &id)
+            })
+            .map(|configuration| configuration.id.clone())
+            .collect::<Vec<_>>();
+        consumer_ids.sort();
+        consumer_ids.dedup();
         let Some(candidate) = candidates
             .iter()
             .find(|candidate| candidate.id == id && candidate.kind == requirement.kind)
         else {
-            diagnostics.push(json!({
-                "code": "missingToolchain",
-                "toolchain": id,
-                "message": format!("No local {} toolchain is selected", requirement.kind)
-            }));
+            append_toolchain_diagnostics(
+                &mut diagnostics,
+                &consumer_ids,
+                json!({
+                    "code": "missingToolchain",
+                    "toolchain": id,
+                    "message": format!("No local {} toolchain is selected", requirement.kind)
+                }),
+            );
             continue;
         };
         let required_version = requirement
@@ -2244,14 +2361,18 @@ fn toolchain_diagnostics(
                 required,
                 requirement.minimum_version.is_some(),
             ) {
-                diagnostics.push(json!({
-                    "code": "toolchainVersionMismatch",
-                    "toolchain": id,
-                    "message": format!(
-                        "{} {} does not satisfy required version {}",
-                        requirement.kind, candidate.version, required
-                    )
-                }));
+                append_toolchain_diagnostics(
+                    &mut diagnostics,
+                    &consumer_ids,
+                    json!({
+                        "code": "toolchainVersionMismatch",
+                        "toolchain": id,
+                        "message": format!(
+                            "{} {} does not satisfy required version {}",
+                            requirement.kind, candidate.version, required
+                        )
+                    }),
+                );
             }
         }
         if let Some(vendor) = requirement.preferred_vendor.as_deref() {
@@ -2260,15 +2381,34 @@ fn toolchain_diagnostics(
                 .to_lowercase()
                 .contains(&vendor.to_lowercase())
             {
-                diagnostics.push(json!({
-                    "code": "toolchainVendorMismatch",
-                    "toolchain": id,
-                    "message": format!("Preferred Java vendor is {vendor}")
-                }));
+                append_toolchain_diagnostics(
+                    &mut diagnostics,
+                    &consumer_ids,
+                    json!({
+                        "code": "toolchainVendorMismatch",
+                        "toolchain": id,
+                        "message": format!("Preferred Java vendor is {vendor}")
+                    }),
+                );
             }
         }
     }
     Ok(diagnostics)
+}
+
+fn append_toolchain_diagnostics(
+    diagnostics: &mut Vec<Value>,
+    consumer_ids: &[String],
+    diagnostic: Value,
+) {
+    if consumer_ids.is_empty() {
+        return;
+    }
+    for configuration_id in consumer_ids {
+        let mut scoped = diagnostic.clone();
+        scoped["id"] = json!(configuration_id);
+        diagnostics.push(scoped);
+    }
 }
 
 fn version_satisfies(actual: &str, required: &str, minimum: bool) -> bool {
@@ -2322,6 +2462,10 @@ fn project_inputs(root: &Path) -> Result<BTreeMap<String, String>, CoreError> {
 
 fn fingerprint_from_inputs(inputs: &BTreeMap<String, String>) -> String {
     let mut digest = Sha256::new();
+    // Detection changes invalidate persisted output even when project files are
+    // unchanged, so an application upgrade cannot keep launching a stale plan.
+    digest.update(GENERATOR_REVISION.as_bytes());
+    digest.update([0]);
     for (relative, content_hash) in inputs {
         digest.update(relative.as_bytes());
         digest.update([0]);
@@ -2415,39 +2559,6 @@ fn fingerprint_input(path: &Path) -> bool {
     )
 }
 
-fn declared_go_version(root: &Path) -> Option<String> {
-    highest_version(
-        project_manifest_paths(root, &["go.mod"])
-            .into_iter()
-            .filter_map(|path| fs::read_to_string(path).ok())
-            .filter_map(|text| {
-                text.lines().find_map(|line| {
-                    line.trim()
-                        .strip_prefix("go ")
-                        .and_then(first_numeric_version)
-                })
-            })
-            .collect(),
-    )
-}
-
-fn declared_python_version(root: &Path) -> Option<String> {
-    let expression =
-        regex::Regex::new(r#"(?m)^\s*(?:requires-python|python)\s*=\s*["']([^"']+)["']"#).ok()?;
-    highest_version(
-        project_manifest_paths(root, &["pyproject.toml"])
-            .into_iter()
-            .filter_map(|path| fs::read_to_string(path).ok())
-            .filter_map(|text| {
-                expression
-                    .captures(&text)
-                    .and_then(|capture| capture.get(1))
-                    .and_then(|value| first_numeric_version(value.as_str()))
-            })
-            .collect(),
-    )
-}
-
 fn declared_node_version(root: &Path) -> Option<String> {
     highest_version(
         project_manifest_paths(root, &["package.json"])
@@ -2463,35 +2574,6 @@ fn declared_node_version(root: &Path) -> Option<String> {
             })
             .collect(),
     )
-}
-
-fn declared_rust_version(root: &Path) -> Option<String> {
-    let mut versions = Vec::new();
-    for path in project_manifest_paths(root, &["Cargo.toml"]) {
-        let Some(document) = fs::read_to_string(path)
-            .ok()
-            .and_then(|text| text.parse::<toml::Table>().ok())
-        else {
-            continue;
-        };
-        if let Some(version) = document
-            .get("package")
-            .and_then(|package| package.get("rust-version"))
-            .and_then(|value| value.as_str())
-            .and_then(first_numeric_version)
-        {
-            versions.push(version);
-        }
-    }
-    for path in project_manifest_paths(root, &["rust-toolchain", "rust-toolchain.toml"]) {
-        let Ok(text) = fs::read_to_string(path) else {
-            continue;
-        };
-        if let Some(version) = first_numeric_version(&text) {
-            versions.push(version);
-        }
-    }
-    highest_version(versions)
 }
 
 fn first_numeric_version(value: &str) -> Option<String> {

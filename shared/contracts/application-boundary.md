@@ -222,4 +222,12 @@ is an explicit user action. Shared project overrides stay in
 `.lithe/run/configurations.json`. Machine-local overrides may live in
 `.lithe/run/local.json` or in a host-owned document supplied as
 `localDocument`; absolute toolchain paths belong only in that local layer and
-are excluded from project visibility and Git by default.
+are excluded from project visibility and Git by default. Generic runtime
+executables such as Node are selected in `.lithe/toolchains/local.json`; this
+machine-local document is also excluded from Git by default. Missing or
+incompatible toolchains block only configurations that consume the affected
+toolchain, while diagnostics without a configuration ID apply to the project.
+Runtime consumption is declared by the detector from the actual command rather
+than inferred from the provider namespace. An automatically discovered runtime
+path is session-effective: validation and launch share it, but persistence
+still requires an explicit user selection.
