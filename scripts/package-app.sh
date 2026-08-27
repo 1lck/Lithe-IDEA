@@ -21,12 +21,26 @@ case "$ARCH" in
 esac
 
 cd "$ROOT_DIR"
-JDTLS_ROOT=$("$ROOT_DIR/scripts/prepare-jdtls.sh")
-jdk_arch="$ARCH"
-if [[ "$jdk_arch" == "universal" ]]; then
-    jdk_arch="$(uname -m)"
+JDTLS_ROOT=$(LITHE_ARCH="$ARCH" "$ROOT_DIR/scripts/prepare-jdtls.sh")
+if [[ "$ARCH" == "universal" ]]; then
+    if [[ -n "${LITHE_JDK_ROOT:-}" ]]; then
+        print -u2 -- \
+            "Universal packaging requires LITHE_JDK_ARM64_ROOT and LITHE_JDK_X86_64_ROOT instead of LITHE_JDK_ROOT"
+        exit 1
+    fi
+    ARM64_JDK_ROOT=$( \
+        LITHE_JDK_ROOT="${LITHE_JDK_ARM64_ROOT:-}" \
+        LITHE_JDK_TARGET_ARCH="arm64" \
+        "$ROOT_DIR/scripts/prepare-jdk.sh"
+    )
+    X86_64_JDK_ROOT=$( \
+        LITHE_JDK_ROOT="${LITHE_JDK_X86_64_ROOT:-}" \
+        LITHE_JDK_TARGET_ARCH="x86_64" \
+        "$ROOT_DIR/scripts/prepare-jdk.sh"
+    )
+else
+    JDK_ROOT=$(LITHE_JDK_TARGET_ARCH="$ARCH" "$ROOT_DIR/scripts/prepare-jdk.sh")
 fi
-JDK_ROOT=$(LITHE_JDK_TARGET_ARCH="$jdk_arch" "$ROOT_DIR/scripts/prepare-jdk.sh")
 if [[ "$ARCH" == "universal" ]]; then
     scripts/build-macos.sh --configuration release --triple "$ARM64_TRIPLE"
     scripts/build-macos.sh --configuration release --triple "$X86_64_TRIPLE"
@@ -47,7 +61,8 @@ if [[ -n "$database_sidecar" ]]; then
         print -u2 -- "LITHE_DB_SIDECAR_EXECUTABLE is not executable: $database_sidecar"
         exit 1
     fi
-    if [[ "$ARCH" == "universal" ]] && ! lipo "$database_sidecar" -verify_arch arm64 -verify_arch x86_64 >/dev/null 2>&1; then
+    if [[ "$ARCH" == "universal" ]] && \
+        ! lipo "$database_sidecar" -verify_arch arm64 x86_64 >/dev/null 2>&1; then
         print -u2 -- "Universal packaging requires a fat database helper with arm64 and x86_64 slices"
         exit 1
     fi
@@ -63,7 +78,8 @@ if [[ -n "$database_mcp" ]]; then
         print -u2 -- "LITHE_DB_MCP_EXECUTABLE is not executable: $database_mcp"
         exit 1
     fi
-    if [[ "$ARCH" == "universal" ]] && ! lipo "$database_mcp" -verify_arch arm64 -verify_arch x86_64 >/dev/null 2>&1; then
+    if [[ "$ARCH" == "universal" ]] && \
+        ! lipo "$database_mcp" -verify_arch arm64 x86_64 >/dev/null 2>&1; then
         print -u2 -- "Universal packaging requires a fat database MCP helper with arm64 and x86_64 slices"
         exit 1
     fi
@@ -103,7 +119,12 @@ for bundle_name in Lithe_Lithe.bundle SwiftTerm_SwiftTerm.bundle; do
 done
 mkdir -p "$APP_DIR/Contents/Resources/LanguageServers"
 cp -R "$JDTLS_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdtls"
-cp -R "$JDK_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdk"
+if [[ "$ARCH" == "universal" ]]; then
+    cp -R "$ARM64_JDK_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdk-arm64"
+    cp -R "$X86_64_JDK_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdk-x86_64"
+else
+    cp -R "$JDK_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdk"
+fi
 
 OFFICIAL_PLUGIN_DESTINATION="$APP_DIR/Contents/Resources/OfficialPlugins"
 mkdir -p "$OFFICIAL_PLUGIN_DESTINATION"

@@ -161,6 +161,7 @@ fn configuration(
     detected
         .with_cwd(&invocation.cwd)
         .with_confidence(Confidence::Declared)
+        .requiring_toolchain("java", "project-jdk")
 }
 
 fn service_plugin(text: &str) -> Option<(&'static str, &'static str)> {

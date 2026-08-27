@@ -30,6 +30,22 @@ package struct LanguageServerRuntimeStart: Equatable, Sendable {
     }
 }
 
+package struct JDTLSLaunchResources: Equatable, Sendable {
+    package let launcherJarURL: URL
+    package let configurationDirectoryURL: URL
+    package let lombokAgentURL: URL
+
+    package init(
+        launcherJarURL: URL,
+        configurationDirectoryURL: URL,
+        lombokAgentURL: URL
+    ) {
+        self.launcherJarURL = launcherJarURL.standardizedFileURL
+        self.configurationDirectoryURL = configurationDirectoryURL.standardizedFileURL
+        self.lombokAgentURL = lombokAgentURL.standardizedFileURL
+    }
+}
+
 package struct LanguageServerRuntimeOperation: Equatable, Sendable {
     package let operationID: String
 
@@ -171,6 +187,7 @@ package protocol LanguageServerRuntimeCore: Sendable {
         workingDirectoryURL: URL,
         initializationOptions: ToolingJSONValue?,
         runtimeExecutableURL: URL?,
+        jdtlsLaunchResources: JDTLSLaunchResources?,
         cacheDirectoryURL: URL?,
         workspaceFingerprint: String?,
         initializeTimeout: TimeInterval,

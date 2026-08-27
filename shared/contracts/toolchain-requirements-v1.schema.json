@@ -16,7 +16,7 @@
       "type": "object",
       "required": ["type"],
       "properties": {
-        "type": { "enum": ["java", "maven"] },
+        "type": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
         "minimumVersion": { "type": "string", "minLength": 1 },
         "preferredVendor": { "type": "string", "minLength": 1 },
         "wrapper": { "type": "string", "pattern": "^(?!/)(?!.*(^|/)\\.\\.(?:/|$)).*$" },

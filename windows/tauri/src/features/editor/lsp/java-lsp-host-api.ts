@@ -1,11 +1,18 @@
 import { invoke } from "@/platform/tauri-core";
 
+export interface JdtlsLaunchResources {
+  launcherJarPath: string;
+  configurationDirectory: string;
+  lombokAgentPath: string;
+}
+
 export interface JavaLspLaunch {
   providerId: string;
   languageId: string;
   executablePath: string;
   arguments: string[];
   runtimeExecutablePath?: string | null;
+  jdtlsLaunchResources?: JdtlsLaunchResources | null;
   cacheDirectory: string;
   environment: {
     JAVA_HOME?: string;
