@@ -510,7 +510,21 @@ configurations by stable ID using this precedence:
 replaced by the higher layer, while toolchain maps merge by key. It returns
 effective configurations, their source, the team default, structured
 diagnostics for stale, orphaned, missing, disabled, and toolchain mismatch
-states, and the effective global `toolchain`. A document-level `toolchain`
+states, the effective global `toolchain`, and the machine-local
+`localToolchains` document. Toolchain diagnostics carry the affected run
+configuration ID when a requirement is consumed by one or more configurations;
+requirements with no configuration consumer do not emit a blocking diagnostic.
+A process detector declares a runtime binding only when that command genuinely
+consumes the runtime. npm, pnpm, and Yarn scripts consume `project-node`; Bun
+scripts keep their independent `bun` command and do not acquire a Node
+requirement. Go, Python, Cargo, and Gradle remain command-based until every host
+provides the corresponding configurable runtime registry, so their PATH-based
+launch behavior is not blocked by an unavailable platform selector.
+During resolution, Core also reconciles npm, pnpm, and Yarn commands from older
+v2 generated documents with the same `project-node` binding. This compatibility
+normalization is based on the effective command, does not mutate the stored
+document, and keeps legacy hybrid projects scoped without requiring regeneration.
+A document-level `toolchain`
 object in the local layer (e.g.
 `{ "java": { "homePath": ... }, "maven": { "executablePath": ..., "javaHomePath": ... } }`)
 provides defaults for every configuration's `extensions.java.*`. A non-empty
@@ -531,17 +545,32 @@ global toolchain into the local layer instead of patching a configuration;
 project scope rejects this payload because toolchain paths are machine-local.
 
 `runConfig.saveEditorChanges` accepts the normal option-edit payload plus the
-required `toolchain` object. It applies the global toolchain and configuration
-override edits together, returning `localDocument` and either a
-`projectDocument` string or `null`. Local scope combines both edits in the one
-local document. Project scope returns the local defaults and team options as
-two fully prepared documents so the platform adapter can write them as one
-transaction with rollback. Empty per-configuration toolchain paths remove the
+required `toolchain` object. In addition to Java and Maven paths, that object
+may contain `runtimeExecutablePaths`, keyed by stable generic toolchain ID. It
+applies the global toolchain and configuration override edits together,
+returning `localDocument`, either a `projectDocument` string or `null`, and
+either a `toolchainDocument` string or `null`. The latter updates
+`.lithe/toolchains/local.json`, preserves unrelated toolchain IDs, and removes
+an entry when its supplied executable path is empty. Local scope combines the
+run-option edits in the local run document. Project scope returns the local
+defaults and team options as separate fully prepared documents; the platform
+adapter writes all returned documents as one transaction with rollback. Empty
+per-configuration toolchain paths remove the
 corresponding override keys while preserving unrelated extension fields.
 Platform clients report the editor save as successful only after the written
 documents resolve again. Failures identify whether preparation, document
 writing, or post-save reload failed; a reload failure keeps the last usable UI
 snapshot and states that the documents were already saved.
+
+Automatic runtime discovery produces an effective executable path for the
+current session. Platforms use that same path both to construct
+`toolchainCandidates` and to resolve the launch command. An automatic path is
+not a persisted user selection and is written to `.lithe/toolchains/local.json`
+only after an explicit editor save.
+On Windows, Node-backed commands resolve their package-manager shim from the
+selected Node installation. They do not fall back to a PATH shim from another
+installation, and Windows executable extensions take precedence over extensionless
+shell scripts.
 
 `runConfig.createLaunchPlan` accepts `root`, `configurationId`, optional
 `currentFile` and `classPath`, optional `debugPort`, and optional

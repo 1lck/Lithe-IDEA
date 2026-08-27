@@ -91,9 +91,7 @@ package final class RunFeatureModel: ObservableObject {
     package var configurationSaveError: String? { service.configurationSaveError }
     package var projectToolchain: ProjectToolchainSelection { service.projectToolchain }
     package var blockingToolchainDiagnostic: RunConfigurationDiagnostic? {
-        service.configurationDiagnostics.first {
-            $0.code == "missingToolchain" || $0.code == "toolchainVersionMismatch"
-        }
+        service.blockingToolchainDiagnostic(for: service.selectedConfiguration)
     }
     package var sourceSearchRoots: [URL] { service.sourceSearchRoots }
 

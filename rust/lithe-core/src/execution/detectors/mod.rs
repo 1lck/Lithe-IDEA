@@ -49,8 +49,8 @@ pub struct Detected {
     /// Project-relative directory the command runs in.
     pub cwd: String,
     pub env: BTreeMap<String, String>,
-    /// Toolchain bindings by role, e.g. `{java: project-jdk}`. Empty for a
-    /// detection that spawns `command` directly.
+    /// Toolchain bindings by role, e.g. `{java: project-jdk}`. A process-based
+    /// detection may retain `command` while declaring a runtime it consumes.
     pub toolchains: BTreeMap<String, String>,
     /// The debug adapter this service supports, when launching it under a
     /// debugger is something the launch layer already knows how to assemble.
@@ -158,6 +158,15 @@ impl Detected {
             .iter()
             .map(|(role, name)| (role.to_string(), name.to_string()))
             .collect();
+        self
+    }
+
+    /// Declares a runtime requirement while keeping the detector-owned command.
+    ///
+    /// Process-based detectors still own their command, but Core needs the
+    /// binding to scope compatibility diagnostics to the consumers.
+    pub fn requiring_toolchain(mut self, role: &str, name: &str) -> Self {
+        self.toolchains.insert(role.to_string(), name.to_string());
         self
     }
 

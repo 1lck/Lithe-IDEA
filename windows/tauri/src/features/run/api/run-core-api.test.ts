@@ -14,6 +14,7 @@ const emptyToolchain = {
   javaHomePath: "",
   mavenExecutablePath: "",
   mavenJavaHomePath: "",
+  runtimeExecutablePaths: {},
 };
 
 beforeEach(() => {
@@ -146,6 +147,7 @@ describe("saveRunConfigurationEditorChanges", () => {
         javaHomePath: "C:/Java/jdk-21",
         mavenExecutablePath: "D:/Tools/apache-maven",
         mavenJavaHomePath: "C:/Java/jdk-17",
+        runtimeExecutablePaths: { "project-node": "C:/Program Files/nodejs/node.exe" },
       },
     );
 
@@ -161,6 +163,7 @@ describe("saveRunConfigurationEditorChanges", () => {
             javaHomePath: "C:/Java/jdk-21",
             mavenExecutablePath: "D:/Tools/apache-maven",
             mavenJavaHomePath: "C:/Java/jdk-17",
+            runtimeExecutablePaths: { "project-node": "C:/Program Files/nodejs/node.exe" },
           },
         }),
       }),
