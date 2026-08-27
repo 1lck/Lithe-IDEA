@@ -85,6 +85,21 @@ function shouldStampLine(line: string): boolean {
   return leadingTimeLength(visible) === undefined;
 }
 
+const INCOMPLETE_TIMESTAMP_PREFIX =
+  /^\s*(?:\d{4}(?:-\d{0,2}(?:-\d{0,2}(?:[T ]\d{0,2}(?::\d{0,2}(?::\d{0,2})?)?)?)?)?|\d{1,2}(?::\d{0,2}(?::\d{0,2})?)?)$/;
+
+function isIncompleteTimestampPrefix(visible: string): boolean {
+  return INCOMPLETE_TIMESTAMP_PREFIX.test(visible);
+}
+
+function isUndecidedPrefix(line: string): boolean {
+  if (line.length === 0) return false;
+  const visible = skipLeadingOutputControls(line);
+  if (visible.length === 0) return true;
+  if (leadingTimeLength(visible) !== undefined) return false;
+  return isIncompleteTimestampPrefix(visible);
+}
+
 export function stampOutput(value: string, continuingLine: boolean, now = new Date()): string {
   if (value.length === 0) return value;
   const stamp = formatTimestamp(now);
@@ -106,4 +121,54 @@ export function stampOutput(value: string, continuingLine: boolean, now = new Da
 export function stampRunChunk(existing: string, chunk: string, now = new Date()): string {
   const continuingLine = existing.length > 0 && !existing.endsWith("\n");
   return stampOutput(chunk.replace(/\r/g, ""), continuingLine, now);
+}
+
+export interface OutputStamper {
+  push(chunk: string, now?: Date): string;
+  flush(now?: Date): string;
+  reset(): void;
+}
+
+export function createOutputStamper(): OutputStamper {
+  // Piped reads can split a line inside an ANSI sequence or an existing clock.
+  // Hold that prefix until the next chunk makes the line classifiable.
+  let pending = "";
+  let atLineStart = true;
+
+  const emitLine = (line: string, now: Date, withNewline: boolean): string => {
+    const stamp = atLineStart && shouldStampLine(line) ? formatTimestamp(now) : "";
+    atLineStart = withNewline;
+    return `${stamp}${line}${withNewline ? "\n" : ""}`;
+  };
+
+  return {
+    push(chunk, now = new Date()) {
+      const value = `${pending}${chunk}`.replace(/\r/g, "");
+      pending = "";
+      if (value.length === 0) return "";
+      const lines = value.split("\n");
+      let result = "";
+      const lastIndex = lines.length - 1;
+      for (let index = 0; index < lastIndex; index += 1) {
+        result += emitLine(lines[index], now, true);
+      }
+      if (value.endsWith("\n")) return result;
+      const last = lines[lastIndex];
+      if (atLineStart && isUndecidedPrefix(last)) {
+        pending = last;
+        return result;
+      }
+      return result + emitLine(last, now, false);
+    },
+    flush(now = new Date()) {
+      if (pending.length === 0) return "";
+      const line = pending;
+      pending = "";
+      return emitLine(line, now, false);
+    },
+    reset() {
+      pending = "";
+      atLineStart = true;
+    },
+  };
 }

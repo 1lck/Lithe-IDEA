@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  createOutputStamper,
   hasLeadingTime,
   leadingTimeLength,
   stampOutput,
@@ -70,9 +71,32 @@ describe("output timestamping", () => {
   });
 
   test("does not stamp an ANSI-only prefix when the timestamp arrives in the next chunk", () => {
-    const first = stampRunChunk("", "\u001b[32m", noon);
-    const second = stampRunChunk(first, "2026-08-08T10:12:33.123  INFO started\n", noon);
-    expect(first).toBe("\u001b[32m");
-    expect(second).toBe("2026-08-08T10:12:33.123  INFO started\n");
+    const stamper = createOutputStamper();
+    expect(stamper.push("\u001b[32m", noon)).toBe("");
+    expect(stamper.push("2026-08-08T10:12:33.123  INFO started\n", noon)).toBe(
+      "\u001b[32m2026-08-08T10:12:33.123  INFO started\n",
+    );
+  });
+
+  test("stamps a line whose ANSI prefix arrives before the untimed body", () => {
+    const stamper = createOutputStamper();
+    expect(stamper.push("\u001b[32m", noon)).toBe("");
+    expect(stamper.push("[INFO] Building\n", noon)).toBe("10:12:33.123 \u001b[32m[INFO] Building\n");
+  });
+
+  test("does not stamp a clock that is split across chunks", () => {
+    const stamper = createOutputStamper();
+    expect(stamper.push("2026-08-08T10:", noon)).toBe("");
+    expect(stamper.push("12:33.123 INFO started\n", noon)).toBe(
+      "2026-08-08T10:12:33.123 INFO started\n",
+    );
+  });
+
+  test("holds an incomplete SGR sequence until the line can be classified", () => {
+    const stamper = createOutputStamper();
+    expect(stamper.push("\u001b[32", noon)).toBe("");
+    expect(stamper.push("m[INFO] Building\n", noon)).toBe(
+      "10:12:33.123 \u001b[32m[INFO] Building\n",
+    );
   });
 });
