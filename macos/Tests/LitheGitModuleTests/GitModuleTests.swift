@@ -217,6 +217,42 @@ struct GitModuleTests {
     }
 
     @Test
+    func switchingRepositoriesDiscardsStaleInitialGitConsoleOutput() async {
+        let firstRoot = URL(fileURLWithPath: "/first-workspace")
+        let secondRoot = URL(fileURLWithPath: "/second-workspace")
+        let runGate = TestGitRunGate()
+        let service = GitService(operations: TestGitOperations(runGate: runGate))
+        let feature = GitFeatureModel(
+            service: service,
+            snapshotProvider: { root in
+                GitSnapshot(repositoryRoot: root, branch: "main", changes: [])
+            }
+        )
+        var workspaceURL = firstRoot
+        feature.configure(
+            workspaceURLProvider: { workspaceURL },
+            isGitLogVisibleProvider: { false },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+
+        await feature.refreshGit()
+        let initialLoad = Task { await feature.loadGitConsoleIfNeeded() }
+        await runGate.waitUntilFirstRunStarts()
+        workspaceURL = secondRoot
+        await feature.refreshGit()
+        runGate.releaseFirstRun()
+        await initialLoad.value
+
+        #expect(feature.gitConsoleEntries.isEmpty)
+
+        await feature.loadGitConsoleIfNeeded()
+
+        #expect(feature.gitConsoleEntries.count == 1)
+        #expect(feature.gitConsoleEntries.first?.workingDirectory == secondRoot)
+    }
+
+    @Test
     func gitConsolePreservesStandardErrorColorForSuccessfulCommands() {
         let entry = GitConsoleEntry(
             workingDirectory: URL(fileURLWithPath: "/workspace"),
@@ -468,23 +504,27 @@ private struct TestGitOperations: GitOperations {
     private let untrackedDiffDocumentValue: DiffDocument?
     private let comparisonDiffDocumentValue: DiffDocument?
     private let stageResult: GitProcessResult?
+    private let runGate: TestGitRunGate?
 
     init(
         snapshotValue: GitSnapshot? = nil,
         comparisonValue: GitBranchComparison? = nil,
         untrackedDiffDocumentValue: DiffDocument? = nil,
         comparisonDiffDocumentValue: DiffDocument? = nil,
-        stageResult: GitProcessResult? = nil
+        stageResult: GitProcessResult? = nil,
+        runGate: TestGitRunGate? = nil
     ) {
         self.snapshotValue = snapshotValue
         self.comparisonValue = comparisonValue
         self.untrackedDiffDocumentValue = untrackedDiffDocumentValue
         self.comparisonDiffDocumentValue = comparisonDiffDocumentValue
         self.stageResult = stageResult
+        self.runGate = runGate
     }
 
     func run(arguments: [String], workingDirectory: String, input: String?) -> GitProcessResult {
-        GitProcessResult(
+        runGate?.blockFirstRun()
+        return GitProcessResult(
             arguments: arguments,
             output: "git version 2.55.0\n",
             standardOutput: "git version 2.55.0\n",
@@ -540,4 +580,40 @@ private struct TestGitOperations: GitOperations {
     func popStash(_ stash: GitStash, at rootURL: URL) -> GitProcessResult? { nil }
     func dropStash(_ stash: GitStash, at rootURL: URL) -> GitProcessResult? { nil }
     func stageAll(at rootURL: URL) -> GitProcessResult? { nil }
+}
+
+private final class TestGitRunGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private let firstRunRelease = DispatchSemaphore(value: 0)
+    private var hasBlockedFirstRun = false
+    private var firstRunWaiter: CheckedContinuation<Void, Never>?
+
+    func blockFirstRun() {
+        lock.lock()
+        let shouldBlock = !hasBlockedFirstRun
+        hasBlockedFirstRun = true
+        let waiter = shouldBlock ? firstRunWaiter : nil
+        firstRunWaiter = nil
+        lock.unlock()
+        guard shouldBlock else { return }
+        waiter?.resume()
+        firstRunRelease.wait()
+    }
+
+    func waitUntilFirstRunStarts() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if hasBlockedFirstRun {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                firstRunWaiter = continuation
+                lock.unlock()
+            }
+        }
+    }
+
+    func releaseFirstRun() {
+        firstRunRelease.signal()
+    }
 }
