@@ -84,6 +84,13 @@ jobs:
         shell: bash
         run: git diff --check "$BASE_SHA" "$GITHUB_SHA"
 
+      - name: Reject newly added blocking test patterns
+        if: steps.base.outputs.manual == 'false'
+        env:
+          BASE_SHA: ${{ steps.base.outputs.base_sha }}
+        shell: bash
+        run: ./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh --platform all --base "$BASE_SHA" --head "$GITHUB_SHA"
+
       - name: Set up Rust for comment verification
         if: steps.classify.outputs.rust_core == 'false' && steps.classify.outputs.rust_comments == 'true'
         uses: dtolnay/rust-toolchain@stable
@@ -144,7 +151,9 @@ jobs:
       - name: Run Swift unit tests
         timeout-minutes: 12
         run: |
-          ./scripts/test-macos.sh \
+          ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh \
+            --report .artifacts/test-stability/macos-unit.json \
+            --suite-timeout-seconds 660 -- \
             --skip WebKitIntegrationTests \
             --skip '(LitheDatabaseModuleTests|LitheTests\.LitheCoreLogicTests/database)' \
             --skip '([Pp]lugin|LitheGoSupportModuleTests|LinuxDo)'
@@ -152,9 +161,24 @@ jobs:
       - name: Run WebKit lifecycle integration tests
         timeout-minutes: 3
         run: |
-          ./scripts/test-macos.sh \
+          ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh \
+            --report .artifacts/test-stability/macos-webkit.json \
+            --max-seconds 60 --suite-timeout-seconds 150 -- \
             --skip-build \
             --filter WebKitIntegrationTests
+
+      - name: Generate combined Swift test report
+        if: always()
+        run: node .agents/skills/write-stable-tests/scripts/generate-test-report.mjs
+
+      - name: Upload Swift test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-stability-macos
+          path: .artifacts/test-stability/
+          if-no-files-found: ignore
+          retention-days: 14
 
   rust-core-tests:
     name: Rust Core and Swift bridge tests

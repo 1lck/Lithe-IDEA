@@ -73,6 +73,13 @@ jobs:
 
           ./scripts/classify-ci-changes.sh "$BASE_SHA" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
+      - name: Reject newly added Windows blocking test patterns
+        if: steps.base.outputs.manual == 'false'
+        env:
+          BASE_SHA: ${{ steps.base.outputs.base_sha }}
+        shell: bash
+        run: ./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh --platform windows --base "$BASE_SHA" --head "$GITHUB_SHA"
+
       - name: Summarize selected lanes
         shell: bash
         env:
@@ -223,31 +230,35 @@ jobs:
 
       - name: Run Windows frontend tests
         if: needs.changes.outputs.windows == 'true'
-        working-directory: windows/tauri
         shell: pwsh
-        run: |
-          bun test src/platform
-          bun test src/features/editor/stores/editor-app.store.test.ts src/features/editor/services/document-external-change-workflow.test.ts src/features/editor/services/document-save-lifecycle.test.ts
-          bun test src/features/editor/lsp/language-server-navigation.test.ts src/features/editor/lsp/java-navigation-marker-loader.test.ts src/features/editor/engines/monaco/definition-link-scheduler.test.ts src/features/editor/engines/monaco/java-implementation-markers.test.ts
-          bun test src/features/editor/lsp/java-workspace-language-server.test.ts src/features/editor/lsp/java-workspace-change-scheduler.test.ts
+        timeout-minutes: 12
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -SuiteTimeoutSeconds 660
 
       - name: Test shared Rust Core
         if: needs.changes.outputs.rust_core == 'true'
         shell: pwsh
-        run: |
-          ./scripts/invoke-cargo-with-cache-fallback.ps1 `
-            -TargetDirectory "rust/target" `
-            -FailureMessage "Shared Rust Core tests failed" `
-            -CargoArguments @("test", "--manifest-path", "rust/Cargo.toml", "-p", "lithe-core")
+        timeout-minutes: 20
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope SharedRust -SuiteTimeoutSeconds 1080
 
       - name: Test Windows Rust host
         if: needs.changes.outputs.windows_rust == 'true'
         shell: pwsh
-        run: |
-          ./scripts/invoke-cargo-with-cache-fallback.ps1 `
-            -TargetDirectory "windows/tauri/src-tauri/target" `
-            -FailureMessage "Windows Rust host tests failed" `
-            -CargoArguments @("test", "--manifest-path", "windows/tauri/src-tauri/Cargo.toml")
+        timeout-minutes: 20
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope WindowsRust -SuiteTimeoutSeconds 1080
+
+      - name: Generate combined Windows test report
+        if: always()
+        shell: pwsh
+        run: node .agents/skills/write-stable-tests/scripts/generate-test-report.mjs
+
+      - name: Upload Windows test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-stability-windows
+          path: .artifacts/test-stability/
+          if-no-files-found: ignore
+          retention-days: 14
 
   gate:
     name: Windows CI gate

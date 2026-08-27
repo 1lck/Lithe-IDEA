@@ -112,6 +112,16 @@ while IFS=$'\t' read -r status first_path _; do
             rust_core=true
             macos_release=true
             ;;
+        .agents/skills/write-stable-tests/scripts/*)
+            # Test policy and timing infrastructure can select or reject every
+            # product test lane, but does not affect release packaging.
+            swift=true
+            plugins=true
+            swift_database=true
+            rust_core=true
+            windows=true
+            windows_rust=true
+            ;;
         .github/*|docs/*|.agents/*|.idea/*|.gitignore|license)
             ;;
         package.swift|package.resolved)
