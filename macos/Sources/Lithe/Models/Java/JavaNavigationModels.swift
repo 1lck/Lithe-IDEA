@@ -83,14 +83,6 @@ struct JavaFoldRegion: Identifiable, Hashable {
     var id: String { "\(kind.rawValue):\(startLine):\(endLine)" }
 }
 
-struct JavaInlayHint: Identifiable, Hashable {
-    let line: Int
-    let utf16Column: Int
-    let label: String
-
-    var id: String { "\(line):\(utf16Column):\(label)" }
-}
-
 typealias JavaImplementationDirection = JavaNavigationDirection
 typealias JavaImplementationRelation = JavaNavigationRelation
 
