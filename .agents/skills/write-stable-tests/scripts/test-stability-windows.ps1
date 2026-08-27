@@ -43,24 +43,55 @@ function Invoke-TimedRustTests {
         [string]$Report
     )
 
-    $arguments = @(
-        (Join-Path $PSScriptRoot "run-rust-tests-with-timing.mjs"),
-        "--manifest", $Manifest,
-        "--warn-ms", $warnMilliseconds,
-        "--max-ms", $maxMilliseconds,
-        "--build-timeout-ms", $suiteTimeoutMilliseconds,
-        "--report", $Report
-    )
-    if (-not [string]::IsNullOrWhiteSpace($Package)) {
-        $arguments += @("--package", $Package)
+    $suiteTimer = [System.Diagnostics.Stopwatch]::StartNew()
+    function Get-RemainingRustSuiteMilliseconds {
+        $remainingMilliseconds = [Math]::Floor(
+            $suiteTimeoutMilliseconds - $suiteTimer.Elapsed.TotalMilliseconds
+        )
+        if ($remainingMilliseconds -le 0) {
+            throw "Rust test suite exceeded the shared $SuiteTimeoutSeconds second deadline."
+        }
+        return $remainingMilliseconds
     }
 
+    function New-RustTimingArguments {
+        $remainingMilliseconds = Get-RemainingRustSuiteMilliseconds
+        $arguments = @(
+            (Join-Path $PSScriptRoot "run-rust-tests-with-timing.mjs"),
+            "--manifest", $Manifest,
+            "--warn-ms", $warnMilliseconds,
+            "--max-ms", $maxMilliseconds,
+            "--build-timeout-ms", $remainingMilliseconds,
+            "--suite-timeout-ms", $remainingMilliseconds,
+            "--report", $Report
+        )
+        if (-not [string]::IsNullOrWhiteSpace($Package)) {
+            $arguments += @("--package", $Package)
+        }
+        return $arguments
+    }
+
+    if (Test-Path -LiteralPath $Report) { Remove-Item -Force -LiteralPath $Report }
+    $arguments = New-RustTimingArguments
     & node @arguments
     if ($LASTEXITCODE -eq 0) { return }
+    if (Test-Path -LiteralPath $Report) {
+        $suiteTimedOut = $false
+        try {
+            $timingReport = Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json
+            $suiteTimedOut = $null -ne $timingReport.suite -and $timingReport.suite.timedOut -eq $true
+        } catch {
+            Write-Warning "Could not inspect the Rust timing report after failure: $($_.Exception.Message)"
+        }
+        if ($suiteTimedOut) {
+            throw "Rust test suite exceeded the shared $SuiteTimeoutSeconds second deadline."
+        }
+    }
     if ($env:LITHE_CARGO_BUILD_CACHE_RESTORED -ne "true") {
         throw "Rust timing tests failed."
     }
 
+    $null = Get-RemainingRustSuiteMilliseconds
     $target = [System.IO.Path]::GetFullPath((Join-Path $root $TargetDirectory))
     $trimCharacters = [char[]]@(
         [System.IO.Path]::DirectorySeparatorChar,
@@ -73,6 +104,8 @@ function Invoke-TimedRustTests {
     }
     Write-Warning "Rust timing failed after restoring cached build outputs. Clearing $TargetDirectory and retrying once."
     if (Test-Path -LiteralPath $target) { Remove-Item -Recurse -Force -LiteralPath $target }
+    if (Test-Path -LiteralPath $Report) { Remove-Item -Force -LiteralPath $Report }
+    $arguments = New-RustTimingArguments
     & node @arguments
     if ($LASTEXITCODE -ne 0) { throw "Rust timing tests failed after a clean retry." }
 }

@@ -8,6 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseAddedLines, scanFile } from "./verify-test-stability.mjs";
 import { parseJUnitCases } from "./parse-junit-cases.mjs";
+import { run as runRustTestsWithTiming } from "./run-rust-tests-with-timing.mjs";
 import { parseSwiftSuiteLine, parseSwiftTimingLine } from "./run-swift-tests-with-timing.mjs";
 
 const swiftViolations = scanFile(
@@ -15,11 +16,17 @@ const swiftViolations = scanFile(
   `import Testing
 private let gate = DispatchSemaphore(value: 0)
 gate.wait()
+gate.wait(timeout: .distantFuture)
+gate.wait(timeout: DispatchTime.distantFuture)
+gate.wait(timeout: .now() + .seconds(1))
 // test-stability: allow(swift-real-sleep) reason: verifies a native synchronous timeout boundary
 try await Task.sleep(for: .milliseconds(1))
 `,
 );
-assert.deepEqual(swiftViolations.map((violation) => violation.rule), ["swift-unbounded-wait"]);
+assert.deepEqual(
+  swiftViolations.map((violation) => violation.rule),
+  ["swift-unbounded-wait", "swift-unbounded-wait", "swift-unbounded-wait"],
+);
 
 const typescriptViolations = scanFile(
   "windows/tauri/src/example.test.ts",
@@ -123,6 +130,7 @@ mod tests {
       "--warn-ms", "50",
       "--max-ms", "200",
       "--build-timeout-ms", "30000",
+      "--suite-timeout-ms", "30000",
       "--report", reportPath,
     ],
     { encoding: "utf8", timeout: 60000 },
@@ -150,6 +158,100 @@ mod tests {
   assert.ok(existsSync(path.join(fixtureRoot, "index.html")));
 } finally {
   rmSync(fixtureRoot, { recursive: true, force: true });
+}
+
+const deadlineFixtureRoot = mkdtempSync(path.join(os.tmpdir(), "lithe-test-stability-deadline-"));
+try {
+  const reportPath = path.join(deadlineFixtureRoot, "deadline.json");
+  const manifestPath = path.join(deadlineFixtureRoot, "Cargo.toml");
+  const executablePath = path.join(deadlineFixtureRoot, "fake-tests");
+  let currentTime = 0;
+  let invocation = 0;
+  const runProcessImpl = async ({ args, onStdoutLine = () => {}, timeoutMs }) => {
+    invocation += 1;
+    if (invocation === 1) {
+      assert.equal(timeoutMs, 1000);
+      currentTime = 400;
+      onStdoutLine(JSON.stringify({
+        reason: "compiler-artifact",
+        profile: { test: true },
+        executable: executablePath,
+        manifest_path: manifestPath,
+        target: { name: "deadline-fixture" },
+      }));
+      return { code: 0, signal: null, timedOut: false, durationMs: 400, stdout: "", stderr: "" };
+    }
+    if (args[0] === "--list") {
+      assert.equal(timeoutMs, 600);
+      currentTime = 500;
+      return {
+        code: 0,
+        signal: null,
+        timedOut: false,
+        durationMs: 100,
+        stdout: "tests::first: test\ntests::second: test\n",
+        stderr: "",
+      };
+    }
+    if (args[1] === "tests::first") {
+      assert.equal(timeoutMs, 500);
+      currentTime = 800;
+      return {
+        code: 0,
+        signal: null,
+        timedOut: false,
+        durationMs: 300,
+        stdout: "running 1 test\ntest tests::first ... ok\n",
+        stderr: "",
+      };
+    }
+    assert.deepEqual(args.slice(0, 2), ["--exact", "tests::second"]);
+    assert.equal(timeoutMs, 200);
+    currentTime = 1000;
+    return {
+      code: null,
+      signal: "SIGTERM",
+      timedOut: true,
+      durationMs: 200,
+      stdout: "running 1 test\n",
+      stderr: "",
+    };
+  };
+
+  await assert.rejects(
+    runRustTestsWithTiming(
+      {
+        manifest: manifestPath,
+        package: null,
+        warnMs: 50,
+        maxMs: 500,
+        buildTimeoutMs: 5000,
+        suiteTimeoutMs: 1000,
+        report: reportPath,
+        keepGoing: false,
+      },
+      { runProcessImpl, now: () => currentTime },
+    ),
+    /Rust test suite exceeded 1000ms during test deadline-fixture::tests::second/,
+  );
+  const deadlineReport = JSON.parse(readFileSync(reportPath, "utf8"));
+  assert.deepEqual(deadlineReport.suite, {
+    timedOut: true,
+    stage: "test deadline-fixture::tests::second",
+    durationMs: 1000,
+  });
+  assert.deepEqual(
+    deadlineReport.tests.map(({ name, status }) => ({ name, status })),
+    [
+      { name: "tests::first", status: "passed" },
+      { name: "tests::second", status: "timeout" },
+    ],
+  );
+  assert.match(deadlineReport.tests[1].details, /shared suite deadline expired/);
+  assert.ok(existsSync(path.join(deadlineFixtureRoot, "deadline.html")));
+  assert.ok(existsSync(path.join(deadlineFixtureRoot, "deadline.junit.xml")));
+} finally {
+  rmSync(deadlineFixtureRoot, { recursive: true, force: true });
 }
 
 console.log("Test stability verifier tests passed.");

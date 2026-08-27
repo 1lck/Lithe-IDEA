@@ -34,7 +34,9 @@ JUnit duration for every executed test case.
 `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope WindowsRust` and `-Scope SharedRust`
 compile the selected Cargo tests once, enumerate the produced test binaries,
 then run every test case individually with a process-level timeout and duration
-report. This isolation makes the exact hanging test visible.
+report. One suite deadline covers compilation, enumeration, every test process,
+and the clean cache retry; a timeout writes the completed records before the
+runner exits. This isolation makes the exact hanging test visible.
 
 Every Bun and Rust lane writes JUnit XML plus a self-contained HTML dashboard
 below `.artifacts/test-stability/`. The dashboard groups Rust cases by crate

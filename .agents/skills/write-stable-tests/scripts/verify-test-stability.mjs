@@ -12,8 +12,8 @@ const RULES = {
   swift: [
     {
       id: "swift-unbounded-wait",
-      pattern: /\.wait\(\s*\)/,
-      message: "Use a bounded wait and assert the timeout result; a bare wait can hang CI.",
+      pattern: /\.wait\s*\(\s*\)|\.wait\s*\([^)]*\.\s*distantFuture\b[^)]*\)/,
+      message: "Use a finite timeout and assert its result; bare waits and distantFuture can hang CI.",
     },
     {
       id: "swift-real-sleep",
