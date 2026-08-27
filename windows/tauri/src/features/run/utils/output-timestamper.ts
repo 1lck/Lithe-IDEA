@@ -24,7 +24,65 @@ export function leadingTimeLength(line: string): number | undefined {
 }
 
 export function hasLeadingTime(line: string): boolean {
-  return leadingTimeLength(line) !== undefined;
+  return leadingTimeLength(skipLeadingOutputControls(line)) !== undefined;
+}
+
+// Colored tools often emit SGR/OSC before a clock. Skip those so we do not
+// add a second timestamp after the escapes are stripped for display.
+function skipLeadingOutputControls(line: string): string {
+  let index = 0;
+  while (index < line.length) {
+    const code = line.charCodeAt(index);
+    if (code === 32 || code === 9) {
+      index += 1;
+      continue;
+    }
+    if (code !== 27) break;
+    if (index + 1 >= line.length) {
+      index = line.length;
+      break;
+    }
+    const next = line.charCodeAt(index + 1);
+    if (next === 91) {
+      let cursor = index + 2;
+      while (cursor < line.length) {
+        const finalCode = line.charCodeAt(cursor);
+        if (finalCode >= 0x40 && finalCode <= 0x7e) {
+          cursor += 1;
+          break;
+        }
+        cursor += 1;
+      }
+      index = cursor;
+      continue;
+    }
+    if (next === 93) {
+      let cursor = index + 2;
+      while (cursor < line.length) {
+        const terminator = line.charCodeAt(cursor);
+        if (terminator === 7) {
+          cursor += 1;
+          break;
+        }
+        if (terminator === 27 && line.charCodeAt(cursor + 1) === 92) {
+          cursor += 2;
+          break;
+        }
+        cursor += 1;
+      }
+      index = cursor;
+      continue;
+    }
+    index += 1;
+  }
+  return line.slice(index);
+}
+
+function shouldStampLine(line: string): boolean {
+  if (line.length === 0) return false;
+  const visible = skipLeadingOutputControls(line);
+  if (visible.length === 0) return false;
+  return leadingTimeLength(visible) === undefined;
 }
 
 export function stampOutput(value: string, continuingLine: boolean, now = new Date()): string {
@@ -35,7 +93,7 @@ export function stampOutput(value: string, continuingLine: boolean, now = new Da
   let result = "";
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
-    if (isLineStart && line.length > 0 && !hasLeadingTime(line)) {
+    if (isLineStart && shouldStampLine(line)) {
       result += stamp;
     }
     result += line;
