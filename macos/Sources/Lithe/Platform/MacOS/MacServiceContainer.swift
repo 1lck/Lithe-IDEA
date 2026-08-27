@@ -219,6 +219,7 @@ final class MacServiceContainer {
                         core: rustCore,
                         cacheDirectoryURL: languageServerCacheDirectory
                     )
+                    let jdtlsLaunchResourceResolver = MacJDTLSLaunchResourceResolver()
                     let runtimeFactory = StdioLanguageProviderRuntimeFactory(
                         runtimeService: runtimeService,
                         languageServerCore: rustCore,
@@ -232,6 +233,17 @@ final class MacServiceContainer {
                                 )
                             }
                             return .available(executableURL)
+                        },
+                        jdtlsLaunchResourcesResolver: { descriptor, executableURL in
+                            guard descriptor.id == "java" else { return .notRequired }
+                            switch jdtlsLaunchResourceResolver.resolve(for: executableURL) {
+                            case .direct(let resources):
+                                return .available(resources)
+                            case .wrapperFallback:
+                                return .notRequired
+                            case .unavailable(let message):
+                                return .unavailable(message)
+                            }
                         },
                         languageServerCacheDirectory: languageServerCacheDirectory,
                         processRegistry: processRegistry

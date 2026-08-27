@@ -39,6 +39,7 @@ Write-Output $javaAgentArgument
 LAUNCHER
 : > "$jdtls_root/lombok/lombok.jar"
 : > "$jdtls_root/lombok/LICENSE-MIT.txt"
+: > "$jdtls_root/plugins/org.eclipse.equinox.launcher_1.0.0.jar"
 
 mkdir -p "$jdk_root/bin" "$jdk_root/lib"
 cat > "$temporary_directory/java.c" <<'SOURCE'
@@ -80,6 +81,9 @@ required_resources=(
     "$app_path/Contents/Resources/Lithe_Lithe.bundle"
     "$app_path/Contents/Resources/SwiftTerm_SwiftTerm.bundle/Shaders.metal"
     "$app_path/Contents/Resources/LanguageServers/jdtls/bin/jdtls"
+    "$app_path/Contents/Resources/LanguageServers/jdtls/plugins/org.eclipse.equinox.launcher_1.0.0.jar"
+    "$app_path/Contents/Resources/LanguageServers/jdtls/config_mac"
+    "$app_path/Contents/Resources/LanguageServers/jdtls/lombok/lombok.jar"
     "$app_path/Contents/Resources/LanguageServers/jdk/bin/java"
     "$app_path/Contents/Resources/LanguageServers/jdk/lib"
 )

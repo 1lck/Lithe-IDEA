@@ -127,7 +127,7 @@ Rust Core 的 `lsp.builtinCompletions`、`lsp.builtinHover` 和
 
 macOS discovery 的查找顺序包括项目 `.lithe` 工具目录、`LITHE_<TOOL>_PATH`/`LITHE_TOOL_<TOOL>_PATH`、`PATH` 和常见系统目录；`gopls` 等 Go 工具还会检查 `GOBIN`、`GOPATH/bin`、`~/go/bin` 和 `~/.go/bin`。discovery 只查找，不自动安装软件。
 
-正式 macOS 与 Windows 安装包包含 JDTLS 和只供语言服务使用的 Temurin JDK 21。发布构建根据 `third_party/jdtls/manifest.json` 下载固定版本，同时校验 JDTLS 归档、EPL-2.0 许可证、Lombok agent 与 MIT 许可证的 SHA-256，再将产物放入应用资源目录的 `LanguageServers/jdtls`。包内启动器通过相对路径加载 Lombok `-javaagent`，确保 JDTLS 能解析注解生成的成员；agent 缺失时启动器会明确失败，而不会产生静默的错误诊断。平台 adapter 优先使用这个包内启动器；开发环境仍保留外部 JDTLS 候选作为构建调试回退，但运行 JDTLS 的 Java runtime 始终只能是内置 JDK 21。下载只发生在构建阶段，应用运行时不会联网安装 JDTLS、Lombok 或 JDK。
+正式 macOS 与 Windows 安装包包含 JDTLS 和只供语言服务使用的 Temurin JDK 21。发布构建根据 `third_party/jdtls/manifest.json` 下载固定版本，同时校验 JDTLS 归档、EPL-2.0 许可证、Lombok agent 与 MIT 许可证的 SHA-256，再将产物放入应用资源目录的 `LanguageServers/jdtls`。平台 adapter 从选中的安装目录稳定解析 Equinox launcher JAR、当前平台的 configuration 目录和 `lombok/lombok.jar`，以结构化 `jdtlsLaunchResources` 提交给 Rust Core；Core 统一构造 `-javaagent`、内存、module/open、Eclipse product/application、`-jar`、`-configuration` 和 workspace `-data` 参数，并直接启动包内 `java`/`java.exe`。因此正式包运行 JDTLS 不依赖 shell、PowerShell 或用户 `PATH`。资源缺失会在进程启动前作为打包故障明确失败，不会产生静默的错误诊断。生成的 `bin/jdtls`、`jdtls.bat` 和 `jdtls.ps1` 只为外部/旧启动计划保留兼容回退；运行 JDTLS 的 Java runtime 始终只能是内置 JDK 21。下载只发生在构建阶段，应用运行时不会联网安装 JDTLS、Lombok 或 JDK。
 
 准备脚本会把经过校验的 JDTLS manifest 一同复制到 `LanguageServers/jdtls/manifest.json`。平台启动 adapter 只观测 workspace 根部的 `pom.xml`、`build.gradle`、`build.gradle.kts` 元数据、直接包含 `pom.xml` 的模块目录和实际选中 JDTLS 的版本；`java.jdtWorkspaceFingerprint` 在 Rust Core 内统一校验、排序、去重并生成非递归结构指纹，平台不得拼接或解析该字符串。Rust Core 将指纹和标准化 workspace 路径共同哈希为 `-data` 目录键；结构变化只会选择新目录，不影响当前会话。缺少指纹时仍使用历史的纯路径键，兼容旧客户端。两端在使用缓存时写入最近使用标记，再把目录元数据交给 `java.jdtCacheRetention`；Core 只返回超过 30 天且非当前活动项的键，平台复核后删除，Core 不执行文件系统操作。
 
@@ -155,8 +155,8 @@ timeout。Core、service 和 adapter 只返回稳定原因，面向用户的提�
 
 启动顺序：
 
-1. Swift 完成可执行文件和环境发现，向 Rust 提交 typed `startServer`；
-2. Rust engine 创建 session、启动进程并安装 stdout/stderr reader，再发送 `initialize`；
+1. 平台完成可执行文件、运行时和 provider 专用资源发现，向 Rust 提交 typed `startServer`；JDTLS 包内计划必须包含 `jdtlsLaunchResources`；
+2. Rust provider adapter 生成最终参数，engine 创建 session、直接启动目标进程并安装 stdout/stderr reader，再发送 `initialize`；
 3. 收到响应后，Rust 保存服务器 capability，发送 `initialized` 和 provider adapter 通知；JDTLS 继续等待 `language/status: ServiceReady`，项目导入完成前仍是 `initializing`；
 4. manager 只在真实 `ready` 后发布 capability；打开文档发送 `didOpen`，后续编辑优先按服务器协商结果发送增量 `didChange`；
 5. Rust 以 LSP request ID 关联 deadline，并用不透明 operation ID 把 terminal result 投影给 Swift。

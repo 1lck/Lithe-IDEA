@@ -5,6 +5,65 @@ import Testing
 @Suite("Java language server runtime")
 struct JavaLanguageServerRuntimeTests {
     @Test
+    func macJdtlsResolverSelectsDirectLaunchResourcesDeterministically() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("lithe-jdtls-resolver-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        for directory in ["bin", "plugins", "config_mac", "config_mac_arm", "lombok"] {
+            try fileManager.createDirectory(
+                at: root.appendingPathComponent(directory, isDirectory: true),
+                withIntermediateDirectories: true
+            )
+        }
+        let executable = root.appendingPathComponent("bin/jdtls")
+        let firstLauncher = root.appendingPathComponent(
+            "plugins/org.eclipse.equinox.launcher_1.0.0.jar"
+        )
+        for file in [
+            executable,
+            firstLauncher,
+            root.appendingPathComponent("plugins/org.eclipse.equinox.launcher_2.0.0.jar"),
+            root.appendingPathComponent("lombok/lombok.jar")
+        ] {
+            try Data().write(to: file)
+        }
+        let resolver = MacJDTLSLaunchResourceResolver(bundledJdtlsRootURL: root)
+
+        guard case .direct(let resources) = resolver.resolve(for: executable) else {
+            Issue.record("Expected complete bundled JDTLS resources to use direct Java launch")
+            return
+        }
+        #expect(resources.launcherJarURL == firstLauncher.standardizedFileURL)
+        #if arch(arm64)
+        #expect(resources.configurationDirectoryURL.lastPathComponent == "config_mac_arm")
+        #else
+        #expect(resources.configurationDirectoryURL.lastPathComponent == "config_mac")
+        #endif
+        #expect(resources.lombokAgentURL.lastPathComponent == "lombok.jar")
+    }
+
+    @Test
+    func macJdtlsResolverFailsBundledButKeepsExternalWrapperFallback() {
+        let bundledRoot = URL(fileURLWithPath: "/bundled/jdtls", isDirectory: true)
+        let resolver = MacJDTLSLaunchResourceResolver(bundledJdtlsRootURL: bundledRoot)
+
+        guard case .unavailable(let message) = resolver.resolve(
+            for: bundledRoot.appendingPathComponent("bin/jdtls")
+        ) else {
+            Issue.record("Expected incomplete bundled JDTLS resources to fail")
+            return
+        }
+        #expect(message.contains("Reinstall Lithe"))
+        guard case .wrapperFallback = resolver.resolve(
+            for: URL(fileURLWithPath: "/external/jdtls/bin/jdtls")
+        ) else {
+            Issue.record("Expected an external legacy JDTLS launcher to remain compatible")
+            return
+        }
+    }
+
+    @Test
     func parsesModernAndLegacyJavaVersions() {
         #expect(javaRuntime("/jdk-17", "17.0.18").majorVersion == 17)
         #expect(javaRuntime("/jdk-21", "21-ea").majorVersion == 21)

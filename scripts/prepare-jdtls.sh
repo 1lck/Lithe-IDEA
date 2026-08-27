@@ -74,12 +74,16 @@ download_verified_file() {
 
 validate_output() {
     [[ -d "$OUTPUT_DIR/plugins" ]] || { print -u2 -- "JDTLS plugins directory is missing: $OUTPUT_DIR"; exit 1; }
+    local launcher_jars=("$OUTPUT_DIR"/plugins/org.eclipse.equinox.launcher_*.jar(N))
+    (( ${#launcher_jars[@]} > 0 )) || { print -u2 -- "JDTLS Equinox launcher is missing: $OUTPUT_DIR/plugins"; exit 1; }
     [[ -d "$OUTPUT_DIR/config_mac" ]] || { print -u2 -- "JDTLS macOS configuration is missing: $OUTPUT_DIR"; exit 1; }
     [[ -d "$OUTPUT_DIR/config_win" ]] || { print -u2 -- "JDTLS Windows configuration is missing: $OUTPUT_DIR"; exit 1; }
     [[ -x "$OUTPUT_DIR/bin/jdtls" ]] || { print -u2 -- "JDTLS launcher is missing: $OUTPUT_DIR/bin/jdtls"; exit 1; }
     [[ -f "$OUTPUT_DIR/bin/jdtls.ps1" ]] || { print -u2 -- "JDTLS Windows launcher is missing: $OUTPUT_DIR"; exit 1; }
     [[ -f "$OUTPUT_DIR/lombok/lombok.jar" ]] || { print -u2 -- "JDTLS Lombok agent is missing: $OUTPUT_DIR"; exit 1; }
     [[ -f "$OUTPUT_DIR/lombok/LICENSE-MIT.txt" ]] || { print -u2 -- "JDTLS Lombok license is missing: $OUTPUT_DIR"; exit 1; }
+    # Wrapper scripts remain available for external/legacy launch plans. The
+    # packaged product launches bundled Java directly with the resources above.
     grep -Fq -- '-javaagent:' "$OUTPUT_DIR/bin/jdtls" || { print -u2 -- "JDTLS launcher does not load the Lombok agent: $OUTPUT_DIR"; exit 1; }
     grep -Fq -- '-javaagent:' "$OUTPUT_DIR/bin/jdtls.ps1" || { print -u2 -- "JDTLS Windows launcher does not load the Lombok agent: $OUTPUT_DIR"; exit 1; }
 }

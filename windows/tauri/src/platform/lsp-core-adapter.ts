@@ -672,6 +672,7 @@ async function createSession(args: JsonRecord, key: string): Promise<Session> {
         workingDirectory: workspacePath,
         initializationOptions: args.initializationOptions ?? null,
         runtimeExecutablePath: args.runtimeExecutablePath ?? null,
+        jdtlsLaunchResources: args.jdtlsLaunchResources ?? null,
         cacheDirectory: args.cacheDirectory ?? null,
         workspaceFingerprint: args.workspaceFingerprint ?? null,
         initializeTimeoutMilliseconds: INITIALIZE_TIMEOUT_MS,
