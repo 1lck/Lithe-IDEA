@@ -10,6 +10,7 @@ use crate::protocol::{
     GitStatusResponse, GitWatchContextResponse,
 };
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use std::io::Read;
 use std::io::Write;
 #[cfg(target_os = "windows")]
@@ -73,20 +74,36 @@ pub struct GitCommandRequest {
     pub input: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-/// Stable output returned by argument-based Git execution.
-pub struct GitCommandResponse {
+/// One Git subprocess executed while fulfilling a shared Git command.
+pub struct GitCommandInvocation {
     /// Exact arguments passed to the Git executable, excluding the executable name.
     pub arguments: Vec<String>,
-    /// Backward-compatible concatenation of standard output followed by standard error.
-    pub output: String,
     /// Text captured from the Git process standard output stream.
     pub stdout: String,
     /// Text captured from the Git process standard error stream.
     pub stderr: String,
     /// Exit status returned by the Git process.
     pub exit_code: i32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Stable output returned by argument-based Git execution.
+pub struct GitCommandResponse {
+    /// Exact arguments for the final Git subprocess, retained for compatibility.
+    pub arguments: Vec<String>,
+    /// Backward-compatible concatenation of standard output followed by standard error.
+    pub output: String,
+    /// Text captured from the final Git process standard output stream.
+    pub stdout: String,
+    /// Text captured from the final Git process standard error stream.
+    pub stderr: String,
+    /// Exit status returned by the final Git process.
+    pub exit_code: i32,
+    /// Every Git subprocess executed for the operation, in execution order.
+    pub invocations: Vec<GitCommandInvocation>,
     /// Present when a stash restore kept its entry because the working tree
     /// contains an unresolved merge. Keeping this out of the prose response
     /// lets bindings offer recovery actions without matching localized Git
@@ -106,6 +123,12 @@ impl GitProcessOutput {
     fn into_command_response(self, arguments: &[String]) -> GitCommandResponse {
         let stdout = String::from_utf8_lossy(&self.stdout).to_string();
         let stderr = String::from_utf8_lossy(&self.stderr).to_string();
+        let invocation = GitCommandInvocation {
+            arguments: arguments.to_vec(),
+            stdout: stdout.clone(),
+            stderr: stderr.clone(),
+            exit_code: self.exit_code,
+        };
         let output = format!("{stdout}{stderr}");
         GitCommandResponse {
             arguments: arguments.to_vec(),
@@ -113,9 +136,41 @@ impl GitProcessOutput {
             stdout,
             stderr,
             exit_code: self.exit_code,
+            invocations: vec![invocation],
             stash_restore: None,
         }
     }
+}
+
+thread_local! {
+    static GIT_INVOCATION_TRACE: RefCell<Option<Vec<GitCommandInvocation>>> = const {
+        RefCell::new(None)
+    };
+}
+
+fn with_git_invocation_trace(
+    operation: impl FnOnce() -> Result<GitCommandResponse, CoreError>,
+) -> Result<GitCommandResponse, CoreError> {
+    let previous = GIT_INVOCATION_TRACE.with(|trace| trace.replace(Some(Vec::new())));
+    let result = operation();
+    let invocations = GIT_INVOCATION_TRACE
+        .with(|trace| trace.replace(previous))
+        .unwrap_or_default();
+    result.map(|mut response| {
+        response.invocations = invocations;
+        response
+    })
+}
+
+fn record_git_invocation(response: &GitCommandResponse) {
+    let Some(invocation) = response.invocations.first().cloned() else {
+        return;
+    };
+    GIT_INVOCATION_TRACE.with(|trace| {
+        if let Some(invocations) = trace.borrow_mut().as_mut() {
+            invocations.push(invocation);
+        }
+    });
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -294,8 +349,10 @@ fn default_history_limit() -> usize {
 
 /// Executes an argument-based Git command after validating the workspace root.
 pub fn command(request: GitCommandRequest) -> Result<GitCommandResponse, CoreError> {
-    let root = validate_root(&request.root)?;
-    execute_git(&root, &request.arguments, request.input)
+    with_git_invocation_trace(|| {
+        let root = validate_root(&request.root)?;
+        execute_git(&root, &request.arguments, request.input)
+    })
 }
 
 fn readonly_command(request: GitCommandRequest) -> Result<GitCommandResponse, CoreError> {
@@ -305,6 +362,10 @@ fn readonly_command(request: GitCommandRequest) -> Result<GitCommandResponse, Co
 
 /// Executes one supported repository mutation without invoking a shell.
 pub fn write(request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> {
+    with_git_invocation_trace(|| write_with_trace(request))
+}
+
+fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> {
     let root = validate_root(&request.root)?;
     let mut arguments: Vec<String>;
 
@@ -558,8 +619,11 @@ fn execute_git_with_options(
     input: Option<String>,
     disable_optional_locks: bool,
 ) -> Result<GitCommandResponse, CoreError> {
-    capture_git_with_options(root, arguments, input, disable_optional_locks)
-        .map(|output| output.into_command_response(arguments))
+    capture_git_with_options(root, arguments, input, disable_optional_locks).map(|output| {
+        let response = output.into_command_response(arguments);
+        record_git_invocation(&response);
+        response
+    })
 }
 
 fn capture_git_with_options(
@@ -1752,6 +1816,7 @@ fn failed_git_result(message: impl Into<String>) -> GitCommandResponse {
         stdout: String::new(),
         stderr,
         exit_code: 1,
+        invocations: Vec::new(),
         stash_restore: None,
     }
 }
@@ -1785,12 +1850,13 @@ fn discard_all(root: &str, paths: &[String]) -> Result<GitCommandResponse, CoreE
         }
     }
 
+    let mut final_response = status;
     if !tracked.is_empty() {
         let mut arguments = vec!["checkout".to_string(), "HEAD".to_string(), "--".to_string()];
         arguments.extend(tracked);
-        let restored = execute_git(root, &arguments, None)?;
-        if restored.exit_code != 0 {
-            return Ok(restored);
+        final_response = execute_git(root, &arguments, None)?;
+        if final_response.exit_code != 0 {
+            return Ok(final_response);
         }
     }
     if !untracked.is_empty() {
@@ -1803,14 +1869,7 @@ fn discard_all(root: &str, paths: &[String]) -> Result<GitCommandResponse, CoreE
         arguments.extend(untracked);
         return execute_git(root, &arguments, None);
     }
-    Ok(GitCommandResponse {
-        arguments: Vec::new(),
-        output: String::new(),
-        stdout: String::new(),
-        stderr: String::new(),
-        exit_code: 0,
-        stash_restore: None,
-    })
+    Ok(final_response)
 }
 
 fn pop_stash(root: &str, reference: &str) -> Result<GitCommandResponse, CoreError> {
@@ -2883,7 +2942,7 @@ fn relative_or_absolute(path: &Path, root: &Path) -> String {
 mod tests {
     use super::{
         line_similarity, pair_diff_entries, parse_diff, structured_diff_from_output, DiffEntry,
-        GitProcessOutput, MAX_ALIGNMENT_CELLS,
+        GitCommandInvocation, GitCommandResponse, GitProcessOutput, MAX_ALIGNMENT_CELLS,
     };
     use serde_json::Value;
 
@@ -3004,6 +3063,58 @@ mod tests {
         let score = line_similarity("    return value", "\t\treturn value");
         assert_eq!(score, 1.0);
         assert_eq!(line_similarity("abc", ""), 0.0);
+    }
+
+    #[test]
+    fn command_response_matches_shared_fixture() {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/fixtures/git/command-response-v1.json"
+        )))
+        .expect("Git command response fixture should be valid JSON");
+        let response = GitCommandResponse {
+            arguments: vec![
+                "checkout".into(),
+                "HEAD".into(),
+                "--".into(),
+                "README.md".into(),
+            ],
+            output: String::new(),
+            stdout: String::new(),
+            stderr: String::new(),
+            exit_code: 0,
+            invocations: vec![
+                GitCommandInvocation {
+                    arguments: vec![
+                        "status".into(),
+                        "--porcelain".into(),
+                        "--untracked-files=all".into(),
+                        "--".into(),
+                        "README.md".into(),
+                    ],
+                    stdout: " M README.md\n".into(),
+                    stderr: String::new(),
+                    exit_code: 0,
+                },
+                GitCommandInvocation {
+                    arguments: vec![
+                        "checkout".into(),
+                        "HEAD".into(),
+                        "--".into(),
+                        "README.md".into(),
+                    ],
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    exit_code: 0,
+                },
+            ],
+            stash_restore: None,
+        };
+
+        assert_eq!(
+            serde_json::to_value(response).expect("Git response should serialize"),
+            fixture
+        );
     }
 
     #[test]

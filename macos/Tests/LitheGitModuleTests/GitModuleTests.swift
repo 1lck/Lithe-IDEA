@@ -145,6 +145,85 @@ struct GitModuleTests {
     }
 
     @Test
+    func gitConsoleRedactsCredentialsFromArgumentsAndProcessStreams() {
+        let secret = "FAKE_SUPER_SECRET_TOKEN"
+        let credentialURL = "https://alice:password@example.com/repository.git?access_token=\(secret)&mode=test"
+        let tokenURL = "https://example.com/repository.git?token=\(secret)"
+        let entry = GitConsoleEntry(
+            workingDirectory: URL(fileURLWithPath: "/workspace"),
+            arguments: ["fetch", credentialURL],
+            output: "warning: request failed for \(tokenURL)\nfatal: unable to access '\(credentialURL)'\n",
+            standardOutput: "warning: request failed for \(tokenURL)\n",
+            standardError: "fatal: unable to access '\(credentialURL)'\n",
+            exitCode: 1
+        )
+
+        let visibleText = [
+            entry.arguments.joined(separator: " "),
+            entry.output,
+            entry.standardOutput ?? "",
+            entry.standardError ?? "",
+            entry.commandLine,
+            entry.copyText,
+            entry.outputLines.map(\.text).joined(separator: "\n")
+        ].joined(separator: "\n")
+        #expect(visibleText.contains("redacted"))
+        #expect(!visibleText.contains(secret))
+        #expect(!visibleText.contains("alice"))
+        #expect(!visibleText.contains("password"))
+    }
+
+    @Test
+    func gitConsoleRecordsEveryInvocationFromCompositeOperations() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let change = GitChange(
+            repositoryRoot: root,
+            path: "README.md",
+            originalPath: nil,
+            indexStatus: " ",
+            workTreeStatus: "M"
+        )
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: [change]),
+            stageResult: GitProcessResult(
+                arguments: ["checkout", "HEAD", "--", "README.md"],
+                output: "",
+                exitCode: 0,
+                invocations: [
+                    GitProcessInvocation(
+                        arguments: ["status", "--porcelain", "--", "README.md"],
+                        standardOutput: " M README.md\n",
+                        standardError: "",
+                        exitCode: 0
+                    ),
+                    GitProcessInvocation(
+                        arguments: ["checkout", "HEAD", "--", "README.md"],
+                        standardOutput: "",
+                        standardError: "",
+                        exitCode: 0
+                    )
+                ]
+            )
+        ))
+        let feature = GitFeatureModel(service: service)
+        feature.configure(
+            workspaceURLProvider: { root },
+            isGitLogVisibleProvider: { false },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+
+        await feature.refreshGit()
+        await feature.selectChange(change)
+        await feature.stageSelectedChange()
+
+        #expect(feature.gitConsoleEntries.map(\.arguments) == [
+            ["status", "--porcelain", "--", "README.md"],
+            ["checkout", "HEAD", "--", "README.md"]
+        ])
+    }
+
+    @Test
     func gitServicePreservesExecutedArgumentsAndWorkingDirectory() async {
         let root = URL(fileURLWithPath: "/workspace")
         let change = GitChange(

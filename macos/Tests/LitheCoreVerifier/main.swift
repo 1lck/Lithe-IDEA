@@ -45,6 +45,23 @@ struct CoreVerification {
         let cases: [Case]
     }
 
+
+    private struct GitCommandFixture: Decodable {
+        struct Invocation: Decodable {
+            let arguments: [String]
+            let stdout: String
+            let stderr: String
+            let exitCode: Int32
+        }
+
+        let arguments: [String]
+        let output: String
+        let stdout: String
+        let stderr: String
+        let exitCode: Int32
+        let invocations: [Invocation]
+    }
+
     private struct GitFixture: Decodable {
         struct Commit: Decodable {
             let hash: String
@@ -140,6 +157,30 @@ struct CoreVerification {
         require(mergeRow.parentEdges.count == gitFixture.expected.mergeParentCount, "Git fixture merge edge count changed")
         require(layout.hasMissingParents == gitFixture.expected.hasMissingParents, "Git fixture missing-parent state changed")
         require(mergeRow.labels.contains { $0.title == gitFixture.expected.headLabel }, "Git fixture HEAD label changed")
+
+        let commandURL = URL(fileURLWithPath: "shared/fixtures/git/command-response-v1.json")
+        guard let commandData = try? Data(contentsOf: commandURL),
+              let commandFixture = try? JSONDecoder().decode(GitCommandFixture.self, from: commandData) else {
+            require(false, "Git command response fixture could not be decoded")
+            return
+        }
+        let invocations = commandFixture.invocations.map { invocation in
+            GitProcessInvocation(
+                arguments: invocation.arguments,
+                standardOutput: invocation.stdout,
+                standardError: invocation.stderr,
+                exitCode: invocation.exitCode
+            )
+        }
+        require(invocations.count == 2, "Git command fixture invocation count changed")
+        require(invocations.first?.arguments.first == "status", "Git command fixture lost its first invocation")
+        require(invocations.last?.arguments.first == "checkout", "Git command fixture lost its final invocation")
+        require(
+            commandFixture.output == commandFixture.stdout + commandFixture.stderr,
+            "Git command fixture compatibility output changed"
+        )
+        require(commandFixture.arguments == invocations.last?.arguments, "Git command fixture final arguments changed")
+        require(commandFixture.exitCode == invocations.last?.exitCode, "Git command fixture final exit code changed")
     }
 
     private static func verifyDiffParser() {

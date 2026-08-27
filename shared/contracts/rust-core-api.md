@@ -121,7 +121,7 @@ stable error code and a user-facing message:
 | `git.status` | Resolve the repository, current branch, and working-tree changes |
 | `git.watchContext` | Resolve the repository and absolute Git metadata roots needed by native file watchers |
 | `git.pullRequestContext` | Resolve worktree-aware PR branch defaults, publication state, and uncommitted-change state |
-| `git.command` | Execute one argument-based Git operation and return combined output plus exit code |
+| `git.command` | Execute one argument-based Git operation and return its arguments, streams, exit code, and ordered subprocess invocations |
 | `git.write` | Validate and execute shared Git mutations such as stage, commit, branch, checkout, remote sync, clone, and stash |
 | `git.diff` | Produce a structured working-tree, index, reference, or commit patch |
 | `git.apply` | Apply or check a patch in `stage`, `unstage`, `discard`, or Shelf restore mode |
@@ -201,9 +201,13 @@ resolved from `origin`.
 
 `git.command` accepts `{ "root": string, "arguments": string[], "input": string? }`.
 Arguments are passed directly to the Git executable without a shell. A
-successful process launch returns `{ "output": string, "exitCode": number }`
-even when Git exits non-zero; process-start and workspace failures use the
-standard error envelope.
+successful process launch returns `{ "arguments": string[], "output": string,
+"stdout": string, "stderr": string, "exitCode": number, "invocations":
+GitCommandInvocation[] }` even when Git exits non-zero; process-start and
+workspace failures use the standard error envelope. `GitCommandInvocation` is
+`{ "arguments": string[], "stdout": string, "stderr": string, "exitCode":
+number }`. The top-level fields retain the final invocation for compatibility,
+while `invocations` records every subprocess in execution order.
 
 `git.write` accepts a typed mutation request. Its required `operation` values are
 `stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `cherryPick`, `revert`,
@@ -217,10 +221,14 @@ standard error envelope.
 The core validates pathspecs, revisions, branch names, references, reset modes,
 stash references, and operation-specific required fields before invoking Git.
 Successful process launch returns `{ "arguments": string[], "output": string,
-"stdout": string, "stderr": string, "exitCode": number }` even when Git exits
-non-zero. `output` remains the backward-compatible concatenation of `stdout`
-followed by `stderr`. `arguments` is the exact argument vector passed to the Git
-executable, excluding the executable name.
+"stdout": string, "stderr": string, "exitCode": number, "invocations":
+GitCommandInvocation[] }` even when Git exits non-zero. `output` remains the
+backward-compatible concatenation of `stdout` followed by `stderr`, and the
+other top-level process fields describe the final subprocess. `invocations`
+records every Git subprocess for composite operations such as `discardAll` and
+Smart Checkout in execution order; each item contains the exact argument vector
+(excluding the executable name), separate streams, and exit code. The shared
+compatibility fixture is `shared/fixtures/git/command-response-v1.json`.
 Invalid arguments use the standard
 `invalid_request` error envelope. `checkout` uses `referenceKind` values
 `local`, `remote`, or `tag`; `clone` uses `remote` as its source and

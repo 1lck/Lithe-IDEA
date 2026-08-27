@@ -1,11 +1,33 @@
 import Foundation
 
+public struct GitProcessInvocation: Equatable, Sendable {
+    public let arguments: [String]
+    public let standardOutput: String
+    public let standardError: String
+    public let exitCode: Int32
+
+    public init(
+        arguments: [String],
+        standardOutput: String,
+        standardError: String,
+        exitCode: Int32
+    ) {
+        self.arguments = arguments
+        self.standardOutput = standardOutput
+        self.standardError = standardError
+        self.exitCode = exitCode
+    }
+
+    public var output: String { standardOutput + standardError }
+}
+
 public struct GitProcessResult: Sendable {
     public let arguments: [String]
     public let output: String
     public let standardOutput: String?
     public let standardError: String?
     public let exitCode: Int32
+    public let invocations: [GitProcessInvocation]
     public let stashRestoreConflict: GitStashRestoreConflict?
     public init(
         arguments: [String] = [],
@@ -13,6 +35,7 @@ public struct GitProcessResult: Sendable {
         standardOutput: String? = nil,
         standardError: String? = nil,
         exitCode: Int32,
+        invocations: [GitProcessInvocation] = [],
         stashRestoreConflict: GitStashRestoreConflict? = nil
     ) {
         self.arguments = arguments
@@ -20,6 +43,7 @@ public struct GitProcessResult: Sendable {
         self.standardOutput = standardOutput
         self.standardError = standardError
         self.exitCode = exitCode
+        self.invocations = invocations
         self.stashRestoreConflict = stashRestoreConflict
     }
 }

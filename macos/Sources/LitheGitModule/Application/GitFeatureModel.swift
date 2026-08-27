@@ -567,16 +567,29 @@ package final class GitFeatureModel: ObservableObject {
 
     private func recordGitConsoleEntry(_ result: GitService.CommandResult) {
         guard let workingDirectory = result.workingDirectory ?? gitRepositoryRoot else { return }
-        gitConsoleEntries.append(
-            GitConsoleEntry(
-                workingDirectory: workingDirectory,
-                arguments: result.arguments,
-                output: result.output,
-                standardOutput: result.standardOutput,
-                standardError: result.standardError,
-                exitCode: result.exitCode
+        if result.invocations.isEmpty {
+            gitConsoleEntries.append(
+                GitConsoleEntry(
+                    workingDirectory: workingDirectory,
+                    arguments: result.arguments,
+                    output: result.output,
+                    standardOutput: result.standardOutput,
+                    standardError: result.standardError,
+                    exitCode: result.exitCode
+                )
             )
-        )
+        } else {
+            gitConsoleEntries.append(contentsOf: result.invocations.map { invocation in
+                GitConsoleEntry(
+                    workingDirectory: workingDirectory,
+                    arguments: invocation.arguments,
+                    output: invocation.output,
+                    standardOutput: invocation.standardOutput,
+                    standardError: invocation.standardError,
+                    exitCode: invocation.exitCode
+                )
+            })
+        }
         if gitConsoleEntries.count > 500 {
             gitConsoleEntries.removeFirst(gitConsoleEntries.count - 500)
         }

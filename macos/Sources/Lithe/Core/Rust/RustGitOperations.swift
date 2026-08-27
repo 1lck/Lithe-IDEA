@@ -16,6 +16,14 @@ struct RustGitOperations: GitOperations, Sendable {
             standardOutput: response.stdout,
             standardError: response.stderr,
             exitCode: response.exitCode,
+            invocations: response.invocations?.map {
+                GitProcessInvocation(
+                    arguments: $0.arguments,
+                    standardOutput: $0.stdout,
+                    standardError: $0.stderr,
+                    exitCode: $0.exitCode
+                )
+            } ?? [],
             stashRestoreConflict: response.stashRestore.map {
                 GitStashRestoreConflict(
                     stashReference: $0.stashReference,

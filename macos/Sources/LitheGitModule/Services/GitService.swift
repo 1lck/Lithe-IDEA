@@ -121,6 +121,7 @@ package struct GitService: Sendable {
         package let standardOutput: String?
         package let standardError: String?
         package let exitCode: Int32
+        package let invocations: [GitProcessInvocation]
         package let stashRestoreConflict: GitStashRestoreConflict?
 
         package init(
@@ -130,6 +131,7 @@ package struct GitService: Sendable {
             standardOutput: String? = nil,
             standardError: String? = nil,
             exitCode: Int32,
+            invocations: [GitProcessInvocation] = [],
             stashRestoreConflict: GitStashRestoreConflict? = nil
         ) {
             self.workingDirectory = workingDirectory
@@ -138,6 +140,7 @@ package struct GitService: Sendable {
             self.standardOutput = standardOutput
             self.standardError = standardError
             self.exitCode = exitCode
+            self.invocations = invocations
             self.stashRestoreConflict = stashRestoreConflict
         }
 
@@ -623,6 +626,7 @@ package struct GitService: Sendable {
                 standardOutput: result?.standardOutput,
                 standardError: result?.standardError,
                 exitCode: result?.exitCode ?? 1,
+                invocations: result?.invocations ?? [],
                 stashRestoreConflict: result?.stashRestoreConflict
             )
         }.value

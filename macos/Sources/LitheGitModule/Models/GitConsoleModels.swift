@@ -34,10 +34,10 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
         self.id = id
         self.timestamp = timestamp
         self.workingDirectory = workingDirectory
-        self.arguments = arguments
-        self.output = output
-        self.standardOutput = standardOutput
-        self.standardError = standardError
+        self.arguments = arguments.map(GitConsoleRedactor.redact)
+        self.output = GitConsoleRedactor.redact(output)
+        self.standardOutput = standardOutput.map(GitConsoleRedactor.redact)
+        self.standardError = standardError.map(GitConsoleRedactor.redact)
         self.exitCode = exitCode
     }
 
@@ -80,6 +80,58 @@ private extension GitConsoleOutputLine {
     }
 }
 
+
+/// Removes credentials from every console value before it can be displayed or copied.
+package enum GitConsoleRedactor {
+    package static func redact(_ value: String) -> String {
+        guard let urlPattern else { return value }
+        let source = value as NSString
+        var redacted = value
+        let range = NSRange(location: 0, length: source.length)
+        for match in urlPattern.matches(in: value, range: range).reversed() {
+            let rawURL = source.substring(with: match.range)
+            let sanitizedURL = sanitizeURL(rawURL)
+            redacted = (redacted as NSString).replacingCharacters(
+                in: match.range,
+                with: sanitizedURL
+            )
+        }
+        return redacted
+    }
+
+    private static func sanitizeURL(_ rawValue: String) -> String {
+        guard var components = URLComponents(string: rawValue) else { return rawValue }
+        if components.user != nil || components.password != nil {
+            components.user = "redacted"
+            components.password = nil
+        }
+        if let queryItems = components.queryItems {
+            components.queryItems = queryItems.map { item in
+                guard sensitiveQueryNames.contains(item.name.lowercased()) else { return item }
+                return URLQueryItem(name: item.name, value: "redacted")
+            }
+        }
+        return components.string ?? rawValue
+    }
+
+    private static let sensitiveQueryNames: Set<String> = [
+        "access_token",
+        "api_key",
+        "apikey",
+        "auth",
+        "authorization",
+        "client_secret",
+        "password",
+        "passwd",
+        "secret",
+        "token"
+    ]
+
+    private static let urlPattern = try? NSRegularExpression(
+        pattern: #"(?i)\b(?:https?|ssh)://[^\s<>"']+"#
+    )
+}
+
 /// Produces readable shell-like diagnostics without ever executing a shell.
 package enum GitConsoleCommandFormatter {
     package static func commandLine(arguments: [String]) -> String {
@@ -92,7 +144,7 @@ package enum GitConsoleCommandFormatter {
     }
 
     private static func sanitizedArgument(_ rawValue: String) -> String {
-        let redacted = redactingURLCredentials(in: rawValue)
+        let redacted = GitConsoleRedactor.redact(rawValue)
             .replacingOccurrences(of: "\r", with: "\\r")
             .replacingOccurrences(of: "\n", with: "\\n")
         guard !redacted.isEmpty else { return "''" }
@@ -100,16 +152,6 @@ package enum GitConsoleCommandFormatter {
             return redacted
         }
         return "'\(redacted.replacingOccurrences(of: "'", with: "'\\''"))'"
-    }
-
-    private static func redactingURLCredentials(in value: String) -> String {
-        guard value.contains("://"), var components = URLComponents(string: value) else {
-            return value
-        }
-        guard components.user != nil || components.password != nil else { return value }
-        components.user = "<redacted>"
-        components.password = nil
-        return components.string ?? value
     }
 
     private static let safeShellScalars = CharacterSet(

@@ -135,6 +135,14 @@ fn git_command_returns_separate_process_streams_and_combined_output() {
     .expect("Git command response should be JSON");
     assert_eq!(response["ok"], true);
     assert_eq!(response["data"]["exitCode"], 0);
+    assert_eq!(
+        response["data"]["invocations"].as_array().map(Vec::len),
+        Some(1)
+    );
+    assert_eq!(
+        response["data"]["invocations"][0]["arguments"],
+        serde_json::json!(["--version"])
+    );
     assert_eq!(response["data"]["stderr"], "");
     assert!(response["data"]["stdout"]
         .as_str()
@@ -261,6 +269,19 @@ fn git_write_validates_and_executes_shared_mutations() {
     fs::write(root.join("example.txt"), "working\n").expect("file should be writable");
     let discard_all = request("discardAll", serde_json::json!({"paths": ["example.txt"]}));
     assert_eq!(discard_all["ok"], true, "{discard_all:?}");
+    assert_eq!(
+        discard_all["data"]["arguments"],
+        serde_json::json!(["checkout", "HEAD", "--", "example.txt"])
+    );
+    assert_eq!(
+        discard_all["data"]["invocations"]
+            .as_array()
+            .expect("discardAll invocations should be an array")
+            .iter()
+            .map(|invocation| invocation["arguments"][0].as_str().unwrap_or_default())
+            .collect::<Vec<_>>(),
+        vec!["status", "checkout"]
+    );
     assert_eq!(
         fs::read_to_string(root.join("example.txt")).expect("file should be readable"),
         "initial\n"
