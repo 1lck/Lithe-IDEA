@@ -86,7 +86,7 @@ function shouldStampLine(line: string): boolean {
 }
 
 const INCOMPLETE_TIMESTAMP_PREFIX =
-  /^\s*(?:\d{4}(?:-\d{0,2}(?:-\d{0,2}(?:[T ]\d{0,2}(?::\d{0,2}(?::\d{0,2})?)?)?)?)?|\d{1,2}(?::\d{0,2}(?::\d{0,2})?)?)$/;
+  /^\s*\d{4}-\d{0,2}(?:-\d{0,2}(?:[T ]\d{0,2}(?::\d{0,2}(?::\d{0,2})?)?)?)?$/;
 
 function isIncompleteTimestampPrefix(visible: string): boolean {
   return INCOMPLETE_TIMESTAMP_PREFIX.test(visible);
@@ -171,4 +171,46 @@ export function createOutputStamper(): OutputStamper {
       atLineStart = true;
     },
   };
+}
+
+function controlSequenceEnd(text: string, escapeIndex: number): number | undefined {
+  if (escapeIndex + 1 >= text.length) return undefined;
+  const next = text.charCodeAt(escapeIndex + 1);
+  if (next === 91) {
+    for (let index = escapeIndex + 2; index < text.length; index += 1) {
+      const code = text.charCodeAt(index);
+      if (code >= 0x40 && code <= 0x7e) return index + 1;
+    }
+    return undefined;
+  }
+  if (next === 93) {
+    for (let index = escapeIndex + 2; index < text.length; index += 1) {
+      if (text.charCodeAt(index) === 7) return index + 1;
+      if (text.charCodeAt(index) === 27 && text.charCodeAt(index + 1) === 92) return index + 2;
+    }
+    return undefined;
+  }
+  return escapeIndex + 2;
+}
+
+function advancePastIncompleteControl(text: string, start: number): number {
+  if (start <= 0) return 0;
+  const lookback = Math.max(0, start - 64);
+  for (let index = start - 1; index >= lookback; index -= 1) {
+    if (text.charCodeAt(index) !== 27) continue;
+    const end = controlSequenceEnd(text, index);
+    if (end === undefined || end > start) return end ?? text.length;
+    break;
+  }
+  return start;
+}
+
+export function trimRunOutput(output: string, maximum: number): string {
+  if (output.length <= maximum) return output;
+  let start = output.length - maximum;
+  const newline = output.indexOf("\n", start);
+  if (newline !== -1) start = newline + 1;
+  // A mid-sequence cut would leave `[31m` visible after the ESC is dropped.
+  start = advancePastIncompleteControl(output, start);
+  return output.slice(start);
 }

@@ -48,7 +48,7 @@ import {
   selectedToolchainCandidates,
 } from "../utils/run-configuration";
 import { editorSaveFailureMessage, runEditorSaveWorkflow } from "../services/run-editor-save";
-import { createOutputStamper, type OutputStamper } from "../utils/output-timestamper";
+import { createOutputStamper, trimRunOutput, type OutputStamper } from "../utils/output-timestamper";
 
 const MAXIMUM_OUTPUT_CHARACTERS = 500_000;
 const sessionWorkspaces = new Map<string, string>();
@@ -133,8 +133,7 @@ type ReadyRunState = Pick<
 >;
 
 function trimOutput(output: string): string {
-  if (output.length <= MAXIMUM_OUTPUT_CHARACTERS) return output;
-  return output.slice(output.length - MAXIMUM_OUTPUT_CHARACTERS);
+  return trimRunOutput(output, MAXIMUM_OUTPUT_CHARACTERS);
 }
 
 function stamperFor(sessionId: string): OutputStamper {
@@ -478,14 +477,23 @@ export const createRunStore = () =>
         const target = sessionId ?? get().selectedSessionId ?? PRIMARY_SESSION_ID;
         await stopRunProcess(target).catch(() => undefined);
         if (target === PRIMARY_SESSION_ID) {
-          set({ primaryRunning: false });
-        } else {
-          set((current) => ({
-            sessions: current.sessions.map((session) =>
-              session.id === target ? { ...session, isRunning: false } : session,
-            ),
-          }));
+          set({
+            primaryRunning: false,
+            primaryOutput: flushStampedOutput(target, get().primaryOutput),
+          });
+          return;
         }
+        set((current) => ({
+          sessions: current.sessions.map((session) =>
+            session.id === target
+              ? {
+                  ...session,
+                  isRunning: false,
+                  output: flushStampedOutput(target, session.output),
+                }
+              : session,
+          ),
+        }));
       },
 
       clearOutput: (sessionId) => {

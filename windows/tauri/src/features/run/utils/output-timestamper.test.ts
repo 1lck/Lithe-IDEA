@@ -5,6 +5,7 @@ import {
   leadingTimeLength,
   stampOutput,
   stampRunChunk,
+  trimRunOutput,
 } from "./output-timestamper";
 
 const noon = new Date(2026, 7, 8, 10, 12, 33, 123);
@@ -98,5 +99,33 @@ describe("output timestamping", () => {
     expect(stamper.push("m[INFO] Building\n", noon)).toBe(
       "10:12:33.123 \u001b[32m[INFO] Building\n",
     );
+  });
+
+  test("emits a numeric prompt instead of holding it as a timestamp prefix", () => {
+    const stamper = createOutputStamper();
+    expect(stamper.push("12", noon)).toBe("10:12:33.123 12");
+  });
+
+  test("flushes a held ANSI prefix when the session is stopped", () => {
+    const stamper = createOutputStamper();
+    expect(stamper.push("\u001b[32m", noon)).toBe("");
+    expect(stamper.flush(noon)).toBe("\u001b[32m");
+  });
+});
+
+describe("run output trimming", () => {
+  test("drops a broken CSI prefix when the cut lands inside the sequence", () => {
+    const output = `${"x".repeat(8)}\u001b[31mred`;
+    expect(trimRunOutput(output, 6)).toBe("red");
+  });
+
+  test("drops a broken OSC prefix when the cut lands inside the sequence", () => {
+    const output = `${"x".repeat(8)}\u001b]0;title\u0007ok`;
+    expect(trimRunOutput(output, 8)).toBe("ok");
+  });
+
+  test("trims at the next complete line when the window starts mid-line", () => {
+    const output = `${"a".repeat(10)}\nkept\n`;
+    expect(trimRunOutput(output, 10)).toBe("kept\n");
   });
 });
