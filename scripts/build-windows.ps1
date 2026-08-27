@@ -114,10 +114,15 @@ foreach ($relativePath in @("icon-themes", "themes", "icon-themes/idea/extension
 }
 
 $jdtlsDestination = Copy-ResourceDirectory $preparedJdtlsRoot "LanguageServers/jdtls"
-foreach ($relativePath in @("bin/jdtls.bat", "config_win", "plugins")) {
+foreach ($relativePath in @("bin/jdtls.bat", "config_win", "plugins", "lombok/lombok.jar")) {
     if (-not (Test-Path -LiteralPath (Join-Path $jdtlsDestination $relativePath))) {
         throw "Bundled JDTLS staging is incomplete: $relativePath"
     }
+}
+$equinoxLauncher = Get-ChildItem -LiteralPath (Join-Path $jdtlsDestination "plugins") `
+    -File -Filter "org.eclipse.equinox.launcher_*.jar" | Sort-Object Name | Select-Object -First 1
+if ($null -eq $equinoxLauncher) {
+    throw "Bundled JDTLS staging has no Equinox launcher JAR."
 }
 
 $jdkDestination = Copy-ResourceDirectory `

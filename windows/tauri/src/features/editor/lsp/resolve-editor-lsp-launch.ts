@@ -1,6 +1,9 @@
 import type { BackendLanguageToolConfigSet } from "@/extensions/registry/extension-store-runtime";
 import { isJavaSourcePath, JAVA_LANGUAGE_ID, JAVA_PROVIDER_ID } from "./built-in-language-support";
-import { resolveJavaLspLaunch } from "./java-lsp-host-api";
+import {
+  resolveJavaLspLaunch,
+  type JdtlsLaunchResources,
+} from "./java-lsp-host-api";
 
 export interface EditorLspLaunch {
   providerId: string;
@@ -10,6 +13,7 @@ export interface EditorLspLaunch {
   initializationOptions?: Record<string, unknown>;
   tools?: BackendLanguageToolConfigSet;
   runtimeExecutablePath?: string | null;
+  jdtlsLaunchResources?: JdtlsLaunchResources | null;
   cacheDirectory?: string;
   environment?: Record<string, string>;
   /** Workspace structure digest forwarded to the Rust core. */
@@ -32,6 +36,7 @@ export async function resolveEditorLspLaunch(
       serverPath: launch.executablePath,
       serverArgs: launch.arguments ?? [],
       runtimeExecutablePath: launch.runtimeExecutablePath,
+      jdtlsLaunchResources: launch.jdtlsLaunchResources,
       cacheDirectory: launch.cacheDirectory,
       environment,
       workspaceFingerprint: launch.workspaceFingerprint,

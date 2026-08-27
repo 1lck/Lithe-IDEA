@@ -1185,6 +1185,51 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func languageToolingForwardsStructuredJdtlsLaunchResources() throws {
+        let descriptor = LanguageProviderDescriptor(
+            id: "java",
+            displayName: "Java",
+            fileExtensions: ["java"],
+            capabilities: [.languageServer],
+            activationPolicy: .onDemand,
+            languageIdentifier: "java",
+            languageServerLaunch: LanguageServerLaunchDescriptor(executableNames: ["jdtls"])
+        )
+        let runtimeService = ProjectRuntimeService(
+            runtimeLocator: RunTestRuntimeLocator(),
+            store: RunTestKeyValueStore()
+        )
+        let core = TestLanguageServerRuntimeCore(providerID: "java")
+        let resources = JDTLSLaunchResources(
+            launcherJarURL: URL(fileURLWithPath: "/jdtls/plugins/equinox.jar"),
+            configurationDirectoryURL: URL(fileURLWithPath: "/jdtls/config_mac"),
+            lombokAgentURL: URL(fileURLWithPath: "/jdtls/lombok/lombok.jar")
+        )
+        let runtime = StdioLanguageProviderRuntime(
+            descriptor: descriptor,
+            runtimeService: runtimeService,
+            languageServerLaunch: descriptor.languageServerLaunch,
+            languageServerCore: core,
+            languageServerExecutableResolver: { _ in URL(fileURLWithPath: "/jdtls/bin/jdtls") },
+            languageServerRuntimeResolver: { _ in
+                .available(URL(fileURLWithPath: "/jdk/bin/java"))
+            },
+            jdtlsLaunchResourcesResolver: { _, _ in .available(resources) }
+        )
+        let session = try #require(runtime.makeLanguageServerSession())
+
+        try session.start(
+            rootURL: URL(fileURLWithPath: "/workspace", isDirectory: true),
+            workspaceFingerprint: nil
+        )
+
+        let start = try #require(core.startCalls.last)
+        #expect(start.runtimeExecutableURL?.path == "/jdk/bin/java")
+        #expect(start.jdtlsLaunchResources == resources)
+        session.stop()
+    }
+
+    @Test
     func languageServerFailureClearsActiveSessionState() async throws {
         let descriptor = LanguageProviderDescriptor(
             id: "swift",
@@ -4246,6 +4291,7 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         let workingDirectoryURL: URL
         let initializationOptions: ToolingJSONValue?
         let runtimeExecutableURL: URL?
+        let jdtlsLaunchResources: JDTLSLaunchResources?
         let cacheDirectoryURL: URL?
         let initializeTimeout: TimeInterval
         let requestTimeout: TimeInterval
@@ -4311,6 +4357,7 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         workingDirectoryURL: URL,
         initializationOptions: ToolingJSONValue?,
         runtimeExecutableURL: URL?,
+        jdtlsLaunchResources: JDTLSLaunchResources?,
         cacheDirectoryURL: URL?,
         workspaceFingerprint: String?,
         initializeTimeout: TimeInterval,
@@ -4326,6 +4373,7 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
             workingDirectoryURL: workingDirectoryURL,
             initializationOptions: initializationOptions,
             runtimeExecutableURL: runtimeExecutableURL,
+            jdtlsLaunchResources: jdtlsLaunchResources,
             cacheDirectoryURL: cacheDirectoryURL,
             initializeTimeout: initializeTimeout,
             requestTimeout: requestTimeout,

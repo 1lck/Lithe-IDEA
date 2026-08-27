@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "request": {
+    "providerId": "java",
+    "executablePath": "/opt/lithe/jdtls/bin/jdtls",
+    "arguments": [
+      "--jvm-arg=-Duser.language=en"
+    ],
+    "environment": {
+      "JAVA_HOME": "/opt/lithe/jdk"
+    },
+    "rootUri": "file:///workspace/project",
+    "workingDirectory": "/workspace/project",
+    "initializationOptions": null,
+    "runtimeExecutablePath": "/opt/lithe/jdk/bin/java",
+    "jdtlsLaunchResources": {
+      "launcherJarPath": "/opt/lithe/jdtls/plugins/org.eclipse.equinox.launcher_1.7.0.jar",
+      "configurationDirectory": "/opt/lithe/jdtls/config_mac",
+      "lombokAgentPath": "/opt/lithe/jdtls/lombok/lombok.jar"
+    },
+    "cacheDirectory": "/var/cache/lithe/language-servers",
+    "workspaceFingerprint": "build=|modules=|jdtls=1.55.0",
+    "initializeTimeoutMilliseconds": 60000,
+    "requestTimeoutMilliseconds": 30000,
+    "shutdownTimeoutMilliseconds": 2000
+  }
+}

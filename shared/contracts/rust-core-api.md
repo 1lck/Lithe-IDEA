@@ -344,12 +344,25 @@ The `lsp.*Server`, `lsp.*Document`, `lsp.request`, `lsp.pollEvents`, and
 `lsp.waitEvents`
 commands are the semantic LSP runtime boundary. `lsp.startServer` accepts the
 provider ID, selected executable/arguments/environment, root URI, working
-directory, initialization options, optional runtime executable, cache
-directory, and `workspaceFingerprint`, plus initialize/request/shutdown
-deadlines. Rust owns the returned
+directory, initialization options, optional runtime executable,
+`jdtlsLaunchResources`, cache directory, and `workspaceFingerprint`, plus
+initialize/request/shutdown deadlines. `jdtlsLaunchResources`, when present,
+contains `launcherJarPath`, `configurationDirectory`, and `lombokAgentPath`; it
+is valid only for the Java provider and requires `runtimeExecutablePath`. Rust
+then uses `runtimeExecutablePath` as the process executable and constructs the
+complete deterministic JDT LS JVM argument list. When the structured object is
+absent, the selected `executablePath` and legacy wrapper arguments remain the
+compatibility path. Rust owns the returned
 session's child process, stdin/stdout/stderr, framing buffer, JSON-RPC request
 IDs, document versions, pending deadlines, capabilities, diagnostics, and
 graceful/forced termination.
+
+Platform adapters own filesystem discovery and validate that packaged JDT LS
+contains the Equinox launcher, platform configuration directory, Lombok agent,
+and bundled Java. They do not construct JVM commands. Packaged macOS and Windows
+plans always use structured direct launch, so runtime startup has no shell,
+PowerShell, or user-`PATH` dependency. Wrapper launch remains optional only for
+external or older plans.
 
 For JDT LS, platform adapters observe root Maven/Gradle descriptor timestamps
 and sizes, names of direct Maven module directories, and the selected JDT LS

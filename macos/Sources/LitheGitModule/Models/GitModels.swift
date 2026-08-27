@@ -249,10 +249,40 @@ package struct GitLogQuery: Equatable, Sendable {
     package let authors: [String]
     package let branches: [String]
     package let paths: [String]
+    package let afterDate: Date?
+    package let beforeDate: Date?
     package let currentUserOnly: Bool
+    package let exactAuthor: GitIdentity?
+
+    package init(
+        textTerms: [String] = [],
+        authors: [String] = [],
+        branches: [String] = [],
+        paths: [String] = [],
+        afterDate: Date? = nil,
+        beforeDate: Date? = nil,
+        currentUserOnly: Bool = false,
+        exactAuthor: GitIdentity? = nil
+    ) {
+        self.textTerms = textTerms
+        self.authors = authors
+        self.branches = branches
+        self.paths = paths.map { $0.replacingOccurrences(of: "\\", with: "/") }
+        self.afterDate = afterDate
+        self.beforeDate = beforeDate
+        self.currentUserOnly = currentUserOnly
+        self.exactAuthor = exactAuthor
+    }
 
     package var isEmpty: Bool {
-        textTerms.isEmpty && authors.isEmpty && branches.isEmpty && paths.isEmpty && !currentUserOnly
+        textTerms.isEmpty
+            && authors.isEmpty
+            && branches.isEmpty
+            && paths.isEmpty
+            && afterDate == nil
+            && beforeDate == nil
+            && !currentUserOnly
+            && exactAuthor == nil
     }
 
     package static func parse(_ rawValue: String) -> GitLogQuery {
@@ -260,6 +290,8 @@ package struct GitLogQuery: Equatable, Sendable {
         var authors: [String] = []
         var branches: [String] = []
         var paths: [String] = []
+        var afterDate: Date?
+        var beforeDate: Date?
         var currentUserOnly = false
 
         for token in tokenize(rawValue) {
@@ -277,6 +309,18 @@ package struct GitLogQuery: Equatable, Sendable {
             case "author": authors.append(value)
             case "branch": branches.append(value)
             case "path": paths.append(value.replacingOccurrences(of: "\\", with: "/"))
+            case "after", "since":
+                guard let parsedDate = parseBoundaryDate(value) else {
+                    textTerms.append(token)
+                    continue
+                }
+                afterDate = afterDate.map { max($0, parsedDate) } ?? parsedDate
+            case "before", "until":
+                guard let parsedDate = parseBoundaryDate(value) else {
+                    textTerms.append(token)
+                    continue
+                }
+                beforeDate = beforeDate.map { min($0, parsedDate) } ?? parsedDate
             default: textTerms.append(token)
             }
         }
@@ -285,11 +329,37 @@ package struct GitLogQuery: Equatable, Sendable {
             authors: authors,
             branches: branches,
             paths: paths,
+            afterDate: afterDate,
+            beforeDate: beforeDate,
             currentUserOnly: currentUserOnly
         )
     }
 
+    package func addingStructuredFilters(
+        currentUserOnly: Bool = false,
+        exactAuthor: GitIdentity? = nil,
+        paths: [String] = [],
+        afterDate: Date? = nil,
+        beforeDate: Date? = nil
+    ) -> GitLogQuery {
+        GitLogQuery(
+            textTerms: textTerms,
+            authors: authors,
+            branches: branches,
+            paths: self.paths + paths,
+            afterDate: Self.laterBoundary(afterDate, self.afterDate),
+            beforeDate: Self.earlierBoundary(beforeDate, self.beforeDate),
+            currentUserOnly: self.currentUserOnly || currentUserOnly,
+            exactAuthor: exactAuthor ?? self.exactAuthor
+        )
+    }
+
     package func matchesMetadata(_ commit: GitCommit, identity: GitIdentity?) -> Bool {
+        if afterDate != nil || beforeDate != nil {
+            guard let commitDate = Self.parseCommitDate(commit.date) else { return false }
+            if let afterDate, commitDate < afterDate { return false }
+            if let beforeDate, commitDate >= beforeDate { return false }
+        }
         if currentUserOnly {
             guard let identity, !identity.isEmpty else { return false }
             let matchesName = identity.name.map {
@@ -299,6 +369,17 @@ package struct GitLogQuery: Equatable, Sendable {
                 commit.authorEmail.caseInsensitiveCompare($0) == .orderedSame
             } ?? false
             guard matchesName || matchesEmail else { return false }
+        }
+        if let exactAuthor {
+            let matchesExactAuthor: Bool
+            if let email = exactAuthor.email {
+                matchesExactAuthor = commit.authorEmail.caseInsensitiveCompare(email) == .orderedSame
+            } else if let name = exactAuthor.name {
+                matchesExactAuthor = commit.authorName.caseInsensitiveCompare(name) == .orderedSame
+            } else {
+                matchesExactAuthor = false
+            }
+            guard matchesExactAuthor else { return false }
         }
         if !authors.isEmpty {
             guard authors.contains(where: { author in
@@ -340,6 +421,53 @@ package struct GitLogQuery: Equatable, Sendable {
         }
         if !current.isEmpty { tokens.append(current) }
         return tokens
+    }
+
+    private static func laterBoundary(_ first: Date?, _ second: Date?) -> Date? {
+        switch (first, second) {
+        case let (.some(first), .some(second)): return max(first, second)
+        case let (.some(first), .none): return first
+        case let (.none, .some(second)): return second
+        case (.none, .none): return nil
+        }
+    }
+
+    private static func earlierBoundary(_ first: Date?, _ second: Date?) -> Date? {
+        switch (first, second) {
+        case let (.some(first), .some(second)): return min(first, second)
+        case let (.some(first), .none): return first
+        case let (.none, .some(second)): return second
+        case (.none, .none): return nil
+        }
+    }
+
+    private static func parseBoundaryDate(_ value: String) -> Date? {
+        let components = value.split(separator: "-", omittingEmptySubsequences: false)
+        guard components.count == 3,
+              let year = Int(components[0]),
+              let month = Int(components[1]),
+              let day = Int(components[2]) else { return nil }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        return calendar.date(from: DateComponents(year: year, month: month, day: day))
+    }
+
+    private static func parseCommitDate(_ value: String) -> Date? {
+        let iso8601 = ISO8601DateFormatter()
+        if let date = iso8601.date(from: value) { return date }
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        for format in [
+            "EEE MMM d HH:mm:ss yyyy Z",
+            "yyyy-MM-dd HH:mm:ss Z",
+            "yyyy/MM/dd HH:mm"
+        ] {
+            formatter.dateFormat = format
+            if let date = formatter.date(from: value) { return date }
+        }
+        return nil
     }
 }
 
