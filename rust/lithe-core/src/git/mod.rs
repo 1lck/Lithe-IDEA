@@ -104,6 +104,9 @@ pub struct GitCommandResponse {
     pub exit_code: i32,
     /// Every Git subprocess executed for the operation, in execution order.
     pub invocations: Vec<GitCommandInvocation>,
+    /// Failure discovered after one or more subprocesses were recorded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation_error: Option<CoreError>,
     /// Present when a stash restore kept its entry because the working tree
     /// contains an unresolved merge. Keeping this out of the prose response
     /// lets bindings offer recovery actions without matching localized Git
@@ -137,6 +140,7 @@ impl GitProcessOutput {
             stderr,
             exit_code: self.exit_code,
             invocations: vec![invocation],
+            operation_error: None,
             stash_restore: None,
         }
     }
@@ -156,10 +160,35 @@ fn with_git_invocation_trace(
     let invocations = GIT_INVOCATION_TRACE
         .with(|trace| trace.replace(previous))
         .unwrap_or_default();
-    result.map(|mut response| {
-        response.invocations = invocations;
-        response
-    })
+
+    match result {
+        Ok(mut response) => {
+            response.invocations = invocations;
+            synchronize_final_invocation(&mut response);
+            Ok(response)
+        }
+        Err(error) if !invocations.is_empty() => {
+            // A composite Git operation may complete subprocesses before a
+            // follow-up probe fails. Preserve those diagnostics as command data
+            // instead of replacing them with an empty error result.
+            let mut response = failed_git_result(error);
+            response.invocations = invocations;
+            synchronize_final_invocation(&mut response);
+            Ok(response)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn synchronize_final_invocation(response: &mut GitCommandResponse) {
+    let Some(final_invocation) = response.invocations.last() else {
+        return;
+    };
+    response.arguments = final_invocation.arguments.clone();
+    response.stdout = final_invocation.stdout.clone();
+    response.stderr = final_invocation.stderr.clone();
+    response.output = format!("{}{}", response.stdout, response.stderr);
+    response.exit_code = final_invocation.exit_code;
 }
 
 fn record_git_invocation(response: &GitCommandResponse) {
@@ -705,7 +734,7 @@ fn capture_git_with_options(
 }
 
 fn git_process() -> Command {
-    let mut process = Command::new("git");
+    let process = Command::new("git");
     #[cfg(target_os = "windows")]
     process.creation_flags(git_process_creation_flags());
     process
@@ -1808,15 +1837,15 @@ fn is_current_reference(root: &str, reference: &str) -> Result<bool, CoreError> 
     Ok(reference == current || reference == format!("refs/heads/{current}"))
 }
 
-fn failed_git_result(message: impl Into<String>) -> GitCommandResponse {
-    let stderr = message.into();
+fn failed_git_result(error: CoreError) -> GitCommandResponse {
     GitCommandResponse {
         arguments: Vec::new(),
-        output: stderr.clone(),
+        output: String::new(),
         stdout: String::new(),
-        stderr,
+        stderr: String::new(),
         exit_code: 1,
         invocations: Vec::new(),
+        operation_error: Some(error),
         stash_restore: None,
     }
 }
@@ -2021,7 +2050,10 @@ fn push(root: &str, reference: Option<&str>) -> Result<GitCommandResponse, CoreE
             ],
             None,
         ),
-        None => Ok(failed_git_result("No Git remote is configured")),
+        None => Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "No Git remote is configured",
+        )),
     }
 }
 
@@ -2101,7 +2133,8 @@ fn checkout_with_auto_stash(
     }
 
     let Some(stash_reference) = find_stash_reference(root, AUTO_STASH_MESSAGE)? else {
-        return Ok(failed_git_result(
+        return Err(CoreError::new(
+            ErrorCode::ProcessFailed,
             "Smart Checkout created a stash but could not locate it for restore.",
         ));
     };
@@ -2118,11 +2151,6 @@ fn checkout_with_auto_stash(
             stash_reference,
             conflicted_paths,
         });
-        if !restored.output.contains("kept in the stash") {
-            restored.output.push_str(
-                "\nThe stashed changes conflict with the checked out branch and were kept in the stash.",
-            );
-        }
     }
     Ok(restored)
 }
@@ -2944,6 +2972,7 @@ mod tests {
         line_similarity, pair_diff_entries, parse_diff, structured_diff_from_output, DiffEntry,
         GitCommandInvocation, GitCommandResponse, GitProcessOutput, MAX_ALIGNMENT_CELLS,
     };
+    use crate::protocol::{CoreError, ErrorCode};
     use serde_json::Value;
 
     #[cfg(target_os = "windows")]
@@ -2971,6 +3000,71 @@ mod tests {
             .right
             .as_deref()
             .is_some_and(|line| line.contains("warning:"))));
+    }
+
+    #[test]
+    fn traced_response_uses_the_final_invocation_for_compatibility_fields() {
+        let mut response = GitCommandResponse {
+            arguments: vec!["status".into()],
+            output: "stale".into(),
+            stdout: "stale".into(),
+            stderr: String::new(),
+            exit_code: 0,
+            invocations: vec![
+                GitCommandInvocation {
+                    arguments: vec!["status".into()],
+                    stdout: "status\n".into(),
+                    stderr: String::new(),
+                    exit_code: 0,
+                },
+                GitCommandInvocation {
+                    arguments: vec!["stash".into(), "list".into()],
+                    stdout: "stash@{0}\n".into(),
+                    stderr: String::new(),
+                    exit_code: 0,
+                },
+            ],
+            operation_error: None,
+            stash_restore: None,
+        };
+
+        super::synchronize_final_invocation(&mut response);
+
+        assert_eq!(response.arguments, vec!["stash", "list"]);
+        assert_eq!(response.stdout, "stash@{0}\n");
+        assert_eq!(response.stderr, "");
+        assert_eq!(response.output, "stash@{0}\n");
+        assert_eq!(response.exit_code, 0);
+    }
+
+    #[test]
+    fn traced_core_error_becomes_a_failed_response_with_invocations() {
+        let result = super::with_git_invocation_trace(|| {
+            let response = GitProcessOutput {
+                stdout: b"prepared\n".to_vec(),
+                stderr: Vec::new(),
+                exit_code: 0,
+            }
+            .into_command_response(&["stash".into(), "push".into()]);
+            super::record_git_invocation(&response);
+            Err(CoreError::new(
+                ErrorCode::ProcessFailed,
+                "Follow-up probe failed",
+            ))
+        });
+
+        let response = result.expect("a partial Git failure should retain command data");
+        assert_eq!(response.exit_code, 0);
+        assert_eq!(response.arguments, vec!["stash", "push"]);
+        assert_eq!(response.output, "prepared\n");
+        assert_eq!(response.invocations.len(), 1);
+        assert_eq!(
+            response
+                .operation_error
+                .as_ref()
+                .map(|error| &error.message),
+            Some(&"Follow-up probe failed".to_string())
+        );
     }
 
     #[test]
@@ -3108,11 +3202,56 @@ mod tests {
                     exit_code: 0,
                 },
             ],
+            operation_error: None,
             stash_restore: None,
         };
 
         assert_eq!(
             serde_json::to_value(response).expect("Git response should serialize"),
+            fixture
+        );
+    }
+
+    #[test]
+    fn command_error_response_matches_shared_fixture() {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/fixtures/git/command-error-response-v1.json"
+        )))
+        .expect("Git command error response fixture should be valid JSON");
+        let response = GitCommandResponse {
+            arguments: vec![
+                "stash".into(),
+                "push".into(),
+                "--include-untracked".into(),
+                "--message".into(),
+                "Lithe Smart Checkout".into(),
+            ],
+            output: "No local changes to save\n".into(),
+            stdout: "No local changes to save\n".into(),
+            stderr: String::new(),
+            exit_code: 0,
+            invocations: vec![GitCommandInvocation {
+                arguments: vec![
+                    "stash".into(),
+                    "push".into(),
+                    "--include-untracked".into(),
+                    "--message".into(),
+                    "Lithe Smart Checkout".into(),
+                ],
+                stdout: "No local changes to save\n".into(),
+                stderr: String::new(),
+                exit_code: 0,
+            }],
+            operation_error: Some(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Invalid Git reference",
+            )),
+            stash_restore: None,
+        };
+
+        assert_eq!(
+            serde_json::to_value(response).expect("Git error response should serialize"),
             fixture
         );
     }

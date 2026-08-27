@@ -28,6 +28,7 @@ public struct GitProcessResult: Sendable {
     public let standardError: String?
     public let exitCode: Int32
     public let invocations: [GitProcessInvocation]
+    public let operationErrorMessage: String?
     public let stashRestoreConflict: GitStashRestoreConflict?
     public init(
         arguments: [String] = [],
@@ -36,6 +37,7 @@ public struct GitProcessResult: Sendable {
         standardError: String? = nil,
         exitCode: Int32,
         invocations: [GitProcessInvocation] = [],
+        operationErrorMessage: String? = nil,
         stashRestoreConflict: GitStashRestoreConflict? = nil
     ) {
         self.arguments = arguments
@@ -44,6 +46,7 @@ public struct GitProcessResult: Sendable {
         self.standardError = standardError
         self.exitCode = exitCode
         self.invocations = invocations
+        self.operationErrorMessage = operationErrorMessage
         self.stashRestoreConflict = stashRestoreConflict
     }
 }

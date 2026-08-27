@@ -122,6 +122,7 @@ package struct GitService: Sendable {
         package let standardError: String?
         package let exitCode: Int32
         package let invocations: [GitProcessInvocation]
+        package let operationErrorMessage: String?
         package let stashRestoreConflict: GitStashRestoreConflict?
 
         package init(
@@ -132,6 +133,7 @@ package struct GitService: Sendable {
             standardError: String? = nil,
             exitCode: Int32,
             invocations: [GitProcessInvocation] = [],
+            operationErrorMessage: String? = nil,
             stashRestoreConflict: GitStashRestoreConflict? = nil
         ) {
             self.workingDirectory = workingDirectory
@@ -141,10 +143,13 @@ package struct GitService: Sendable {
             self.standardError = standardError
             self.exitCode = exitCode
             self.invocations = invocations
+            self.operationErrorMessage = operationErrorMessage
             self.stashRestoreConflict = stashRestoreConflict
         }
 
-        package var succeeded: Bool { exitCode == 0 }
+        package var succeeded: Bool {
+            exitCode == 0 && operationErrorMessage == nil && stashRestoreConflict == nil
+        }
     }
 
     func snapshot(for workspace: URL) async -> GitSnapshot? {
@@ -627,6 +632,7 @@ package struct GitService: Sendable {
                 standardError: result?.standardError,
                 exitCode: result?.exitCode ?? 1,
                 invocations: result?.invocations ?? [],
+                operationErrorMessage: result?.operationErrorMessage,
                 stashRestoreConflict: result?.stashRestoreConflict
             )
         }.value

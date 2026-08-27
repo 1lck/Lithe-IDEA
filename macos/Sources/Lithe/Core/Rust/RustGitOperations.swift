@@ -12,7 +12,7 @@ struct RustGitOperations: GitOperations, Sendable {
     private func makeProcessResult(_ response: RustCoreBridge.GitCommandPayload) -> GitProcessResult {
         GitProcessResult(
             arguments: response.arguments ?? [],
-            output: response.output,
+            output: response.operationError?.userMessage ?? response.output,
             standardOutput: response.stdout,
             standardError: response.stderr,
             exitCode: response.exitCode,
@@ -24,6 +24,7 @@ struct RustGitOperations: GitOperations, Sendable {
                     exitCode: $0.exitCode
                 )
             } ?? [],
+            operationErrorMessage: response.operationError?.userMessage,
             stashRestoreConflict: response.stashRestore.map {
                 GitStashRestoreConflict(
                     stashReference: $0.stashReference,

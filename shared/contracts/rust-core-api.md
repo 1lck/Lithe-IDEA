@@ -203,11 +203,16 @@ resolved from `origin`.
 Arguments are passed directly to the Git executable without a shell. A
 successful process launch returns `{ "arguments": string[], "output": string,
 "stdout": string, "stderr": string, "exitCode": number, "invocations":
-GitCommandInvocation[] }` even when Git exits non-zero; process-start and
-workspace failures use the standard error envelope. `GitCommandInvocation` is
-`{ "arguments": string[], "stdout": string, "stderr": string, "exitCode":
-number }`. The top-level fields retain the final invocation for compatibility,
-while `invocations` records every subprocess in execution order.
+GitCommandInvocation[], "operationError": CoreError? }` even when Git exits
+non-zero. `GitCommandInvocation` is `{ "arguments": string[], "stdout": string,
+"stderr": string, "exitCode": number }`. The top-level `arguments`, streams,
+and exit code always equal the final invocation for compatibility, and `output`
+is that invocation's `stdout` followed by `stderr`; `invocations` records every
+subprocess in execution order. Validation, process-start, and workspace failures
+that occur before Git starts use the standard error envelope. If a follow-up
+validation or probe fails after at least one subprocess was recorded, the
+response retains the invocation trace and includes the failure as
+`operationError`.
 
 `git.write` accepts a typed mutation request. Its required `operation` values are
 `stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `cherryPick`, `revert`,
@@ -222,15 +227,22 @@ The core validates pathspecs, revisions, branch names, references, reset modes,
 stash references, and operation-specific required fields before invoking Git.
 Successful process launch returns `{ "arguments": string[], "output": string,
 "stdout": string, "stderr": string, "exitCode": number, "invocations":
-GitCommandInvocation[] }` even when Git exits non-zero. `output` remains the
-backward-compatible concatenation of `stdout` followed by `stderr`, and the
-other top-level process fields describe the final subprocess. `invocations`
-records every Git subprocess for composite operations such as `discardAll` and
-Smart Checkout in execution order; each item contains the exact argument vector
-(excluding the executable name), separate streams, and exit code. The shared
-compatibility fixture is `shared/fixtures/git/command-response-v1.json`.
-Invalid arguments use the standard
-`invalid_request` error envelope. `checkout` uses `referenceKind` values
+GitCommandInvocation[], "operationError": CoreError?, "stashRestore":
+GitStashRestore? }` even when Git exits non-zero. The top-level process fields
+always describe the final subprocess, and `output` is that subprocess's
+`stdout` followed by `stderr`. `invocations` records every Git subprocess for
+composite operations such as `discardAll` and Smart Checkout in execution
+order; each item contains the exact argument vector (excluding the executable
+name), separate streams, and exit code. A follow-up validation or probe failure
+after Git has started is returned in `operationError` alongside the retained
+trace. A stash restore conflict is a logical operation failure represented by
+`stashRestore`, even when a later diagnostic invocation exits successfully.
+Consumers must therefore consider `operationError` and `stashRestore` in
+addition to the compatibility `exitCode`. The shared compatibility fixtures are
+`shared/fixtures/git/command-response-v1.json` and
+`shared/fixtures/git/command-error-response-v1.json`. Invalid arguments found
+before any Git subprocess use the standard `invalid_request` error envelope.
+`checkout` uses `referenceKind` values
 `local`, `remote`, or `tag`; `clone` uses `remote` as its source and
 `destination` as its target path. `publishBranch` validates `name`, creates
 and checks out that branch at a detached HEAD when needed, then pushes it with

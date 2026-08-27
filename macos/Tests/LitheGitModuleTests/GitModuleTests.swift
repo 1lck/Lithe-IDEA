@@ -224,6 +224,58 @@ struct GitModuleTests {
     }
 
     @Test
+    func postInvocationOperationErrorFailsWhileKeepingConsoleTrace() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let change = GitChange(
+            repositoryRoot: root,
+            path: "README.md",
+            originalPath: nil,
+            indexStatus: " ",
+            workTreeStatus: "M"
+        )
+        let operationError = "Invalid Git reference"
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: [change]),
+            stageResult: GitProcessResult(
+                arguments: ["stash", "push", "--include-untracked"],
+                output: operationError,
+                standardOutput: "No local changes to save\n",
+                standardError: "",
+                exitCode: 0,
+                invocations: [
+                    GitProcessInvocation(
+                        arguments: ["stash", "push", "--include-untracked"],
+                        standardOutput: "No local changes to save\n",
+                        standardError: "",
+                        exitCode: 0
+                    )
+                ],
+                operationErrorMessage: operationError
+            )
+        ))
+        let feature = GitFeatureModel(service: service)
+        var notifications: [String] = []
+        feature.configure(
+            workspaceURLProvider: { root },
+            isGitLogVisibleProvider: { false },
+            notify: { notifications.append($0) },
+            onStateRefreshed: {}
+        )
+
+        await feature.refreshGit()
+        await feature.selectChange(change)
+        await feature.stageSelectedChange()
+
+        let result = await service.stage(change)
+        #expect(!result.succeeded)
+        #expect(notifications == [operationError])
+        #expect(feature.gitConsoleEntries.map(\.arguments) == [
+            ["stash", "push", "--include-untracked"]
+        ])
+        #expect(feature.gitConsoleEntries.first?.succeeded == true)
+    }
+
+    @Test
     func gitServicePreservesExecutedArgumentsAndWorkingDirectory() async {
         let root = URL(fileURLWithPath: "/workspace")
         let change = GitChange(
