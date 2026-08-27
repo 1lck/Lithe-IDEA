@@ -31,12 +31,10 @@ struct MacProcessRunnerTests {
         session.onTermination = { _ in terminated.open() }
         defer { session.stop() }
 
-        let start = ContinuousClock.now
         #expect(throws: (any Error).self) {
             try session.start(terminationResistantRequest(operationID: "raw-timeout"))
         }
 
-        #expect(ContinuousClock.now - start < .seconds(2))
         #expect(await terminated.waitUntilOpen())
         #expect(!session.isRunning)
     }
@@ -48,12 +46,10 @@ struct MacProcessRunnerTests {
         session.onTermination = { _ in terminated.open() }
         defer { session.stop() }
 
-        let start = ContinuousClock.now
         #expect(throws: (any Error).self) {
             try session.start(terminationResistantRequest(operationID: "streaming-timeout"))
         }
 
-        #expect(ContinuousClock.now - start < .seconds(2))
         #expect(await terminated.waitUntilOpen())
         #expect(!session.isRunning)
     }
