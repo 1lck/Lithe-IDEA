@@ -26,11 +26,6 @@ const RULES = {
       message: "Wait for subprocesses through a watchdog that can terminate the process tree.",
     },
     {
-      id: "swift-detached-blocking",
-      pattern: /Task\.detached\b.*\bwait\w*\s*\(/,
-      message: "Do not hide a blocking wait in Task.detached; use bounded asynchronous signaling.",
-    },
-    {
       id: "swift-run-loop-wait",
       pattern: /RunLoop\.current\.run\s*\(/,
       message: "Do not spin a run loop to synchronize a test; await an observable event.",
@@ -176,6 +171,59 @@ function exceptionReason(lines, lineIndex, ruleID) {
   return null;
 }
 
+function swiftDetachedBlockingViolations(lines, selected) {
+  const violations = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const firstLine = stripStringsAndLineComments(lines[index]);
+    const detachedIndex = firstLine.search(/\bTask\.detached\b/);
+    if (detachedIndex < 0) continue;
+
+    let depth = 0;
+    let blockStarted = false;
+    let blockEnd = index;
+    let waitLine = null;
+    for (let blockIndex = index; blockIndex < lines.length; blockIndex += 1) {
+      let structural = stripStringsAndLineComments(lines[blockIndex]);
+      if (blockIndex === index) structural = structural.slice(detachedIndex);
+      if (!blockStarted) {
+        const openingBrace = structural.indexOf("{");
+        if (openingBrace < 0) continue;
+        structural = structural.slice(openingBrace);
+        blockStarted = true;
+      }
+      if (waitLine === null && /\bwait\w*\s*\(/.test(structural)) waitLine = blockIndex;
+      depth += (structural.match(/\{/g) ?? []).length;
+      depth -= (structural.match(/\}/g) ?? []).length;
+      blockEnd = blockIndex;
+      if (depth <= 0) break;
+    }
+    if (!blockStarted || waitLine === null) continue;
+
+    const selectedLines = selected
+      ? [...selected].filter((lineNumber) => lineNumber >= index + 1 && lineNumber <= blockEnd + 1)
+      : [];
+    if (selected && selectedLines.length === 0) continue;
+    const reportLine = selected?.has(waitLine + 1)
+      ? waitLine
+      : selected
+        ? Math.min(...selectedLines) - 1
+        : waitLine;
+    const reason = exceptionReason(lines, waitLine, "swift-detached-blocking");
+    if (reason && reason.length >= 16) continue;
+    violations.push({
+      file: null,
+      line: reportLine + 1,
+      rule: "swift-detached-blocking",
+      message: reason
+        ? "Exception reason is too short. Do not hide a blocking wait in Task.detached; use bounded asynchronous signaling."
+        : "Do not hide a blocking wait in Task.detached; use bounded asynchronous signaling.",
+      source: lines[reportLine].trim(),
+    });
+    index = blockEnd;
+  }
+  return violations;
+}
+
 export function scanFile(filePath, content, selectedLineNumbers = null, platform = "all") {
   const normalized = normalizePath(filePath);
   const language = languageFor(normalized);
@@ -204,6 +252,11 @@ export function scanFile(filePath, content, selectedLineNumbers = null, platform
           : rule.message,
         source: lines[index].trim(),
       });
+    }
+  }
+  if (language === "swift") {
+    for (const violation of swiftDetachedBlockingViolations(lines, selected)) {
+      violations.push({ ...violation, file: normalized });
     }
   }
   return violations;

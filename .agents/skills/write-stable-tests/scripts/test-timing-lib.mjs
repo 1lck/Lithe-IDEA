@@ -1,31 +1,61 @@
 import { spawn, spawnSync } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 
-function terminateProcessTree(child) {
-  if (!child.pid || child.exitCode !== null) return;
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function processGroupIsRunning(processID) {
+  try {
+    process.kill(-processID, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+function signalProcessGroup(child, signal) {
+  try {
+    process.kill(-child.pid, signal);
+    return true;
+  } catch {
+    try {
+      return child.kill(signal);
+    } catch {
+      return false;
+    }
+  }
+}
+
+async function waitForProcessGroupExit(processID, timeoutMs, pollIntervalMs) {
+  const deadline = performance.now() + timeoutMs;
+  while (processGroupIsRunning(processID) && performance.now() < deadline) {
+    await delay(pollIntervalMs);
+  }
+  return !processGroupIsRunning(processID);
+}
+
+export async function terminateProcessTree(
+  child,
+  {
+    gracePeriodMs = 1000,
+    forcedTerminationTimeoutMs = 1000,
+    pollIntervalMs = 20,
+  } = {},
+) {
+  if (!child.pid) return true;
   if (process.platform === "win32") {
     spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
       stdio: "ignore",
       windowsHide: true,
     });
-    return;
+    return true;
   }
-  try {
-    process.kill(-child.pid, "SIGTERM");
-  } catch {
-    try {
-      child.kill("SIGTERM");
-    } catch {
-      return;
-    }
-  }
-  setTimeout(() => {
-    try {
-      process.kill(-child.pid, "SIGKILL");
-    } catch {
-      // The process group normally exits after SIGTERM.
-    }
-  }, 1000).unref();
+
+  signalProcessGroup(child, "SIGTERM");
+  if (await waitForProcessGroupExit(child.pid, gracePeriodMs, pollIntervalMs)) return true;
+  signalProcessGroup(child, "SIGKILL");
+  return waitForProcessGroupExit(child.pid, forcedTerminationTimeoutMs, pollIntervalMs);
 }
 
 function lineCollector(callback) {
@@ -57,6 +87,9 @@ export function runProcess({
   onSpawn = () => {},
   streamStdout = false,
   streamStderr = false,
+  terminationGraceMs = 1000,
+  forcedTerminationTimeoutMs = 1000,
+  terminationPollIntervalMs = 20,
 }) {
   return new Promise((resolve, reject) => {
     const startedAt = performance.now();
@@ -73,16 +106,27 @@ export function runProcess({
     const stderrLines = lineCollector(onStderrLine);
     let timedOut = false;
     let timeout;
+    let terminationPromise = null;
+    let settled = false;
+
+    const terminate = () => {
+      terminationPromise ??= terminateProcessTree(child, {
+        gracePeriodMs: terminationGraceMs,
+        forcedTerminationTimeoutMs,
+        pollIntervalMs: terminationPollIntervalMs,
+      });
+      return terminationPromise;
+    };
 
     onSpawn({
       pid: child.pid,
-      terminate: () => terminateProcessTree(child),
+      terminate,
     });
 
     if (timeoutMs > 0) {
       timeout = setTimeout(() => {
         timedOut = true;
-        terminateProcessTree(child);
+        void terminate();
       }, timeoutMs);
     }
 
@@ -97,17 +141,23 @@ export function runProcess({
       if (streamStderr) process.stderr.write(chunk);
     });
     child.once("error", (error) => {
+      if (settled) return;
+      settled = true;
       if (timeout) clearTimeout(timeout);
       reject(error);
     });
-    child.once("close", (code, signal) => {
+    child.once("close", async (code, signal) => {
+      if (settled) return;
+      settled = true;
       if (timeout) clearTimeout(timeout);
+      const terminationConfirmed = terminationPromise ? await terminationPromise : true;
       stdoutLines.finish();
       stderrLines.finish();
       resolve({
         code,
         signal,
         timedOut,
+        terminationConfirmed,
         durationMs: performance.now() - startedAt,
         stdout: Buffer.concat(stdoutChunks).toString("utf8"),
         stderr: Buffer.concat(stderrChunks).toString("utf8"),

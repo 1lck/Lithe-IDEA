@@ -8,8 +8,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseAddedLines, scanFile } from "./verify-test-stability.mjs";
 import { parseJUnitCases } from "./parse-junit-cases.mjs";
+import { run as runBunTestsWithTiming } from "./run-bun-tests-with-timing.mjs";
 import { run as runRustTestsWithTiming } from "./run-rust-tests-with-timing.mjs";
-import { parseSwiftSuiteLine, parseSwiftTimingLine } from "./run-swift-tests-with-timing.mjs";
+import {
+  parseSwiftSuiteLine,
+  parseSwiftTimingLine,
+  run as runSwiftTestsWithTiming,
+} from "./run-swift-tests-with-timing.mjs";
+import { runProcess } from "./test-timing-lib.mjs";
 
 const swiftViolations = scanFile(
   "macos/Tests/LitheTests/BlockingTests.swift",
@@ -27,6 +33,17 @@ assert.deepEqual(
   swiftViolations.map((violation) => violation.rule),
   ["swift-unbounded-wait", "swift-unbounded-wait", "swift-unbounded-wait"],
 );
+
+const detachedViolations = scanFile(
+  "macos/Tests/LitheTests/DetachedBlockingTests.swift",
+  `Task.detached {
+    operations
+        .waitUntilBlocked()
+}
+`,
+);
+assert.deepEqual(detachedViolations.map((violation) => violation.rule), ["swift-detached-blocking"]);
+assert.equal(detachedViolations[0].line, 3);
 
 const typescriptViolations = scanFile(
   "windows/tauri/src/example.test.ts",
@@ -100,6 +117,128 @@ assert.deepEqual(
     { name: "skips", status: "skipped", durationMs: 0 },
   ],
 );
+
+const bunTimeoutRoot = mkdtempSync(path.join(os.tmpdir(), "lithe-test-stability-bun-timeout-"));
+try {
+  const reportPath = path.join(bunTimeoutRoot, "bun-timeout.json");
+  await assert.rejects(
+    runBunTestsWithTiming(
+      {
+        workingDirectory: bunTimeoutRoot,
+        warnMs: 50,
+        maxMs: 200,
+        suiteTimeoutMs: 500,
+        report: reportPath,
+        testArguments: [],
+      },
+      {
+        runProcessImpl: async () => ({
+          code: null,
+          signal: "SIGTERM",
+          timedOut: true,
+          terminationConfirmed: true,
+          durationMs: 500,
+          stdout: "",
+          stderr: "",
+        }),
+      },
+    ),
+    /Bun test suite exceeded 500ms/,
+  );
+  const timeoutReport = JSON.parse(readFileSync(reportPath, "utf8"));
+  assert.deepEqual(
+    timeoutReport.tests.map(({ name, status }) => ({ name, status })),
+    [{ name: "Bun test suite timeout", status: "timeout" }],
+  );
+  assert.match(readFileSync(reportPath.replace(/\.json$/, ".junit.xml"), "utf8"), /errors="1"/);
+  assert.ok(existsSync(reportPath.replace(/\.json$/, ".html")));
+} finally {
+  rmSync(bunTimeoutRoot, { recursive: true, force: true });
+}
+
+const swiftTimeoutRoot = mkdtempSync(path.join(os.tmpdir(), "lithe-test-stability-swift-timeout-"));
+try {
+  const reportPath = path.join(swiftTimeoutRoot, "swift-timeout.json");
+  await assert.rejects(
+    runSwiftTestsWithTiming(
+      {
+        warnMs: 50,
+        maxMs: 200,
+        suiteTimeoutMs: 500,
+        report: reportPath,
+        command: "swift",
+        commandArguments: ["test"],
+      },
+      {
+        runProcessImpl: async ({ onSpawn }) => {
+          onSpawn({ terminate: async () => true });
+          return {
+            code: null,
+            signal: "SIGTERM",
+            timedOut: true,
+            terminationConfirmed: true,
+            durationMs: 500,
+            stdout: "",
+            stderr: "",
+          };
+        },
+      },
+    ),
+    /Swift test suite exceeded 500ms/,
+  );
+  const timeoutReport = JSON.parse(readFileSync(reportPath, "utf8"));
+  assert.deepEqual(
+    timeoutReport.tests.map(({ name, status }) => ({ name, status })),
+    [{ name: "Swift test suite timeout", status: "timeout" }],
+  );
+  assert.match(readFileSync(reportPath.replace(/\.json$/, ".junit.xml"), "utf8"), /errors="1"/);
+  assert.ok(existsSync(reportPath.replace(/\.json$/, ".html")));
+} finally {
+  rmSync(swiftTimeoutRoot, { recursive: true, force: true });
+}
+
+if (process.platform !== "win32") {
+  let rootPID = null;
+  let descendantPID = null;
+  const descendantSource = "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);";
+  const rootSource = `
+    const { spawn } = require("node:child_process");
+    const descendant = spawn(process.execPath, ["-e", ${JSON.stringify(descendantSource)}], {
+      stdio: "ignore",
+    });
+    console.log(descendant.pid);
+    setInterval(() => {}, 1000);
+  `;
+  try {
+    const result = await runProcess({
+      command: process.execPath,
+      args: ["-e", rootSource],
+      timeoutMs: 100,
+      terminationGraceMs: 100,
+      forcedTerminationTimeoutMs: 1000,
+      terminationPollIntervalMs: 10,
+      onSpawn: ({ pid }) => {
+        rootPID = pid;
+      },
+      onStdoutLine: (line) => {
+        descendantPID = Number(line);
+      },
+    });
+    assert.equal(result.timedOut, true);
+    assert.equal(result.terminationConfirmed, true);
+    assert.ok(Number.isInteger(descendantPID) && descendantPID > 0);
+    assert.throws(() => process.kill(descendantPID, 0), { code: "ESRCH" });
+  } finally {
+    for (const pid of [descendantPID, rootPID]) {
+      if (!Number.isInteger(pid) || pid <= 0) continue;
+      try {
+        process.kill(pid === rootPID ? -pid : pid, "SIGKILL");
+      } catch {
+        // The expected path already removed the process tree.
+      }
+    }
+  }
+}
 
 const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), "lithe-test-stability-rust-"));
 try {

@@ -83,7 +83,7 @@ function parseArguments(arguments_) {
   return options;
 }
 
-export async function run(options) {
+export async function run(options, { runProcessImpl = runProcess } = {}) {
   mkdirSync(path.dirname(options.report), { recursive: true });
   const logPath = options.report.replace(/\.json$/i, ".log");
   const log = createWriteStream(logPath, { flags: "w" });
@@ -130,7 +130,7 @@ export async function run(options) {
   };
 
   const startedAt = new Date().toISOString();
-  const childPromise = runProcess({
+  const childPromise = runProcessImpl({
     command: options.command,
     args: options.commandArguments,
     cwd: REPOSITORY_ROOT,
@@ -146,7 +146,10 @@ export async function run(options) {
 
   const result = await childPromise;
   if (testTimer) clearTimeout(testTimer);
-  log.end();
+  await new Promise((resolve, reject) => {
+    log.once("error", reject);
+    log.end(resolve);
+  });
 
   if (timedOutTest && !records.some((record) => record.name === timedOutTest.name)) {
     records.push({
@@ -165,6 +168,15 @@ export async function run(options) {
         durationMs: options.maxMs,
       });
     }
+  }
+  if (result.timedOut && !records.some((record) => record.status === "timeout")) {
+    records.push({
+      name: "Swift test suite timeout",
+      suite: "Swift test runner",
+      status: "timeout",
+      durationMs: options.suiteTimeoutMs,
+      details: `Swift test suite exceeded the shared ${options.suiteTimeoutMs}ms deadline before reporting a test duration.`,
+    });
   }
 
   const slow = records.filter((record) => record.durationMs >= options.warnMs);
@@ -195,11 +207,11 @@ export async function run(options) {
     console.log(`SLOW ${record.durationMs}ms ${record.name}`);
   }
 
-  if (records.length === 0) throw new Error("The Swift runner did not report any individual test durations.");
   if (timedOutTest) {
     throw new Error(`Swift test exceeded ${options.maxMs}ms: ${timedOutTest.name}`);
   }
   if (result.timedOut) throw new Error(`Swift test suite exceeded ${options.suiteTimeoutMs}ms.`);
+  if (records.length === 0) throw new Error("The Swift runner did not report any individual test durations.");
   if (overBudget.length > 0) throw new Error(`${overBudget.length} Swift test(s) exceeded the local budget.`);
   if (result.code !== 0) throw new Error(`Swift test command exited with code ${result.code}.`);
 }
