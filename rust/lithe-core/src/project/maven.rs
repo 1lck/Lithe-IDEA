@@ -9,7 +9,7 @@ use quick_xml::events::Event;
 use quick_xml::Reader;
 use regex::Regex;
 use serde::Deserialize;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
@@ -164,49 +164,51 @@ pub fn scan(request: MavenScanRequest) -> Result<Option<MavenScanResponse>, Core
     }))
 }
 
-/// Selects one parseable Maven root from visible workspace paths. The
-/// application model currently represents one Maven reactor, so the shallowest
-/// valid descriptor wins; lexical ordering makes independent candidates
-/// deterministic. Parse failures are retained only when no candidate is valid.
+/// Selects one parseable Maven root from visible workspace paths and their
+/// ancestors. The application model currently represents one Maven reactor, so
+/// the shallowest valid descriptor wins; lexical ordering makes independent
+/// candidates deterministic. Parse failures are retained only when no candidate
+/// is valid.
 pub(crate) fn maven_root(
     root: &Path,
     paths: &[String],
 ) -> Result<Option<(PathBuf, String)>, CoreError> {
     let canonical_root = root.canonicalize().map_err(CoreError::from)?;
-    let mut candidates = Vec::new();
-    if canonical_root.join("pom.xml").is_file() {
-        candidates.push((root.to_path_buf(), ".".to_string(), 0));
+    let mut candidate_directories = BTreeSet::from([PathBuf::new()]);
+    for path in paths
+        .iter()
+        .filter_map(|path| normalize_relative_path(path))
+    {
+        let mut directory = Path::new(&path).parent();
+        while let Some(relative) = directory {
+            candidate_directories.insert(relative.to_path_buf());
+            if relative.as_os_str().is_empty() {
+                break;
+            }
+            directory = relative.parent();
+        }
     }
 
-    candidates.extend(
-        paths
-            .iter()
-            .filter_map(|path| normalize_relative_path(path))
-            .filter(|path| {
-                Path::new(path)
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .is_some_and(|name| name.eq_ignore_ascii_case("pom.xml"))
-            })
-            .filter_map(|path| {
-                let directory = Path::new(&path).parent()?;
-                let relative_path = if directory.as_os_str().is_empty() {
-                    ".".to_string()
-                } else {
-                    directory.to_string_lossy().replace('\\', "/")
-                };
-                let candidate = root.join(directory);
-                let canonical_candidate = candidate.canonicalize().ok()?;
-                if !canonical_candidate.starts_with(&canonical_root) {
-                    return None;
-                }
-                canonical_candidate.join("pom.xml").is_file().then_some((
-                    candidate,
-                    relative_path,
-                    directory.components().count(),
-                ))
-            }),
-    );
+    let mut candidates = candidate_directories
+        .into_iter()
+        .filter_map(|directory| {
+            let candidate = root.join(&directory);
+            if !candidate.join("pom.xml").is_file() {
+                return None;
+            }
+            let canonical_candidate = candidate.canonicalize().ok()?;
+            if !canonical_candidate.starts_with(&canonical_root) {
+                return None;
+            }
+            let relative_path = if directory.as_os_str().is_empty() {
+                ".".to_string()
+            } else {
+                directory.to_string_lossy().replace('\\', "/")
+            };
+            let depth = directory.components().count();
+            Some((candidate, relative_path, depth))
+        })
+        .collect::<Vec<_>>();
     candidates.sort_by(|left, right| {
         left.2
             .cmp(&right.2)

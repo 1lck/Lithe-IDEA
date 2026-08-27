@@ -492,7 +492,12 @@ The `runConfig.*` commands implement the versioned project protocol described
 by the JSON Schemas in this directory. `runConfig.inspect` accepts `root` and
 never writes files. `runConfig.generate` accepts `root`, relative Java `paths`,
 and relative `modulePaths`; it returns generated configuration and toolchain
-requirement documents for the platform adapter to write atomically.
+requirement documents for the platform adapter to write atomically. Maven root
+discovery checks `pom.xml` along each supplied path's ancestor chain, so a
+reactor nested below the opened workspace does not depend on the platform
+including build descriptors in `paths`. Generated fingerprints include both
+project inputs and the detector revision; either changing marks persisted
+output stale and requires regeneration.
 
 `runConfig.resolve` accepts `root`, optional local `toolchainCandidates`, and
 optional `localDocument`. When `localDocument` is present, Core uses that JSON
@@ -543,7 +548,8 @@ environment references. It does not return a shell command or platform
 executable path. All project paths use `/`, reject absolute paths and `..`
 traversal, and remain relative to `root`. A `java.main` configuration without a
 Maven toolchain launches through `project-jdk` and the configuration's Java
-source path.
+source path only when that source has no Maven ancestor. An older configuration
+that omitted the Maven binding is rejected with an instruction to regenerate.
 
 `java.codeVision` accepts a workspace root, a target Java path, and Java source
 paths. It returns declaration locations and usage counts; Git blame attribution

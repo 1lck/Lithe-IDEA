@@ -12,6 +12,7 @@ use std::path::{Component, Path, PathBuf};
 
 const VERSION: u32 = 2;
 const LEGACY_VERSION: u32 = 1;
+const GENERATOR_REVISION: &str = "2";
 /// Toolchain requirements and `project.json` are separate documents that happen
 /// to live under `.lithe`. Their schema did not change with run-config v2, so
 /// they keep their own version and must not be validated against `VERSION`.
@@ -390,6 +391,8 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
         if metadata.fingerprint != fingerprint_from_inputs(&current_inputs) {
             let message = if metadata.inputs.is_empty() {
                 "Project inputs changed after run configuration generation".to_string()
+            } else if metadata.inputs == current_inputs {
+                "Run configuration generator changed; regenerate configurations".to_string()
             } else {
                 input_change_summary(&metadata.inputs, &current_inputs)
             };
@@ -1254,6 +1257,7 @@ pub fn create_user_configuration(
 
 /// Resolves one configuration into the exact executable, arguments, and environment.
 pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError> {
+    let workspace_root = existing_root(&request.root)?;
     let resolved = resolve(ResolveRequest {
         root: request.root,
         toolchain_candidates: Vec::new(),
@@ -1377,6 +1381,13 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
                 ErrorCode::InvalidRequest,
                 "Java source path is invalid",
             ));
+        }
+        if crate::project::maven_root(&workspace_root, &[source.to_string()])?.is_some() {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Java application belongs to a Maven project; regenerate run configurations",
+            )
+            .with_details(source));
         }
         arguments.push(json!(source));
         arguments.extend(program_arguments);
@@ -2322,6 +2333,10 @@ fn project_inputs(root: &Path) -> Result<BTreeMap<String, String>, CoreError> {
 
 fn fingerprint_from_inputs(inputs: &BTreeMap<String, String>) -> String {
     let mut digest = Sha256::new();
+    // Detection changes invalidate persisted output even when project files are
+    // unchanged, so an application upgrade cannot keep launching a stale plan.
+    digest.update(GENERATOR_REVISION.as_bytes());
+    digest.update([0]);
     for (relative, content_hash) in inputs {
         digest.update(relative.as_bytes());
         digest.update([0]);

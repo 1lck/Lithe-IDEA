@@ -162,8 +162,8 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
             "command": "runConfig.generate",
             "payload": {
                 "root": root,
-                "paths": ["projects/demo/pom.xml", "projects/demo/service/pom.xml", source],
-                "modulePaths": ["service"]
+                "paths": [source],
+                "modulePaths": []
             }
         })
         .to_string(),
@@ -190,6 +190,7 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
         .unwrap();
     assert_eq!(java_main["cwd"], "projects/demo");
     assert_eq!(java_main["extensions"]["maven"]["module"], "service");
+    assert_eq!(java_main["toolchains"]["maven"], "project-maven");
     assert_eq!(
         response["data"]["toolchainRequirements"]["toolchains"]["project-jdk"]["minimumVersion"],
         "21"
@@ -232,6 +233,29 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
         .unwrap()
         .windows(2)
         .any(|arguments| arguments == ["-pl", "service"]));
+
+    let java_plan: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "plan-nested-maven-java-main",
+            "command": "runConfig.createLaunchPlan",
+            "payload": {
+                "root": root,
+                "configurationId": java_main["id"]
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(java_plan["ok"], true, "{java_plan}");
+    assert_eq!(
+        java_plan["data"]["executable"]["toolchain"],
+        "project-maven"
+    );
+    assert!(java_plan["data"]["arguments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|argument| argument == "-Dexec.mainClass=com.example.App"));
 
     fs::remove_dir_all(root).unwrap();
 }
@@ -475,6 +499,61 @@ fn plain_java_main_uses_the_jdk_without_maven() {
     assert_eq!(plan["ok"], true, "{plan}");
     assert_eq!(plan["data"]["executable"]["toolchain"], "project-jdk");
     assert_eq!(plan["data"]["arguments"], serde_json::json!([source]));
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn stale_plain_java_main_is_rejected_when_the_source_belongs_to_maven() {
+    let root = temporary_root("run-config-stale-maven-main");
+    let source = "projects/demo/src/main/java/com/example/App.java";
+    fs::create_dir_all(root.join("projects/demo/src/main/java/com/example")).unwrap();
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(root.join("projects/demo/pom.xml"), "<project/>").unwrap();
+    fs::write(
+        root.join(source),
+        "package com.example; class App { public static void main(String[] args) {} }",
+    )
+    .unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        serde_json::json!({
+            "version": 2,
+            "configurations": [{
+                "id": "java-main:com.example.App",
+                "name": "App",
+                "provider": "java.main",
+                "execution": "application",
+                "cwd": ".",
+                "toolchains": { "java": "project-jdk" },
+                "extensions": {
+                    "maven": { "mainClass": "com.example.App", "module": "." },
+                    "java": { "source": source }
+                }
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let plan: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "plan-stale-maven-main",
+            "command": "runConfig.createLaunchPlan",
+            "payload": {
+                "root": root,
+                "configurationId": "java-main:com.example.App"
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(plan["ok"], false, "{plan}");
+    assert_eq!(plan["error"]["code"], "invalid_request");
+    assert_eq!(
+        plan["error"]["message"],
+        "Java application belongs to a Maven project; regenerate run configurations"
+    );
 
     fs::remove_dir_all(root).unwrap();
 }
@@ -1052,6 +1131,47 @@ fn run_configuration_generation_detects_maven_compiler_target() {
         generated["data"]["toolchainRequirements"]["toolchains"]["project-jdk"]["minimumVersion"],
         "17"
     );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn run_configuration_inspection_invalidates_an_older_generator_revision() {
+    let root = temporary_root("run-config-generator-revision");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src/App.java"), "class App {}").unwrap();
+    let generated: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "generate-revision",
+            "command": "runConfig.generate",
+            "payload": {"root": root, "paths": ["src/App.java"], "modulePaths": []}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    let mut document = generated["data"]["generated"].clone();
+    document["generator"]["fingerprint"] = serde_json::json!("sha256:legacy");
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        serde_json::to_string(&document).unwrap(),
+    )
+    .unwrap();
+
+    let inspected: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "inspect-revision",
+            "command": "runConfig.inspect",
+            "payload": {"root": root}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(inspected["ok"], true, "{inspected}");
+    assert_eq!(
+        inspected["data"]["diagnostics"][0]["message"],
+        "Run configuration generator changed; regenerate configurations"
+    );
+
     fs::remove_dir_all(root).unwrap();
 }
 
