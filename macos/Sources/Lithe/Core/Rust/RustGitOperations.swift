@@ -13,6 +13,8 @@ struct RustGitOperations: GitOperations, Sendable {
         GitProcessResult(
             arguments: response.arguments ?? [],
             output: response.output,
+            standardOutput: response.stdout,
+            standardError: response.stderr,
             exitCode: response.exitCode,
             stashRestoreConflict: response.stashRestore.map {
                 GitStashRestoreConflict(
@@ -36,7 +38,11 @@ struct RustGitOperations: GitOperations, Sendable {
         case .success(let response):
             return makeProcessResult(response)
         case .failure(let error):
-            return GitProcessResult(output: error.userMessage, exitCode: 1)
+            return GitProcessResult(
+                output: error.userMessage,
+                standardError: error.userMessage,
+                exitCode: 1
+            )
         }
     }
 

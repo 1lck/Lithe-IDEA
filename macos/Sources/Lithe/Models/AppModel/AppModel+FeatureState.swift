@@ -159,6 +159,7 @@ extension AppModel {
     var gitConsoleEntries: [GitConsoleEntry] { gitFeatureIfActive?.gitConsoleEntries ?? [] }
     var isResolvingGitOperation: Bool { gitFeatureIfActive?.isResolvingGitOperation ?? false }
     func clearGitConsole() { gitFeatureIfActive?.clearGitConsole() }
+    func loadGitConsoleIfNeeded() async { await gitFeatureIfActive?.loadGitConsoleIfNeeded() }
     var gitRepositoryRoot: URL? { gitFeatureIfActive?.gitRepositoryRoot }
     var currentBranch: String { gitFeatureIfActive?.currentBranch ?? "No Git" }
     var selectedChange: GitChange? {

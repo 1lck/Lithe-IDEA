@@ -1,5 +1,15 @@
 import Foundation
 
+package enum GitConsoleOutputStream: Equatable, Sendable {
+    case standardOutput
+    case standardError
+}
+
+package struct GitConsoleOutputLine: Equatable, Sendable {
+    package let stream: GitConsoleOutputStream
+    package let text: String
+}
+
 /// One user-initiated Git process invocation shown in the Git console.
 package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
     package let id: UUID
@@ -7,6 +17,8 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
     package let workingDirectory: URL
     package let arguments: [String]
     package let output: String
+    package let standardOutput: String?
+    package let standardError: String?
     package let exitCode: Int32
 
     package init(
@@ -15,6 +27,8 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
         workingDirectory: URL,
         arguments: [String],
         output: String,
+        standardOutput: String? = nil,
+        standardError: String? = nil,
         exitCode: Int32
     ) {
         self.id = id
@@ -22,6 +36,8 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
         self.workingDirectory = workingDirectory
         self.arguments = arguments
         self.output = output
+        self.standardOutput = standardOutput
+        self.standardError = standardError
         self.exitCode = exitCode
     }
 
@@ -31,6 +47,21 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
         GitConsoleCommandFormatter.commandLine(arguments: arguments)
     }
 
+    package var formattedArguments: String {
+        GitConsoleCommandFormatter.argumentLine(arguments: arguments)
+    }
+
+    package var outputLines: [GitConsoleOutputLine] {
+        if standardOutput != nil || standardError != nil {
+            return GitConsoleOutputLine.lines(from: standardOutput, stream: .standardOutput)
+                + GitConsoleOutputLine.lines(from: standardError, stream: .standardError)
+        }
+        return GitConsoleOutputLine.lines(
+            from: output,
+            stream: succeeded ? .standardOutput : .standardError
+        )
+    }
+
     package var copyText: String {
         let header = "[\(workingDirectory.path)] \(commandLine)"
         guard !output.isEmpty else { return header }
@@ -38,10 +69,26 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
     }
 }
 
+private extension GitConsoleOutputLine {
+    static func lines(from output: String?, stream: GitConsoleOutputStream) -> [Self] {
+        guard let output else { return [] }
+        let trimmedOutput = output.trimmingCharacters(in: .newlines)
+        guard !trimmedOutput.isEmpty else { return [] }
+        return trimmedOutput
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { Self(stream: stream, text: String($0)) }
+    }
+}
+
 /// Produces readable shell-like diagnostics without ever executing a shell.
 package enum GitConsoleCommandFormatter {
     package static func commandLine(arguments: [String]) -> String {
-        (["git"] + arguments.map(sanitizedArgument)).joined(separator: " ")
+        let argumentLine = argumentLine(arguments: arguments)
+        return argumentLine.isEmpty ? "git" : "git \(argumentLine)"
+    }
+
+    package static func argumentLine(arguments: [String]) -> String {
+        arguments.map(sanitizedArgument).joined(separator: " ")
     }
 
     private static func sanitizedArgument(_ rawValue: String) -> String {

@@ -79,7 +79,13 @@ pub struct GitCommandRequest {
 pub struct GitCommandResponse {
     /// Exact arguments passed to the Git executable, excluding the executable name.
     pub arguments: Vec<String>,
+    /// Backward-compatible concatenation of standard output followed by standard error.
     pub output: String,
+    /// Text captured from the Git process standard output stream.
+    pub stdout: String,
+    /// Text captured from the Git process standard error stream.
+    pub stderr: String,
+    /// Exit status returned by the Git process.
     pub exit_code: i32,
     /// Present when a stash restore kept its entry because the working tree
     /// contains an unresolved merge. Keeping this out of the prose response
@@ -98,11 +104,14 @@ struct GitProcessOutput {
 
 impl GitProcessOutput {
     fn into_command_response(self, arguments: &[String]) -> GitCommandResponse {
-        let mut output = String::from_utf8_lossy(&self.stdout).to_string();
-        output.push_str(&String::from_utf8_lossy(&self.stderr));
+        let stdout = String::from_utf8_lossy(&self.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&self.stderr).to_string();
+        let output = format!("{stdout}{stderr}");
         GitCommandResponse {
             arguments: arguments.to_vec(),
             output,
+            stdout,
+            stderr,
             exit_code: self.exit_code,
             stash_restore: None,
         }
@@ -1736,9 +1745,12 @@ fn is_current_reference(root: &str, reference: &str) -> Result<bool, CoreError> 
 }
 
 fn failed_git_result(message: impl Into<String>) -> GitCommandResponse {
+    let stderr = message.into();
     GitCommandResponse {
         arguments: Vec::new(),
-        output: message.into(),
+        output: stderr.clone(),
+        stdout: String::new(),
+        stderr,
         exit_code: 1,
         stash_restore: None,
     }
@@ -1794,6 +1806,8 @@ fn discard_all(root: &str, paths: &[String]) -> Result<GitCommandResponse, CoreE
     Ok(GitCommandResponse {
         arguments: Vec::new(),
         output: String::new(),
+        stdout: String::new(),
+        stderr: String::new(),
         exit_code: 0,
         stash_restore: None,
     })
@@ -2912,6 +2926,8 @@ mod tests {
 
         assert_eq!(response.arguments, arguments);
         assert_eq!(response.output, " M README.md\n");
+        assert_eq!(response.stdout, " M README.md\n");
+        assert_eq!(response.stderr, "");
         assert_eq!(response.exit_code, 0);
     }
 

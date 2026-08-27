@@ -171,6 +171,72 @@ struct GitModuleTests {
     }
 
     @Test
+    func gitConsoleLoadsGitVersionOnlyOnce() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: [])
+        ))
+        let feature = GitFeatureModel(service: service)
+        feature.configure(
+            workspaceURLProvider: { root },
+            isGitLogVisibleProvider: { false },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+
+        await feature.refreshGit()
+        await feature.loadGitConsoleIfNeeded()
+        await feature.loadGitConsoleIfNeeded()
+
+        #expect(feature.gitConsoleEntries.count == 1)
+        #expect(feature.gitConsoleEntries.first?.workingDirectory == root)
+        #expect(feature.gitConsoleEntries.first?.arguments == ["version"])
+        #expect(feature.gitConsoleEntries.first?.output == "git version 2.55.0\n")
+    }
+
+    @Test
+    func clearingGitConsoleDoesNotTriggerInitialLoadAgain() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: [])
+        ))
+        let feature = GitFeatureModel(service: service)
+        feature.configure(
+            workspaceURLProvider: { root },
+            isGitLogVisibleProvider: { false },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+
+        await feature.refreshGit()
+        await feature.loadGitConsoleIfNeeded()
+        feature.clearGitConsole()
+        await feature.loadGitConsoleIfNeeded()
+
+        #expect(feature.gitConsoleEntries.isEmpty)
+    }
+
+    @Test
+    func gitConsolePreservesStandardErrorColorForSuccessfulCommands() {
+        let entry = GitConsoleEntry(
+            workingDirectory: URL(fileURLWithPath: "/workspace"),
+            arguments: ["checkout", "-b", "feature"],
+            output: "Switched to a new branch 'feature'\n",
+            standardOutput: "",
+            standardError: "Switched to a new branch 'feature'\n",
+            exitCode: 0
+        )
+
+        #expect(entry.succeeded)
+        #expect(entry.outputLines == [
+            GitConsoleOutputLine(
+                stream: .standardError,
+                text: "Switched to a new branch 'feature'"
+            )
+        ])
+    }
+
+    @Test
     func workingTreeComparisonMergesTrackedAndUntrackedFiles() async {
         let root = URL(fileURLWithPath: "/workspace")
         let reference = GitReference(
@@ -415,6 +481,16 @@ private struct TestGitOperations: GitOperations {
         self.untrackedDiffDocumentValue = untrackedDiffDocumentValue
         self.comparisonDiffDocumentValue = comparisonDiffDocumentValue
         self.stageResult = stageResult
+    }
+
+    func run(arguments: [String], workingDirectory: String, input: String?) -> GitProcessResult {
+        GitProcessResult(
+            arguments: arguments,
+            output: "git version 2.55.0\n",
+            standardOutput: "git version 2.55.0\n",
+            standardError: "",
+            exitCode: 0
+        )
     }
 
     func snapshot(at rootURL: URL) -> GitSnapshot? { snapshotValue }

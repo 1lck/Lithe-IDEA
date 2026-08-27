@@ -117,7 +117,7 @@ fn git_status_does_not_refresh_the_index() {
 }
 
 #[test]
-fn git_command_returns_combined_output_and_exit_code() {
+fn git_command_returns_separate_process_streams_and_combined_output() {
     let root = temporary_root("git-command");
     fs::create_dir_all(&root).expect("temporary workspace should be creatable");
 
@@ -135,10 +135,39 @@ fn git_command_returns_combined_output_and_exit_code() {
     .expect("Git command response should be JSON");
     assert_eq!(response["ok"], true);
     assert_eq!(response["data"]["exitCode"], 0);
+    assert_eq!(response["data"]["stderr"], "");
+    assert!(response["data"]["stdout"]
+        .as_str()
+        .expect("Git version stdout should be text")
+        .contains("git version"));
     assert!(response["data"]["output"]
         .as_str()
         .expect("Git version output should be text")
         .contains("git version"));
+
+    let failure_request = serde_json::json!({
+        "id": "git-command-stderr",
+        "command": "git.command",
+        "payload": {
+            "root": root,
+            "arguments": ["rev-parse", "--verify", "refs/heads/missing"]
+        }
+    });
+    let failure_response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&failure_request).expect("Git failure request should encode"),
+    ))
+    .expect("Git failure response should be JSON");
+    assert_eq!(failure_response["ok"], true);
+    assert_ne!(failure_response["data"]["exitCode"], 0);
+    assert_eq!(failure_response["data"]["stdout"], "");
+    assert!(!failure_response["data"]["stderr"]
+        .as_str()
+        .expect("Git failure stderr should be text")
+        .is_empty());
+    assert_eq!(
+        failure_response["data"]["output"],
+        failure_response["data"]["stderr"]
+    );
 
     fs::remove_dir_all(root).expect("temporary workspace should be removable");
 }

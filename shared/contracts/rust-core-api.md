@@ -217,8 +217,10 @@ standard error envelope.
 The core validates pathspecs, revisions, branch names, references, reset modes,
 stash references, and operation-specific required fields before invoking Git.
 Successful process launch returns `{ "arguments": string[], "output": string,
-"exitCode": number }` even when Git exits non-zero. `arguments` is the exact
-argument vector passed to the Git executable, excluding the executable name.
+"stdout": string, "stderr": string, "exitCode": number }` even when Git exits
+non-zero. `output` remains the backward-compatible concatenation of `stdout`
+followed by `stderr`. `arguments` is the exact argument vector passed to the Git
+executable, excluding the executable name.
 Invalid arguments use the standard
 `invalid_request` error envelope. `checkout` uses `referenceKind` values
 `local`, `remote`, or `tag`; `clone` uses `remote` as its source and

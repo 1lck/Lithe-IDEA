@@ -84,6 +84,9 @@ package final class GitFeatureModel: ObservableObject {
     private var activeRefreshRequestIDs: Set<UInt64> = []
     private var completedRefreshRequestID: UInt64 = 0
     private var refreshCompletionWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var isLoadingInitialGitConsoleEntry = false
+    private var hasLoadedInitialGitConsoleEntry = false
+    private var gitConsoleRepositoryGeneration: UInt64 = 0
     private var loadingLineChangeURLs: Set<URL> = []
     private var lineChangeHunks: [URL: [String: DiffHunk]] = [:]
 
@@ -192,6 +195,9 @@ package final class GitFeatureModel: ObservableObject {
         isLoadingMoreGitHistory = false
         canLoadMoreGitHistory = false
         gitConsoleEntries = []
+        isLoadingInitialGitConsoleEntry = false
+        hasLoadedInitialGitConsoleEntry = false
+        gitConsoleRepositoryGeneration &+= 1
         selectedGitReference = nil
         selectedGitCommit = nil
         selectedGitCommitFiles = []
@@ -284,6 +290,9 @@ package final class GitFeatureModel: ObservableObject {
             let changesChanged = gitChanges != snapshot.changes
             if gitRepositoryRoot != snapshot.repositoryRoot {
                 gitRepositoryRoot = snapshot.repositoryRoot
+                gitConsoleRepositoryGeneration &+= 1
+                isLoadingInitialGitConsoleEntry = false
+                hasLoadedInitialGitConsoleEntry = false
                 didChange = true
             }
             if currentBranch != snapshot.branch {
@@ -532,6 +541,28 @@ package final class GitFeatureModel: ObservableObject {
 
     package func clearGitConsole() {
         gitConsoleEntries = []
+        hasLoadedInitialGitConsoleEntry = true
+    }
+
+    package func loadGitConsoleIfNeeded() async {
+        guard !hasLoadedInitialGitConsoleEntry,
+              let gitRepositoryRoot,
+              !isLoadingInitialGitConsoleEntry else { return }
+        let requestedRoot = gitRepositoryRoot
+        let requestedGeneration = gitConsoleRepositoryGeneration
+        isLoadingInitialGitConsoleEntry = true
+        defer {
+            if requestedGeneration == gitConsoleRepositoryGeneration {
+                isLoadingInitialGitConsoleEntry = false
+            }
+        }
+        let result = await service.consoleVersion(at: requestedRoot)
+        guard requestedGeneration == gitConsoleRepositoryGeneration,
+              gitRepositoryRoot == requestedRoot,
+              !hasLoadedInitialGitConsoleEntry else { return }
+        hasLoadedInitialGitConsoleEntry = true
+        guard gitConsoleEntries.isEmpty else { return }
+        recordGitConsoleEntry(result)
     }
 
     private func recordGitConsoleEntry(_ result: GitService.CommandResult) {
@@ -541,6 +572,8 @@ package final class GitFeatureModel: ObservableObject {
                 workingDirectory: workingDirectory,
                 arguments: result.arguments,
                 output: result.output,
+                standardOutput: result.standardOutput,
+                standardError: result.standardError,
                 exitCode: result.exitCode
             )
         )

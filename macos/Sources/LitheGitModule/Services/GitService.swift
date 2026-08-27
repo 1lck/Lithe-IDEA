@@ -2,6 +2,12 @@ import Foundation
 import LitheCoreContracts
 
 package protocol GitOperations: Sendable {
+    func run(
+        arguments: [String],
+        workingDirectory: String,
+        input: String?
+    ) -> GitProcessResult
+
     func snapshot(at rootURL: URL) -> GitSnapshot?
     func watchContext(at rootURL: URL) -> GitWatchContext?
 
@@ -112,6 +118,8 @@ package struct GitService: Sendable {
         package let workingDirectory: URL?
         package let arguments: [String]
         package let output: String
+        package let standardOutput: String?
+        package let standardError: String?
         package let exitCode: Int32
         package let stashRestoreConflict: GitStashRestoreConflict?
 
@@ -119,12 +127,16 @@ package struct GitService: Sendable {
             workingDirectory: URL? = nil,
             arguments: [String] = [],
             output: String,
+            standardOutput: String? = nil,
+            standardError: String? = nil,
             exitCode: Int32,
             stashRestoreConflict: GitStashRestoreConflict? = nil
         ) {
             self.workingDirectory = workingDirectory
             self.arguments = arguments
             self.output = output
+            self.standardOutput = standardOutput
+            self.standardError = standardError
             self.exitCode = exitCode
             self.stashRestoreConflict = stashRestoreConflict
         }
@@ -134,6 +146,16 @@ package struct GitService: Sendable {
 
     func snapshot(for workspace: URL) async -> GitSnapshot? {
         await read(priority: .utility) { $0.snapshot(at: workspace) }
+    }
+
+    func consoleVersion(at repositoryRoot: URL) async -> CommandResult {
+        await command(at: repositoryRoot, fallbackArguments: ["version"]) {
+            $0.run(
+                arguments: ["version"],
+                workingDirectory: repositoryRoot.path,
+                input: nil
+            )
+        }
     }
 
     func diff(for change: GitChange) async -> [DiffRow] {
@@ -598,6 +620,8 @@ package struct GitService: Sendable {
                     ? result?.arguments ?? fallbackArguments
                     : fallbackArguments,
                 output: result?.output ?? "Rust Core Git operation failed",
+                standardOutput: result?.standardOutput,
+                standardError: result?.standardError,
                 exitCode: result?.exitCode ?? 1,
                 stashRestoreConflict: result?.stashRestoreConflict
             )

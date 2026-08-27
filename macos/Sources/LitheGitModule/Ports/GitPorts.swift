@@ -3,16 +3,22 @@ import Foundation
 public struct GitProcessResult: Sendable {
     public let arguments: [String]
     public let output: String
+    public let standardOutput: String?
+    public let standardError: String?
     public let exitCode: Int32
     public let stashRestoreConflict: GitStashRestoreConflict?
     public init(
         arguments: [String] = [],
         output: String,
+        standardOutput: String? = nil,
+        standardError: String? = nil,
         exitCode: Int32,
         stashRestoreConflict: GitStashRestoreConflict? = nil
     ) {
         self.arguments = arguments
         self.output = output
+        self.standardOutput = standardOutput
+        self.standardError = standardError
         self.exitCode = exitCode
         self.stashRestoreConflict = stashRestoreConflict
     }

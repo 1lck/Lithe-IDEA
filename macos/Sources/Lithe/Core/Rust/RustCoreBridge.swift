@@ -789,6 +789,8 @@ struct RustCoreBridge: Sendable {
 
         let arguments: [String]?
         let output: String
+        let stdout: String?
+        let stderr: String?
         let exitCode: Int32
         let stashRestore: StashRestore?
     }
