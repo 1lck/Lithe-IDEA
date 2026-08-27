@@ -9,8 +9,8 @@ struct GitLogView: View {
     @State private var tagsExpanded = true
     @State private var collapsedReferenceGroups: Set<String> = []
     @State private var collapsedFileGroups: Set<String> = []
-    @State private var referencePaneWidth: CGFloat = 300
-    @State private var referencePaneDragStart: CGFloat = 300
+    @State private var referencePaneWidth: CGFloat = 260
+    @State private var referencePaneDragStart: CGFloat = 260
     @State private var detailPaneWidth: CGFloat = 350
     @State private var detailPaneDragStart: CGFloat = 350
     @State private var filesPaneHeight: CGFloat?
@@ -45,8 +45,8 @@ struct GitLogView: View {
         static let meta = Font.system(size: 12, weight: .regular)
         static let monoMeta = Font.system(size: 12, weight: .regular, design: .monospaced)
         static let rowHeight: CGFloat = 38
-        static let treeRowHeight: CGFloat = 28
-        static let toolbarHeight: CGFloat = 38
+        static let treeRowHeight: CGFloat = 24
+        static let toolbarHeight: CGFloat = 36
     }
 
     var body: some View {
