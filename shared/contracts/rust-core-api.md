@@ -495,9 +495,12 @@ and relative `modulePaths`; it returns generated configuration and toolchain
 requirement documents for the platform adapter to write atomically. Maven root
 discovery checks `pom.xml` along each supplied path's ancestor chain, so a
 reactor nested below the opened workspace does not depend on the platform
-including build descriptors in `paths`. Generated fingerprints include both
-project inputs and the detector revision; either changing marks persisted
-output stale and requires regeneration.
+including build descriptors in `paths`. Maven ownership is resolved per Java
+entry: standalone sources keep the JDK launch path, while entries from
+independent nested reactors retain their own reactor working directory and
+module selector. Generated fingerprints include both project inputs and the
+detector revision; either changing marks persisted output stale and requires
+regeneration.
 
 `runConfig.resolve` accepts `root`, optional local `toolchainCandidates`, and
 optional `localDocument`. When `localDocument` is present, Core uses that JSON

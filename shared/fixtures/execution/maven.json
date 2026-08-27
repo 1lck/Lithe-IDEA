@@ -45,11 +45,12 @@
     },
     {
       "command": "runConfig.generate",
-      "payload": { "root": "/workspace", "paths": ["projects/demo/backend/src/main/java/com/demo/DemoApplication.java"] },
+      "payload": { "root": "/workspace", "paths": ["projects/demo/backend/src/main/java/com/demo/DemoApplication.java", "samples/Standalone.java"] },
       "workspace": {
         "projects/demo/pom.xml": "<project><artifactId>platform</artifactId><packaging>pom</packaging><modules><module>backend</module></modules></project>",
         "projects/demo/backend/pom.xml": "<project><artifactId>backend</artifactId><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
-        "projects/demo/backend/src/main/java/com/demo/DemoApplication.java": "package com.demo;\n@SpringBootApplication\npublic class DemoApplication { public static void main(String[] a) {} }\n"
+        "projects/demo/backend/src/main/java/com/demo/DemoApplication.java": "package com.demo;\n@SpringBootApplication\npublic class DemoApplication { public static void main(String[] a) {} }\n",
+        "samples/Standalone.java": "public class Standalone { public static void main(String[] a) {} }\n"
       },
       "expected": {
         "configurations": [
@@ -60,9 +61,17 @@
             "source": "projects/demo/backend/pom.xml",
             "toolchains": { "java": "project-jdk", "maven": "project-maven" },
             "extensions": { "maven": { "module": "backend", "mainClass": "com.demo.DemoApplication" } }
+          },
+          {
+            "id": "java-main:Standalone",
+            "provider": "java.main",
+            "cwd": ".",
+            "source": "samples/Standalone.java",
+            "toolchains": { "java": "project-jdk" },
+            "extensions": { "maven": { "module": ".", "mainClass": "Standalone" }, "java": { "source": "samples/Standalone.java" } }
           }
         ],
-        "reason": "The Java source path is sufficient to discover the nested reactor and bind its module to Maven."
+        "reason": "The Maven Java source discovers and binds to the nested reactor, while the standalone source in the same request remains a direct JDK launch."
       }
     },
     {

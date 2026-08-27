@@ -165,10 +165,9 @@ pub fn scan(request: MavenScanRequest) -> Result<Option<MavenScanResponse>, Core
 }
 
 /// Selects one parseable Maven root from visible workspace paths and their
-/// ancestors. The application model currently represents one Maven reactor, so
-/// the shallowest valid descriptor wins; lexical ordering makes independent
-/// candidates deterministic. Parse failures are retained only when no candidate
-/// is valid.
+/// ancestors. The Maven project scan currently represents one reactor, so the
+/// shallowest valid descriptor wins; lexical ordering makes independent candidates
+/// deterministic. Parse failures are retained only when no candidate is valid.
 pub(crate) fn maven_root(
     root: &Path,
     paths: &[String],
