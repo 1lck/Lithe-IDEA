@@ -74,12 +74,30 @@ download_verified_file() {
 
 validate_output() {
     [[ -d "$OUTPUT_DIR/plugins" ]] || { print -u2 -- "JDTLS plugins directory is missing: $OUTPUT_DIR"; exit 1; }
-    [[ -d "$OUTPUT_DIR/config_mac" ]] || { print -u2 -- "JDTLS macOS configuration is missing: $OUTPUT_DIR"; exit 1; }
+    local launcher_jars=("$OUTPUT_DIR"/plugins/org.eclipse.equinox.launcher_*.jar(N))
+    (( ${#launcher_jars[@]} > 0 )) || { print -u2 -- "JDTLS Equinox launcher is missing: $OUTPUT_DIR/plugins"; exit 1; }
+    local target_arch="${LITHE_ARCH:-$(uname -m)}"
+    local required_mac_configurations
+    case "$target_arch" in
+        arm64) required_mac_configurations=(config_mac_arm) ;;
+        x86_64) required_mac_configurations=(config_mac) ;;
+        universal) required_mac_configurations=(config_mac_arm config_mac) ;;
+        *) print -u2 -- "Unsupported JDTLS target architecture: $target_arch"; exit 1 ;;
+    esac
+    local configuration_name
+    for configuration_name in "${required_mac_configurations[@]}"; do
+        [[ -d "$OUTPUT_DIR/$configuration_name" ]] || {
+            print -u2 -- "JDTLS $configuration_name configuration is missing: $OUTPUT_DIR"
+            exit 1
+        }
+    done
     [[ -d "$OUTPUT_DIR/config_win" ]] || { print -u2 -- "JDTLS Windows configuration is missing: $OUTPUT_DIR"; exit 1; }
     [[ -x "$OUTPUT_DIR/bin/jdtls" ]] || { print -u2 -- "JDTLS launcher is missing: $OUTPUT_DIR/bin/jdtls"; exit 1; }
     [[ -f "$OUTPUT_DIR/bin/jdtls.ps1" ]] || { print -u2 -- "JDTLS Windows launcher is missing: $OUTPUT_DIR"; exit 1; }
     [[ -f "$OUTPUT_DIR/lombok/lombok.jar" ]] || { print -u2 -- "JDTLS Lombok agent is missing: $OUTPUT_DIR"; exit 1; }
     [[ -f "$OUTPUT_DIR/lombok/LICENSE-MIT.txt" ]] || { print -u2 -- "JDTLS Lombok license is missing: $OUTPUT_DIR"; exit 1; }
+    # Wrapper scripts remain available for external/legacy launch plans. The
+    # packaged product launches bundled Java directly with the resources above.
     grep -Fq -- '-javaagent:' "$OUTPUT_DIR/bin/jdtls" || { print -u2 -- "JDTLS launcher does not load the Lombok agent: $OUTPUT_DIR"; exit 1; }
     grep -Fq -- '-javaagent:' "$OUTPUT_DIR/bin/jdtls.ps1" || { print -u2 -- "JDTLS Windows launcher does not load the Lombok agent: $OUTPUT_DIR"; exit 1; }
 }
@@ -159,11 +177,12 @@ done
 
 LAUNCHER_JAR=$(find "$SCRIPT_DIR/../plugins" -maxdepth 1 -name 'org.eclipse.equinox.launcher_*.jar' -print | sort | head -n 1)
 [[ -n "$LAUNCHER_JAR" ]] || { print -u2 -- "JDTLS Equinox launcher was not found"; exit 1; }
-if [[ "$(uname -m)" == "arm64" && -d "$SCRIPT_DIR/../config_mac_arm" ]]; then
-    CONFIGURATION="$SCRIPT_DIR/../config_mac_arm"
-else
-    CONFIGURATION="$SCRIPT_DIR/../config_mac"
-fi
+case "$(uname -m)" in
+    arm64) CONFIGURATION="$SCRIPT_DIR/../config_mac_arm" ;;
+    x86_64) CONFIGURATION="$SCRIPT_DIR/../config_mac" ;;
+    *) print -u2 -- "Unsupported macOS architecture: $(uname -m)"; exit 1 ;;
+esac
+[[ -d "$CONFIGURATION" ]] || { print -u2 -- "JDTLS configuration was not found: $CONFIGURATION"; exit 1; }
 
 exec "$JAVA_EXECUTABLE" \
     "${JVM_ARGUMENTS[@]}" \

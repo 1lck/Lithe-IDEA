@@ -746,16 +746,6 @@ struct RustCoreBridge: Sendable {
             }
         }
 
-        struct InlayHint: Decodable, Sendable {
-            let line: Int
-            let utf16Column: Int
-            let label: String
-
-            func makeModel() -> JavaInlayHint {
-                JavaInlayHint(line: line, utf16Column: utf16Column, label: label)
-            }
-        }
-
         struct SyntaxHighlight: Decodable, Sendable {
             let utf16Start: Int
             let utf16Length: Int
@@ -771,11 +761,9 @@ struct RustCoreBridge: Sendable {
         }
 
         let foldRegions: [FoldRegion]
-        let inlayHints: [InlayHint]
         let syntaxHighlights: [SyntaxHighlight]
 
         func makeFoldRegions() -> [JavaFoldRegion] { foldRegions.compactMap { $0.makeModel() } }
-        func makeInlayHints() -> [JavaInlayHint] { inlayHints.map { $0.makeModel() } }
         func makeSyntaxHighlights() -> [JavaSyntaxHighlight] {
             syntaxHighlights.compactMap { $0.makeModel() }
         }
@@ -1400,11 +1388,18 @@ struct RustCoreBridge: Sendable {
         let workingDirectory: String
         let initializationOptions: ToolingJSONValue?
         let runtimeExecutablePath: String?
+        let jdtlsLaunchResources: LspJdtlsLaunchResourcesRequest?
         let cacheDirectory: String?
         let workspaceFingerprint: String?
         let initializeTimeoutMilliseconds: Int
         let requestTimeoutMilliseconds: Int
         let shutdownTimeoutMilliseconds: Int
+    }
+
+    private struct LspJdtlsLaunchResourcesRequest: Encodable {
+        let launcherJarPath: String
+        let configurationDirectory: String
+        let lombokAgentPath: String
     }
 
     private struct LspSessionIdentifierRequest: Encodable {
@@ -2929,6 +2924,7 @@ struct RustCoreBridge: Sendable {
         workingDirectoryURL: URL,
         initializationOptions: ToolingJSONValue? = nil,
         runtimeExecutableURL: URL? = nil,
+        jdtlsLaunchResources: JDTLSLaunchResources? = nil,
         cacheDirectoryURL: URL? = nil,
         workspaceFingerprint: String? = nil,
         initializeTimeout: TimeInterval = 60,
@@ -2946,6 +2942,13 @@ struct RustCoreBridge: Sendable {
                 workingDirectory: workingDirectoryURL.standardizedFileURL.path,
                 initializationOptions: initializationOptions,
                 runtimeExecutablePath: runtimeExecutableURL?.standardizedFileURL.path,
+                jdtlsLaunchResources: jdtlsLaunchResources.map {
+                    LspJdtlsLaunchResourcesRequest(
+                        launcherJarPath: $0.launcherJarURL.path,
+                        configurationDirectory: $0.configurationDirectoryURL.path,
+                        lombokAgentPath: $0.lombokAgentURL.path
+                    )
+                },
                 cacheDirectory: cacheDirectoryURL?.standardizedFileURL.path,
                 workspaceFingerprint: workspaceFingerprint,
                 initializeTimeoutMilliseconds: Self.milliseconds(initializeTimeout),

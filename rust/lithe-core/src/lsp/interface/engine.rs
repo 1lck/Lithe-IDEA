@@ -14,8 +14,8 @@ use super::{
 use crate::lsp::languages::jdt::{
     adapt_initialization_options, adapt_start, initialized_notification, is_virtual_source_uri,
     normalize_location, readiness_signal, virtual_source_content, virtual_source_resolve_params,
-    waits_for_service_ready, workspace_configuration, JdtReadinessSignal, JdtStartContext,
-    ProviderLocation, WorkspaceConfigurationItem,
+    waits_for_service_ready, workspace_configuration, JdtDirectLaunchResources, JdtReadinessSignal,
+    JdtStartContext, ProviderLocation, WorkspaceConfigurationItem,
 };
 use crate::lsp::languages::jdt_navigation::{JavaNavigationMarkerBatch, MAX_JAVA_NAVIGATION_TASKS};
 use crate::protocol::{CoreError, ErrorCode};
@@ -72,6 +72,9 @@ pub struct StartServerRequest {
     pub initialization_options: Option<Value>,
     #[serde(default)]
     pub runtime_executable_path: Option<String>,
+    /// Files discovered by the platform adapter for shell-free JDT LS startup.
+    #[serde(default)]
+    pub jdtls_launch_resources: Option<JdtlsLaunchResources>,
     #[serde(default)]
     pub cache_directory: Option<String>,
     /// Platform-computed digest of the workspace's build-system structure.
@@ -86,6 +89,18 @@ pub struct StartServerRequest {
     pub request_timeout_milliseconds: u64,
     #[serde(default = "default_shutdown_timeout")]
     pub shutdown_timeout_milliseconds: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// Platform-resolved files that let Rust launch JDT LS with bundled Java.
+pub struct JdtlsLaunchResources {
+    /// Equinox launcher selected deterministically from the JDT LS installation.
+    pub launcher_jar_path: String,
+    /// OS-specific Eclipse configuration directory for the current product.
+    pub configuration_directory: String,
+    /// Lombok agent shipped with the selected JDT LS installation.
+    pub lombok_agent_path: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -683,6 +698,13 @@ impl LspEngine {
             workspace_root: workspace_root.clone(),
             data_root,
             selected_java_executable,
+            direct_launch_resources: request.jdtls_launch_resources.as_ref().map(|resources| {
+                JdtDirectLaunchResources {
+                    launcher_jar_path: PathBuf::from(&resources.launcher_jar_path),
+                    configuration_directory: PathBuf::from(&resources.configuration_directory),
+                    lombok_agent_path: PathBuf::from(&resources.lombok_agent_path),
+                }
+            }),
             arguments: request.arguments.clone(),
             workspace_fingerprint: request.workspace_fingerprint.clone(),
         });
@@ -697,7 +719,9 @@ impl LspEngine {
         }
 
         let process = self.launcher.launch(LspProcessSpec {
-            executable: PathBuf::from(&request.executable_path),
+            executable: adaptation
+                .executable
+                .unwrap_or_else(|| PathBuf::from(&request.executable_path)),
             arguments: adaptation.arguments,
             working_directory: workspace_root,
             environment: request.environment,
@@ -2374,7 +2398,23 @@ fn validate_start_request(request: &StartServerRequest) -> Result<(), CoreError>
     if !request.root_uri.contains("://") || request.root_uri.contains('\0') {
         return Err(invalid_field("rootUri"));
     }
+    if let Some(resources) = &request.jdtls_launch_resources {
+        if !request.provider_id.trim().eq_ignore_ascii_case("java") {
+            return Err(invalid_field("jdtlsLaunchResources/providerId"));
+        }
+        if !is_valid_process_path(request.runtime_executable_path.as_deref())
+            || !is_valid_process_path(Some(&resources.launcher_jar_path))
+            || !is_valid_process_path(Some(&resources.configuration_directory))
+            || !is_valid_process_path(Some(&resources.lombok_agent_path))
+        {
+            return Err(invalid_field("jdtlsLaunchResources/runtimeExecutablePath"));
+        }
+    }
     Ok(())
+}
+
+fn is_valid_process_path(path: Option<&str>) -> bool {
+    path.is_some_and(|path| !path.trim().is_empty() && !path.contains('\0'))
 }
 
 fn invalid_field(field: &str) -> CoreError {
@@ -3123,6 +3163,7 @@ mod tests {
             working_directory: "/workspace".to_string(),
             initialization_options: None,
             runtime_executable_path: None,
+            jdtls_launch_resources: None,
             cache_directory: None,
             workspace_fingerprint: None,
             initialize_timeout_milliseconds: 10_000,
@@ -4069,6 +4110,55 @@ mod tests {
         let _ = std::fs::remove_dir_all(&cache);
     }
 
+    #[test]
+    fn structured_jdtls_resources_launch_the_runtime_executable_directly() {
+        let server = ScriptedServer::new();
+        let engine = LspEngine::with_launcher(server.launcher());
+        let cache = std::env::temp_dir().join("lithe-core-direct-jdtls-tests");
+        let mut request = start_request(&server);
+        request.provider_id = "java".to_string();
+        request.arguments = vec!["--jvm-arg=-Duser.language=en".to_string()];
+        request.runtime_executable_path = Some("/opt/lithe/jdk/bin/java".to_string());
+        request.jdtls_launch_resources = Some(JdtlsLaunchResources {
+            launcher_jar_path: "/opt/lithe/jdtls/plugins/equinox.jar".to_string(),
+            configuration_directory: "/opt/lithe/jdtls/config_mac".to_string(),
+            lombok_agent_path: "/opt/lithe/jdtls/lombok/lombok.jar".to_string(),
+        });
+        request.cache_directory = Some(cache.to_string_lossy().into_owned());
+        engine
+            .start_server(request)
+            .expect("the server should start with direct Java");
+
+        let spec = server
+            .launched_spec()
+            .expect("starting a server must launch a process");
+        assert_eq!(spec.executable, "/opt/lithe/jdk/bin/java");
+        assert_eq!(
+            spec.arguments.first().map(String::as_str),
+            Some("-javaagent:/opt/lithe/jdtls/lombok/lombok.jar")
+        );
+        assert!(spec.arguments.contains(&"-Duser.language=en".to_string()));
+        assert_eq!(
+            spec.arguments
+                .iter()
+                .position(|argument| argument == "-jar")
+                .map(|index| spec.arguments[index + 1].as_str()),
+            Some("/opt/lithe/jdtls/plugins/equinox.jar")
+        );
+        assert_eq!(
+            spec.arguments
+                .iter()
+                .position(|argument| argument == "-configuration")
+                .map(|index| spec.arguments[index + 1].as_str()),
+            Some("/opt/lithe/jdtls/config_mac")
+        );
+        assert!(!spec
+            .arguments
+            .iter()
+            .any(|argument| argument.starts_with("--java-executable")));
+        let _ = std::fs::remove_dir_all(&cache);
+    }
+
     /// A write that fails mid-session is a transport failure, not a silent drop.
     #[test]
     fn a_broken_stdin_fails_the_session_and_stops_writing() {
@@ -4996,6 +5086,7 @@ public class Main {
                 working_directory: workspace.to_string_lossy().into_owned(),
                 initialization_options: None,
                 runtime_executable_path: Some(java_path),
+                jdtls_launch_resources: None,
                 cache_directory: Some(root.join("cache").to_string_lossy().into_owned()),
                 workspace_fingerprint: None,
                 initialize_timeout_milliseconds: 90_000,
@@ -5719,6 +5810,7 @@ public class Main {
             working_directory: "/workspace".to_string(),
             initialization_options: None,
             runtime_executable_path: None,
+            jdtls_launch_resources: None,
             cache_directory: None,
             workspace_fingerprint: None,
             initialize_timeout_milliseconds: 1,
@@ -5726,5 +5818,46 @@ public class Main {
             shutdown_timeout_milliseconds: 1,
         };
         assert!(validate_start_request(&request).is_err());
+    }
+
+    #[test]
+    fn direct_jdtls_contract_requires_a_java_provider_and_runtime() {
+        let server = ScriptedServer::new();
+        let mut request = start_request(&server);
+        request.jdtls_launch_resources = Some(JdtlsLaunchResources {
+            launcher_jar_path: "/jdtls/plugins/equinox.jar".to_string(),
+            configuration_directory: "/jdtls/config_mac".to_string(),
+            lombok_agent_path: "/jdtls/lombok/lombok.jar".to_string(),
+        });
+
+        assert!(validate_start_request(&request).is_err());
+        request.provider_id = "java".to_string();
+        assert!(validate_start_request(&request).is_err());
+        request.runtime_executable_path = Some("/jdk/bin/java".to_string());
+        assert!(validate_start_request(&request).is_ok());
+    }
+
+    #[test]
+    fn direct_jdtls_start_request_matches_the_shared_contract_fixture() {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/fixtures/lsp/jdt-direct-launch-v1.json"
+        )))
+        .expect("direct JDTLS fixture should be valid JSON");
+        let request: StartServerRequest = serde_json::from_value(fixture["request"].clone())
+            .expect("fixture request should match the Core contract");
+
+        validate_start_request(&request).expect("fixture request should be valid");
+        let resources = request
+            .jdtls_launch_resources
+            .expect("fixture should use structured direct launch");
+        assert_eq!(
+            request.runtime_executable_path.as_deref(),
+            Some("/opt/lithe/jdk/bin/java")
+        );
+        assert_eq!(
+            resources.configuration_directory,
+            "/opt/lithe/jdtls/config_mac"
+        );
     }
 }

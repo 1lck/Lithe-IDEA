@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   configurationsForExecution,
+  blockingToolchainDiagnosticForConfiguration,
   configurationOverrides,
   configurationUsesMaven,
   defaultGeneratedConfigurationId,
+  effectiveRuntimeExecutablePaths,
   isBlockingToolchainDiagnostic,
   mapCoreConfiguration,
   mergeLaunchEnvironment,
@@ -90,11 +92,13 @@ describe("run configuration mapping", () => {
           { homePath: "D:\\SDKs\\custom", version: "21", vendor: "Custom" },
         ],
         maven: [],
+        runtimes: [],
       },
       {
         javaHomePath: "d:/sdks/custom/",
         mavenExecutablePath: "",
         mavenJavaHomePath: "",
+        runtimeExecutablePaths: {},
       },
     );
 
@@ -110,11 +114,13 @@ describe("run configuration mapping", () => {
         maven: [
           { executablePath: "D:\\Tools\\apache-maven\\bin\\mvn.cmd", version: "3.9.9" },
         ],
+        runtimes: [],
       },
       {
         javaHomePath: "",
         mavenExecutablePath: "d:/tools/apache-maven/",
         mavenJavaHomePath: "",
+        runtimeExecutablePaths: {},
       },
     );
 
@@ -133,6 +139,7 @@ describe("run configuration mapping", () => {
       javaHomePath: "C:/SDKs/jdk-21",
       mavenExecutablePath: "C:/SDKs/maven",
       mavenJavaHomePath: "C:/SDKs/maven-jdk",
+      runtimeExecutablePaths: {},
     };
     const options = {
       ...defaults,
@@ -166,5 +173,96 @@ describe("run configuration mapping", () => {
       DEBUG: "true",
       JAVA_HOME: { toolchain: "project-jdk", property: "home" },
     });
+  });
+
+  test("blocks only the configuration named by a toolchain diagnostic", () => {
+    const diagnostics = [
+      {
+        id: "npm.script:web/dev",
+        code: "missingToolchain",
+        message: "No local node toolchain is selected",
+      },
+    ];
+
+    expect(
+      blockingToolchainDiagnosticForConfiguration(diagnostics, "spring-boot.maven:backend"),
+    ).toBeUndefined();
+    expect(
+      blockingToolchainDiagnosticForConfiguration(diagnostics, "npm.script:web/dev")?.message,
+    ).toContain("node");
+    expect(
+      blockingToolchainDiagnosticForConfiguration(
+        [{ code: "missingToolchain", message: "Project toolchain is missing" }],
+        "spring-boot.maven:backend",
+      ),
+    ).toBeDefined();
+  });
+
+  test("selects the configured generic runtime candidate", () => {
+    const candidates = selectedToolchainCandidates(
+      {
+        java: [],
+        maven: [],
+        runtimes: [
+          {
+            id: "project-node",
+            type: "node",
+            executablePath: "C:/Program Files/nodejs/node.exe",
+            version: "22.5.1",
+            vendor: "Node.js",
+          },
+          {
+            id: "project-node",
+            type: "node",
+            executablePath: "D:/runtimes/node.exe",
+            version: "20.18.0",
+            vendor: "Node.js",
+          },
+        ],
+      },
+      {
+        javaHomePath: "",
+        mavenExecutablePath: "",
+        mavenJavaHomePath: "",
+        runtimeExecutablePaths: { "project-node": "d:\\runtimes\\node.exe" },
+      },
+    );
+
+    expect(candidates).toEqual([
+      { id: "project-node", type: "node", version: "20.18.0", vendor: "Node.js" },
+    ]);
+  });
+
+  test("uses the same automatic runtime path for validation and launch", () => {
+    const runtimes = [
+      {
+        id: "project-node",
+        type: "node",
+        executablePath: "C:/Program Files/nodejs/node.exe",
+        version: "22.5.1",
+        vendor: "Node.js",
+      },
+      {
+        id: "project-node",
+        type: "node",
+        executablePath: "D:/path-node/node.exe",
+        version: "18.20.4",
+        vendor: "Node.js",
+      },
+    ];
+    const effectivePaths = effectiveRuntimeExecutablePaths(runtimes, {});
+    const selected = {
+      javaHomePath: "",
+      mavenExecutablePath: "",
+      mavenJavaHomePath: "",
+      runtimeExecutablePaths: effectivePaths,
+    };
+
+    expect(effectivePaths).toEqual({
+      "project-node": "C:/Program Files/nodejs/node.exe",
+    });
+    expect(selectedToolchainCandidates({ java: [], maven: [], runtimes }, selected)).toEqual([
+      { id: "project-node", type: "node", version: "22.5.1", vendor: "Node.js" },
+    ]);
   });
 });

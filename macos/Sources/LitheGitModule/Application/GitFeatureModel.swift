@@ -1172,7 +1172,10 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func applyGitLogFilter(_ rawQuery: String) async {
-        let query = GitLogQuery.parse(rawQuery)
+        await applyGitLogFilter(GitLogQuery.parse(rawQuery))
+    }
+
+    package func applyGitLogFilter(_ query: GitLogQuery) async {
         gitLogFilterGeneration = UUID()
         let generation = gitLogFilterGeneration
         guard !query.isEmpty else {
