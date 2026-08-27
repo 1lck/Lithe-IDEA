@@ -46,6 +46,7 @@ import {
   selectedToolchainCandidates,
 } from "../utils/run-configuration";
 import { editorSaveFailureMessage, runEditorSaveWorkflow } from "../services/run-editor-save";
+import { stampRunChunk } from "../utils/output-timestamper";
 
 const MAXIMUM_OUTPUT_CHARACTERS = 500_000;
 const sessionWorkspaces = new Map<string, string>();
@@ -125,6 +126,10 @@ type ReadyRunState = Pick<
 function trimOutput(output: string): string {
   if (output.length <= MAXIMUM_OUTPUT_CHARACTERS) return output;
   return output.slice(output.length - MAXIMUM_OUTPUT_CHARACTERS);
+}
+
+function appendStampedOutput(existing: string, chunk: string): string {
+  return trimOutput(existing + stampRunChunk(existing, chunk));
 }
 
 function optionsFromConfiguration(configuration: RunConfiguration): RunOptions {
@@ -495,13 +500,13 @@ export const createRunStore = () =>
 
       appendOutput: (sessionId, chunk) => {
         if (sessionId === PRIMARY_SESSION_ID) {
-          set({ primaryOutput: trimOutput(get().primaryOutput + chunk) });
+          set({ primaryOutput: appendStampedOutput(get().primaryOutput, chunk) });
           return;
         }
         set((current) => ({
           sessions: current.sessions.map((session) =>
             session.id === sessionId
-              ? { ...session, output: trimOutput(session.output + chunk) }
+              ? { ...session, output: appendStampedOutput(session.output, chunk) }
               : session,
           ),
         }));

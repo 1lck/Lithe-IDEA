@@ -28,6 +28,7 @@ import {
 } from "../utils/run-configuration";
 import { RunConfigurationEditor } from "./run-configuration-editor";
 import { JavaCupIcon, RunIcon } from "./run-icon";
+import { RunOutputText } from "./run-output-text";
 
 export default function RunPane() {
   const { t } = useTranslation();
@@ -229,10 +230,11 @@ export default function RunPane() {
               )}
             </div>
             <div className="min-h-0 flex-1 overflow-auto px-3 py-2">
-              <div className="mb-1 font-medium text-subtle-foreground ui-text-sm">{t("run.processOutput")}</div>
-              <pre className="whitespace-pre-wrap font-mono text-[12px] text-foreground">
-                {output || t("run.emptyOutput")}
-              </pre>
+              <RunOutputText
+                title={t("run.processOutput")}
+                source={output}
+                emptyLabel={t("run.emptyOutput")}
+              />
             </div>
             {isSelectedRunning ? (
               <RunStdinInput
