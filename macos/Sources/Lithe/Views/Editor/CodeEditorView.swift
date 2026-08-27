@@ -171,6 +171,70 @@ struct EditorGutterLayout: Equatable {
     }
 }
 
+enum EditorFoldVisibility {
+    static func hiddenLines(
+        in source: NSString,
+        regions: [JavaFoldRegion],
+        collapsedIDs: Set<String>
+    ) -> Set<Int> {
+        var hiddenLines: Set<Int> = []
+        for region in regions where collapsedIDs.contains(region.id) {
+            let hiddenRange = region.hiddenRange
+            guard hiddenRange.location >= 0,
+                  hiddenRange.length > 0,
+                  NSMaxRange(hiddenRange) <= source.length else { continue }
+
+            var line = region.startLine + 1
+            var lineStart = hiddenRange.location
+            // Core ranges are half-open, so a closing line that starts at the
+            // upper bound remains visible even when its number is endLine.
+            while line <= region.endLine,
+                  lineStart < NSMaxRange(hiddenRange) {
+                if NSLocationInRange(lineStart, hiddenRange) {
+                    hiddenLines.insert(line)
+                }
+                let lineRange = source.lineRange(
+                    for: NSRange(location: lineStart, length: 0)
+                )
+                let nextLineStart = NSMaxRange(lineRange)
+                guard nextLineStart > lineStart else { break }
+                lineStart = nextLineStart
+                line += 1
+            }
+        }
+        return hiddenLines
+    }
+
+    static func isLineHidden(
+        _ line: Int,
+        in source: NSString,
+        regions: [JavaFoldRegion],
+        collapsedIDs: Set<String>
+    ) -> Bool {
+        hiddenLines(
+            in: source,
+            regions: regions,
+            collapsedIDs: collapsedIDs
+        ).contains(line)
+    }
+
+    static func visibleCodeVisionHints(
+        _ hints: [JavaCodeVisionHint],
+        in source: NSString,
+        regions: [JavaFoldRegion],
+        collapsedIDs: Set<String>
+    ) -> [JavaCodeVisionHint] {
+        let hiddenLines = hiddenLines(
+            in: source,
+            regions: regions,
+            collapsedIDs: collapsedIDs
+        )
+        return hints.filter { hint in
+            !hiddenLines.contains(hint.line)
+        }
+    }
+}
+
 enum EditorOverlayLayout {
     static let inlayHintVerticalPadding: CGFloat = 4
 
@@ -1236,6 +1300,12 @@ struct CodeEditorView: NSViewRepresentable {
             guard let document, let model else { return }
             let url = document.url.standardizedFileURL
             let hints = model.settings.showCodeVision ? model.javaCodeVisionHints[url] ?? [] : []
+            let visibleCodeVisionHints = EditorFoldVisibility.visibleCodeVisionHints(
+                hints,
+                in: (textView?.string ?? "") as NSString,
+                regions: foldRegions,
+                collapsedIDs: collapsedFoldIDs
+            )
             let inlayHints = model.javaInlayHints[url] ?? []
             let overlayLayoutChanged = appliedEditorOverlayLayoutRevision != editorOverlayLayoutRevision
             let updatePlan = EditorOverlayUpdatePlan(
@@ -1254,7 +1324,7 @@ struct CodeEditorView: NSViewRepresentable {
             if updatePlan.updateCodeVision {
                 appliedCodeVisionHints = hints
                 codeVisionOverlay?.update(
-                    hints: hints,
+                    hints: visibleCodeVisionHints,
                     onUsages: { [weak model] hint in model?.findUsages(for: hint, in: url) },
                     onImplementations: { [weak model] hint in
                         model?.findJavaImplementations(
@@ -2188,8 +2258,13 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
         var indentations: [Int: Int] = [:]
         var blankLines: Set<Int> = []
+        let hiddenLines = EditorFoldVisibility.hiddenLines(
+            in: source,
+            regions: foldRegions,
+            collapsedIDs: collapsedFoldIDs
+        )
         for line in firstLine...lastLine {
-            guard !isLineHiddenByCollapsedFold(line) else { continue }
+            guard !hiddenLines.contains(line) else { continue }
             let indentation = leadingIndentationColumns(forLine: line, in: source)
             indentations[line] = indentation
             if lineIsBlank(line, in: source) {
@@ -2257,14 +2332,6 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
                     segmentStart = nil
                 }
             }
-        }
-    }
-
-    private func isLineHiddenByCollapsedFold(_ line: Int) -> Bool {
-        foldRegions.contains { region in
-            collapsedFoldIDs.contains(region.id) &&
-                line > region.startLine &&
-                line <= region.endLine
         }
     }
 
@@ -2376,6 +2443,14 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
             width: 28,
             height: lineRect.height
         )
+    }
+
+    func collapsedFoldSummaryMaxX(forLine line: Int) -> CGFloat? {
+        foldRegions.compactMap { region -> CGFloat? in
+            guard collapsedFoldIDs.contains(region.id),
+                  region.startLine == line else { return nil }
+            return foldSummaryRect(for: region)?.maxX
+        }.max()
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -3278,6 +3353,7 @@ final class LineNumberGutterView: NSView {
             self.hoveredFoldID = nil
         }
         animateFoldIndicators()
+        layoutBlameButtons()
         needsDisplay = true
     }
 
@@ -3336,10 +3412,16 @@ final class LineNumberGutterView: NSView {
             return
         }
         let firstVisibleLine = visibleLines.lowerBound
+        let hiddenLines = EditorFoldVisibility.hiddenLines(
+            in: source,
+            regions: foldRegions,
+            collapsedIDs: collapsedFoldIDs
+        )
         var newlyVisibleLines: Set<Int> = []
         var accessibilityButtons: [NSButton] = []
         for line in visibleLines {
-            guard let button = blameButtons[line],
+            guard !hiddenLines.contains(line),
+                  let button = blameButtons[line],
                   showsBlameMetadata(line: line, firstVisibleLine: firstVisibleLine) else { continue }
             let characterIndex = characterOffset(forLine: line, in: source)
             guard characterIndex < source.length else {
@@ -3476,6 +3558,11 @@ final class LineNumberGutterView: NSView {
                 .reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
         var lineNumber = firstLine + 1
         let maxGlyph = min(NSMaxRange(glyphRange), layoutManager.numberOfGlyphs)
+        let hiddenLines = EditorFoldVisibility.hiddenLines(
+            in: text,
+            regions: foldRegions,
+            collapsedIDs: collapsedFoldIDs
+        )
 
         while glyphIndex < maxGlyph {
             let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
@@ -3484,10 +3571,7 @@ final class LineNumberGutterView: NSView {
             let lineGlyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
             let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
             let y = lineRect.minY + textView.textContainerOrigin.y - visibleRect.minY
-            let isCollapsedHiddenLine = foldRegions.contains { region in
-                collapsedFoldIDs.contains(region.id) &&
-                    lineNumber - 1 > region.startLine && lineNumber - 1 <= region.endLine
-            }
+            let isCollapsedHiddenLine = hiddenLines.contains(lineNumber - 1)
             if isCollapsedHiddenLine {
                 let nextGlyph = NSMaxRange(lineGlyphRange)
                 glyphIndex = nextGlyph > glyphIndex ? nextGlyph : glyphIndex + 1
@@ -4027,7 +4111,11 @@ final class CodeVisionOverlayController {
                 forGlyphRange: anchorContentGlyphRange,
                 in: textContainer
             )
-            let x = textView.textContainerOrigin.x + contentRect.maxX + 8
+            var x = textView.textContainerOrigin.x + contentRect.maxX + 8
+            if let foldSummaryMaxX = (textView as? CodeTextView)?
+                .collapsedFoldSummaryMaxX(forLine: hint.line) {
+                x = max(x, foldSummaryMaxX + Self.itemSpacing)
+            }
 
             var items: [NSButton] = []
             if hint.usageCount > 0 {

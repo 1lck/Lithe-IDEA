@@ -7,7 +7,7 @@ import Testing
 @MainActor
 struct PluginManagerTests {
     @Test
-    func bundledLanguagePluginsCoverEveryNonJavaNonGoProvider() throws {
+    func bundledLanguageCatalogOnlyCreatesPluginsForImplementedProcessFeatures() throws {
         let expectedIDs: Set<String> = [
             "python", "node", "rust", "clangd", "csharp", "fsharp", "swift", "kotlin", "scala", "groovy",
             "ruby", "php", "dart", "lua", "shell", "powershell", "html", "css", "vue", "svelte", "astro",
@@ -16,10 +16,28 @@ struct PluginManagerTests {
             "r", "perl", "zig", "solidity"
         ]
         #expect(Set(BundledLanguagePluginCatalog.specifications.map(\.id)) == expectedIDs)
-        #expect(BundledLanguagePluginCatalog.manifests.count == expectedIDs.count)
+        #expect(Set(BundledLanguagePluginCatalog.languageSupports.map(\.id)) == expectedIDs)
+
+        let expectedPluginIDs = Set(
+            BundledLanguagePluginCatalog.specifications
+                .filter { $0.supportsLanguageServer || $0.supportsExecution }
+                .map(\.id)
+        )
+        #expect(Set(BundledLanguagePluginCatalog.manifests.compactMap {
+            $0.languageSupports?.first?.id
+        }) == expectedPluginIDs)
         #expect(BundledLanguagePluginCatalog.manifests.flatMap(\.modules).allSatisfy {
             $0.manifest.defaultState == .disabled
         })
+
+        let markdown = try #require(BundledLanguagePluginCatalog.languageSupports.first {
+            $0.id == "markdown"
+        })
+        let yaml = try #require(BundledLanguagePluginCatalog.languageSupports.first {
+            $0.id == "yaml"
+        })
+        #expect(markdown.languageServerModuleID == nil)
+        #expect(yaml.languageServerModuleID == .languageServerExtension("yaml"))
         let officialLanguagePlugins = OfficialPluginCatalog.manifests.filter {
             !($0.languageSupports ?? []).isEmpty
         }
