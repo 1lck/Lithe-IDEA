@@ -85,11 +85,14 @@ function shouldStampLine(line: string): boolean {
   return leadingTimeLength(visible) === undefined;
 }
 
-const INCOMPLETE_TIMESTAMP_PREFIX =
+const INCOMPLETE_ISO_TIMESTAMP_PREFIX =
   /^\s*\d{4}-\d{0,2}(?:-\d{0,2}(?:[T ]\d{0,2}(?::\d{0,2}(?::\d{0,2})?)?)?)?$/;
 
+// `HH:mm:` is already clock-like. Bare digits such as "12" must stay visible.
+const INCOMPLETE_CLOCK_PREFIX = /^\s*\d{2}:\d{2}(?::\d{0,2})?$/;
+
 function isIncompleteTimestampPrefix(visible: string): boolean {
-  return INCOMPLETE_TIMESTAMP_PREFIX.test(visible);
+  return INCOMPLETE_ISO_TIMESTAMP_PREFIX.test(visible) || INCOMPLETE_CLOCK_PREFIX.test(visible);
 }
 
 function isUndecidedPrefix(line: string): boolean {
@@ -118,9 +121,31 @@ export function stampOutput(value: string, continuingLine: boolean, now = new Da
   return result;
 }
 
+function normalizeCrlf(value: string): string {
+  return value.replace(/\r\n/g, "\n");
+}
+
+function overwriteCarriageReturns(line: string): string {
+  if (!line.includes("\r")) return line;
+  let current = "";
+  for (const part of line.split("\r")) {
+    current = part.length >= current.length ? part : `${part}${current.slice(part.length)}`;
+  }
+  return current;
+}
+
+function applyCarriageReturns(value: string): string {
+  const normalized = normalizeCrlf(value);
+  if (!normalized.includes("\r")) return normalized;
+  return normalized
+    .split("\n")
+    .map((line) => overwriteCarriageReturns(line))
+    .join("\n");
+}
+
 export function stampRunChunk(existing: string, chunk: string, now = new Date()): string {
   const continuingLine = existing.length > 0 && !existing.endsWith("\n");
-  return stampOutput(chunk.replace(/\r/g, ""), continuingLine, now);
+  return stampOutput(applyCarriageReturns(chunk), continuingLine, now);
 }
 
 export interface OutputStamper {
@@ -143,18 +168,19 @@ export function createOutputStamper(): OutputStamper {
 
   return {
     push(chunk, now = new Date()) {
-      const value = `${pending}${chunk}`.replace(/\r/g, "");
+      const value = normalizeCrlf(`${pending}${chunk}`);
       pending = "";
       if (value.length === 0) return "";
       const lines = value.split("\n");
       let result = "";
       const lastIndex = lines.length - 1;
       for (let index = 0; index < lastIndex; index += 1) {
-        result += emitLine(lines[index], now, true);
+        result += emitLine(overwriteCarriageReturns(lines[index]), now, true);
       }
       if (value.endsWith("\n")) return result;
       const last = lines[lastIndex];
-      if (atLineStart && isUndecidedPrefix(last)) {
+      // Hold a CR-updating line so the next chunk can overwrite it.
+      if (last.includes("\r") || (atLineStart && isUndecidedPrefix(last))) {
         pending = last;
         return result;
       }
@@ -162,7 +188,7 @@ export function createOutputStamper(): OutputStamper {
     },
     flush(now = new Date()) {
       if (pending.length === 0) return "";
-      const line = pending;
+      const line = overwriteCarriageReturns(pending);
       pending = "";
       return emitLine(line, now, false);
     },

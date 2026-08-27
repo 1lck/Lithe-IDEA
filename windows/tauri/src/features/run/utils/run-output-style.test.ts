@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { getLitheDefaultTheme } from "@/extensions/themes/default-theme";
 import { stampOutput } from "./output-timestamper";
 import {
   parseAnsi,
   renderRunOutput,
+  resolveAnsi16Palette,
   severityOfLine,
 } from "./run-output-style";
 
@@ -41,13 +43,13 @@ describe("ANSI output colors", () => {
   test("applies the palette color for a foreground SGR code", () => {
     const spans = renderRunOutput("\u001b[31mred\u001b[0m");
     expect(spans.map((span) => span.text).join("")).toBe("red");
-    expect(spans[0]?.style?.color).toBe("#f16d75");
+    expect(spans[0]?.style?.color).toBe("var(--terminal-red)");
   });
 
   test("restores the default style after a reset sequence", () => {
     const spans = renderRunOutput("\u001b[31mred\u001b[0mplain");
     expect(spans).toHaveLength(2);
-    expect(spans[0]?.style?.color).toBe("#f16d75");
+    expect(spans[0]?.style?.color).toBe("var(--terminal-red)");
     expect(spans[1]?.text).toBe("plain");
     expect(spans[1]?.style?.color).toBeUndefined();
     expect(spans[1]?.className).toBeUndefined();
@@ -77,5 +79,37 @@ describe("run output rendering", () => {
     expect(spans[0]?.text).toBe("10:12:33.123 ");
     expect(spans[1]?.className).toBe("text-destructive");
     expect(spans[1]?.text).toBe("[ERROR] Port in use\n");
+  });
+});
+
+describe("theme ANSI palette", () => {
+  test("uses current-theme variables for the 16-color palette", () => {
+    expect(renderRunOutput("\u001b[30mblack")[0]?.style?.color).toBe("var(--terminal-black)");
+    expect(renderRunOutput("\u001b[37mwhite")[0]?.style?.color).toBe("var(--terminal-white)");
+    expect(renderRunOutput("\u001b[97mbright")[0]?.style?.color).toBe(
+      "var(--terminal-bright-white)",
+    );
+  });
+
+  test("light theme keeps SGR 37/97 visible against the background", () => {
+    const theme = getLitheDefaultTheme("light");
+    const palette = resolveAnsi16Palette(theme.colors);
+    expect(renderRunOutput("\u001b[37mwhite")[0]?.style?.color).toBe("var(--terminal-white)");
+    expect(renderRunOutput("\u001b[97mbright")[0]?.style?.color).toBe(
+      "var(--terminal-bright-white)",
+    );
+    expect(palette[7]).toBe(theme.colors["terminal-white"]);
+    expect(palette[15]).toBe(theme.colors["terminal-bright-white"]);
+    expect(palette[7]?.toLowerCase()).not.toBe(theme.colors.background.toLowerCase());
+    expect(palette[15]?.toLowerCase()).not.toBe(theme.colors.background.toLowerCase());
+    expect(palette[15]?.toLowerCase()).not.toBe("#ffffff");
+  });
+
+  test("dark theme keeps SGR 30 visible against the background", () => {
+    const theme = getLitheDefaultTheme("dark");
+    const palette = resolveAnsi16Palette(theme.colors);
+    expect(renderRunOutput("\u001b[30mblack")[0]?.style?.color).toBe("var(--terminal-black)");
+    expect(palette[0]).toBe(theme.colors["terminal-black"]);
+    expect(palette[0]?.toLowerCase()).not.toBe(theme.colors.background.toLowerCase());
   });
 });

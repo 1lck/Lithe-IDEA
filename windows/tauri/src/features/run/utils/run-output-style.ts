@@ -41,24 +41,32 @@ const SEVERITY_CLASS: Record<OutputSeverity, string> = {
 
 const TIMESTAMP_CLASS = "text-subtle-foreground/70";
 
-const ANSI_PALETTE = [
-  "#0f1012",
-  "#f16d75",
-  "#4cc38a",
-  "#d9a441",
-  "#58a6e7",
-  "#c8a2f4",
-  "#61c0bf",
-  "#c4c9d1",
-  "#757d89",
-  "#ff858d",
-  "#68d5a0",
-  "#edbb5c",
-  "#75b9f0",
-  "#dab9ff",
-  "#7bd3d2",
-  "#ffffff",
-];
+const ANSI_PALETTE_KEYS = [
+  "terminal-black",
+  "terminal-red",
+  "terminal-green",
+  "terminal-yellow",
+  "terminal-blue",
+  "terminal-magenta",
+  "terminal-cyan",
+  "terminal-white",
+  "terminal-bright-black",
+  "terminal-bright-red",
+  "terminal-bright-green",
+  "terminal-bright-yellow",
+  "terminal-bright-blue",
+  "terminal-bright-magenta",
+  "terminal-bright-cyan",
+  "terminal-bright-white",
+] as const;
+
+export function ansiPaletteCssVariable(index: number): string {
+  return `var(--${ANSI_PALETTE_KEYS[index] ?? "terminal-white"})`;
+}
+
+export function resolveAnsi16Palette(colors: Record<string, string>): string[] {
+  return ANSI_PALETTE_KEYS.map((key) => colors[key] ?? "");
+}
 
 export function severityOfLine(line: string): OutputSeverity | undefined {
   const match = SEVERITY_PATTERN.exec(line);
@@ -319,12 +327,12 @@ function readExtendedColor(
 }
 
 function paletteColor(code: number): string {
-  if (code >= 90) return ANSI_PALETTE[(code - 90) % 8 + 8];
-  return ANSI_PALETTE[(code - 30) % 8];
+  if (code >= 90) return ansiPaletteCssVariable((code - 90) % 8 + 8);
+  return ansiPaletteCssVariable((code - 30) % 8);
 }
 
 function color256(value: number): string {
-  if (value < 16) return ANSI_PALETTE[value] ?? ANSI_PALETTE[7];
+  if (value < 16) return ansiPaletteCssVariable(value);
   if (value >= 232) {
     const component = 8 + (value - 232) * 10;
     return rgb(component, component, component);

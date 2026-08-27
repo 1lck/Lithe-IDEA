@@ -106,10 +106,43 @@ describe("output timestamping", () => {
     expect(stamper.push("12", noon)).toBe("10:12:33.123 12");
   });
 
+  test("does not stamp a time-only clock that is split across chunks", () => {
+    const stamper = createOutputStamper();
+    expect(stamper.push("10:12:", noon)).toBe("");
+    expect(stamper.push("33.123 INFO started\n", noon)).toBe("10:12:33.123 INFO started\n");
+  });
+
   test("flushes a held ANSI prefix when the session is stopped", () => {
     const stamper = createOutputStamper();
     expect(stamper.push("\u001b[32m", noon)).toBe("");
     expect(stamper.flush(noon)).toBe("\u001b[32m");
+  });
+
+  test("keeps Windows newlines as a single line break", () => {
+    const stamper = createOutputStamper();
+    expect(stamper.push("Hello\r\nWorld\n", noon)).toBe(
+      "10:12:33.123 Hello\n10:12:33.123 World\n",
+    );
+  });
+
+  test("overwrites a carriage-return progress line instead of gluing frames", () => {
+    const stamper = createOutputStamper();
+    expect(
+      stamper.push("Downloading 10%\rDownloading 20%\rDownloading 30%\n", noon),
+    ).toBe("10:12:33.123 Downloading 30%\n");
+  });
+
+  test("overwrites a progress line that is split across chunks", () => {
+    const stamper = createOutputStamper();
+    expect(stamper.push("Downloading 10%\r", noon)).toBe("");
+    expect(stamper.push("Downloading 20%\r", noon)).toBe("");
+    expect(stamper.push("Downloading 30%\n", noon)).toBe("10:12:33.123 Downloading 30%\n");
+  });
+
+  test("flushes the latest carriage-return frame when the session is stopped", () => {
+    const stamper = createOutputStamper();
+    expect(stamper.push("Downloading 10%\rDownloading 20%", noon)).toBe("");
+    expect(stamper.flush(noon)).toBe("10:12:33.123 Downloading 20%");
   });
 });
 
