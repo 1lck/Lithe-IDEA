@@ -42,6 +42,7 @@ private final class TestProcessController: @unchecked Sendable {
     private let arguments: [String]
     private let timeout: Duration
     private let lock = NSLock()
+    private let outputEOF = DispatchSemaphore(value: 0)
     private var continuation: CheckedContinuation<TestProcessResult, any Error>?
     private var timeoutTask: Task<Void, Never>?
     private var terminalError: (any Error)?
@@ -89,6 +90,7 @@ private final class TestProcessController: @unchecked Sendable {
             }
             if pendingError == nil, launchError == nil {
                 timeoutTask = Task { [weak self, timeout] in
+                    // test-stability: allow(swift-real-sleep) reason: this watchdog is the bounded deadline for a native subprocess with no injectable clock.
                     try? await Task.sleep(for: timeout)
                     guard !Task.isCancelled else { return }
                     self?.stop(
@@ -132,11 +134,7 @@ private final class TestProcessController: @unchecked Sendable {
     }
 
     private func processDidTerminate(status: Int32) {
-        let deadline = Date(timeIntervalSinceNow: 0.2)
-        while Date() < deadline {
-            if lock.withLock({ reachedOutputEOF }) { break }
-            Thread.sleep(forTimeInterval: 0.01)
-        }
+        _ = outputEOF.wait(timeout: .now() + 0.2)
         output.fileHandleForReading.readabilityHandler = nil
         try? output.fileHandleForReading.close()
         let state = lock.withLock { (terminalError, capturedOutput) }
@@ -146,12 +144,18 @@ private final class TestProcessController: @unchecked Sendable {
     }
 
     private func recordOutput(_ data: Data) {
-        lock.withLock {
+        let reachedEOF = lock.withLock { () -> Bool in
             if data.isEmpty {
+                guard !reachedOutputEOF else { return false }
                 reachedOutputEOF = true
+                return true
             } else {
                 capturedOutput.append(data)
+                return false
             }
+        }
+        if reachedEOF {
+            outputEOF.signal()
         }
     }
 
