@@ -3185,6 +3185,7 @@ struct EditorDocumentTests {
         let workspace = URL(fileURLWithPath: "/tmp/lithe-delete-confirmation")
         let target = workspace.appendingPathComponent("obsolete.swift")
         let fileOperations = RecordingTrashWorkspaceFileOperations()
+        defer { fileOperations.release() }
         let operations = SequencedWorkspaceOperations(
             snapshotAvailability: [true, false],
             files: [target]
@@ -3208,11 +3209,7 @@ struct EditorDocumentTests {
         model.cancelProjectItemDeletion()
         let deletionTask = Task { await model.confirmProjectItemDeletion(request) }
 
-        for _ in 0..<100 where !fileOperations.hasStarted {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-
-        #expect(fileOperations.hasStarted)
+        #expect(await fileOperations.waitUntilStarted())
         #expect(model.projectFiles.isEmpty)
         #expect(model.rootNode?.children?.isEmpty == true)
 
@@ -3685,6 +3682,7 @@ struct EditorDocumentTests {
         let fileA = workspace.appendingPathComponent("A.swift")
         let fileB = workspace.appendingPathComponent("B.swift")
         let operations = BlockingWorkspaceOperations()
+        defer { operations.releaseA() }
         let model = DocumentFeatureModel(
             operations: operations,
             documentLifecycleDecider: RustDocumentLifecycleDecider(core: RustCoreBridge()),
@@ -3716,10 +3714,7 @@ struct EditorDocumentTests {
             await model.openFileAsync(fileA, isReadOnly: false, displayPath: nil, activateWhenReady: true)
         }
 
-        for _ in 0..<100 where !operations.didStartReadingA {
-            await Task.yield()
-        }
-        #expect(operations.didStartReadingA)
+        #expect(await operations.waitUntilReadingA())
 
         model.openFile(fileB)
         #expect(model.activeDocumentID == documentB.id)
@@ -3735,6 +3730,7 @@ struct EditorDocumentTests {
         let workspace = URL(fileURLWithPath: "/tmp/lithe-equivalent-pending-open-tests")
         let fileA = workspace.appendingPathComponent("A.swift")
         let operations = BlockingWorkspaceOperations()
+        defer { operations.releaseA() }
         let model = DocumentFeatureModel(
             operations: operations,
             documentLifecycleDecider: RustDocumentLifecycleDecider(core: RustCoreBridge()),
@@ -3765,10 +3761,7 @@ struct EditorDocumentTests {
                 activateWhenReady: false
             )
         }
-        for _ in 0..<100 where !operations.didStartReadingA {
-            await Task.yield()
-        }
-        #expect(operations.didStartReadingA)
+        #expect(await operations.waitUntilReadingA())
 
         await model.openFileAsync(
             workspace.appendingPathComponent("nested/../A.swift"),
@@ -4228,18 +4221,19 @@ private struct EmptyWorkspaceOperations: WorkspaceOperations {
 }
 
 private final class BlockingWorkspaceOperations: WorkspaceOperations, @unchecked Sendable {
-    private let lock = NSLock()
-    private let releaseASemaphore = DispatchSemaphore(value: 0)
-    private var startedA = false
+    private let startedA = TestGate()
+    private let releaseAGate = TestGate()
 
     var didStartReadingA: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return startedA
+        startedA.isOpen
     }
 
     func releaseA() {
-        releaseASemaphore.signal()
+        releaseAGate.open()
+    }
+
+    func waitUntilReadingA() async -> Bool {
+        await startedA.waitUntilOpen()
     }
 
     func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? { nil }
@@ -4270,10 +4264,8 @@ private final class BlockingWorkspaceOperations: WorkspaceOperations, @unchecked
 
     func readFile(at rootURL: URL, relativePath: String) -> String? {
         if relativePath == "A.swift" {
-            lock.lock()
-            startedA = true
-            lock.unlock()
-            releaseASemaphore.wait()
+            startedA.open()
+            _ = releaseAGate.waitSynchronously()
             return "A"
         }
         return "B"
@@ -4369,20 +4361,24 @@ private struct EmptyWorkspaceFileOperations: WorkspaceFileOperations {
 
 private final class RecordingTrashWorkspaceFileOperations: WorkspaceFileOperations, @unchecked Sendable {
     private let lock = NSLock()
-    private let releaseSemaphore = DispatchSemaphore(value: 0)
+    private let started = TestGate()
+    private let releaseGate = TestGate()
     private var recordedTrashedURLs: [URL] = []
-    private var startedValue = false
 
     var trashedURLs: [URL] {
         lock.withLock { recordedTrashedURLs }
     }
 
     var hasStarted: Bool {
-        lock.withLock { startedValue }
+        started.isOpen
     }
 
     func release() {
-        releaseSemaphore.signal()
+        releaseGate.open()
+    }
+
+    func waitUntilStarted() async -> Bool {
+        await started.waitUntilOpen()
     }
 
     func fileExists(at url: URL) -> Bool { true }
@@ -4393,10 +4389,8 @@ private final class RecordingTrashWorkspaceFileOperations: WorkspaceFileOperatio
     func moveItem(at sourceURL: URL, to destinationURL: URL) throws {}
     func removeItem(at url: URL) throws {}
     func trashItem(at url: URL) throws {
-        lock.withLock {
-            startedValue = true
-        }
-        releaseSemaphore.wait()
+        started.open()
+        _ = releaseGate.waitSynchronously()
         lock.withLock {
             recordedTrashedURLs.append(url.standardizedFileURL)
         }

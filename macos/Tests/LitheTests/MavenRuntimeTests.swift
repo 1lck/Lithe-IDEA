@@ -110,15 +110,13 @@ struct MavenRuntimeTests {
     @MainActor
     func canceledRuntimeDiscoveryClearsDiscoveringState() async throws {
         let locator = BlockingRuntimeLocator()
+        defer { locator.release() }
         let service = ProjectRuntimeService(runtimeLocator: locator, store: EmptyKeyValueStore())
         let task = Task { @MainActor in
             await service.refreshAvailableRuntimes()
         }
 
-        for _ in 0..<100 where !locator.hasStarted {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        #expect(locator.hasStarted)
+        #expect(await locator.waitUntilStarted())
         #expect(service.isDiscovering)
 
         task.cancel()
@@ -149,27 +147,22 @@ private struct ProjectRelativeRuntimeLocator: RuntimeLocator {
 }
 
 private final class BlockingRuntimeLocator: RuntimeLocator, @unchecked Sendable {
-    private let lock = NSLock()
-    private let releaseSemaphore = DispatchSemaphore(value: 0)
-    private var startedValue = false
-
-    var hasStarted: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return startedValue
-    }
+    private let started = TestGate()
+    private let releaseGate = TestGate()
 
     func release() {
-        releaseSemaphore.signal()
+        releaseGate.open()
+    }
+
+    func waitUntilStarted() async -> Bool {
+        await started.waitUntilOpen()
     }
 
     func environment() -> [String: String] { [:] }
 
     func discover() -> RuntimeDiscoveryResult {
-        lock.lock()
-        startedValue = true
-        lock.unlock()
-        releaseSemaphore.wait()
+        started.open()
+        _ = releaseGate.waitSynchronously()
         return RuntimeDiscoveryResult(javaRuntimes: [], mavenRuntimes: [])
     }
 
