@@ -431,14 +431,12 @@ final class UpdateChecker: ObservableObject {
     }
 
     private func runProcess(_ executablePath: String, arguments: [String]) throws {
-        let process = Process()
-        let errorPipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = arguments
-        process.standardError = errorPipe
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
+        let result = MacProcessRunner().run(ProcessRequest(
+            executablePath: executablePath,
+            arguments: arguments,
+            timeoutMilliseconds: 120_000
+        ))
+        guard result.succeeded else {
             throw UpdateCheckError.toolFailed(executablePath)
         }
     }

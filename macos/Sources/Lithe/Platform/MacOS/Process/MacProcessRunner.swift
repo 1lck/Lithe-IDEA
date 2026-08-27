@@ -1,18 +1,28 @@
+import Darwin
 import Foundation
 import LitheCoreContracts
 
 final class MacProcessRunner: ProcessRunner, @unchecked Sendable {
+    private static let pollingInterval: TimeInterval = 0.01
+    private static let outputDrainGracePeriod: TimeInterval = 0.2
+    private static let terminationGracePeriod: TimeInterval = 0.2
+    private static let forcedTerminationGracePeriod: TimeInterval = 1
+
     func run(_ request: ProcessRequest) -> ProcessResult {
         let process = Process()
         let outputPipe = Pipe()
         let inputPipe = request.standardInput.map { _ in Pipe() }
         let outputLock = NSLock()
         var output = Data()
+        var reachedOutputEOF = false
         outputPipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
-            guard !data.isEmpty else { return }
             outputLock.lock()
-            output.append(data)
+            if data.isEmpty {
+                reachedOutputEOF = true
+            } else {
+                output.append(data)
+            }
             outputLock.unlock()
         }
 
@@ -27,12 +37,25 @@ final class MacProcessRunner: ProcessRunner, @unchecked Sendable {
         process.standardOutput = outputPipe
         process.standardError = outputPipe
         process.standardInput = inputPipe ?? FileHandle.nullDevice
+        if let inputPipe {
+            // A timed-out child can close stdin while a write is in flight.
+            // Convert SIGPIPE into a write error instead of terminating Lithe.
+            _ = Darwin.fcntl(
+                inputPipe.fileHandleForWriting.fileDescriptor,
+                F_SETNOSIGPIPE,
+                1
+            )
+        }
 
         do {
             try process.run()
             if let input = request.standardInput, let inputPipe {
-                try inputPipe.fileHandleForWriting.write(contentsOf: input)
-                try inputPipe.fileHandleForWriting.close()
+                // Large input must not prevent this thread from enforcing the
+                // process deadline when a child stops reading stdin.
+                DispatchQueue.global(qos: .utility).async {
+                    try? inputPipe.fileHandleForWriting.write(contentsOf: input)
+                    try? inputPipe.fileHandleForWriting.close()
+                }
             }
             let deadline = request.timeoutMilliseconds.map {
                 Date().addingTimeInterval(TimeInterval($0) / 1000)
@@ -41,16 +64,27 @@ final class MacProcessRunner: ProcessRunner, @unchecked Sendable {
             while process.isRunning {
                 if let deadline, Date() >= deadline {
                     timedOut = true
-                    process.terminate()
+                    terminateAndWait(process)
                     break
                 }
-                Thread.sleep(forTimeInterval: 0.01)
+                Thread.sleep(forTimeInterval: Self.pollingInterval)
             }
-            process.waitUntilExit()
+            try? inputPipe?.fileHandleForWriting.close()
+            if !process.isRunning {
+                // Descendants can inherit the pipe, so EOF is only given a
+                // bounded grace period rather than becoming another wait.
+                let drainDeadline = Date().addingTimeInterval(Self.outputDrainGracePeriod)
+                while Date() < drainDeadline {
+                    outputLock.lock()
+                    let didReachOutputEOF = reachedOutputEOF
+                    outputLock.unlock()
+                    if didReachOutputEOF { break }
+                    Thread.sleep(forTimeInterval: Self.pollingInterval)
+                }
+            }
             outputPipe.fileHandleForReading.readabilityHandler = nil
-            let remaining = outputPipe.fileHandleForReading.readDataToEndOfFile()
+            try? outputPipe.fileHandleForReading.close()
             outputLock.lock()
-            output.append(remaining)
             let data = output
             outputLock.unlock()
             return ProcessResult(
@@ -58,8 +92,26 @@ final class MacProcessRunner: ProcessRunner, @unchecked Sendable {
                 exitCode: timedOut ? 124 : process.terminationStatus
             )
         } catch {
+            try? inputPipe?.fileHandleForWriting.close()
             outputPipe.fileHandleForReading.readabilityHandler = nil
             return ProcessResult(output: error.localizedDescription, exitCode: 1)
+        }
+    }
+
+    private func terminateAndWait(_ process: Process) {
+        process.terminate()
+        waitForExit(process, timeout: Self.terminationGracePeriod)
+        guard process.isRunning else { return }
+        // Some tools ignore SIGTERM. Escalation keeps the synchronous runner's
+        // timeout contract bounded.
+        _ = Darwin.kill(process.processIdentifier, SIGKILL)
+        waitForExit(process, timeout: Self.forcedTerminationGracePeriod)
+    }
+
+    private func waitForExit(_ process: Process, timeout: TimeInterval) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while process.isRunning, Date() < deadline {
+            Thread.sleep(forTimeInterval: Self.pollingInterval)
         }
     }
 }

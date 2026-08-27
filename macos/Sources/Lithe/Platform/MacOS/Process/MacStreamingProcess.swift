@@ -3,6 +3,8 @@ import Foundation
 import LitheModuleAPI
 
 final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
+    private static let forcedTerminationDelay: Duration = .milliseconds(200)
+
     var isRunning: Bool { process?.isRunning == true }
     var onOutput: (@Sendable (String) -> Void)?
     var onTermination: (@Sendable (Int32) -> Void)?
@@ -54,6 +56,15 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
         process.standardInput = inputPipe ?? FileHandle.nullDevice
         process.standardOutput = outputPipe
         process.standardError = outputPipe
+        if let inputPipe {
+            // A timed-out child can close stdin while a write is in flight.
+            // Convert SIGPIPE into a write error instead of terminating Lithe.
+            _ = Darwin.fcntl(
+                inputPipe.fileHandleForWriting.fileDescriptor,
+                F_SETNOSIGPIPE,
+                1
+            )
+        }
 
         outputPipe.fileHandleForReading.readabilityHandler = { [weak self, weak process] handle in
             let data = handle.availableData
@@ -97,6 +108,7 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
         processRegistry?.register(pid: process.processIdentifier, category: category, moduleID: moduleID)
         self.inputPipe = inputPipe
         self.outputPipe = outputPipe
+        scheduleTimeout(request.timeoutMilliseconds, for: process, operationID: request.operationID)
         if let input = request.standardInput, let inputPipe {
             try inputPipe.fileHandleForWriting.write(contentsOf: input)
             if !request.keepsStandardInputOpen {
@@ -109,7 +121,6 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
             exitCode: nil,
             message: nil
         ))
-        scheduleTimeout(request.timeoutMilliseconds, for: process, operationID: request.operationID)
     }
 
     func send(_ input: Data) throws {
@@ -128,6 +139,7 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
                 message: "Process stopped"
             ))
             process.terminate()
+            scheduleForcedTermination(for: process)
         }
         try? inputPipe?.fileHandleForWriting.close()
         try? outputPipe?.fileHandleForReading.close()
@@ -183,6 +195,17 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
                 message: "Process timed out"
             ))
             process.terminate()
+            try? await Task.sleep(for: Self.forcedTerminationDelay)
+            guard self.process === process, process.isRunning else { return }
+            _ = Darwin.kill(process.processIdentifier, SIGKILL)
+        }
+    }
+
+    private func scheduleForcedTermination(for process: Process) {
+        Task { [process] in
+            try? await Task.sleep(for: Self.forcedTerminationDelay)
+            guard process.isRunning else { return }
+            _ = Darwin.kill(process.processIdentifier, SIGKILL)
         }
     }
 }

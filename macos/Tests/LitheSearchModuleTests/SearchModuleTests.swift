@@ -137,13 +137,13 @@ private final class BlockingIndexOperations: SearchOperations, @unchecked Sendab
 
     func warmSearchIndex(at rootURL: URL, visibilityRules: SearchVisibilityRules) {
         withLock { warmIndexStarted = true }
-        warmIndexGate.wait()
+        _ = warmIndexGate.wait(timeout: .now() + 5)
         withLock { completions.append("warm") }
     }
 
     func invalidateSearchIndex(at rootURL: URL, visibilityRules: SearchVisibilityRules) {
         withLock { invalidationStarted = true }
-        invalidationGate.wait()
+        _ = invalidationGate.wait(timeout: .now() + 5)
         withLock { completions.append("invalidate") }
     }
 

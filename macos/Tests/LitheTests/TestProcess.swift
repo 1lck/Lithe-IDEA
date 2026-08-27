@@ -43,6 +43,8 @@ private final class TestProcessController: @unchecked Sendable {
     private var continuation: CheckedContinuation<TestProcessResult, any Error>?
     private var timeoutTask: Task<Void, Never>?
     private var terminalError: (any Error)?
+    private var capturedOutput = Data()
+    private var reachedOutputEOF = false
     private var didFinish = false
 
     init(
@@ -69,6 +71,10 @@ private final class TestProcessController: @unchecked Sendable {
             self.continuation = continuation
             pendingError = terminalError
             if pendingError == nil {
+                output.fileHandleForReading.readabilityHandler = { [weak self] handle in
+                    let data = handle.availableData
+                    self?.recordOutput(data)
+                }
                 process.terminationHandler = { [weak self] terminatedProcess in
                     self?.processDidTerminate(status: terminatedProcess.terminationStatus)
                 }
@@ -128,10 +134,27 @@ private final class TestProcessController: @unchecked Sendable {
     }
 
     private func processDidTerminate(status: Int32) {
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        let result = lock.withLock { terminalError }.map(Result.failure)
-            ?? .success(TestProcessResult(terminationStatus: status, output: data))
+        let deadline = Date(timeIntervalSinceNow: 0.2)
+        while Date() < deadline {
+            if lock.withLock({ reachedOutputEOF }) { break }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        output.fileHandleForReading.readabilityHandler = nil
+        try? output.fileHandleForReading.close()
+        let state = lock.withLock { (terminalError, capturedOutput) }
+        let result = state.0.map(Result.failure)
+            ?? .success(TestProcessResult(terminationStatus: status, output: state.1))
         finish(result)
+    }
+
+    private func recordOutput(_ data: Data) {
+        lock.withLock {
+            if data.isEmpty {
+                reachedOutputEOF = true
+            } else {
+                capturedOutput.append(data)
+            }
+        }
     }
 
     private func finish(_ result: Result<TestProcessResult, any Error>) {
