@@ -1,6 +1,8 @@
 use super::support::temporary_root;
 use crate::execute_json;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
@@ -162,8 +164,8 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
             "command": "runConfig.generate",
             "payload": {
                 "root": root,
-                "paths": ["projects/demo/pom.xml", "projects/demo/service/pom.xml", source],
-                "modulePaths": ["service"]
+                "paths": [source],
+                "modulePaths": []
             }
         })
         .to_string(),
@@ -190,6 +192,7 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
         .unwrap();
     assert_eq!(java_main["cwd"], "projects/demo");
     assert_eq!(java_main["extensions"]["maven"]["module"], "service");
+    assert_eq!(java_main["toolchains"]["maven"], "project-maven");
     assert_eq!(
         response["data"]["toolchainRequirements"]["toolchains"]["project-jdk"]["minimumVersion"],
         "21"
@@ -232,6 +235,200 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
         .unwrap()
         .windows(2)
         .any(|arguments| arguments == ["-pl", "service"]));
+
+    let java_plan: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "plan-nested-maven-java-main",
+            "command": "runConfig.createLaunchPlan",
+            "payload": {
+                "root": root,
+                "configurationId": java_main["id"]
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(java_plan["ok"], true, "{java_plan}");
+    assert_eq!(
+        java_plan["data"]["executable"]["toolchain"],
+        "project-maven"
+    );
+    assert!(java_plan["data"]["arguments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|argument| argument == "-Dexec.mainClass=com.example.App"));
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn nested_maven_generation_keeps_standalone_java_on_the_jdk() {
+    let root = temporary_root("run-config-mixed-nested-maven");
+    let maven_source = "projects/demo/src/main/java/com/example/App.java";
+    let standalone_source = "samples/Standalone.java";
+    fs::create_dir_all(root.join("projects/demo/src/main/java/com/example")).unwrap();
+    fs::create_dir_all(root.join("samples")).unwrap();
+    fs::write(
+        root.join("projects/demo/pom.xml"),
+        "<project><artifactId>demo</artifactId></project>",
+    )
+    .unwrap();
+    fs::write(
+        root.join(maven_source),
+        "package com.example; class App { public static void main(String[] args) {} }",
+    )
+    .unwrap();
+    fs::write(
+        root.join(standalone_source),
+        "class Standalone { public static void main(String[] args) {} }",
+    )
+    .unwrap();
+
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "generate-mixed-nested-maven",
+            "command": "runConfig.generate",
+            "payload": {
+                "root": root,
+                "paths": [maven_source, standalone_source],
+                "modulePaths": []
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(response["ok"], true, "{response}");
+    let configurations = response["data"]["generated"]["configurations"]
+        .as_array()
+        .unwrap();
+    let maven_main = configurations
+        .iter()
+        .find(|value| value["id"] == "java-main:com.example.App")
+        .unwrap();
+    assert_eq!(maven_main["cwd"], "projects/demo");
+    assert_eq!(maven_main["toolchains"]["maven"], "project-maven");
+    let standalone = configurations
+        .iter()
+        .find(|value| value["id"] == "java-main:Standalone")
+        .unwrap();
+    assert_eq!(standalone["cwd"], ".");
+    assert!(standalone["toolchains"]["maven"].is_null());
+    assert_eq!(standalone["source"], standalone_source);
+
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        serde_json::to_string(&response["data"]["generated"]).unwrap(),
+    )
+    .unwrap();
+    let plan: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "plan-mixed-standalone",
+            "command": "runConfig.createLaunchPlan",
+            "payload": {
+                "root": root,
+                "configurationId": "java-main:Standalone"
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(plan["ok"], true, "{plan}");
+    assert_eq!(plan["data"]["executable"]["toolchain"], "project-jdk");
+    assert_eq!(plan["data"]["workingDirectory"], ".");
+    assert_eq!(
+        plan["data"]["arguments"],
+        serde_json::json!([standalone_source])
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn java_mains_use_their_own_independent_nested_maven_reactors() {
+    let root = temporary_root("run-config-independent-maven-reactors");
+    let alpha_source = "services/alpha/src/main/java/example/Alpha.java";
+    let beta_source = "services/beta/src/main/java/example/Beta.java";
+    fs::create_dir_all(root.join("services/alpha/src/main/java/example")).unwrap();
+    fs::create_dir_all(root.join("services/beta/src/main/java/example")).unwrap();
+    fs::write(
+        root.join("services/alpha/pom.xml"),
+        "<project><artifactId>alpha</artifactId></project>",
+    )
+    .unwrap();
+    fs::write(
+        root.join("services/beta/pom.xml"),
+        "<project><artifactId>beta</artifactId></project>",
+    )
+    .unwrap();
+    fs::write(
+        root.join(alpha_source),
+        "package example; class Alpha { public static void main(String[] args) {} }",
+    )
+    .unwrap();
+    fs::write(
+        root.join(beta_source),
+        "package example; class Beta { public static void main(String[] args) {} }",
+    )
+    .unwrap();
+
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "generate-independent-maven-reactors",
+            "command": "runConfig.generate",
+            "payload": {
+                "root": root,
+                "paths": [alpha_source, beta_source],
+                "modulePaths": []
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(response["ok"], true, "{response}");
+    let configurations = response["data"]["generated"]["configurations"]
+        .as_array()
+        .unwrap();
+    let alpha = configurations
+        .iter()
+        .find(|value| value["id"] == "java-main:example.Alpha")
+        .unwrap();
+    let beta = configurations
+        .iter()
+        .find(|value| value["id"] == "java-main:example.Beta")
+        .unwrap();
+    assert_eq!(alpha["cwd"], "services/alpha");
+    assert_eq!(beta["cwd"], "services/beta");
+    assert_eq!(alpha["extensions"]["maven"]["module"], ".");
+    assert_eq!(beta["extensions"]["maven"]["module"], ".");
+    assert_eq!(alpha["toolchains"]["maven"], "project-maven");
+    assert_eq!(beta["toolchains"]["maven"], "project-maven");
+
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        serde_json::to_string(&response["data"]["generated"]).unwrap(),
+    )
+    .unwrap();
+    let beta_plan: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "plan-beta-reactor",
+            "command": "runConfig.createLaunchPlan",
+            "payload": {
+                "root": root,
+                "configurationId": "java-main:example.Beta"
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(beta_plan["ok"], true, "{beta_plan}");
+    assert_eq!(beta_plan["data"]["workingDirectory"], "services/beta");
+    assert_eq!(
+        beta_plan["data"]["executable"]["toolchain"],
+        "project-maven"
+    );
 
     fs::remove_dir_all(root).unwrap();
 }
@@ -475,6 +672,61 @@ fn plain_java_main_uses_the_jdk_without_maven() {
     assert_eq!(plan["ok"], true, "{plan}");
     assert_eq!(plan["data"]["executable"]["toolchain"], "project-jdk");
     assert_eq!(plan["data"]["arguments"], serde_json::json!([source]));
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn stale_plain_java_main_is_rejected_when_the_source_belongs_to_maven() {
+    let root = temporary_root("run-config-stale-maven-main");
+    let source = "projects/demo/src/main/java/com/example/App.java";
+    fs::create_dir_all(root.join("projects/demo/src/main/java/com/example")).unwrap();
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(root.join("projects/demo/pom.xml"), "<project/>").unwrap();
+    fs::write(
+        root.join(source),
+        "package com.example; class App { public static void main(String[] args) {} }",
+    )
+    .unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        serde_json::json!({
+            "version": 2,
+            "configurations": [{
+                "id": "java-main:com.example.App",
+                "name": "App",
+                "provider": "java.main",
+                "execution": "application",
+                "cwd": ".",
+                "toolchains": { "java": "project-jdk" },
+                "extensions": {
+                    "maven": { "mainClass": "com.example.App", "module": "." },
+                    "java": { "source": source }
+                }
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let plan: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "plan-stale-maven-main",
+            "command": "runConfig.createLaunchPlan",
+            "payload": {
+                "root": root,
+                "configurationId": "java-main:com.example.App"
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(plan["ok"], false, "{plan}");
+    assert_eq!(plan["error"]["code"], "invalid_request");
+    assert_eq!(
+        plan["error"]["message"],
+        "Java application belongs to a Maven project; regenerate run configurations"
+    );
 
     fs::remove_dir_all(root).unwrap();
 }
@@ -799,6 +1051,89 @@ fn project_editor_save_prepares_local_and_team_documents_without_writing() {
 }
 
 #[test]
+fn editor_save_updates_generic_local_toolchains_without_dropping_other_entries() {
+    let root = temporary_root("run-config-editor-runtime-toolchain");
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
+    fs::create_dir_all(root.join("web")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        r#"{"version":2,"configurations":[{"id":"npm:dev","name":"dev","provider":"npm.script","execution":"service","command":"npm","args":["run","dev"],"cwd":"web","toolchains":{"runtime":"project-node"}}]}"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join(".lithe/toolchains/local.json"),
+        r#"{"version":1,"toolchains":{"project-go":{"executable":"C:/Go/bin/go.exe"}}}"#,
+    )
+    .unwrap();
+
+    let save = |node_path: &str| -> Value {
+        serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "save-runtime-toolchain",
+                "command": "runConfig.saveEditorChanges",
+                "payload": {
+                    "root": root,
+                    "scope": "local",
+                    "configurationId": "npm:dev",
+                    "workingDirectory": "web",
+                    "toolchain": {
+                        "runtimeExecutablePaths": {"project-node": node_path}
+                    }
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap()
+    };
+
+    let saved = save("C:/Program Files/nodejs/node.exe");
+    assert_eq!(saved["ok"], true, "{saved}");
+    let toolchains: Value =
+        serde_json::from_str(saved["data"]["toolchainDocument"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        toolchains["toolchains"]["project-node"]["executable"],
+        "C:/Program Files/nodejs/node.exe"
+    );
+    assert_eq!(
+        toolchains["toolchains"]["project-go"]["executable"],
+        "C:/Go/bin/go.exe"
+    );
+    fs::write(
+        root.join(".lithe/toolchains/local.json"),
+        saved["data"]["toolchainDocument"].as_str().unwrap(),
+    )
+    .unwrap();
+
+    let removed = save("");
+    let removed_toolchains: Value =
+        serde_json::from_str(removed["data"]["toolchainDocument"].as_str().unwrap()).unwrap();
+    assert!(removed_toolchains["toolchains"]
+        .get("project-node")
+        .is_none());
+    assert_eq!(
+        removed_toolchains["toolchains"]["project-go"]["executable"],
+        "C:/Go/bin/go.exe"
+    );
+
+    let inspected: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "inspect-runtime-toolchain",
+            "command": "runConfig.inspect",
+            "payload": {"root": root}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(
+        inspected["data"]["localToolchains"]["toolchains"]["project-node"]["executable"],
+        "C:/Program Files/nodejs/node.exe"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn run_configuration_inspect_reports_malformed_and_unsupported_documents() {
     let root = temporary_root("run-config-errors");
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
@@ -1056,6 +1391,64 @@ fn run_configuration_generation_detects_maven_compiler_target() {
 }
 
 #[test]
+fn run_configuration_inspection_invalidates_an_older_generator_revision() {
+    let root = temporary_root("run-config-generator-revision");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src/App.java"), "class App {}").unwrap();
+    let generated: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "generate-revision",
+            "command": "runConfig.generate",
+            "payload": {"root": root, "paths": ["src/App.java"], "modulePaths": []}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    let mut document = generated["data"]["generated"].clone();
+    let legacy_fingerprint = legacy_generator_fingerprint(&document["generator"]["inputs"]);
+    assert_ne!(
+        document["generator"]["fingerprint"],
+        serde_json::json!(legacy_fingerprint)
+    );
+    document["generator"]["fingerprint"] = serde_json::json!(legacy_fingerprint);
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        serde_json::to_string(&document).unwrap(),
+    )
+    .unwrap();
+
+    let inspected: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "inspect-revision",
+            "command": "runConfig.inspect",
+            "payload": {"root": root}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(inspected["ok"], true, "{inspected}");
+    assert_eq!(
+        inspected["data"]["diagnostics"][0]["message"],
+        "Run configuration generator changed; regenerate configurations"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+fn legacy_generator_fingerprint(inputs: &Value) -> String {
+    let inputs = serde_json::from_value::<BTreeMap<String, String>>(inputs.clone()).unwrap();
+    let mut digest = Sha256::new();
+    for (relative, content_hash) in inputs {
+        digest.update(relative.as_bytes());
+        digest.update([0]);
+        digest.update(content_hash.as_bytes());
+        digest.update([0]);
+    }
+    format!("sha256:{:x}", digest.finalize())
+}
+
+#[test]
 fn run_configuration_inspection_summarizes_changed_inputs() {
     let root = temporary_root("run-config-input-summary");
     fs::create_dir_all(root.join("src")).unwrap();
@@ -1112,7 +1505,7 @@ fn run_configuration_resolve_matches_toolchains_and_rejects_unsafe_paths() {
     fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
     fs::write(
         root.join(".lithe/run/generated.json"),
-        r#"{"version":1,"configurations":[{"id":"current-file","name":"Current File","type":"java.current-file"}]}"#,
+        r#"{"version":1,"configurations":[{"id":"current-file","name":"Current File","type":"java.current-file","toolchains":{"java":"project-jdk"}}]}"#,
     )
     .unwrap();
     fs::write(
@@ -1166,6 +1559,198 @@ fn run_configuration_resolve_matches_toolchains_and_rejects_unsafe_paths() {
     let unsafe_path = resolve("21.0.5", "Eclipse Temurin");
     assert_eq!(unsafe_path["ok"], false);
     assert_eq!(unsafe_path["error"]["code"], "invalid_request");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn hybrid_project_scopes_node_diagnostics_to_npm_configurations() {
+    let root = temporary_root("run-config-hybrid-toolchains");
+    let java_source = "src/main/java/com/example/DemoApplication.java";
+    fs::create_dir_all(root.join("src/main/java/com/example")).unwrap();
+    fs::create_dir_all(root.join("web")).unwrap();
+    fs::write(
+        root.join(java_source),
+        "package com.example; @SpringBootApplication class DemoApplication { public static void main(String[] args) {} }",
+    )
+    .unwrap();
+    fs::write(
+        root.join("pom.xml"),
+        "<project><artifactId>demo</artifactId><properties><java.version>21</java.version></properties><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+    )
+    .unwrap();
+    fs::write(
+        root.join("web/package.json"),
+        r#"{"engines":{"node":">=22.0"},"scripts":{"dev":"vite","build":"vite build"}}"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("package.json"),
+        r#"{"private":true,"engines":{"node":">=22.0"}}"#,
+    )
+    .unwrap();
+
+    let generated: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "generate-hybrid",
+            "command": "runConfig.generate",
+            "payload": {"root": root, "paths": [java_source]}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(generated["ok"], true, "{generated}");
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        serde_json::to_string(&generated["data"]["generated"]).unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        root.join(".lithe/toolchains/requirements.json"),
+        serde_json::to_string(&generated["data"]["toolchainRequirements"]).unwrap(),
+    )
+    .unwrap();
+
+    let resolve = |node_version: Option<&str>| -> Value {
+        let mut candidates = vec![
+            serde_json::json!({"id":"project-jdk","type":"java","version":"21","vendor":"Temurin"}),
+            serde_json::json!({"id":"project-maven","type":"maven","version":"3.9.9","vendor":""}),
+        ];
+        if let Some(version) = node_version {
+            candidates.push(serde_json::json!({
+                "id":"project-node","type":"node","version":version,"vendor":"Node.js"
+            }));
+        }
+        serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "resolve-hybrid",
+                "command": "runConfig.resolve",
+                "payload": {"root": root, "toolchainCandidates": candidates}
+            })
+            .to_string(),
+        ))
+        .unwrap()
+    };
+
+    let missing = resolve(None);
+    let configurations = missing["data"]["configurations"].as_array().unwrap();
+    let npm_ids = configurations
+        .iter()
+        .filter(|configuration| configuration["provider"] == "npm.script")
+        .map(|configuration| configuration["id"].as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    assert!(!npm_ids.is_empty(), "{missing}");
+    let node_diagnostics = missing["data"]["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| diagnostic["toolchain"] == "project-node")
+        .collect::<Vec<_>>();
+    assert_eq!(node_diagnostics.len(), npm_ids.len(), "{missing}");
+    assert!(node_diagnostics
+        .iter()
+        .all(|diagnostic| npm_ids.iter().any(|id| diagnostic["id"] == id.as_str())));
+
+    let spring_id = configurations
+        .iter()
+        .find(|configuration| configuration["provider"] == "spring-boot.maven")
+        .and_then(|configuration| configuration["id"].as_str())
+        .unwrap();
+    let spring_plan: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "plan-hybrid-spring",
+            "command": "runConfig.createLaunchPlan",
+            "payload": {"root": root, "configurationId": spring_id}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(spring_plan["ok"], true, "{spring_plan}");
+    assert_eq!(
+        spring_plan["data"]["executable"]["toolchain"],
+        "project-maven"
+    );
+
+    let mismatch = resolve(Some("18.20.4"));
+    let version_mismatches = mismatch["data"]["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| diagnostic["code"] == "toolchainVersionMismatch")
+        .collect::<Vec<_>>();
+    assert!(!version_mismatches.is_empty(), "{mismatch}");
+    assert!(version_mismatches
+        .iter()
+        .all(|diagnostic| npm_ids.iter().any(|id| diagnostic["id"] == id.as_str())));
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn legacy_v2_runtime_requirements_are_reconciled_without_regeneration() {
+    let root = temporary_root("run-config-legacy-runtime-consumption");
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
+    fs::create_dir_all(root.join("web")).unwrap();
+    fs::create_dir_all(root.join("bun-web")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        r#"{"version":2,"configurations":[
+            {"id":"spring","name":"backend","provider":"spring-boot.maven","execution":"service","cwd":".","toolchains":{"java":"project-jdk","maven":"project-maven"}},
+            {"id":"npm","name":"web","provider":"npm.script","execution":"service","command":"npm","args":["run","dev"],"cwd":"web","toolchains":{}},
+            {"id":"bun","name":"bun web","provider":"npm.script","execution":"service","command":"bun","args":["run","dev"],"cwd":"bun-web","toolchains":{"runtime":"project-node"}}
+        ]}"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join(".lithe/toolchains/requirements.json"),
+        r#"{"version":1,"toolchains":{
+            "project-jdk":{"type":"java"},
+            "project-maven":{"type":"maven","java":"project-jdk"},
+            "project-node":{"type":"node","minimumVersion":"22"}
+        }}"#,
+    )
+    .unwrap();
+
+    let resolved: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "resolve-legacy-runtime-consumption",
+            "command": "runConfig.resolve",
+            "payload": {
+                "root": root,
+                "toolchainCandidates": [
+                    {"id":"project-jdk","type":"java","version":"21","vendor":"Temurin"},
+                    {"id":"project-maven","type":"maven","version":"3.9.9","vendor":""}
+                ]
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(resolved["ok"], true, "{resolved}");
+    let node_diagnostics = resolved["data"]["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| diagnostic["toolchain"] == "project-node")
+        .collect::<Vec<_>>();
+    assert_eq!(node_diagnostics.len(), 1, "{resolved}");
+    assert_eq!(node_diagnostics[0]["id"], "npm");
+    let configurations = resolved["data"]["configurations"].as_array().unwrap();
+    assert_eq!(
+        configurations
+            .iter()
+            .find(|configuration| configuration["id"] == "npm")
+            .unwrap()["toolchains"]["runtime"],
+        "project-node"
+    );
+    assert!(configurations
+        .iter()
+        .find(|configuration| configuration["id"] == "bun")
+        .unwrap()["toolchains"]["runtime"]
+        .is_null());
 
     fs::remove_dir_all(root).unwrap();
 }
@@ -1225,6 +1810,73 @@ fn shared_run_configuration_fixtures_have_the_versioned_contract_shape() {
         }
     }
     assert!(fixture_count >= 6);
+}
+
+#[test]
+fn shared_hybrid_fixture_executes_scoped_toolchain_expectations() {
+    let fixture_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../shared/fixtures/run-configuration/hybrid-spring-vue.json");
+    let fixture: Value = serde_json::from_str(&fs::read_to_string(fixture_path).unwrap()).unwrap();
+    let root = temporary_root("run-config-hybrid-fixture");
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        serde_json::to_string(&fixture["generated"]).unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        root.join(".lithe/toolchains/requirements.json"),
+        serde_json::to_string(&fixture["requirements"]).unwrap(),
+    )
+    .unwrap();
+
+    let resolved: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "resolve-hybrid-fixture",
+            "command": "runConfig.resolve",
+            "payload": {
+                "root": root,
+                "toolchainCandidates": [
+                    {"id":"project-jdk","type":"java","version":"21","vendor":"Temurin"},
+                    {"id":"project-maven","type":"maven","version":"3.9.9","vendor":""}
+                ]
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(resolved["ok"], true, "{resolved}");
+    let missing_node_ids = resolved["data"]["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| diagnostic["toolchain"] == "project-node")
+        .filter_map(|diagnostic| diagnostic["id"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        missing_node_ids,
+        fixture["expected"]["missingNodeDiagnosticConfigurationIds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+    );
+    for id in fixture["expected"]["unblockedConfigurationIds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+    {
+        assert!(resolved["data"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|diagnostic| diagnostic["id"] != id));
+    }
+
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -1539,7 +2191,7 @@ fn pure_go_generation_does_not_require_java_or_add_java_current_file() {
 }
 
 #[test]
-fn multi_language_generation_declares_runtime_requirements_and_versions() {
+fn multi_language_generation_declares_only_consumed_runtime_requirements() {
     let root = temporary_root("generic-toolchain-requirements");
     for directory in ["python", "web", "worker/src"] {
         fs::create_dir_all(root.join(directory)).unwrap();
@@ -1574,19 +2226,27 @@ fn multi_language_generation_declares_runtime_requirements_and_versions() {
     .unwrap();
     assert_eq!(generated["ok"], true, "{generated}");
     let requirements = &generated["data"]["toolchainRequirements"]["toolchains"];
-    for (id, kind, version) in [
-        ("project-go", "go", "1.24"),
-        ("project-python", "python", "3.12"),
-        ("project-node", "node", "22.4"),
-        ("project-cargo", "rust", "1.82"),
-    ] {
-        assert_eq!(requirements[id]["type"], kind, "{requirements}");
-        assert_eq!(
-            requirements[id]["minimumVersion"], version,
-            "{requirements}"
-        );
+    assert_eq!(
+        requirements["project-node"]["type"], "node",
+        "{requirements}"
+    );
+    assert_eq!(
+        requirements["project-node"]["minimumVersion"], "22.4",
+        "{requirements}"
+    );
+    for id in ["project-go", "project-python", "project-cargo"] {
+        assert!(requirements[id].is_null(), "{id}: {requirements}");
     }
     assert!(requirements["project-jdk"].is_null(), "{requirements}");
+    for provider in ["go.main", "python.script", "cargo.binary"] {
+        let configuration = generated["data"]["generated"]["configurations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|configuration| configuration["provider"] == provider)
+            .unwrap();
+        assert!(configuration["toolchains"].as_object().unwrap().is_empty());
+    }
 
     fs::remove_dir_all(root).unwrap();
 }

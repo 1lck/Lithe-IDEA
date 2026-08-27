@@ -66,31 +66,23 @@ enum JavaLanguageServerWorkspaceState {
     }
 }
 
-/// Owns Java-only code vision, fallback inlay hints, Maven integration, and
-/// legacy Java debug behavior. Java LSP navigation and editing are delegated
-/// to the Rust host.
+/// Owns Java-only code vision, Maven integration, and legacy Java debug behavior.
+/// Java LSP navigation and editing are delegated to the Rust host.
 @MainActor
 final class JavaFeatureModel: ObservableObject {
     @Published private(set) var javaCodeVisionHints: [URL: [JavaCodeVisionHint]] = [:]
-    @Published private(set) var javaInlayHints: [URL: [JavaInlayHint]] = [:]
     private(set) var languageServerWorkspaceState: JavaLanguageServerWorkspaceState = .idle
 
     private let operations: any JavaMavenOperations
-    private let workspaceOperations: any WorkspaceOperations
     private var documentProvider: (@MainActor () -> EditorDocument?)?
     private var caretProvider: (@MainActor () -> EditorCaret?)?
     private var notify: (@MainActor (String) -> Void)?
     private var loadBlame: (@MainActor (URL) async -> [GitBlameLine])?
-    private var inlayHintTasks: [UUID: Task<Void, Never>] = [:]
     private var mavenFeature: MavenFeatureModel?
     private var debugFeature: JavaDebugFeatureModel?
 
-    init(
-        operations: any JavaMavenOperations,
-        workspaceOperations: any WorkspaceOperations
-    ) {
+    init(operations: any JavaMavenOperations) {
         self.operations = operations
-        self.workspaceOperations = workspaceOperations
     }
 
     func configure(
@@ -125,10 +117,7 @@ final class JavaFeatureModel: ObservableObject {
 
     func stop() {
         cancelLanguageServerPreparation()
-        inlayHintTasks.values.forEach { $0.cancel() }
-        inlayHintTasks.removeAll()
         javaCodeVisionHints = [:]
-        javaInlayHints = [:]
     }
 
     func beginLanguageServerPreparation(
@@ -280,7 +269,6 @@ final class JavaFeatureModel: ObservableObject {
 
     func close(_ document: EditorDocument) {
         javaCodeVisionHints[document.url.standardizedFileURL] = nil
-        javaInlayHints[document.url.standardizedFileURL] = nil
     }
 
     func refreshCodeVision(
@@ -308,71 +296,6 @@ final class JavaFeatureModel: ObservableObject {
                 authorName: hint.authorName
             )
         }
-    }
-
-    func refreshInlayHints(
-        for document: EditorDocument,
-        projectFiles: [URL],
-        workspaceRoot: URL?
-    ) {
-        guard !document.isReadOnly,
-              document.url.pathExtension.lowercased() == "java" else { return }
-        inlayHintTasks[document.id]?.cancel()
-        inlayHintTasks[document.id] = Task { @MainActor [weak self, weak document] in
-            guard let self, let document else { return }
-            await self.requestInlayHints(
-                for: document,
-                projectFiles: projectFiles,
-                workspaceRoot: workspaceRoot
-            )
-            self.inlayHintTasks[document.id] = nil
-        }
-    }
-
-    private func requestInlayHints(
-        for document: EditorDocument,
-        projectFiles: [URL],
-        workspaceRoot: URL?
-    ) async {
-        guard !Task.isCancelled,
-              documentProvider?()?.id == document.id else { return }
-        await applyInlayFallback(
-            for: document,
-            projectFiles: projectFiles,
-            workspaceRoot: workspaceRoot
-        )
-    }
-
-    private func applyInlayFallback(
-        for document: EditorDocument,
-        projectFiles: [URL],
-        workspaceRoot: URL?
-    ) async {
-        let currentText = document.text
-        let sourcePaths = projectFiles.compactMap { file in
-            workspaceRoot.flatMap { workspaceRelativePath(for: file, root: $0) }
-        }
-        let workspaceOperations = self.workspaceOperations
-        let sources: [String]
-        if let workspaceRoot {
-            sources = await Task.detached(priority: .utility) {
-                sourcePaths.compactMap { path in
-                    workspaceOperations.readFile(at: workspaceRoot, relativePath: path)
-                }
-            }.value
-        } else {
-            sources = []
-        }
-        let fallback = await structure(source: currentText, declarationSources: sources)?.inlayHints ?? []
-        guard documentProvider?()?.id == document.id else { return }
-        javaInlayHints[document.url.standardizedFileURL] = fallback
-    }
-
-    private func workspaceRelativePath(for url: URL, root: URL) -> String? {
-        let rootPath = root.standardizedFileURL.path
-        let path = url.standardizedFileURL.path
-        guard path.hasPrefix(rootPath + "/") else { return nil }
-        return String(path.dropFirst(rootPath.count + 1))
     }
 
     func structure(source: String, declarationSources: [String] = []) async -> JavaStructureResult? {

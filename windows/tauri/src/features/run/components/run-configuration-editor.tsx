@@ -9,6 +9,7 @@ import { FolderIcon, PlayIcon } from "@/ui/icons";
 import { useTranslation } from "@/i18n/locale-provider";
 import type {
   GlobalToolchain,
+  GenericRuntime,
   JavaRuntime,
   MavenRuntime,
   RunConfiguration,
@@ -17,7 +18,9 @@ import type {
 } from "../types/run.types";
 import {
   configurationOverrides,
+  configurationUsesJava,
   configurationUsesMaven,
+  configurationUsesNode,
   environmentFromText,
   environmentText,
 } from "../utils/run-configuration";
@@ -28,6 +31,7 @@ interface RunConfigurationEditorProps {
   saveError: string | null;
   discoveredJava: JavaRuntime[];
   discoveredMaven: MavenRuntime[];
+  discoveredRuntimes: GenericRuntime[];
   globalToolchain: GlobalToolchain;
   onClose: () => void;
   onSave: (
@@ -96,6 +100,7 @@ export function RunConfigurationEditor({
   saveError,
   discoveredJava,
   discoveredMaven,
+  discoveredRuntimes,
   globalToolchain,
   onClose,
   onSave,
@@ -108,6 +113,8 @@ export function RunConfigurationEditor({
   const [saving, setSaving] = useState(false);
 
   const projectUsesMaven = configurationUsesMaven(configuration);
+  const projectUsesJava = configurationUsesJava(configuration);
+  const projectUsesNode = configurationUsesNode(configuration);
   const javaCandidates = discoveredJava.map((runtime) => ({
     value: runtime.homePath,
     label: runtime.version ? `${runtime.homePath} (${runtime.version})` : runtime.homePath,
@@ -118,6 +125,14 @@ export function RunConfigurationEditor({
       ? `${runtime.executablePath} (${runtime.version})`
       : runtime.executablePath,
   }));
+  const nodeCandidates = discoveredRuntimes
+    .filter((runtime) => runtime.id === "project-node")
+    .map((runtime) => ({
+      value: runtime.executablePath,
+      label: runtime.version
+        ? `${runtime.executablePath} (${runtime.version})`
+        : runtime.executablePath,
+    }));
 
   const pickDirectory = (field: "javaHomePath" | "mavenJavaHomePath" | "workingDirectoryPath") => {
     void open({ directory: true, multiple: false }).then((selected) => {
@@ -143,6 +158,20 @@ export function RunConfigurationEditor({
         } else {
           setDraft((current) => ({ ...current, mavenExecutablePath: selected }));
         }
+      }
+    });
+  };
+
+  const pickNodeExecutable = () => {
+    void open({ directory: false, multiple: false }).then((selected) => {
+      if (typeof selected === "string" && selected) {
+        setToolchainDraft((current) => ({
+          ...current,
+          runtimeExecutablePaths: {
+            ...current.runtimeExecutablePaths,
+            "project-node": selected,
+          },
+        }));
       }
     });
   };
@@ -183,17 +212,19 @@ export function RunConfigurationEditor({
             {t("run.projectDefaultsSection")} · {t("run.saveScopeLocal")}
           </div>
           <p className="text-subtle-foreground ui-text-sm">{t("run.saveScopeLocalHint")}</p>
-          <ToolchainField
-            id="run-jdk-home"
-            label={t("run.jdkHome")}
-            hint={t("run.jdkHomeHint")}
-            value={toolchainDraft.javaHomePath}
-            autoLabel={t("run.toolchainAuto")}
-            customLabel={t("run.toolchainCurrent")}
-            candidates={javaCandidates}
-            onSelect={(value) => setToolchainDraft((current) => ({ ...current, javaHomePath: value }))}
-            onPick={() => pickToolchainDirectory("javaHomePath")}
-          />
+          {projectUsesJava ? (
+            <ToolchainField
+              id="run-jdk-home"
+              label={t("run.jdkHome")}
+              hint={t("run.jdkHomeHint")}
+              value={toolchainDraft.javaHomePath}
+              autoLabel={t("run.toolchainAuto")}
+              customLabel={t("run.toolchainCurrent")}
+              candidates={javaCandidates}
+              onSelect={(value) => setToolchainDraft((current) => ({ ...current, javaHomePath: value }))}
+              onPick={() => pickToolchainDirectory("javaHomePath")}
+            />
+          ) : null}
           {projectUsesMaven ? (
             <>
               <ToolchainField
@@ -219,6 +250,25 @@ export function RunConfigurationEditor({
                 onPick={() => pickToolchainDirectory("mavenJavaHomePath")}
               />
             </>
+          ) : null}
+          {projectUsesNode ? (
+            <ToolchainField
+              id="run-node-executable"
+              label={t("run.nodeExecutable")}
+              hint={t("run.nodeExecutableHint")}
+              value={toolchainDraft.runtimeExecutablePaths["project-node"] ?? ""}
+              autoLabel={t("run.toolchainAuto")}
+              customLabel={t("run.toolchainCurrent")}
+              candidates={nodeCandidates}
+              onSelect={(value) => setToolchainDraft((current) => ({
+                ...current,
+                runtimeExecutablePaths: {
+                  ...current.runtimeExecutablePaths,
+                  "project-node": value,
+                },
+              }))}
+              onPick={pickNodeExecutable}
+            />
           ) : null}
         </div>
 
@@ -266,17 +316,19 @@ export function RunConfigurationEditor({
             <div className="font-medium text-subtle-foreground ui-text-sm">
               {t("run.configurationOverridesSection")}
             </div>
-            <ToolchainField
-              id="run-configuration-jdk-home"
-              label={t("run.jdkHome")}
-              hint={t("run.configurationOverrideHint")}
-              value={draft.javaHomePath}
-              autoLabel={t("run.toolchainProjectDefault")}
-              customLabel={t("run.toolchainCurrent")}
-              candidates={javaCandidates}
-              onSelect={(value) => setDraft((current) => ({ ...current, javaHomePath: value }))}
-              onPick={() => pickDirectory("javaHomePath")}
-            />
+            {projectUsesJava ? (
+              <ToolchainField
+                id="run-configuration-jdk-home"
+                label={t("run.jdkHome")}
+                hint={t("run.configurationOverrideHint")}
+                value={draft.javaHomePath}
+                autoLabel={t("run.toolchainProjectDefault")}
+                customLabel={t("run.toolchainCurrent")}
+                candidates={javaCandidates}
+                onSelect={(value) => setDraft((current) => ({ ...current, javaHomePath: value }))}
+                onPick={() => pickDirectory("javaHomePath")}
+              />
+            ) : null}
             {projectUsesMaven ? (
               <>
                 <ToolchainField

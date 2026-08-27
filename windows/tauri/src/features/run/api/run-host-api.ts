@@ -1,5 +1,10 @@
 import { invoke } from "@/platform/tauri-core";
-import type { GlobalToolchain, JavaRuntime, MavenRuntime } from "../types/run.types";
+import type {
+  GenericRuntime,
+  GlobalToolchain,
+  JavaRuntime,
+  MavenRuntime,
+} from "../types/run.types";
 
 export function listJavaSources(root: string) {
   return invoke<string[]>("run_list_java_sources", { root });
@@ -26,10 +31,11 @@ export function writeRunStdin(sessionId: string, input: string) {
 }
 
 export function discoverRunToolchains(root: string, selected?: GlobalToolchain) {
-  return invoke<{ java: JavaRuntime[]; maven: MavenRuntime[] }>("run_discover_toolchains", {
+  return invoke<{ java: JavaRuntime[]; maven: MavenRuntime[]; runtimes: GenericRuntime[] }>("run_discover_toolchains", {
     root,
     javaHomePath: selected?.javaHomePath,
     mavenExecutablePath: selected?.mavenExecutablePath,
+    runtimeExecutablePaths: selected?.runtimeExecutablePaths,
   });
 }
 
@@ -40,6 +46,7 @@ export function resolveRunLaunch(args: {
   javaHomePath?: string;
   mavenExecutablePath?: string;
   mavenJavaHomePath?: string;
+  runtimeExecutablePaths?: Record<string, string>;
   environment?: Record<string, unknown>;
 }) {
   return invoke<{

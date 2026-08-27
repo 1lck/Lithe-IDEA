@@ -227,7 +227,7 @@ jobs:
           ruby scripts/test-macos-update-manifest.rb
           plutil -lint macos/Resources/Info.plist
 
-      - name: Build and verify host architecture package
+      - name: Build and verify default universal package
         run: ./scripts/verify-macos-package.sh
 
   gate:

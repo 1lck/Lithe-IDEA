@@ -127,6 +127,11 @@ pub fn detect(ctx: &DirectoryContext) -> Vec<Detected> {
             if let Some(server) = server {
                 extension["server"] = server.into();
             }
+            let detected = if manager == "bun" {
+                detected
+            } else {
+                detected.requiring_toolchain("runtime", "project-node")
+            };
             detected.with_extension("npm", extension)
         })
         .collect()
