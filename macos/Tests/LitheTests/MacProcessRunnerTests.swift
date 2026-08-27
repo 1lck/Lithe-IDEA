@@ -140,6 +140,75 @@ struct MacProcessRunnerTests {
         #expect(await waitUntilProcessExits(descendantPID))
     }
 
+    @Test
+    func normalExitTerminatesBackgroundDescendantThatRetainsPipes() throws {
+        let fixture = try makeDescendantFixture()
+        defer { fixture.cleanup() }
+
+        let result = MacProcessRunner().run(
+            fixture.normalExitRequest(operationID: "runner-normal-exit")
+        )
+
+        #expect(result.exitCode == 0)
+        #expect(result.output.contains("ready"))
+        let descendantPID = try fixture.descendantPID()
+        defer { terminateIfRunning(descendantPID) }
+        #expect(!processIsRunning(descendantPID))
+    }
+
+    @Test
+    func rawSessionNormalExitTerminatesBackgroundDescendantThatRetainsPipes() async throws {
+        let fixture = try makeDescendantFixture()
+        defer { fixture.cleanup() }
+        let session = MacRawProcessSession()
+        let terminated = TestGate()
+        session.onTermination = { _ in terminated.open() }
+        defer { session.stop() }
+
+        try session.start(fixture.normalExitRequest(operationID: "raw-normal-exit"))
+
+        #expect(await terminated.waitUntilOpen())
+        let descendantPID = try fixture.descendantPID()
+        defer { terminateIfRunning(descendantPID) }
+        #expect(!processIsRunning(descendantPID))
+    }
+
+    @Test
+    func streamingSessionNormalExitTerminatesBackgroundDescendantThatRetainsPipes() async throws {
+        let fixture = try makeDescendantFixture()
+        defer { fixture.cleanup() }
+        let session = MacStreamingProcess()
+        let terminated = TestGate()
+        session.onTermination = { _ in terminated.open() }
+        defer { session.stop() }
+
+        try session.start(fixture.normalExitRequest(operationID: "streaming-normal-exit"))
+
+        #expect(await terminated.waitUntilOpen())
+        let descendantPID = try fixture.descendantPID()
+        defer { terminateIfRunning(descendantPID) }
+        #expect(!processIsRunning(descendantPID))
+    }
+
+    @Test
+    func testProcessNormalExitTerminatesBackgroundDescendantThatRetainsPipes() async throws {
+        let fixture = try makeDescendantFixture()
+        defer { fixture.cleanup() }
+        let request = fixture.normalExitRequest(operationID: nil)
+
+        let result = try await TestProcess.run(
+            executableURL: URL(fileURLWithPath: request.executablePath),
+            arguments: request.arguments,
+            currentDirectoryURL: fixture.directory
+        )
+
+        #expect(result.terminationStatus == 0)
+        #expect(String(decoding: result.output, as: UTF8.self).contains("ready"))
+        let descendantPID = try fixture.descendantPID()
+        defer { terminateIfRunning(descendantPID) }
+        #expect(!processIsRunning(descendantPID))
+    }
+
     private func terminationResistantRequest(operationID: String) -> ProcessRequest {
         ProcessRequest(
             operationID: operationID,
@@ -218,6 +287,25 @@ private struct DescendantFixture {
                 pidFile.path
             ],
             timeoutMilliseconds: timeoutMilliseconds
+        )
+    }
+
+    func normalExitRequest(operationID: String?) -> ProcessRequest {
+        ProcessRequest(
+            operationID: operationID,
+            executablePath: "/bin/sh",
+            arguments: [
+                "-c",
+                """
+                /bin/sh -c 'trap "" TERM HUP; while :; do :; done' &
+                child=$!
+                printf '%s' "$child" > "$1"
+                printf 'ready\n'
+                exit 0
+                """,
+                "lithe-process-group",
+                pidFile.path
+            ]
         )
     }
 

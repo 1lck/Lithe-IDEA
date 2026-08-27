@@ -9,9 +9,17 @@ final class MacProcessRunner: ProcessRunner, @unchecked Sendable {
     private static let forcedTerminationGracePeriod: TimeInterval = 1
 
     func run(_ request: ProcessRequest) -> ProcessResult {
-        let process = Process()
         let outputPipe = Pipe()
         let inputPipe = request.standardInput.map { _ in Pipe() }
+        let process = MacManagedProcess(
+            executableURL: URL(fileURLWithPath: request.executablePath),
+            arguments: request.arguments,
+            currentDirectoryURL: request.workingDirectory.map(URL.init(fileURLWithPath:)),
+            environment: request.environment,
+            standardInput: inputPipe?.fileHandleForReading ?? FileHandle.nullDevice,
+            standardOutput: outputPipe.fileHandleForWriting,
+            standardError: outputPipe.fileHandleForWriting
+        )
         let outputLock = NSLock()
         var output = Data()
         var reachedOutputEOF = false
@@ -25,18 +33,6 @@ final class MacProcessRunner: ProcessRunner, @unchecked Sendable {
             }
             outputLock.unlock()
         }
-
-        process.executableURL = URL(fileURLWithPath: request.executablePath)
-        process.arguments = request.arguments
-        if let workingDirectory = request.workingDirectory {
-            process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
-        }
-        if let environment = request.environment {
-            process.environment = environment
-        }
-        process.standardOutput = outputPipe
-        process.standardError = outputPipe
-        process.standardInput = inputPipe ?? FileHandle.nullDevice
         if let inputPipe {
             // A timed-out child can close stdin while a write is in flight.
             // Convert SIGPIPE into a write error instead of terminating Lithe.
@@ -49,6 +45,8 @@ final class MacProcessRunner: ProcessRunner, @unchecked Sendable {
 
         do {
             try process.run()
+            try? inputPipe?.fileHandleForReading.close()
+            try? outputPipe.fileHandleForWriting.close()
             if let input = request.standardInput, let inputPipe {
                 // Large input must not prevent this thread from enforcing the
                 // process deadline when a child stops reading stdin.
@@ -64,15 +62,18 @@ final class MacProcessRunner: ProcessRunner, @unchecked Sendable {
             while process.isRunning {
                 if let deadline, Date() >= deadline {
                     timedOut = true
-                    terminateAndWait(process)
+                    process.terminateAndWait(
+                        gracePeriod: Self.terminationGracePeriod,
+                        forcedTerminationTimeout: Self.forcedTerminationGracePeriod
+                    )
                     break
                 }
                 Thread.sleep(forTimeInterval: Self.pollingInterval)
             }
             try? inputPipe?.fileHandleForWriting.close()
             if !process.isRunning {
-                // Descendants can inherit the pipe, so EOF is only given a
-                // bounded grace period rather than becoming another wait.
+                // The managed process group removes inherited-pipe descendants;
+                // the grace period only lets the final readability event arrive.
                 let drainDeadline = Date().addingTimeInterval(Self.outputDrainGracePeriod)
                 while Date() < drainDeadline {
                     outputLock.lock()
@@ -84,25 +85,19 @@ final class MacProcessRunner: ProcessRunner, @unchecked Sendable {
             }
             outputPipe.fileHandleForReading.readabilityHandler = nil
             try? outputPipe.fileHandleForReading.close()
-            outputLock.lock()
-            let data = output
-            outputLock.unlock()
+            let data = outputLock.withLock { output }
             return ProcessResult(
                 output: String(data: data, encoding: .utf8) ?? "",
                 exitCode: timedOut ? 124 : process.terminationStatus
             )
         } catch {
+            try? inputPipe?.fileHandleForReading.close()
             try? inputPipe?.fileHandleForWriting.close()
+            try? outputPipe.fileHandleForWriting.close()
             outputPipe.fileHandleForReading.readabilityHandler = nil
+            try? outputPipe.fileHandleForReading.close()
             return ProcessResult(output: error.localizedDescription, exitCode: 1)
         }
-    }
-
-    private func terminateAndWait(_ process: Process) {
-        MacProcessTree(rootPID: process.processIdentifier).terminateAndWait(
-            gracePeriod: Self.terminationGracePeriod,
-            forcedTerminationTimeout: Self.forcedTerminationGracePeriod
-        )
     }
 }
 

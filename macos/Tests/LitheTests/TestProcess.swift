@@ -35,8 +35,7 @@ enum TestProcess {
 }
 
 private final class TestProcessController: @unchecked Sendable {
-    private let process = Process()
-    private var processTree: MacProcessTree?
+    private let process: MacManagedProcess
     private let output = Pipe()
     private let executableURL: URL
     private let arguments: [String]
@@ -59,11 +58,14 @@ private final class TestProcessController: @unchecked Sendable {
         self.executableURL = executableURL
         self.arguments = arguments
         self.timeout = timeout
-        process.executableURL = executableURL
-        process.arguments = arguments
-        process.currentDirectoryURL = currentDirectoryURL
-        process.standardOutput = output
-        process.standardError = output
+        process = MacManagedProcess(
+            executableURL: executableURL,
+            arguments: arguments,
+            currentDirectoryURL: currentDirectoryURL,
+            standardInput: FileHandle.nullDevice,
+            standardOutput: output.fileHandleForWriting,
+            standardError: output.fileHandleForWriting
+        )
     }
 
     func run() async throws -> TestProcessResult {
@@ -83,7 +85,7 @@ private final class TestProcessController: @unchecked Sendable {
                 }
                 do {
                     try process.run()
-                    processTree = MacProcessTree(rootPID: process.processIdentifier)
+                    try? output.fileHandleForWriting.close()
                 } catch {
                     launchError = error
                 }
@@ -127,7 +129,7 @@ private final class TestProcessController: @unchecked Sendable {
         }
         guard shouldStop else { return }
         if process.isRunning {
-            (processTree ?? MacProcessTree(rootPID: process.processIdentifier)).terminate()
+            process.terminate()
         } else {
             finish(.failure(error))
         }

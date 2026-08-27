@@ -10,8 +10,7 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
     var onTermination: (@Sendable (Int32) -> Void)?
     var onStateChange: (@Sendable (ProcessLifecycleEvent) -> Void)?
 
-    private var process: Process?
-    private var processTree: MacProcessTree?
+    private var process: MacManagedProcess?
     private var inputPipe: Pipe?
     private var outputPipe: Pipe?
     private var timeoutTask: Task<Void, Never>?
@@ -41,22 +40,19 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
             message: nil
         ))
 
-        let process = Process()
         let outputPipe = Pipe()
         let inputPipe = (request.standardInput != nil || request.keepsStandardInputOpen)
             ? Pipe()
             : nil
-        process.executableURL = URL(fileURLWithPath: request.executablePath)
-        process.arguments = request.arguments
-        if let workingDirectory = request.workingDirectory {
-            process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
-        }
-        if let environment = request.environment {
-            process.environment = environment
-        }
-        process.standardInput = inputPipe ?? FileHandle.nullDevice
-        process.standardOutput = outputPipe
-        process.standardError = outputPipe
+        let process = MacManagedProcess(
+            executableURL: URL(fileURLWithPath: request.executablePath),
+            arguments: request.arguments,
+            currentDirectoryURL: request.workingDirectory.map(URL.init(fileURLWithPath:)),
+            environment: request.environment,
+            standardInput: inputPipe?.fileHandleForReading ?? FileHandle.nullDevice,
+            standardOutput: outputPipe.fileHandleForWriting,
+            standardError: outputPipe.fileHandleForWriting
+        )
         if let inputPipe {
             // A timed-out child can close stdin while a write is in flight.
             // Convert SIGPIPE into a write error instead of terminating Lithe.
@@ -77,7 +73,6 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
             guard let self, self.process === terminatedProcess else { return }
             self.outputPipe?.fileHandleForReading.readabilityHandler = nil
             self.process = nil
-            self.processTree = nil
             self.inputPipe = nil
             self.outputPipe = nil
             self.timeoutTask?.cancel()
@@ -93,9 +88,23 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
             self.onTermination?(terminatedProcess.terminationStatus)
         }
 
+        self.process = process
+        self.inputPipe = inputPipe
+        self.outputPipe = outputPipe
         do {
-            try process.run()
+            try process.run { [self] processIdentifier in
+                registeredPID = processIdentifier
+                processRegistry?.register(
+                    pid: processIdentifier,
+                    category: category,
+                    moduleID: moduleID
+                )
+            }
+            try? inputPipe?.fileHandleForReading.close()
+            try? outputPipe.fileHandleForWriting.close()
         } catch {
+            closePipes()
+            self.process = nil
             onStateChange?(ProcessLifecycleEvent(
                 operationID: request.operationID,
                 state: .failed,
@@ -105,12 +114,6 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
             activeOperationID = nil
             throw error
         }
-        self.process = process
-        processTree = MacProcessTree(rootPID: process.processIdentifier)
-        registeredPID = process.processIdentifier
-        processRegistry?.register(pid: process.processIdentifier, category: category, moduleID: moduleID)
-        self.inputPipe = inputPipe
-        self.outputPipe = outputPipe
         scheduleTimeout(request.timeoutMilliseconds, for: process, operationID: request.operationID)
         if let input = request.standardInput, let inputPipe {
             try inputPipe.fileHandleForWriting.write(contentsOf: input)
@@ -131,15 +134,15 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
     }
 
     func stop() {
-        _ = stopProcessTree()
+        _ = stopProcessGroup()
     }
 
     func stopAndWait() async -> Bool {
-        guard let terminationTask = stopProcessTree() else { return true }
+        guard let terminationTask = stopProcessGroup() else { return true }
         return await terminationTask.value
     }
 
-    private func stopProcessTree() -> Task<Bool, Never>? {
+    private func stopProcessGroup() -> Task<Bool, Never>? {
         timeoutTask?.cancel()
         timeoutTask = nil
         outputPipe?.fileHandleForReading.readabilityHandler = nil
@@ -151,18 +154,22 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
                 exitCode: nil,
                 message: "Process stopped"
             ))
-            let processTree = processTree ?? MacProcessTree(rootPID: process.processIdentifier)
-            terminationTask = processTree.terminate()
+            terminationTask = process.terminate()
         }
-        try? inputPipe?.fileHandleForWriting.close()
-        try? outputPipe?.fileHandleForReading.close()
+        closePipes()
         unregisterProcess()
         process = nil
-        processTree = nil
-        inputPipe = nil
-        outputPipe = nil
         activeOperationID = nil
         return terminationTask
+    }
+
+    private func closePipes() {
+        try? inputPipe?.fileHandleForReading.close()
+        try? inputPipe?.fileHandleForWriting.close()
+        try? outputPipe?.fileHandleForReading.close()
+        try? outputPipe?.fileHandleForWriting.close()
+        inputPipe = nil
+        outputPipe = nil
     }
 
     private func unregisterProcess() {
@@ -171,7 +178,11 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
         self.registeredPID = nil
     }
 
-    private func scheduleTimeout(_ milliseconds: Int?, for process: Process, operationID: String?) {
+    private func scheduleTimeout(
+        _ milliseconds: Int?,
+        for process: MacManagedProcess,
+        operationID: String?
+    ) {
         guard let milliseconds, milliseconds > 0 else { return }
         timeoutTask = Task { [weak self, weak process] in
             try? await Task.sleep(for: .milliseconds(milliseconds))
@@ -186,9 +197,7 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
                 exitCode: nil,
                 message: "Process timed out"
             ))
-            let processTree = self.processTree ?? MacProcessTree(rootPID: process.processIdentifier)
-            _ = processTree.terminate(gracePeriod: Self.forcedTerminationDelay)
+            _ = process.terminate(gracePeriod: Self.forcedTerminationDelay)
         }
     }
-
 }
