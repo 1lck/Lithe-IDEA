@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+@testable import Lithe
 
 struct TestProcessResult: Sendable {
     let terminationStatus: Int32
@@ -35,6 +36,7 @@ enum TestProcess {
 
 private final class TestProcessController: @unchecked Sendable {
     private let process = Process()
+    private var processTree: MacProcessTree?
     private let output = Pipe()
     private let executableURL: URL
     private let arguments: [String]
@@ -80,6 +82,7 @@ private final class TestProcessController: @unchecked Sendable {
                 }
                 do {
                     try process.run()
+                    processTree = MacProcessTree(rootPID: process.processIdentifier)
                 } catch {
                     launchError = error
                 }
@@ -122,12 +125,7 @@ private final class TestProcessController: @unchecked Sendable {
         }
         guard shouldStop else { return }
         if process.isRunning {
-            process.terminate()
-            Task { [weak self] in
-                try? await Task.sleep(for: .milliseconds(200))
-                guard let self, self.process.isRunning else { return }
-                _ = Darwin.kill(self.process.processIdentifier, SIGKILL)
-            }
+            (processTree ?? MacProcessTree(rootPID: process.processIdentifier)).terminate()
         } else {
             finish(.failure(error))
         }

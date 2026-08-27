@@ -99,20 +99,10 @@ final class MacProcessRunner: ProcessRunner, @unchecked Sendable {
     }
 
     private func terminateAndWait(_ process: Process) {
-        process.terminate()
-        waitForExit(process, timeout: Self.terminationGracePeriod)
-        guard process.isRunning else { return }
-        // Some tools ignore SIGTERM. Escalation keeps the synchronous runner's
-        // timeout contract bounded.
-        _ = Darwin.kill(process.processIdentifier, SIGKILL)
-        waitForExit(process, timeout: Self.forcedTerminationGracePeriod)
-    }
-
-    private func waitForExit(_ process: Process, timeout: TimeInterval) {
-        let deadline = Date().addingTimeInterval(timeout)
-        while process.isRunning, Date() < deadline {
-            Thread.sleep(forTimeInterval: Self.pollingInterval)
-        }
+        MacProcessTree(rootPID: process.processIdentifier).terminateAndWait(
+            gracePeriod: Self.terminationGracePeriod,
+            forcedTerminationTimeout: Self.forcedTerminationGracePeriod
+        )
     }
 }
 

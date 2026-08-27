@@ -11,6 +11,7 @@ final class MacRawProcessSession: RawProcessSession, @unchecked Sendable {
     var onStateChange: (@Sendable (ProcessLifecycleEvent) -> Void)?
 
     private var process: Process?
+    private var processTree: MacProcessTree?
     private var inputPipe: Pipe?
     private var outputPipe: Pipe?
     private var errorPipe: Pipe?
@@ -71,6 +72,7 @@ final class MacRawProcessSession: RawProcessSession, @unchecked Sendable {
             self.outputPipe?.fileHandleForReading.readabilityHandler = nil
             self.errorPipe?.fileHandleForReading.readabilityHandler = nil
             self.process = nil
+            self.processTree = nil
             self.inputPipe = nil
             self.outputPipe = nil
             self.errorPipe = nil
@@ -96,6 +98,7 @@ final class MacRawProcessSession: RawProcessSession, @unchecked Sendable {
             outputPipe.fileHandleForReading.readabilityHandler = nil
             errorPipe.fileHandleForReading.readabilityHandler = nil
             self.process = nil
+            self.processTree = nil
             self.inputPipe = nil
             self.outputPipe = nil
             self.errorPipe = nil
@@ -108,6 +111,7 @@ final class MacRawProcessSession: RawProcessSession, @unchecked Sendable {
             activeOperationID = nil
             throw error
         }
+        processTree = MacProcessTree(rootPID: process.processIdentifier)
         scheduleTimeout(request.timeoutMilliseconds, for: process, operationID: request.operationID)
         if let input = request.standardInput, let inputPipe {
             try inputPipe.fileHandleForWriting.write(contentsOf: input)
@@ -145,13 +149,13 @@ final class MacRawProcessSession: RawProcessSession, @unchecked Sendable {
                 exitCode: nil,
                 message: "Process stopped"
             ))
-            process.terminate()
-            scheduleForcedTermination(for: process)
+            (processTree ?? MacProcessTree(rootPID: process.processIdentifier)).terminate()
         }
         try? inputPipe?.fileHandleForWriting.close()
         try? outputPipe?.fileHandleForReading.close()
         try? errorPipe?.fileHandleForReading.close()
         process = nil
+        processTree = nil
         inputPipe = nil
         outputPipe = nil
         errorPipe = nil
@@ -173,18 +177,9 @@ final class MacRawProcessSession: RawProcessSession, @unchecked Sendable {
                 exitCode: nil,
                 message: "Process timed out"
             ))
-            process.terminate()
-            try? await Task.sleep(for: Self.forcedTerminationDelay)
-            guard self.process === process, process.isRunning else { return }
-            _ = Darwin.kill(process.processIdentifier, SIGKILL)
+            let processTree = self.processTree ?? MacProcessTree(rootPID: process.processIdentifier)
+            _ = processTree.terminate(gracePeriod: Self.forcedTerminationDelay)
         }
     }
 
-    private func scheduleForcedTermination(for process: Process) {
-        Task { [process] in
-            try? await Task.sleep(for: Self.forcedTerminationDelay)
-            guard process.isRunning else { return }
-            _ = Darwin.kill(process.processIdentifier, SIGKILL)
-        }
-    }
 }

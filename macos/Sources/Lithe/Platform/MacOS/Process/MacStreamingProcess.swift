@@ -11,6 +11,7 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
     var onStateChange: (@Sendable (ProcessLifecycleEvent) -> Void)?
 
     private var process: Process?
+    private var processTree: MacProcessTree?
     private var inputPipe: Pipe?
     private var outputPipe: Pipe?
     private var timeoutTask: Task<Void, Never>?
@@ -76,6 +77,7 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
             guard let self, self.process === terminatedProcess else { return }
             self.outputPipe?.fileHandleForReading.readabilityHandler = nil
             self.process = nil
+            self.processTree = nil
             self.inputPipe = nil
             self.outputPipe = nil
             self.timeoutTask?.cancel()
@@ -104,6 +106,7 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
             throw error
         }
         self.process = process
+        processTree = MacProcessTree(rootPID: process.processIdentifier)
         registeredPID = process.processIdentifier
         processRegistry?.register(pid: process.processIdentifier, category: category, moduleID: moduleID)
         self.inputPipe = inputPipe
@@ -128,9 +131,19 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
     }
 
     func stop() {
+        _ = stopProcessTree()
+    }
+
+    func stopAndWait() async -> Bool {
+        guard let terminationTask = stopProcessTree() else { return true }
+        return await terminationTask.value
+    }
+
+    private func stopProcessTree() -> Task<Bool, Never>? {
         timeoutTask?.cancel()
         timeoutTask = nil
         outputPipe?.fileHandleForReading.readabilityHandler = nil
+        var terminationTask: Task<Bool, Never>?
         if let process, process.isRunning {
             onStateChange?(ProcessLifecycleEvent(
                 operationID: activeOperationID,
@@ -138,39 +151,18 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
                 exitCode: nil,
                 message: "Process stopped"
             ))
-            process.terminate()
-            scheduleForcedTermination(for: process)
+            let processTree = processTree ?? MacProcessTree(rootPID: process.processIdentifier)
+            terminationTask = processTree.terminate()
         }
         try? inputPipe?.fileHandleForWriting.close()
         try? outputPipe?.fileHandleForReading.close()
         unregisterProcess()
         process = nil
+        processTree = nil
         inputPipe = nil
         outputPipe = nil
         activeOperationID = nil
-    }
-
-    func stopAndWait() async -> Bool {
-        guard let runningProcess = process else {
-            stop()
-            return true
-        }
-        let processID = runningProcess.processIdentifier
-        stop()
-
-        let clock = ContinuousClock()
-        var deadline = clock.now.advanced(by: .seconds(1))
-        while runningProcess.isRunning, clock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-        if runningProcess.isRunning {
-            _ = Darwin.kill(processID, SIGKILL)
-            deadline = clock.now.advanced(by: .seconds(1))
-            while runningProcess.isRunning, clock.now < deadline {
-                try? await Task.sleep(for: .milliseconds(20))
-            }
-        }
-        return !runningProcess.isRunning
+        return terminationTask
     }
 
     private func unregisterProcess() {
@@ -194,18 +186,9 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
                 exitCode: nil,
                 message: "Process timed out"
             ))
-            process.terminate()
-            try? await Task.sleep(for: Self.forcedTerminationDelay)
-            guard self.process === process, process.isRunning else { return }
-            _ = Darwin.kill(process.processIdentifier, SIGKILL)
+            let processTree = self.processTree ?? MacProcessTree(rootPID: process.processIdentifier)
+            _ = processTree.terminate(gracePeriod: Self.forcedTerminationDelay)
         }
     }
 
-    private func scheduleForcedTermination(for process: Process) {
-        Task { [process] in
-            try? await Task.sleep(for: Self.forcedTerminationDelay)
-            guard process.isRunning else { return }
-            _ = Darwin.kill(process.processIdentifier, SIGKILL)
-        }
-    }
 }
