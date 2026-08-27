@@ -22,6 +22,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     private let environment: [String: String]
     private let initializationOptions: ToolingJSONValue?
     private let runtimeExecutableURL: URL?
+    private let jdtlsLaunchResources: JDTLSLaunchResources?
     private let cacheDirectoryURL: URL?
     private let initializeTimeout: TimeInterval
     private let requestTimeout: TimeInterval
@@ -52,6 +53,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         environment: [String: String],
         initializationOptions: ToolingJSONValue? = nil,
         runtimeExecutableURL: URL? = nil,
+        jdtlsLaunchResources: JDTLSLaunchResources? = nil,
         cacheDirectoryURL: URL? = nil,
         initializeTimeout: TimeInterval = 60,
         requestTimeout: TimeInterval = 30,
@@ -66,6 +68,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         self.environment = environment
         self.initializationOptions = initializationOptions
         self.runtimeExecutableURL = runtimeExecutableURL
+        self.jdtlsLaunchResources = jdtlsLaunchResources
         self.cacheDirectoryURL = cacheDirectoryURL
         self.initializeTimeout = initializeTimeout
         self.requestTimeout = requestTimeout
@@ -106,6 +109,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             workingDirectoryURL: normalizedRoot,
             initializationOptions: initializationOptions,
             runtimeExecutableURL: runtimeExecutableURL,
+            jdtlsLaunchResources: jdtlsLaunchResources,
             cacheDirectoryURL: cacheDirectoryURL,
             workspaceFingerprint: workspaceFingerprint,
             initializeTimeout: initializeTimeout,

@@ -1388,11 +1388,18 @@ struct RustCoreBridge: Sendable {
         let workingDirectory: String
         let initializationOptions: ToolingJSONValue?
         let runtimeExecutablePath: String?
+        let jdtlsLaunchResources: LspJdtlsLaunchResourcesRequest?
         let cacheDirectory: String?
         let workspaceFingerprint: String?
         let initializeTimeoutMilliseconds: Int
         let requestTimeoutMilliseconds: Int
         let shutdownTimeoutMilliseconds: Int
+    }
+
+    private struct LspJdtlsLaunchResourcesRequest: Encodable {
+        let launcherJarPath: String
+        let configurationDirectory: String
+        let lombokAgentPath: String
     }
 
     private struct LspSessionIdentifierRequest: Encodable {
@@ -2917,6 +2924,7 @@ struct RustCoreBridge: Sendable {
         workingDirectoryURL: URL,
         initializationOptions: ToolingJSONValue? = nil,
         runtimeExecutableURL: URL? = nil,
+        jdtlsLaunchResources: JDTLSLaunchResources? = nil,
         cacheDirectoryURL: URL? = nil,
         workspaceFingerprint: String? = nil,
         initializeTimeout: TimeInterval = 60,
@@ -2934,6 +2942,13 @@ struct RustCoreBridge: Sendable {
                 workingDirectory: workingDirectoryURL.standardizedFileURL.path,
                 initializationOptions: initializationOptions,
                 runtimeExecutablePath: runtimeExecutableURL?.standardizedFileURL.path,
+                jdtlsLaunchResources: jdtlsLaunchResources.map {
+                    LspJdtlsLaunchResourcesRequest(
+                        launcherJarPath: $0.launcherJarURL.path,
+                        configurationDirectory: $0.configurationDirectoryURL.path,
+                        lombokAgentPath: $0.lombokAgentURL.path
+                    )
+                },
                 cacheDirectory: cacheDirectoryURL?.standardizedFileURL.path,
                 workspaceFingerprint: workspaceFingerprint,
                 initializeTimeoutMilliseconds: Self.milliseconds(initializeTimeout),

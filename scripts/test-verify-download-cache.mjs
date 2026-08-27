@@ -104,7 +104,31 @@ async function assertMacJdkCacheConfiguration() {
   }
 
   const packageScript = await fs.readFile(path.join(repositoryRoot, "scripts/package-app.sh"), "utf8");
-  assert.match(packageScript, /LITHE_JDK_TARGET_ARCH="\$jdk_arch"/, "macOS packages must prepare the target-architecture JDK");
+  assert.match(
+    packageScript,
+    /LITHE_ARCH="\$ARCH".*prepare-jdtls\.sh/,
+    "macOS packages must validate JDTLS for the package architecture",
+  );
+  assert.match(
+    packageScript,
+    /LITHE_JDK_TARGET_ARCH="arm64"/,
+    "universal macOS packages must prepare an ARM JDK",
+  );
+  assert.match(
+    packageScript,
+    /LITHE_JDK_TARGET_ARCH="x86_64"/,
+    "universal macOS packages must prepare an Intel JDK",
+  );
+  assert.match(
+    packageScript,
+    /LanguageServers\/jdk-arm64/,
+    "universal macOS packages must bundle the ARM JDK separately",
+  );
+  assert.match(
+    packageScript,
+    /LanguageServers\/jdk-x86_64/,
+    "universal macOS packages must bundle the Intel JDK separately",
+  );
   const previewScript = await fs.readFile(path.join(repositoryRoot, "scripts/preview.sh"), "utf8");
   assert.match(previewScript, /prepare-jdtls\.sh/, "macOS previews must prepare JDTLS");
   assert.match(previewScript, /prepare-jdk\.sh/, "macOS previews must prepare the bundled JDK");
@@ -120,12 +144,27 @@ async function assertMacJdkCacheConfiguration() {
   );
   const prepareScript = await fs.readFile(path.join(repositoryRoot, "scripts/prepare-jdk.sh"), "utf8");
   assert.match(prepareScript, /TARGET_ARCH="\$\{LITHE_JDK_TARGET_ARCH:-\$\(uname -m\)\}"/);
+  assert.match(prepareScript, /\.artifacts\/jdk-\$TARGET_ARCH/, "prepared macOS JDKs must be isolated by architecture");
   assert.match(prepareScript, /macos-aarch64/);
   assert.match(prepareScript, /macos-x86_64/);
   assert.match(prepareScript, /lipo.*-verify_arch.*TARGET_ARCH/, "macOS JDK validation must verify its Mach-O architecture");
 
   const packageVerifier = await fs.readFile(path.join(repositoryRoot, "scripts/verify-macos-package.sh"), "utf8");
-  assert.match(packageVerifier, /LanguageServers\/jdk\/bin\/java/, "macOS package verification must require the bundled JDK");
+  assert.match(
+    packageVerifier,
+    /env -u LITHE_ARCH/,
+    "macOS package verification must exercise the default universal path",
+  );
+  assert.match(
+    packageVerifier,
+    /LanguageServers\/jdk-arm64\/bin\/java/,
+    "macOS package verification must require the ARM JDK",
+  );
+  assert.match(
+    packageVerifier,
+    /LanguageServers\/jdk-x86_64\/bin\/java/,
+    "macOS package verification must require the Intel JDK",
+  );
 }
 
 try {

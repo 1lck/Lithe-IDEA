@@ -85,11 +85,17 @@ function Get-VerifiedDownload {
 
 function Assert-JdtlsOutput {
     if (-not (Test-Path -LiteralPath (Join-Path $output "plugins") -PathType Container)) { throw "JDTLS plugins directory is missing: $output" }
+    $equinoxLauncher = Get-ChildItem -LiteralPath (Join-Path $output "plugins") -File -Filter "org.eclipse.equinox.launcher_*.jar" |
+        Sort-Object Name | Select-Object -First 1
+    if ($null -eq $equinoxLauncher) { throw "JDTLS Equinox launcher is missing: $output/plugins" }
+    if (-not (Test-Path -LiteralPath (Join-Path $output "config_mac") -PathType Container)) { throw "JDTLS macOS configuration is missing: $output" }
     if (-not (Test-Path -LiteralPath (Join-Path $output "config_win") -PathType Container)) { throw "JDTLS Windows configuration is missing: $output" }
     if (-not (Test-Path -LiteralPath (Join-Path $output "bin/jdtls.ps1") -PathType Leaf)) { throw "JDTLS PowerShell launcher is missing: $output" }
     if (-not (Test-Path -LiteralPath (Join-Path $output "bin/jdtls.bat") -PathType Leaf)) { throw "JDTLS batch launcher is missing: $output" }
     if (-not (Test-Path -LiteralPath (Join-Path $output "lombok/lombok.jar") -PathType Leaf)) { throw "JDTLS Lombok agent is missing: $output" }
     if (-not (Test-Path -LiteralPath (Join-Path $output "lombok/LICENSE-MIT.txt") -PathType Leaf)) { throw "JDTLS Lombok license is missing: $output" }
+    # Wrapper scripts remain for external/legacy launch plans. Packaged JDTLS
+    # uses the direct-launch resources validated above.
     $launcher = Get-Content -Raw -LiteralPath (Join-Path $output "bin/jdtls.ps1")
     if (-not $launcher.Contains("-javaagent:")) { throw "JDTLS launcher does not load the Lombok agent: $output" }
 }

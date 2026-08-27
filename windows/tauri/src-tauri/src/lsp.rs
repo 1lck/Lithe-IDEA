@@ -1,7 +1,8 @@
 //! Windows discovery for the built-in Java language server.
 //!
 //! Shared JDT LS process ownership stays in `lithe-core`. This adapter only
-//! finds `jdtls`, the bundled JDTLS runtime JDK, and a cache directory.
+//! finds `jdtls`, its direct-launch resources, the bundled runtime JDK, and a
+//! cache directory.
 //!
 //! The bundled JDK exists solely to run the language server. Project SDKs are
 //! discovered separately by `run.rs` and remain user-owned.
@@ -27,6 +28,7 @@ const JAVA_PROVIDER_ID: &str = "java";
 const JDTLS_EXECUTABLE_NAMES: &[&str] = &["jdtls.bat", "jdtls.cmd", "jdtls.exe", "jdtls"];
 const MAX_CURRENT_EXE_JDTLS_WALK_DEPTH: usize = 12;
 const JDTLS_CORE_PLUGIN_PREFIX: &str = "org.eclipse.jdt.ls.core_";
+const EQUINOX_LAUNCHER_PLUGIN_PREFIX: &str = "org.eclipse.equinox.launcher_";
 const BUNDLED_JDTLS_MANIFEST: &str = include_str!("../../../../third_party/jdtls/manifest.json");
 static JDT_CACHE_OPERATION_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -39,11 +41,21 @@ pub struct JavaLspLaunch {
     pub executable_path: String,
     pub arguments: Vec<String>,
     pub runtime_executable_path: Option<String>,
+    pub jdtls_launch_resources: Option<JdtlsLaunchResources>,
     pub cache_directory: String,
     pub environment: JavaLspEnvironment,
     /// Workspace structure digest forwarded to the Rust core so JDT LS uses a
     /// fresh state directory when the project layout changes.
     pub workspace_fingerprint: Option<String>,
+}
+
+/// JDT LS installation resources forwarded to the shared direct-Java launcher.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JdtlsLaunchResources {
+    pub launcher_jar_path: String,
+    pub configuration_directory: String,
+    pub lombok_agent_path: String,
 }
 
 /// Environment values the Java language server needs from the host.
@@ -58,6 +70,14 @@ pub struct JavaLspEnvironment {
 struct JavaLspResolution {
     executable: PathBuf,
     java_home: PathBuf,
+    jdtls_launch_resources: Option<ResolvedJdtlsLaunchResources>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct ResolvedJdtlsLaunchResources {
+    launcher_jar_path: PathBuf,
+    configuration_directory: PathBuf,
+    lombok_agent_path: PathBuf,
 }
 
 /// Resolves the built-in Java language-server executable, JDK, and cache directory.
@@ -139,6 +159,13 @@ pub fn lsp_resolve_java_launch(
         runtime_executable_path: run::java_executable(&resolution.java_home)
             .as_deref()
             .map(normalize_path),
+        jdtls_launch_resources: resolution.jdtls_launch_resources.map(|resources| {
+            JdtlsLaunchResources {
+                launcher_jar_path: normalize_path(&resources.launcher_jar_path),
+                configuration_directory: normalize_path(&resources.configuration_directory),
+                lombok_agent_path: normalize_path(&resources.lombok_agent_path),
+            }
+        }),
         cache_directory: normalize_path(&cache_directory),
         environment: JavaLspEnvironment {
             java_home: Some(normalize_path(&resolution.java_home)),
@@ -159,10 +186,97 @@ fn resolve_java_lsp_launch(
                 .to_string()
         })?;
     let java_home = resolve_java_home(bundled_jdk)?;
+    let jdtls_launch_resources = match resolve_jdtls_launch_resources(&executable) {
+        Ok(resources) => Some(resources),
+        Err(error) if bundled_root.is_some_and(|root| executable.starts_with(root)) => {
+            return Err(format!(
+                "Bundled JDTLS direct-launch resources are incomplete. This is a packaging error; please reinstall Lithe. {error}"
+            ));
+        }
+        Err(_) => None,
+    };
     Ok(JavaLspResolution {
         executable,
         java_home,
+        jdtls_launch_resources,
     })
+}
+
+fn resolve_jdtls_launch_resources(
+    executable: &Path,
+) -> Result<ResolvedJdtlsLaunchResources, String> {
+    let mut roots = Vec::new();
+    push_jdtls_installation_root(&mut roots, executable);
+    if let Ok(canonical) = std::fs::canonicalize(executable) {
+        push_jdtls_installation_root(&mut roots, &canonical);
+    }
+    let mut unique_roots = Vec::with_capacity(roots.len());
+    for root in roots {
+        if !unique_roots.contains(&root) {
+            unique_roots.push(root);
+        }
+    }
+
+    let mut inspected = Vec::new();
+    for root in unique_roots {
+        inspected.push(root.clone());
+        let plugins = root.join("plugins");
+        let configuration_directory = root.join("config_win");
+        let lombok_agent_path = root.join("lombok").join("lombok.jar");
+        let Some(launcher_jar_path) = first_equinox_launcher(&plugins)? else {
+            continue;
+        };
+        if configuration_directory.is_dir() && lombok_agent_path.is_file() {
+            return Ok(ResolvedJdtlsLaunchResources {
+                launcher_jar_path,
+                configuration_directory,
+                lombok_agent_path,
+            });
+        }
+    }
+
+    let roots = inspected
+        .iter()
+        .map(|root| root.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(format!(
+        "Expected an Equinox launcher JAR, config_win, and lombok/lombok.jar under: {roots}"
+    ))
+}
+
+fn first_equinox_launcher(plugins: &Path) -> Result<Option<PathBuf>, String> {
+    let entries = match std::fs::read_dir(plugins) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(format!(
+                "Failed to inspect JDTLS plugins at {}: {error}",
+                plugins.display()
+            ));
+        }
+    };
+    let mut launchers = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            format!(
+                "Failed to inspect an entry in JDTLS plugins at {}: {error}",
+                plugins.display()
+            )
+        })?;
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(OsStr::to_str) else {
+            continue;
+        };
+        if path.is_file()
+            && name.starts_with(EQUINOX_LAUNCHER_PLUGIN_PREFIX)
+            && name.ends_with(".jar")
+        {
+            launchers.push(path);
+        }
+    }
+    launchers.sort();
+    Ok(launchers.into_iter().next())
 }
 
 fn find_jdtls_executable(
@@ -487,6 +601,26 @@ mod tests {
         path
     }
 
+    fn create_direct_launch_resources(root: &Path) -> ResolvedJdtlsLaunchResources {
+        let plugins = root.join("plugins");
+        let configuration_directory = root.join("config_win");
+        let lombok_directory = root.join("lombok");
+        fs::create_dir_all(&plugins).expect("plugins");
+        fs::create_dir_all(&configuration_directory).expect("config_win");
+        fs::create_dir_all(&lombok_directory).expect("lombok");
+        fs::write(plugins.join("org.eclipse.equinox.launcher_2.0.0.jar"), [])
+            .expect("second Equinox launcher");
+        let launcher_jar_path = plugins.join("org.eclipse.equinox.launcher_1.0.0.jar");
+        fs::write(&launcher_jar_path, []).expect("first Equinox launcher");
+        let lombok_agent_path = lombok_directory.join("lombok.jar");
+        fs::write(&lombok_agent_path, []).expect("Lombok agent");
+        ResolvedJdtlsLaunchResources {
+            launcher_jar_path,
+            configuration_directory,
+            lombok_agent_path,
+        }
+    }
+
     #[test]
     fn finds_jdtls_bat_in_an_extra_search_root() {
         let root = temp_dir();
@@ -559,6 +693,7 @@ mod tests {
         fs::create_dir_all(&jdk_bin).expect("jdk bin");
         // Minimal JDTLS executable marker.
         fs::write(jdtls_bin.join("jdtls.bat"), "@echo off\n").expect("jdtls.bat");
+        let expected_resources = create_direct_launch_resources(&root.join("jdtls"));
         // Minimal java.exe marker so is_jdk_home() returns true.
         fs::write(jdk_bin.join("java.exe"), "").expect("java.exe");
 
@@ -567,6 +702,57 @@ mod tests {
         let resolution = resolve_java_lsp_launch(None, Some(&jdtls_root), &[], Some(&bundled_jdk))
             .expect("resolution");
         assert_eq!(resolution.java_home, bundled_jdk, "bundled JDK should win");
+        assert_eq!(resolution.jdtls_launch_resources, Some(expected_resources));
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn direct_launch_resources_use_the_first_lexical_equinox_jar() {
+        let root = temp_dir();
+        let bin = root.join("bin");
+        fs::create_dir_all(&bin).expect("bin");
+        let executable = bin.join("jdtls.bat");
+        fs::write(&executable, "@echo off\n").expect("jdtls.bat");
+        let expected = create_direct_launch_resources(&root);
+
+        assert_eq!(
+            resolve_jdtls_launch_resources(&executable).expect("direct launch resources"),
+            expected
+        );
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn incomplete_bundled_resources_are_reported_as_a_packaging_error() {
+        let root = temp_dir();
+        let jdtls_root = root.join("jdtls");
+        let bin = jdtls_root.join("bin");
+        let jdk = root.join("jdk");
+        fs::create_dir_all(&bin).expect("JDTLS bin");
+        fs::create_dir_all(jdk.join("bin")).expect("JDK bin");
+        fs::write(bin.join("jdtls.bat"), "@echo off\n").expect("jdtls.bat");
+        fs::write(jdk.join("bin/java.exe"), []).expect("java.exe");
+
+        let error = resolve_java_lsp_launch(None, Some(&jdtls_root), &[], Some(&jdk))
+            .expect_err("bundled resources must be complete");
+        assert!(error.contains("packaging error"), "{error}");
+        assert!(error.contains("Equinox"), "{error}");
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn external_wrapper_without_direct_resources_remains_compatible() {
+        let root = temp_dir();
+        let external = root.join("external-jdtls");
+        let jdk = root.join("jdk");
+        fs::create_dir_all(&external).expect("external JDTLS");
+        fs::create_dir_all(jdk.join("bin")).expect("JDK bin");
+        fs::write(external.join("jdtls.cmd"), "@echo off\n").expect("jdtls.cmd");
+        fs::write(jdk.join("bin/java.exe"), []).expect("java.exe");
+
+        let resolution = resolve_java_lsp_launch(None, None, &[external], Some(&jdk))
+            .expect("external wrapper fallback");
+        assert!(resolution.jdtls_launch_resources.is_none());
         fs::remove_dir_all(root).ok();
     }
 
