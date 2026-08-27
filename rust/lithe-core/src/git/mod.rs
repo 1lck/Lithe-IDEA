@@ -734,10 +734,17 @@ fn capture_git_with_options(
 }
 
 fn git_process() -> Command {
-    let process = Command::new("git");
     #[cfg(target_os = "windows")]
-    process.creation_flags(git_process_creation_flags());
-    process
+    {
+        let mut process = Command::new("git");
+        process.creation_flags(git_process_creation_flags());
+        process
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Command::new("git")
+    }
 }
 
 #[cfg(target_os = "windows")]
