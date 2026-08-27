@@ -239,6 +239,24 @@ struct AppSettingsTests {
     }
 
     @Test
+    func macWorkbenchBackgroundPlatformPrefersPackagedResourceBundle() {
+        let packagedBundle = Bundle.module
+        var usedDevelopmentFallback = false
+
+        let resolvedBundle = MacWorkbenchBackgroundPlatform.resolveResourceBundle(
+            packagedURL: packagedBundle.bundleURL,
+            adjacentURL: nil,
+            developmentBundle: {
+                usedDevelopmentFallback = true
+                return Bundle.main
+            }
+        )
+
+        #expect(resolvedBundle.bundleURL.standardizedFileURL == packagedBundle.bundleURL.standardizedFileURL)
+        #expect(!usedDevelopmentFallback)
+    }
+
+    @Test
     func temporaryCustomImageFailurePreservesTheConfiguredSelection() {
         let platform = WorkbenchBackgroundPlatformTestDouble(
             customLoadResult: .temporarilyUnavailable(message: "Drive is offline")
