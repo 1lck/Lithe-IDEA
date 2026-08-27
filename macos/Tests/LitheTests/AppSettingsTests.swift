@@ -257,6 +257,19 @@ struct AppSettingsTests {
     }
 
     @Test
+    func macWorkbenchBackgroundPlatformLoadsBundledBackgrounds() {
+        let platform = MacWorkbenchBackgroundPlatform(store: AppSettingsTestStore())
+
+        for slot in ["01", "02"] {
+            #expect(platform.hasBundledImage(for: slot))
+            guard case .loaded = platform.loadBundledImageData(for: slot) else {
+                Issue.record("Bundled workbench background \(slot) must be readable and decodable.")
+                continue
+            }
+        }
+    }
+
+    @Test
     func temporaryCustomImageFailurePreservesTheConfiguredSelection() {
         let platform = WorkbenchBackgroundPlatformTestDouble(
             customLoadResult: .temporarilyUnavailable(message: "Drive is offline")
