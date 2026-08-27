@@ -38,14 +38,6 @@ extension AppModel {
         )
     }
 
-    func refreshJavaInlayHints(for document: EditorDocument) {
-        javaFeature.refreshInlayHints(
-            for: document,
-            projectFiles: projectFiles,
-            workspaceRoot: workspaceURL
-        )
-    }
-
     func showBlame(for fileURL: URL) {
         let normalizedURL = fileURL.standardizedFileURL
         blameVisibleURL = blameVisibleURL == normalizedURL ? nil : normalizedURL

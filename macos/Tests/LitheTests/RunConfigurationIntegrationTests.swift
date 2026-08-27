@@ -1185,6 +1185,51 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func languageToolingForwardsStructuredJdtlsLaunchResources() throws {
+        let descriptor = LanguageProviderDescriptor(
+            id: "java",
+            displayName: "Java",
+            fileExtensions: ["java"],
+            capabilities: [.languageServer],
+            activationPolicy: .onDemand,
+            languageIdentifier: "java",
+            languageServerLaunch: LanguageServerLaunchDescriptor(executableNames: ["jdtls"])
+        )
+        let runtimeService = ProjectRuntimeService(
+            runtimeLocator: RunTestRuntimeLocator(),
+            store: RunTestKeyValueStore()
+        )
+        let core = TestLanguageServerRuntimeCore(providerID: "java")
+        let resources = JDTLSLaunchResources(
+            launcherJarURL: URL(fileURLWithPath: "/jdtls/plugins/equinox.jar"),
+            configurationDirectoryURL: URL(fileURLWithPath: "/jdtls/config_mac"),
+            lombokAgentURL: URL(fileURLWithPath: "/jdtls/lombok/lombok.jar")
+        )
+        let runtime = StdioLanguageProviderRuntime(
+            descriptor: descriptor,
+            runtimeService: runtimeService,
+            languageServerLaunch: descriptor.languageServerLaunch,
+            languageServerCore: core,
+            languageServerExecutableResolver: { _ in URL(fileURLWithPath: "/jdtls/bin/jdtls") },
+            languageServerRuntimeResolver: { _ in
+                .available(URL(fileURLWithPath: "/jdk/bin/java"))
+            },
+            jdtlsLaunchResourcesResolver: { _, _ in .available(resources) }
+        )
+        let session = try #require(runtime.makeLanguageServerSession())
+
+        try session.start(
+            rootURL: URL(fileURLWithPath: "/workspace", isDirectory: true),
+            workspaceFingerprint: nil
+        )
+
+        let start = try #require(core.startCalls.last)
+        #expect(start.runtimeExecutableURL?.path == "/jdk/bin/java")
+        #expect(start.jdtlsLaunchResources == resources)
+        session.stop()
+    }
+
+    @Test
     func languageServerFailureClearsActiveSessionState() async throws {
         let descriptor = LanguageProviderDescriptor(
             id: "swift",
@@ -2675,6 +2720,64 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func scopedNodeDiagnosticBlocksOnlyTheFrontendService() async throws {
+        let backend = JavaRunConfiguration(
+            id: "module:backend",
+            name: "backend",
+            kind: .mavenModule,
+            execution: .service,
+            modulePath: "backend",
+            mainClass: nil
+        )
+        let frontend = RunConfiguration(
+            id: "npm.script:web/dev",
+            name: "dev",
+            kind: .process(provider: "npm.script"),
+            execution: .service,
+            modulePath: nil,
+            mainClass: nil
+        )
+        let backendPlan = SharedLaunchPlan(
+            executable: .toolchain("project-maven"),
+            arguments: ["spring-boot:run"],
+            workingDirectory: "."
+        )
+        let diagnostic = RunConfigurationDiagnostic(
+            configurationID: frontend.id,
+            code: "missingToolchain",
+            message: "No local node toolchain is selected"
+        )
+        let fixture = makeFixture(
+            status: .ready,
+            effective: [backend, frontend].map {
+                EffectiveRunConfiguration(configuration: $0, options: RunOptions())
+            },
+            plans: [backend.id: backendPlan],
+            diagnostics: [diagnostic]
+        )
+
+        await fixture.service.loadProject(
+            at: fixture.root,
+            files: [],
+            mavenProject: fixture.mavenProject
+        )
+        fixture.service.runAllServices()
+
+        #expect(fixture.operations.launchPlanIDs == [backend.id])
+        #expect(fixture.processFactory.processes.count == 1)
+        let backendSession = try #require(
+            fixture.service.moduleSessions.first(where: { $0.id == backend.id })
+        )
+        let frontendSession = try #require(
+            fixture.service.moduleSessions.first(where: { $0.id == frontend.id })
+        )
+        #expect(backendSession.isRunning)
+        #expect(!frontendSession.isRunning)
+        #expect(frontendSession.exitCode == 1)
+        #expect(frontendSession.output.contains("No local node toolchain"))
+    }
+
+    @Test
     func serviceAddressUsesExplicitArgumentsAndEnvironmentPorts() async throws {
         let argumentService = JavaRunConfiguration(
             id: "npm.script:web/dev",
@@ -3789,6 +3892,7 @@ struct RunConfigurationIntegrationTests {
         plans: [String: SharedLaunchPlan] = [:],
         generationEntryCount: Int? = nil,
         defaultConfigurationID: String? = nil,
+        diagnostics: [RunConfigurationDiagnostic] = [],
         preferences: RunTestKeyValueStore = RunTestKeyValueStore()
     ) -> RunServiceFixture {
         let root = URL(fileURLWithPath: "/tmp/lithe-run-service", isDirectory: true)
@@ -3797,7 +3901,8 @@ struct RunConfigurationIntegrationTests {
             effective: effective,
             plans: plans,
             generationEntryCount: generationEntryCount,
-            defaultConfigurationID: defaultConfigurationID
+            defaultConfigurationID: defaultConfigurationID,
+            diagnostics: diagnostics
         )
         let process = RecordingStreamingProcess()
         let processFactory = RecordingProcessFactory()
@@ -3942,6 +4047,7 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
     let plans: [String: SharedLaunchPlan]
     let generationEntryCount: Int?
     let defaultConfigurationID: String?
+    let diagnostics: [RunConfigurationDiagnostic]
     private(set) var resolveCalls = 0
     private(set) var migrationCalls = 0
     private(set) var launchPlanIDs: [String] = []
@@ -3959,13 +4065,15 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
         effective: [EffectiveRunConfiguration],
         plans: [String: SharedLaunchPlan],
         generationEntryCount: Int? = nil,
-        defaultConfigurationID: String? = nil
+        defaultConfigurationID: String? = nil,
+        diagnostics: [RunConfigurationDiagnostic] = []
     ) {
         self.status = status
         self.effective = effective
         self.plans = plans
         self.generationEntryCount = generationEntryCount
         self.defaultConfigurationID = defaultConfigurationID
+        self.diagnostics = diagnostics
     }
 
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
@@ -3985,7 +4093,7 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
         }
         return RunConfigurationResolution(
             configurations: effective,
-            diagnostics: [],
+            diagnostics: diagnostics,
             defaultConfigurationID: defaultConfigurationID
         )
     }
@@ -4183,6 +4291,7 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         let workingDirectoryURL: URL
         let initializationOptions: ToolingJSONValue?
         let runtimeExecutableURL: URL?
+        let jdtlsLaunchResources: JDTLSLaunchResources?
         let cacheDirectoryURL: URL?
         let initializeTimeout: TimeInterval
         let requestTimeout: TimeInterval
@@ -4248,6 +4357,7 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         workingDirectoryURL: URL,
         initializationOptions: ToolingJSONValue?,
         runtimeExecutableURL: URL?,
+        jdtlsLaunchResources: JDTLSLaunchResources?,
         cacheDirectoryURL: URL?,
         workspaceFingerprint: String?,
         initializeTimeout: TimeInterval,
@@ -4263,6 +4373,7 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
             workingDirectoryURL: workingDirectoryURL,
             initializationOptions: initializationOptions,
             runtimeExecutableURL: runtimeExecutableURL,
+            jdtlsLaunchResources: jdtlsLaunchResources,
             cacheDirectoryURL: cacheDirectoryURL,
             initializeTimeout: initializeTimeout,
             requestTimeout: requestTimeout,

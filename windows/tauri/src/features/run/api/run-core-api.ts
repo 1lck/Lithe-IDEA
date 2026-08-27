@@ -71,7 +71,11 @@ export function saveRunConfigurationEditorChanges(
   options: RunOptions,
   toolchain: GlobalToolchain,
 ) {
-  return runCore<{ localDocument: string; projectDocument: string | null }>(
+  return runCore<{
+    localDocument: string;
+    projectDocument: string | null;
+    toolchainDocument: string | null;
+  }>(
     "runConfig.saveEditorChanges",
     {
       root,

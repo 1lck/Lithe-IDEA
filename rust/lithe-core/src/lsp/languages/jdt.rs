@@ -41,6 +41,8 @@ pub(crate) struct JdtStartContext {
     #[serde(default)]
     pub selected_java_executable: Option<PathBuf>,
     #[serde(default)]
+    pub direct_launch_resources: Option<JdtDirectLaunchResources>,
+    #[serde(default)]
     pub arguments: Vec<String>,
     /// Opaque platform-provided digest of the build-system inputs that decide
     /// how JDT LS will import the workspace: root build files and the set of
@@ -55,6 +57,15 @@ pub(crate) struct JdtStartContext {
     /// caches stay valid.
     #[serde(default)]
     pub workspace_fingerprint: Option<String>,
+}
+
+/// Platform-resolved files required to launch JDT LS without a shell wrapper.
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct JdtDirectLaunchResources {
+    pub launcher_jar_path: PathBuf,
+    pub configuration_directory: PathBuf,
+    pub lombok_agent_path: PathBuf,
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq)]
@@ -79,6 +90,8 @@ pub(crate) struct JdtWorkspaceKeyResponse {
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct JdtStartAdaptation {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub executable: Option<PathBuf>,
     pub arguments: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data_directory: Option<PathBuf>,
@@ -125,6 +138,7 @@ pub(crate) struct ExecuteCommandParams {
 pub(crate) fn adapt_start(context: &JdtStartContext) -> JdtStartAdaptation {
     if !is_java_provider(&context.provider_id) {
         return JdtStartAdaptation {
+            executable: None,
             arguments: context.arguments.clone(),
             data_directory: None,
         };
@@ -137,19 +151,26 @@ pub(crate) fn adapt_start(context: &JdtStartContext) -> JdtStartAdaptation {
             &context.workspace_root,
             context.workspace_fingerprint.as_deref(),
         ));
-    let mut arguments = without_jdt_owned_arguments(&context.arguments);
-    if let Some(java_executable) = &context.selected_java_executable {
-        arguments.push("--java-executable".to_string());
-        arguments.push(java_executable.to_string_lossy().into_owned());
-    }
-    arguments.extend([
-        "--jvm-arg=-Xms256m".to_string(),
-        "--jvm-arg=-Xmx1024m".to_string(),
-        "-data".to_string(),
-        data_directory.to_string_lossy().into_owned(),
-    ]);
+    let (executable, arguments) = match (
+        &context.selected_java_executable,
+        &context.direct_launch_resources,
+    ) {
+        (Some(java_executable), Some(resources)) => (
+            Some(java_executable.clone()),
+            direct_java_arguments(&context.arguments, resources, &data_directory),
+        ),
+        _ => (
+            None,
+            wrapper_arguments(
+                &context.arguments,
+                context.selected_java_executable.as_deref(),
+                &data_directory,
+            ),
+        ),
+    };
 
     JdtStartAdaptation {
+        executable,
         arguments,
         data_directory: Some(data_directory),
     }
@@ -297,7 +318,172 @@ fn is_java_provider(provider_id: &str) -> bool {
     provider_id.trim().eq_ignore_ascii_case(JAVA_PROVIDER_ID)
 }
 
-fn without_jdt_owned_arguments(arguments: &[String]) -> Vec<String> {
+fn wrapper_arguments(
+    arguments: &[String],
+    java_executable: Option<&Path>,
+    data_directory: &Path,
+) -> Vec<String> {
+    let mut arguments = without_wrapper_owned_arguments(arguments);
+    if let Some(java_executable) = java_executable {
+        arguments.push("--java-executable".to_string());
+        arguments.push(java_executable.to_string_lossy().into_owned());
+    }
+    arguments.extend([
+        "--jvm-arg=-Xms256m".to_string(),
+        "--jvm-arg=-Xmx1024m".to_string(),
+        "-data".to_string(),
+        data_directory.to_string_lossy().into_owned(),
+    ]);
+    arguments
+}
+
+fn direct_java_arguments(
+    arguments: &[String],
+    resources: &JdtDirectLaunchResources,
+    data_directory: &Path,
+) -> Vec<String> {
+    let (custom_jvm_arguments, server_arguments) =
+        split_direct_launch_arguments(arguments, &resources.launcher_jar_path);
+    let mut adapted = vec![
+        format!(
+            "-javaagent:{}",
+            resources.lombok_agent_path.to_string_lossy()
+        ),
+        "-Xms256m".to_string(),
+        "-Xmx1024m".to_string(),
+        "--add-modules=ALL-SYSTEM".to_string(),
+        "--add-opens=java.base/java.util=ALL-UNNAMED".to_string(),
+        "--add-opens=java.base/java.lang=ALL-UNNAMED".to_string(),
+        "-Declipse.application=org.eclipse.jdt.ls.core.id1".to_string(),
+        "-Declipse.product=org.eclipse.jdt.ls.core.product".to_string(),
+        "-Dosgi.bundles.defaultStartLevel=4".to_string(),
+        "-Dlog.protocol=true".to_string(),
+        "-Dlog.level=ALL".to_string(),
+    ];
+    adapted.extend(custom_jvm_arguments);
+    adapted.extend([
+        "-jar".to_string(),
+        resources.launcher_jar_path.to_string_lossy().into_owned(),
+        "-configuration".to_string(),
+        resources
+            .configuration_directory
+            .to_string_lossy()
+            .into_owned(),
+    ]);
+    adapted.extend(server_arguments);
+    adapted.extend([
+        "-data".to_string(),
+        data_directory.to_string_lossy().into_owned(),
+    ]);
+    adapted
+}
+
+fn split_direct_launch_arguments(
+    arguments: &[String],
+    launcher_jar_path: &Path,
+) -> (Vec<String>, Vec<String>) {
+    let launcher_jar_path = launcher_jar_path.to_string_lossy();
+    let owned_launcher_index = arguments
+        .windows(2)
+        .position(|pair| pair[0] == "-jar" && pair[1] == launcher_jar_path.as_ref());
+    let has_direct_layout = owned_launcher_index.is_some();
+    let mut custom_jvm_arguments = Vec::new();
+    let mut server_arguments = Vec::new();
+    let mut after_launcher = false;
+    let mut index = 0;
+    while index < arguments.len() {
+        let argument = &arguments[index];
+        if argument == "--java-executable" || argument == "-data" {
+            index += usize::from(index + 1 < arguments.len()) + 1;
+            continue;
+        }
+        if argument == "--jvm-arg" {
+            if let Some(value) = arguments.get(index + 1) {
+                if !is_jdt_owned_jvm_argument(value) {
+                    custom_jvm_arguments.push(value.clone());
+                }
+            }
+            index += usize::from(index + 1 < arguments.len()) + 1;
+            continue;
+        }
+        if let Some(value) = argument.strip_prefix("--jvm-arg=") {
+            if !is_jdt_owned_jvm_argument(value) {
+                custom_jvm_arguments.push(value.to_string());
+            }
+            index += 1;
+            continue;
+        }
+        if owned_launcher_index == Some(index) {
+            after_launcher = true;
+            index += usize::from(index + 1 < arguments.len()) + 1;
+            continue;
+        }
+        if argument == "-configuration" && has_direct_layout && after_launcher {
+            index += usize::from(index + 1 < arguments.len()) + 1;
+            continue;
+        }
+        if has_direct_layout
+            && !after_launcher
+            && ((argument == "--add-modules"
+                && arguments
+                    .get(index + 1)
+                    .is_some_and(|value| value == "ALL-SYSTEM"))
+                || (argument == "--add-opens"
+                    && arguments.get(index + 1).is_some_and(|value| {
+                        value == "java.base/java.util=ALL-UNNAMED"
+                            || value == "java.base/java.lang=ALL-UNNAMED"
+                    })))
+        {
+            index += 2;
+            continue;
+        }
+        if argument.starts_with("--java-executable=") || argument.starts_with("-data=") {
+            index += 1;
+            continue;
+        }
+        if has_direct_layout && !after_launcher {
+            if !is_jdt_owned_jvm_argument(argument) {
+                custom_jvm_arguments.push(argument.clone());
+            }
+        } else if !is_jdt_owned_server_argument(argument) {
+            server_arguments.push(argument.clone());
+        }
+        index += 1;
+    }
+    (custom_jvm_arguments, server_arguments)
+}
+
+fn is_jdt_owned_jvm_argument(argument: &str) -> bool {
+    argument.starts_with("-Xms")
+        || argument.starts_with("-Xmx")
+        || argument == "--add-modules=ALL-SYSTEM"
+        || argument == "--add-opens=java.base/java.util=ALL-UNNAMED"
+        || argument == "--add-opens=java.base/java.lang=ALL-UNNAMED"
+        || argument.starts_with("-Declipse.application=")
+        || argument.starts_with("-Declipse.product=")
+        || argument.starts_with("-Dosgi.bundles.defaultStartLevel=")
+        || argument.starts_with("-Dlog.protocol=")
+        || argument.starts_with("-Dlog.level=")
+        || is_lombok_agent_argument(argument)
+}
+
+fn is_lombok_agent_argument(argument: &str) -> bool {
+    let Some(path) = argument.strip_prefix("-javaagent:") else {
+        return false;
+    };
+    path.split_once('=')
+        .map_or(path, |(path, _)| path)
+        .replace('\\', "/")
+        .rsplit('/')
+        .next()
+        .is_some_and(|name| name.eq_ignore_ascii_case("lombok.jar"))
+}
+
+fn is_jdt_owned_server_argument(argument: &str) -> bool {
+    argument == "-data" || argument.starts_with("-data=")
+}
+
+fn without_wrapper_owned_arguments(arguments: &[String]) -> Vec<String> {
     let mut retained = Vec::with_capacity(arguments.len());
     let mut index = 0;
     while index < arguments.len() {
@@ -548,6 +734,7 @@ mod tests {
             workspace_root: PathBuf::from("/workspace/project"),
             data_root: PathBuf::from("/cache/Lithe"),
             selected_java_executable: Some(PathBuf::from("/jdk/bin/java")),
+            direct_launch_resources: None,
             arguments: vec!["--stdio".to_string()],
             workspace_fingerprint: None,
         }
@@ -603,6 +790,62 @@ mod tests {
             .contains(&"--jvm-arg=-Duser.language=en".to_string()));
         assert!(!first.arguments.contains(&"/old/java".to_string()));
         assert!(!first.arguments.contains(&"/old/data".to_string()));
+    }
+
+    #[test]
+    fn java_direct_start_builds_complete_shell_free_arguments_and_is_stable() {
+        let mut context = java_start_context();
+        context.direct_launch_resources = Some(JdtDirectLaunchResources {
+            launcher_jar_path: PathBuf::from("/jdtls/plugins/equinox.jar"),
+            configuration_directory: PathBuf::from("/jdtls/config_mac"),
+            lombok_agent_path: PathBuf::from("/jdtls/lombok/lombok.jar"),
+        });
+        context.arguments = vec![
+            "--stdio".to_string(),
+            "-jar".to_string(),
+            "/server/extension.jar".to_string(),
+            "--java-executable=/old/java".to_string(),
+            "--jvm-arg=-Xmx4g".to_string(),
+            "--jvm-arg=-Duser.language=en".to_string(),
+            "-data=/old/data".to_string(),
+        ];
+
+        let first = adapt_start(&context);
+        context.arguments = first.arguments.clone();
+        let second = adapt_start(&context);
+        let data_directory = first.data_directory.as_ref().unwrap();
+
+        assert_eq!(first, second);
+        assert_eq!(first.executable, Some(PathBuf::from("/jdk/bin/java")));
+        assert_eq!(
+            first.arguments,
+            vec![
+                "-javaagent:/jdtls/lombok/lombok.jar",
+                "-Xms256m",
+                "-Xmx1024m",
+                "--add-modules=ALL-SYSTEM",
+                "--add-opens=java.base/java.util=ALL-UNNAMED",
+                "--add-opens=java.base/java.lang=ALL-UNNAMED",
+                "-Declipse.application=org.eclipse.jdt.ls.core.id1",
+                "-Declipse.product=org.eclipse.jdt.ls.core.product",
+                "-Dosgi.bundles.defaultStartLevel=4",
+                "-Dlog.protocol=true",
+                "-Dlog.level=ALL",
+                "-Duser.language=en",
+                "-jar",
+                "/jdtls/plugins/equinox.jar",
+                "-configuration",
+                "/jdtls/config_mac",
+                "--stdio",
+                "-jar",
+                "/server/extension.jar",
+                "-data",
+                data_directory.to_string_lossy().as_ref(),
+            ]
+        );
+        assert!(!first.arguments.contains(&"/old/java".to_string()));
+        assert!(!first.arguments.contains(&"/old/data".to_string()));
+        assert!(!first.arguments.contains(&"-Xmx4g".to_string()));
     }
 
     #[test]

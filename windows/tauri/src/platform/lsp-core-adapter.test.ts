@@ -365,6 +365,12 @@ describe("Rust Core LSP adapter failures", () => {
         languageId: "java",
         providerId: "java",
         serverPath: "C:/Lithe/jdtls.bat",
+        runtimeExecutablePath: "C:/Lithe/jdk/bin/java.exe",
+        jdtlsLaunchResources: {
+          launcherJarPath: "C:/Lithe/jdtls/plugins/equinox.jar",
+          configurationDirectory: "C:/Lithe/jdtls/config_win",
+          lombokAgentPath: "C:/Lithe/jdtls/lombok/lombok.jar",
+        },
       });
     } catch (error) {
       failure = error as Error & { code?: string; details?: string };
@@ -377,6 +383,12 @@ describe("Rust Core LSP adapter failures", () => {
     expect(failure?.code).toBe("serverExited");
     expect(failure?.details).toBe("JVM startup failed; exit code 13");
     expect(startPayload?.initializeTimeoutMilliseconds).toBe(30_000);
+    expect(startPayload?.runtimeExecutablePath).toBe("C:/Lithe/jdk/bin/java.exe");
+    expect(startPayload?.jdtlsLaunchResources).toEqual({
+      launcherJarPath: "C:/Lithe/jdtls/plugins/equinox.jar",
+      configurationDirectory: "C:/Lithe/jdtls/config_win",
+      lombokAgentPath: "C:/Lithe/jdtls/lombok/lombok.jar",
+    });
     expect(frontendTrace).toHaveBeenCalledWith(
       "warn",
       "lsp.runtime",

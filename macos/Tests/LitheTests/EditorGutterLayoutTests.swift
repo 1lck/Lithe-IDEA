@@ -247,39 +247,6 @@ struct EditorGutterLayoutTests {
     }
 
     @Test
-    func inlayLayoutChangesForceCodeVisionToReposition() {
-        let plan = EditorOverlayUpdatePlan(
-            codeVisionChanged: false,
-            inlayHintsChanged: true,
-            layoutChanged: false
-        )
-        #expect(plan.updateInlayHints)
-        #expect(plan.updateCodeVision)
-    }
-
-    @Test
-    func unchangedOverlaysDoNotRebuild() {
-        let plan = EditorOverlayUpdatePlan(
-            codeVisionChanged: false,
-            inlayHintsChanged: false,
-            layoutChanged: false
-        )
-        #expect(!plan.updateInlayHints)
-        #expect(!plan.updateCodeVision)
-    }
-
-    @Test
-    func viewportResizeDoesNotReapplyInlaySpacing() {
-        let plan = EditorOverlayUpdatePlan(
-            codeVisionChanged: false,
-            inlayHintsChanged: false,
-            layoutChanged: true
-        )
-        #expect(!plan.updateInlayHints)
-        #expect(plan.updateCodeVision)
-    }
-
-    @Test
     func codeVisionUsesTheSymbolAsItsVisualLineAnchor() {
         #expect(EditorOverlayLayout.codeVisionAnchorCharacterOffset(
             lineStart: 100,
@@ -374,62 +341,6 @@ struct EditorGutterLayoutTests {
             overlayAscender: 8,
             overlayDescender: -2
         ) == 23)
-    }
-
-    @Test
-    func inlayHintBoxCenterAlignsWithTheLineCenter() {
-        #expect(EditorOverlayLayout.centeredBoxOriginY(
-            textContainerOriginY: 2,
-            lineOriginY: 20,
-            lineHeight: 18,
-            boxHeight: 16
-        ) == 23)
-        #expect(EditorOverlayLayout.centeredBoxOriginY(
-            textContainerOriginY: 2,
-            lineOriginY: 20,
-            lineHeight: 24,
-            boxHeight: 18
-        ) == 25)
-    }
-
-    @Test
-    func inlayHintBoxHeightDependsOnItsFontInsteadOfEditorLineHeight() {
-        let height = EditorOverlayLayout.inlayHintBoxHeight(
-            fontAscender: 10,
-            fontDescender: -3,
-            fontLeading: 1
-        )
-        #expect(height == 18)
-        #expect(EditorOverlayLayout.centeredBoxOriginY(
-            textContainerOriginY: 2,
-            lineOriginY: 20,
-            lineHeight: 40,
-            boxHeight: height
-        ) == 33)
-    }
-
-    @Test
-    func inlayHintBoxAlignsWithTheActualTextCenter() {
-        #expect(EditorOverlayLayout.boxOriginYAlignedToTextCenter(
-            textContainerOriginY: 2,
-            lineOriginY: 0,
-            baselineOffsetY: 28.6,
-            textAscender: 23.2,
-            textDescender: -5.0,
-            boxHeight: 18
-        ) == 12.5)
-    }
-
-    @Test
-    func inlayHintOnALaterLineIncludesTheLineOrigin() {
-        #expect(EditorOverlayLayout.boxOriginYAlignedToTextCenter(
-            textContainerOriginY: 2,
-            lineOriginY: 638.4,
-            baselineOffsetY: 28.6,
-            textAscender: 23.2,
-            textDescender: -5.0,
-            boxHeight: 18
-        ) == 650.9)
     }
 
     @Test

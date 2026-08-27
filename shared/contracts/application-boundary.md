@@ -142,6 +142,14 @@ path. A missing or invalid bundle is a packaging failure. The application shows
 preparing, ready, failure, and timeout notifications; a navigation command while
 preparing ends after the notice and is never replayed later.
 
+macOS and Windows adapters discover the selected JDT LS installation's Equinox
+launcher JAR, platform configuration directory, Lombok agent, and bundled Java
+executable. They submit those paths as structured launch resources; Rust Core
+owns the JVM flags and directly starts `java`/`java.exe` with array arguments.
+Packaged JDT LS therefore has no runtime dependency on shell wrappers,
+PowerShell, or the user's `PATH`. Legacy wrappers are an external-plan
+compatibility fallback and are not the packaged execution path.
+
 Platforms observe JDT LS version and non-recursive build-file metadata, while
 Rust Core alone validates and reduces those observations to the opaque workspace
 fingerprint. macOS and Windows adapters must not duplicate its ordering,
@@ -159,8 +167,9 @@ Language feature clients route through a provider interface rather than
 depending directly on an LSP session. Process-free providers remain available
 when an executable is missing. LSP-backed features are enabled only after the
 server advertises them during initialize or dynamic registration. The shared
-core owns JSON-RPC state and normalized results; platform adapters own stdio and
-process lifecycle. Detailed invariants are documented in
+core owns JSON-RPC state, stdio, process lifecycle, and normalized results;
+platform adapters own executable and provider-resource discovery. Detailed
+invariants are documented in
 [`language-tooling.md`](../../docs/architecture/language-tooling.md).
 
 Session lifecycle is a single discriminated state, never a set of booleans.
@@ -222,4 +231,12 @@ is an explicit user action. Shared project overrides stay in
 `.lithe/run/configurations.json`. Machine-local overrides may live in
 `.lithe/run/local.json` or in a host-owned document supplied as
 `localDocument`; absolute toolchain paths belong only in that local layer and
-are excluded from project visibility and Git by default.
+are excluded from project visibility and Git by default. Generic runtime
+executables such as Node are selected in `.lithe/toolchains/local.json`; this
+machine-local document is also excluded from Git by default. Missing or
+incompatible toolchains block only configurations that consume the affected
+toolchain, while diagnostics without a configuration ID apply to the project.
+Runtime consumption is declared by the detector from the actual command rather
+than inferred from the provider namespace. An automatically discovered runtime
+path is session-effective: validation and launch share it, but persistence
+still requires an explicit user selection.
