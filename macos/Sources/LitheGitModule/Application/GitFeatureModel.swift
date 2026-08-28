@@ -66,6 +66,11 @@ package final class GitFeatureModel: ObservableObject {
     private var commitPathsByHash: [String: Set<String>] = [:]
     private var commitFilesByCacheKey: [GitCommitFilesCacheKey: [GitCommitFile]] = [:]
     private var commitFilesCacheRecency: [GitCommitFilesCacheKey] = []
+    private var commitFilesLoadsByCacheKey: [
+        GitCommitFilesCacheKey: Task<[GitCommitFile], Never>
+    ] = [:]
+    private var commitFilesPrefetchTask: Task<Void, Never>?
+    private var commitFilesPrefetchID: UUID?
     private var gitLogFilterGeneration = UUID()
     private let shelveService: ShelveService?
     private let snapshotProvider: @Sendable (URL) async -> GitSnapshot?
@@ -95,6 +100,7 @@ package final class GitFeatureModel: ObservableObject {
     // Historical commit contents are immutable by hash; keep the hot working set
     // bounded so repeated navigation stays instant without unbounded memory growth.
     private static let commitFilesCacheCapacity = 128
+    private static let commitFilesPrefetchRadius = 4
 
     package init(
         service: GitService,
@@ -154,6 +160,8 @@ package final class GitFeatureModel: ObservableObject {
             || isPerformingBranchOperation
             || isCloningRepository
             || isResolvingGitOperation
+            || commitFilesPrefetchTask != nil
+            || !commitFilesLoadsByCacheKey.isEmpty
     }
 
     package func reset() {
@@ -1357,15 +1365,79 @@ package final class GitFeatureModel: ObservableObject {
               selectedGitCommit?.hash == commit.hash else { return }
         if let cachedFiles = cachedGitCommitFiles(for: commit, at: gitRepositoryRoot) {
             selectedGitCommitFiles = cachedFiles
+            scheduleGitCommitFilesPrefetch(around: commit, at: gitRepositoryRoot)
             return
         }
-        let files = await service.files(in: commit, at: gitRepositoryRoot)
-        guard self.gitRepositoryRoot?.standardizedFileURL == gitRepositoryRoot.standardizedFileURL else {
-            return
-        }
-        cacheGitCommitFiles(files, for: commit, at: gitRepositoryRoot)
+        guard let files = await gitCommitFiles(for: commit, at: gitRepositoryRoot) else { return }
         guard selectedGitCommit?.hash == commit.hash else { return }
         selectedGitCommitFiles = files
+        scheduleGitCommitFilesPrefetch(around: commit, at: gitRepositoryRoot)
+    }
+
+    private func gitCommitFiles(
+        for commit: GitCommit,
+        at repositoryRoot: URL
+    ) async -> [GitCommitFile]? {
+        if let cachedFiles = cachedGitCommitFiles(for: commit, at: repositoryRoot) {
+            return cachedFiles
+        }
+
+        let key = GitCommitFilesCacheKey(
+            repositoryRoot: repositoryRoot.standardizedFileURL,
+            commitHash: commit.hash
+        )
+        let loadTask: Task<[GitCommitFile], Never>
+        if let activeLoad = commitFilesLoadsByCacheKey[key] {
+            loadTask = activeLoad
+        } else {
+            let service = service
+            loadTask = Task { await service.files(in: commit, at: repositoryRoot) }
+            commitFilesLoadsByCacheKey[key] = loadTask
+        }
+
+        let files = await loadTask.value
+        commitFilesLoadsByCacheKey.removeValue(forKey: key)
+        guard gitRepositoryRoot?.standardizedFileURL == repositoryRoot.standardizedFileURL else {
+            return nil
+        }
+        cacheGitCommitFiles(files, for: commit, at: repositoryRoot)
+        return files
+    }
+
+    private func scheduleGitCommitFilesPrefetch(
+        around commit: GitCommit,
+        at repositoryRoot: URL
+    ) {
+        commitFilesPrefetchTask?.cancel()
+        let candidates = GitCommitFilesPrefetchPlan.candidates(
+            in: gitCommits,
+            centeredAt: commit.hash,
+            radius: Self.commitFilesPrefetchRadius
+        ).filter { candidate in
+            let key = GitCommitFilesCacheKey(
+                repositoryRoot: repositoryRoot.standardizedFileURL,
+                commitHash: candidate.hash
+            )
+            return commitFilesByCacheKey[key] == nil
+        }
+        guard !candidates.isEmpty else {
+            commitFilesPrefetchTask = nil
+            commitFilesPrefetchID = nil
+            return
+        }
+
+        let prefetchID = UUID()
+        commitFilesPrefetchID = prefetchID
+        commitFilesPrefetchTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for candidate in candidates {
+                guard !Task.isCancelled else { break }
+                _ = await gitCommitFiles(for: candidate, at: repositoryRoot)
+            }
+            guard commitFilesPrefetchID == prefetchID else { return }
+            commitFilesPrefetchTask = nil
+            commitFilesPrefetchID = nil
+        }
     }
 
     private func cachedGitCommitFiles(
@@ -1404,6 +1476,13 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     private func clearGitCommitFilesCache() {
+        commitFilesPrefetchTask?.cancel()
+        commitFilesPrefetchTask = nil
+        commitFilesPrefetchID = nil
+        for loadTask in commitFilesLoadsByCacheKey.values {
+            loadTask.cancel()
+        }
+        commitFilesLoadsByCacheKey = [:]
         commitFilesByCacheKey = [:]
         commitFilesCacheRecency = []
     }
@@ -2195,4 +2274,30 @@ package final class GitFeatureModel: ObservableObject {
 private struct GitCommitFilesCacheKey: Hashable {
     let repositoryRoot: URL
     let commitHash: String
+}
+
+package enum GitCommitFilesPrefetchPlan {
+    package static func candidates(
+        in commits: [GitCommit],
+        centeredAt commitHash: String,
+        radius: Int
+    ) -> [GitCommit] {
+        guard radius > 0,
+              let centerIndex = commits.firstIndex(where: { $0.hash == commitHash }) else {
+            return []
+        }
+
+        var candidates: [GitCommit] = []
+        for distance in 1...radius {
+            let olderIndex = centerIndex + distance
+            if commits.indices.contains(olderIndex) {
+                candidates.append(commits[olderIndex])
+            }
+            let newerIndex = centerIndex - distance
+            if commits.indices.contains(newerIndex) {
+                candidates.append(commits[newerIndex])
+            }
+        }
+        return candidates
+    }
 }

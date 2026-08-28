@@ -514,6 +514,36 @@ struct GitModuleTests {
     }
 
     @Test
+    func commitFilesPrefetchPrioritizesTheNextOlderAndNewerCommits() {
+        let commits = (0..<6).map { index in
+            let hash = String(index)
+            return GitCommit(
+                hash: hash,
+                shortHash: hash,
+                parentHashes: [],
+                authorName: "Test Author",
+                authorEmail: "author@example.com",
+                date: "2026-08-28T16:00:00+08:00",
+                subject: hash,
+                decorations: ""
+            )
+        }
+
+        let candidates = GitCommitFilesPrefetchPlan.candidates(
+            in: commits,
+            centeredAt: "2",
+            radius: 3
+        )
+
+        #expect(candidates.map(\.hash) == ["3", "1", "4", "0", "5"])
+        #expect(GitCommitFilesPrefetchPlan.candidates(
+            in: commits,
+            centeredAt: "missing",
+            radius: 3
+        ).isEmpty)
+    }
+
+    @Test
     func clearingGitConsoleDoesNotTriggerInitialLoadAgain() async {
         let root = URL(fileURLWithPath: "/workspace")
         let service = GitService(operations: TestGitOperations(
