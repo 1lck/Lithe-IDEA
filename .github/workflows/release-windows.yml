@@ -30,6 +30,35 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
+      - name: Resolve release version
+        id: version
+        shell: pwsh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MANUAL_VERSION: ${{ inputs.version }}
+        run: |
+          $version = if ($env:EVENT_NAME -eq "workflow_dispatch") {
+            $env:MANUAL_VERSION
+          } else {
+            $env:GITHUB_REF_NAME.Substring(1)
+          }
+          if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
+            throw "Release version must use the form MAJOR.MINOR.PATCH: $version"
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=v$version" >> $env:GITHUB_OUTPUT
+
+      - name: Validate release notes
+        shell: pwsh
+        env:
+          LITHE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $notes = "docs/releases/v$env:LITHE_VERSION.md"
+          if (-not (Test-Path -LiteralPath $notes -PathType Leaf) -or
+              (Get-Item -LiteralPath $notes).Length -eq 0) {
+            throw "Stable releases require non-empty bilingual release notes: $notes"
+          }
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -133,24 +162,6 @@ jobs:
             -JdkOutcome "${{ steps.jdk-download-cache.outcome }}" `
             -IncludeWindowsAssets
 
-      - name: Resolve release version
-        id: version
-        shell: pwsh
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          MANUAL_VERSION: ${{ inputs.version }}
-        run: |
-          $version = if ($env:EVENT_NAME -eq "workflow_dispatch") {
-            $env:MANUAL_VERSION
-          } else {
-            $env:GITHUB_REF_NAME.Substring(1)
-          }
-          if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
-            throw "Release version must use the form MAJOR.MINOR.PATCH: $version"
-          }
-          "version=$version" >> $env:GITHUB_OUTPUT
-          "tag=v$version" >> $env:GITHUB_OUTPUT
-
       - name: Import Authenticode certificate
         id: signing
         shell: pwsh
@@ -248,14 +259,19 @@ jobs:
           )
           $existing = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY 2>$null
           if ($LASTEXITCODE -ne 0) {
-            if (Test-Path -LiteralPath $notes) { $createArgs += @("--notes-file", $notes) }
-            else { $createArgs += "--generate-notes" }
+            $createArgs += @("--notes-file", $notes)
             gh release create @createArgs
             if ($LASTEXITCODE -ne 0) {
               $existing = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY 2>$null
               if ($LASTEXITCODE -ne 0) { throw "Could not create or find release $env:RELEASE_TAG" }
             }
           }
+          gh release edit $env:RELEASE_TAG `
+            --repo $env:GITHUB_REPOSITORY `
+            --target $env:GITHUB_SHA `
+            --title "Lithe $env:RELEASE_TAG" `
+            --notes-file $notes
+          if ($LASTEXITCODE -ne 0) { throw "Could not update release notes for $env:RELEASE_TAG" }
 
           $assets = @(
             "dist/Lithe-$env:LITHE_VERSION-windows-x64.exe",
