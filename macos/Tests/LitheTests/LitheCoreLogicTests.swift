@@ -53,6 +53,136 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
+    func commandWClosesActiveWorkbenchContentBeforeTheWindow() {
+        let sessions = TestProjectWindowSessions(hasActiveProject: true)
+        sessions.consumesWorkbenchCloseCommand = true
+        let coordinator = LitheWindowCoordinator(projectSessions: sessions)
+        let window = CloseCommandTestWindow()
+        coordinator.attach(to: window, layout: .workspace)
+
+        coordinator.performCloseCommand()
+
+        #expect(sessions.closeActiveWorkbenchItemCallCount == 1)
+        #expect(window.performCloseCallCount == 0)
+        #expect(sessions.closeActiveProjectCallCount == 0)
+    }
+
+    @Test
+    @MainActor
+    func commandWUsesNativeWindowCloseAfterWorkbenchContentIsGone() {
+        let sessions = TestProjectWindowSessions(hasActiveProject: true)
+        let coordinator = LitheWindowCoordinator(projectSessions: sessions)
+        let window = CloseCommandTestWindow()
+        coordinator.attach(to: window, layout: .workspace)
+
+        coordinator.performCloseCommand()
+
+        #expect(sessions.closeActiveWorkbenchItemCallCount == 1)
+        #expect(window.performCloseCallCount == 1)
+        #expect(window.delegateAllowedClose)
+        #expect(sessions.resetForProjectWindowCloseCallCount == 1)
+        #expect(sessions.closeActiveProjectCallCount == 0)
+    }
+
+    @Test
+    @MainActor
+    func commandWCancelDoesNotResetSessionsOrLeakIntoTheNextWindowClose() {
+        let sessions = TestProjectWindowSessions(hasActiveProject: true)
+        let coordinator = LitheWindowCoordinator(
+            projectSessions: sessions,
+            confirmUnsavedDocuments: { _ in false }
+        )
+        let window = CloseCommandTestWindow()
+        coordinator.attach(to: window, layout: .workspace)
+
+        coordinator.performCloseCommand()
+
+        #expect(window.performCloseCallCount == 1)
+        #expect(!window.delegateAllowedClose)
+        #expect(sessions.resetForProjectWindowCloseCallCount == 0)
+
+        #expect(!coordinator.windowShouldClose(window))
+        #expect(sessions.requestCloseActiveSessionCallCount == 1)
+    }
+
+    @Test
+    @MainActor
+    func commandWSaveFailureDoesNotResetSessions() {
+        let sessions = TestProjectWindowSessions(hasActiveProject: true)
+        sessions.hasUnsavedDocuments = true
+        sessions.saveAllDocumentsResult = false
+        let coordinator = LitheWindowCoordinator(
+            projectSessions: sessions,
+            confirmUnsavedDocuments: { owner in
+                #expect(owner.hasUnsavedDocuments)
+                #expect(!owner.saveAllDocuments())
+                return false
+            }
+        )
+        let window = CloseCommandTestWindow()
+        coordinator.attach(to: window, layout: .workspace)
+
+        coordinator.performCloseCommand()
+
+        #expect(!window.delegateAllowedClose)
+        #expect(sessions.saveAllDocumentsCallCount == 1)
+        #expect(sessions.resetForProjectWindowCloseCallCount == 0)
+    }
+
+    @Test
+    @MainActor
+    func ordinaryWindowCloseStillClosesOnlyTheActiveSession() {
+        let sessions = TestProjectWindowSessions(hasActiveProject: true)
+        let coordinator = LitheWindowCoordinator(projectSessions: sessions)
+
+        #expect(!coordinator.windowShouldClose(NSWindow()))
+        #expect(sessions.requestCloseActiveSessionCallCount == 1)
+        #expect(sessions.resetForProjectWindowCloseCallCount == 0)
+    }
+
+    @Test
+    @MainActor
+    func closingAProjectWindowReplacesAllSessionsWithAnEmptyActiveSession() {
+        let store = MutableKeyValueStore()
+        let settings = AppSettings(store: store)
+        var createdModels: [AppModel] = []
+        let manager = ProjectSessionManager(
+            settings: settings,
+            modelFactory: {
+                let model = AppModel(
+                    settings: settings,
+                    services: MacServiceContainer(
+                        store: store,
+                        settings: settings,
+                        moduleLaunchMode: .safeMode
+                    ).services
+                )
+                createdModels.append(model)
+                return model
+            },
+            newWindowOpener: { _ in }
+        )
+
+        manager.openStandaloneFile(URL(fileURLWithPath: "/tmp/lithe-close-first.swift"))
+        manager.openStandaloneFile(URL(fileURLWithPath: "/tmp/lithe-close-second.swift"))
+        let oldIDs = Set(manager.sessions.map(\.id))
+        manager.pendingProjectOpen = PendingProjectOpen(
+            url: URL(fileURLWithPath: "/tmp/lithe-close-pending"),
+            sourceSessionID: manager.activeSessionID
+        )
+
+        manager.resetForProjectWindowClose()
+
+        #expect(manager.sessions.count == 1)
+        #expect(!oldIDs.contains(manager.activeSessionID))
+        #expect(manager.activeModel.workspaceURL == nil)
+        #expect(manager.activeModel.standaloneFileURL == nil)
+        #expect(manager.pendingProjectOpen == nil)
+        #expect(manager.activeModel === createdModels.last)
+    }
+
+    @Test
+    @MainActor
     func closingTheWelcomeWindowAllowsTheApplicationToTerminate() {
         let sessions = TestProjectWindowSessions(hasActiveProject: false)
         let coordinator = LitheWindowCoordinator(projectSessions: sessions)
@@ -2660,7 +2790,15 @@ struct LitheCoreLogicTests {
 private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
     var hasActiveProject: Bool
     var hasActiveStandaloneFile = false
+    var consumesWorkbenchCloseCommand = false
+    var hasUnsavedDocuments = false
+    var unsavedDocumentNames: [String] = []
+    var saveAllDocumentsResult = true
     private(set) var closeActiveProjectCallCount = 0
+    private(set) var closeActiveWorkbenchItemCallCount = 0
+    private(set) var requestCloseActiveSessionCallCount = 0
+    private(set) var resetForProjectWindowCloseCallCount = 0
+    private(set) var saveAllDocumentsCallCount = 0
 
     init(hasActiveProject: Bool) {
         self.hasActiveProject = hasActiveProject
@@ -2670,9 +2808,35 @@ private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
         closeActiveProjectCallCount += 1
     }
 
+    func requestCloseActiveWorkbenchItem() -> Bool {
+        closeActiveWorkbenchItemCallCount += 1
+        return consumesWorkbenchCloseCommand
+    }
+
     func requestCloseActiveSession() -> Bool {
+        requestCloseActiveSessionCallCount += 1
         closeActiveProject()
         return false
+    }
+
+    func saveAllDocuments() -> Bool {
+        saveAllDocumentsCallCount += 1
+        return saveAllDocumentsResult
+    }
+
+    func resetForProjectWindowClose() {
+        resetForProjectWindowCloseCallCount += 1
+    }
+}
+
+@MainActor
+private final class CloseCommandTestWindow: NSWindow {
+    private(set) var performCloseCallCount = 0
+    private(set) var delegateAllowedClose = false
+
+    override func performClose(_ sender: Any?) {
+        performCloseCallCount += 1
+        delegateAllowedClose = delegate?.windowShouldClose?(self) ?? true
     }
 }
 

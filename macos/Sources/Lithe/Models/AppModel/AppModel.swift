@@ -718,8 +718,9 @@ final class AppModel: ObservableObject, Identifiable {
 
     func shutdownProjectSession() {
         shortcutDetector?.stop()
-        Task { [weak self] in
-            await self?.services.moduleRuntime.shutdownAll()
+        let moduleRuntime = services.moduleRuntime
+        Task {
+            await moduleRuntime.shutdownAll()
         }
         languageToolingSessionsIfActive?.stopAll()
         languageTestServiceIfActive?.stop()

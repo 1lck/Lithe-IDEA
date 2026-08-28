@@ -4,6 +4,29 @@ import SwiftUI
 private let litheProcessLaunchDate = Date()
 
 @MainActor
+protocol UnsavedDocumentHandling: AnyObject {
+    var hasUnsavedDocuments: Bool { get }
+    var unsavedDocumentNames: [String] { get }
+
+    @discardableResult
+    func saveAllDocuments() -> Bool
+}
+
+enum UnsavedDocumentsConfirmationContext {
+    case applicationTermination
+    case projectWindowClose
+
+    var messageText: String {
+        switch self {
+        case .applicationTermination:
+            "Save changes before quitting?"
+        case .projectWindowClose:
+            "Save changes before closing this window?"
+        }
+    }
+}
+
+@MainActor
 final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     private var pendingFileURLs: [URL] = []
     weak var projectSessions: ProjectSessionManager? {
@@ -34,7 +57,10 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let projectSessions else { return .terminateNow }
-        return Self.confirmUnsavedDocuments(for: projectSessions) ? .terminateNow : .terminateCancel
+        return Self.confirmUnsavedDocuments(
+            for: projectSessions,
+            context: .applicationTermination
+        ) ? .terminateNow : .terminateCancel
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -103,20 +129,23 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    static func confirmUnsavedDocuments(for projectSessions: ProjectSessionManager) -> Bool {
-        guard projectSessions.hasUnsavedDocuments else { return true }
+    static func confirmUnsavedDocuments(
+        for documentOwner: any UnsavedDocumentHandling,
+        context: UnsavedDocumentsConfirmationContext
+    ) -> Bool {
+        guard documentOwner.hasUnsavedDocuments else { return true }
 
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Save changes before quitting?"
-        alert.informativeText = projectSessions.unsavedDocumentNames.joined(separator: ", ")
+        alert.messageText = context.messageText
+        alert.informativeText = documentOwner.unsavedDocumentNames.joined(separator: ", ")
         alert.addButton(withTitle: "Save All")
         alert.addButton(withTitle: "Don't Save")
         alert.addButton(withTitle: "Cancel")
 
         switch alert.runModal() {
         case .alertFirstButtonReturn:
-            return projectSessions.saveAllDocuments()
+            return documentOwner.saveAllDocuments()
         case .alertSecondButtonReturn:
             return true
         default:

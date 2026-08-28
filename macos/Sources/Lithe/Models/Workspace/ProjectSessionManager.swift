@@ -144,6 +144,11 @@ final class ProjectSessionManager: ObservableObject {
         activeModel.closeProject()
     }
 
+    @discardableResult
+    func requestCloseActiveWorkbenchItem() -> Bool {
+        activeModel.requestCloseActiveWorkbenchItem()
+    }
+
     func requestCloseActiveSession() -> Bool {
         if activeModel.workspaceURL != nil {
             closeActiveProject()
@@ -157,6 +162,21 @@ final class ProjectSessionManager: ObservableObject {
             return true
         }
         return true
+    }
+
+    func resetForProjectWindowClose() {
+        let previousSessions = sessions
+        let replacement = modelFactory()
+
+        pendingProjectOpen = nil
+        modelObservations.removeAll()
+        for model in previousSessions {
+            model.shutdownProjectSession()
+        }
+
+        configure(replacement)
+        sessions = [replacement]
+        activeSessionID = replacement.id
     }
 
     func closeProject(_ id: UUID) {
