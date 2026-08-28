@@ -420,6 +420,57 @@ struct GitModuleTests {
     }
 
     @Test
+    func commitSelectionLoadsFilesWithoutSelectingTheFirstFile() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let commit = GitCommit(
+            hash: "1111111111111111",
+            shortHash: "1111111",
+            parentHashes: [],
+            authorName: "Ada Lovelace",
+            authorEmail: "ada@example.com",
+            date: "2026-08-28T16:00:00+08:00",
+            subject: "Selected commit",
+            decorations: ""
+        )
+        let nextCommit = GitCommit(
+            hash: "2222222222222222",
+            shortHash: "2222222",
+            parentHashes: [commit.hash],
+            authorName: "Ada Lovelace",
+            authorEmail: "ada@example.com",
+            date: "2026-08-28T16:01:00+08:00",
+            subject: "Next commit",
+            decorations: ""
+        )
+        let files = [GitCommitFile(status: "M", path: "README.md")]
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            filesValue: files
+        ))
+        let feature = GitFeatureModel(service: service)
+        feature.configure(
+            workspaceURLProvider: { root },
+            isGitLogVisibleProvider: { false },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+
+        await feature.refreshGit()
+        await feature.selectGitCommit(commit)
+
+        #expect(feature.selectedGitCommit == commit)
+        #expect(feature.selectedGitCommitFiles == files)
+        #expect(feature.selectedGitCommitFile == nil)
+
+        feature.previewGitCommitSelection(nextCommit)
+
+        #expect(feature.selectedGitCommit == nextCommit)
+        #expect(feature.selectedGitCommitFiles.isEmpty)
+        #expect(feature.selectedGitCommitFile == nil)
+        #expect(feature.selectedGitCommitDiffContext == nil)
+    }
+
+    @Test
     func clearingGitConsoleDoesNotTriggerInitialLoadAgain() async {
         let root = URL(fileURLWithPath: "/workspace")
         let service = GitService(operations: TestGitOperations(
@@ -763,6 +814,7 @@ private final class TestGitRunGate: @unchecked Sendable {
 private struct TestGitOperations: GitOperations {
     private let snapshotValue: GitSnapshot?
     private let comparisonValue: GitBranchComparison?
+    private let filesValue: [GitCommitFile]?
     private let untrackedDiffDocumentValue: DiffDocument?
     private let comparisonDiffDocumentValue: DiffDocument?
     private let stageResult: GitProcessResult?
@@ -771,6 +823,7 @@ private struct TestGitOperations: GitOperations {
     init(
         snapshotValue: GitSnapshot? = nil,
         comparisonValue: GitBranchComparison? = nil,
+        filesValue: [GitCommitFile]? = nil,
         untrackedDiffDocumentValue: DiffDocument? = nil,
         comparisonDiffDocumentValue: DiffDocument? = nil,
         stageResult: GitProcessResult? = nil,
@@ -778,6 +831,7 @@ private struct TestGitOperations: GitOperations {
     ) {
         self.snapshotValue = snapshotValue
         self.comparisonValue = comparisonValue
+        self.filesValue = filesValue
         self.untrackedDiffDocumentValue = untrackedDiffDocumentValue
         self.comparisonDiffDocumentValue = comparisonDiffDocumentValue
         self.stageResult = stageResult
@@ -805,7 +859,7 @@ private struct TestGitOperations: GitOperations {
     func comparisonDiffDocument(at rootURL: URL, reference: String, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { comparisonDiffDocumentValue }
     func applyPatch(_ patch: String, at rootURL: URL, mode: String) -> GitProcessResult? { nil }
     func history(at rootURL: URL, reference: GitReference?, limit: Int) -> GitHistorySnapshot? { nil }
-    func files(in commit: GitCommit, at rootURL: URL) -> [GitCommitFile]? { nil }
+    func files(in commit: GitCommit, at rootURL: URL) -> [GitCommitFile]? { filesValue }
     func commit(at rootURL: URL, hash: String) -> GitCommit? { nil }
     func comparison(for reference: GitReference, at rootURL: URL) -> GitBranchComparison? { comparisonValue }
     func stashes(at rootURL: URL) -> [GitStash]? { nil }
