@@ -1983,6 +1983,9 @@ impl RuntimeSession {
                 None => {}
             }
 
+            let suppress_structured_java_preparation_notification = state.lifecycle
+                == LspLifecycleState::Initializing
+                && (java_import_progress.is_some() || readiness.is_some());
             if state.lifecycle == LspLifecycleState::Initializing {
                 if let Some(progress) = java_import_progress {
                     let detail = state.java_preparation.as_mut().and_then(|diagnostics| {
@@ -2024,10 +2027,11 @@ impl RuntimeSession {
                         );
                     }
                 } else if event.kind == "notification"
-                    && !is_structured_import_notification(
-                        &self.provider_id,
-                        event.method.as_deref(),
-                    )
+                    && !(suppress_structured_java_preparation_notification
+                        && is_structured_import_notification(
+                            &self.provider_id,
+                            event.method.as_deref(),
+                        ))
                 {
                     push_log_event(
                         self,
@@ -3707,13 +3711,12 @@ mod tests {
         let mut harness = Harness::start(|request| {
             request.provider_id = "java".to_string();
             request.initialize_timeout_milliseconds = 1_000;
-            request.service_ready_idle_timeout_milliseconds = 200;
-            request.service_ready_absolute_timeout_milliseconds = 1_000;
+            request.service_ready_idle_timeout_milliseconds = 500;
+            request.service_ready_absolute_timeout_milliseconds = 2_000;
         });
         harness.server.complete_initialize(ready_capabilities());
         assert!(harness.server.await_notification("initialized"));
 
-        thread::sleep(Duration::from_millis(130));
         harness.server.send(json!({
             "jsonrpc": "2.0",
             "method": "$/progress",
@@ -3726,7 +3729,14 @@ mod tests {
                 }
             }
         }));
-        thread::sleep(Duration::from_millis(130));
+        harness.await_event(|event| {
+            event.message.as_deref() == Some("Java workspace import progress")
+                && event
+                    .detail
+                    .as_deref()
+                    .is_some_and(|detail| detail.contains("\"progressPercent\":20"))
+        });
+        thread::sleep(Duration::from_millis(300));
         harness.server.send(json!({
             "jsonrpc": "2.0",
             "method": "$/progress",
@@ -3739,6 +3749,14 @@ mod tests {
                 }
             }
         }));
+        harness.await_event(|event| {
+            event.message.as_deref() == Some("Java workspace import progress")
+                && event
+                    .detail
+                    .as_deref()
+                    .is_some_and(|detail| detail.contains("\"progressPercent\":25"))
+        });
+        thread::sleep(Duration::from_millis(300));
         harness.server.send(json!({
             "jsonrpc": "2.0",
             "method": "language/status",
@@ -3755,6 +3773,55 @@ mod tests {
         let detail: Value = serde_json::from_str(progress.detail.as_deref().unwrap()).unwrap();
         assert_eq!(detail["progressPercent"], 25);
         assert_eq!(detail["currentProject"], "module-a");
+    }
+
+    #[test]
+    fn java_import_notifications_are_logged_after_service_ready() {
+        let mut harness = Harness::start(|request| {
+            request.provider_id = "java".to_string();
+        });
+        harness.server.complete_initialize(ready_capabilities());
+        assert!(harness.server.await_notification("initialized"));
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "method": "language/status",
+            "params": { "type": "ServiceReady" }
+        }));
+        harness.await_state(LspLifecycleState::Ready);
+        assert!(
+            !harness.events.iter().any(|event| {
+                matches!(
+                    event.message.as_deref(),
+                    Some("$/progress" | "language/status")
+                )
+            }),
+            "structured preparation notifications should not be logged twice"
+        );
+
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "method": "$/progress",
+            "params": {
+                "token": "java-build",
+                "value": {
+                    "kind": "report",
+                    "message": "Building workspace - Project 'module-a'",
+                    "percentage": 50
+                }
+            }
+        }));
+        harness.await_event(|event| event.message.as_deref() == Some("$/progress"));
+
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "method": "language/status",
+            "params": {
+                "type": "Error",
+                "message": "Background build failed"
+            }
+        }));
+        harness.await_event(|event| event.message.as_deref() == Some("language/status"));
+        assert_eq!(harness.snapshot().state, LspLifecycleState::Ready);
     }
 
     #[test]
