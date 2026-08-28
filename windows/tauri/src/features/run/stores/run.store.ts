@@ -48,9 +48,11 @@ import {
   selectedToolchainCandidates,
 } from "../utils/run-configuration";
 import { editorSaveFailureMessage, runEditorSaveWorkflow } from "../services/run-editor-save";
+import { createOutputStamper, trimRunOutput, type OutputStamper } from "../utils/output-timestamper";
 
 const MAXIMUM_OUTPUT_CHARACTERS = 500_000;
 const sessionWorkspaces = new Map<string, string>();
+const outputStampers = new Map<string, OutputStamper>();
 
 interface RunState {
   root: string | null;
@@ -131,8 +133,28 @@ type ReadyRunState = Pick<
 >;
 
 function trimOutput(output: string): string {
-  if (output.length <= MAXIMUM_OUTPUT_CHARACTERS) return output;
-  return output.slice(output.length - MAXIMUM_OUTPUT_CHARACTERS);
+  return trimRunOutput(output, MAXIMUM_OUTPUT_CHARACTERS);
+}
+
+function stamperFor(sessionId: string): OutputStamper {
+  let stamper = outputStampers.get(sessionId);
+  if (!stamper) {
+    stamper = createOutputStamper();
+    outputStampers.set(sessionId, stamper);
+  }
+  return stamper;
+}
+
+function resetOutputStamper(sessionId: string): void {
+  stamperFor(sessionId).reset();
+}
+
+function appendStampedOutput(sessionId: string, existing: string, chunk: string): string {
+  return trimOutput(existing + stamperFor(sessionId).push(chunk));
+}
+
+function flushStampedOutput(sessionId: string, existing: string): string {
+  return trimOutput(existing + stamperFor(sessionId).flush());
 }
 
 function optionsFromConfiguration(configuration: RunConfiguration): RunOptions {
@@ -379,6 +401,7 @@ export const createRunStore = () =>
         const sessionId =
           configuration.execution === "service" ? configuration.id : PRIMARY_SESSION_ID;
         bindRunSessionWorkspace(sessionId);
+        resetOutputStamper(sessionId);
         await stopRunProcess(sessionId).catch(() => undefined);
         try {
           const plan = await createLaunchPlan(root, configuration.id, currentFile);
@@ -454,22 +477,33 @@ export const createRunStore = () =>
         const target = sessionId ?? get().selectedSessionId ?? PRIMARY_SESSION_ID;
         await stopRunProcess(target).catch(() => undefined);
         if (target === PRIMARY_SESSION_ID) {
-          set({ primaryRunning: false });
-        } else {
-          set((current) => ({
-            sessions: current.sessions.map((session) =>
-              session.id === target ? { ...session, isRunning: false } : session,
-            ),
-          }));
+          set({
+            primaryRunning: false,
+            primaryOutput: flushStampedOutput(target, get().primaryOutput),
+          });
+          return;
         }
+        set((current) => ({
+          sessions: current.sessions.map((session) =>
+            session.id === target
+              ? {
+                  ...session,
+                  isRunning: false,
+                  output: flushStampedOutput(target, session.output),
+                }
+              : session,
+          ),
+        }));
       },
 
       clearOutput: (sessionId) => {
         const target = sessionId ?? get().selectedSessionId;
         if (!target || target === PRIMARY_SESSION_ID) {
+          resetOutputStamper(PRIMARY_SESSION_ID);
           set({ primaryOutput: "", primaryExitCode: null });
           return;
         }
+        resetOutputStamper(target);
         set((current) => ({
           sessions: current.sessions.map((session) =>
             session.id === target ? { ...session, output: "", exitCode: null } : session,
@@ -537,13 +571,13 @@ export const createRunStore = () =>
 
       appendOutput: (sessionId, chunk) => {
         if (sessionId === PRIMARY_SESSION_ID) {
-          set({ primaryOutput: trimOutput(get().primaryOutput + chunk) });
+          set({ primaryOutput: appendStampedOutput(sessionId, get().primaryOutput, chunk) });
           return;
         }
         set((current) => ({
           sessions: current.sessions.map((session) =>
             session.id === sessionId
-              ? { ...session, output: trimOutput(session.output + chunk) }
+              ? { ...session, output: appendStampedOutput(sessionId, session.output, chunk) }
               : session,
           ),
         }));
@@ -551,12 +585,23 @@ export const createRunStore = () =>
 
       finishProcess: (sessionId, exitCode) => {
         if (sessionId === PRIMARY_SESSION_ID) {
-          set({ primaryRunning: false, primaryExitCode: exitCode });
+          set({
+            primaryRunning: false,
+            primaryExitCode: exitCode,
+            primaryOutput: flushStampedOutput(sessionId, get().primaryOutput),
+          });
           return;
         }
         set((current) => ({
           sessions: current.sessions.map((session) =>
-            session.id === sessionId ? { ...session, isRunning: false, exitCode } : session,
+            session.id === sessionId
+              ? {
+                  ...session,
+                  isRunning: false,
+                  exitCode,
+                  output: flushStampedOutput(sessionId, session.output),
+                }
+              : session,
           ),
         }));
       },
@@ -576,6 +621,7 @@ export function runStoreForSession(sessionId: string) {
 
 export function releaseRunSessionWorkspace(sessionId: string): void {
   sessionWorkspaces.delete(sessionId);
+  outputStampers.delete(sessionId);
 }
 
 export function runOptionsFor(configuration: RunConfiguration): RunOptions {

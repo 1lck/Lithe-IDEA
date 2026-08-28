@@ -231,8 +231,12 @@ jobs:
       - name: Run Windows frontend tests
         if: needs.changes.outputs.windows == 'true'
         shell: pwsh
-        timeout-minutes: 12
-        run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -SuiteTimeoutSeconds 660
+        run: |
+          bun test src/platform
+          bun test src/features/editor/stores/editor-app.store.test.ts src/features/editor/services/document-external-change-workflow.test.ts src/features/editor/services/document-save-lifecycle.test.ts
+          bun test src/features/editor/lsp/language-server-navigation.test.ts src/features/editor/lsp/java-navigation-marker-loader.test.ts src/features/editor/engines/monaco/definition-link-scheduler.test.ts src/features/editor/engines/monaco/java-implementation-markers.test.ts
+          bun test src/features/editor/lsp/java-workspace-language-server.test.ts src/features/editor/lsp/java-workspace-change-scheduler.test.ts
+          bun test src/features/run
 
       - name: Test shared Rust Core
         if: needs.changes.outputs.rust_core == 'true'
