@@ -369,7 +369,13 @@ commands are the semantic LSP runtime boundary. `lsp.startServer` accepts the
 provider ID, selected executable/arguments/environment, root URI, working
 directory, initialization options, optional runtime executable,
 `jdtlsLaunchResources`, cache directory, and `workspaceFingerprint`, plus
-initialize/request/shutdown deadlines. `jdtlsLaunchResources`, when present,
+initialize, post-initialize readiness, request, and shutdown deadlines.
+`initializeTimeoutMilliseconds` bounds only the standard LSP handshake. For a
+provider such as JDT LS that has a later readiness signal,
+`serviceReadyIdleTimeoutMilliseconds` bounds time without changed work-done
+progress and `serviceReadyAbsoluteTimeoutMilliseconds` is the final safety cap.
+The defaults are 45 seconds idle and 10 minutes absolute; duplicate progress
+does not refresh the idle deadline. `jdtlsLaunchResources`, when present,
 contains `launcherJarPath`, `configurationDirectory`, and `lombokAgentPath`; it
 is valid only for the Java provider and requires `runtimeExecutablePath`. Rust
 then uses `runtimeExecutablePath` as the process executable and constructs the
@@ -379,6 +385,15 @@ compatibility path. Rust owns the returned
 session's child process, stdin/stdout/stderr, framing buffer, JSON-RPC request
 IDs, document versions, pending deadlines, capabilities, diagnostics, and
 graceful/forced termination.
+
+JDT LS remains `initializing` until `language/status: ServiceReady`. During this
+phase Rust reduces changed `$/progress` notifications into throttled JSON log
+details containing the current phase, percentage, project, observed project
+count, artifact name, repository host, downloaded/total bytes, calculated
+throughput, elapsed/idle durations, and cache disposition. Progress parsing is
+observability-only and never substitutes for `ServiceReady`. Idle and absolute
+failures use `serviceReadyTimeout` at stage `serviceReady` and retain the final
+diagnostic snapshot in `underlyingMessage`.
 
 Platform adapters own filesystem discovery and validate that packaged JDT LS
 contains the Equinox launcher, platform configuration directory, Lombok agent,

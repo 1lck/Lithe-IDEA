@@ -20,7 +20,9 @@
     },
     "cacheDirectory": "/var/cache/lithe/language-servers",
     "workspaceFingerprint": "build=|modules=|jdtls=1.55.0",
-    "initializeTimeoutMilliseconds": 60000,
+    "initializeTimeoutMilliseconds": 30000,
+    "serviceReadyIdleTimeoutMilliseconds": 45000,
+    "serviceReadyAbsoluteTimeoutMilliseconds": 600000,
     "requestTimeoutMilliseconds": 30000,
     "shutdownTimeoutMilliseconds": 2000
   }

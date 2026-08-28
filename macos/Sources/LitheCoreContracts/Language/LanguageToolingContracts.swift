@@ -414,7 +414,9 @@ package struct LanguageServerSessionFailure: Equatable, Sendable {
         self.message = message
     }
 
-    package var isTimedOut: Bool { code == "timed_out" }
+    package var isTimedOut: Bool {
+        code == "timed_out" || code == "initializeTimeout" || code == "serviceReadyTimeout"
+    }
 }
 
 package struct LanguageServerSessionStartError: LocalizedError, Sendable {

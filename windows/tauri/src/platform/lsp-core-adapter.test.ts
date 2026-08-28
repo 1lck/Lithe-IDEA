@@ -32,6 +32,7 @@ let scenario:
   | "multi-session"
   | "runtime-ready-transition"
   | "semantic-request"
+  | "structured-log"
   | "virtual-document" = "failure";
 let startPayload: Record<string, unknown> | undefined;
 let requestPayload: Record<string, unknown> | undefined;
@@ -125,6 +126,32 @@ const executeCore = mock(
           id: request.id,
           ok: true as const,
           data: { events: sessionPollCount === 1 ? readyEvents(sessionId) : [] },
+        };
+      }
+      if (scenario === "structured-log") {
+        return {
+          id: request.id,
+          ok: true as const,
+          data: {
+            events:
+              sessionPollCount === 1
+                ? [
+                    {
+                      type: "log",
+                      level: "info",
+                      message: "Java workspace import progress",
+                      detail: JSON.stringify({
+                        stage: "serviceReady",
+                        currentProject: "module-a",
+                        downloadedBytes: 1024,
+                      }),
+                      providerId: "java",
+                      sessionId,
+                    },
+                    ...readyEvents(sessionId),
+                  ]
+                : [],
+          },
         };
       }
       if (scenario === "runtime-ready-transition") {
@@ -457,6 +484,28 @@ describe("Rust Core LSP adapter failures", () => {
     } finally {
       testStorage.restore();
     }
+  });
+
+  test("projects structured Java import diagnostics as searchable log fields", async () => {
+    scenario = "structured-log";
+    await invokeLsp("lsp_start_for_file", {
+      workspacePath: "C:/work",
+      filePath: "C:/work/Main.java",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    expect(frontendTrace).toHaveBeenCalledWith(
+      "info",
+      "lsp.runtime",
+      "Java workspace import progress",
+      expect.objectContaining({
+        stage: "serviceReady",
+        currentProject: "module-a",
+        downloadedBytes: 1024,
+      }),
+    );
   });
 
   test("starts and exposes a workspace-owned Java session before a file attaches", async () => {
