@@ -161,6 +161,24 @@ timeout。Core、service 和 adapter 只返回稳定原因，面向用户的提�
 4. manager 只在真实 `ready` 后发布 capability；打开文档发送 `didOpen`，后续编辑优先按服务器协商结果发送增量 `didChange`；
 5. Rust 以 LSP request ID 关联 deadline，并用不透明 operation ID 把 terminal result 投影给 Swift。
 
+`initializeTimeoutMilliseconds` 只约束标准 LSP 握手。JDTLS 返回 initialize
+结果后，Core 立即切换到独立的 `ServiceReady` 等待：连续 45 秒没有变化的
+`$/progress` 才判定 idle timeout，同时保留 10 分钟绝对上限。百分比增长、阶段或
+模块变化、下载字节增长都属于有效进展；完全重复的消息不续期。平台 adapter 不得再
+添加自己的固定 readiness deadline。最终 ready 仍只认
+`language/status: ServiceReady`，进度文本解析只服务于日志和超时快照。
+
+Java import 日志以节流后的结构化 JSON detail 发布，至少保留 phase、百分比、当前
+模块、观察到的模块数、artifact、仓库 host、已下载/总字节、估算吞吐、elapsed、idle
+和 `cacheDisposition`。超时使用 `serviceReadyTimeout`/`serviceReady`，并以
+`networkDownloadStalled`、`networkTransferActive`、`noProgressStall` 或
+`projectImportActive` 标明最后状态。JDTLS workspace 已存在 `.metadata` 时记为
+`reused`，否则记为 `new`。
+
+JDTLS 初始化配置不主动下载 Maven/Eclipse source attachment；依赖 POM/JAR 仍按
+项目模型需要正常解析。外部依赖没有源码包时，跳转使用已有的 class-file/decompile
+能力，从而把非必要源码下载移出首次 `ServiceReady` 关键路径。
+
 服务端 capability 可以来自 initialize 响应，也可以通过 `client/registerCapability` 和
 `client/unregisterCapability` 动态变化。客户端处理有文档/version 归属的 diagnostics、workspace configuration/folders、work-done progress 和 apply-edit 协议；未知的服务端 request 返回 JSON-RPC `Method not found`，未知 notification 作为 typed log/event 保留。
 
