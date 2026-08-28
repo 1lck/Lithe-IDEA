@@ -35,11 +35,7 @@ import { getMessageSearchMatches } from "@/features/ai/utils/message-search";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useToast } from "@/features/layout/contexts/toast-context";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
-import { useAuthStore } from "@/features/window/stores/auth.store";
-import { hasProductCapability } from "@/features/window/lib/product-capabilities";
 import { useProjectStore } from "@/features/window/stores/project.store";
-import { useTranslation } from "@/i18n/locale-provider";
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/ui/empty";
 import {
   MessageScroller,
   MessageScrollerButton,
@@ -65,14 +61,8 @@ const AIChat = memo(function AIChat({
   allProjectFiles = [],
   onApplyCode,
 }: AIChatProps) {
-  const { t } = useTranslation();
   const rootFolderPath = useProjectStore((state) => state.rootFolderPath);
   const aiProviderId = useSettingsStore((state) => state.settings.aiProviderId);
-  const subscription = useAuthStore((state) => state.subscription);
-  const enterprisePolicy = subscription?.enterprise?.policy;
-  const isAiChatBlockedByPolicy = Boolean(
-    enterprisePolicy?.managedMode && !enterprisePolicy.aiChatEnabled,
-  );
 
   const chatState = useChatState();
   const chatActions = useChatActions();
@@ -147,7 +137,7 @@ const AIChat = memo(function AIChat({
   }, [messageSearchMatches.length]);
 
   useEffect(() => {
-    if (!isActiveSurface || isAiChatBlockedByPolicy) return;
+    if (!isActiveSurface) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
@@ -158,7 +148,7 @@ const AIChat = memo(function AIChat({
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isActiveSurface, isAiChatBlockedByPolicy]);
+  }, [isActiveSurface]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -239,21 +229,17 @@ const AIChat = memo(function AIChat({
       const fallbackTitle = getFallbackAgentSessionTitle(userMessage);
       chatActions.updateChatTitle(chatId, fallbackTitle);
 
-      const authState = useAuthStore.getState();
-      const enterprisePolicy = authState.subscription?.enterprise?.policy;
-      const managedPolicy = enterprisePolicy?.managedMode ? enterprisePolicy : null;
-      const isPro = hasProductCapability(authState.subscription, "hostedAi");
-
-      if (!isPro || (managedPolicy && !managedPolicy.aiCompletionEnabled)) {
-        return;
-      }
-
-      const model = useSettingsStore.getState().settings.aiAutocompleteModelId;
+      const settings = useSettingsStore.getState().settings;
+      const model =
+        settings.aiAutocompleteProvider === "custom"
+          ? settings.aiAutocompleteCustomModelId
+          : settings.aiAutocompleteModelId;
       if (!model) return;
 
       try {
         const { editedText } = await requestInlineEdit(
           {
+            provider: settings.aiAutocompleteProvider,
             model,
             beforeSelection: "",
             selectedText: userMessage,
@@ -263,7 +249,6 @@ const AIChat = memo(function AIChat({
             filePath: "agent-session-title",
             languageId: "text",
           },
-          { useByok: false },
         );
 
         const generatedTitle = normalizeAgentSessionTitle(editedText);
@@ -1054,17 +1039,7 @@ details: ${errorDetails || mainError}
         onPreviousMessageSearchMatch={goToPreviousMessageSearchMatch}
         onNextMessageSearchMatch={goToNextMessageSearchMatch}
       />
-      {isAiChatBlockedByPolicy ? (
-        <Empty className="h-full rounded-none p-6">
-          <EmptyHeader>
-            <EmptyTitle>{t("ai.agentDisabled")}</EmptyTitle>
-            <EmptyDescription>
-              {t("ai.agentDisabledByPolicy")}
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      ) : (
-        <>
+      <>
           {useInitialComposer ? (
             <div className="flex min-h-0 flex-1 items-center justify-center px-8 py-10">
               <div className="flex w-full max-w-180 flex-col gap-4">
@@ -1119,8 +1094,7 @@ details: ${errorDetails || mainError}
                       currentChat?.agentId === "custom" &&
                       chatState.hasApiKey &&
                       !isSurfaceTyping &&
-                      !surfaceStreamingMessageId &&
-                      !isAiChatBlockedByPolicy
+                      !surfaceStreamingMessageId
                     }
                     acpEvents={acpEvents}
                     searchQuery={messageSearchQuery}
@@ -1176,8 +1150,7 @@ details: ${errorDetails || mainError}
               onStopStreaming={stopStreaming}
             />
           ) : null}
-        </>
-      )}
+      </>
     </div>
   );
 });

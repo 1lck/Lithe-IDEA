@@ -3,7 +3,6 @@ import { toast } from "sonner";
 import { immer } from "zustand/middleware/immer";
 import { createStore } from "zustand/vanilla";
 import { extensionRegistry } from "@/extensions/registry/extension-registry";
-import { parseCollaborationNoteBufferPath } from "@/features/collaboration/lib/collaboration-sidebar-model";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useFileWatcherStore } from "@/features/file-system/stores/file-watcher.store";
 import { emitGitChanged } from "@/features/git/events/git-events";
@@ -212,7 +211,6 @@ async function saveEditorBufferById(
   const activeBuffer = getBufferById(buffers, bufferId);
   if (!activeBuffer || !isEditorContent(activeBuffer) || activeBuffer.readOnly) return "failed";
 
-  const collaborationNoteTarget = parseCollaborationNoteBufferPath(activeBuffer.path);
   let claimedSave: ClaimedDocumentSave | null = null;
 
   try {
@@ -229,41 +227,6 @@ async function saveEditorBufferById(
       await writeFile(result, activeBuffer.content);
       updateBufferPath(activeBuffer.id, result);
       markBufferDirty(activeBuffer.id, false);
-      return "saved";
-    }
-
-    if (collaborationNoteTarget) {
-      const { updateCollaborationChannelNote } =
-        await import("@/features/window/services/auth-api");
-      const { useAuthStore } = await import("@/features/window/stores/auth.store");
-      const { updateCollaborationNoteFile } =
-        await import("@/features/collaboration/lib/collaboration-sidebar-model");
-      const { subscription, actions } = useAuthStore.getState();
-      const collaboration = subscription?.collaboration;
-      const channelNote = collaboration?.channelNotes.find(
-        (note) => note.channelId === collaborationNoteTarget.channelId,
-      );
-
-      if (!channelNote) {
-        markBufferDirty(activeBuffer.id, true);
-        showSaveFailure(activeBuffer.name);
-        return "failed";
-      }
-
-      const nextCollaboration = await updateCollaborationChannelNote({
-        channelId: collaborationNoteTarget.channelId,
-        contentMarkdown: updateCollaborationNoteFile({
-          contentMarkdown: channelNote.contentMarkdown,
-          path: collaborationNoteTarget.notePath,
-          fileContent: activeBuffer.content,
-        }),
-      });
-      actions.setCollaborationSnapshot(nextCollaboration);
-      markBufferSavedIfUnchanged(
-        workspaceId,
-        activeBuffer.id,
-        activeBuffer.content,
-      );
       return "saved";
     }
 
@@ -457,7 +420,6 @@ const createEditorAppStore = (workspaceId: string) =>
 
           const activeBuffer = getBufferById(buffers, bufferId);
           if (!activeBuffer || !isEditorContent(activeBuffer)) return;
-          const collaborationNoteTarget = parseCollaborationNoteBufferPath(activeBuffer.path);
 
           if (
             !contentAlreadyApplied &&
@@ -488,11 +450,6 @@ const createEditorAppStore = (workspaceId: string) =>
             if (!contentAlreadyApplied) {
               updateBufferContent(activeBuffer.id, content, true);
             }
-          } else if (collaborationNoteTarget) {
-            if (!contentAlreadyApplied) {
-              updateBufferContent(activeBuffer.id, content, true);
-            }
-            markBufferDirty(activeBuffer.id, content !== activeBuffer.savedContent);
           } else {
             if (!contentAlreadyApplied) {
               updateBufferContent(activeBuffer.id, content, true);

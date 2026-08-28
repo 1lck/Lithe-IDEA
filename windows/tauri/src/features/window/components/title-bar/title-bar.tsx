@@ -5,8 +5,6 @@ import { BACKEND_UNAVAILABLE_TOOLTIP } from "@/config/backend-capabilities";
 import { useTranslation } from "@/i18n/locale-provider";
 import { openFolder } from "@/features/file-system/controllers/platform";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
-import type { HeaderTrailingItemId } from "@/features/layout/config/item-order";
-import { orderChromeItems, type ChromeItem } from "@/features/layout/utils/chrome-items";
 import { useFooterGitBranchItem } from "@/features/layout/components/footer/footer-git-branch-item";
 import { AppUpdateControl } from "@/features/layout/components/app-update-control";
 import SettingsDialog from "@/features/settings/components/settings-dialog";
@@ -48,27 +46,10 @@ interface TitleBarProps {
   onOpenProjectPicker: (mode?: ProjectPickerMode) => void;
 }
 
-function TitleBarTrailingActions({ items }: { items: Array<ChromeItem<HeaderTrailingItemId>> }) {
-  return (
-    <ChromeGroup gap="tight">
-      {items.map((item) =>
-        item.content ? (
-          <div key={item.id} className="flex min-h-(--lithe-chrome-control-height) items-center">
-            {item.content}
-          </div>
-        ) : null,
-      )}
-    </ChromeGroup>
-  );
-}
-
 const TitleBar = ({ showMinimal = false, onOpenProjectPicker }: TitleBarProps) => {
   const { t } = useTranslation();
   const nativeMenuBar = useSettingsStore((state) => state.settings.nativeMenuBar);
   const compactMenuBar = useSettingsStore((state) => state.settings.compactMenuBar);
-  const headerTrailingItemsOrder = useSettingsStore(
-    (state) => state.settings.headerTrailingItemsOrder,
-  );
   const handleOpenFolder = useFileSystemStore((state) => state.handleOpenFolder);
   const closeProject = useFileSystemStore((state) => state.closeProject);
   const projectTabs = useWorkspaceTabsStore.use.projectTabs();
@@ -242,9 +223,6 @@ const TitleBar = ({ showMinimal = false, onOpenProjectPicker }: TitleBarProps) =
       )
     ) : null;
 
-  const headerTrailingItems: Array<ChromeItem<HeaderTrailingItemId>> = [];
-  const orderedTrailingItems = orderChromeItems(headerTrailingItems, headerTrailingItemsOrder);
-
   const projectControls = (
     <ChromeGroup gap="tight" className="pointer-events-auto">
       <TitleProjectMenu onOpenProjectPicker={onOpenProjectPicker} />
@@ -337,7 +315,6 @@ const TitleBar = ({ showMinimal = false, onOpenProjectPicker }: TitleBarProps) =
 
           <ChromeGroup className="h-full">
             {workbenchActions}
-            <TitleBarTrailingActions items={orderedTrailingItems} />
           </ChromeGroup>
         </ContextMenuTrigger>
         {titleBarContextMenuContent}
@@ -361,7 +338,6 @@ const TitleBar = ({ showMinimal = false, onOpenProjectPicker }: TitleBarProps) =
         </ChromeGroup>
         <ChromeGroup className="pointer-events-auto z-20">
           {quickOpenAction}
-          <TitleBarTrailingActions items={orderedTrailingItems} />
           {isWindows ? <AppUpdateControl /> : null}
 
           {showAppWindowControls && (

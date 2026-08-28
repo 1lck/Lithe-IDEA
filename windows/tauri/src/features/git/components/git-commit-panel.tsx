@@ -9,8 +9,6 @@ import {
 import type React from "react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
-import { useAuthStore } from "@/features/window/stores/auth.store";
-import { hasProductCapability } from "@/features/window/lib/product-capabilities";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import { ButtonGroup, ButtonGroupSeparator } from "@/ui/button-group";
@@ -197,9 +195,14 @@ const GitCommitPanel = ({
   isPulling = false,
 }: GitCommitPanelProps) => {
   const { t } = useTranslation();
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  const subscription = useAuthStore((state) => state.subscription);
-  const aiAutocompleteModelId = useSettingsStore((state) => state.settings.aiAutocompleteModelId);
+  const aiAutocompleteProvider = useSettingsStore(
+    (state) => state.settings.aiAutocompleteProvider,
+  );
+  const aiAutocompleteModelId = useSettingsStore((state) =>
+    state.settings.aiAutocompleteProvider === "custom"
+      ? state.settings.aiAutocompleteCustomModelId
+      : state.settings.aiAutocompleteModelId,
+  );
   const [commitMessage, setCommitMessage] = useState("");
   const [isCommitting, setIsCommitting] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -228,26 +231,6 @@ const GitCommitPanel = ({
     if (!repoPath || stagedFilesCount === 0) return;
     setError(null);
 
-    if (!isAuthenticated) {
-      setError(t("git.aiCommitSignInRequired"));
-      return;
-    }
-
-    const enterprisePolicy = subscription?.enterprise?.policy;
-    const managedPolicy = enterprisePolicy?.managedMode ? enterprisePolicy : null;
-    const isPro = hasProductCapability(subscription, "hostedAi");
-
-    if (managedPolicy && !managedPolicy.aiCompletionEnabled) {
-      setError(t("git.aiCommitDisabledByPolicy"));
-      return;
-    }
-
-    const useByok = managedPolicy ? managedPolicy.allowByok && !isPro : !isPro;
-    if (managedPolicy && useByok && !managedPolicy.allowByok) {
-      setError(t("git.byokDisabledByPolicy"));
-      return;
-    }
-
     const existingDraftHint = commitMessage.trim();
 
     setIsGenerating(true);
@@ -260,6 +243,7 @@ const GitCommitPanel = ({
       });
       const { editedText } = await requestInlineEdit(
         {
+          provider: aiAutocompleteProvider,
           model: aiAutocompleteModelId,
           beforeSelection: "",
           selectedText,
@@ -271,7 +255,6 @@ const GitCommitPanel = ({
           filePath: getRepoLabel(repoPath),
           languageId: "git-commit",
         },
-        { useByok },
       );
 
       const message = normalizeGeneratedCommitMessage(editedText, commitMessageMode);

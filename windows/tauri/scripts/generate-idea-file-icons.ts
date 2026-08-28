@@ -158,7 +158,7 @@ for (const key of folderKeys) {
 }
 
 const manifest = {
-  $schema: "https://lithe.dev/schemas/extension.json",
+  $schema: "https://lithe.top/schemas/extension.json",
   id: "lithe.icon-theme.idea-icons",
   name: "idea-icons",
   displayName: "IDEA Icons",

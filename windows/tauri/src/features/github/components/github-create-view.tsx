@@ -15,8 +15,6 @@ import { getRefDiff } from "@/features/git/api/git-diff-api";
 import { getGitStatus } from "@/features/git/api/git-status-api";
 import { requestInlineEdit } from "@/features/editor/services/editor-inline-edit-service";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
-import { useAuthStore } from "@/features/window/stores/auth.store";
-import { hasProductCapability } from "@/features/window/lib/product-capabilities";
 import { Button } from "@/ui/button";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Checkbox } from "@/ui/checkbox";
@@ -164,8 +162,14 @@ function GitHubCreateViewContent({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const aiAutocompleteModelId = useSettingsStore((state) => state.settings.aiAutocompleteModelId);
-  const subscription = useAuthStore((state) => state.subscription);
+  const aiAutocompleteModelId = useSettingsStore((state) =>
+    state.settings.aiAutocompleteProvider === "custom"
+      ? state.settings.aiAutocompleteCustomModelId
+      : state.settings.aiAutocompleteModelId,
+  );
+  const aiAutocompleteProvider = useSettingsStore(
+    (state) => state.settings.aiAutocompleteProvider,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -306,14 +310,6 @@ function GitHubCreateViewContent({
     setError(null);
 
     try {
-      const enterprisePolicy = subscription?.enterprise?.policy;
-      const isPro = hasProductCapability(subscription, "hostedAi");
-      if (enterprisePolicy?.managedMode && enterprisePolicy.aiCompletionEnabled === false) {
-        setError(t("github.aiGenerationDisabledByPolicy"));
-        return;
-      }
-
-      const useByok = enterprisePolicy ? enterprisePolicy.allowByok && !isPro : !isPro;
       const status = await getGitStatus(repoPath);
       const diffSummary =
         kind === "pull-request" ? summarizeDiffs(await getRefDiff(repoPath, base, head)) : "";
@@ -358,6 +354,7 @@ ${statusSummary}`;
 
       const { editedText } = await requestInlineEdit(
         {
+          provider: aiAutocompleteProvider,
           model: aiAutocompleteModelId,
           beforeSelection: "",
           selectedText: prompt,
@@ -367,7 +364,6 @@ ${statusSummary}`;
           filePath: kind === "pull-request" ? "github-pull-request" : "github-issue",
           languageId: "json",
         },
-        { useByok },
       );
 
       const draft = extractJsonObject(editedText);

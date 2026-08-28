@@ -1,17 +1,22 @@
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import {
+  getCustomProviderApiToken,
+  resolveCustomProviderBaseUrl,
+} from "@/features/ai/lib/custom-provider-config";
 import { getProviderApiToken } from "@/features/ai/services/ai-token-service";
-import { getProvider } from "@/features/ai/services/providers/ai-provider-registry";
+import {
+  getProvider,
+  setCustomProviderBaseUrl,
+  shouldUseTauriFetchForProvider,
+} from "@/features/ai/services/providers/ai-provider-registry";
 import type { ProviderModel } from "@/features/ai/services/providers/ai-provider-interface";
 import { useAIChatStore } from "@/features/ai/stores/ai-chat.store";
 import type { AIMessage } from "@/features/ai/types/messages.types";
 import { getModelById, getProviderById } from "@/features/ai/types/providers.types";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
-import { getAuthToken } from "@/features/window/services/auth-api";
-import { getApiBase } from "@/utils/api-base";
 import { processStreamingResponse } from "@/utils/stream-utils";
 
-const API_BASE = getApiBase();
-const HOSTED_INLINE_EDIT_PROVIDER_ID = "openrouter";
+const DEFAULT_INLINE_EDIT_PROVIDER_ID = "openrouter";
 const DEFAULT_INLINE_EDIT_INSTRUCTION = "Improve this code while preserving behavior.";
 
 export interface InlineEditRequest {
@@ -37,11 +42,10 @@ export class InlineEditError extends Error {
 
 export async function requestInlineEdit(
   request: InlineEditRequest,
-  options?: { useHosted?: boolean; useByok?: boolean },
 ): Promise<{ editedText: string }> {
   const normalizedRequest = {
     ...request,
-    provider: request.provider?.trim() || HOSTED_INLINE_EDIT_PROVIDER_ID,
+    provider: request.provider?.trim() || DEFAULT_INLINE_EDIT_PROVIDER_ID,
     model: request.model.trim(),
     beforeSelection: request.beforeSelection,
     selectedText: request.selectedText,
@@ -53,54 +57,7 @@ export async function requestInlineEdit(
     throw new InlineEditError("No inline edit model selected.", 400);
   }
 
-  const useHosted = options?.useHosted ?? (!request.provider && !options?.useByok);
-
-  if (!useHosted) {
-    return requestProviderInlineEdit(normalizedRequest);
-  }
-
-  const token = await getAuthToken();
-  if (!token) {
-    throw new InlineEditError("Not authenticated", 401);
-  }
-
-  const response = await tauriFetch(`${API_BASE}/api/ai/inline-edit`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(normalizedRequest),
-  });
-
-  let body: unknown = null;
-  try {
-    body = await response.json();
-  } catch {
-    body = null;
-  }
-
-  if (!response.ok) {
-    let message =
-      body &&
-      typeof body === "object" &&
-      "error" in body &&
-      typeof (body as { error?: unknown }).error === "string"
-        ? ((body as { error: string }).error ?? "")
-        : `Inline edit request failed (${response.status})`;
-
-    throw new InlineEditError(message, response.status);
-  }
-
-  const editedText =
-    body &&
-    typeof body === "object" &&
-    "editedText" in body &&
-    typeof (body as { editedText?: unknown }).editedText === "string"
-      ? ((body as { editedText: string }).editedText ?? "")
-      : "";
-
-  return { editedText };
+  return requestProviderInlineEdit(normalizedRequest);
 }
 
 function resolveInlineEditModel(providerId: string, modelId: string): ProviderModel | undefined {
@@ -146,16 +103,25 @@ async function requestProviderInlineEdit(
     throw new InlineEditError(`Model not found: ${request.provider}/${request.model}`, 400);
   }
 
-  if (request.provider === "custom" && !useSettingsStore.getState().settings.aiCustomBaseUrl) {
+  const settings = useSettingsStore.getState().settings;
+  const customProviderBaseUrl =
+    request.provider === "custom" ? resolveCustomProviderBaseUrl(settings) : "";
+  if (request.provider === "custom" && !customProviderBaseUrl) {
     throw new InlineEditError(
       "Custom provider base URL is required. Add one in Settings > AI.",
       400,
     );
   }
+  if (request.provider === "custom") {
+    setCustomProviderBaseUrl(customProviderBaseUrl);
+  }
 
-  const apiKey = providerConfig.requiresApiKey
-    ? await getProviderApiToken(request.provider)
-    : await getProviderApiToken(request.provider).catch(() => null);
+  const apiKey =
+    request.provider === "custom"
+      ? await getCustomProviderApiToken()
+      : providerConfig.requiresApiKey
+        ? await getProviderApiToken(request.provider)
+        : await getProviderApiToken(request.provider).catch(() => null);
   if (providerConfig.requiresApiKey && !apiKey) {
     throw new InlineEditError(`${providerConfig.name} API key is required for inline edit.`, 402);
   }
@@ -172,10 +138,7 @@ async function requestProviderInlineEdit(
   const headers = provider.buildHeaders(apiKey || undefined);
   const payload = provider.buildPayload(streamRequest);
   const url = provider.buildUrl ? provider.buildUrl(streamRequest) : provider.apiUrl;
-  const needsTauriFetch =
-    request.provider === "gemini" ||
-    request.provider === "ollama" ||
-    request.provider === "anthropic";
+  const needsTauriFetch = shouldUseTauriFetchForProvider(request.provider);
   const fetchFn = needsTauriFetch ? tauriFetch : fetch;
 
   const response = await fetchFn(url, {
