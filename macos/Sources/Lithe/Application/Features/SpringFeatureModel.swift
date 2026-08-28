@@ -62,7 +62,11 @@ final class SpringFeatureModel: ObservableObject {
     ) {
         reloadTask?.cancel()
         reloadTask = Task { @MainActor [weak self] in
-            await self?.load(
+            // Cancellation is cooperative, so a schedule that was superseded
+            // before it started must return here instead of running a second
+            // full workspace index whose result the generation token discards.
+            guard !Task.isCancelled, let self else { return }
+            await self.load(
                 workspaceURL: workspaceURL,
                 files: files,
                 textOverrides: textOverrides,

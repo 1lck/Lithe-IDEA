@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 @testable import Lithe
@@ -101,89 +102,149 @@ struct SpringFeatureModelTests {
     }
 
     /// Opening a workspace must not wait for Spring indexing, which scales with
-    /// the number of Java sources. `scheduleLoad` returns immediately and the
-    /// index arrives later.
+    /// the number of Java sources.
     @Test
-    func scheduleLoadReturnsBeforeTheIndexIsPublished() async throws {
+    func scheduleLoadDefersIndexingAndPublishesTheResult() async throws {
         let root = URL(fileURLWithPath: "/workspace")
         let beanURL = root.appendingPathComponent("Service.java")
-        let gate = SpringIndexGate()
-        let result = SpringIndexResult(
-            properties: [], values: [], propertyReferences: [], diagnostics: [],
-            beans: [SpringBean(
-                id: "service", name: "service", typeName: "Service",
-                url: beanURL, line: 3, column: 7, kind: "component"
-            )],
-            injections: [], endpoints: []
-        )
-        let feature = SpringFeatureModel(
-            operations: SpringTestOperations(result: result, gate: gate)
-        )
+        let operations = SpringTestOperations(result: componentIndex(at: beanURL))
+        let feature = SpringFeatureModel(operations: operations)
+        defer { feature.reset() }
 
         feature.scheduleLoad(workspaceURL: root, files: [beanURL])
 
+        // The schedule owns a MainActor task, which cannot run before this test
+        // suspends. Reaching these assertions proves the caller was not blocked.
         #expect(feature.beans.isEmpty)
-        gate.open()
-        try await pollUntil { !feature.beans.isEmpty }
-        #expect(feature.beans.map(\.id) == ["service"])
-        #expect(!feature.isIndexing)
+        #expect(operations.requestedFiles.isEmpty)
+
+        let published = await awaitChange(on: feature) {
+            !feature.isIndexing && !feature.beans.isEmpty
+        }
+        #expect(published, "the scheduled index never published a result")
+        #expect(feature.beans.map(\.id) == ["Service.java"])
+        #expect(operations.requestedFiles == [[beanURL]])
     }
 
-    /// A newer schedule supersedes the previous one so a burst of reloads cannot
+    /// A newer schedule supersedes the pending one so a burst of reloads cannot
     /// publish a stale index.
     @Test
-    func scheduleLoadCancelsThePreviousSchedule() async throws {
+    func scheduleLoadReplacesAPendingSchedule() async throws {
         let root = URL(fileURLWithPath: "/workspace")
-        let gate = SpringIndexGate()
-        let operations = SpringTestOperations(result: .empty, gate: gate)
+        let staleURL = root.appendingPathComponent("Stale.java")
+        let freshURL = root.appendingPathComponent("Fresh.java")
+        let operations = SpringTestOperations { files in
+            files.first.map(componentIndex(at:)) ?? .empty
+        }
         let feature = SpringFeatureModel(operations: operations)
+        defer { feature.reset() }
 
-        feature.scheduleLoad(workspaceURL: root, files: [])
-        feature.scheduleLoad(workspaceURL: root, files: [])
-        gate.open()
-        try await pollUntil { !feature.isIndexing }
+        feature.scheduleLoad(workspaceURL: root, files: [staleURL])
+        feature.scheduleLoad(workspaceURL: root, files: [freshURL])
 
-        #expect(operations.indexCallCount <= 2)
+        let published = await awaitChange(on: feature) {
+            !feature.isIndexing && !feature.beans.isEmpty
+        }
+        #expect(published, "the replacement schedule never published a result")
+        // A schedule superseded before it started must not run a second full
+        // workspace index, which the generation token would only discard.
+        #expect(operations.requestedFiles == [[freshURL]])
+        #expect(feature.beans.map(\.id) == ["Fresh.java"])
     }
 }
 
-/// Polls the MainActor state instead of sleeping for a fixed interval so the
-/// test does not depend on scheduler timing.
+private func componentIndex(at url: URL) -> SpringIndexResult {
+    SpringIndexResult(
+        properties: [],
+        values: [],
+        propertyReferences: [],
+        diagnostics: [],
+        beans: [SpringBean(
+            id: url.lastPathComponent,
+            name: "service",
+            typeName: "Service",
+            url: url,
+            line: 3,
+            column: 7,
+            kind: "component"
+        )],
+        injections: [],
+        endpoints: []
+    )
+}
+
+/// Awaits an observable publication with a local deadline. The feature publishes
+/// from a task it owns, so the test cannot observe completion synchronously, and
+/// a poll loop would depend on machine speed.
 @MainActor
-private func pollUntil(
-    attempts: Int = 200,
-    _ condition: () -> Bool
-) async throws {
-    for _ in 0..<attempts {
-        if condition() { return }
-        try await Task.sleep(for: .milliseconds(5))
+private func awaitChange(
+    on feature: SpringFeatureModel,
+    timeout: DispatchTimeInterval = .seconds(10),
+    until isSatisfied: @escaping @MainActor @Sendable () -> Bool
+) async -> Bool {
+    if isSatisfied() { return true }
+    return await withCheckedContinuation { continuation in
+        let resumption = SingleResumption(continuation)
+        // objectWillChange fires before each assignment, so the predicate runs on
+        // the following main-actor turn, once the publication has completed.
+        resumption.observe(feature.objectWillChange.sink { _ in
+            Task { @MainActor in
+                guard isSatisfied() else { return }
+                resumption.finish(with: true)
+            }
+        })
+        DispatchQueue.main.asyncAfter(deadline: .now() + timeout) {
+            resumption.finish(with: false)
+        }
     }
-    Issue.record("The awaited condition never became true")
 }
 
-/// Blocks the detached index call until the test decides the schedule has had a
-/// chance to return.
-private final class SpringIndexGate: @unchecked Sendable {
-    private let semaphore = DispatchSemaphore(value: 0)
-    func open() { semaphore.signal() }
-    func wait() { semaphore.wait(); semaphore.signal() }
+/// The observation and the deadline race for a continuation that may only be
+/// resumed once. Both arms run on the main thread.
+private final class SingleResumption: @unchecked Sendable {
+    private var continuation: CheckedContinuation<Bool, Never>?
+    private var observation: AnyCancellable?
+
+    init(_ continuation: CheckedContinuation<Bool, Never>) {
+        self.continuation = continuation
+    }
+
+    func observe(_ observation: AnyCancellable) {
+        guard continuation != nil else {
+            observation.cancel()
+            return
+        }
+        self.observation = observation
+    }
+
+    func finish(with value: Bool) {
+        guard let pending = continuation else { return }
+        continuation = nil
+        observation?.cancel()
+        observation = nil
+        pending.resume(returning: value)
+    }
 }
 
 private final class SpringTestOperations: JavaMavenOperations, @unchecked Sendable {
-    let result: SpringIndexResult
-    private let gate: SpringIndexGate?
+    private let makeResult: @Sendable ([URL]) -> SpringIndexResult
     private let lock = NSLock()
-    private var indexCalls = 0
+    private var requested: [[URL]] = []
 
-    var indexCallCount: Int {
+    /// Every set of files handed to the index, in call order. An empty value
+    /// proves the double was never reached.
+    var requestedFiles: [[URL]] {
         lock.lock()
         defer { lock.unlock() }
-        return indexCalls
+        return requested
     }
 
-    init(result: SpringIndexResult, gate: SpringIndexGate? = nil) {
-        self.result = result
-        self.gate = gate
+    init(result: SpringIndexResult) {
+        makeResult = { _ in result }
+    }
+
+    init(resultForFiles: @escaping @Sendable ([URL]) -> SpringIndexResult) {
+        makeResult = resultForFiles
     }
 
     func springIndex(
@@ -193,10 +254,9 @@ private final class SpringTestOperations: JavaMavenOperations, @unchecked Sendab
         refreshDependencyMetadata: Bool
     ) -> SpringIndexResult? {
         lock.lock()
-        indexCalls += 1
+        requested.append(files)
         lock.unlock()
-        gate?.wait()
-        return result
+        return makeResult(files)
     }
     func scanMavenProject(at rootURL: URL, files: [URL]) -> MavenProject? { nil }
     func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue] { [] }
