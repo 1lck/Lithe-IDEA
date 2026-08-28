@@ -150,7 +150,8 @@ enum MacRuntimeDiscovery {
     private static func commandOutput(executable: URL, arguments: [String]) -> String {
         MacProcessRunner().run(ProcessRequest(
             executablePath: executable.path,
-            arguments: arguments
+            arguments: arguments,
+            timeoutMilliseconds: 5_000
         )).output
     }
 

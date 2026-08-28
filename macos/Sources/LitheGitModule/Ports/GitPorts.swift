@@ -1,12 +1,52 @@
 import Foundation
 
-public struct GitProcessResult: Sendable {
-    public let output: String
+public struct GitProcessInvocation: Equatable, Sendable {
+    public let arguments: [String]
+    public let standardOutput: String
+    public let standardError: String
     public let exitCode: Int32
-    public let stashRestoreConflict: GitStashRestoreConflict?
-    public init(output: String, exitCode: Int32, stashRestoreConflict: GitStashRestoreConflict? = nil) {
-        self.output = output
+
+    public init(
+        arguments: [String],
+        standardOutput: String,
+        standardError: String,
+        exitCode: Int32
+    ) {
+        self.arguments = arguments
+        self.standardOutput = standardOutput
+        self.standardError = standardError
         self.exitCode = exitCode
+    }
+
+    public var output: String { standardOutput + standardError }
+}
+
+public struct GitProcessResult: Sendable {
+    public let arguments: [String]
+    public let output: String
+    public let standardOutput: String?
+    public let standardError: String?
+    public let exitCode: Int32
+    public let invocations: [GitProcessInvocation]
+    public let operationErrorMessage: String?
+    public let stashRestoreConflict: GitStashRestoreConflict?
+    public init(
+        arguments: [String] = [],
+        output: String,
+        standardOutput: String? = nil,
+        standardError: String? = nil,
+        exitCode: Int32,
+        invocations: [GitProcessInvocation] = [],
+        operationErrorMessage: String? = nil,
+        stashRestoreConflict: GitStashRestoreConflict? = nil
+    ) {
+        self.arguments = arguments
+        self.output = output
+        self.standardOutput = standardOutput
+        self.standardError = standardError
+        self.exitCode = exitCode
+        self.invocations = invocations
+        self.operationErrorMessage = operationErrorMessage
         self.stashRestoreConflict = stashRestoreConflict
     }
 }

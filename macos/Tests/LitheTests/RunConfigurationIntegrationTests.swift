@@ -3620,6 +3620,7 @@ struct RunConfigurationIntegrationTests {
         let oldRoot = URL(fileURLWithPath: "/tmp/lithe-old-project", isDirectory: true)
         let newRoot = URL(fileURLWithPath: "/tmp/lithe-new-project", isDirectory: true)
         let operations = BlockingInspectionOperations(blockedProjectURL: oldRoot)
+        defer { operations.releaseBlockedInspection() }
         let runtime = ProjectRuntimeService(
             runtimeLocator: RunTestRuntimeLocator(),
             store: RunTestKeyValueStore()
@@ -3637,7 +3638,7 @@ struct RunConfigurationIntegrationTests {
         let oldLoad = Task {
             await service.loadProject(at: oldRoot, files: [], mavenProject: nil)
         }
-        await Task.detached { operations.waitUntilBlocked() }.value
+        #expect(await operations.waitUntilBlocked())
         await service.loadProject(at: newRoot, files: [], mavenProject: nil)
         operations.releaseBlockedInspection()
         await oldLoad.value
@@ -3651,6 +3652,7 @@ struct RunConfigurationIntegrationTests {
     func projectReloadDuringGenerationDoesNotLeaveRunServiceLoading() async {
         let root = URL(fileURLWithPath: "/tmp/lithe-generation-reload", isDirectory: true)
         let operations = BlockingGenerationOperations()
+        defer { operations.releaseGeneration() }
         let runtime = ProjectRuntimeService(
             runtimeLocator: RunTestRuntimeLocator(),
             store: RunTestKeyValueStore()
@@ -3667,7 +3669,7 @@ struct RunConfigurationIntegrationTests {
 
         await service.loadProject(at: root, files: [], mavenProject: nil)
         let generation = Task { await service.generateRunConfigurations() }
-        await Task.detached { operations.waitUntilBlocked() }.value
+        #expect(await operations.waitUntilBlocked())
         await service.loadProject(at: root, files: [], mavenProject: nil)
         operations.releaseGeneration()
         await generation.value
@@ -4148,25 +4150,25 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
 
 private final class BlockingInspectionOperations: RunConfigurationOperations, @unchecked Sendable {
     private let blockedProjectPath: String
-    private let didBlock = DispatchSemaphore(value: 0)
-    private let release = DispatchSemaphore(value: 0)
+    private let didBlock = TestGate()
+    private let release = TestGate()
 
     init(blockedProjectURL: URL) {
         blockedProjectPath = blockedProjectURL.standardizedFileURL.path
     }
 
-    func waitUntilBlocked() {
-        didBlock.wait()
+    func waitUntilBlocked() async -> Bool {
+        await didBlock.waitUntilOpen()
     }
 
     func releaseBlockedInspection() {
-        release.signal()
+        release.open()
     }
 
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
         if projectURL.standardizedFileURL.path == blockedProjectPath {
-            didBlock.signal()
-            release.wait()
+            didBlock.open()
+            _ = release.waitSynchronously()
             return ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
         }
         return ProjectRunConfigurationInspection(status: .missing, diagnostics: [])
@@ -4200,15 +4202,15 @@ private final class BlockingInspectionOperations: RunConfigurationOperations, @u
 }
 
 private final class BlockingGenerationOperations: RunConfigurationOperations, @unchecked Sendable {
-    private let didBlock = DispatchSemaphore(value: 0)
-    private let release = DispatchSemaphore(value: 0)
+    private let didBlock = TestGate()
+    private let release = TestGate()
 
-    func waitUntilBlocked() {
-        didBlock.wait()
+    func waitUntilBlocked() async -> Bool {
+        await didBlock.waitUntilOpen()
     }
 
     func releaseGeneration() {
-        release.signal()
+        release.open()
     }
 
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
@@ -4216,8 +4218,8 @@ private final class BlockingGenerationOperations: RunConfigurationOperations, @u
     }
 
     func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
-        didBlock.signal()
-        release.wait()
+        didBlock.open()
+        _ = release.waitSynchronously()
         return RunConfigurationGenerationResult(entryCount: 0)
     }
 

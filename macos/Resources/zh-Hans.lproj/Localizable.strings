@@ -1211,3 +1211,5 @@
 "Notifications" = "通知";
 "Clear All" = "全部清除";
 "No notifications" = "暂无通知";
+"Log: %@" = "日志：%@";
+"Console" = "控制台";

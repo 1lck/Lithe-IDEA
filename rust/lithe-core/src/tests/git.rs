@@ -117,7 +117,7 @@ fn git_status_does_not_refresh_the_index() {
 }
 
 #[test]
-fn git_command_returns_combined_output_and_exit_code() {
+fn git_command_returns_separate_process_streams_and_combined_output() {
     let root = temporary_root("git-command");
     fs::create_dir_all(&root).expect("temporary workspace should be creatable");
 
@@ -135,10 +135,47 @@ fn git_command_returns_combined_output_and_exit_code() {
     .expect("Git command response should be JSON");
     assert_eq!(response["ok"], true);
     assert_eq!(response["data"]["exitCode"], 0);
+    assert_eq!(
+        response["data"]["invocations"].as_array().map(Vec::len),
+        Some(1)
+    );
+    assert_eq!(
+        response["data"]["invocations"][0]["arguments"],
+        serde_json::json!(["--version"])
+    );
+    assert_eq!(response["data"]["stderr"], "");
+    assert!(response["data"]["stdout"]
+        .as_str()
+        .expect("Git version stdout should be text")
+        .contains("git version"));
     assert!(response["data"]["output"]
         .as_str()
         .expect("Git version output should be text")
         .contains("git version"));
+
+    let failure_request = serde_json::json!({
+        "id": "git-command-stderr",
+        "command": "git.command",
+        "payload": {
+            "root": root,
+            "arguments": ["rev-parse", "--verify", "refs/heads/missing"]
+        }
+    });
+    let failure_response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&failure_request).expect("Git failure request should encode"),
+    ))
+    .expect("Git failure response should be JSON");
+    assert_eq!(failure_response["ok"], true);
+    assert_ne!(failure_response["data"]["exitCode"], 0);
+    assert_eq!(failure_response["data"]["stdout"], "");
+    assert!(!failure_response["data"]["stderr"]
+        .as_str()
+        .expect("Git failure stderr should be text")
+        .is_empty());
+    assert_eq!(
+        failure_response["data"]["output"],
+        failure_response["data"]["stderr"]
+    );
 
     fs::remove_dir_all(root).expect("temporary workspace should be removable");
 }
@@ -233,12 +270,64 @@ fn git_write_validates_and_executes_shared_mutations() {
     let discard_all = request("discardAll", serde_json::json!({"paths": ["example.txt"]}));
     assert_eq!(discard_all["ok"], true, "{discard_all:?}");
     assert_eq!(
+        discard_all["data"]["arguments"],
+        serde_json::json!(["checkout", "HEAD", "--", "example.txt"])
+    );
+    assert_eq!(
+        discard_all["data"]["invocations"]
+            .as_array()
+            .expect("discardAll invocations should be an array")
+            .iter()
+            .map(|invocation| invocation["arguments"][0].as_str().unwrap_or_default())
+            .collect::<Vec<_>>(),
+        vec!["status", "checkout"]
+    );
+    assert_eq!(
         fs::read_to_string(root.join("example.txt")).expect("file should be readable"),
         "initial\n"
     );
     assert_eq!(
         String::from_utf8_lossy(&run(&["status", "--porcelain"]).stdout),
         ""
+    );
+
+    // An invalid checkout reference is discovered after smart checkout has
+    // already started; the executed stash command must remain visible.
+    let partial_failure = request(
+        "checkout",
+        serde_json::json!({
+            "reference": "invalid branch",
+            "referenceKind": "local",
+            "autoStash": true
+        }),
+    );
+    assert_eq!(partial_failure["ok"], true, "{partial_failure:?}");
+    assert_eq!(
+        partial_failure["data"]["operationError"]["code"], "invalid_request",
+        "{partial_failure:?}"
+    );
+    assert_eq!(
+        partial_failure["data"]["invocations"][0]["arguments"][0], "stash",
+        "{partial_failure:?}"
+    );
+    let final_invocation = partial_failure["data"]["invocations"]
+        .as_array()
+        .and_then(|invocations| invocations.last())
+        .expect("partial failure should retain its final Git invocation");
+    for field in ["arguments", "stdout", "stderr", "exitCode"] {
+        assert_eq!(
+            partial_failure["data"][field], final_invocation[field],
+            "partial failure compatibility field {field} should match the final invocation"
+        );
+    }
+    assert_eq!(
+        partial_failure["data"]["output"],
+        format!(
+            "{}{}",
+            final_invocation["stdout"].as_str().unwrap(),
+            final_invocation["stderr"].as_str().unwrap()
+        ),
+        "partial failure compatibility output should match the final invocation"
     );
 
     fs::write(root.join("untracked.txt"), "discard me\n")
@@ -621,7 +710,6 @@ fn stash_restore_conflicts_return_structured_recovery_data() {
 
     let applied = write("stashApply");
     assert_eq!(applied["ok"], true, "{applied:?}");
-    assert_eq!(applied["data"]["exitCode"], 1, "{applied:?}");
     assert_eq!(
         applied["data"]["stashRestore"]["stashReference"], stash_reference,
         "{applied:?}"
@@ -631,13 +719,48 @@ fn stash_restore_conflicts_return_structured_recovery_data() {
         serde_json::json!(["shared.txt"]),
         "{applied:?}"
     );
+    assert_eq!(
+        applied["data"]["arguments"],
+        applied["data"]["invocations"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["arguments"],
+        "composite response should expose the final invocation arguments"
+    );
+    assert_eq!(
+        applied["data"]["stdout"],
+        applied["data"]["invocations"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["stdout"],
+        "composite response should expose the final invocation stdout"
+    );
+    assert_eq!(
+        applied["data"]["stderr"],
+        applied["data"]["invocations"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["stderr"],
+        "composite response should expose the final invocation stderr"
+    );
+    assert_eq!(
+        applied["data"]["exitCode"],
+        applied["data"]["invocations"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["exitCode"],
+        "composite response should expose the final invocation exit code"
+    );
 
     // Clear the index conflict without dropping the saved entry, then verify
     // `pop` reports the same structured recovery data.
     assert!(run(&["reset", "--hard", "HEAD"]).status.success());
     let popped = write("stashPop");
     assert_eq!(popped["ok"], true, "{popped:?}");
-    assert_eq!(popped["data"]["exitCode"], 1, "{popped:?}");
     assert_eq!(
         popped["data"]["stashRestore"]["stashReference"], stash_reference,
         "{popped:?}"
@@ -646,6 +769,42 @@ fn stash_restore_conflicts_return_structured_recovery_data() {
         popped["data"]["stashRestore"]["conflictedPaths"],
         serde_json::json!(["shared.txt"]),
         "{popped:?}"
+    );
+    assert_eq!(
+        popped["data"]["arguments"],
+        popped["data"]["invocations"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["arguments"],
+        "composite response should expose the final invocation arguments"
+    );
+    assert_eq!(
+        popped["data"]["stdout"],
+        popped["data"]["invocations"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["stdout"],
+        "composite response should expose the final invocation stdout"
+    );
+    assert_eq!(
+        popped["data"]["stderr"],
+        popped["data"]["invocations"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["stderr"],
+        "composite response should expose the final invocation stderr"
+    );
+    assert_eq!(
+        popped["data"]["exitCode"],
+        popped["data"]["invocations"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["exitCode"],
+        "composite response should expose the final invocation exit code"
     );
 
     assert!(run(&["reset", "--hard", "HEAD"]).status.success());
@@ -707,10 +866,18 @@ fn git_operation_state_reports_and_resolves_a_merge_conflict() {
     assert_eq!(idle["data"]["kind"], "", "{idle:?}");
     assert_eq!(idle["data"]["conflictedPaths"], serde_json::json!([]));
 
-    // Continuing when nothing is in progress is rejected rather than run blindly.
+    // Resolving the operation state invokes Git before discovering that
+    // there is nothing to continue, so the trace and logical error coexist.
     let nothing = write("operationContinue");
-    assert_eq!(nothing["ok"], false, "{nothing:?}");
-    assert_eq!(nothing["error"]["code"], "invalid_request");
+    assert_eq!(nothing["ok"], true, "{nothing:?}");
+    assert_eq!(
+        nothing["data"]["operationError"]["code"], "invalid_request",
+        "{nothing:?}"
+    );
+    assert!(!nothing["data"]["invocations"]
+        .as_array()
+        .unwrap()
+        .is_empty());
 
     // Build two branches that edit the same line, so merging must conflict.
     assert!(run(&["switch", "-qc", "feature/conflict"]).status.success());
@@ -737,12 +904,19 @@ fn git_operation_state_reports_and_resolves_a_merge_conflict() {
     // Continuing with the conflict unresolved is refused, so the user cannot
     // commit conflict markers by clicking through the banner.
     let premature = write("operationContinue");
-    assert_eq!(premature["ok"], false, "{premature:?}");
-    assert_eq!(premature["error"]["code"], "invalid_request");
+    assert_eq!(premature["ok"], true, "{premature:?}");
+    assert_eq!(
+        premature["data"]["operationError"]["code"], "invalid_request",
+        "{premature:?}"
+    );
 
-    // A merge has no skip step.
+    // A merge has no skip step, but the state probes remain visible.
     let skip = write("operationSkip");
-    assert_eq!(skip["ok"], false, "{skip:?}");
+    assert_eq!(skip["ok"], true, "{skip:?}");
+    assert_eq!(
+        skip["data"]["operationError"]["code"], "invalid_request",
+        "{skip:?}"
+    );
 
     // Resolving the file and continuing completes the merge without opening an editor.
     fs::write(root.join("shared.txt"), "resolved\n").expect("file should be writable");
