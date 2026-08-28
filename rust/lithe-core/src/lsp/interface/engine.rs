@@ -3707,16 +3707,12 @@ mod tests {
     }
 
     #[test]
-    fn java_meaningful_progress_refreshes_the_service_ready_idle_timeout() {
+    fn java_import_notifications_are_logged_after_service_ready() {
         let mut harness = Harness::start(|request| {
             request.provider_id = "java".to_string();
-            request.initialize_timeout_milliseconds = 1_000;
-            request.service_ready_idle_timeout_milliseconds = 500;
-            request.service_ready_absolute_timeout_milliseconds = 2_000;
         });
         harness.server.complete_initialize(ready_capabilities());
         assert!(harness.server.await_notification("initialized"));
-
         harness.server.send(json!({
             "jsonrpc": "2.0",
             "method": "$/progress",
@@ -3731,57 +3727,7 @@ mod tests {
         }));
         harness.await_event(|event| {
             event.message.as_deref() == Some("Java workspace import progress")
-                && event
-                    .detail
-                    .as_deref()
-                    .is_some_and(|detail| detail.contains("\"progressPercent\":20"))
         });
-        thread::sleep(Duration::from_millis(300));
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "method": "$/progress",
-            "params": {
-                "token": "java-import",
-                "value": {
-                    "kind": "report",
-                    "message": "Setting classpath containers - 25% Project 'module-a'",
-                    "percentage": 25
-                }
-            }
-        }));
-        harness.await_event(|event| {
-            event.message.as_deref() == Some("Java workspace import progress")
-                && event
-                    .detail
-                    .as_deref()
-                    .is_some_and(|detail| detail.contains("\"progressPercent\":25"))
-        });
-        thread::sleep(Duration::from_millis(300));
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "method": "language/status",
-            "params": { "type": "ServiceReady" }
-        }));
-        harness.await_state(LspLifecycleState::Ready);
-
-        let progress = harness
-            .events
-            .iter()
-            .rev()
-            .find(|event| event.message.as_deref() == Some("Java workspace import progress"))
-            .expect("structured Java import progress should be logged");
-        let detail: Value = serde_json::from_str(progress.detail.as_deref().unwrap()).unwrap();
-        assert_eq!(detail["progressPercent"], 25);
-        assert_eq!(detail["currentProject"], "module-a");
-    }
-
-    #[test]
-    fn java_import_notifications_are_logged_after_service_ready() {
-        let mut harness = Harness::start(|request| {
-            request.provider_id = "java".to_string();
-        });
-        harness.server.complete_initialize(ready_capabilities());
-        assert!(harness.server.await_notification("initialized"));
         harness.server.send(json!({
             "jsonrpc": "2.0",
             "method": "language/status",

@@ -332,6 +332,39 @@ mod tests {
     }
 
     #[test]
+    fn meaningful_progress_refreshes_the_idle_deadline() {
+        let started = Instant::now();
+        let mut diagnostics =
+            JavaPreparationDiagnostics::new(started, Duration::from_millis(5), "new", true);
+        diagnostics.begin_readiness(
+            started,
+            Duration::from_millis(10),
+            Duration::from_millis(100),
+            Duration::from_secs(1),
+        );
+        diagnostics.record_progress(progress("first", 20), started + Duration::from_millis(80));
+
+        assert!(
+            diagnostics
+                .take_timeout(started + Duration::from_millis(150))
+                .is_none(),
+            "changed progress should extend the original idle deadline"
+        );
+        diagnostics.record_progress(progress("second", 25), started + Duration::from_millis(160));
+        assert!(
+            diagnostics
+                .take_timeout(started + Duration::from_millis(240))
+                .is_none(),
+            "each changed progress event should refresh the idle deadline"
+        );
+
+        let timeout = diagnostics
+            .take_timeout(started + Duration::from_millis(261))
+            .expect("silence after the refreshed deadline should still time out");
+        assert!(timeout.contains("\"timeoutKind\":\"idle\""));
+    }
+
+    #[test]
     fn duplicate_progress_does_not_refresh_the_idle_deadline() {
         let started = Instant::now();
         let mut diagnostics =
