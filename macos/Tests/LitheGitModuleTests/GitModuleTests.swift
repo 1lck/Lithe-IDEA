@@ -318,6 +318,39 @@ struct GitModuleTests {
     }
 
     @Test
+    func remoteReferenceActionsPreserveIdentityAndPullStrategy() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let reference = GitReference(
+            fullName: "refs/remotes/origin/feature/demo",
+            shortName: "origin/feature/demo",
+            kind: .remote,
+            isCurrent: false,
+            upstreamShortName: nil
+        )
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: [])
+        ))
+        let feature = GitFeatureModel(service: service)
+        feature.configure(
+            workspaceURLProvider: { root },
+            isGitLogVisibleProvider: { false },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+
+        await feature.refreshGit()
+        await feature.checkoutAndRebase(reference)
+        await feature.pullRemoteReference(reference, strategy: .rebase)
+        await feature.pullRemoteReference(reference, strategy: .merge)
+
+        #expect(feature.gitConsoleEntries.map(\.arguments) == [
+            ["checkoutAndRebase", reference.fullName],
+            ["pull", "rebase", reference.fullName],
+            ["pull", "merge", reference.fullName]
+        ])
+    }
+
+    @Test
     func postInvocationOperationErrorFailsWhileKeepingConsoleTrace() async {
         let root = URL(fileURLWithPath: "/workspace")
         let change = GitChange(
@@ -823,7 +856,25 @@ private struct TestGitOperations: GitOperations {
     func deleteBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? { nil }
     func mergeBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? { nil }
     func rebaseCurrentBranch(onto reference: GitReference, at rootURL: URL) -> GitProcessResult? { nil }
+    func checkoutAndRebase(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? {
+        GitProcessResult(
+            arguments: ["checkoutAndRebase", reference.fullName],
+            output: "",
+            exitCode: 0
+        )
+    }
     func updateCurrentBranch(at rootURL: URL, strategy: GitPullStrategy) -> GitProcessResult? { nil }
+    func pullRemoteReference(
+        _ reference: GitReference,
+        strategy: GitPullStrategy,
+        at rootURL: URL
+    ) -> GitProcessResult? {
+        GitProcessResult(
+            arguments: ["pull", strategy.rawValue, reference.fullName],
+            output: "",
+            exitCode: 0
+        )
+    }
     func pullPreflight(at rootURL: URL) -> GitPullPreflightState? { nil }
     func conflictMarkerPaths(at rootURL: URL) -> [String] { [] }
     func integrationPreflight(for target: GitIntegrationTarget, operation: GitIntegrationOperation, at rootURL: URL) -> GitIntegrationPreflightState? { nil }

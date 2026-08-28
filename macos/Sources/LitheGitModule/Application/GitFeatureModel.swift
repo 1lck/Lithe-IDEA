@@ -1629,6 +1629,33 @@ package final class GitFeatureModel: ObservableObject {
         await startIntegration(.reference(reference), operation: .rebase)
     }
 
+    package func checkoutAndRebase(_ reference: GitReference) async {
+        guard let gitRepositoryRoot, reference.kind != .tag, !reference.isCurrent else { return }
+        isPerformingBranchOperation = true
+        let result = await withGitOperation {
+            await service.checkoutAndRebase(reference, at: gitRepositoryRoot)
+        }
+        isPerformingBranchOperation = false
+        await reportBranchOperation(
+            result,
+            success: "Checked out \(reference.shortName) and rebased it onto the previous branch"
+        )
+    }
+
+    package func pullRemoteReference(
+        _ reference: GitReference,
+        strategy: GitPullStrategy
+    ) async {
+        guard let gitRepositoryRoot, reference.kind == .remote else { return }
+        isPerformingBranchOperation = true
+        let result = await withGitOperation {
+            await service.pullRemoteReference(reference, strategy: strategy, at: gitRepositoryRoot)
+        }
+        isPerformingBranchOperation = false
+        let verb = strategy == .rebase ? "Rebased from" : "Merged from"
+        await reportBranchOperation(result, success: "\(verb) \(reference.shortName)")
+    }
+
     /// Checks whether uncommitted changes would stop the operation before running
     /// it, so the user gets a choice instead of Git's localized refusal.
     private func startIntegration(

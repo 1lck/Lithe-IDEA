@@ -1715,6 +1715,16 @@ final class AppModel: ObservableObject, Identifiable {
         await gitFeature.rebaseCurrentBranch(onto: reference)
     }
 
+    func checkoutAndRebase(_ reference: GitReference) async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.checkoutAndRebase(reference)
+    }
+
+    func pullRemoteReference(_ reference: GitReference, strategy: GitPullStrategy) async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.pullRemoteReference(reference, strategy: strategy)
+    }
+
     func updateCurrentBranch(_ reference: GitReference) async {
         guard let gitFeature = await activateGitModule() else { return }
         await gitFeature.updateCurrentBranch(reference)
