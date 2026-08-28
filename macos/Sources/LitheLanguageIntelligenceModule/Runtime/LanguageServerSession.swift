@@ -55,7 +55,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         runtimeExecutableURL: URL? = nil,
         jdtlsLaunchResources: JDTLSLaunchResources? = nil,
         cacheDirectoryURL: URL? = nil,
-        initializeTimeout: TimeInterval = 60,
+        initializeTimeout: TimeInterval = 30,
         requestTimeout: TimeInterval = 30,
         shutdownTimeout: TimeInterval = 2,
         core: any LanguageServerRuntimeCore,

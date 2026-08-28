@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+use url::Url;
 
 const JAVA_PROVIDER_ID: &str = "java";
 const JDT_URI_SCHEME: &str = "jdt";
@@ -18,6 +19,7 @@ const JDTLS_DATA_DIRECTORY: &str = "jdtls";
 const JAVA_DECOMPILE_COMMAND: &str = "java.decompile";
 const DID_CHANGE_CONFIGURATION_METHOD: &str = "workspace/didChangeConfiguration";
 const LANGUAGE_STATUS_METHOD: &str = "language/status";
+const WORK_DONE_PROGRESS_METHOD: &str = "$/progress";
 const SERVICE_READY_STATUS: &str = "ServiceReady";
 const ERROR_STATUS: &str = "Error";
 
@@ -29,6 +31,34 @@ pub(crate) enum JdtReadinessSignal {
     Ready,
     /// JDT LS reported that its Java service could not become usable.
     Failed(String),
+}
+
+/// Maven artifact transfer details extracted from JDT LS work-done progress.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct JdtDownloadProgress {
+    /// File name only; repository URLs can contain credentials or private hosts.
+    pub artifact: String,
+    /// Repository host without path, query, or credentials.
+    pub repository_host: Option<String>,
+    /// Bytes transferred according to JDT LS, when its progress includes a size pair.
+    pub downloaded_bytes: Option<u64>,
+    /// Expected artifact size according to JDT LS, when the server reports it.
+    pub total_bytes: Option<u64>,
+}
+
+/// Observable Java workspace-import activity derived from standard progress events.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct JdtImportProgress {
+    /// Stable signature used to ignore duplicate progress notifications.
+    pub activity_signature: String,
+    /// JDT LS work phase such as Maven import or classpath setup.
+    pub phase: Option<String>,
+    /// Outer workspace-import percentage, which can stay fixed during downloads.
+    pub percentage: Option<u64>,
+    /// Current Maven project when JDT LS includes it in the progress message.
+    pub current_project: Option<String>,
+    /// Current artifact transfer, if the progress message contains a repository URL.
+    pub download: Option<JdtDownloadProgress>,
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
@@ -265,6 +295,116 @@ pub(crate) fn readiness_signal(
         )),
         _ => None,
     }
+}
+
+/// Extracts observability-only Maven import details from JDT LS `$/progress`.
+///
+/// Lifecycle correctness must never depend on this parser because progress text
+/// is owned by JDT LS and can change between releases. Readiness continues to
+/// depend exclusively on `language/status: ServiceReady`.
+pub(crate) fn import_progress(
+    provider_id: &str,
+    method: Option<&str>,
+    params: Option<&Value>,
+) -> Option<JdtImportProgress> {
+    if !is_java_provider(provider_id) || method != Some(WORK_DONE_PROGRESS_METHOD) {
+        return None;
+    }
+    let value = params?.get("value")?;
+    let kind = value
+        .get("kind")
+        .and_then(Value::as_str)
+        .unwrap_or("report");
+    let message = value
+        .get("message")
+        .and_then(Value::as_str)
+        .or_else(|| value.get("title").and_then(Value::as_str))
+        .unwrap_or("")
+        .trim();
+    let percentage = value.get("percentage").and_then(Value::as_u64);
+    if message.is_empty() && percentage.is_none() {
+        return None;
+    }
+
+    Some(JdtImportProgress {
+        activity_signature: format!("{kind}|{}|{message}", percentage.unwrap_or(u64::MAX)),
+        phase: progress_phase(message),
+        percentage,
+        current_project: progress_project(message),
+        download: progress_download(message),
+    })
+}
+
+/// Returns whether a Java notification is replaced by structured import logs.
+pub(crate) fn is_structured_import_notification(provider_id: &str, method: Option<&str>) -> bool {
+    is_java_provider(provider_id)
+        && matches!(
+            method,
+            Some(WORK_DONE_PROGRESS_METHOD | LANGUAGE_STATUS_METHOD)
+        )
+}
+
+fn progress_phase(message: &str) -> Option<String> {
+    let phase = message
+        .split_once(" - ")
+        .map_or(message, |(phase, _)| phase)
+        .trim();
+    (!phase.is_empty()).then(|| phase.to_string())
+}
+
+fn progress_project(message: &str) -> Option<String> {
+    if let Some((_, project)) = message.split_once("Importing project ") {
+        let project = project.trim().trim_matches('\'');
+        return (!project.is_empty()).then(|| project.to_string());
+    }
+    let (_, quoted) = message.split_once("Project '")?;
+    let (project, _) = quoted.split_once('\'')?;
+    let project = project.trim();
+    (!project.is_empty()).then(|| project.to_string())
+}
+
+fn progress_download(message: &str) -> Option<JdtDownloadProgress> {
+    let url_text = message
+        .split_whitespace()
+        .find(|part| part.starts_with("https://") || part.starts_with("http://"))?
+        .trim_end_matches(|character: char| matches!(character, ',' | ';' | ')' | ']'));
+    let url = Url::parse(url_text).ok()?;
+    let artifact = url
+        .path_segments()
+        .and_then(|mut segments| segments.next_back())
+        .filter(|segment| !segment.is_empty())?
+        .to_string();
+    let sizes = message.split_whitespace().find_map(parse_size_pair);
+    Some(JdtDownloadProgress {
+        artifact,
+        repository_host: url.host_str().map(ToString::to_string),
+        downloaded_bytes: sizes.map(|(downloaded, _)| downloaded),
+        total_bytes: sizes.map(|(_, total)| total),
+    })
+}
+
+fn parse_size_pair(value: &str) -> Option<(u64, u64)> {
+    if value.starts_with("http://") || value.starts_with("https://") {
+        return None;
+    }
+    let value = value.trim_matches(|character: char| matches!(character, '(' | ')' | ',' | ';'));
+    let (downloaded, total) = value.split_once('/')?;
+    Some((parse_byte_count(downloaded)?, parse_byte_count(total)?))
+}
+
+fn parse_byte_count(value: &str) -> Option<u64> {
+    let number_end = value
+        .find(|character: char| !character.is_ascii_digit() && character != '.')
+        .unwrap_or(value.len());
+    let number = value[..number_end].parse::<f64>().ok()?;
+    let multiplier = match value[number_end..].to_ascii_uppercase().as_str() {
+        "B" => 1_f64,
+        "KB" | "KIB" => 1024_f64,
+        "MB" | "MIB" => 1024_f64 * 1024_f64,
+        "GB" | "GIB" => 1024_f64 * 1024_f64 * 1024_f64,
+        _ => return None,
+    };
+    Some((number * multiplier).round() as u64)
 }
 
 /// Marks JDT virtual locations as read-only and gives them a source-like path.
@@ -509,10 +649,10 @@ fn java_settings() -> Value {
     json!({
         "java": {
             "eclipse": {
-                "downloadSources": true
+                "downloadSources": false
             },
             "maven": {
-                "downloadSources": true
+                "downloadSources": false
             },
             "configuration": {
                 "updateBuildConfiguration": "automatic"
@@ -538,10 +678,10 @@ fn java_configuration_for_section(section: Option<&str>) -> Value {
     match section {
         Some("java") => json!({
             "eclipse": {
-                "downloadSources": true
+                "downloadSources": false
             },
             "maven": {
-                "downloadSources": true
+                "downloadSources": false
             },
             "configuration": {
                 "updateBuildConfiguration": "automatic"
@@ -565,10 +705,10 @@ fn java_configuration_for_section(section: Option<&str>) -> Value {
         }),
         Some("java.inlayHints.parameterNames") => json!({ "enabled": "all" }),
         Some("java.inlayHints.parameterNames.enabled") => json!("all"),
-        Some("java.eclipse") => json!({ "downloadSources": true }),
-        Some("java.eclipse.downloadSources") => json!(true),
-        Some("java.maven") => json!({ "downloadSources": true }),
-        Some("java.maven.downloadSources") => json!(true),
+        Some("java.eclipse") => json!({ "downloadSources": false }),
+        Some("java.eclipse.downloadSources") => json!(false),
+        Some("java.maven") => json!({ "downloadSources": false }),
+        Some("java.maven.downloadSources") => json!(false),
         Some("java.configuration") => json!({ "updateBuildConfiguration": "automatic" }),
         Some("java.configuration.updateBuildConfiguration") => json!("automatic"),
         Some("java.implementationsCodeLens") => json!({ "enabled": true }),
@@ -738,6 +878,59 @@ mod tests {
             arguments: vec!["--stdio".to_string()],
             workspace_fingerprint: None,
         }
+    }
+
+    #[test]
+    fn import_progress_extracts_module_and_download_diagnostics() {
+        let module = import_progress(
+            "java",
+            Some("$/progress"),
+            Some(&json!({
+                "value": {
+                    "kind": "report",
+                    "message": "Importing Maven project(s) - Importing project module-a",
+                    "percentage": 24
+                }
+            })),
+        )
+        .expect("Java work-done progress should be observed");
+        assert_eq!(module.phase.as_deref(), Some("Importing Maven project(s)"));
+        assert_eq!(module.current_project.as_deref(), Some("module-a"));
+        assert_eq!(module.percentage, Some(24));
+
+        let download = import_progress(
+            "java",
+            Some("$/progress"),
+            Some(&json!({
+                "value": {
+                    "kind": "report",
+                    "message": "Importing Maven project(s) - 117KB/7MB (1%) https://repo.maven.apache.org/maven2/org/apache/poi/poi.jar",
+                    "percentage": 49
+                }
+            })),
+        )
+        .and_then(|progress| progress.download)
+        .expect("artifact transfer details should be parsed");
+        assert_eq!(download.artifact, "poi.jar");
+        assert_eq!(
+            download.repository_host.as_deref(),
+            Some("repo.maven.apache.org")
+        );
+        assert_eq!(download.downloaded_bytes, Some(117 * 1024));
+        assert_eq!(download.total_bytes, Some(7 * 1024 * 1024));
+    }
+
+    #[test]
+    fn import_progress_ignores_other_providers_and_status_text() {
+        let params = json!({
+            "value": {
+                "kind": "report",
+                "message": "Importing Maven project(s) - 50%",
+                "percentage": 50
+            }
+        });
+        assert!(import_progress("gopls", Some("$/progress"), Some(&params)).is_none());
+        assert!(import_progress("java", Some("language/status"), Some(&params)).is_none());
     }
 
     #[test]
@@ -972,12 +1165,12 @@ mod tests {
         let values = workspace_configuration("java", &items).unwrap();
 
         assert_eq!(values[0]["inlayHints"]["parameterNames"]["enabled"], "all");
-        assert_eq!(values[0]["eclipse"]["downloadSources"], true);
-        assert_eq!(values[0]["maven"]["downloadSources"], true);
+        assert_eq!(values[0]["eclipse"]["downloadSources"], false);
+        assert_eq!(values[0]["maven"]["downloadSources"], false);
         assert_eq!(values[0]["implementationsCodeLens"]["enabled"], true);
         assert_eq!(values[0]["referencesCodeLens"]["enabled"], true);
-        assert_eq!(values[1], true); // java.eclipse.downloadSources
-        assert_eq!(values[2], true); // java.maven.downloadSources
+        assert_eq!(values[1], false); // java.eclipse.downloadSources
+        assert_eq!(values[2], false); // java.maven.downloadSources
         assert_eq!(values[3]["parameterNames"]["enabled"], "all"); // java.inlayHints
         assert_eq!(values[4]["enabled"], "all"); // java.inlayHints.parameterNames
         assert_eq!(values[5], "all"); // java.inlayHints.parameterNames.enabled
@@ -999,11 +1192,11 @@ mod tests {
         );
         assert_eq!(
             notification.params["settings"]["java"]["eclipse"]["downloadSources"],
-            true
+            false
         );
         assert_eq!(
             notification.params["settings"]["java"]["maven"]["downloadSources"],
-            true
+            false
         );
         assert_eq!(
             notification.params["settings"]["java"]["implementationsCodeLens"]["enabled"],
