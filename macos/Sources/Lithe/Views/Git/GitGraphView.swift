@@ -89,7 +89,14 @@ private struct GitGraphRowView: View, Equatable {
                 )
 
                 HStack(spacing: 0) {
+                    Text(row.commit.subject)
+                        .font(.system(size: 12.5, weight: .regular))
+                        .foregroundStyle(LitheTheme.primaryText)
+                        .lineLimit(1)
+
                     if showCommitDecorations, !row.labels.isEmpty {
+                        Spacer(minLength: 8)
+
                         HStack(spacing: 6) {
                             ForEach(row.labels) { label in
                                 GitGraphLabelView(label: label)
@@ -97,10 +104,6 @@ private struct GitGraphRowView: View, Equatable {
                         }
                         .padding(.trailing, 4)
                     }
-                    Text(row.commit.subject)
-                        .font(.system(size: 12.5, weight: .regular))
-                        .foregroundStyle(LitheTheme.primaryText)
-                        .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
