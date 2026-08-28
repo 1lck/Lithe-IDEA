@@ -31,7 +31,6 @@ struct GitLogView: View {
     @State private var gitLogPathFilter = ""
     @State private var gitLogPathDraft = ""
     @State private var showsGitLogPathPopover = false
-    @State private var gitCommitFileLoadTask: Task<Void, Never>?
     @State private var graphLayout = GitGraphLayout(
         rows: [],
         laneCount: 0,
@@ -54,7 +53,6 @@ struct GitLogView: View {
         static let rowHeight: CGFloat = 38
         static let treeRowHeight: CGFloat = 28
         static let toolbarHeight: CGFloat = 38
-        static let commitFileLoadDelay = Duration.milliseconds(16)
         static let darkConsoleText = Color(red: 0.76, green: 0.77, blue: 0.79)
         static let darkConsoleMetadata = Color(red: 0.69, green: 0.70, blue: 0.72)
     }
@@ -182,7 +180,7 @@ struct GitLogView: View {
             selectedGitToolTab = .console
         }
         .onDisappear {
-            gitCommitFileLoadTask?.cancel()
+            model.gitFeatureIfActive?.cancelGitCommitFilesRequests()
         }
         .sheet(item: $branchDialogRequest) { request in
             GitBranchNameDialog(request: request) { name, checkout in
@@ -1150,15 +1148,7 @@ struct GitLogView: View {
     }
 
     private func scheduleGitCommitFileLoad(for commit: GitCommit) {
-        gitCommitFileLoadTask?.cancel()
-        gitCommitFileLoadTask = Task { [model] in
-            do {
-                try await Task.sleep(for: GitVisual.commitFileLoadDelay)
-            } catch {
-                return
-            }
-            await model.loadGitCommitFiles(for: commit)
-        }
+        model.gitFeatureIfActive?.scheduleGitCommitFilesLoad(for: commit)
     }
 
     private var checkoutReference: GitReference? {
