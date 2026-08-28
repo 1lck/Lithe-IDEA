@@ -62,10 +62,7 @@ jobs:
         shell: bash
         run: |
           notes_file="docs/releases/v${LITHE_VERSION}.md"
-          if [[ ! -s "$notes_file" ]]; then
-            echo "::error file=${notes_file}::Stable releases require non-empty bilingual release notes."
-            exit 1
-          fi
+          node scripts/validate-stable-release-notes.mjs "$notes_file"
 
   build:
     name: Build ${{ matrix.architecture }} release

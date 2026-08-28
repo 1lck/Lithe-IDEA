@@ -54,10 +54,7 @@ jobs:
           LITHE_VERSION: ${{ steps.version.outputs.version }}
         run: |
           $notes = "docs/releases/v$env:LITHE_VERSION.md"
-          if (-not (Test-Path -LiteralPath $notes -PathType Leaf) -or
-              (Get-Item -LiteralPath $notes).Length -eq 0) {
-            throw "Stable releases require non-empty bilingual release notes: $notes"
-          }
+          node scripts/validate-stable-release-notes.mjs $notes
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
