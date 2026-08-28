@@ -64,21 +64,27 @@ struct GitHubPullRequestsSidebarView: View {
     @State private var searchQuery = ""
 
     var body: some View {
-        VStack(spacing: 0) {
-            LitheToolWindowHeader(title: "Pull Requests") {
-                if case .connected = model.githubFeature.connectionState {
-                    Button {
-                        Task { await model.githubFeature.refresh(workspaceURL: model.workspaceURL) }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
+        Group {
+            if LitheFeatureAvailability.githubPullRequests {
+                VStack(spacing: 0) {
+                    LitheToolWindowHeader(title: "Pull Requests") {
+                        if case .connected = model.githubFeature.connectionState {
+                            Button {
+                                Task { await model.githubFeature.refresh(workspaceURL: model.workspaceURL) }
+                            } label: {
+                                Image(systemName: "arrow.clockwise")
+                            }
+                            .litheIconButton()
+                            .disabled(isContentLoading)
+                            .help("Refresh pull requests")
+                        }
                     }
-                    .litheIconButton()
-                    .disabled(isContentLoading)
-                    .help("Refresh pull requests")
+                    Rectangle().fill(LitheTheme.divider).frame(height: 1)
+                    content
                 }
+            } else {
+                GitHubFeatureUnavailableView()
             }
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            content
         }
     }
 
@@ -376,7 +382,9 @@ struct GitHubPullRequestDetailView: View {
 
     var body: some View {
         Group {
-            if model.githubFeature.isCreatingPullRequest {
+            if !LitheFeatureAvailability.githubPullRequests {
+                GitHubFeatureUnavailableView()
+            } else if model.githubFeature.isCreatingPullRequest {
                 GitHubCreatePullRequestWorkspaceView()
             } else if let request = model.githubFeature.selectedPullRequest {
                 detail(request)
@@ -782,6 +790,28 @@ struct GitHubPullRequestDetailView: View {
     private var isOperationRunning: Bool {
         if case .running = model.githubFeature.operationState { return true }
         return false
+    }
+}
+
+struct GitHubFeatureUnavailableView: View {
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "arrow.triangle.pull")
+                .font(.system(size: 30, weight: .light))
+                .foregroundStyle(LitheTheme.secondaryText)
+            Text("Pull Requests integration is under development")
+                .font(.system(size: 14, weight: .semibold))
+                .multilineTextAlignment(.center)
+            Text("GitHub sign-in and pull request management are temporarily unavailable.")
+                .font(.system(size: 11.5))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(28)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .litheWorkbenchSurface(LitheTheme.editor)
+        .accessibilityElement(children: .combine)
     }
 }
 
