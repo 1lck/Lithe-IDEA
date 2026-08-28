@@ -471,6 +471,49 @@ struct GitModuleTests {
     }
 
     @Test
+    func repeatedCommitSelectionReusesCachedFilesAndResetInvalidatesCache() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let commit = GitCommit(
+            hash: "1111111111111111",
+            shortHash: "1111111",
+            parentHashes: [],
+            authorName: "Ada Lovelace",
+            authorEmail: "ada@example.com",
+            date: "2026-08-28T16:00:00+08:00",
+            subject: "Cached commit",
+            decorations: ""
+        )
+        let files = [GitCommitFile(status: "M", path: "README.md")]
+        let filesRecorder = GitFilesCallRecorder()
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            filesValue: files,
+            filesRecorder: filesRecorder
+        ))
+        let feature = GitFeatureModel(service: service)
+        feature.configure(
+            workspaceURLProvider: { root },
+            isGitLogVisibleProvider: { false },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+
+        await feature.refreshGit()
+        await feature.selectGitCommit(commit)
+        await feature.selectGitCommit(commit)
+
+        #expect(filesRecorder.callCount == 1)
+        #expect(feature.selectedGitCommitFiles == files)
+
+        feature.reset()
+        await feature.refreshGit()
+        await feature.selectGitCommit(commit)
+
+        #expect(filesRecorder.callCount == 2)
+        #expect(feature.selectedGitCommitFiles == files)
+    }
+
+    @Test
     func clearingGitConsoleDoesNotTriggerInitialLoadAgain() async {
         let root = URL(fileURLWithPath: "/workspace")
         let service = GitService(operations: TestGitOperations(
@@ -811,6 +854,23 @@ private final class TestGitRunGate: @unchecked Sendable {
     }
 }
 
+private final class GitFilesCallRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls = 0
+
+    var callCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return calls
+    }
+
+    func recordCall() {
+        lock.lock()
+        calls += 1
+        lock.unlock()
+    }
+}
+
 private struct TestGitOperations: GitOperations {
     private let snapshotValue: GitSnapshot?
     private let comparisonValue: GitBranchComparison?
@@ -819,6 +879,7 @@ private struct TestGitOperations: GitOperations {
     private let comparisonDiffDocumentValue: DiffDocument?
     private let stageResult: GitProcessResult?
     private let runGate: TestGitRunGate?
+    private let filesRecorder: GitFilesCallRecorder?
 
     init(
         snapshotValue: GitSnapshot? = nil,
@@ -827,7 +888,8 @@ private struct TestGitOperations: GitOperations {
         untrackedDiffDocumentValue: DiffDocument? = nil,
         comparisonDiffDocumentValue: DiffDocument? = nil,
         stageResult: GitProcessResult? = nil,
-        runGate: TestGitRunGate? = nil
+        runGate: TestGitRunGate? = nil,
+        filesRecorder: GitFilesCallRecorder? = nil
     ) {
         self.snapshotValue = snapshotValue
         self.comparisonValue = comparisonValue
@@ -836,6 +898,7 @@ private struct TestGitOperations: GitOperations {
         self.comparisonDiffDocumentValue = comparisonDiffDocumentValue
         self.stageResult = stageResult
         self.runGate = runGate
+        self.filesRecorder = filesRecorder
     }
 
     func run(arguments: [String], workingDirectory: String, input: String?) -> GitProcessResult {
@@ -859,7 +922,10 @@ private struct TestGitOperations: GitOperations {
     func comparisonDiffDocument(at rootURL: URL, reference: String, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { comparisonDiffDocumentValue }
     func applyPatch(_ patch: String, at rootURL: URL, mode: String) -> GitProcessResult? { nil }
     func history(at rootURL: URL, reference: GitReference?, limit: Int) -> GitHistorySnapshot? { nil }
-    func files(in commit: GitCommit, at rootURL: URL) -> [GitCommitFile]? { filesValue }
+    func files(in commit: GitCommit, at rootURL: URL) -> [GitCommitFile]? {
+        filesRecorder?.recordCall()
+        return filesValue
+    }
     func commit(at rootURL: URL, hash: String) -> GitCommit? { nil }
     func comparison(for reference: GitReference, at rootURL: URL) -> GitBranchComparison? { comparisonValue }
     func stashes(at rootURL: URL) -> [GitStash]? { nil }

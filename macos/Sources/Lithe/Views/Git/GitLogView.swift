@@ -54,7 +54,7 @@ struct GitLogView: View {
         static let rowHeight: CGFloat = 38
         static let treeRowHeight: CGFloat = 28
         static let toolbarHeight: CGFloat = 38
-        static let keyboardFileLoadDelay = Duration.milliseconds(120)
+        static let commitFileLoadDelay = Duration.milliseconds(120)
         static let darkConsoleText = Color(red: 0.76, green: 0.77, blue: 0.79)
         static let darkConsoleMetadata = Color(red: 0.69, green: 0.70, blue: 0.72)
     }
@@ -1145,10 +1145,14 @@ struct GitLogView: View {
             offset: offset
         ) else { return }
         model.previewGitCommitSelection(commit)
+        scheduleGitCommitFileLoad(for: commit)
+    }
+
+    private func scheduleGitCommitFileLoad(for commit: GitCommit) {
         gitCommitFileLoadTask?.cancel()
         gitCommitFileLoadTask = Task { [model] in
             do {
-                try await Task.sleep(for: GitVisual.keyboardFileLoadDelay)
+                try await Task.sleep(for: GitVisual.commitFileLoadDelay)
             } catch {
                 return
             }
@@ -1186,9 +1190,9 @@ struct GitLogView: View {
         let pendingOperation = $pendingCommitOperation
         return GitGraphRowActions(
             onSelect: { [model] commit in
-                gitCommitFileLoadTask?.cancel()
                 gitLogCommitListFocused = true
-                Task { await model.selectGitCommit(commit) }
+                model.previewGitCommitSelection(commit)
+                scheduleGitCommitFileLoad(for: commit)
             },
             onCherryPick: { commit in
                 pendingOperation.wrappedValue = GitCommitOperationRequest(kind: .cherryPick, commit: commit)
