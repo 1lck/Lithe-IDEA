@@ -221,6 +221,284 @@ struct GitModuleTests {
     }
 
     @Test
+    func gitConsoleCommandFormatterQuotesArgumentsAndRedactsURLCredentials() {
+        let commandLine = GitConsoleCommandFormatter.commandLine(arguments: [
+            "push",
+            "feature branch",
+            "John's change\nnext line",
+            "https://alice:secret@example.com/org/repository.git",
+            ""
+        ])
+
+        #expect(commandLine.hasPrefix("git push 'feature branch'"))
+        #expect(commandLine.contains(#"'John'\''s change\nnext line'"#))
+        #expect(commandLine.contains("redacted"))
+        #expect(!commandLine.contains("alice"))
+        #expect(!commandLine.contains("secret"))
+        #expect(commandLine.hasSuffix(" ''"))
+    }
+
+    @Test
+    func gitConsoleRedactsCredentialsFromArgumentsAndProcessStreams() {
+        let secret = "FAKE_SUPER_SECRET_TOKEN"
+        let credentialURL = "https://alice:password@example.com/repository.git?access_token=\(secret)&mode=test"
+        let tokenURL = "https://example.com/repository.git?token=\(secret)"
+        let entry = GitConsoleEntry(
+            workingDirectory: URL(fileURLWithPath: "/workspace"),
+            arguments: ["fetch", credentialURL],
+            output: "warning: request failed for \(tokenURL)\nfatal: unable to access '\(credentialURL)'\n",
+            standardOutput: "warning: request failed for \(tokenURL)\n",
+            standardError: "fatal: unable to access '\(credentialURL)'\n",
+            exitCode: 1
+        )
+
+        let visibleText = [
+            entry.arguments.joined(separator: " "),
+            entry.output,
+            entry.standardOutput ?? "",
+            entry.standardError ?? "",
+            entry.commandLine,
+            entry.copyText,
+            entry.outputLines.map(\.text).joined(separator: "\n")
+        ].joined(separator: "\n")
+        #expect(visibleText.contains("redacted"))
+        #expect(!visibleText.contains(secret))
+        #expect(!visibleText.contains("alice"))
+        #expect(!visibleText.contains("password"))
+    }
+
+    @Test
+    func gitConsoleRecordsEveryInvocationFromCompositeOperations() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let change = GitChange(
+            repositoryRoot: root,
+            path: "README.md",
+            originalPath: nil,
+            indexStatus: " ",
+            workTreeStatus: "M"
+        )
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: [change]),
+            stageResult: GitProcessResult(
+                arguments: ["checkout", "HEAD", "--", "README.md"],
+                output: "",
+                exitCode: 0,
+                invocations: [
+                    GitProcessInvocation(
+                        arguments: ["status", "--porcelain", "--", "README.md"],
+                        standardOutput: " M README.md\n",
+                        standardError: "",
+                        exitCode: 0
+                    ),
+                    GitProcessInvocation(
+                        arguments: ["checkout", "HEAD", "--", "README.md"],
+                        standardOutput: "",
+                        standardError: "",
+                        exitCode: 0
+                    )
+                ]
+            )
+        ))
+        let feature = GitFeatureModel(service: service)
+        feature.configure(
+            workspaceURLProvider: { root },
+            isGitLogVisibleProvider: { false },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+
+        await feature.refreshGit()
+        await feature.selectChange(change)
+        await feature.stageSelectedChange()
+
+        #expect(feature.gitConsoleEntries.map(\.arguments) == [
+            ["status", "--porcelain", "--", "README.md"],
+            ["checkout", "HEAD", "--", "README.md"]
+        ])
+    }
+
+    @Test
+    func postInvocationOperationErrorFailsWhileKeepingConsoleTrace() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let change = GitChange(
+            repositoryRoot: root,
+            path: "README.md",
+            originalPath: nil,
+            indexStatus: " ",
+            workTreeStatus: "M"
+        )
+        let operationError = "Invalid Git reference"
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: [change]),
+            stageResult: GitProcessResult(
+                arguments: ["stash", "push", "--include-untracked"],
+                output: operationError,
+                standardOutput: "No local changes to save\n",
+                standardError: "",
+                exitCode: 0,
+                invocations: [
+                    GitProcessInvocation(
+                        arguments: ["stash", "push", "--include-untracked"],
+                        standardOutput: "No local changes to save\n",
+                        standardError: "",
+                        exitCode: 0
+                    )
+                ],
+                operationErrorMessage: operationError
+            )
+        ))
+        let feature = GitFeatureModel(service: service)
+        var notifications: [String] = []
+        feature.configure(
+            workspaceURLProvider: { root },
+            isGitLogVisibleProvider: { false },
+            notify: { notifications.append($0) },
+            onStateRefreshed: {}
+        )
+
+        await feature.refreshGit()
+        await feature.selectChange(change)
+        await feature.stageSelectedChange()
+
+        let result = await service.stage(change)
+        #expect(!result.succeeded)
+        #expect(notifications == [operationError])
+        #expect(feature.gitConsoleEntries.map(\.arguments) == [
+            ["stash", "push", "--include-untracked"]
+        ])
+        #expect(feature.gitConsoleEntries.first?.succeeded == true)
+    }
+
+    @Test
+    func gitServicePreservesExecutedArgumentsAndWorkingDirectory() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let change = GitChange(
+            repositoryRoot: root,
+            path: "README.md",
+            originalPath: nil,
+            indexStatus: " ",
+            workTreeStatus: "M"
+        )
+        let service = GitService(operations: TestGitOperations(
+            stageResult: GitProcessResult(
+                arguments: ["add", "--", "README.md"],
+                output: "staged",
+                exitCode: 0
+            )
+        ))
+
+        let result = await service.stage(change)
+
+        #expect(result.workingDirectory == root)
+        #expect(result.arguments == ["add", "--", "README.md"])
+        #expect(result.output == "staged")
+        #expect(result.succeeded)
+    }
+
+    @Test
+    func gitConsoleLoadsGitVersionOnlyOnce() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: [])
+        ))
+        let feature = GitFeatureModel(service: service)
+        feature.configure(
+            workspaceURLProvider: { root },
+            isGitLogVisibleProvider: { false },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+
+        await feature.refreshGit()
+        await feature.loadGitConsoleIfNeeded()
+        await feature.loadGitConsoleIfNeeded()
+
+        #expect(feature.gitConsoleEntries.count == 1)
+        #expect(feature.gitConsoleEntries.first?.workingDirectory == root)
+        #expect(feature.gitConsoleEntries.first?.arguments == ["version"])
+        #expect(feature.gitConsoleEntries.first?.output == "git version 2.55.0\n")
+    }
+
+    @Test
+    func clearingGitConsoleDoesNotTriggerInitialLoadAgain() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: [])
+        ))
+        let feature = GitFeatureModel(service: service)
+        feature.configure(
+            workspaceURLProvider: { root },
+            isGitLogVisibleProvider: { false },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+
+        await feature.refreshGit()
+        await feature.loadGitConsoleIfNeeded()
+        feature.clearGitConsole()
+        await feature.loadGitConsoleIfNeeded()
+
+        #expect(feature.gitConsoleEntries.isEmpty)
+    }
+
+    @Test
+    func switchingRepositoriesDiscardsStaleInitialGitConsoleOutput() async {
+        let firstRoot = URL(fileURLWithPath: "/first-workspace")
+        let secondRoot = URL(fileURLWithPath: "/second-workspace")
+        let runGate = TestGitRunGate()
+        let service = GitService(operations: TestGitOperations(runGate: runGate))
+        let feature = GitFeatureModel(
+            service: service,
+            snapshotProvider: { root in
+                GitSnapshot(repositoryRoot: root, branch: "main", changes: [])
+            }
+        )
+        var workspaceURL = firstRoot
+        feature.configure(
+            workspaceURLProvider: { workspaceURL },
+            isGitLogVisibleProvider: { false },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+
+        await feature.refreshGit()
+        let initialLoad = Task { await feature.loadGitConsoleIfNeeded() }
+        await runGate.waitUntilFirstRunStarts()
+        workspaceURL = secondRoot
+        await feature.refreshGit()
+        runGate.releaseFirstRun()
+        await initialLoad.value
+
+        #expect(feature.gitConsoleEntries.isEmpty)
+
+        await feature.loadGitConsoleIfNeeded()
+
+        #expect(feature.gitConsoleEntries.count == 1)
+        #expect(feature.gitConsoleEntries.first?.workingDirectory == secondRoot)
+    }
+
+    @Test
+    func gitConsolePreservesStandardErrorColorForSuccessfulCommands() {
+        let entry = GitConsoleEntry(
+            workingDirectory: URL(fileURLWithPath: "/workspace"),
+            arguments: ["checkout", "-b", "feature"],
+            output: "Switched to a new branch 'feature'\n",
+            standardOutput: "",
+            standardError: "Switched to a new branch 'feature'\n",
+            exitCode: 0
+        )
+
+        #expect(entry.succeeded)
+        #expect(entry.outputLines == [
+            GitConsoleOutputLine(
+                stream: .standardError,
+                text: "Switched to a new branch 'feature'"
+            )
+        ])
+    }
+
+
+    @Test
     func workingTreeComparisonMergesTrackedAndUntrackedFiles() async {
         let root = URL(fileURLWithPath: "/workspace")
         let reference = GitReference(
@@ -446,22 +724,75 @@ private struct TestShelfStorage: GitShelfStorage {
     func removeItem(at url: URL) throws {}
 }
 
+private final class TestGitRunGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private let firstRunRelease = DispatchSemaphore(value: 0)
+    private var hasBlockedFirstRun = false
+    private var firstRunWaiter: CheckedContinuation<Void, Never>?
+
+    func blockFirstRun() {
+        lock.lock()
+        let shouldBlock = !hasBlockedFirstRun
+        hasBlockedFirstRun = true
+        let waiter = shouldBlock ? firstRunWaiter : nil
+        firstRunWaiter = nil
+        lock.unlock()
+        guard shouldBlock else { return }
+        waiter?.resume()
+        firstRunRelease.wait()
+    }
+
+    func waitUntilFirstRunStarts() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if hasBlockedFirstRun {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                firstRunWaiter = continuation
+                lock.unlock()
+            }
+        }
+    }
+
+    func releaseFirstRun() {
+        firstRunRelease.signal()
+    }
+}
+
 private struct TestGitOperations: GitOperations {
     private let snapshotValue: GitSnapshot?
     private let comparisonValue: GitBranchComparison?
     private let untrackedDiffDocumentValue: DiffDocument?
     private let comparisonDiffDocumentValue: DiffDocument?
+    private let stageResult: GitProcessResult?
+    private let runGate: TestGitRunGate?
 
     init(
         snapshotValue: GitSnapshot? = nil,
         comparisonValue: GitBranchComparison? = nil,
         untrackedDiffDocumentValue: DiffDocument? = nil,
-        comparisonDiffDocumentValue: DiffDocument? = nil
+        comparisonDiffDocumentValue: DiffDocument? = nil,
+        stageResult: GitProcessResult? = nil,
+        runGate: TestGitRunGate? = nil
     ) {
         self.snapshotValue = snapshotValue
         self.comparisonValue = comparisonValue
         self.untrackedDiffDocumentValue = untrackedDiffDocumentValue
         self.comparisonDiffDocumentValue = comparisonDiffDocumentValue
+        self.stageResult = stageResult
+        self.runGate = runGate
+    }
+
+    func run(arguments: [String], workingDirectory: String, input: String?) -> GitProcessResult {
+        runGate?.blockFirstRun()
+        return GitProcessResult(
+            arguments: arguments,
+            output: "git version 2.55.0\n",
+            standardOutput: "git version 2.55.0\n",
+            standardError: "",
+            exitCode: 0
+        )
     }
 
     func snapshot(at rootURL: URL) -> GitSnapshot? { snapshotValue }
@@ -479,7 +810,7 @@ private struct TestGitOperations: GitOperations {
     func comparison(for reference: GitReference, at rootURL: URL) -> GitBranchComparison? { comparisonValue }
     func stashes(at rootURL: URL) -> [GitStash]? { nil }
     func blame(at rootURL: URL, relativePath: String) -> [GitBlameLine]? { nil }
-    func stage(_ change: GitChange) -> GitProcessResult? { nil }
+    func stage(_ change: GitChange) -> GitProcessResult? { stageResult }
     func unstage(_ change: GitChange) -> GitProcessResult? { nil }
     func discard(_ change: GitChange) -> GitProcessResult? { nil }
     func discardAll(_ change: GitChange) -> GitProcessResult? { nil }

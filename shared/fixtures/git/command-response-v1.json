@@ -1,0 +1,21 @@
+{
+  "arguments": ["checkout", "HEAD", "--", "README.md"],
+  "output": "",
+  "stdout": "",
+  "stderr": "",
+  "exitCode": 0,
+  "invocations": [
+    {
+      "arguments": ["status", "--porcelain", "--untracked-files=all", "--", "README.md"],
+      "stdout": " M README.md\n",
+      "stderr": "",
+      "exitCode": 0
+    },
+    {
+      "arguments": ["checkout", "HEAD", "--", "README.md"],
+      "stdout": "",
+      "stderr": "",
+      "exitCode": 0
+    }
+  ]
+}

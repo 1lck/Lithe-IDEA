@@ -45,6 +45,30 @@ struct CoreVerification {
         let cases: [Case]
     }
 
+
+    private struct GitCommandFixture: Decodable {
+        struct Invocation: Decodable {
+            let arguments: [String]
+            let stdout: String
+            let stderr: String
+            let exitCode: Int32
+        }
+
+        struct OperationError: Decodable {
+            let code: String
+            let message: String
+            let details: String?
+        }
+
+        let arguments: [String]
+        let output: String
+        let stdout: String
+        let stderr: String
+        let exitCode: Int32
+        let invocations: [Invocation]
+        let operationError: OperationError?
+    }
+
     private struct GitFixture: Decodable {
         struct Commit: Decodable {
             let hash: String
@@ -140,6 +164,49 @@ struct CoreVerification {
         require(mergeRow.parentEdges.count == gitFixture.expected.mergeParentCount, "Git fixture merge edge count changed")
         require(layout.hasMissingParents == gitFixture.expected.hasMissingParents, "Git fixture missing-parent state changed")
         require(mergeRow.labels.contains { $0.title == gitFixture.expected.headLabel }, "Git fixture HEAD label changed")
+
+        let commandURL = URL(fileURLWithPath: "shared/fixtures/git/command-response-v1.json")
+        guard let commandData = try? Data(contentsOf: commandURL),
+              let commandFixture = try? JSONDecoder().decode(GitCommandFixture.self, from: commandData) else {
+            require(false, "Git command response fixture could not be decoded")
+            return
+        }
+        let invocations = commandFixture.invocations.map { invocation in
+            GitProcessInvocation(
+                arguments: invocation.arguments,
+                standardOutput: invocation.stdout,
+                standardError: invocation.stderr,
+                exitCode: invocation.exitCode
+            )
+        }
+        require(invocations.count == 2, "Git command fixture invocation count changed")
+        require(invocations.first?.arguments.first == "status", "Git command fixture lost its first invocation")
+        require(invocations.last?.arguments.first == "checkout", "Git command fixture lost its final invocation")
+        require(
+            commandFixture.output == commandFixture.stdout + commandFixture.stderr,
+            "Git command fixture compatibility output changed"
+        )
+        require(commandFixture.arguments == invocations.last?.arguments, "Git command fixture final arguments changed")
+        require(commandFixture.exitCode == invocations.last?.exitCode, "Git command fixture final exit code changed")
+
+        let commandErrorURL = URL(fileURLWithPath: "shared/fixtures/git/command-error-response-v1.json")
+        guard let commandErrorData = try? Data(contentsOf: commandErrorURL),
+              let commandErrorFixture = try? JSONDecoder().decode(GitCommandFixture.self, from: commandErrorData),
+              let finalErrorInvocation = commandErrorFixture.invocations.last else {
+            require(false, "Git command error response fixture could not be decoded")
+            return
+        }
+        require(commandErrorFixture.operationError?.code == "invalid_request", "Git command error fixture code changed")
+        require(commandErrorFixture.operationError?.message == "Invalid Git reference", "Git command error fixture message changed")
+        require(commandErrorFixture.operationError?.details == nil, "Git command error fixture details changed")
+        require(commandErrorFixture.arguments == finalErrorInvocation.arguments, "Git command error fixture final arguments changed")
+        require(commandErrorFixture.stdout == finalErrorInvocation.stdout, "Git command error fixture final stdout changed")
+        require(commandErrorFixture.stderr == finalErrorInvocation.stderr, "Git command error fixture final stderr changed")
+        require(commandErrorFixture.exitCode == finalErrorInvocation.exitCode, "Git command error fixture final exit code changed")
+        require(
+            commandErrorFixture.output == finalErrorInvocation.stdout + finalErrorInvocation.stderr,
+            "Git command error fixture compatibility output changed"
+        )
     }
 
     private static func verifyDiffParser() {
