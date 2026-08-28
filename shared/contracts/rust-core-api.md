@@ -217,6 +217,7 @@ response retains the invocation trace and includes the failure as
 `git.write` accepts a typed mutation request. Its required `operation` values are
 `stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `cherryPick`, `revert`,
 `reset`, `createBranch`, `publishBranch`, `renameBranch`, `deleteBranch`, `merge`, `rebase`,
+`checkoutAndRebase`,
 `fetch`, `pull`, `push`, `checkout`, `checkoutRevision`, `clone`, `stashPush`,
 `stashApply`, `stashPop`, `stashDrop`, `operationContinue`, `operationAbort`, and
 `operationSkip`. Optional fields are `paths`, `reference`, `referenceKind`,
@@ -248,6 +249,17 @@ before any Git subprocess use the standard `invalid_request` error envelope.
 and checks out that branch at a detached HEAD when needed, then pushes it with
 an upstream. If the push fails, the local branch is intentionally retained so
 the user can fix credentials or connectivity and retry without losing commits.
+
+`checkoutAndRebase` accepts a complete local or remote `reference` plus its
+`referenceKind`. Core records the current local branch, rejects any dirty
+working tree before switching, checks out the selected branch, and rebases it
+onto the original branch. Tags and the current local branch are rejected.
+
+`pull` without a reference continues to use the current branch's configured
+upstream. When `reference` is present, it must be a complete
+`refs/remotes/<remote>/<branch>` reference with `referenceKind: "remote"`;
+Core safely splits it into structured remote and branch arguments and applies
+the requested `ffOnly`, `merge`, or `rebase` strategy.
 
 `operationContinue`, `operationAbort`, and `operationSkip` inspect Git metadata
 to select the active merge, rebase, cherry-pick, or revert instead of accepting

@@ -353,6 +353,27 @@ export const getRefDiff = async (
   }
 };
 
+export const getReferenceWorkingTreeDiff = async (
+  repoPath: string,
+  reference: string,
+): Promise<GitDiff[] | null> => {
+  try {
+    const resolvedRepoPath = await resolveRepositoryPath(repoPath);
+    if (!resolvedRepoPath) return null;
+    return await runGitRead(resolvedRepoPath, `reference-worktree-diff:${reference}`, () =>
+      tauriInvoke<GitDiff[]>("git_reference_worktree_diff", {
+        repoPath: resolvedRepoPath,
+        reference,
+      }),
+    );
+  } catch (error) {
+    if (!isNotGitRepositoryError(error)) {
+      console.error("Failed to compare reference with working tree:", error);
+    }
+    return null;
+  }
+};
+
 export const getStashDiff = async (
   repoPath: string,
   stashIndex: number,

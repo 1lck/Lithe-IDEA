@@ -1,7 +1,7 @@
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
 import { emitGitChanged } from "../events/git-events";
 import { resolveRepositoryPathOrThrow } from "./git-repo-api";
-import type { GitOperationState } from "../types/git.types";
+import type { GitOperationState, GitReference, PullStrategy } from "../types/git.types";
 
 type IntegrationOperation = "merge" | "rebase";
 
@@ -54,12 +54,17 @@ export const getConflictMarkerPaths = async (repoPath: string): Promise<string[]
 
 const runIntegration = async (
   repoPath: string,
-  branchName: string,
+  reference: string | GitReference,
   operation: IntegrationOperation,
 ): Promise<IntegrationOutcome> => {
   const command = operation === "merge" ? "git_merge" : "git_rebase";
   try {
-    await tauriInvoke(command, { repoPath, branchName });
+    await tauriInvoke(command, {
+      repoPath,
+      ...(typeof reference === "string"
+        ? { branchName: reference }
+        : { reference: reference.fullName, referenceKind: reference.kind }),
+    });
     notifyOperationChanged(repoPath, `${operation}-completed`);
     return { status: "clean" };
   } catch (error) {
@@ -83,7 +88,7 @@ const runIntegration = async (
 
 const startIntegration = async (
   repoPath: string,
-  branchName: string,
+  reference: string | GitReference,
   operation: IntegrationOperation,
 ): Promise<IntegrationOutcome> => {
   const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
@@ -92,7 +97,13 @@ const startIntegration = async (
   try {
     preflight = await tauriInvoke<IntegrationPreflightResult>(
       "git_integration_preflight",
-      { repoPath: resolvedRepoPath, branchName, operation },
+      {
+        repoPath: resolvedRepoPath,
+        operation,
+        ...(typeof reference === "string"
+          ? { branchName: reference }
+          : { reference: reference.fullName, referenceKind: reference.kind }),
+      },
     );
   } catch {
     // A failed preflight must not block the operation itself; Git will still
@@ -107,14 +118,66 @@ const startIntegration = async (
     };
   }
 
-  return runIntegration(resolvedRepoPath, branchName, operation);
+  return runIntegration(resolvedRepoPath, reference, operation);
 };
 
-export const mergeBranch = (repoPath: string, branchName: string) =>
-  startIntegration(repoPath, branchName, "merge");
+export const mergeBranch = (repoPath: string, reference: string | GitReference) =>
+  startIntegration(repoPath, reference, "merge");
 
-export const rebaseOntoBranch = (repoPath: string, branchName: string) =>
-  startIntegration(repoPath, branchName, "rebase");
+export const rebaseOntoBranch = (repoPath: string, reference: string | GitReference) =>
+  startIntegration(repoPath, reference, "rebase");
+
+export const checkoutAndRebase = async (
+  repoPath: string,
+  reference: GitReference,
+): Promise<IntegrationOutcome> => {
+  const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
+  try {
+    await tauriInvoke("git_checkout_and_rebase", {
+      repoPath: resolvedRepoPath,
+      reference: reference.fullName,
+      referenceKind: reference.kind,
+    });
+    notifyOperationChanged(resolvedRepoPath, "checkout-and-rebase-completed");
+    return { status: "clean" };
+  } catch (error) {
+    notifyOperationChanged(resolvedRepoPath, "checkout-and-rebase-rejected");
+    const state = await getOperationState(resolvedRepoPath).catch(() => null);
+    if (state?.kind === "rebase") {
+      return state.conflictedPaths.length
+        ? { status: "conflicts", conflictedPaths: state.conflictedPaths }
+        : { status: "stopped" };
+    }
+    return { status: "error", message: errorMessage(error) };
+  }
+};
+
+export const pullRemoteReference = async (
+  repoPath: string,
+  reference: GitReference,
+  strategy: Extract<PullStrategy, "merge" | "rebase">,
+): Promise<IntegrationOutcome> => {
+  const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
+  try {
+    await tauriInvoke("git_pull", {
+      repoPath: resolvedRepoPath,
+      reference: reference.fullName,
+      referenceKind: reference.kind,
+      mode: strategy,
+    });
+    notifyOperationChanged(resolvedRepoPath, `pull-${strategy}-completed`);
+    return { status: "clean" };
+  } catch (error) {
+    notifyOperationChanged(resolvedRepoPath, `pull-${strategy}-rejected`);
+    const state = await getOperationState(resolvedRepoPath).catch(() => null);
+    if (state?.kind === strategy) {
+      return state.conflictedPaths.length
+        ? { status: "conflicts", conflictedPaths: state.conflictedPaths }
+        : { status: "stopped" };
+    }
+    return { status: "error", message: errorMessage(error) };
+  }
+};
 
 const resolveOperation = async (
   repoPath: string,

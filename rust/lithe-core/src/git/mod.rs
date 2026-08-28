@@ -552,6 +552,7 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
             }
             arguments = vec!["rebase".into(), reference];
         }
+        "checkoutAndRebase" => return checkout_and_rebase(&root, request),
         "fetch" => arguments = vec!["fetch".into(), "--all".into(), "--prune".into()],
         // Strategy comes from the caller because only the user can decide whether a
         // divergent history should be merged or replayed. Absent a choice we stay on
@@ -568,6 +569,17 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
                     ))
                 }
             };
+            if let Some(reference) = request.reference.as_deref() {
+                if request.reference_kind.as_deref() != Some("remote") {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Explicit pull requires a remote Git reference",
+                    ));
+                }
+                let reference = validated_reference(Some(reference))?;
+                let (remote, branch) = remote_branch_components(&reference)?;
+                arguments.extend(["--".into(), remote, branch]);
+            }
         }
         "push" => return push(&root, request.reference.as_deref()),
         "checkout" => return checkout(&root, request),
@@ -2105,10 +2117,76 @@ fn publish_branch(root: &str, name: Option<&str>) -> Result<GitCommandResponse, 
 /// - `force`: `--discard-changes`, throwing the local edits away.
 /// - `auto_stash`: stash, switch, then restore the stash ("smart checkout").
 fn checkout(root: &str, request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> {
+    if request.reference_kind.as_deref() == Some("local") {
+        if let Some(reference) = request
+            .reference
+            .as_deref()
+            .filter(|value| !value.starts_with('-') && !value.chars().any(char::is_whitespace))
+        {
+            if is_current_reference(root, reference)? {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "The current branch is already checked out",
+                ));
+            }
+        }
+    }
     if request.auto_stash {
         return checkout_with_auto_stash(root, request);
     }
     switch_reference(root, &request)
+}
+
+/// Checks out a local or remote branch, then rebases it onto the branch that
+/// was current before the switch. A dirty tree is rejected before checkout so
+/// the composite operation cannot leave the repository half-switched.
+fn checkout_and_rebase(
+    root: &str,
+    request: GitWriteRequest,
+) -> Result<GitCommandResponse, CoreError> {
+    if !matches!(request.reference_kind.as_deref(), Some("local" | "remote")) {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Checkout and rebase requires a local or remote branch",
+        ));
+    }
+    let original_branch = current_branch(root)?;
+    let reference = validated_reference(request.reference.as_deref())?;
+    if reference == original_branch || reference == format!("refs/heads/{original_branch}") {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "The current branch cannot be checked out and rebased onto itself",
+        ));
+    }
+
+    let status = execute_git(
+        root,
+        &[
+            "status".into(),
+            "--porcelain".into(),
+            "--untracked-files=normal".into(),
+        ],
+        None,
+    )?;
+    if status.exit_code != 0 {
+        return Ok(status);
+    }
+    if !status.output.trim().is_empty() {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Checkout and rebase requires a clean working tree",
+        ));
+    }
+
+    let switched = switch_reference(root, &request)?;
+    if switched.exit_code != 0 {
+        return Ok(switched);
+    }
+    execute_git(
+        root,
+        &["rebase".into(), format!("refs/heads/{original_branch}")],
+        None,
+    )
 }
 
 /// Stash, switch, restore. A failed switch leaves the stash untouched so the caller can
@@ -2223,6 +2301,28 @@ fn switch_reference(
             "Invalid Git reference kind",
         )),
     }
+}
+
+fn remote_branch_components(reference: &str) -> Result<(String, String), CoreError> {
+    let remote_path = reference
+        .strip_prefix("refs/remotes/")
+        .ok_or_else(|| CoreError::new(ErrorCode::InvalidRequest, "Invalid remote branch name"))?;
+    let (remote, branch) = remote_path
+        .split_once('/')
+        .ok_or_else(|| CoreError::new(ErrorCode::InvalidRequest, "Invalid remote branch name"))?;
+    if remote.is_empty()
+        || branch.is_empty()
+        || remote.starts_with('-')
+        || branch.starts_with('-')
+        || !is_safe_pathspec(remote)
+        || !is_safe_pathspec(branch)
+    {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Invalid remote branch name",
+        ));
+    }
+    Ok((remote.to_string(), branch.to_string()))
 }
 
 fn parse_reference(line: &str) -> Option<GitReferenceResponse> {

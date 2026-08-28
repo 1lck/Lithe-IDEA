@@ -386,6 +386,79 @@ fn git_write_validates_and_executes_shared_mutations() {
     );
     assert!(run(&["switch", &current]).status.success());
 
+    let repeated_checkout = request(
+        "checkout",
+        serde_json::json!({
+            "reference": format!("refs/heads/{current}"),
+            "referenceKind": "local"
+        }),
+    );
+    assert_eq!(
+        repeated_checkout["data"]["operationError"]["code"], "invalid_request",
+        "{repeated_checkout:?}"
+    );
+
+    assert!(run(&["branch", "feature/rebase"]).status.success());
+    fs::write(root.join("rebase.txt"), "new base\n").expect("file should be writable");
+    assert!(run(&["add", "rebase.txt"]).status.success());
+    assert!(run(&["commit", "-qm", "new base"]).status.success());
+    let checkout_and_rebase = request(
+        "checkoutAndRebase",
+        serde_json::json!({
+            "reference": "refs/heads/feature/rebase",
+            "referenceKind": "local"
+        }),
+    );
+    assert_eq!(checkout_and_rebase["ok"], true, "{checkout_and_rebase:?}");
+    assert_eq!(
+        checkout_and_rebase["data"]["exitCode"], 0,
+        "{checkout_and_rebase:?}"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run(&["branch", "--show-current"]).stdout).trim(),
+        "feature/rebase"
+    );
+    assert!(run(&["merge-base", "--is-ancestor", &current, "HEAD"])
+        .status
+        .success());
+    assert!(run(&["switch", &current]).status.success());
+
+    fs::write(root.join("dirty.txt"), "keep me\n").expect("file should be writable");
+    let dirty_checkout_and_rebase = request(
+        "checkoutAndRebase",
+        serde_json::json!({
+            "reference": "refs/heads/feature/rebase",
+            "referenceKind": "local"
+        }),
+    );
+    assert_eq!(
+        dirty_checkout_and_rebase["ok"], true,
+        "{dirty_checkout_and_rebase:?}"
+    );
+    assert_eq!(
+        dirty_checkout_and_rebase["data"]["operationError"]["code"], "invalid_request",
+        "{dirty_checkout_and_rebase:?}"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run(&["branch", "--show-current"]).stdout).trim(),
+        current
+    );
+    fs::remove_file(root.join("dirty.txt")).expect("file should be removable");
+
+    let explicit_pull = request(
+        "pull",
+        serde_json::json!({
+            "reference": "refs/remotes/origin/feature/core",
+            "referenceKind": "remote",
+            "mode": "rebase"
+        }),
+    );
+    assert_eq!(explicit_pull["ok"], true, "{explicit_pull:?}");
+    assert_eq!(
+        explicit_pull["data"]["arguments"],
+        serde_json::json!(["pull", "--rebase", "--", "origin", "feature/core"])
+    );
+
     fs::write(root.join("example.txt"), "working tree\n").expect("file should be writable");
     let stash = request(
         "stashPush",

@@ -6,6 +6,7 @@ import {
   resolveRepositoryPath,
   resolveRepositoryPathOrThrow,
 } from "./git-repo-api";
+import type { GitReference } from "../types/git.types";
 
 interface CheckoutResult {
   success: boolean;
@@ -52,12 +53,25 @@ export const checkoutBranch = async (
   repoPath: string,
   branchName: string,
 ): Promise<CheckoutResult> => {
+  const shortName = branchName.replace(/^refs\/heads\//, "");
+  return checkoutReference(repoPath, {
+    fullName: branchName.startsWith("refs/heads/") ? branchName : `refs/heads/${branchName}`,
+    shortName,
+    kind: "local",
+    isCurrent: false,
+  });
+};
+
+export const checkoutReference = async (
+  repoPath: string,
+  reference: GitReference,
+): Promise<CheckoutResult> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
 
     const preflight = await tauriInvoke<CheckoutPreflightResult>("git_checkout_preflight", {
       repoPath: resolvedRepoPath,
-      branchName,
+      reference: reference.fullName,
     });
     if (preflight.blocked) {
       return {
@@ -69,7 +83,8 @@ export const checkoutBranch = async (
 
     const result = await tauriInvoke<CheckoutResult>("git_checkout", {
       repoPath: resolvedRepoPath,
-      branchName,
+      reference: reference.fullName,
+      referenceKind: reference.kind,
     });
     if (result.success) {
       emitGitChanged({
@@ -92,14 +107,18 @@ export const checkoutBranch = async (
 export const createBranch = async (
   repoPath: string,
   branchName: string,
-  fromBranch?: string,
+  from?: string | GitReference,
 ): Promise<boolean> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
     await tauriInvoke("git_create_branch", {
       repoPath: resolvedRepoPath,
       branchName,
-      fromBranch,
+      ...(typeof from === "string"
+        ? { fromBranch: from }
+        : from
+          ? { reference: from.fullName, referenceKind: from.kind }
+          : {}),
     });
     emitGitChanged({
       repoPath: resolvedRepoPath,
