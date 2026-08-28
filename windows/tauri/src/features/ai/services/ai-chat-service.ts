@@ -12,6 +12,7 @@ import {
 } from "@/features/ai/types/providers.types";
 import {
   buildProviderSystemPromptContext,
+  createCustomProvider,
   getProvider,
   shouldUseTauriFetchForProvider,
 } from "@/features/ai/services/providers/ai-provider-registry";
@@ -28,7 +29,6 @@ import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { AcpStreamHandler } from "./acp-stream-handler";
 import { buildContextPrompt, buildSystemPrompt } from "../utils/ai-context-builder";
 import { isTerminalAgent } from "../lib/terminal-agents";
-import { setCustomProviderBaseUrl } from "./providers/ai-provider-registry";
 import { CODEX_INTEGRATION_ID } from "../integrations/integration-registry";
 import { CodexIntegrationService } from "../integrations/codex/codex-integration-service";
 
@@ -228,10 +228,6 @@ export const getChatCompletionStream = async (
     if (providerId === "custom" && !customProviderBaseUrl) {
       throw new Error("Custom provider base URL is required. Add one in Settings -> Agent.");
     }
-    if (providerId === "custom") {
-      setCustomProviderBaseUrl(customProviderBaseUrl);
-    }
-
     // Ollama Cloud requires auth even though the provider config marks the
     // key as optional (since local Ollama doesn't need one).
     if (providerId === "ollama" && !apiKey) {
@@ -270,7 +266,10 @@ export const getChatCompletionStream = async (
     });
 
     // Use provider abstraction
-    const providerImpl = getProvider(providerId);
+    const providerImpl =
+      providerId === "custom"
+        ? createCustomProvider(customProviderBaseUrl)
+        : getProvider(providerId);
     if (!providerImpl) {
       throw new Error(`Provider implementation not found: ${providerId}`);
     }

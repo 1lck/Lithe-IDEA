@@ -6,8 +6,8 @@ import {
 } from "@/features/ai/lib/custom-provider-config";
 import { getProviderApiToken } from "@/features/ai/services/ai-token-service";
 import {
+  createCustomProvider,
   getProvider,
-  setCustomProviderBaseUrl,
   shouldUseTauriFetchForProvider,
 } from "@/features/ai/services/providers/ai-provider-registry";
 import type { ProviderModel } from "@/features/ai/services/providers/ai-provider-interface";
@@ -94,10 +94,9 @@ async function requestProviderInlineEdit(
     Omit<InlineEditRequest, "provider" | "model" | "beforeSelection" | "selectedText">,
 ): Promise<{ editedText: string }> {
   const providerConfig = getProviderById(request.provider);
-  const provider = getProvider(request.provider);
   const model = resolveInlineEditModel(request.provider, request.model);
 
-  if (!providerConfig || !provider) {
+  if (!providerConfig) {
     throw new InlineEditError(`Provider not found: ${request.provider}`, 400);
   }
 
@@ -117,8 +116,12 @@ async function requestProviderInlineEdit(
       400,
     );
   }
-  if (request.provider === "custom") {
-    setCustomProviderBaseUrl(customProviderBaseUrl);
+  const provider =
+    request.provider === "custom"
+      ? createCustomProvider(customProviderBaseUrl)
+      : getProvider(request.provider);
+  if (!provider) {
+    throw new InlineEditError(`Provider not found: ${request.provider}`, 400);
   }
 
   const apiKey =

@@ -5,7 +5,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { SERVICE_DEFAULTS } from "@/config/service-defaults";
+import { requireExtensionsCdnBaseUrl } from "./cdn-config";
 import {
   getExtensionCdnPath,
   getExtensionSourceDir,
@@ -13,7 +13,7 @@ import {
 } from "./extension-workspace";
 import { readFile } from "node:fs/promises";
 
-const CDN_BASE_URL = process.env.EXTENSIONS_CDN_BASE_URL || SERVICE_DEFAULTS.extensionsCdnBaseUrl;
+const CDN_BASE_URL = requireExtensionsCdnBaseUrl();
 
 async function downloadFile(url: string, dest: string): Promise<boolean> {
   try {
