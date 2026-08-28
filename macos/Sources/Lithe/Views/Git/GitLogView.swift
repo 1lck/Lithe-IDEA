@@ -1122,6 +1122,7 @@ struct GitLogView: View {
                     Spacer(minLength: 0)
                 }
                 .padding(11)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .textSelection(.enabled)
             } else {
                 Text("Commit details")
