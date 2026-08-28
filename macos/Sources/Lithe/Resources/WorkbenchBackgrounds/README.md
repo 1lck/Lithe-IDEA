@@ -16,3 +16,8 @@ the source image and its usage permission in the project before adding it.
 
 The application automatically shows every occupied slot in the built-in
 background picker after it is rebuilt. Empty slots are not shown.
+
+## Included assets
+
+Slots `01` and `02` contain project-provided JPEGs approved for bundled
+distribution with Lithe. The checked-in files are the distribution sources.

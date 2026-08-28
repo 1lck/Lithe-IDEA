@@ -1,15 +1,15 @@
 #!/bin/zsh
 
-# Stages the bundled JDTLS runtime JDK into .artifacts/jdk.
+# Stages the bundled JDTLS runtime JDK into an architecture-specific artifact directory.
 # This JDK only runs the Java language server. Project SDKs stay user-owned.
 
 set -euo pipefail
 
 ROOT_DIR="${0:A:h:h}"
 MANIFEST="$ROOT_DIR/third_party/jdk/manifest.json"
-OUTPUT_DIR="${LITHE_JDK_ROOT:-$ROOT_DIR/.artifacts/jdk}"
 CACHE_DIR="$ROOT_DIR/.artifacts/jdk-downloads"
 TARGET_ARCH="${LITHE_JDK_TARGET_ARCH:-$(uname -m)}"
+OUTPUT_DIR="${LITHE_JDK_ROOT:-$ROOT_DIR/.artifacts/jdk-$TARGET_ARCH}"
 
 manifest_value() {
     /usr/bin/plutil -extract "$1" raw -o - "$MANIFEST"

@@ -118,6 +118,20 @@ final class MacWorkbenchBackgroundPlatform: WorkbenchBackgroundPlatformProviding
         return .loaded(data)
     }
 
+    static func resolveResourceBundle(
+        packagedURL: URL?,
+        adjacentURL: URL?,
+        developmentBundle: () -> Bundle
+    ) -> Bundle {
+        if let packagedURL, let bundle = Bundle(url: packagedURL) {
+            return bundle
+        }
+        if let adjacentURL, let bundle = Bundle(url: adjacentURL) {
+            return bundle
+        }
+        return developmentBundle()
+    }
+
     private var customImageAccess: WorkbenchBackgroundImageAccess? {
         guard let data = store.data(forKey: Key.customImageAccess) else { return nil }
         return try? JSONDecoder().decode(WorkbenchBackgroundImageAccess.self, from: data)
@@ -136,8 +150,20 @@ final class MacWorkbenchBackgroundPlatform: WorkbenchBackgroundPlatformProviding
         store.set(try? JSONEncoder().encode(refreshed), forKey: Key.customImageAccess)
     }
 
+    private static var resourceBundle: Bundle {
+        let packagedURL = Bundle.main.resourceURL?
+            .appendingPathComponent("Lithe_Lithe.bundle", isDirectory: true)
+        let adjacentURL = Bundle.main.bundleURL
+            .appendingPathComponent("Lithe_Lithe.bundle", isDirectory: true)
+        return resolveResourceBundle(
+            packagedURL: packagedURL,
+            adjacentURL: adjacentURL,
+            developmentBundle: { Bundle.module }
+        )
+    }
+
     private func bundledImageURL(for slot: String) -> URL? {
-        let directory = Bundle.module.resourceURL?
+        let directory = Self.resourceBundle.resourceURL?
             .appendingPathComponent("WorkbenchBackgrounds", isDirectory: true)
             .appendingPathComponent(slot, isDirectory: true)
         return Self.supportedExtensions

@@ -47,12 +47,19 @@ $preparedJdkRoot = [System.IO.Path]::GetFullPath([string]$preparedJdkOutput[-1])
 foreach ($requiredPath in @(
     (Join-Path $preparedJdtlsRoot "bin/jdtls.bat"),
     (Join-Path $preparedJdtlsRoot "plugins"),
+    (Join-Path $preparedJdtlsRoot "config_win"),
+    (Join-Path $preparedJdtlsRoot "lombok/lombok.jar"),
     (Join-Path $preparedJdkRoot "bin/java.exe"),
     (Join-Path $preparedJdkRoot "lib")
 )) {
     if (-not (Test-Path -LiteralPath $requiredPath)) {
         throw "Bundled Java tooling preparation is incomplete: $requiredPath"
     }
+}
+$equinoxLauncher = Get-ChildItem -LiteralPath (Join-Path $preparedJdtlsRoot "plugins") `
+    -File -Filter "org.eclipse.equinox.launcher_*.jar" | Sort-Object Name | Select-Object -First 1
+if ($null -eq $equinoxLauncher) {
+    throw "Bundled Java tooling preparation has no JDTLS Equinox launcher JAR."
 }
 
 function Sync-BundleResource {

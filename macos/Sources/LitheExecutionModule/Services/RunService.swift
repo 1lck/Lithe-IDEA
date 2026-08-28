@@ -421,7 +421,7 @@ package final class RunService: ObservableObject {
             fail("Project run configuration is missing. Identify the project before running.")
             return
         }
-        if let diagnostic = configurationDiagnostics.first(where: { Self.isBlockingToolchainDiagnostic($0) }) {
+        if let diagnostic = blockingToolchainDiagnostic(for: configuration) {
             fail(diagnostic.message)
             return
         }
@@ -638,6 +638,16 @@ package final class RunService: ObservableObject {
             return true
         }
         return descriptor.id != "java"
+    }
+
+    package func blockingToolchainDiagnostic(
+        for configuration: RunConfiguration?
+    ) -> RunConfigurationDiagnostic? {
+        configurationDiagnostics.first { diagnostic in
+            Self.isBlockingToolchainDiagnostic(diagnostic)
+                && (diagnostic.configurationID == nil
+                    || diagnostic.configurationID == configuration?.id)
+        }
     }
 
     private static func isBlockingToolchainDiagnostic(_ diagnostic: RunConfigurationDiagnostic) -> Bool {
@@ -870,6 +880,17 @@ package final class RunService: ObservableObject {
         guard configurationStatus == .ready,
               let projectURL else { return }
         moduleSessions.removeAll { $0.id == configuration.id }
+        if let diagnostic = blockingToolchainDiagnostic(for: configuration) {
+            moduleSessions.append(RunSession(
+                id: configuration.id,
+                configurationID: configuration.id,
+                title: configuration.name,
+                output: diagnostic.message + "\n",
+                isRunning: false,
+                exitCode: 1
+            ))
+            return
+        }
         if extensionRequiredLanguageIDs.contains(configuration.kind.providerID),
            languageRunExtension(providerID: configuration.kind.providerID) == nil {
             moduleSessions.append(RunSession(

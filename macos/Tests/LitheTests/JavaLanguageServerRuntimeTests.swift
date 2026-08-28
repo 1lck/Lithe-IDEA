@@ -5,6 +5,182 @@ import Testing
 @Suite("Java language server runtime")
 struct JavaLanguageServerRuntimeTests {
     @Test
+    func macRuntimeLocatorSelectsJdkForRequestedProcessArchitecture() throws {
+        let fileManager = FileManager.default
+        let resources = fileManager.temporaryDirectory
+            .appendingPathComponent("lithe-jdk-resolver-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: resources) }
+        for directory in ["jdk-arm64", "jdk-x86_64"] {
+            let java = resources
+                .appendingPathComponent("LanguageServers/\(directory)/bin/java")
+            try fileManager.createDirectory(
+                at: java.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data().write(to: java)
+            try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: java.path)
+        }
+
+        let armHome = MacRuntimeLocator(
+            resourceURL: resources,
+            processArchitecture: .arm64
+        ).bundledJdkHome()
+        let intelHome = MacRuntimeLocator(
+            resourceURL: resources,
+            processArchitecture: .x86_64
+        ).bundledJdkHome()
+
+        #expect(armHome?.lastPathComponent == "jdk-arm64")
+        #expect(intelHome?.lastPathComponent == "jdk-x86_64")
+    }
+
+    @Test
+    func macRuntimeLocatorDoesNotUseLegacyJdkForIncompleteUniversalLayout() throws {
+        let fileManager = FileManager.default
+        let resources = fileManager.temporaryDirectory
+            .appendingPathComponent("lithe-jdk-incomplete-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: resources) }
+        let languageServers = resources.appendingPathComponent("LanguageServers", isDirectory: true)
+        let legacyJava = languageServers.appendingPathComponent("jdk/bin/java")
+        try fileManager.createDirectory(
+            at: legacyJava.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data().write(to: legacyJava)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: legacyJava.path)
+        try fileManager.createDirectory(
+            at: languageServers.appendingPathComponent("jdk-x86_64", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+
+        let home = MacRuntimeLocator(
+            resourceURL: resources,
+            processArchitecture: .arm64
+        ).bundledJdkHome()
+
+        #expect(home == nil)
+    }
+
+    @Test
+    func macRuntimeLocatorSupportsSingleArchitectureJdkLayout() throws {
+        let fileManager = FileManager.default
+        let resources = fileManager.temporaryDirectory
+            .appendingPathComponent("lithe-jdk-legacy-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: resources) }
+        let java = resources.appendingPathComponent("LanguageServers/jdk/bin/java")
+        try fileManager.createDirectory(
+            at: java.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data().write(to: java)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: java.path)
+
+        let home = MacRuntimeLocator(resourceURL: resources).bundledJdkHome()
+
+        #expect(home?.lastPathComponent == "jdk")
+    }
+
+    @Test
+    func macJdtlsResolverSelectsDirectLaunchResourcesDeterministically() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("lithe-jdtls-resolver-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        for directory in ["bin", "plugins", "config_mac", "config_mac_arm", "lombok"] {
+            try fileManager.createDirectory(
+                at: root.appendingPathComponent(directory, isDirectory: true),
+                withIntermediateDirectories: true
+            )
+        }
+        let executable = root.appendingPathComponent("bin/jdtls")
+        let firstLauncher = root.appendingPathComponent(
+            "plugins/org.eclipse.equinox.launcher_1.0.0.jar"
+        )
+        for file in [
+            executable,
+            firstLauncher,
+            root.appendingPathComponent("plugins/org.eclipse.equinox.launcher_2.0.0.jar"),
+            root.appendingPathComponent("lombok/lombok.jar")
+        ] {
+            try Data().write(to: file)
+        }
+        let resolver = MacJDTLSLaunchResourceResolver(bundledJdtlsRootURL: root)
+
+        guard case .direct(let resources) = resolver.resolve(for: executable) else {
+            Issue.record("Expected complete bundled JDTLS resources to use direct Java launch")
+            return
+        }
+        #expect(resources.launcherJarURL == firstLauncher.standardizedFileURL)
+        #if arch(arm64)
+        #expect(resources.configurationDirectoryURL.lastPathComponent == "config_mac_arm")
+        #else
+        #expect(resources.configurationDirectoryURL.lastPathComponent == "config_mac")
+        #endif
+        #expect(resources.lombokAgentURL.lastPathComponent == "lombok.jar")
+    }
+
+    @Test
+    func macJdtlsResolverFailsBundledButKeepsExternalWrapperFallback() {
+        let bundledRoot = URL(fileURLWithPath: "/bundled/jdtls", isDirectory: true)
+        let resolver = MacJDTLSLaunchResourceResolver(bundledJdtlsRootURL: bundledRoot)
+
+        guard case .unavailable(let message) = resolver.resolve(
+            for: bundledRoot.appendingPathComponent("bin/jdtls")
+        ) else {
+            Issue.record("Expected incomplete bundled JDTLS resources to fail")
+            return
+        }
+        #expect(message.contains("Reinstall Lithe"))
+        guard case .wrapperFallback = resolver.resolve(
+            for: URL(fileURLWithPath: "/external/jdtls/bin/jdtls")
+        ) else {
+            Issue.record("Expected an external legacy JDTLS launcher to remain compatible")
+            return
+        }
+    }
+
+    @Test
+    func macJdtlsResolverRejectsConfigurationForTheWrongArchitecture() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("lithe-jdtls-architecture-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        for directory in ["bin", "plugins", "lombok"] {
+            try fileManager.createDirectory(
+                at: root.appendingPathComponent(directory, isDirectory: true),
+                withIntermediateDirectories: true
+            )
+        }
+        #if arch(arm64)
+        let wrongConfigurationName = "config_mac"
+        #elseif arch(x86_64)
+        let wrongConfigurationName = "config_mac_arm"
+        #else
+        Issue.record("Unsupported macOS test architecture")
+        return
+        #endif
+        try fileManager.createDirectory(
+            at: root.appendingPathComponent(wrongConfigurationName, isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        for file in [
+            root.appendingPathComponent("bin/jdtls"),
+            root.appendingPathComponent("plugins/org.eclipse.equinox.launcher_1.0.0.jar"),
+            root.appendingPathComponent("lombok/lombok.jar")
+        ] {
+            try Data().write(to: file)
+        }
+        let resolver = MacJDTLSLaunchResourceResolver(bundledJdtlsRootURL: root)
+
+        guard case .unavailable = resolver.resolve(
+            for: root.appendingPathComponent("bin/jdtls")
+        ) else {
+            Issue.record("Expected bundled JDTLS with the wrong architecture configuration to fail")
+            return
+        }
+    }
+
+    @Test
     func parsesModernAndLegacyJavaVersions() {
         #expect(javaRuntime("/jdk-17", "17.0.18").majorVersion == 17)
         #expect(javaRuntime("/jdk-21", "21-ea").majorVersion == 21)
