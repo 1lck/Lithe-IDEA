@@ -18,6 +18,9 @@ export function resolveExtensionsCdnBaseUrl(value: string | undefined): string {
   if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
     throw new Error(`${EXTENSIONS_CDN_ENV_NAME} must be an absolute HTTP(S) URL.`);
   }
+  if (parsedUrl.search || parsedUrl.hash) {
+    throw new Error(`${EXTENSIONS_CDN_ENV_NAME} must not contain a query or fragment.`);
+  }
 
   return baseUrl;
 }

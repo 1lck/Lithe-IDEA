@@ -14,6 +14,18 @@ describe("extension CDN tooling configuration", () => {
     );
   });
 
+  test("rejects query parameters", () => {
+    expect(() =>
+      resolveExtensionsCdnBaseUrl("https://cdn.example.test/extensions?token=abc"),
+    ).toThrow("must not contain a query or fragment");
+  });
+
+  test("rejects fragments", () => {
+    expect(() =>
+      resolveExtensionsCdnBaseUrl("https://cdn.example.test/extensions#packages"),
+    ).toThrow("must not contain a query or fragment");
+  });
+
   test("normalizes a valid explicit CDN URL", () => {
     expect(resolveExtensionsCdnBaseUrl(" https://cdn.example.test/extensions/// ")).toBe(
       "https://cdn.example.test/extensions",
