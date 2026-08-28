@@ -185,19 +185,22 @@ jobs:
           "LITHE_WINDOWS_CERTIFICATE_THUMBPRINT=$($certificate.Thumbprint)" >> $env:GITHUB_ENV
           "signed=true" >> $env:GITHUB_OUTPUT
 
-      - name: Resolve updater signing
-        id: updater-signing
+      - name: Validate updater signing
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           LITHE_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
         run: |
-          $configured = -not [string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY) -and
-            -not [string]::IsNullOrWhiteSpace($env:LITHE_UPDATER_PUBLIC_KEY)
-          if (-not $configured) {
-            Write-Output "Tauri updater signing is not configured; publishing the installer without updater artifacts."
+          $missing = @()
+          if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) {
+            $missing += "TAURI_SIGNING_PRIVATE_KEY secret"
           }
-          "configured=$($configured.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          if ([string]::IsNullOrWhiteSpace($env:LITHE_UPDATER_PUBLIC_KEY)) {
+            $missing += "TAURI_UPDATER_PUBLIC_KEY variable"
+          }
+          if ($missing.Count -gt 0) {
+            throw "Stable Windows releases require Tauri updater signing. Missing: $($missing -join ', ')."
+          }
 
       - name: Package Windows installer
         shell: pwsh
@@ -212,10 +215,8 @@ jobs:
           $packageArgs = @{
             Configuration = "Release"
             Version = $env:LITHE_VERSION
-          }
-          if ("${{ steps.updater-signing.outputs.configured }}" -eq "true") {
-            $packageArgs.UpdaterEndpoint = "https://github.com/$env:GITHUB_REPOSITORY/releases/latest/download/latest.json"
-            $packageArgs.RequireUpdaterArtifacts = $true
+            UpdaterEndpoint = "https://github.com/$env:GITHUB_REPOSITORY/releases/latest/download/latest.json"
+            RequireUpdaterArtifacts = $true
           }
           if ($env:WINDOWS_RELEASE_SIGNED -eq "true") {
             $packageArgs.RequireAuthenticodeSignature = $true
@@ -225,7 +226,6 @@ jobs:
           ./scripts/package-windows.ps1 @packageArgs
 
       - name: Create updater manifest
-        if: steps.updater-signing.outputs.configured == 'true'
         shell: pwsh
         run: |
           ./scripts/create-windows-updater-manifest.ps1 `
@@ -247,7 +247,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
           LITHE_VERSION: ${{ steps.version.outputs.version }}
-          WINDOWS_UPDATER_CONFIGURED: ${{ steps.updater-signing.outputs.configured }}
         shell: pwsh
         run: |
           $notes = "docs/releases/v$env:LITHE_VERSION.md"
@@ -275,14 +274,10 @@ jobs:
 
           $assets = @(
             "dist/Lithe-$env:LITHE_VERSION-windows-x64.exe",
-            "dist/Lithe-$env:LITHE_VERSION-windows-x64.exe.sha256"
+            "dist/Lithe-$env:LITHE_VERSION-windows-x64.exe.sha256",
+            "dist/Lithe-$env:LITHE_VERSION-windows-x64-updater.exe",
+            "dist/Lithe-$env:LITHE_VERSION-windows-x64-updater.exe.sig",
+            "dist/latest.json"
           )
-          if ($env:WINDOWS_UPDATER_CONFIGURED -eq "true") {
-            $assets += @(
-              "dist/Lithe-$env:LITHE_VERSION-windows-x64-updater.exe",
-              "dist/Lithe-$env:LITHE_VERSION-windows-x64-updater.exe.sig",
-              "dist/latest.json"
-            )
-          }
           gh release upload $env:RELEASE_TAG @assets `
             --repo $env:GITHUB_REPOSITORY --clobber
