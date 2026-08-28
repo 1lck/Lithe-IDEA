@@ -1,6 +1,16 @@
 import Foundation
 import LitheCoreContracts
 
+/// Product-level availability switches for integrations that require external
+/// credentials or services. Keeping these switches in one place lets the UI
+/// and application model disable an integration consistently without removing
+/// its implementation, tests, or shared contracts.
+enum LitheFeatureAvailability {
+    /// Pull request support is temporarily hidden while the macOS credential
+    /// and signing story is being redesigned for preview and contributor builds.
+    static let githubPullRequests = false
+}
+
 struct WorkbenchNotification: Identifiable, Equatable {
     let id: UUID
     let message: String
@@ -53,6 +63,15 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
         case .pullRequests: nil
         case .search: "toolwindows/toolWindowFind.svg"
         case .database: "toolwindows/toolWindowDatabase.svg"
+        }
+    }
+
+    var isAvailable: Bool {
+        switch self {
+        case .pullRequests:
+            LitheFeatureAvailability.githubPullRequests
+        case .project, .changes, .search, .database:
+            true
         }
     }
 }
