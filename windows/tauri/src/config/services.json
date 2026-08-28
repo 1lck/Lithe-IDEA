@@ -1,7 +1,7 @@
 {
   "websiteBaseUrl": "https://lithe.top",
-  "extensionsCdnBaseUrl": "https://lithe.top/extensions",
-  "skillsRegistryUrl": "https://lithe.top/skills/index.json",
+  "extensionsCdnBaseUrl": "",
+  "skillsRegistryUrl": "",
   "stableUpdateUrl": "https://api.github.com/repos/1lck/Lithe-IDEA/releases/latest",
   "previewUpdateUrl": "https://api.github.com/repos/1lck/Lithe-IDEA/releases/latest",
   "githubReleasesBaseUrl": "https://github.com/1lck/Lithe-IDEA/releases",

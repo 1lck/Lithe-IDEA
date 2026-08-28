@@ -1,5 +1,4 @@
 {
-  "$schema": "https://lithe.top/schemas/extension.json",
   "id": "lithe.icon-theme.pierre",
   "name": "pierre-icons",
   "displayName": "Pierre Icons",

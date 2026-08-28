@@ -1,5 +1,6 @@
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import {
+  type CustomProviderScope,
   getCustomProviderApiToken,
   resolveCustomProviderBaseUrl,
 } from "@/features/ai/lib/custom-provider-config";
@@ -21,6 +22,7 @@ const DEFAULT_INLINE_EDIT_INSTRUCTION = "Improve this code while preserving beha
 
 export interface InlineEditRequest {
   provider?: string;
+  customProviderScope: CustomProviderScope;
   model: string;
   beforeSelection: string;
   selectedText: string;
@@ -104,8 +106,11 @@ async function requestProviderInlineEdit(
   }
 
   const settings = useSettingsStore.getState().settings;
+  const customProviderScope = request.customProviderScope;
   const customProviderBaseUrl =
-    request.provider === "custom" ? resolveCustomProviderBaseUrl(settings) : "";
+    request.provider === "custom"
+      ? resolveCustomProviderBaseUrl(settings, customProviderScope)
+      : "";
   if (request.provider === "custom" && !customProviderBaseUrl) {
     throw new InlineEditError(
       "Custom provider base URL is required. Add one in Settings > AI.",
@@ -118,7 +123,7 @@ async function requestProviderInlineEdit(
 
   const apiKey =
     request.provider === "custom"
-      ? await getCustomProviderApiToken()
+      ? await getCustomProviderApiToken(customProviderScope)
       : providerConfig.requiresApiKey
         ? await getProviderApiToken(request.provider)
         : await getProviderApiToken(request.provider).catch(() => null);

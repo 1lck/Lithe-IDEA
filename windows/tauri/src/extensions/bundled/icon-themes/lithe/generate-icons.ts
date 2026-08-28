@@ -1652,7 +1652,6 @@ function themeContribution() {
 
 function manifest() {
   return {
-    $schema: "https://lithe.top/schemas/extension.json",
     id: "lithe.icon-theme.lithe-icons",
     name: "lithe-icons",
     displayName: "Lithe Icons",

@@ -40,13 +40,15 @@ interface UseInlineEditOptions {
   enabled?: boolean;
   viewKey?: string | null;
   inputRef?: React.RefObject<HTMLTextAreaElement | null>;
-  buffer: {
-    id: string;
-    content: string;
-    path: string;
-    language: string;
-    getContent?: () => string;
-  } | undefined;
+  buffer:
+    | {
+        id: string;
+        content: string;
+        path: string;
+        language: string;
+        getContent?: () => string;
+      }
+    | undefined;
   selection: Range | undefined;
   fontSize: number;
   fontFamily: string;
@@ -377,9 +379,7 @@ export function useInlineEdit({
       const hasProviderKeyAfterRefresh =
         useAIChatStore.getState().providerApiKeys.get(aiProviderId) || false;
       if (!hasProviderKeyAfterRefresh) {
-        toast.error(
-          t("inlineEdit.apiKeyRequired", { provider: provider?.name ?? aiProviderId }),
-        );
+        toast.error(t("inlineEdit.apiKeyRequired", { provider: provider?.name ?? aiProviderId }));
         return;
       }
     }
@@ -393,6 +393,7 @@ export function useInlineEdit({
     try {
       const { editedText } = await requestInlineEdit({
         provider: aiProviderId,
+        customProviderScope: "chat",
         model: aiModelId,
         beforeSelection,
         selectedText,

@@ -20,6 +20,6 @@ export function getServiceUrls() {
     docsUrl: `${websiteBaseUrl}/docs`,
     extensionsCdnBaseUrl,
     skillsRegistryUrl:
-      import.meta.env.VITE_SKILLS_REGISTRY_URL?.trim() || `${websiteBaseUrl}/skills/index.json`,
+      import.meta.env.VITE_SKILLS_REGISTRY_URL?.trim() || SERVICE_DEFAULTS.skillsRegistryUrl,
   };
 }

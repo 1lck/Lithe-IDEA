@@ -80,6 +80,7 @@ function resolveProviderModelPair(providerId: string, modelId: string) {
     const customModelId = resolveCustomProviderModelId(
       useSettingsStore.getState().settings,
       modelId,
+      "chat",
     );
     if (customModelId.trim().length > 0) {
       return {
@@ -215,10 +216,10 @@ export const getChatCompletionStream = async (
 
     const settings = useSettingsStore.getState().settings;
     const customProviderBaseUrl =
-      providerId === "custom" ? resolveCustomProviderBaseUrl(settings) : "";
+      providerId === "custom" ? resolveCustomProviderBaseUrl(settings, "chat") : "";
     const apiKey =
       providerId === "custom"
-        ? await getCustomProviderApiToken()
+        ? await getCustomProviderApiToken("chat")
         : await getProviderApiToken(providerId);
     if (!apiKey && provider.requiresApiKey) {
       throw new Error(`${provider.name} API key not found`);

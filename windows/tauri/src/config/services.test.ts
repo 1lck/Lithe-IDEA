@@ -20,6 +20,8 @@ describe("service configuration", () => {
     }
 
     expect(serviceUrls.docsUrl).toBe(`${serviceUrls.websiteBaseUrl}/docs`);
+    expect(serviceUrls.extensionsCdnBaseUrl).toBe("");
+    expect(serviceUrls.skillsRegistryUrl).toBe("");
     expect(serviceUrls.stableUpdateUrl).toBe(SERVICE_DEFAULTS.stableUpdateUrl);
     expect(serviceUrls.previewUpdateUrl).toBe(SERVICE_DEFAULTS.previewUpdateUrl);
   });
