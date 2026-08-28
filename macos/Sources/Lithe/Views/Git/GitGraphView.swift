@@ -27,7 +27,7 @@ struct GitGraphView: View {
             ForEach(visibleRows) { row in
                 GitGraphRowView(
                     row: row,
-                    graphWidth: graphWidth(for: row),
+                    graphWidth: maximumGraphWidth,
                     rowHeight: rowHeight,
                     isSelected: selectedHash == row.commit.hash,
                     showCommitDecorations: showCommitDecorations,
@@ -49,10 +49,6 @@ struct GitGraphView: View {
                 .frame(height: 30)
             }
         }
-    }
-
-    private func graphWidth(for row: GitGraphRow) -> CGFloat {
-        max(30, CGFloat(max(row.laneCount, 1)) * 13 + 16)
     }
 
     private var maximumGraphWidth: CGFloat {
