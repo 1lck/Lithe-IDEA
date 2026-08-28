@@ -770,13 +770,38 @@ struct RustCoreBridge: Sendable {
     }
 
     struct GitCommandPayload: Decodable, Sendable {
+        struct Invocation: Decodable, Sendable {
+            let arguments: [String]
+            let stdout: String
+            let stderr: String
+            let exitCode: Int32
+        }
+
+        struct OperationError: Decodable, Sendable {
+            let code: String
+            let message: String
+            let details: String?
+
+            var userMessage: String {
+                if let details, !details.isEmpty {
+                    return message + ": " + details
+                }
+                return message
+            }
+        }
+
         struct StashRestore: Decodable, Sendable {
             let stashReference: String
             let conflictedPaths: [String]
         }
 
+        let arguments: [String]?
         let output: String
+        let stdout: String?
+        let stderr: String?
         let exitCode: Int32
+        let invocations: [Invocation]?
+        let operationError: OperationError?
         let stashRestore: StashRestore?
     }
 

@@ -53,6 +53,7 @@ package final class GitFeatureModel: ObservableObject {
     @Published package private(set) var isLoadingGitHistory = false
     @Published package private(set) var isLoadingMoreGitHistory = false
     @Published package private(set) var canLoadMoreGitHistory = false
+    @Published package private(set) var gitConsoleEntries: [GitConsoleEntry] = []
     @Published package private(set) var branchComparison: GitBranchComparison?
     @Published package var selectedBranchComparisonFile: GitBranchComparisonFile?
     @Published package private(set) var branchComparisonRows: [DiffRow] = []
@@ -83,6 +84,9 @@ package final class GitFeatureModel: ObservableObject {
     private var activeRefreshRequestIDs: Set<UInt64> = []
     private var completedRefreshRequestID: UInt64 = 0
     private var refreshCompletionWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var isLoadingInitialGitConsoleEntry = false
+    private var hasLoadedInitialGitConsoleEntry = false
+    private var gitConsoleRepositoryGeneration: UInt64 = 0
     private var loadingLineChangeURLs: Set<URL> = []
     private var lineChangeHunks: [URL: [String: DiffHunk]] = [:]
 
@@ -190,6 +194,10 @@ package final class GitFeatureModel: ObservableObject {
         isLoadingGitHistory = false
         isLoadingMoreGitHistory = false
         canLoadMoreGitHistory = false
+        gitConsoleEntries = []
+        isLoadingInitialGitConsoleEntry = false
+        hasLoadedInitialGitConsoleEntry = false
+        gitConsoleRepositoryGeneration &+= 1
         selectedGitReference = nil
         selectedGitCommit = nil
         selectedGitCommitFiles = []
@@ -282,6 +290,9 @@ package final class GitFeatureModel: ObservableObject {
             let changesChanged = gitChanges != snapshot.changes
             if gitRepositoryRoot != snapshot.repositoryRoot {
                 gitRepositoryRoot = snapshot.repositoryRoot
+                gitConsoleRepositoryGeneration &+= 1
+                isLoadingInitialGitConsoleEntry = false
+                hasLoadedInitialGitConsoleEntry = false
                 didChange = true
             }
             if currentBranch != snapshot.branch {
@@ -513,8 +524,75 @@ package final class GitFeatureModel: ObservableObject {
         defer { lease?.release() }
         onGitOperationBegan?()
         let result = await operation()
+        if let commandResult = result as? GitService.CommandResult {
+            recordGitConsoleEntry(commandResult)
+        }
         await onGitOperationEnded?()
         return result
+    }
+
+    private func recordingGitCommand(
+        _ operation: () async -> GitService.CommandResult
+    ) async -> GitService.CommandResult {
+        let result = await operation()
+        recordGitConsoleEntry(result)
+        return result
+    }
+
+    package func clearGitConsole() {
+        gitConsoleEntries = []
+        hasLoadedInitialGitConsoleEntry = true
+    }
+
+    package func loadGitConsoleIfNeeded() async {
+        guard !hasLoadedInitialGitConsoleEntry,
+              let gitRepositoryRoot,
+              !isLoadingInitialGitConsoleEntry else { return }
+        let requestedRoot = gitRepositoryRoot
+        let requestedGeneration = gitConsoleRepositoryGeneration
+        isLoadingInitialGitConsoleEntry = true
+        defer {
+            if requestedGeneration == gitConsoleRepositoryGeneration {
+                isLoadingInitialGitConsoleEntry = false
+            }
+        }
+        let result = await service.consoleVersion(at: requestedRoot)
+        guard requestedGeneration == gitConsoleRepositoryGeneration,
+              gitRepositoryRoot == requestedRoot,
+              !hasLoadedInitialGitConsoleEntry else { return }
+        hasLoadedInitialGitConsoleEntry = true
+        guard gitConsoleEntries.isEmpty else { return }
+        recordGitConsoleEntry(result)
+    }
+
+    private func recordGitConsoleEntry(_ result: GitService.CommandResult) {
+        guard let workingDirectory = result.workingDirectory ?? gitRepositoryRoot else { return }
+        if result.invocations.isEmpty {
+            gitConsoleEntries.append(
+                GitConsoleEntry(
+                    workingDirectory: workingDirectory,
+                    arguments: result.arguments,
+                    output: result.output,
+                    standardOutput: result.standardOutput,
+                    standardError: result.standardError,
+                    exitCode: result.exitCode
+                )
+            )
+        } else {
+            gitConsoleEntries.append(contentsOf: result.invocations.map { invocation in
+                GitConsoleEntry(
+                    workingDirectory: workingDirectory,
+                    arguments: invocation.arguments,
+                    output: invocation.output,
+                    standardOutput: invocation.standardOutput,
+                    standardError: invocation.standardError,
+                    exitCode: invocation.exitCode
+                )
+            })
+        }
+        if gitConsoleEntries.count > 500 {
+            gitConsoleEntries.removeFirst(gitConsoleEntries.count - 500)
+        }
     }
 
     package func setGitConflictFilter(_ paths: [String]) {
@@ -858,9 +936,11 @@ package final class GitFeatureModel: ObservableObject {
         var failedResult: GitService.CommandResult?
         await withGitOperation {
             for change in pendingChanges {
-                let result = staged
-                    ? await service.stage(change)
-                    : await service.unstage(change)
+                let result = await recordingGitCommand {
+                    staged
+                        ? await service.stage(change)
+                        : await service.unstage(change)
+                }
                 guard result.succeeded else {
                     failedChange = change
                     failedResult = result
@@ -1002,7 +1082,9 @@ package final class GitFeatureModel: ObservableObject {
         }
 
         for change in changes {
-            let discarded = await service.discardAll(change)
+            let discarded = await recordingGitCommand {
+                await service.discardAll(change)
+            }
             guard discarded.succeeded else {
                 await refreshGit()
                 return .failed(
@@ -1018,11 +1100,13 @@ package final class GitFeatureModel: ObservableObject {
     private func restoreShelf(_ shelf: GitShelfEntry, at repositoryRoot: URL) async -> Bool {
         guard let shelveService else { return false }
         if !shelf.stagedPatch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let result = await service.applyPatch(
-                shelf.stagedPatch,
-                at: repositoryRoot,
-                mode: "restoreIndex"
-            )
+            let result = await recordingGitCommand {
+                await service.applyPatch(
+                    shelf.stagedPatch,
+                    at: repositoryRoot,
+                    mode: "restoreIndex"
+                )
+            }
             if !result.succeeded {
                 let alreadyApplied = await service.patchIsAlreadyApplied(
                     shelf.stagedPatch,
@@ -1036,11 +1120,13 @@ package final class GitFeatureModel: ObservableObject {
             }
         }
         if !shelf.workingPatch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let result = await service.applyPatch(
-                shelf.workingPatch,
-                at: repositoryRoot,
-                mode: "worktree"
-            )
+            let result = await recordingGitCommand {
+                await service.applyPatch(
+                    shelf.workingPatch,
+                    at: repositoryRoot,
+                    mode: "worktree"
+                )
+            }
             if !result.succeeded {
                 let alreadyApplied = await service.patchIsAlreadyApplied(
                     shelf.workingPatch,
@@ -1504,7 +1590,9 @@ package final class GitFeatureModel: ObservableObject {
             }
 
             isPerformingBranchOperation = true
-            let restored = await service.popStash(stash, at: gitRepositoryRoot)
+            let restored = await recordingGitCommand {
+                await service.popStash(stash, at: gitRepositoryRoot)
+            }
             isPerformingBranchOperation = false
             if let conflict = restored.stashRestoreConflict {
                 presentStashRestoreConflict(
@@ -1589,11 +1677,13 @@ package final class GitFeatureModel: ObservableObject {
     ) async {
         isPerformingBranchOperation = true
         let stashMessage = "Lithe auto-stash before \(request.operation.rawValue)"
-        let stashed = await service.stash(
-            message: stashMessage,
-            includeUntracked: true,
-            at: repositoryRoot
-        )
+        let stashed = await recordingGitCommand {
+            await service.stash(
+                message: stashMessage,
+                includeUntracked: true,
+                at: repositoryRoot
+            )
+        }
         guard stashed.succeeded else {
             isPerformingBranchOperation = false
             notify?(trimmedMessage(stashed))
@@ -1618,7 +1708,9 @@ package final class GitFeatureModel: ObservableObject {
             return
         }
         isPerformingBranchOperation = true
-        let restored = await service.popStash(entry, at: repositoryRoot)
+        let restored = await recordingGitCommand {
+            await service.popStash(entry, at: repositoryRoot)
+        }
         isPerformingBranchOperation = false
         if let conflict = restored.stashRestoreConflict {
             presentStashRestoreConflict(
@@ -1680,19 +1772,27 @@ package final class GitFeatureModel: ObservableObject {
             let name = target.displayName
             switch operation {
             case .merge:
-                result = await service.mergeBranch(reference(from: target), at: gitRepositoryRoot)
+                result = await recordingGitCommand {
+                    await service.mergeBranch(reference(from: target), at: gitRepositoryRoot)
+                }
                 success = "Merged \(name)"
             case .rebase:
-                result = await service.rebaseCurrentBranch(
-                    onto: reference(from: target),
-                    at: gitRepositoryRoot
-                )
+                result = await recordingGitCommand {
+                    await service.rebaseCurrentBranch(
+                        onto: reference(from: target),
+                        at: gitRepositoryRoot
+                    )
+                }
                 success = "Rebased onto \(name)"
             case .cherryPick:
-                result = await service.cherryPick(target.revision, at: gitRepositoryRoot)
+                result = await recordingGitCommand {
+                    await service.cherryPick(target.revision, at: gitRepositoryRoot)
+                }
                 success = "Cherry-picked \(name)"
             case .revert:
-                result = await service.revert(target.revision, at: gitRepositoryRoot)
+                result = await recordingGitCommand {
+                    await service.revert(target.revision, at: gitRepositoryRoot)
+                }
                 success = "Reverted \(name)"
             }
             return (result, success)

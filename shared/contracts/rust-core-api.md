@@ -121,7 +121,7 @@ stable error code and a user-facing message:
 | `git.status` | Resolve the repository, current branch, and working-tree changes |
 | `git.watchContext` | Resolve the repository and absolute Git metadata roots needed by native file watchers |
 | `git.pullRequestContext` | Resolve worktree-aware PR branch defaults, publication state, and uncommitted-change state |
-| `git.command` | Execute one argument-based Git operation and return combined output plus exit code |
+| `git.command` | Execute one argument-based Git operation and return its arguments, streams, exit code, and ordered subprocess invocations |
 | `git.write` | Validate and execute shared Git mutations such as stage, commit, branch, checkout, remote sync, clone, and stash |
 | `git.diff` | Produce a structured working-tree, index, reference, or commit patch |
 | `git.apply` | Apply or check a patch in `stage`, `unstage`, `discard`, or Shelf restore mode |
@@ -201,9 +201,18 @@ resolved from `origin`.
 
 `git.command` accepts `{ "root": string, "arguments": string[], "input": string? }`.
 Arguments are passed directly to the Git executable without a shell. A
-successful process launch returns `{ "output": string, "exitCode": number }`
-even when Git exits non-zero; process-start and workspace failures use the
-standard error envelope.
+successful process launch returns `{ "arguments": string[], "output": string,
+"stdout": string, "stderr": string, "exitCode": number, "invocations":
+GitCommandInvocation[], "operationError": CoreError? }` even when Git exits
+non-zero. `GitCommandInvocation` is `{ "arguments": string[], "stdout": string,
+"stderr": string, "exitCode": number }`. The top-level `arguments`, streams,
+and exit code always equal the final invocation for compatibility, and `output`
+is that invocation's `stdout` followed by `stderr`; `invocations` records every
+subprocess in execution order. Validation, process-start, and workspace failures
+that occur before Git starts use the standard error envelope. If a follow-up
+validation or probe fails after at least one subprocess was recorded, the
+response retains the invocation trace and includes the failure as
+`operationError`.
 
 `git.write` accepts a typed mutation request. Its required `operation` values are
 `stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `cherryPick`, `revert`,
@@ -216,9 +225,24 @@ standard error envelope.
 
 The core validates pathspecs, revisions, branch names, references, reset modes,
 stash references, and operation-specific required fields before invoking Git.
-Successful process launch returns `{ "output": string, "exitCode": number }`
-even when Git exits non-zero. Invalid arguments use the standard
-`invalid_request` error envelope. `checkout` uses `referenceKind` values
+Successful process launch returns `{ "arguments": string[], "output": string,
+"stdout": string, "stderr": string, "exitCode": number, "invocations":
+GitCommandInvocation[], "operationError": CoreError?, "stashRestore":
+GitStashRestore? }` even when Git exits non-zero. The top-level process fields
+always describe the final subprocess, and `output` is that subprocess's
+`stdout` followed by `stderr`. `invocations` records every Git subprocess for
+composite operations such as `discardAll` and Smart Checkout in execution
+order; each item contains the exact argument vector (excluding the executable
+name), separate streams, and exit code. A follow-up validation or probe failure
+after Git has started is returned in `operationError` alongside the retained
+trace. A stash restore conflict is a logical operation failure represented by
+`stashRestore`, even when a later diagnostic invocation exits successfully.
+Consumers must therefore consider `operationError` and `stashRestore` in
+addition to the compatibility `exitCode`. The shared compatibility fixtures are
+`shared/fixtures/git/command-response-v1.json` and
+`shared/fixtures/git/command-error-response-v1.json`. Invalid arguments found
+before any Git subprocess use the standard `invalid_request` error envelope.
+`checkout` uses `referenceKind` values
 `local`, `remote`, or `tag`; `clone` uses `remote` as its source and
 `destination` as its target path. `publishBranch` validates `name`, creates
 and checks out that branch at a detached HEAD when needed, then pushes it with
@@ -229,7 +253,7 @@ the user can fix credentials or connectivity and retry without losing commits.
 to select the active merge, rebase, cherry-pick, or revert instead of accepting
 an operation kind from the caller. Continue is rejected while conflicted paths
 remain, and skip is supported only for a rebase. All three return the normal
-`{ "output": string, "exitCode": number }` process result when Git is invoked;
+Git process result when Git is invoked;
 an absent or unsupported operation state uses the `invalid_request` envelope.
 
 `git.checkoutPreflight` accepts `{ "root": string, "reference": string }` and
@@ -277,8 +301,7 @@ clients group `rows` by `hunkID` instead.
 `unstage`, `discard`, `restoreIndex`, `worktree`, `restoreIndexCheck`, and
 `worktreeCheck`. The two `*Check` modes only test whether the reverse patch
 already applies, so Shelf restoration can be retried after a partial failure.
-It returns
-`{ "output": string, "exitCode": number }`. `restoreIndex` applies a saved
+It returns the normal Git process result. `restoreIndex` applies a saved
 index patch to both the index and worktree; `worktree` applies only to the
 worktree. Pathspecs must be workspace-relative and must not contain absolute
 paths or `..` components.

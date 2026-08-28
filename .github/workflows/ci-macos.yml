@@ -146,8 +146,16 @@ jobs:
         run: |
           ./scripts/test-macos.sh \
             --skip WebKitIntegrationTests \
+            --skip GitStatusObservationTests \
             --skip '(LitheDatabaseModuleTests|LitheTests\.LitheCoreLogicTests/database)' \
             --skip '([Pp]lugin|LitheGoSupportModuleTests|LinuxDo)'
+
+      - name: Run Git status observation tests
+        timeout-minutes: 3
+        run: |
+          ./scripts/test-macos.sh \
+            --skip-build \
+            --filter GitStatusObservationTests
 
       - name: Run WebKit lifecycle integration tests
         timeout-minutes: 3
