@@ -37,6 +37,7 @@ struct GitLogView: View {
         hasMissingParents: false
     )
     @FocusState private var gitLogSearchFocused: Bool
+    @FocusState private var gitLogCommitListFocused: Bool
 
     /// IntelliJ's Git tool window uses the macOS system UI font throughout;
     /// only hashes and timestamps use a monospaced face. Keeping these values
@@ -341,9 +342,17 @@ struct GitLogView: View {
             .help("Git tool window actions")
 
             Spacer(minLength: 12)
+
+            Button {
+                model.isGitLogVisible = false
+            } label: {
+                Image(systemName: "minus")
+            }
+            .litheIconButton()
+            .help("Hide Git tool window")
         }
         .padding(.leading, 12)
-        .padding(.trailing, 42)
+        .padding(.trailing, 7)
         .frame(height: 32)
         .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.toolHeader)
         .overlay(alignment: .bottom) {
@@ -972,6 +981,18 @@ struct GitLogView: View {
                         }
                     }
                     .litheScrollViewChrome(hideHorizontal: true)
+                    .focusable()
+                    .focused($gitLogCommitListFocused)
+                    .onMoveCommand { direction in
+                        switch direction {
+                        case .up:
+                            moveGitLogCommitSelection(by: -1)
+                        case .down:
+                            moveGitLogCommitSelection(by: 1)
+                        default:
+                            break
+                        }
+                    }
                     .onChange(of: model.selectedGitCommit?.hash) { _ in
                         guard let hash = model.selectedGitCommit?.hash else { return }
                         withAnimation(.easeOut(duration: 0.16)) {
@@ -1109,8 +1130,17 @@ struct GitLogView: View {
     }
 
     private var filteredCommits: [GitCommit] {
-        guard let hashes = model.gitLogMatchedCommitHashes else { return model.gitCommits }
+        guard let hashes = visibleCommitHashes else { return model.gitCommits }
         return model.gitCommits.filter { hashes.contains($0.hash) }
+    }
+
+    private func moveGitLogCommitSelection(by offset: Int) {
+        guard let commit = GitLogCommitSelection.adjacentCommit(
+            in: filteredCommits,
+            selectedHash: model.selectedGitCommit?.hash,
+            offset: offset
+        ) else { return }
+        Task { await model.selectGitCommit(commit) }
     }
 
     private var checkoutReference: GitReference? {
@@ -1143,6 +1173,7 @@ struct GitLogView: View {
         let pendingOperation = $pendingCommitOperation
         return GitGraphRowActions(
             onSelect: { [model] commit in
+                gitLogCommitListFocused = true
                 Task { await model.selectGitCommit(commit) }
             },
             onCherryPick: { commit in
@@ -1593,6 +1624,23 @@ private enum GitLogAuthorSelection: Hashable {
         case .author(let name, let email):
             return GitIdentity(name: name, email: email)
         }
+    }
+}
+
+enum GitLogCommitSelection {
+    static func adjacentCommit(
+        in commits: [GitCommit],
+        selectedHash: String?,
+        offset: Int
+    ) -> GitCommit? {
+        guard !commits.isEmpty, offset == -1 || offset == 1 else { return nil }
+        guard let selectedHash,
+              let selectedIndex = commits.firstIndex(where: { $0.hash == selectedHash }) else {
+            return offset < 0 ? commits.last : commits.first
+        }
+        let targetIndex = selectedIndex + offset
+        guard commits.indices.contains(targetIndex) else { return nil }
+        return commits[targetIndex]
     }
 }
 
