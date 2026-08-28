@@ -221,12 +221,18 @@ function controlSequenceEnd(text: string, escapeIndex: number): number | undefin
 
 function advancePastIncompleteControl(text: string, start: number): number {
   if (start <= 0) return 0;
-  const lookback = Math.max(0, start - 64);
-  for (let index = start - 1; index >= lookback; index -= 1) {
-    if (text.charCodeAt(index) !== 27) continue;
+  // Walk the candidate line from its start so a long OSC whose ESC sits far
+  // before `start` is still recognized, instead of a fixed lookback window.
+  let index = text.lastIndexOf("\n", start - 1) + 1;
+  while (index < start) {
+    if (text.charCodeAt(index) !== 27) {
+      index += 1;
+      continue;
+    }
     const end = controlSequenceEnd(text, index);
-    if (end === undefined || end > start) return end ?? text.length;
-    break;
+    if (end === undefined) return text.length;
+    if (end > start) return end;
+    index = end;
   }
   return start;
 }

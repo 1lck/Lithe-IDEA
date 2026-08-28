@@ -157,6 +157,18 @@ describe("run output trimming", () => {
     expect(trimRunOutput(output, 8)).toBe("ok");
   });
 
+  test("drops a long BEL-terminated OSC when the cut lands inside the payload", () => {
+    const osc = `\u001b]0;${"t".repeat(80)}\u0007`;
+    const output = `${"x".repeat(8)}${osc}ok`;
+    expect(trimRunOutput(output, 10)).toBe("ok");
+  });
+
+  test("drops a long ST-terminated OSC when the cut lands inside the payload", () => {
+    const osc = `\u001b]0;${"t".repeat(80)}\u001b\\`;
+    const output = `${"x".repeat(8)}${osc}ok`;
+    expect(trimRunOutput(output, 10)).toBe("ok");
+  });
+
   test("trims at the next complete line when the window starts mid-line", () => {
     const output = `${"a".repeat(10)}\nkept\n`;
     expect(trimRunOutput(output, 10)).toBe("kept\n");

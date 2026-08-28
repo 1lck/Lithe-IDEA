@@ -57,9 +57,22 @@ describe("ANSI output colors", () => {
 
   test("skips severity coloring when the process already styled the line", () => {
     const spans = renderRunOutput("\u001b[1m[ERROR] Failed\u001b[0m\n");
+    const error = spans.find((span) => span.text.includes("[ERROR]"));
     expect(spans.map((span) => span.text).join("")).toBe("[ERROR] Failed\n");
-    expect(spans.some((span) => span.className === "text-destructive")).toBe(false);
-    expect(spans[0]?.style?.fontWeight).toBe(700);
+    expect(error?.className).toBeUndefined();
+    expect(error?.style?.fontWeight).toBe(700);
+  });
+
+  test("keeps severity coloring on unstyled ERROR lines after an ANSI-styled line", () => {
+    const spans = renderRunOutput(
+      "\u001b[32m[INFO] Building\u001b[0m\n[ERROR] Failed to execute goal\n",
+    );
+    const info = spans.find((span) => span.text.includes("[INFO]"));
+    const error = spans.find((span) => span.text.includes("[ERROR]"));
+    expect(info?.style?.color).toBe("var(--terminal-green)");
+    expect(info?.className).toBeUndefined();
+    expect(error?.className).toBe("text-destructive");
+    expect(error?.style?.color).toBeUndefined();
   });
 });
 

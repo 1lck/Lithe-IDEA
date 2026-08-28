@@ -172,7 +172,7 @@ export function renderRunOutput(source: string): RunOutputSpan[] {
       const sliceStart = Math.max(position, range.start);
       const sliceEnd = Math.min(end, range.end);
       if (sliceStart < sliceEnd) {
-        pushSpan(spans, parsed.text.slice(sliceStart, sliceEnd), overlay, range.style, parsed.hasStyling);
+        pushSpan(spans, parsed.text.slice(sliceStart, sliceEnd), overlay, range.style);
         position = sliceEnd;
       }
       if (range.end <= end) index += 1;
@@ -185,7 +185,7 @@ export function renderRunOutput(source: string): RunOutputSpan[] {
     const lineEnd = newline === -1 ? parsed.text.length : newline;
     const line = parsed.text.slice(lineStart, lineEnd);
     const timeLength = leadingTimeLength(line) ?? 0;
-    const severity = parsed.hasStyling ? undefined : severityOfLine(line);
+    const severity = severityOfLine(line);
     emit(lineStart, lineStart + timeLength, { kind: "timestamp" });
     emit(lineStart + timeLength, newline === -1 ? parsed.text.length : newline + 1, {
       kind: "body",
@@ -202,18 +202,21 @@ type LineOverlay =
   | { kind: "timestamp" }
   | { kind: "body"; severity?: OutputSeverity };
 
+function hasNonDefaultSgr(style: AnsiStyle): boolean {
+  return style.bold || style.color !== undefined || style.background !== undefined;
+}
+
 function pushSpan(
   spans: RunOutputSpan[],
   text: string,
   overlay: LineOverlay,
   style: AnsiStyle,
-  hasStyling: boolean,
 ): void {
   if (text.length === 0) return;
   const span: RunOutputSpan = { text };
   if (overlay.kind === "timestamp") {
     span.className = TIMESTAMP_CLASS;
-  } else if (hasStyling) {
+  } else if (hasNonDefaultSgr(style)) {
     span.style = ansiStyle(style);
   } else if (overlay.severity) {
     span.className = SEVERITY_CLASS[overlay.severity];
