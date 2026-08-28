@@ -29,6 +29,9 @@ jobs:
       build_number: ${{ steps.version.outputs.build_number }}
 
     steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
       - name: Resolve release version
         id: version
         env:
@@ -52,6 +55,14 @@ jobs:
             echo "tag=v$version"
             echo "build_number=$GITHUB_RUN_NUMBER"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Validate release notes
+        env:
+          LITHE_VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          notes_file="docs/releases/v${LITHE_VERSION}.md"
+          node scripts/validate-stable-release-notes.mjs "$notes_file"
 
   build:
     name: Build ${{ matrix.architecture }} release
@@ -209,12 +220,8 @@ jobs:
             "dist/latest-macos.json"
           )
 
-          if [[ -f "$notes_file" ]]; then
-            create_args+=(--notes-file "$notes_file")
-            edit_args+=(--notes-file "$notes_file")
-          else
-            create_args+=(--generate-notes)
-          fi
+          create_args+=(--notes-file "$notes_file")
+          edit_args+=(--notes-file "$notes_file")
 
           if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release create "${create_args[@]}" || \

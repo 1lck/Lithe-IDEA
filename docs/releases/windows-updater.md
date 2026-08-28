@@ -11,14 +11,18 @@ An owner of the release repository must generate the updater signing keypair:
 
 ```powershell
 cd windows/tauri
-bunx tauri signer generate
+bun run tauri signer generate -w <secure-backup-directory>/lithe-updater.key
 ```
+
+The command writes the password-protected private key to the requested path and
+the shareable public key alongside it. Back up the private key and its password
+before configuring GitHub; GitHub Actions secrets cannot be read back later.
 
 Store the generated values in the release repository settings:
 
 | Kind | Name | Value |
 | --- | --- | --- |
-| Actions secret | `TAURI_SIGNING_PRIVATE_KEY` | Complete generated private key |
+| Actions secret | `TAURI_SIGNING_PRIVATE_KEY` | Complete generated private key file contents |
 | Actions secret | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Private-key password; omit this secret when the key has no password |
 | Actions variable | `TAURI_UPDATER_PUBLIC_KEY` | Complete generated public key |
 
