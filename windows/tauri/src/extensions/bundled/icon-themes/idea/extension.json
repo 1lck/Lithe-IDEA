@@ -3,7 +3,9 @@
   "name": "idea-icons",
   "displayName": "IDEA Icons",
   "publisher": "Lithe",
-  "categories": ["Icon Theme"],
+  "categories": [
+    "Icon Theme"
+  ],
   "version": "0.1.0",
   "description": "File icons from the IntelliJ platform icon set (intellij-community, Apache-2.0, embedded per-file copyright notices preserved).",
   "icons": [

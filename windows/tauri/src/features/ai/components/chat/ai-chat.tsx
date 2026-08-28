@@ -237,18 +237,20 @@ const AIChat = memo(function AIChat({
       if (!model) return;
 
       try {
-        const { editedText } = await requestInlineEdit({
-          provider: settings.aiAutocompleteProvider,
-          customProviderScope: "autocomplete",
-          model,
-          beforeSelection: "",
-          selectedText: userMessage,
-          afterSelection: "",
-          instruction:
-            "Name the software feature or task being worked on. Return exactly one or two words, no punctuation, no quotes, no explanation. Prefer a concrete product feature label over a generic verb.",
-          filePath: "agent-session-title",
-          languageId: "text",
-        });
+        const { editedText } = await requestInlineEdit(
+          {
+            provider: settings.aiAutocompleteProvider,
+            customProviderScope: "autocomplete",
+            model,
+            beforeSelection: "",
+            selectedText: userMessage,
+            afterSelection: "",
+            instruction:
+              "Name the software feature or task being worked on. Return exactly one or two words, no punctuation, no quotes, no explanation. Prefer a concrete product feature label over a generic verb.",
+            filePath: "agent-session-title",
+            languageId: "text",
+          },
+        );
 
         const generatedTitle = normalizeAgentSessionTitle(editedText);
         if (!generatedTitle) return;
@@ -1039,116 +1041,116 @@ details: ${errorDetails || mainError}
         onNextMessageSearchMatch={goToNextMessageSearchMatch}
       />
       <>
-        {useInitialComposer ? (
-          <div className="flex min-h-0 flex-1 items-center justify-center px-8 py-10">
-            <div className="flex w-full max-w-180 flex-col gap-4">
-              <AgentShortcuts surfaceId={surfaceId} />
-              <AIChatInputBar
-                key={effectiveChatId ?? "new-session"}
-                surfaceId={surfaceId}
-                buffers={buffers}
-                allProjectFiles={allProjectFiles}
-                currentAgentId={currentAgentId}
-                isTyping={isSurfaceTyping}
-                streamingMessageId={surfaceStreamingMessageId}
-                queueCount={queueCount}
-                selectedBufferIds={selectedBufferIds}
-                selectedFilesPaths={selectedFilesPaths}
-                onToggleBufferSelection={(bufferId) =>
-                  setSelectedBufferIds((current) => {
-                    const next = new Set(current);
-                    if (next.has(bufferId)) next.delete(bufferId);
-                    else next.add(bufferId);
-                    return next;
-                  })
-                }
-                onToggleFileSelection={(filePath) =>
-                  setSelectedFilesPaths((current) => {
-                    const next = new Set(current);
-                    if (next.has(filePath)) next.delete(filePath);
-                    else next.add(filePath);
-                    return next;
-                  })
-                }
-                onSetSelectedBufferIds={setSelectedBufferIds}
-                onSetSelectedFilesPaths={setSelectedFilesPaths}
-                isActiveSurface={isActiveSurface}
-                presentation="initial"
-                onSendMessage={handleSendMessage}
-                onStopStreaming={stopStreaming}
-              />
-            </div>
-          </div>
-        ) : (
-          <MessageScrollerProvider autoScroll defaultScrollPosition="last-anchor">
-            <MessageScroller>
-              <MessageScrollerViewport>
-                <ChatMessages
+          {useInitialComposer ? (
+            <div className="flex min-h-0 flex-1 items-center justify-center px-8 py-10">
+              <div className="flex w-full max-w-180 flex-col gap-4">
+                <AgentShortcuts surfaceId={surfaceId} />
+                <AIChatInputBar
+                  key={effectiveChatId ?? "new-session"}
                   surfaceId={surfaceId}
-                  chatId={effectiveChatId}
-                  onApplyCode={onApplyCode}
-                  onSendFollowUp={handleSendMessage}
-                  onEditUserMessage={handleEditUserMessage}
-                  canEditUserMessages={
-                    currentChat?.agentId === "custom" &&
-                    chatState.hasApiKey &&
-                    !isSurfaceTyping &&
-                    !surfaceStreamingMessageId
+                  buffers={buffers}
+                  allProjectFiles={allProjectFiles}
+                  currentAgentId={currentAgentId}
+                  isTyping={isSurfaceTyping}
+                  streamingMessageId={surfaceStreamingMessageId}
+                  queueCount={queueCount}
+                  selectedBufferIds={selectedBufferIds}
+                  selectedFilesPaths={selectedFilesPaths}
+                  onToggleBufferSelection={(bufferId) =>
+                    setSelectedBufferIds((current) => {
+                      const next = new Set(current);
+                      if (next.has(bufferId)) next.delete(bufferId);
+                      else next.add(bufferId);
+                      return next;
+                    })
                   }
-                  acpEvents={acpEvents}
-                  searchQuery={messageSearchQuery}
-                  activeSearchMessageId={activeMessageSearchMatch?.messageId ?? null}
-                  activeSearchIndex={activeMessageSearchIndex}
+                  onToggleFileSelection={(filePath) =>
+                    setSelectedFilesPaths((current) => {
+                      const next = new Set(current);
+                      if (next.has(filePath)) next.delete(filePath);
+                      else next.add(filePath);
+                      return next;
+                    })
+                  }
+                  onSetSelectedBufferIds={setSelectedBufferIds}
+                  onSetSelectedFilesPaths={setSelectedFilesPaths}
+                  isActiveSurface={isActiveSurface}
+                  presentation="initial"
+                  onSendMessage={handleSendMessage}
+                  onStopStreaming={stopStreaming}
                 />
-              </MessageScrollerViewport>
-              <MessageScrollerButton />
-            </MessageScroller>
-          </MessageScrollerProvider>
-        )}
+              </div>
+            </div>
+          ) : (
+            <MessageScrollerProvider autoScroll defaultScrollPosition="last-anchor">
+              <MessageScroller>
+                <MessageScrollerViewport>
+                  <ChatMessages
+                    surfaceId={surfaceId}
+                    chatId={effectiveChatId}
+                    onApplyCode={onApplyCode}
+                    onSendFollowUp={handleSendMessage}
+                    onEditUserMessage={handleEditUserMessage}
+                    canEditUserMessages={
+                      currentChat?.agentId === "custom" &&
+                      chatState.hasApiKey &&
+                      !isSurfaceTyping &&
+                      !surfaceStreamingMessageId
+                    }
+                    acpEvents={acpEvents}
+                    searchQuery={messageSearchQuery}
+                    activeSearchMessageId={activeMessageSearchMatch?.messageId ?? null}
+                    activeSearchIndex={activeMessageSearchIndex}
+                  />
+                </MessageScrollerViewport>
+                <MessageScrollerButton />
+              </MessageScroller>
+            </MessageScrollerProvider>
+          )}
 
-        {currentPermission ? (
-          <AcpPermissionPrompt
-            permission={currentPermission}
-            queuedCount={permissionQueue.length - 1}
-            onRespond={handlePermission}
-          />
-        ) : null}
+          {currentPermission ? (
+            <AcpPermissionPrompt
+              permission={currentPermission}
+              queuedCount={permissionQueue.length - 1}
+              onRespond={handlePermission}
+            />
+          ) : null}
 
-        {!useInitialComposer ? (
-          <AIChatInputBar
-            key={effectiveChatId ?? "new-session"}
-            surfaceId={surfaceId}
-            buffers={buffers}
-            allProjectFiles={allProjectFiles}
-            currentAgentId={currentAgentId}
-            isTyping={isSurfaceTyping}
-            streamingMessageId={surfaceStreamingMessageId}
-            queueCount={queueCount}
-            selectedBufferIds={selectedBufferIds}
-            selectedFilesPaths={selectedFilesPaths}
-            onToggleBufferSelection={(bufferId) =>
-              setSelectedBufferIds((current) => {
-                const next = new Set(current);
-                if (next.has(bufferId)) next.delete(bufferId);
-                else next.add(bufferId);
-                return next;
-              })
-            }
-            onToggleFileSelection={(filePath) =>
-              setSelectedFilesPaths((current) => {
-                const next = new Set(current);
-                if (next.has(filePath)) next.delete(filePath);
-                else next.add(filePath);
-                return next;
-              })
-            }
-            onSetSelectedBufferIds={setSelectedBufferIds}
-            onSetSelectedFilesPaths={setSelectedFilesPaths}
-            isActiveSurface={isActiveSurface}
-            onSendMessage={handleSendMessage}
-            onStopStreaming={stopStreaming}
-          />
-        ) : null}
+          {!useInitialComposer ? (
+            <AIChatInputBar
+              key={effectiveChatId ?? "new-session"}
+              surfaceId={surfaceId}
+              buffers={buffers}
+              allProjectFiles={allProjectFiles}
+              currentAgentId={currentAgentId}
+              isTyping={isSurfaceTyping}
+              streamingMessageId={surfaceStreamingMessageId}
+              queueCount={queueCount}
+              selectedBufferIds={selectedBufferIds}
+              selectedFilesPaths={selectedFilesPaths}
+              onToggleBufferSelection={(bufferId) =>
+                setSelectedBufferIds((current) => {
+                  const next = new Set(current);
+                  if (next.has(bufferId)) next.delete(bufferId);
+                  else next.add(bufferId);
+                  return next;
+                })
+              }
+              onToggleFileSelection={(filePath) =>
+                setSelectedFilesPaths((current) => {
+                  const next = new Set(current);
+                  if (next.has(filePath)) next.delete(filePath);
+                  else next.add(filePath);
+                  return next;
+                })
+              }
+              onSetSelectedBufferIds={setSelectedBufferIds}
+              onSetSelectedFilesPaths={setSelectedFilesPaths}
+              isActiveSurface={isActiveSurface}
+              onSendMessage={handleSendMessage}
+              onStopStreaming={stopStreaming}
+            />
+          ) : null}
       </>
     </div>
   );

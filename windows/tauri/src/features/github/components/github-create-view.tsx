@@ -167,7 +167,9 @@ function GitHubCreateViewContent({
       ? state.settings.aiAutocompleteCustomModelId
       : state.settings.aiAutocompleteModelId,
   );
-  const aiAutocompleteProvider = useSettingsStore((state) => state.settings.aiAutocompleteProvider);
+  const aiAutocompleteProvider = useSettingsStore(
+    (state) => state.settings.aiAutocompleteProvider,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -350,18 +352,20 @@ Existing body: ${body || "(empty)"}
 Git status:
 ${statusSummary}`;
 
-      const { editedText } = await requestInlineEdit({
-        provider: aiAutocompleteProvider,
-        customProviderScope: "autocomplete",
-        model: aiAutocompleteModelId,
-        beforeSelection: "",
-        selectedText: prompt,
-        afterSelection: "",
-        instruction:
-          "Generate a GitHub issue or pull request draft. Return valid JSON only with title and body string fields. Do not include markdown fences or explanation.",
-        filePath: kind === "pull-request" ? "github-pull-request" : "github-issue",
-        languageId: "json",
-      });
+      const { editedText } = await requestInlineEdit(
+        {
+          provider: aiAutocompleteProvider,
+          customProviderScope: "autocomplete",
+          model: aiAutocompleteModelId,
+          beforeSelection: "",
+          selectedText: prompt,
+          afterSelection: "",
+          instruction:
+            "Generate a GitHub issue or pull request draft. Return valid JSON only with title and body string fields. Do not include markdown fences or explanation.",
+          filePath: kind === "pull-request" ? "github-pull-request" : "github-issue",
+          languageId: "json",
+        },
+      );
 
       const draft = extractJsonObject(editedText);
       if (!draft.title?.trim() && !draft.body?.trim()) {
@@ -441,16 +445,12 @@ ${statusSummary}`;
                 />
               </div>
               <div className="flex min-w-56 flex-1 items-center gap-2">
-                <span className="shrink-0 font-sans ui-text-sm text-subtle-foreground">
-                  {t("github.ref")}
-                </span>
+                <span className="shrink-0 font-sans ui-text-sm text-subtle-foreground">{t("github.ref")}</span>
                 <Select
                   value={workflowRef}
                   options={branchOptions}
                   onChange={setWorkflowRef}
-                  placeholder={
-                    isLoadingMetadata ? t("github.loading") : t("github.chooseBranchOrTag")
-                  }
+                  placeholder={isLoadingMetadata ? t("github.loading") : t("github.chooseBranchOrTag")}
                   searchable
                   allowCustomValue
                   size="sm"
@@ -496,9 +496,7 @@ ${statusSummary}`;
                     void handleSubmit();
                   }
                 }}
-                placeholder={
-                  kind === "issue" ? t("github.issueTitle") : t("github.pullRequestTitle")
-                }
+                placeholder={kind === "issue" ? t("github.issueTitle") : t("github.pullRequestTitle")}
                 variant="ghost"
                 size="md"
                 className="github-composer-title h-auto px-0 py-1 font-semibold tracking-tight"
@@ -509,9 +507,7 @@ ${statusSummary}`;
             {kind === "pull-request" ? (
               <div className="flex flex-wrap items-center gap-2 border-border/60 border-y py-3">
                 <GitBranch className="text-subtle-foreground" />
-                <span className="font-sans ui-text-sm text-subtle-foreground">
-                  {t("github.head")}
-                </span>
+                <span className="font-sans ui-text-sm text-subtle-foreground">{t("github.head")}</span>
                 <Select
                   value={head}
                   options={branchOptions}
@@ -526,9 +522,7 @@ ${statusSummary}`;
                   aria-label={t("github.chooseHeadBranch")}
                 />
                 <span className="font-sans ui-text-sm text-subtle-foreground">&rarr;</span>
-                <span className="font-sans ui-text-sm text-subtle-foreground">
-                  {t("github.base")}
-                </span>
+                <span className="font-sans ui-text-sm text-subtle-foreground">{t("github.base")}</span>
                 <Select
                   value={base}
                   options={branchOptions}

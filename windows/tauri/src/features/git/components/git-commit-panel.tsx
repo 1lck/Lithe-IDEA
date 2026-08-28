@@ -195,7 +195,9 @@ const GitCommitPanel = ({
   isPulling = false,
 }: GitCommitPanelProps) => {
   const { t } = useTranslation();
-  const aiAutocompleteProvider = useSettingsStore((state) => state.settings.aiAutocompleteProvider);
+  const aiAutocompleteProvider = useSettingsStore(
+    (state) => state.settings.aiAutocompleteProvider,
+  );
   const aiAutocompleteModelId = useSettingsStore((state) =>
     state.settings.aiAutocompleteProvider === "custom"
       ? state.settings.aiAutocompleteCustomModelId
@@ -239,20 +241,22 @@ const GitCommitPanel = ({
         stagedFiles,
         existingDraftHint,
       });
-      const { editedText } = await requestInlineEdit({
-        provider: aiAutocompleteProvider,
-        customProviderScope: "autocomplete",
-        model: aiAutocompleteModelId,
-        beforeSelection: "",
-        selectedText,
-        afterSelection: "",
-        instruction:
-          commitMessageMode === "title"
-            ? "Generate a concise Git commit subject from the staged changes. Return exactly one subject line and nothing else. Keep it under 72 characters when possible. Infer and match the repository's style from recent commit subjects. Do not force conventional commit format unless the recent commits clearly use it."
-            : "Generate a Git commit message from the staged changes. Return a subject line and a short body only when the body adds useful context. Keep the subject under 72 characters when possible. Infer and match the repository's style from recent commit subjects. Do not force conventional commit format unless the recent commits clearly use it.",
-        filePath: getRepoLabel(repoPath),
-        languageId: "git-commit",
-      });
+      const { editedText } = await requestInlineEdit(
+        {
+          provider: aiAutocompleteProvider,
+          customProviderScope: "autocomplete",
+          model: aiAutocompleteModelId,
+          beforeSelection: "",
+          selectedText,
+          afterSelection: "",
+          instruction:
+            commitMessageMode === "title"
+              ? "Generate a concise Git commit subject from the staged changes. Return exactly one subject line and nothing else. Keep it under 72 characters when possible. Infer and match the repository's style from recent commit subjects. Do not force conventional commit format unless the recent commits clearly use it."
+              : "Generate a Git commit message from the staged changes. Return a subject line and a short body only when the body adds useful context. Keep the subject under 72 characters when possible. Infer and match the repository's style from recent commit subjects. Do not force conventional commit format unless the recent commits clearly use it.",
+          filePath: getRepoLabel(repoPath),
+          languageId: "git-commit",
+        },
+      );
 
       const message = normalizeGeneratedCommitMessage(editedText, commitMessageMode);
       if (!message) {
@@ -340,7 +344,8 @@ const GitCommitPanel = ({
       toast.error(errorMessage);
       setError(errorMessage);
     } catch (remoteError) {
-      const errorMessage = remoteError instanceof Error ? remoteError.message : t("git.pushFailed");
+      const errorMessage =
+        remoteError instanceof Error ? remoteError.message : t("git.pushFailed");
       if (toastId) toast.dismiss(toastId);
       toast.error(errorMessage);
       setError(errorMessage);
