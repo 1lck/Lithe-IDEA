@@ -35,12 +35,6 @@
     <img src="https://img.shields.io/badge/Debugger-Breakpoints-D32F2F?style=flat" alt="Breakpoint debugging">
     <img src="https://img.shields.io/badge/Git-Diff%20Review-F05032?style=flat&logo=git&logoColor=white" alt="Git diff review">
     <img src="https://img.shields.io/badge/Database-SQL%20Workspace-336791?style=flat" alt="Database SQL workspace">
-    <img src="https://img.shields.io/badge/AI-Commit%20Messages-8B5CF6?style=flat" alt="AI commit messages">
-  </p>
-
-  <p>
-    <a href="https://github.com/1lck/Lithe-IDEA/releases/latest"><strong>Download the latest release</strong></a> ·
-    <a href="https://github.com/1lck/Lithe-IDEA">View the repository</a>
   </p>
 </div>
 

@@ -35,12 +35,6 @@
     <img src="https://img.shields.io/badge/Debugger-Breakpoints-D32F2F?style=flat" alt="断点调试">
     <img src="https://img.shields.io/badge/Git-Diff%20Review-F05032?style=flat&logo=git&logoColor=white" alt="Git Diff 审查">
     <img src="https://img.shields.io/badge/Database-SQL%20Workspace-336791?style=flat" alt="数据库 SQL 工作台">
-    <img src="https://img.shields.io/badge/AI-Commit%20Messages-8B5CF6?style=flat" alt="AI Commit Message">
-  </p>
-
-  <p>
-    <a href="https://github.com/1lck/Lithe-IDEA/releases/latest"><strong>下载最新版本</strong></a> ·
-    <a href="https://github.com/1lck/Lithe-IDEA">查看 GitHub 仓库</a>
   </p>
 </div>
 
