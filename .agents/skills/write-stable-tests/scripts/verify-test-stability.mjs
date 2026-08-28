@@ -171,6 +171,100 @@ function exceptionReason(lines, lineIndex, ruleID) {
   return null;
 }
 
+function swiftUnboundedWaitViolations(lines, selected) {
+  const violations = [];
+  const rule = RULES.swift.find((candidate) => candidate.id === "swift-unbounded-wait");
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const firstLine = stripStringsAndLineComments(lines[index]);
+    let searchOffset = 0;
+
+    while (searchOffset < firstLine.length) {
+      const match = firstLine.slice(searchOffset).match(/\.wait\s*\(/);
+      if (!match) break;
+
+      const waitColumn = searchOffset + match.index;
+      let depth = 0;
+      let callStarted = false;
+      let callClosed = false;
+      let callEnd = index;
+      let callText = "";
+
+      callLines:
+      for (let callIndex = index; callIndex < lines.length; callIndex += 1) {
+        const structural = stripStringsAndLineComments(lines[callIndex]);
+        const columnStart = callIndex === index ? waitColumn : 0;
+
+        for (let column = columnStart; column < structural.length; column += 1) {
+          const character = structural[column];
+          callText += character;
+          if (character === "(") {
+            depth += 1;
+            callStarted = true;
+          } else if (character === ")" && callStarted) {
+            depth -= 1;
+
+            if (depth === 0) {
+              callEnd = callIndex;
+              callClosed = true;
+              break callLines;
+            }
+          }
+        }
+
+        callEnd = callIndex;
+        callText += "\n";
+      }
+
+      if (!callStarted || !callClosed) {
+        break;
+      }
+
+      const openParen = callText.indexOf("(");
+      const closeParen = callText.lastIndexOf(")");
+      const argumentsText = callText.slice(openParen + 1, closeParen);
+
+      const isUnbounded =
+        argumentsText.trim().length === 0 ||
+        /\.\s*distantFuture\b/.test(argumentsText);
+
+      if (isUnbounded) {
+        const selectedLines = selected
+          ? [...selected].filter(
+              (lineNumber) =>
+                lineNumber >= index + 1 &&
+                lineNumber <= callEnd + 1,
+            )
+          : [];
+
+        if (!selected || selectedLines.length > 0) {
+          const reportLine = selected
+            ? Math.min(...selectedLines) - 1
+            : index;
+
+          const reason = exceptionReason(lines, index, rule.id);
+
+          if (!reason || reason.length < 16) {
+            violations.push({
+              file: null,
+              line: reportLine + 1,
+              rule: rule.id,
+              message: reason
+                ? `Exception reason is too short. ${rule.message}`
+                : rule.message,
+              source: lines[reportLine].trim(),
+            });
+          }
+        }
+      }
+
+      searchOffset = waitColumn + match[0].length;
+    }
+  }
+
+  return violations;
+}
+
 function swiftDetachedBlockingViolations(lines, selected) {
   const violations = [];
   for (let index = 0; index < lines.length; index += 1) {
@@ -240,6 +334,10 @@ export function scanFile(filePath, content, selectedLineNumbers = null, platform
     if (rustMask && !rustMask[index]) continue;
 
     for (const rule of RULES[language]) {
+      if (language === "swift" && rule.id === "swift-unbounded-wait") {
+        continue;
+      }
+
       if (!rule.pattern.test(lines[index])) continue;
       const reason = exceptionReason(lines, index, rule.id);
       if (reason && reason.length >= 16) continue;
@@ -255,6 +353,10 @@ export function scanFile(filePath, content, selectedLineNumbers = null, platform
     }
   }
   if (language === "swift") {
+    for (const violation of swiftUnboundedWaitViolations(lines, selected)) {
+      violations.push({ ...violation, file: normalized });
+    }
+
     for (const violation of swiftDetachedBlockingViolations(lines, selected)) {
       violations.push({ ...violation, file: normalized });
     }

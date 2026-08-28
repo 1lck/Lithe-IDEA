@@ -62,6 +62,25 @@ function artifactFromLine(line) {
   }
 }
 
+function compilerMessageFromLine(line) {
+  try {
+    const value = JSON.parse(line);
+
+    if (
+      value.reason !== "compiler-message" ||
+      typeof value.message?.rendered !== "string"
+    ) {
+      return null;
+    }
+
+    const rendered = value.message.rendered.trim();
+
+    return rendered.length > 0 ? rendered : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function run(
   options,
   { runProcessImpl = runProcess, now = () => performance.now() } = {},
@@ -71,6 +90,7 @@ export async function run(
   writeFileSync(logPath, "");
   const artifacts = new Map();
   const records = [];
+  const compilerMessages = [];
   const suiteStartedAt = now();
   const suiteDeadline = suiteStartedAt + options.suiteTimeoutMs;
   let buildDurationMs = 0;
@@ -139,14 +159,46 @@ export async function run(
       onStdoutLine: (line) => {
         const artifact = artifactFromLine(line);
         if (artifact) artifacts.set(artifact.executable, artifact);
+
+        const compilerMessage = compilerMessageFromLine(line);
+        if (compilerMessage) compilerMessages.push(compilerMessage);
       },
       streamStderr: true,
     });
     buildDurationMs = Math.round(build.durationMs);
+
+    const compilerOutput = compilerMessages.join("\n").trim();
+
+    if (compilerOutput) {
+      appendFileSync(logPath, `${compilerOutput}\n`);
+    }
+
     appendFileSync(logPath, build.stderr);
     if (build.timedOut && buildBudget.limitedBySuite) throw new SuiteTimeoutError("compilation");
     if (build.timedOut) throw new Error(`Cargo test compilation exceeded ${options.buildTimeoutMs}ms.`);
-    if (build.code !== 0) throw new Error(`Cargo test compilation exited with code ${build.code}.`);
+    if (build.code !== 0) {
+      const details = [
+        compilerOutput,
+        build.stderr.trim(),
+      ]
+        .filter(Boolean)
+        .join("\n")
+        .slice(0, 8000);
+
+      records.push({
+        target: options.package ?? "rust-suite",
+        name: "Cargo test compilation",
+        status: "failed",
+        durationMs: buildDurationMs,
+        ...(details ? { details } : {}),
+      });
+
+      writeReport();
+
+      throw new Error(
+        `Cargo test compilation exited with code ${build.code}.`,
+      );
+    }
     if (artifacts.size === 0) throw new Error("Cargo did not produce any test executables.");
 
     let shouldStop = false;

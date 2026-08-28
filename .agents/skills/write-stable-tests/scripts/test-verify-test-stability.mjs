@@ -45,6 +45,63 @@ const detachedViolations = scanFile(
 assert.deepEqual(detachedViolations.map((violation) => violation.rule), ["swift-detached-blocking"]);
 assert.equal(detachedViolations[0].line, 3);
 
+const multilineWaitContent = `gate.wait(
+    timeout: .distantFuture
+)
+`;
+
+const multilineWaitViolations = scanFile(
+  "macos/Tests/LitheTests/MultilineWaitTests.swift",
+  multilineWaitContent,
+);
+
+assert.deepEqual(
+  multilineWaitViolations.map((violation) => violation.rule),
+  ["swift-unbounded-wait"],
+);
+
+assert.equal(multilineWaitViolations[0].line, 1);
+
+const selectedMultilineWaitViolations = scanFile(
+  "macos/Tests/LitheTests/MultilineWaitTests.swift",
+  multilineWaitContent,
+  new Set([2]),
+);
+
+assert.deepEqual(
+  selectedMultilineWaitViolations.map((violation) => violation.rule),
+  ["swift-unbounded-wait"],
+);
+
+assert.equal(selectedMultilineWaitViolations[0].line, 2);
+
+assert.match(
+  selectedMultilineWaitViolations[0].source,
+  /distantFuture/,
+);
+
+const bareMultilineWaitViolations = scanFile(
+  "macos/Tests/LitheTests/MultilineWaitTests.swift",
+  `gate.wait(
+)
+`,
+);
+
+assert.deepEqual(
+  bareMultilineWaitViolations.map((violation) => violation.rule),
+  ["swift-unbounded-wait"],
+);
+
+const finiteMultilineWaitViolations = scanFile(
+  "macos/Tests/LitheTests/MultilineWaitTests.swift",
+  `gate.wait(
+    timeout: .now() + .seconds(timeoutSeconds())
+)
+`,
+);
+
+assert.deepEqual(finiteMultilineWaitViolations, []);
+
 const typescriptViolations = scanFile(
   "windows/tauri/src/example.test.ts",
   `test("bad timer", async () => {
@@ -195,6 +252,112 @@ try {
   assert.ok(existsSync(reportPath.replace(/\.json$/, ".html")));
 } finally {
   rmSync(swiftTimeoutRoot, { recursive: true, force: true });
+}
+
+const rustCompileFailureRoot = mkdtempSync(
+  path.join(
+    os.tmpdir(),
+    "lithe-test-stability-rust-compile-failure-",
+  ),
+);
+
+try {
+  const reportPath = path.join(
+    rustCompileFailureRoot,
+    "rust-compile-failure.json",
+  );
+
+  await assert.rejects(
+    runRustTestsWithTiming(
+      {
+        manifest: path.join(
+          rustCompileFailureRoot,
+          "Cargo.toml",
+        ),
+        package: null,
+        warnMs: 50,
+        maxMs: 200,
+        buildTimeoutMs: 1000,
+        suiteTimeoutMs: 2000,
+        report: reportPath,
+        keepGoing: false,
+      },
+      {
+        runProcessImpl: async ({
+          onStdoutLine = () => {},
+        }) => {
+          onStdoutLine(
+            JSON.stringify({
+              reason: "compiler-message",
+              message: {
+                rendered:
+                  "error[E0425]: cannot find value `missing` in this scope\n",
+              },
+            }),
+          );
+
+          return {
+            code: 101,
+            signal: null,
+            timedOut: false,
+            terminationConfirmed: true,
+            durationMs: 12,
+            stdout: "",
+            stderr: "",
+          };
+        },
+      },
+    ),
+    /Cargo test compilation exited with code 101/,
+  );
+
+  const compileFailureReport = JSON.parse(
+    readFileSync(reportPath, "utf8"),
+  );
+
+  assert.deepEqual(
+    compileFailureReport.tests.map(
+      ({ name, status }) => ({ name, status }),
+    ),
+    [
+      {
+        name: "Cargo test compilation",
+        status: "failed",
+      },
+    ],
+  );
+
+  assert.match(
+    compileFailureReport.tests[0].details,
+    /E0425/,
+  );
+
+  assert.match(
+    readFileSync(
+      reportPath.replace(/\.json$/, ".log"),
+      "utf8",
+    ),
+    /E0425/,
+  );
+
+  assert.match(
+    readFileSync(
+      reportPath.replace(/\.json$/, ".junit.xml"),
+      "utf8",
+    ),
+    /failures="1"/,
+  );
+
+  assert.ok(
+    existsSync(
+      reportPath.replace(/\.json$/, ".html"),
+    ),
+  );
+} finally {
+  rmSync(rustCompileFailureRoot, {
+    recursive: true,
+    force: true,
+  });
 }
 
 if (process.platform !== "win32") {
