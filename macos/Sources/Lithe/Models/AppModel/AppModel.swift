@@ -117,6 +117,7 @@ final class AppModel: ObservableObject, Identifiable {
     @Published private(set) var pendingGeneratedCommitMessage: String?
     @Published var isGitLogVisible = false
     @Published var isTerminalVisible = false
+    @Published var pendingTerminalCloseSessionID: UUID?
     @Published var isReferencesVisible = false
     @Published var isProblemsVisible = false
     @Published var isMavenVisible = false

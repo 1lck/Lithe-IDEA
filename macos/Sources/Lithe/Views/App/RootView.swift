@@ -166,12 +166,37 @@ private struct ActiveSessionChrome: View {
                 ProjectLocalHistoryView(request: request)
                     .environmentObject(model)
             }
+            .confirmationDialog(
+                "Close Running Terminal?",
+                isPresented: terminalCloseConfirmationPresented,
+                titleVisibility: .visible
+            ) {
+                Button("Close Terminal", role: .destructive) {
+                    model.confirmTerminalClose()
+                }
+                Button("Cancel", role: .cancel) {
+                    model.cancelTerminalClose()
+                }
+            } message: {
+                Text("Closing this terminal will stop its shell and any running command.")
+            }
     }
 
     private var windowLayout: LitheWindowLayout {
         let activeModel = projectSessions.activeModel
         if activeModel.standaloneFileURL != nil { return .standalone }
         return activeModel.workspaceURL == nil ? .welcome : .workspace
+    }
+
+    private var terminalCloseConfirmationPresented: Binding<Bool> {
+        Binding(
+            get: { model.pendingTerminalCloseSessionID != nil },
+            set: { isPresented in
+                if !isPresented {
+                    model.cancelTerminalClose()
+                }
+            }
+        )
     }
 
     private var windowTitle: String? {

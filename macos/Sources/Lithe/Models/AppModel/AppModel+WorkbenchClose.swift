@@ -9,7 +9,7 @@ extension AppModel {
             closeStandaloneFile()
             return true
         }
-        if pendingCloseDocument != nil {
+        if pendingCloseDocument != nil || pendingTerminalCloseSessionID != nil {
             return true
         }
         if isImplementationChooserVisible {
@@ -33,7 +33,7 @@ extension AppModel {
             return true
         }
         if let session = activeEditorTerminalSession {
-            closeTerminalSession(session)
+            requestCloseTerminalSession(session)
             return true
         }
         if let document = activeDocument {
@@ -54,7 +54,7 @@ extension AppModel {
                 terminalPlacementFeature.removeSession(sessionID)
                 return true
             }
-            closeTerminalSession(session)
+            requestCloseTerminalSession(session)
         }
         return true
     }
