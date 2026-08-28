@@ -98,15 +98,28 @@ jobs:
 
       - name: Run plugin-focused Swift tests
         timeout-minutes: 12
-        run: ./scripts/test-macos.sh --filter '([Pp]lugin|LitheGoSupportModuleTests|LinuxDo)'
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --report .artifacts/test-stability/macos-plugins.json --suite-timeout-seconds 660 -- --filter '([Pp]lugin|LitheGoSupportModuleTests|LinuxDo)'
 
       - name: Run plugin WebKit lifecycle integration tests
         timeout-minutes: 3
-        run: ./scripts/test-macos.sh --skip-build --filter WebKitIntegrationTests
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --report .artifacts/test-stability/macos-plugin-webkit.json --max-seconds 60 --suite-timeout-seconds 150 -- --skip-build --filter WebKitIntegrationTests
 
       - name: Build and verify official plugin packages
         timeout-minutes: 10
         run: ./scripts/verify-official-plugins.sh
+
+      - name: Generate combined plugin test report
+        if: always()
+        run: node .agents/skills/write-stable-tests/scripts/generate-test-report.mjs
+
+      - name: Upload plugin test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-stability-plugins
+          path: .artifacts/test-stability/
+          if-no-files-found: ignore
+          retention-days: 14
 
   gate:
     name: Plugin CI gate

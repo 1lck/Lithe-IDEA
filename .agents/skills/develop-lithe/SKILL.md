@@ -180,6 +180,7 @@ before handoff.
 
 | Change | Minimum relevant validation |
 | --- | --- |
+| Test code or test infrastructure | `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`, then the affected platform timing harness from `write-stable-tests` |
 | Swift application or tests | `./scripts/test-macos.sh` |
 | Core, Services, Views, or composition boundaries | `./scripts/verify-service-boundaries.sh` |
 | Shared application behavior or JSON fixtures | `./scripts/verify-shared-contracts.sh` |
