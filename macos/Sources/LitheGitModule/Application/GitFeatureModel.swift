@@ -1325,14 +1325,23 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func selectGitCommit(_ commit: GitCommit) async {
-        guard let gitRepositoryRoot else { return }
+        previewGitCommitSelection(commit)
+        await loadGitCommitFiles(for: commit)
+    }
+
+    package func previewGitCommitSelection(_ commit: GitCommit) {
         selectedGitCommit = commit
+        selectedGitCommitFiles = []
         selectedGitCommitFile = nil
         selectedGitCommitDiffContext = nil
+    }
+
+    package func loadGitCommitFiles(for commit: GitCommit) async {
+        guard let gitRepositoryRoot,
+              selectedGitCommit?.hash == commit.hash else { return }
         let files = await service.files(in: commit, at: gitRepositoryRoot)
         guard selectedGitCommit?.hash == commit.hash else { return }
         selectedGitCommitFiles = files
-        selectedGitCommitFile = files.first
     }
 
     package func showGitCommitDiff(for file: GitCommitFile) async {

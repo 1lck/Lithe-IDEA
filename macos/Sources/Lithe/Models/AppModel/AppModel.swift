@@ -1596,6 +1596,15 @@ final class AppModel: ObservableObject, Identifiable {
         await gitFeature.selectGitCommit(commit)
     }
 
+    func previewGitCommitSelection(_ commit: GitCommit) {
+        gitFeatureIfActive?.previewGitCommitSelection(commit)
+    }
+
+    func loadGitCommitFiles(for commit: GitCommit) async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.loadGitCommitFiles(for: commit)
+    }
+
     func applyGitLogFilter(_ query: String) async {
         await applyGitLogFilter(GitLogQuery.parse(query))
     }

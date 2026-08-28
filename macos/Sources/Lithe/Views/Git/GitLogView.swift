@@ -31,6 +31,7 @@ struct GitLogView: View {
     @State private var gitLogPathFilter = ""
     @State private var gitLogPathDraft = ""
     @State private var showsGitLogPathPopover = false
+    @State private var gitCommitFileLoadTask: Task<Void, Never>?
     @State private var graphLayout = GitGraphLayout(
         rows: [],
         laneCount: 0,
@@ -53,6 +54,7 @@ struct GitLogView: View {
         static let rowHeight: CGFloat = 38
         static let treeRowHeight: CGFloat = 28
         static let toolbarHeight: CGFloat = 38
+        static let keyboardFileLoadDelay = Duration.milliseconds(120)
         static let darkConsoleText = Color(red: 0.76, green: 0.77, blue: 0.79)
         static let darkConsoleMetadata = Color(red: 0.69, green: 0.70, blue: 0.72)
     }
@@ -178,6 +180,9 @@ struct GitLogView: View {
         .onChange(of: model.gitConsoleEntries.last?.id) { _ in
             guard model.gitConsoleEntries.last?.succeeded == false else { return }
             selectedGitToolTab = .console
+        }
+        .onDisappear {
+            gitCommitFileLoadTask?.cancel()
         }
         .sheet(item: $branchDialogRequest) { request in
             GitBranchNameDialog(request: request) { name, checkout in
@@ -983,6 +988,7 @@ struct GitLogView: View {
                     .litheScrollViewChrome(hideHorizontal: true)
                     .focusable()
                     .focused($gitLogCommitListFocused)
+                    .gitLogFocusEffectHidden()
                     .onMoveCommand { direction in
                         switch direction {
                         case .up:
@@ -995,9 +1001,7 @@ struct GitLogView: View {
                     }
                     .onChange(of: model.selectedGitCommit?.hash) { _ in
                         guard let hash = model.selectedGitCommit?.hash else { return }
-                        withAnimation(.easeOut(duration: 0.16)) {
-                            proxy.scrollTo(hash, anchor: .center)
-                        }
+                        proxy.scrollTo(hash)
                     }
                 }
             }
@@ -1140,7 +1144,16 @@ struct GitLogView: View {
             selectedHash: model.selectedGitCommit?.hash,
             offset: offset
         ) else { return }
-        Task { await model.selectGitCommit(commit) }
+        model.previewGitCommitSelection(commit)
+        gitCommitFileLoadTask?.cancel()
+        gitCommitFileLoadTask = Task { [model] in
+            do {
+                try await Task.sleep(for: GitVisual.keyboardFileLoadDelay)
+            } catch {
+                return
+            }
+            await model.loadGitCommitFiles(for: commit)
+        }
     }
 
     private var checkoutReference: GitReference? {
@@ -1173,6 +1186,7 @@ struct GitLogView: View {
         let pendingOperation = $pendingCommitOperation
         return GitGraphRowActions(
             onSelect: { [model] commit in
+                gitCommitFileLoadTask?.cancel()
                 gitLogCommitListFocused = true
                 Task { await model.selectGitCommit(commit) }
             },
@@ -1641,6 +1655,17 @@ enum GitLogCommitSelection {
         let targetIndex = selectedIndex + offset
         guard commits.indices.contains(targetIndex) else { return nil }
         return commits[targetIndex]
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func gitLogFocusEffectHidden() -> some View {
+        if #available(macOS 14.0, *) {
+            focusEffectDisabled()
+        } else {
+            self
+        }
     }
 }
 
