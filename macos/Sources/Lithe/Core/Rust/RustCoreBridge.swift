@@ -2952,7 +2952,7 @@ struct RustCoreBridge: Sendable {
         jdtlsLaunchResources: JDTLSLaunchResources? = nil,
         cacheDirectoryURL: URL? = nil,
         workspaceFingerprint: String? = nil,
-        initializeTimeout: TimeInterval = 60,
+        initializeTimeout: TimeInterval = 30,
         requestTimeout: TimeInterval = 30,
         shutdownTimeout: TimeInterval = 2
     ) -> Result<LspStartServerPayload, CoreCallError> {

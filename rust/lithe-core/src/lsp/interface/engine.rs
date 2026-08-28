@@ -12,12 +12,14 @@ use super::{
     ParseServerMessagesRequest,
 };
 use crate::lsp::languages::jdt::{
-    adapt_initialization_options, adapt_start, initialized_notification, is_virtual_source_uri,
-    normalize_location, readiness_signal, virtual_source_content, virtual_source_resolve_params,
-    waits_for_service_ready, workspace_configuration, JdtDirectLaunchResources, JdtReadinessSignal,
-    JdtStartContext, ProviderLocation, WorkspaceConfigurationItem,
+    adapt_initialization_options, adapt_start, import_progress, initialized_notification,
+    is_structured_import_notification, is_virtual_source_uri, normalize_location, readiness_signal,
+    virtual_source_content, virtual_source_resolve_params, waits_for_service_ready,
+    workspace_configuration, JdtDirectLaunchResources, JdtReadinessSignal, JdtStartContext,
+    ProviderLocation, WorkspaceConfigurationItem,
 };
 use crate::lsp::languages::jdt_navigation::{JavaNavigationMarkerBatch, MAX_JAVA_NAVIGATION_TASKS};
+use crate::lsp::languages::jdt_progress::JavaPreparationDiagnostics;
 use crate::protocol::{CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -30,6 +32,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 const DEFAULT_INITIALIZE_TIMEOUT_MS: u64 = 10_000;
+const DEFAULT_SERVICE_READY_IDLE_TIMEOUT_MS: u64 = 45_000;
+const DEFAULT_SERVICE_READY_ABSOLUTE_TIMEOUT_MS: u64 = 10 * 60_000;
 const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS: u64 = 2_000;
 const MONITOR_INTERVAL_MS: u64 = 10;
@@ -85,6 +89,12 @@ pub struct StartServerRequest {
     pub workspace_fingerprint: Option<String>,
     #[serde(default = "default_initialize_timeout")]
     pub initialize_timeout_milliseconds: u64,
+    /// Maximum silence while waiting for a provider-specific readiness signal.
+    #[serde(default = "default_service_ready_idle_timeout")]
+    pub service_ready_idle_timeout_milliseconds: u64,
+    /// Absolute safety cap for provider-specific preparation even while active.
+    #[serde(default = "default_service_ready_absolute_timeout")]
+    pub service_ready_absolute_timeout_milliseconds: u64,
     #[serde(default = "default_request_timeout")]
     pub request_timeout_milliseconds: u64,
     #[serde(default = "default_shutdown_timeout")]
@@ -448,6 +458,9 @@ struct SessionState {
     events: VecDeque<LspRuntimeEvent>,
     next_sequence: u64,
     initialize_deadline: Option<Instant>,
+    service_ready_idle_timeout: Duration,
+    service_ready_absolute_timeout: Duration,
+    java_preparation: Option<JavaPreparationDiagnostics>,
     shutdown_deadline: Option<Instant>,
     request_timeout: Duration,
     shutdown_timeout: Duration,
@@ -481,6 +494,14 @@ pub(super) struct LspEngine {
 
 fn default_initialize_timeout() -> u64 {
     DEFAULT_INITIALIZE_TIMEOUT_MS
+}
+
+fn default_service_ready_idle_timeout() -> u64 {
+    DEFAULT_SERVICE_READY_IDLE_TIMEOUT_MS
+}
+
+fn default_service_ready_absolute_timeout() -> u64 {
+    DEFAULT_SERVICE_READY_ABSOLUTE_TIMEOUT_MS
 }
 
 fn default_request_timeout() -> u64 {
@@ -678,6 +699,7 @@ impl LspEngine {
 
     fn start_server(&self, request: StartServerRequest) -> Result<StartServerResponse, CoreError> {
         validate_start_request(&request)?;
+        let startup_started_at = Instant::now();
         let session_id = format!(
             "lsp-session-{}",
             self.next_session_id.fetch_add(1, Ordering::Relaxed)
@@ -708,6 +730,13 @@ impl LspEngine {
             arguments: request.arguments.clone(),
             workspace_fingerprint: request.workspace_fingerprint.clone(),
         });
+        let java_cache_disposition = adaptation.data_directory.as_ref().map(|directory| {
+            if directory.join(".metadata").is_dir() {
+                "reused"
+            } else {
+                "new"
+            }
+        });
         if let Some(directory) = &adaptation.data_directory {
             std::fs::create_dir_all(directory).map_err(|error| {
                 CoreError::new(
@@ -726,8 +755,13 @@ impl LspEngine {
             working_directory: workspace_root,
             environment: request.environment,
         })?;
+        let process_start_elapsed = startup_started_at.elapsed();
 
         let initialize_timeout = Duration::from_millis(request.initialize_timeout_milliseconds);
+        let service_ready_idle_timeout =
+            Duration::from_millis(request.service_ready_idle_timeout_milliseconds);
+        let service_ready_absolute_timeout =
+            Duration::from_millis(request.service_ready_absolute_timeout_milliseconds);
         let request_timeout = Duration::from_millis(request.request_timeout_milliseconds);
         let shutdown_timeout = Duration::from_millis(request.shutdown_timeout_milliseconds);
         let initialize = client_initialize(ClientInitializeRequest {
@@ -742,6 +776,17 @@ impl LspEngine {
         let request_id = (initialize.state.next_request_id - 1).to_string();
         let now = Instant::now();
         let process_id = process.handle.process_id();
+        let java_preparation = java_cache_disposition.map(|cache_disposition| {
+            JavaPreparationDiagnostics::new(
+                startup_started_at,
+                process_start_elapsed,
+                cache_disposition,
+                request.workspace_fingerprint.is_some(),
+            )
+        });
+        let java_startup_detail = java_preparation
+            .as_ref()
+            .map(JavaPreparationDiagnostics::startup_detail);
         let session = Arc::new(RuntimeSession {
             id: session_id.clone(),
             provider_id: request.provider_id,
@@ -770,6 +815,9 @@ impl LspEngine {
                 events: VecDeque::new(),
                 next_sequence: 1,
                 initialize_deadline: Some(now + initialize_timeout),
+                service_ready_idle_timeout,
+                service_ready_absolute_timeout,
+                java_preparation,
                 shutdown_deadline: None,
                 request_timeout,
                 shutdown_timeout,
@@ -782,6 +830,13 @@ impl LspEngine {
         session.transition(LspLifecycleState::Created, None)?;
         session.transition(LspLifecycleState::ProcessStarting, None)?;
         session.transition(LspLifecycleState::Initializing, None)?;
+        if let Some(detail) = java_startup_detail {
+            session.log(
+                "info",
+                "Java language service process started",
+                Some(detail),
+            );
+        }
 
         self.lock_sessions()?
             .insert(session_id.clone(), session.clone());
@@ -1562,11 +1617,9 @@ impl RuntimeSession {
             CoreError::new(ErrorCode::ParseFailed, "Invalid LSP server JSON message.")
                 .with_details(error.to_string())
         })?;
-        let readiness = readiness_signal(
-            &self.provider_id,
-            value.get("method").and_then(Value::as_str),
-            value.get("params"),
-        );
+        let method = value.get("method").and_then(Value::as_str);
+        let readiness = readiness_signal(&self.provider_id, method, value.get("params"));
+        let java_import_progress = import_progress(&self.provider_id, method, value.get("params"));
         let outbound_order = self.lock_outbound_order()?;
 
         if value.get("method").and_then(Value::as_str) == Some("workspace/configuration") {
@@ -1647,8 +1700,30 @@ impl RuntimeSession {
                             server_error,
                         ));
                     } else {
-                        if !waits_for_service_ready(&self.provider_id) {
-                            state.initialize_deadline = None;
+                        state.initialize_deadline = None;
+                        if waits_for_service_ready(&self.provider_id) {
+                            let now = Instant::now();
+                            let idle_timeout = state.service_ready_idle_timeout;
+                            let absolute_timeout = state.service_ready_absolute_timeout;
+                            let initialize_elapsed = pending_before
+                                .as_ref()
+                                .map(|pending| now.saturating_duration_since(pending.created_at))
+                                .unwrap_or_default();
+                            if let Some(diagnostics) = state.java_preparation.as_mut() {
+                                let detail = diagnostics.begin_readiness(
+                                    now,
+                                    initialize_elapsed,
+                                    idle_timeout,
+                                    absolute_timeout,
+                                );
+                                push_log_event(
+                                    self,
+                                    &mut state,
+                                    "info",
+                                    "Java language service protocol initialized",
+                                    Some(detail),
+                                );
+                            }
                         }
                         ready_server_info = parse_server_info(&value);
                         flush_documents = true;
@@ -1909,6 +1984,23 @@ impl RuntimeSession {
             }
 
             if state.lifecycle == LspLifecycleState::Initializing {
+                if let Some(progress) = java_import_progress {
+                    let detail = state.java_preparation.as_mut().and_then(|diagnostics| {
+                        diagnostics.record_progress(progress, Instant::now())
+                    });
+                    if let Some(detail) = detail {
+                        push_log_event(
+                            self,
+                            &mut state,
+                            "info",
+                            "Java workspace import progress",
+                            Some(detail),
+                        );
+                    }
+                }
+            }
+
+            if state.lifecycle == LspLifecycleState::Initializing {
                 match readiness.as_ref() {
                     Some(JdtReadinessSignal::Ready) if state.client.initialized => {
                         service_ready = true;
@@ -1931,7 +2023,12 @@ impl RuntimeSession {
                             event.diagnostics.unwrap_or_default(),
                         );
                     }
-                } else if event.kind == "notification" {
+                } else if event.kind == "notification"
+                    && !is_structured_import_notification(
+                        &self.provider_id,
+                        event.method.as_deref(),
+                    )
+                {
                     push_log_event(
                         self,
                         &mut state,
@@ -2018,6 +2115,10 @@ impl RuntimeSession {
             self.send_messages_or_fail(&outbound_order, queued_messages, "serviceReady")?;
             {
                 let mut state = self.lock_state()?;
+                let ready_detail = state
+                    .java_preparation
+                    .as_mut()
+                    .map(|diagnostics| diagnostics.ready_detail(Instant::now()));
                 transition_locked(self, &mut state, LspLifecycleState::Ready, None);
                 let capabilities = state.client.server_capabilities.clone();
                 push_features_event(self, &mut state, capabilities);
@@ -2026,7 +2127,7 @@ impl RuntimeSession {
                     &mut state,
                     "info",
                     "Java language service finished project import",
-                    None,
+                    ready_detail,
                 );
             }
         }
@@ -2085,6 +2186,7 @@ impl RuntimeSession {
         let now = Instant::now();
         let mut cancellations = Vec::new();
         let mut initialize_timeout = false;
+        let mut service_ready_timeout = None;
         let mut shutdown_timeout = false;
         if let Ok(mut state) = self.lock_state() {
             if state.lifecycle == LspLifecycleState::Initializing
@@ -2094,6 +2196,12 @@ impl RuntimeSession {
             {
                 state.initialize_deadline = None;
                 initialize_timeout = true;
+            }
+            if state.lifecycle == LspLifecycleState::Initializing && !initialize_timeout {
+                service_ready_timeout = state
+                    .java_preparation
+                    .as_mut()
+                    .and_then(|diagnostics| diagnostics.take_timeout(now));
             }
 
             let expired: Vec<_> = state
@@ -2165,6 +2273,15 @@ impl RuntimeSession {
                 "initialize",
                 "Language-server initialization timed out.",
                 None,
+                None,
+            );
+            self.kill_process();
+        } else if let Some(detail) = service_ready_timeout {
+            self.fail(
+                "serviceReadyTimeout",
+                "serviceReady",
+                "Java language service project import timed out.",
+                Some(detail),
                 None,
             );
             self.kill_process();
@@ -3167,6 +3284,8 @@ mod tests {
             cache_directory: None,
             workspace_fingerprint: None,
             initialize_timeout_milliseconds: 10_000,
+            service_ready_idle_timeout_milliseconds: 45_000,
+            service_ready_absolute_timeout_milliseconds: 600_000,
             request_timeout_milliseconds: 10_000,
             shutdown_timeout_milliseconds: 10_000,
         }
@@ -3562,7 +3681,9 @@ mod tests {
     fn java_preparation_timeout_covers_project_import() {
         let mut harness = Harness::start(|request| {
             request.provider_id = "java".to_string();
-            request.initialize_timeout_milliseconds = 40;
+            request.initialize_timeout_milliseconds = 1_000;
+            request.service_ready_idle_timeout_milliseconds = 40;
+            request.service_ready_absolute_timeout_milliseconds = 5_000;
         });
         harness.server.complete_initialize(ready_capabilities());
         assert!(harness.server.await_notification("initialized"));
@@ -3573,8 +3694,67 @@ mod tests {
             .iter()
             .find_map(|event| event.error.as_ref())
             .expect("project import timeout should be reported");
-        assert_eq!(failure.code, "initializeTimeout");
-        assert_eq!(failure.stage, "initialize");
+        assert_eq!(failure.code, "serviceReadyTimeout");
+        assert_eq!(failure.stage, "serviceReady");
+        assert!(failure
+            .underlying_message
+            .as_deref()
+            .is_some_and(|detail| detail.contains("\"classification\":\"noProgressStall\"")));
+    }
+
+    #[test]
+    fn java_meaningful_progress_refreshes_the_service_ready_idle_timeout() {
+        let mut harness = Harness::start(|request| {
+            request.provider_id = "java".to_string();
+            request.initialize_timeout_milliseconds = 1_000;
+            request.service_ready_idle_timeout_milliseconds = 200;
+            request.service_ready_absolute_timeout_milliseconds = 1_000;
+        });
+        harness.server.complete_initialize(ready_capabilities());
+        assert!(harness.server.await_notification("initialized"));
+
+        thread::sleep(Duration::from_millis(130));
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "method": "$/progress",
+            "params": {
+                "token": "java-import",
+                "value": {
+                    "kind": "report",
+                    "message": "Importing Maven project(s) - Importing project module-a",
+                    "percentage": 20
+                }
+            }
+        }));
+        thread::sleep(Duration::from_millis(130));
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "method": "$/progress",
+            "params": {
+                "token": "java-import",
+                "value": {
+                    "kind": "report",
+                    "message": "Setting classpath containers - 25% Project 'module-a'",
+                    "percentage": 25
+                }
+            }
+        }));
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "method": "language/status",
+            "params": { "type": "ServiceReady" }
+        }));
+        harness.await_state(LspLifecycleState::Ready);
+
+        let progress = harness
+            .events
+            .iter()
+            .rev()
+            .find(|event| event.message.as_deref() == Some("Java workspace import progress"))
+            .expect("structured Java import progress should be logged");
+        let detail: Value = serde_json::from_str(progress.detail.as_deref().unwrap()).unwrap();
+        assert_eq!(detail["progressPercent"], 25);
+        assert_eq!(detail["currentProject"], "module-a");
     }
 
     #[test]
@@ -5090,6 +5270,8 @@ public class Main {
                 cache_directory: Some(root.join("cache").to_string_lossy().into_owned()),
                 workspace_fingerprint: None,
                 initialize_timeout_milliseconds: 90_000,
+                service_ready_idle_timeout_milliseconds: 45_000,
+                service_ready_absolute_timeout_milliseconds: 600_000,
                 request_timeout_milliseconds: 30_000,
                 shutdown_timeout_milliseconds: 10_000,
             })
@@ -5814,6 +5996,8 @@ public class Main {
             cache_directory: None,
             workspace_fingerprint: None,
             initialize_timeout_milliseconds: 1,
+            service_ready_idle_timeout_milliseconds: 1,
+            service_ready_absolute_timeout_milliseconds: 1,
             request_timeout_milliseconds: 1,
             shutdown_timeout_milliseconds: 1,
         };
@@ -5859,5 +6043,8 @@ public class Main {
             resources.configuration_directory,
             "/opt/lithe/jdtls/config_mac"
         );
+        assert_eq!(request.initialize_timeout_milliseconds, 30_000);
+        assert_eq!(request.service_ready_idle_timeout_milliseconds, 45_000);
+        assert_eq!(request.service_ready_absolute_timeout_milliseconds, 600_000);
     }
 }

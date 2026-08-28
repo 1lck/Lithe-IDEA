@@ -179,6 +179,13 @@ code, and diagnostic detail across the Rust, Swift, and TypeScript boundaries.
 Domain and adapter layers return stable reasons rather than user-facing prose;
 each product's presentation layer owns localized notification text.
 
+For JDT LS, the standard initialize handshake and project-import readiness use
+separate Core-owned deadlines. Project import fails only after 45 seconds
+without changed progress or the 10-minute absolute safety cap; platform clients
+must not impose a shorter readiness deadline. The terminal timeout code is
+`serviceReadyTimeout`, and its details preserve the last import, download, and
+cache snapshot for both products.
+
 ## Error Codes
 
 Use stable categories rather than platform error strings:
