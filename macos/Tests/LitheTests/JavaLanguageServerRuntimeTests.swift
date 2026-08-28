@@ -5,6 +5,14 @@ import Testing
 @Suite("Java language server runtime")
 struct JavaLanguageServerRuntimeTests {
     @Test
+    func coreInitializationTimeoutCodesRemainUserVisibleTimeouts() {
+        #expect(LanguageServerSessionFailure(code: "timed_out").isTimedOut)
+        #expect(LanguageServerSessionFailure(code: "initializeTimeout").isTimedOut)
+        #expect(LanguageServerSessionFailure(code: "serviceReadyTimeout").isTimedOut)
+        #expect(!LanguageServerSessionFailure(code: "serverExited").isTimedOut)
+    }
+
+    @Test
     func macRuntimeLocatorSelectsJdkForRequestedProcessArchitecture() throws {
         let fileManager = FileManager.default
         let resources = fileManager.temporaryDirectory

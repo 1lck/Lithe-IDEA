@@ -770,13 +770,38 @@ struct RustCoreBridge: Sendable {
     }
 
     struct GitCommandPayload: Decodable, Sendable {
+        struct Invocation: Decodable, Sendable {
+            let arguments: [String]
+            let stdout: String
+            let stderr: String
+            let exitCode: Int32
+        }
+
+        struct OperationError: Decodable, Sendable {
+            let code: String
+            let message: String
+            let details: String?
+
+            var userMessage: String {
+                if let details, !details.isEmpty {
+                    return message + ": " + details
+                }
+                return message
+            }
+        }
+
         struct StashRestore: Decodable, Sendable {
             let stashReference: String
             let conflictedPaths: [String]
         }
 
+        let arguments: [String]?
         let output: String
+        let stdout: String?
+        let stderr: String?
         let exitCode: Int32
+        let invocations: [Invocation]?
+        let operationError: OperationError?
         let stashRestore: StashRestore?
     }
 
@@ -2927,7 +2952,7 @@ struct RustCoreBridge: Sendable {
         jdtlsLaunchResources: JDTLSLaunchResources? = nil,
         cacheDirectoryURL: URL? = nil,
         workspaceFingerprint: String? = nil,
-        initializeTimeout: TimeInterval = 60,
+        initializeTimeout: TimeInterval = 30,
         requestTimeout: TimeInterval = 30,
         shutdownTimeout: TimeInterval = 2
     ) -> Result<LspStartServerPayload, CoreCallError> {

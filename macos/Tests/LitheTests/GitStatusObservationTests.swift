@@ -139,7 +139,7 @@ struct GitStatusObservationTests {
     func visibleWorkspaceEditStillUsesTheWorkspacePipelineAndRefreshesGit() async throws {
         let fixture = try GitObservationFixture(label: "visible-edit")
         let repository = fixture.url.appendingPathComponent("repository", isDirectory: true)
-        try fixture.initializeRepository(at: repository)
+        try await fixture.initializeRepository(at: repository)
         let recorder = GitObservationRecorder()
         let model = makeObservationModel(recorder: recorder)
         defer { model.reset() }
@@ -158,15 +158,15 @@ struct GitStatusObservationTests {
     func externalCommitRefreshesGitWithoutEnteringTheWorkspacePipeline() async throws {
         let fixture = try GitObservationFixture(label: "ordinary-commit")
         let repository = fixture.url.appendingPathComponent("repository", isDirectory: true)
-        try fixture.initializeRepository(at: repository)
+        try await fixture.initializeRepository(at: repository)
         try Data("staged\n".utf8).write(to: repository.appendingPathComponent("tracked.txt"))
-        try fixture.git(["add", "tracked.txt"], at: repository)
+        try await fixture.git(["add", "tracked.txt"], at: repository)
         let recorder = GitObservationRecorder()
         let model = makeObservationModel(recorder: recorder)
         defer { model.reset() }
         try await startObservation(model, at: repository, recorder: recorder)
 
-        try fixture.git(["commit", "-q", "-m", "external commit"], at: repository)
+        try await fixture.git(["commit", "-q", "-m", "external commit"], at: repository)
 
         let refreshed = await waitUntil { recorder.gitRefreshCount == 1 }
         #expect(refreshed, "A metadata-only commit must request a Git refresh")
@@ -181,13 +181,13 @@ struct GitStatusObservationTests {
     func trackedFileInsideHiddenDirectoryRefreshesOnlyGit() async throws {
         let fixture = try GitObservationFixture(label: "hidden-tracked-file")
         let repository = fixture.url.appendingPathComponent("repository", isDirectory: true)
-        try fixture.initializeRepository(at: repository)
+        try await fixture.initializeRepository(at: repository)
         let hiddenDirectory = repository.appendingPathComponent("dist", isDirectory: true)
         try FileManager.default.createDirectory(at: hiddenDirectory, withIntermediateDirectories: true)
         let hiddenFile = hiddenDirectory.appendingPathComponent("bundle.js")
         try Data("initial\n".utf8).write(to: hiddenFile)
-        try fixture.git(["add", "dist/bundle.js"], at: repository)
-        try fixture.git(["commit", "-q", "-m", "track hidden output"], at: repository)
+        try await fixture.git(["add", "dist/bundle.js"], at: repository)
+        try await fixture.git(["commit", "-q", "-m", "track hidden output"], at: repository)
         let recorder = GitObservationRecorder()
         let model = makeObservationModel(recorder: recorder)
         defer { model.reset() }
@@ -207,8 +207,8 @@ struct GitStatusObservationTests {
         let fixture = try GitObservationFixture(label: "linked-worktree")
         let repository = fixture.url.appendingPathComponent("repository", isDirectory: true)
         let worktree = fixture.url.appendingPathComponent("linked-worktree", isDirectory: true)
-        try fixture.initializeRepository(at: repository)
-        try fixture.git(
+        try await fixture.initializeRepository(at: repository)
+        try await fixture.git(
             ["worktree", "add", "-q", "-b", "observation-worktree", worktree.path],
             at: repository
         )
@@ -218,7 +218,7 @@ struct GitStatusObservationTests {
         defer { model.reset() }
         try await startObservation(model, at: worktree, recorder: recorder)
 
-        try fixture.git(["add", "tracked.txt"], at: worktree)
+        try await fixture.git(["add", "tracked.txt"], at: worktree)
 
         let refreshed = await waitUntil { recorder.gitRefreshCount == 1 }
         #expect(refreshed, "A linked worktree index lives outside the workspace root")
@@ -235,21 +235,21 @@ struct GitStatusObservationTests {
             at: gitDirectory.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        try fixture.git(
+        try await fixture.git(
             ["init", "-q", "--separate-git-dir=\(gitDirectory.path)", workspace.path],
             at: fixture.url
         )
-        try fixture.configureRepository(at: workspace)
+        try await fixture.configureRepository(at: workspace)
         try Data("initial\n".utf8).write(to: workspace.appendingPathComponent("tracked.txt"))
-        try fixture.git(["add", "tracked.txt"], at: workspace)
-        try fixture.git(["commit", "-q", "-m", "initial"], at: workspace)
+        try await fixture.git(["add", "tracked.txt"], at: workspace)
+        try await fixture.git(["commit", "-q", "-m", "initial"], at: workspace)
         try Data("changed\n".utf8).write(to: workspace.appendingPathComponent("tracked.txt"))
         let recorder = GitObservationRecorder()
         let model = makeObservationModel(recorder: recorder)
         defer { model.reset() }
         try await startObservation(model, at: workspace, recorder: recorder)
 
-        try fixture.git(["add", "tracked.txt"], at: workspace)
+        try await fixture.git(["add", "tracked.txt"], at: workspace)
 
         let refreshed = await waitUntil { recorder.gitRefreshCount == 1 }
         #expect(refreshed, "A separate Git directory must be observed outside the workspace")
@@ -262,25 +262,25 @@ struct GitStatusObservationTests {
         let fixture = try GitObservationFixture(label: "direct-submodule")
         let source = fixture.url.appendingPathComponent("source", isDirectory: true)
         let parent = fixture.url.appendingPathComponent("parent", isDirectory: true)
-        try fixture.initializeRepository(at: source)
-        try fixture.initializeRepository(at: parent)
-        try fixture.git(
+        try await fixture.initializeRepository(at: source)
+        try await fixture.initializeRepository(at: parent)
+        try await fixture.git(
             [
                 "-c", "protocol.file.allow=always", "submodule", "add", "-q",
                 source.path, "modules/child"
             ],
             at: parent
         )
-        try fixture.git(["commit", "-q", "-am", "add submodule"], at: parent)
+        try await fixture.git(["commit", "-q", "-am", "add submodule"], at: parent)
         let submodule = parent.appendingPathComponent("modules/child", isDirectory: true)
-        try fixture.configureRepository(at: submodule)
+        try await fixture.configureRepository(at: submodule)
         try Data("changed\n".utf8).write(to: submodule.appendingPathComponent("tracked.txt"))
         let recorder = GitObservationRecorder()
         let model = makeObservationModel(recorder: recorder)
         defer { model.reset() }
         try await startObservation(model, at: submodule, recorder: recorder)
 
-        try fixture.git(["add", "tracked.txt"], at: submodule)
+        try await fixture.git(["add", "tracked.txt"], at: submodule)
 
         let refreshed = await waitUntil { recorder.gitRefreshCount == 1 }
         #expect(refreshed, "A submodule index lives in the parent repository metadata")
@@ -293,26 +293,26 @@ struct GitStatusObservationTests {
         let fixture = try GitObservationFixture(label: "parent-submodule")
         let source = fixture.url.appendingPathComponent("source", isDirectory: true)
         let parent = fixture.url.appendingPathComponent("parent", isDirectory: true)
-        try fixture.initializeRepository(at: source)
-        try fixture.initializeRepository(at: parent)
-        try fixture.git(
+        try await fixture.initializeRepository(at: source)
+        try await fixture.initializeRepository(at: parent)
+        try await fixture.git(
             [
                 "-c", "protocol.file.allow=always", "submodule", "add", "-q",
                 source.path, "modules/child"
             ],
             at: parent
         )
-        try fixture.git(["commit", "-q", "-am", "add submodule"], at: parent)
+        try await fixture.git(["commit", "-q", "-am", "add submodule"], at: parent)
         let submodule = parent.appendingPathComponent("modules/child", isDirectory: true)
-        try fixture.configureRepository(at: submodule)
+        try await fixture.configureRepository(at: submodule)
         try Data("changed\n".utf8).write(to: submodule.appendingPathComponent("tracked.txt"))
-        try fixture.git(["add", "tracked.txt"], at: submodule)
+        try await fixture.git(["add", "tracked.txt"], at: submodule)
         let recorder = GitObservationRecorder()
         let model = makeObservationModel(recorder: recorder)
         defer { model.reset() }
         try await startObservation(model, at: parent, recorder: recorder)
 
-        try fixture.git(["commit", "-q", "-m", "advance submodule"], at: submodule)
+        try await fixture.git(["commit", "-q", "-m", "advance submodule"], at: submodule)
 
         let refreshed = await waitUntil { recorder.gitRefreshCount == 1 }
         #expect(refreshed, "The parent repository must refresh its submodule gitlink state")
@@ -324,13 +324,13 @@ struct GitStatusObservationTests {
     func editOutsideOpenedSubdirectoryRefreshesRepositoryGitStateOnly() async throws {
         let fixture = try GitObservationFixture(label: "repository-subdirectory")
         let repository = fixture.url.appendingPathComponent("repository", isDirectory: true)
-        try fixture.initializeRepository(at: repository)
+        try await fixture.initializeRepository(at: repository)
         let workspace = repository.appendingPathComponent("apps/opened", isDirectory: true)
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
         try Data("inside\n".utf8).write(to: workspace.appendingPathComponent("inside.txt"))
         try Data("outside\n".utf8).write(to: repository.appendingPathComponent("outside.txt"))
-        try fixture.git(["add", "."], at: repository)
-        try fixture.git(["commit", "-q", "-m", "repository layout"], at: repository)
+        try await fixture.git(["add", "."], at: repository)
+        try await fixture.git(["commit", "-q", "-m", "repository layout"], at: repository)
         let recorder = GitObservationRecorder()
         let model = makeObservationModel(recorder: recorder)
         defer { model.reset() }
@@ -357,7 +357,7 @@ struct GitStatusObservationTests {
         defer { model.reset() }
         try await startObservation(model, at: workspace, recorder: recorder)
 
-        try fixture.git(["init", "-q"], at: workspace)
+        try await fixture.git(["init", "-q"], at: workspace)
 
         let refreshed = await waitUntil { recorder.gitRefreshCount == 1 }
         #expect(refreshed, "Creating .git must re-resolve the watch context and refresh Git")
@@ -427,42 +427,35 @@ private final class GitObservationFixture {
         try? FileManager.default.removeItem(at: url)
     }
 
-    func configureRepository(at repository: URL) throws {
-        try git(["config", "user.email", "tests@lithe.local"], at: repository)
-        try git(["config", "user.name", "Lithe Tests"], at: repository)
-        try git(["config", "core.autocrlf", "false"], at: repository)
+    func configureRepository(at repository: URL) async throws {
+        try await git(["config", "user.email", "tests@lithe.local"], at: repository)
+        try await git(["config", "user.name", "Lithe Tests"], at: repository)
+        try await git(["config", "core.autocrlf", "false"], at: repository)
     }
 
-    func initializeRepository(at repository: URL) throws {
+    func initializeRepository(at repository: URL) async throws {
         try FileManager.default.createDirectory(at: repository, withIntermediateDirectories: true)
-        try git(["init", "-q"], at: repository)
-        try configureRepository(at: repository)
+        try await git(["init", "-q"], at: repository)
+        try await configureRepository(at: repository)
         try Data("initial\n".utf8).write(to: repository.appendingPathComponent("tracked.txt"))
-        try git(["add", "tracked.txt"], at: repository)
-        try git(["commit", "-q", "-m", "initial"], at: repository)
+        try await git(["add", "tracked.txt"], at: repository)
+        try await git(["commit", "-q", "-m", "initial"], at: repository)
     }
 
     @discardableResult
-    func git(_ arguments: [String], at directory: URL) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = arguments
-        process.currentDirectoryURL = directory
-        let output = Pipe()
-        let error = Pipe()
-        process.standardOutput = output
-        process.standardError = error
-        try process.run()
-        process.waitUntilExit()
-        let standardOutput = output.fileHandleForReading.readDataToEndOfFile()
-        let standardError = error.fileHandleForReading.readDataToEndOfFile()
-        guard process.terminationStatus == 0 else {
+    func git(_ arguments: [String], at directory: URL) async throws -> String {
+        let result = try await TestProcess.run(
+            executableURL: URL(fileURLWithPath: "/usr/bin/git"),
+            arguments: arguments,
+            currentDirectoryURL: directory
+        )
+        guard result.terminationStatus == 0 else {
             throw GitObservationTestError.gitFailed(
                 arguments: arguments,
-                output: String(decoding: standardError, as: UTF8.self)
+                output: String(decoding: result.output, as: UTF8.self)
             )
         }
-        return String(decoding: standardOutput, as: UTF8.self)
+        return String(decoding: result.output, as: UTF8.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
@@ -503,44 +496,33 @@ private enum GitObservationTestError: Error {
 
 private struct GitObservationWatchContextProvider: GitWatchContextProviding {
     func watchContext(for workspace: URL) async -> GitWatchContext? {
-        await Task.detached {
-            guard let repositoryRoot = Self.resolvePath(
-                at: workspace,
-                arguments: ["rev-parse", "--show-toplevel"]
-            ),
-            let gitDirectory = Self.resolvePath(
-                at: workspace,
-                arguments: ["rev-parse", "--absolute-git-dir"]
-            ),
-            let gitCommonDirectory = Self.resolvePath(
-                at: workspace,
-                arguments: ["rev-parse", "--path-format=absolute", "--git-common-dir"]
-            ) else { return nil }
-            return GitWatchContext(
-                repositoryRoot: repositoryRoot,
-                gitDirectory: gitDirectory,
-                gitCommonDirectory: gitCommonDirectory
-            )
-        }.value
+        guard let repositoryRoot = await Self.resolvePath(
+            at: workspace,
+            arguments: ["rev-parse", "--show-toplevel"]
+        ),
+        let gitDirectory = await Self.resolvePath(
+            at: workspace,
+            arguments: ["rev-parse", "--absolute-git-dir"]
+        ),
+        let gitCommonDirectory = await Self.resolvePath(
+            at: workspace,
+            arguments: ["rev-parse", "--path-format=absolute", "--git-common-dir"]
+        ) else { return nil }
+        return GitWatchContext(
+            repositoryRoot: repositoryRoot,
+            gitDirectory: gitDirectory,
+            gitCommonDirectory: gitCommonDirectory
+        )
     }
 
-    private static func resolvePath(at workspace: URL, arguments: [String]) -> URL? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = arguments
-        process.currentDirectoryURL = workspace
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = Pipe()
-        do {
-            try process.run()
-        } catch {
-            return nil
-        }
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else { return nil }
+    private static func resolvePath(at workspace: URL, arguments: [String]) async -> URL? {
+        guard let result = try? await TestProcess.run(
+            executableURL: URL(fileURLWithPath: "/usr/bin/git"),
+            arguments: arguments,
+            currentDirectoryURL: workspace
+        ), result.terminationStatus == 0 else { return nil }
         let path = String(
-            decoding: output.fileHandleForReading.readDataToEndOfFile(),
+            decoding: result.output,
             as: UTF8.self
         ).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !path.isEmpty else { return nil }

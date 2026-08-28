@@ -3,9 +3,7 @@
 
   <h1>Lithe</h1>
 
-  <p><strong>A lightweight IntelliJ IDEA alternative for AI-assisted Java development</strong></p>
-  <p>Core IDEA workflows · ~300–400 MB baseline memory · tools start on demand</p>
-  <p><em>Let Codex or Claude Code write. Use Lithe to understand, run, debug, and review.</em></p>
+  <p><strong>A low-memory IntelliJ IDEA alternative for Java development and AI collaboration</strong></p>
 
   <p>
     <a href="./README.zh-CN.md"><strong>简体中文</strong></a> ·
@@ -13,25 +11,30 @@
     <a href="#product-tour">Product tour</a> ·
     <a href="#download-and-install">Download</a> ·
     <a href="#architecture-overview">Architecture</a> ·
-    <a href="#develop-lithe">Develop Lithe</a> ·
-    <a href="#contact-us">Contact us</a>
+    <a href="#develop-lithe">Develop Lithe</a>
   </p>
 
   <p>
-    <a href="https://github.com/1lck/Lithe-IDEA/releases/latest"><img src="https://img.shields.io/github/v/release/1lck/Lithe-IDEA?style=for-the-badge&label=latest%20release&logo=github&logoColor=white" alt="Latest release"></a>
-    <img src="https://img.shields.io/badge/platform-macOS%2013%2B-111827?style=for-the-badge&logo=apple&logoColor=white" alt="macOS 13+">
-    <img src="https://img.shields.io/badge/platform-Windows%20x64-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows x64">
-  </p>
-  <p>
-    <img src="https://img.shields.io/badge/Java-JDK%2017%2B-E76F00?style=for-the-badge&logo=openjdk&logoColor=white" alt="JDK 17+">
-    <img src="https://img.shields.io/badge/workflow-IDEA--style-7C3AED?style=for-the-badge&logo=intellijidea&logoColor=white" alt="IDEA-style workflow">
-    <img src="https://img.shields.io/badge/baseline%20memory-300--400%20MB-159957?style=for-the-badge" alt="300 to 400 MB baseline memory">
-    <a href="./LICENSE"><img src="https://img.shields.io/github/license/1lck/Lithe-IDEA?style=for-the-badge&label=license" alt="Apache License 2.0"></a>
+    <a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=163027877"><img src="https://img.shields.io/badge/QQ_Group-163027877-EB1923?style=for-the-badge&logo=qq&logoColor=white" alt="Join the Lithe QQ group 163027877"></a>
+    <a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="https://img.shields.io/badge/WeChat_Group-Join_Now-07C160?style=for-the-badge&logo=wechat&logoColor=white" alt="Join the Lithe WeChat group"></a>
   </p>
 
   <p>
-    <a href="https://github.com/1lck/Lithe-IDEA/releases/latest"><strong>Download the latest release</strong></a> ·
-    <a href="https://github.com/1lck/Lithe-IDEA">View the repository</a>
+    <a href="https://github.com/1lck/Lithe-IDEA/releases/latest"><img src="https://img.shields.io/github/v/release/1lck/Lithe-IDEA?style=flat&label=release&logo=github&logoColor=white" alt="Latest release"></a>
+    <a href="https://github.com/1lck/Lithe-IDEA/releases"><img src="https://img.shields.io/github/downloads/1lck/Lithe-IDEA/total?style=flat&label=downloads&logo=github&logoColor=white" alt="Total downloads"></a>
+    <img src="https://img.shields.io/badge/macOS-13%2B-111827?style=flat&logo=apple&logoColor=white" alt="macOS 13+">
+    <img src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat&logo=windows&logoColor=white" alt="Windows x64">
+    <img src="https://img.shields.io/badge/memory-300--400%20MB-159957?style=flat" alt="300 to 400 MB baseline memory">
+    <a href="#download-and-install"><img src="https://img.shields.io/badge/Homebrew-Install-FBB040?style=flat&logo=homebrew&logoColor=black" alt="Install with Homebrew"></a>
+    <a href="./LICENSE"><img src="https://img.shields.io/github/license/1lck/Lithe-IDEA?style=flat&label=license" alt="Apache License 2.0"></a>
+  </p>
+  <p>
+    <img src="https://img.shields.io/badge/Java-JDK%2017%2B-E76F00?style=flat&logo=openjdk&logoColor=white" alt="JDK 17+">
+    <img src="https://img.shields.io/badge/Spring%20Boot-Projects-6DB33F?style=flat&logo=springboot&logoColor=white" alt="Spring Boot projects">
+    <img src="https://img.shields.io/badge/Maven-Management-C71A36?style=flat&logo=apachemaven&logoColor=white" alt="Maven management">
+    <img src="https://img.shields.io/badge/Debugger-Breakpoints-D32F2F?style=flat" alt="Breakpoint debugging">
+    <img src="https://img.shields.io/badge/Git-Diff%20Review-F05032?style=flat&logo=git&logoColor=white" alt="Git diff review">
+    <img src="https://img.shields.io/badge/Database-SQL%20Workspace-336791?style=flat" alt="Database SQL workspace">
   </p>
 </div>
 
@@ -266,18 +269,3 @@ Each point shows the repository's cumulative Star count at `00:00` Beijing time 
 <a href="https://www.star-history.com/#1lck/Lithe-IDEA&Date">
   <img alt="Star History Chart" src="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/star-history-light.svg" />
 </a>
-
-## Contact us
-
-Join the Lithe-IDEA community group to discuss the project and share feedback, or contact the author directly.
-
-<table align="center">
-  <tr>
-    <td align="center"><strong>Join the community group</strong></td>
-    <td align="center"><strong>Contact the author</strong></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="./docs/assets/contact/lithe-group.png" width="320" alt="Lithe-IDEA community group QR code"></td>
-    <td align="center"><img src="./docs/assets/contact/wechat.png" width="320" alt="Author WeChat QR code"></td>
-  </tr>
-</table>

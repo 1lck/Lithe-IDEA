@@ -60,7 +60,8 @@ function workspaceKey(workspacePath: string): string {
 }
 
 function isTimeout(error: unknown): boolean {
-  return (error as { code?: unknown } | null)?.code === "timed_out";
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === "timed_out" || code === "initializeTimeout" || code === "serviceReadyTimeout";
 }
 
 export class JavaWorkspaceLanguageServerOwner {

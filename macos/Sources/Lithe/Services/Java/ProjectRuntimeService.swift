@@ -110,9 +110,11 @@ final class ProjectRuntimeService: ObservableObject {
             }
         }
         let runtimeLocator = runtimeLocator
-        let result = await Task.detached(priority: .utility) {
-            runtimeLocator.discover()
-        }.value
+        let result = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: runtimeLocator.discover())
+            }
+        }
         guard !Task.isCancelled,
               projectURL == targetProjectURL,
               activeDiscoveryID == discoveryID else { return }

@@ -104,7 +104,20 @@ jobs:
 
       - name: Run database-focused Swift tests
         timeout-minutes: 12
-        run: ./scripts/test-macos.sh --filter '(LitheDatabaseModuleTests|LitheTests\.LitheCoreLogicTests/database)'
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --report .artifacts/test-stability/macos-database.json --suite-timeout-seconds 660 -- --filter '(LitheDatabaseModuleTests|LitheTests\.LitheCoreLogicTests/database)'
+
+      - name: Generate combined database test report
+        if: always()
+        run: node .agents/skills/write-stable-tests/scripts/generate-test-report.mjs
+
+      - name: Upload database test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-stability-database
+          path: .artifacts/test-stability/
+          if-no-files-found: ignore
+          retention-days: 14
 
   rust-database-tests:
     name: Rust database tests

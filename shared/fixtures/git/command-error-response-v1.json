@@ -1,0 +1,19 @@
+{
+  "arguments": ["stash", "push", "--include-untracked", "--message", "Lithe Smart Checkout"],
+  "output": "No local changes to save\n",
+  "stdout": "No local changes to save\n",
+  "stderr": "",
+  "exitCode": 0,
+  "invocations": [
+    {
+      "arguments": ["stash", "push", "--include-untracked", "--message", "Lithe Smart Checkout"],
+      "stdout": "No local changes to save\n",
+      "stderr": "",
+      "exitCode": 0
+    }
+  ],
+  "operationError": {
+    "code": "invalid_request",
+    "message": "Invalid Git reference"
+  }
+}

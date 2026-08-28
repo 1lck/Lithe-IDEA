@@ -95,7 +95,7 @@ test("closing a workspace cancels an in-flight prewarm and stops its server", as
 
 test("records a timeout without converting it to a generic failure", async () => {
   const timeout = Object.assign(new Error("JDTLS initialize timed out"), {
-    code: "timed_out",
+    code: "serviceReadyTimeout",
   });
   const operations = operationRecorder();
   const notifyFailure = mock(() => undefined);

@@ -1,13 +1,16 @@
+import Darwin
 import Foundation
 
 final class MacRawProcessSession: RawProcessSession, @unchecked Sendable {
+    private static let forcedTerminationDelay: Duration = .milliseconds(200)
+
     var isRunning: Bool { process?.isRunning == true }
     var onOutput: (@Sendable (Data) -> Void)?
     var onError: (@Sendable (Data) -> Void)?
     var onTermination: (@Sendable (Int32) -> Void)?
     var onStateChange: (@Sendable (ProcessLifecycleEvent) -> Void)?
 
-    private var process: Process?
+    private var process: MacManagedProcess?
     private var inputPipe: Pipe?
     private var outputPipe: Pipe?
     private var errorPipe: Pipe?
@@ -24,23 +27,29 @@ final class MacRawProcessSession: RawProcessSession, @unchecked Sendable {
             message: nil
         ))
 
-        let process = Process()
         let inputPipe = (request.standardInput != nil || request.keepsStandardInputOpen)
             ? Pipe()
             : nil
         let outputPipe = Pipe()
         let errorPipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: request.executablePath)
-        process.arguments = request.arguments
-        if let workingDirectory = request.workingDirectory {
-            process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
+        let process = MacManagedProcess(
+            executableURL: URL(fileURLWithPath: request.executablePath),
+            arguments: request.arguments,
+            currentDirectoryURL: request.workingDirectory.map(URL.init(fileURLWithPath:)),
+            environment: request.environment,
+            standardInput: inputPipe?.fileHandleForReading ?? FileHandle.nullDevice,
+            standardOutput: outputPipe.fileHandleForWriting,
+            standardError: errorPipe.fileHandleForWriting
+        )
+        if let inputPipe {
+            // A timed-out child can close stdin while a write is in flight.
+            // Convert SIGPIPE into a write error instead of terminating Lithe.
+            _ = Darwin.fcntl(
+                inputPipe.fileHandleForWriting.fileDescriptor,
+                F_SETNOSIGPIPE,
+                1
+            )
         }
-        if let environment = request.environment {
-            process.environment = environment
-        }
-        process.standardInput = inputPipe ?? FileHandle.nullDevice
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
 
         outputPipe.fileHandleForReading.readabilityHandler = { [weak self, weak process] handle in
             let data = handle.availableData
@@ -80,13 +89,12 @@ final class MacRawProcessSession: RawProcessSession, @unchecked Sendable {
         self.errorPipe = errorPipe
         do {
             try process.run()
+            try? inputPipe?.fileHandleForReading.close()
+            try? outputPipe.fileHandleForWriting.close()
+            try? errorPipe.fileHandleForWriting.close()
         } catch {
-            outputPipe.fileHandleForReading.readabilityHandler = nil
-            errorPipe.fileHandleForReading.readabilityHandler = nil
+            closePipes()
             self.process = nil
-            self.inputPipe = nil
-            self.outputPipe = nil
-            self.errorPipe = nil
             onStateChange?(ProcessLifecycleEvent(
                 operationID: request.operationID,
                 state: .failed,
@@ -96,6 +104,7 @@ final class MacRawProcessSession: RawProcessSession, @unchecked Sendable {
             activeOperationID = nil
             throw error
         }
+        scheduleTimeout(request.timeoutMilliseconds, for: process, operationID: request.operationID)
         if let input = request.standardInput, let inputPipe {
             try inputPipe.fileHandleForWriting.write(contentsOf: input)
             if !request.keepsStandardInputOpen {
@@ -108,7 +117,6 @@ final class MacRawProcessSession: RawProcessSession, @unchecked Sendable {
             exitCode: nil,
             message: nil
         ))
-        scheduleTimeout(request.timeoutMilliseconds, for: process, operationID: request.operationID)
     }
 
     func send(_ input: Data) throws {
@@ -135,17 +143,28 @@ final class MacRawProcessSession: RawProcessSession, @unchecked Sendable {
             ))
             process.terminate()
         }
-        try? inputPipe?.fileHandleForWriting.close()
-        try? outputPipe?.fileHandleForReading.close()
-        try? errorPipe?.fileHandleForReading.close()
+        closePipes()
         process = nil
-        inputPipe = nil
-        outputPipe = nil
-        errorPipe = nil
         activeOperationID = nil
     }
 
-    private func scheduleTimeout(_ milliseconds: Int?, for process: Process, operationID: String?) {
+    private func closePipes() {
+        try? inputPipe?.fileHandleForReading.close()
+        try? inputPipe?.fileHandleForWriting.close()
+        try? outputPipe?.fileHandleForReading.close()
+        try? outputPipe?.fileHandleForWriting.close()
+        try? errorPipe?.fileHandleForReading.close()
+        try? errorPipe?.fileHandleForWriting.close()
+        inputPipe = nil
+        outputPipe = nil
+        errorPipe = nil
+    }
+
+    private func scheduleTimeout(
+        _ milliseconds: Int?,
+        for process: MacManagedProcess,
+        operationID: String?
+    ) {
         guard let milliseconds, milliseconds > 0 else { return }
         timeoutTask = Task { [weak self, weak process] in
             try? await Task.sleep(for: .milliseconds(milliseconds))
@@ -160,7 +179,7 @@ final class MacRawProcessSession: RawProcessSession, @unchecked Sendable {
                 exitCode: nil,
                 message: "Process timed out"
             ))
-            process.terminate()
+            _ = process.terminate(gracePeriod: Self.forcedTerminationDelay)
         }
     }
 }

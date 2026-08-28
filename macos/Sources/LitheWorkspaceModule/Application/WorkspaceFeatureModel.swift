@@ -545,14 +545,18 @@ package final class WorkspaceFeatureModel: ObservableObject {
         // The system Trash is the recovery boundary. Recording every descendant
         // first would make deleting a directory scale with its entire file tree.
         let fileOperations = self.fileOperations
-        let errorMessage = await Task.detached(priority: .userInitiated) { () -> String? in
-            do {
-                try fileOperations.trashItem(at: request.url)
-                return nil
-            } catch {
-                return error.localizedDescription
+        let errorMessage = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let errorMessage: String?
+                do {
+                    try fileOperations.trashItem(at: request.url)
+                    errorMessage = nil
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+                continuation.resume(returning: errorMessage)
             }
-        }.value
+        }
         isPerformingProjectItemOperation = false
         if let errorMessage {
             notify?(errorMessage)

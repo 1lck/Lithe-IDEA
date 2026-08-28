@@ -30,14 +30,8 @@ pub async fn platform_invoke(command: String, args: Value) -> Result<Value, Stri
 
     if envelope.get("ok").and_then(Value::as_bool) == Some(true) {
         let data = envelope.get("data").cloned().unwrap_or(Value::Null);
-        if data.get("exitCode").and_then(Value::as_i64).unwrap_or(0) != 0 {
-            return Err(data
-                .get("output")
-                .and_then(Value::as_str)
-                .filter(|output| !output.trim().is_empty())
-                .unwrap_or("Git operation failed")
-                .trim()
-                .to_string());
+        if let Some(error) = command_data_error(&data) {
+            return Err(error);
         }
         return Ok(data);
     }
@@ -48,6 +42,56 @@ pub async fn platform_invoke(command: String, args: Value) -> Result<Value, Stri
         .and_then(Value::as_str)
         .unwrap_or("Shared core operation failed")
         .to_string())
+}
+
+/// Converts logical Git command failures carried in a successful Core envelope
+/// into the error shape expected by the existing Windows compatibility API.
+fn command_data_error(data: &Value) -> Option<String> {
+    if let Some(error) = data.get("operationError") {
+        let message = error
+            .get("message")
+            .and_then(Value::as_str)
+            .filter(|message| !message.trim().is_empty())
+            .unwrap_or("Git operation failed")
+            .trim();
+        let details = error
+            .get("details")
+            .and_then(Value::as_str)
+            .filter(|details| !details.trim().is_empty())
+            .map(str::trim);
+        return Some(match details {
+            Some(details) => format!("{message}: {details}"),
+            None => message.to_string(),
+        });
+    }
+
+    if let Some(stash_restore) = data.get("stashRestore") {
+        let paths = stash_restore
+            .get("conflictedPaths")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>();
+        return Some(if paths.is_empty() {
+            "Git stash restore has conflicts".to_string()
+        } else {
+            format!("Git stash restore has conflicts: {}", paths.join(", "))
+        });
+    }
+
+    if data.get("exitCode").and_then(Value::as_i64).unwrap_or(0) != 0 {
+        return Some(
+            data.get("output")
+                .and_then(Value::as_str)
+                .filter(|output| !output.trim().is_empty())
+                .unwrap_or("Git operation failed")
+                .trim()
+                .to_string(),
+        );
+    }
+
+    None
 }
 
 fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
@@ -462,8 +506,36 @@ fn take_text(payload: &mut Map<String, Value>, field: &str) -> Result<String, St
 
 #[cfg(test)]
 mod tests {
-    use super::{local_branch_reference, translate};
+    use super::{command_data_error, local_branch_reference, translate};
     use serde_json::json;
+
+    #[test]
+    fn rejects_logical_git_failures_after_successful_subprocesses() {
+        let operation_error = json!({
+            "exitCode": 0,
+            "operationError": {
+                "code": "invalid_request",
+                "message": "Invalid Git reference",
+                "details": "branch names cannot contain spaces"
+            }
+        });
+        assert_eq!(
+            command_data_error(&operation_error).as_deref(),
+            Some("Invalid Git reference: branch names cannot contain spaces")
+        );
+
+        let stash_conflict = json!({
+            "exitCode": 0,
+            "stashRestore": {
+                "stashReference": "stash@{0}",
+                "conflictedPaths": ["README.md", "src/main.rs"]
+            }
+        });
+        assert_eq!(
+            command_data_error(&stash_conflict).as_deref(),
+            Some("Git stash restore has conflicts: README.md, src/main.rs")
+        );
+    }
 
     #[test]
     fn translates_git_status_root() {

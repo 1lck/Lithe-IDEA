@@ -146,9 +146,11 @@ package final class RunService: ObservableObject {
             }
         }
         let operations = runConfigurationOperations
-        let inspection = await Task.detached(priority: .utility) {
-            operations.inspect(at: projectURL)
-        }.value
+        let inspection = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: operations.inspect(at: projectURL))
+            }
+        }
         guard !Task.isCancelled, projectLoadID == loadID else { return }
         if let currentProject = self.projectURL {
             selectedConfigurationIDsByProject[currentProject.path] = selectedConfigurationID
@@ -208,15 +210,17 @@ package final class RunService: ObservableObject {
         let operations = runConfigurationOperations
         let files = projectFiles
         let modulePaths = mavenProject?.allModules.map(\.relativePath) ?? []
-        let result = await Task.detached(priority: .userInitiated) {
-            Result {
-                try operations.generate(
-                    at: projectURL,
-                    files: files,
-                    modulePaths: modulePaths
-                )
+        let result = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: Result {
+                    try operations.generate(
+                        at: projectURL,
+                        files: files,
+                        modulePaths: modulePaths
+                    )
+                })
             }
-        }.value
+        }
         guard !Task.isCancelled, projectLoadID == loadID else { return }
         switch result {
         case .success(let result):

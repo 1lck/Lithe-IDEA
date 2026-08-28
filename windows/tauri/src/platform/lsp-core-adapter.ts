@@ -334,8 +334,9 @@ function normalizeCoreValue(value: unknown): unknown {
 async function dispatchRuntimeEvent(event: RuntimeEvent): Promise<void> {
   if (event.type === "log") {
     const level = event.level === "error" ? "error" : event.level === "warning" ? "warn" : "info";
+    const structuredDetail = parseStructuredRuntimeDetail(event.detail);
     frontendTrace(level, "lsp.runtime", event.message ?? "Language-server log", {
-      detail: event.detail ?? null,
+      ...(structuredDetail ?? { detail: event.detail ?? null }),
       providerId: event.providerId,
       sessionId: event.sessionId,
     });
@@ -350,6 +351,23 @@ async function dispatchRuntimeEvent(event: RuntimeEvent): Promise<void> {
   if (event.type === "stateChanged" && event.state === "failed") {
     await emit("lsp://server-crashed", {});
   }
+}
+
+function parseStructuredRuntimeDetail(detail: string | undefined): JsonRecord | null {
+  if (!detail?.startsWith("{")) return null;
+  try {
+    const parsed = JSON.parse(detail);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as JsonRecord)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function isInitializationTimeout(reason: unknown): boolean {
+  const code = (reason as Error & { code?: string } | null)?.code;
+  return code === "timed_out" || code === "initializeTimeout" || code === "serviceReadyTimeout";
 }
 
 async function dispatchSessionEvent(session: Session, event: RuntimeEvent): Promise<void> {
@@ -490,8 +508,7 @@ async function runEventPump(session: Session, owner: EventPumpOwner): Promise<vo
 }
 
 async function waitUntilReady(session: Session): Promise<void> {
-  const deadline = Date.now() + INITIALIZE_TIMEOUT_MS;
-  while (Date.now() < deadline) {
+  while (true) {
     const events = await poll(session, 200);
     if (isSessionReady(session.lifecycle)) return;
     const state = [...events].reverse().find((event) => event.type === "stateChanged")?.state;
@@ -515,9 +532,6 @@ async function waitUntilReady(session: Session): Promise<void> {
       throw error;
     }
   }
-  const error = new Error("Language server initialization timed out") as Error & { code?: string };
-  error.code = "timed_out";
-  throw error;
 }
 
 async function stopAndDestroySession(
@@ -700,8 +714,12 @@ async function createSession(args: JsonRecord, key: string): Promise<Session> {
   try {
     await waitUntilReady(session);
   } catch (reason) {
-    if ((reason as Error & { code?: string })?.code === "timed_out") {
-      operation.timedOut({ stage: "initialize", sessionId: session.id });
+    if (isInitializationTimeout(reason)) {
+      const code = (reason as Error & { code?: string }).code;
+      operation.timedOut({
+        stage: code === "serviceReadyTimeout" ? "serviceReady" : "initialize",
+        sessionId: session.id,
+      });
     } else {
       operation.failed(reason, { stage: "initialize", sessionId: session.id });
     }
@@ -717,14 +735,13 @@ async function createSession(args: JsonRecord, key: string): Promise<Session> {
 
 async function waitForProjectedReadiness(
   session: Session,
-): Promise<"ready" | "terminal" | "timedOut"> {
+): Promise<"ready" | "terminal"> {
   const operation = new LspOperationLog("sessionReadinessWait", crypto.randomUUID(), {
     sessionId: session.id,
     workspacePath: session.workspacePath,
     languageId: session.languageId,
   });
-  const deadline = Date.now() + INITIALIZE_TIMEOUT_MS;
-  while (Date.now() < deadline) {
+  while (true) {
     if (isSessionReady(session.lifecycle)) {
       operation.succeeded();
       return "ready";
@@ -735,8 +752,6 @@ async function waitForProjectedReadiness(
     }
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   }
-  operation.timedOut({ sessionState: session.lifecycle.phase });
-  return "timedOut";
 }
 
 async function resolveSession(args: JsonRecord, key: string): Promise<Session> {

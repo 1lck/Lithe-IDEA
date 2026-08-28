@@ -137,6 +137,10 @@ modify_shared_fixture() { printf '%s\n' '{"operation":"updated"}' > shared/fixtu
 modify_windows_frontend() { printf '%s\n' 'export const value = 2;' > windows/tauri/src/value.ts; }
 modify_windows_rust() { printf '%s\n' 'fn main() { println!("updated"); }' > windows/tauri/src-tauri/src/main.rs; }
 modify_download_cache_validator() { printf '%s\n' 'console.log("updated");' > scripts/verify-download-cache.mjs; }
+modify_test_stability_runner() {
+    mkdir -p .agents/skills/write-stable-tests/scripts
+    printf '%s\n' '#!/bin/zsh' 'print -- test-stability' > .agents/skills/write-stable-tests/scripts/test-stability-macos.sh
+}
 modify_macos_cache_action() {
     mkdir -p .github/actions/prepare-macos-dependency-cache
     printf '%s\n' 'name: updated' > .github/actions/prepare-macos-dependency-cache/action.yml
@@ -239,6 +243,9 @@ assert_classification windows-rust \
 assert_classification download-cache-validator \
     "$(classification true true true true false true true true false false)" \
     modify_download_cache_validator
+assert_classification test-stability-runner \
+    "$(classification true true true true false false true true false false)" \
+    modify_test_stability_runner
 assert_classification macos-cache-action \
     "$(classification true true true true false true false false false false)" \
     modify_macos_cache_action
