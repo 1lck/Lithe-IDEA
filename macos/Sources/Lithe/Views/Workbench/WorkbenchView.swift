@@ -583,8 +583,19 @@ struct WorkbenchView: View {
                         }
                         .buttonStyle(.plain)
                         .lithePointer()
+                        .disabled(!destination.isAvailable)
                         .foregroundStyle(model.selectedSidebar == destination ? LitheTheme.primaryText : LitheTheme.secondaryText)
-                        .help(LocalizedStringKey(destination.title))
+                        .help(
+                            destination.isAvailable
+                                ? LocalizedStringKey(destination.title)
+                                : LocalizedStringKey("Pull Requests integration is under development")
+                        )
+                        .accessibilityLabel(LocalizedStringKey(destination.title))
+                        .accessibilityHint(
+                            destination.isAvailable
+                                ? LocalizedStringKey("")
+                                : LocalizedStringKey("Pull Requests integration is under development")
+                        )
                     }
                 }
                 .padding(.top, ActivityBarMetrics.edgeInset)
@@ -893,7 +904,11 @@ struct WorkbenchView: View {
                         PluginManagementView()
                             .environmentObject(model)
                     } else if model.selectedSidebar == .pullRequests {
-                        GitHubPullRequestDetailView()
+                        if LitheFeatureAvailability.githubPullRequests {
+                            GitHubPullRequestDetailView()
+                        } else {
+                            GitHubFeatureUnavailableView()
+                        }
                     } else {
                         EditorAreaView()
                     }
@@ -925,7 +940,11 @@ struct WorkbenchView: View {
             case .changes:
                 ChangesSidebarView()
             case .pullRequests:
-                GitHubPullRequestsSidebarView()
+                if LitheFeatureAvailability.githubPullRequests {
+                    GitHubPullRequestsSidebarView()
+                } else {
+                    GitHubFeatureUnavailableView()
+                }
             case .search:
                 SearchSidebarView()
             case .database:
