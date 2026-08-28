@@ -747,12 +747,16 @@ final class AppModel: ObservableObject, Identifiable {
 
     /// Loads build-system and run state at the workspace boundary. The generic
     /// run lifecycle is intentionally not owned by JavaFeatureModel.
+    ///
+    /// Spring indexing is scheduled rather than awaited. It scales with the
+    /// number of Java sources, and run configurations, test discovery, and the
+    /// Git refresh that follows this call must not wait for it.
     func loadProjectServices(at workspaceURL: URL, files: [URL]) async {
         prepareJavaLanguageServerForWorkspaceIfNeeded(
             at: workspaceURL,
             files: files
         )
-        await springFeature.load(
+        springFeature.scheduleLoad(
             workspaceURL: workspaceURL,
             files: files,
             textOverrides: Dictionary(uniqueKeysWithValues: openDocuments.map {

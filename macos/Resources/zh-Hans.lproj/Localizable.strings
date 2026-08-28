@@ -929,6 +929,8 @@
 "Run configurations may be out of date" = "运行配置可能已过期";
 "Project toolchain needs attention" = "项目工具链需要处理";
 "Different JDK vendor selected" = "选择了不同的 JDK 发行版";
+"Project is still loading" = "项目仍在加载中";
+"Wait for the project to finish loading, then identify it again." = "请等待项目加载完成，然后重新识别。";
 "Project identification complete" = "项目识别完成";
 "Generated 1 runnable project entry." = "已生成 1 个可运行的项目入口。";
 "Generated %lld runnable project entries." = "已生成 %lld 个可运行的项目入口。";

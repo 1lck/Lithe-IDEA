@@ -49,6 +49,9 @@ package struct ProjectRunConfigurationInspection: Equatable, Sendable {
 
 package enum RunConfigurationGenerationState: Equatable, Sendable {
     case idle
+    /// The request arrived before the workspace finished loading, so there was
+    /// no project to identify. Nothing failed and nothing was written.
+    case projectNotLoaded
     case succeeded(entryCount: Int)
     case noEntries
     case failed(String)

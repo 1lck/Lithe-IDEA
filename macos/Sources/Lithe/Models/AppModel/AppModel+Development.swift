@@ -153,8 +153,18 @@ extension AppModel {
         Task { [weak self] in await self?.runSelectedConfigurationAfterActivation() }
     }
 
+    /// Run and Debug can activate the execution module before the workspace
+    /// snapshot has loaded it, which leaves the run feature without a project.
+    /// The tool-window entry points already load on demand; these do the same so
+    /// every entry point observes the same state.
+    private func loadProjectServicesIfRunProjectIsUnbound(_ runFeature: RunFeatureModel) async {
+        guard !runFeature.isProjectLoaded, let workspaceURL else { return }
+        await loadProjectServices(at: workspaceURL, files: projectFiles)
+    }
+
     private func runSelectedConfigurationAfterActivation() async {
         guard let runFeature = await activateExecutionModule()?.runFeature else { return }
+        await loadProjectServicesIfRunProjectIsUnbound(runFeature)
         guard runFeature.configurationStatus == .ready else {
             runFeature.requestRunConfigurationGeneration(intent: .run)
             return
@@ -325,6 +335,7 @@ extension AppModel {
         guard let execution = await activateExecutionModule(),
               let debug = await activateDebugModule() else { return }
         let runFeature = execution.runFeature
+        await loadProjectServicesIfRunProjectIsUnbound(runFeature)
         let debugFeature = debug.javaFeature
         javaFeature.configureRuntime(
             mavenFeature: execution.mavenFeature,

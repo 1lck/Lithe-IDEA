@@ -159,6 +159,8 @@ package final class RunFeatureModel: ObservableObject {
         service.clearOutput()
     }
 
+    package var isProjectLoaded: Bool { service.isProjectLoaded }
+
     package func loadProject(
         at workspaceURL: URL,
         files: [URL],

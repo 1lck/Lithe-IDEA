@@ -105,6 +105,11 @@ package final class RunService: ObservableObject {
     package var lastRunFileURL: URL? { lastCurrentFileURL }
     package var lastConfiguration: RunConfiguration? { lastRunConfiguration }
 
+    /// Reports whether `loadProject` has bound this service to a workspace.
+    /// Entry points that activate the execution module on demand use this to
+    /// avoid acting on a service that has no project yet.
+    package var isProjectLoaded: Bool { projectURL != nil }
+
     @discardableResult
     package func registerLanguageRunExtension(
         _ provider: any LanguageRunExtensionProviding,
@@ -199,7 +204,12 @@ package final class RunService: ObservableObject {
     }
 
     package func generateRunConfigurations() async {
-        guard let projectURL else { return }
+        // Dropping the request silently is indistinguishable from a broken
+        // button, so report that the workspace is not loaded yet instead.
+        guard let projectURL else {
+            generationState = .projectNotLoaded
+            return
+        }
         let loadID = projectLoadID
         isLoadingProject = true
         defer {

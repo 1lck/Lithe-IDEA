@@ -99,17 +99,105 @@ struct SpringFeatureModelTests {
         let locations = feature.navigationLocations(for: injectionURL, line: 7)
         #expect(locations.map(\.url) == [firstURL, secondURL])
     }
+
+    /// Opening a workspace must not wait for Spring indexing, which scales with
+    /// the number of Java sources. `scheduleLoad` returns immediately and the
+    /// index arrives later.
+    @Test
+    func scheduleLoadReturnsBeforeTheIndexIsPublished() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let beanURL = root.appendingPathComponent("Service.java")
+        let gate = SpringIndexGate()
+        let result = SpringIndexResult(
+            properties: [], values: [], propertyReferences: [], diagnostics: [],
+            beans: [SpringBean(
+                id: "service", name: "service", typeName: "Service",
+                url: beanURL, line: 3, column: 7, kind: "component"
+            )],
+            injections: [], endpoints: []
+        )
+        let feature = SpringFeatureModel(
+            operations: SpringTestOperations(result: result, gate: gate)
+        )
+
+        feature.scheduleLoad(workspaceURL: root, files: [beanURL])
+
+        #expect(feature.beans.isEmpty)
+        gate.open()
+        try await pollUntil { !feature.beans.isEmpty }
+        #expect(feature.beans.map(\.id) == ["service"])
+        #expect(!feature.isIndexing)
+    }
+
+    /// A newer schedule supersedes the previous one so a burst of reloads cannot
+    /// publish a stale index.
+    @Test
+    func scheduleLoadCancelsThePreviousSchedule() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let gate = SpringIndexGate()
+        let operations = SpringTestOperations(result: .empty, gate: gate)
+        let feature = SpringFeatureModel(operations: operations)
+
+        feature.scheduleLoad(workspaceURL: root, files: [])
+        feature.scheduleLoad(workspaceURL: root, files: [])
+        gate.open()
+        try await pollUntil { !feature.isIndexing }
+
+        #expect(operations.indexCallCount <= 2)
+    }
 }
 
-private struct SpringTestOperations: JavaMavenOperations {
+/// Polls the MainActor state instead of sleeping for a fixed interval so the
+/// test does not depend on scheduler timing.
+@MainActor
+private func pollUntil(
+    attempts: Int = 200,
+    _ condition: () -> Bool
+) async throws {
+    for _ in 0..<attempts {
+        if condition() { return }
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    Issue.record("The awaited condition never became true")
+}
+
+/// Blocks the detached index call until the test decides the schedule has had a
+/// chance to return.
+private final class SpringIndexGate: @unchecked Sendable {
+    private let semaphore = DispatchSemaphore(value: 0)
+    func open() { semaphore.signal() }
+    func wait() { semaphore.wait(); semaphore.signal() }
+}
+
+private final class SpringTestOperations: JavaMavenOperations, @unchecked Sendable {
     let result: SpringIndexResult
+    private let gate: SpringIndexGate?
+    private let lock = NSLock()
+    private var indexCalls = 0
+
+    var indexCallCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return indexCalls
+    }
+
+    init(result: SpringIndexResult, gate: SpringIndexGate? = nil) {
+        self.result = result
+        self.gate = gate
+    }
 
     func springIndex(
         at rootURL: URL,
         files: [URL],
         textOverrides: [URL: String],
         refreshDependencyMetadata: Bool
-    ) -> SpringIndexResult? { result }
+    ) -> SpringIndexResult? {
+        lock.lock()
+        indexCalls += 1
+        lock.unlock()
+        gate?.wait()
+        return result
+    }
     func scanMavenProject(at rootURL: URL, files: [URL]) -> MavenProject? { nil }
     func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue] { [] }
     func codeVision(at rootURL: URL, targetPath: String, paths: [String]) -> [JavaCodeVisionValue] { [] }

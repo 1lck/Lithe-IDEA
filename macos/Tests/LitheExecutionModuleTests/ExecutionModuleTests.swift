@@ -47,6 +47,63 @@ struct ExecutionModuleTests {
         #expect(recorder.graphCalls == 2)
     }
 
+    /// Run and Debug can reach identification before the workspace snapshot has
+    /// bound a project. Reporting nothing at all made the confirmed dialog look
+    /// like a dead button, so the unloaded project must become visible state.
+    @Test
+    func identificationBeforeProjectLoadReportsUnloadedProjectWithoutGenerating() async throws {
+        let operations = RecordingRunConfigurationOperations()
+        let service = RunService(
+            runtime: TestRuntime(),
+            process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() },
+            fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(),
+            serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: operations,
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+
+        #expect(!service.isProjectLoaded)
+        await service.generateRunConfigurations()
+
+        #expect(service.generationState == .projectNotLoaded)
+        #expect(operations.generateCallCount == 0)
+        #expect(service.configurationStatus == .missing)
+    }
+
+    /// Once the project is bound, identification must behave exactly as before.
+    @Test
+    func identificationAfterProjectLoadGeneratesAndClearsTheUnloadedState() async throws {
+        let operations = RecordingRunConfigurationOperations()
+        let service = RunService(
+            runtime: TestRuntime(),
+            process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() },
+            fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(),
+            serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: operations,
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+
+        await service.generateRunConfigurations()
+        #expect(service.generationState == .projectNotLoaded)
+
+        await service.loadProject(at: root, files: [], mavenProject: nil)
+        #expect(service.isProjectLoaded)
+        await service.generateRunConfigurations()
+
+        #expect(operations.generateCallCount == 1)
+        #expect(service.generationState == .succeeded(entryCount: 1))
+        #expect(service.configurationStatus == .ready)
+    }
+
     @Test
     func currentGoFileRunsThroughExtensionOwnedSession() async throws {
         let builtInProcess = TestStreamingProcess()
@@ -321,6 +378,38 @@ private struct TestRunConfigurationOperations: RunConfigurationOperations {
     }
     func launchPlan(at projectURL: URL, configurationID: String, currentFile: String?, classPath: String?, debugPort: Int?) throws -> SharedLaunchPlan {
         throw RunConfigurationOperationFailure(message: "Unavailable in lifecycle test")
+    }
+    func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String { draft.name }
+    func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {}
+}
+
+/// Counts generation attempts so a test can prove that an unloaded project
+/// never reaches the store.
+private final class RecordingRunConfigurationOperations: RunConfigurationOperations, @unchecked Sendable {
+    private(set) var generateCallCount = 0
+
+    func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
+        ProjectRunConfigurationInspection(
+            status: generateCallCount == 0 ? .missing : .ready,
+            diagnostics: []
+        )
+    }
+    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+        generateCallCount += 1
+        return RunConfigurationGenerationResult(entryCount: 1)
+    }
+    func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
+        RunConfigurationResolution(
+            configurations: [EffectiveRunConfiguration(
+                configuration: .currentFile,
+                options: RunOptions()
+            )],
+            diagnostics: [],
+            defaultConfigurationID: RunConfiguration.currentFileID
+        )
+    }
+    func launchPlan(at projectURL: URL, configurationID: String, currentFile: String?, classPath: String?, debugPort: Int?) throws -> SharedLaunchPlan {
+        throw RunConfigurationOperationFailure(message: "Unavailable in identification test")
     }
     func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String { draft.name }
     func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {}
