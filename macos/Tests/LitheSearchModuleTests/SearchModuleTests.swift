@@ -66,11 +66,11 @@ struct SearchModuleTests {
         let visibilityRules = SearchVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [])
 
         feature.warmIndex(at: workspaceURL, visibilityRules: visibilityRules)
-        try #require(await waitUntil { operations.hasStartedWarmIndex })
+        try #require(await operations.waitForWarmIndexStart())
 
         feature.invalidateIndex(at: workspaceURL, visibilityRules: visibilityRules)
         operations.finishWarmIndex()
-        try #require(await waitUntil { operations.hasStartedInvalidation })
+        try #require(await operations.waitForInvalidationStart())
 
         #expect(feature.hasActiveModuleWork)
 
@@ -127,24 +127,30 @@ private final class BlockingIndexOperations: SearchOperations, @unchecked Sendab
     private let lock = NSLock()
     private let warmIndexGate = DispatchSemaphore(value: 0)
     private let invalidationGate = DispatchSemaphore(value: 0)
-    private var warmIndexStarted = false
-    private var invalidationStarted = false
+    private let warmIndexStarted = AsyncTestSignal()
+    private let invalidationStarted = AsyncTestSignal()
     private var completions: [String] = []
 
-    var hasStartedWarmIndex: Bool { withLock { warmIndexStarted } }
-    var hasStartedInvalidation: Bool { withLock { invalidationStarted } }
     var completedOperations: [String] { withLock { completions } }
 
     func warmSearchIndex(at rootURL: URL, visibilityRules: SearchVisibilityRules) {
-        withLock { warmIndexStarted = true }
-        warmIndexGate.wait()
+        warmIndexStarted.signal()
+        _ = warmIndexGate.wait(timeout: .now() + 5)
         withLock { completions.append("warm") }
     }
 
     func invalidateSearchIndex(at rootURL: URL, visibilityRules: SearchVisibilityRules) {
-        withLock { invalidationStarted = true }
-        invalidationGate.wait()
+        invalidationStarted.signal()
+        _ = invalidationGate.wait(timeout: .now() + 5)
         withLock { completions.append("invalidate") }
+    }
+
+    func waitForWarmIndexStart() async -> Bool {
+        await warmIndexStarted.waitUntilSignaled()
+    }
+
+    func waitForInvalidationStart() async -> Bool {
+        await invalidationStarted.waitUntilSignaled()
     }
 
     func finishWarmIndex() {
@@ -165,5 +171,36 @@ private final class BlockingIndexOperations: SearchOperations, @unchecked Sendab
         lock.lock()
         defer { lock.unlock() }
         return operation()
+    }
+}
+
+private final class AsyncTestSignal: @unchecked Sendable {
+    private let stream: AsyncStream<Void>
+    private let continuation: AsyncStream<Void>.Continuation
+
+    init() {
+        (stream, continuation) = AsyncStream.makeStream()
+    }
+
+    func signal() {
+        continuation.yield()
+        continuation.finish()
+    }
+
+    func waitUntilSignaled(timeout: Duration = .seconds(5)) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask { [stream] in
+                for await _ in stream { return true }
+                return false
+            }
+            group.addTask {
+                // test-stability: allow(swift-real-sleep) reason: this task is the bounded failure deadline for an event-driven test signal.
+                try? await Task.sleep(for: timeout)
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
     }
 }

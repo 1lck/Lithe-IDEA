@@ -83,7 +83,14 @@ public final class SearchFeatureModel: ObservableObject {
         let worker = Task.detached(priority: .utility) {
             await previousTask?.value
             guard !Task.isCancelled else { return }
-            operation(operations)
+            // Search operations are synchronous ports. Run them on a GCD worker
+            // so a slow indexer cannot occupy Swift's cooperative executor.
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .utility).async {
+                    operation(operations)
+                    continuation.resume()
+                }
+            }
         }
         indexTask = Task { [weak self] in
             await withTaskCancellationHandler {

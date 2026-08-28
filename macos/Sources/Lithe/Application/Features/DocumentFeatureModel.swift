@@ -298,9 +298,16 @@ final class DocumentFeatureModel: ObservableObject {
         }
 
         let operations = self.operations
-        let text = await Task.detached(priority: .userInitiated) {
-            operations.readFile(at: openingWorkspaceURL, relativePath: relativePath)
-        }.value
+        let text = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(
+                    returning: operations.readFile(
+                        at: openingWorkspaceURL,
+                        relativePath: relativePath
+                    )
+                )
+            }
+        }
         guard let text else {
             // `file.read` accepts plain text regardless of suffix and rejects
             // binary content. Only after that path fails do we probe a small

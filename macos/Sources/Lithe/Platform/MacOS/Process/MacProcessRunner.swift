@@ -1,38 +1,59 @@
+import Darwin
 import Foundation
 import LitheCoreContracts
 
 final class MacProcessRunner: ProcessRunner, @unchecked Sendable {
+    private static let pollingInterval: TimeInterval = 0.01
+    private static let outputDrainGracePeriod: TimeInterval = 0.2
+    private static let terminationGracePeriod: TimeInterval = 0.2
+    private static let forcedTerminationGracePeriod: TimeInterval = 1
+
     func run(_ request: ProcessRequest) -> ProcessResult {
-        let process = Process()
         let outputPipe = Pipe()
         let inputPipe = request.standardInput.map { _ in Pipe() }
+        let process = MacManagedProcess(
+            executableURL: URL(fileURLWithPath: request.executablePath),
+            arguments: request.arguments,
+            currentDirectoryURL: request.workingDirectory.map(URL.init(fileURLWithPath:)),
+            environment: request.environment,
+            standardInput: inputPipe?.fileHandleForReading ?? FileHandle.nullDevice,
+            standardOutput: outputPipe.fileHandleForWriting,
+            standardError: outputPipe.fileHandleForWriting
+        )
         let outputLock = NSLock()
         var output = Data()
+        var reachedOutputEOF = false
         outputPipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
-            guard !data.isEmpty else { return }
             outputLock.lock()
-            output.append(data)
+            if data.isEmpty {
+                reachedOutputEOF = true
+            } else {
+                output.append(data)
+            }
             outputLock.unlock()
         }
-
-        process.executableURL = URL(fileURLWithPath: request.executablePath)
-        process.arguments = request.arguments
-        if let workingDirectory = request.workingDirectory {
-            process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
+        if let inputPipe {
+            // A timed-out child can close stdin while a write is in flight.
+            // Convert SIGPIPE into a write error instead of terminating Lithe.
+            _ = Darwin.fcntl(
+                inputPipe.fileHandleForWriting.fileDescriptor,
+                F_SETNOSIGPIPE,
+                1
+            )
         }
-        if let environment = request.environment {
-            process.environment = environment
-        }
-        process.standardOutput = outputPipe
-        process.standardError = outputPipe
-        process.standardInput = inputPipe ?? FileHandle.nullDevice
 
         do {
             try process.run()
+            try? inputPipe?.fileHandleForReading.close()
+            try? outputPipe.fileHandleForWriting.close()
             if let input = request.standardInput, let inputPipe {
-                try inputPipe.fileHandleForWriting.write(contentsOf: input)
-                try inputPipe.fileHandleForWriting.close()
+                // Large input must not prevent this thread from enforcing the
+                // process deadline when a child stops reading stdin.
+                DispatchQueue.global(qos: .utility).async {
+                    try? inputPipe.fileHandleForWriting.write(contentsOf: input)
+                    try? inputPipe.fileHandleForWriting.close()
+                }
             }
             let deadline = request.timeoutMilliseconds.map {
                 Date().addingTimeInterval(TimeInterval($0) / 1000)
@@ -41,24 +62,40 @@ final class MacProcessRunner: ProcessRunner, @unchecked Sendable {
             while process.isRunning {
                 if let deadline, Date() >= deadline {
                     timedOut = true
-                    process.terminate()
+                    process.terminateAndWait(
+                        gracePeriod: Self.terminationGracePeriod,
+                        forcedTerminationTimeout: Self.forcedTerminationGracePeriod
+                    )
                     break
                 }
-                Thread.sleep(forTimeInterval: 0.01)
+                Thread.sleep(forTimeInterval: Self.pollingInterval)
             }
-            process.waitUntilExit()
+            try? inputPipe?.fileHandleForWriting.close()
+            if !process.isRunning {
+                // The managed process group removes inherited-pipe descendants;
+                // the grace period only lets the final readability event arrive.
+                let drainDeadline = Date().addingTimeInterval(Self.outputDrainGracePeriod)
+                while Date() < drainDeadline {
+                    outputLock.lock()
+                    let didReachOutputEOF = reachedOutputEOF
+                    outputLock.unlock()
+                    if didReachOutputEOF { break }
+                    Thread.sleep(forTimeInterval: Self.pollingInterval)
+                }
+            }
             outputPipe.fileHandleForReading.readabilityHandler = nil
-            let remaining = outputPipe.fileHandleForReading.readDataToEndOfFile()
-            outputLock.lock()
-            output.append(remaining)
-            let data = output
-            outputLock.unlock()
+            try? outputPipe.fileHandleForReading.close()
+            let data = outputLock.withLock { output }
             return ProcessResult(
                 output: String(data: data, encoding: .utf8) ?? "",
                 exitCode: timedOut ? 124 : process.terminationStatus
             )
         } catch {
+            try? inputPipe?.fileHandleForReading.close()
+            try? inputPipe?.fileHandleForWriting.close()
+            try? outputPipe.fileHandleForWriting.close()
             outputPipe.fileHandleForReading.readabilityHandler = nil
+            try? outputPipe.fileHandleForReading.close()
             return ProcessResult(output: error.localizedDescription, exitCode: 1)
         }
     }
