@@ -3,9 +3,7 @@
 
   <h1>Lithe</h1>
 
-  <p><strong>面向 AI 编程时代的轻量级 IDEA 替代品</strong></p>
-  <p>保留 IDEA 核心工作流 · 基础内存约 300～400 MB · 工具按需启动</p>
-  <p><em>让 Codex 或 Claude Code 写代码，用 Lithe 看懂、跑通、调试并审查。</em></p>
+  <p><strong>面向 Java 开发与 AI 协作的低内存占用 IntelliJ IDEA 替代品</strong></p>
 
   <p>
     <a href="./README.md"><strong>English</strong></a> ·
@@ -13,20 +11,31 @@
     <a href="#产品截图">产品截图</a> ·
     <a href="#下载与安装">下载</a> ·
     <a href="#架构概览">架构图</a> ·
-    <a href="#如何开发">如何开发</a> ·
-    <a href="#联系我们">联系我们</a>
+    <a href="#如何开发">如何开发</a>
   </p>
 
   <p>
-    <a href="https://github.com/1lck/Lithe-IDEA/releases/latest"><img src="https://img.shields.io/github/v/release/1lck/Lithe-IDEA?style=for-the-badge&label=latest%20release&logo=github&logoColor=white" alt="最新版本"></a>
-    <img src="https://img.shields.io/badge/platform-macOS%2013%2B-111827?style=for-the-badge&logo=apple&logoColor=white" alt="macOS 13+">
-    <img src="https://img.shields.io/badge/platform-Windows%20x64-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows x64">
+    <a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=163027877"><img src="https://img.shields.io/badge/QQ_群-163027877-EB1923?style=for-the-badge&logo=qq&logoColor=white" alt="加入 Lithe QQ 群 163027877"></a>
+    <a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="https://img.shields.io/badge/微信交流群-点击加入-07C160?style=for-the-badge&logo=wechat&logoColor=white" alt="加入 Lithe 微信交流群"></a>
+  </p>
+
+  <p>
+    <a href="https://github.com/1lck/Lithe-IDEA/releases/latest"><img src="https://img.shields.io/github/v/release/1lck/Lithe-IDEA?style=flat&label=release&logo=github&logoColor=white" alt="最新版本"></a>
+    <a href="https://github.com/1lck/Lithe-IDEA/releases"><img src="https://img.shields.io/github/downloads/1lck/Lithe-IDEA/total?style=flat&label=downloads&logo=github&logoColor=white" alt="累计下载量"></a>
+    <img src="https://img.shields.io/badge/macOS-13%2B-111827?style=flat&logo=apple&logoColor=white" alt="macOS 13+">
+    <img src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat&logo=windows&logoColor=white" alt="Windows x64">
+    <img src="https://img.shields.io/badge/memory-300--400%20MB-159957?style=flat" alt="基础内存 300 到 400 MB">
+    <a href="#下载与安装"><img src="https://img.shields.io/badge/Homebrew-Install-FBB040?style=flat&logo=homebrew&logoColor=black" alt="通过 Homebrew 安装"></a>
+    <a href="./LICENSE"><img src="https://img.shields.io/github/license/1lck/Lithe-IDEA?style=flat&label=license" alt="Apache License 2.0"></a>
   </p>
   <p>
-    <img src="https://img.shields.io/badge/Java-JDK%2017%2B-E76F00?style=for-the-badge&logo=openjdk&logoColor=white" alt="JDK 17+">
-    <img src="https://img.shields.io/badge/workflow-IDEA--style-7C3AED?style=for-the-badge&logo=intellijidea&logoColor=white" alt="IDEA 风格工作流">
-    <img src="https://img.shields.io/badge/baseline%20memory-300--400%20MB-159957?style=for-the-badge" alt="基础内存 300 到 400 MB">
-    <a href="./LICENSE"><img src="https://img.shields.io/github/license/1lck/Lithe-IDEA?style=for-the-badge&label=license" alt="Apache License 2.0"></a>
+    <img src="https://img.shields.io/badge/Java-JDK%2017%2B-E76F00?style=flat&logo=openjdk&logoColor=white" alt="JDK 17+">
+    <img src="https://img.shields.io/badge/Spring%20Boot-Projects-6DB33F?style=flat&logo=springboot&logoColor=white" alt="支持 Spring Boot 项目">
+    <img src="https://img.shields.io/badge/Maven-Management-C71A36?style=flat&logo=apachemaven&logoColor=white" alt="Maven 管理">
+    <img src="https://img.shields.io/badge/Debugger-Breakpoints-D32F2F?style=flat" alt="断点调试">
+    <img src="https://img.shields.io/badge/Git-Diff%20Review-F05032?style=flat&logo=git&logoColor=white" alt="Git Diff 审查">
+    <img src="https://img.shields.io/badge/Database-SQL%20Workspace-336791?style=flat" alt="数据库 SQL 工作台">
+    <img src="https://img.shields.io/badge/AI-Commit%20Messages-8B5CF6?style=flat" alt="AI Commit Message">
   </p>
 
   <p>
@@ -266,18 +275,3 @@ Lithe 采用 [Apache License 2.0](./LICENSE) 授权。
 <a href="https://www.star-history.com/#1lck/Lithe-IDEA&Date">
   <img alt="Star History 图表" src="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/star-history-light.svg" />
 </a>
-
-## 联系我们
-
-欢迎加入 Lithe-IDEA 交流群讨论使用体验、反馈问题，也可以直接联系作者。
-
-<table align="center">
-  <tr>
-    <td align="center"><strong>加入交流群</strong></td>
-    <td align="center"><strong>联系作者</strong></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="./docs/assets/contact/lithe-group.png" width="320" alt="Lithe-IDEA 交流群二维码"></td>
-    <td align="center"><img src="./docs/assets/contact/wechat.png" width="320" alt="作者微信二维码"></td>
-  </tr>
-</table>
