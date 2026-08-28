@@ -471,6 +471,52 @@ struct GitModuleTests {
     }
 
     @Test
+    func cancelledCommitFileSelectionCanBeRescheduledAfterTheGitLogReappears() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let commit = makeTestCommit(hash: "1111111111111111", subject: "Reloaded commit")
+        let files = [GitCommitFile(status: "M", path: "README.md")]
+        let debounceGate = GitDebounceGate(callCount: 2)
+        let filesGate = GitFilesLoadGate(results: [files])
+        defer {
+            debounceGate.releaseAll()
+            filesGate.releaseAll()
+        }
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            filesGate: filesGate
+        ))
+        let feature = GitFeatureModel(
+            service: service,
+            commitFilesSelectionDebounceWaiter: { await debounceGate.waitForRelease() }
+        )
+        feature.configure(
+            workspaceURLProvider: { root },
+            isGitLogVisibleProvider: { false },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+
+        await feature.refreshGit()
+        feature.previewGitCommitSelection(commit)
+        feature.scheduleGitCommitFilesLoad(for: commit)
+        #expect(await debounceGate.waitUntilCallStarts(0))
+
+        feature.cancelGitCommitFilesRequests()
+        feature.scheduleGitCommitFilesLoad(for: commit)
+        #expect(await debounceGate.waitUntilCallStarts(1))
+
+        debounceGate.releaseCall(0)
+        debounceGate.releaseCall(1)
+        #expect(await filesGate.waitUntilCallStarts(0))
+        filesGate.releaseCall(0)
+        #expect(await filesGate.waitUntilCallFinishes(0))
+        await feature.loadGitCommitFiles(for: commit)
+
+        #expect(!filesGate.didTimeOut)
+        #expect(feature.selectedGitCommitFiles == files)
+    }
+
+    @Test
     func repeatedCommitSelectionReusesCachedFilesAndResetInvalidatesCache() async {
         let root = URL(fileURLWithPath: "/workspace")
         let commit = GitCommit(

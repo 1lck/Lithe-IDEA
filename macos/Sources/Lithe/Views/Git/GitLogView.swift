@@ -179,6 +179,12 @@ struct GitLogView: View {
             guard model.gitConsoleEntries.last?.succeeded == false else { return }
             selectedGitToolTab = .console
         }
+        .onAppear {
+            // Re-arm the selected commit load after the panel cancels work while hidden.
+            if let commit = model.selectedGitCommit {
+                scheduleGitCommitFileLoad(for: commit)
+            }
+        }
         .onDisappear {
             model.gitFeatureIfActive?.cancelGitCommitFilesRequests()
         }
