@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{LazyLock, Mutex, OnceLock};
 use zip::ZipArchive;
 
 const MAX_METADATA_ARCHIVES: usize = 20_000;
@@ -126,8 +126,11 @@ pub fn spring_index(request: SpringIndexRequest) -> Result<SpringIndexResponse, 
 }
 
 fn property_reference_index(sources: &[(String, String)]) -> Vec<SpringPropertyReferenceResponse> {
-    let annotation =
-        Regex::new(r#"@Value\s*\(\s*[\"']\$\{\s*([^}:\s]+)(?::[^}]*)?\s*\}[\"']\s*\)"#).unwrap();
+    static ANNOTATION: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r#"@Value\s*\(\s*[\"']\$\{\s*([^}:\s]+)(?::[^}]*)?\s*\}[\"']\s*\)"#)
+            .expect("literal pattern is valid")
+    });
+    let annotation = &*ANNOTATION;
     let mut references = Vec::new();
     for (path, source) in sources {
         for (index, line) in source.lines().enumerate() {
@@ -391,10 +394,13 @@ fn append_configuration_properties(
     sources: &[(String, String)],
     properties: &mut Vec<SpringPropertyResponse>,
 ) {
-    let annotation = Regex::new(
-        r#"(?s)@ConfigurationProperties\s*\(\s*(?:prefix\s*=\s*)?[\"']([^\"']+)[\"'][^)]*\).*?\b(?:class|record)\s+([A-Za-z_$][A-Za-z0-9_$]*)"#,
-    )
-    .unwrap();
+    static ANNOTATION: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r#"(?s)@ConfigurationProperties\s*\(\s*(?:prefix\s*=\s*)?[\"']([^\"']+)[\"'][^)]*\).*?\b(?:class|record)\s+([A-Za-z_$][A-Za-z0-9_$]*)"#,
+        )
+        .expect("literal pattern is valid")
+    });
+    let annotation = &*ANNOTATION;
     let mut types = HashMap::new();
     for (path, source) in sources {
         for value in parse_configuration_types(path, source) {
@@ -437,12 +443,18 @@ struct ConfigurationType {
 }
 
 fn parse_configuration_types(path: &str, source: &str) -> Vec<ConfigurationType> {
-    let declaration =
-        Regex::new(r"\b(?:class|record)\s+([A-Za-z_$][A-Za-z0-9_$]*)(?:\s*\(([^)]*)\))?").unwrap();
-    let field = Regex::new(
-        r"(?:private|protected|public)\s+(?:static\s+)?(?:final\s+)?([A-Za-z0-9_$.<>?, ]+)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:=\s*([^;]+))?;",
-    )
-    .unwrap();
+    static DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"\b(?:class|record)\s+([A-Za-z_$][A-Za-z0-9_$]*)(?:\s*\(([^)]*)\))?")
+            .expect("literal pattern is valid")
+    });
+    static FIELD: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"(?:private|protected|public)\s+(?:static\s+)?(?:final\s+)?([A-Za-z0-9_$.<>?, ]+)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:=\s*([^;]+))?;",
+        )
+        .expect("literal pattern is valid")
+    });
+    let declaration = &*DECLARATION;
+    let field = &*FIELD;
     let mut types = Vec::<ConfigurationType>::new();
     let mut stack = Vec::<usize>::new();
     let mut depth = 0isize;
@@ -499,10 +511,13 @@ fn parse_record_components(
     line: &str,
     components: &str,
 ) -> Vec<ConfigurationField> {
-    let component = Regex::new(
-        r"(?:@[A-Za-z0-9_$.]+(?:\([^)]*\))?\s+)*(?:final\s+)?([A-Za-z0-9_$.<>?]+)\s+([A-Za-z_$][A-Za-z0-9_$]*)$",
-    )
-    .unwrap();
+    static COMPONENT: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"(?:@[A-Za-z0-9_$.]+(?:\([^)]*\))?\s+)*(?:final\s+)?([A-Za-z0-9_$.<>?]+)\s+([A-Za-z_$][A-Za-z0-9_$]*)$",
+        )
+        .expect("literal pattern is valid")
+    });
+    let component = &*COMPONENT;
     split_parameters(components)
         .into_iter()
         .filter_map(|value| {
@@ -913,16 +928,25 @@ fn bean_index(
     Vec<SpringInjectionResponse>,
     Vec<SpringDiagnosticResponse>,
 ) {
-    let type_declaration =
-        Regex::new(r"\b(class|interface|record)\s+([A-Za-z_$][A-Za-z0-9_$]*)([^\{]*)").unwrap();
-    let method = Regex::new(
-        r"(?:public|protected|private)?\s*(?:static\s+)?(?:final\s+)?([A-Za-z0-9_$.<>?]+)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(",
-    )
-    .unwrap();
-    let field = Regex::new(
-        r"(?:private|protected|public)\s+(?:static\s+)?(?:final\s+)?([A-Za-z0-9_$.<>?]+)\s+([A-Za-z_$][A-Za-z0-9_$]*)",
-    )
-    .unwrap();
+    static TYPE_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"\b(class|interface|record)\s+([A-Za-z_$][A-Za-z0-9_$]*)([^\{]*)")
+            .expect("literal pattern is valid")
+    });
+    static METHOD: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"(?:public|protected|private)?\s*(?:static\s+)?(?:final\s+)?([A-Za-z0-9_$.<>?]+)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(",
+        )
+        .expect("literal pattern is valid")
+    });
+    static FIELD: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"(?:private|protected|public)\s+(?:static\s+)?(?:final\s+)?([A-Za-z0-9_$.<>?]+)\s+([A-Za-z_$][A-Za-z0-9_$]*)",
+        )
+        .expect("literal pattern is valid")
+    });
+    let type_declaration = &*TYPE_DECLARATION;
+    let method = &*METHOD;
+    let field = &*FIELD;
     let mut supertypes = HashMap::<String, Vec<String>>::new();
     for (_, source) in sources {
         for capture in type_declaration.captures_iter(source) {
@@ -943,11 +967,13 @@ fn bean_index(
             .captures(source)
             .and_then(|capture| capture.get(2))
             .map(|value| value.as_str().to_string());
-        let constructor_count = source_type.as_deref().map_or(0, |name| {
-            constructor_regex(name)
-                .map(|pattern| pattern.captures_iter(source).count())
-                .unwrap_or(0)
-        });
+        // The constructor pattern depends on the declaring type, so it cannot be
+        // a file-independent constant, but it is identical for every line of one
+        // source and must not be rebuilt inside the line loop below.
+        let constructor_pattern = source_type.as_deref().and_then(constructor_regex);
+        let constructor_count = constructor_pattern
+            .as_ref()
+            .map_or(0, |pattern| pattern.captures_iter(source).count());
         for (index, line) in lines.iter().enumerate() {
             let context = annotation_context(&lines, index);
             if let Some(capture) = type_declaration.captures(line) {
@@ -1014,26 +1040,24 @@ fn bean_index(
                     });
                 }
             }
-            if let Some(type_name) = source_type.as_deref() {
-                let Some(pattern) = constructor_regex(type_name) else {
-                    continue;
-                };
-                let Some(opening) = pattern.find(line).map(|value| value.end() - 1) else {
-                    continue;
-                };
-                if !is_injection_context(&context) && constructor_count != 1 {
-                    continue;
-                }
-                let Some(closing) = line.rfind(')').filter(|value| *value > opening) else {
-                    continue;
-                };
-                raw_injections.extend(parse_constructor_injections(
-                    path,
-                    index + 1,
-                    line,
-                    &line[opening + 1..closing],
-                ));
+            let Some(pattern) = constructor_pattern.as_ref() else {
+                continue;
+            };
+            let Some(opening) = pattern.find(line).map(|value| value.end() - 1) else {
+                continue;
+            };
+            if !is_injection_context(&context) && constructor_count != 1 {
+                continue;
             }
+            let Some(closing) = line.rfind(')').filter(|value| *value > opening) else {
+                continue;
+            };
+            raw_injections.extend(parse_constructor_injections(
+                path,
+                index + 1,
+                line,
+                &line[opening + 1..closing],
+            ));
         }
     }
 
@@ -1138,10 +1162,44 @@ fn annotation_context(lines: &[&str], index: usize) -> String {
     values.join(" ")
 }
 
-fn has_annotation(context: &str, name: &str) -> bool {
+/// Matches `@Name` only when the name is not a prefix of a longer annotation,
+/// so `@Bean` does not match `@BeanFactory`.
+fn annotation_regex(name: &str) -> Regex {
     Regex::new(&format!(r"@{}(?:\s|\(|$)", regex::escape(name)))
-        .unwrap()
-        .is_match(context)
+        .expect("an escaped annotation name is a valid pattern")
+}
+
+/// `has_annotation` runs several times for every line of every Java source, so
+/// the patterns for the annotations this module recognizes are compiled once.
+fn cached_annotation_regex(name: &str) -> Option<&'static Regex> {
+    static PATTERNS: LazyLock<HashMap<&'static str, Regex>> = LazyLock::new(|| {
+        [
+            "Autowired",
+            "Bean",
+            "Component",
+            "Configuration",
+            "Controller",
+            "Inject",
+            "Primary",
+            "Repository",
+            "Resource",
+            "RestController",
+            "Service",
+        ]
+        .into_iter()
+        .map(|name| (name, annotation_regex(name)))
+        .collect()
+    });
+    PATTERNS.get(name)
+}
+
+fn has_annotation(context: &str, name: &str) -> bool {
+    match cached_annotation_regex(name) {
+        Some(pattern) => pattern.is_match(context),
+        // The cache lists today's callers. Compiling on demand keeps the helper
+        // correct if a caller starts recognizing another annotation.
+        None => annotation_regex(name).is_match(context),
+    }
 }
 
 fn has_component_annotation(context: &str) -> bool {
@@ -1158,10 +1216,13 @@ fn has_component_annotation(context: &str) -> bool {
 }
 
 fn component_name(context: &str) -> Option<String> {
-    let annotation = Regex::new(
-        r#"@(Component|Service|Repository|Controller|RestController|Configuration)\s*\([^\)]*[\"']([^\"']+)[\"']"#,
-    )
-    .unwrap();
+    static ANNOTATION: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r#"@(Component|Service|Repository|Controller|RestController|Configuration)\s*\([^\)]*[\"']([^\"']+)[\"']"#,
+        )
+        .expect("literal pattern is valid")
+    });
+    let annotation = &*ANNOTATION;
     annotation
         .captures(context)
         .and_then(|capture| capture.get(2))
@@ -1169,7 +1230,11 @@ fn component_name(context: &str) -> Option<String> {
 }
 
 fn qualifier_names(context: &str) -> Vec<String> {
-    let pattern = Regex::new(r#"@Qualifier\s*\(\s*[\"']([^\"']+)[\"']\s*\)"#).unwrap();
+    static PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r#"@Qualifier\s*\(\s*[\"']([^\"']+)[\"']\s*\)"#)
+            .expect("literal pattern is valid")
+    });
+    let pattern = &*PATTERN;
     pattern
         .captures_iter(context)
         .filter_map(|capture| capture.get(1).map(|value| value.as_str().to_string()))
@@ -1186,7 +1251,9 @@ fn bean_names(context: &str) -> Vec<String> {
 }
 
 fn quoted_values(value: &str) -> Vec<String> {
-    let pattern = Regex::new(r#"[\"']([^\"']*)[\"']"#).unwrap();
+    static PATTERN: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r#"[\"']([^\"']*)[\"']"#).expect("literal pattern is valid"));
+    let pattern = &*PATTERN;
     pattern
         .captures_iter(value)
         .filter_map(|capture| capture.get(1).map(|item| item.as_str().to_string()))
@@ -1194,13 +1261,18 @@ fn quoted_values(value: &str) -> Vec<String> {
 }
 
 fn declared_supertypes(tail: &str) -> Vec<String> {
+    // Indexed by the fixed keyword order below, which the result order depends on.
+    static PATTERNS: LazyLock<[Regex; 2]> = LazyLock::new(|| {
+        ["extends", "implements"].map(|keyword| {
+            Regex::new(&format!(
+                r"\b{}\s+([^\{{]+?)(?:\b(?:extends|implements)\b|$)",
+                keyword
+            ))
+            .expect("literal keyword produces a valid pattern")
+        })
+    });
     let mut values = Vec::new();
-    for keyword in ["extends", "implements"] {
-        let pattern = Regex::new(&format!(
-            r"\b{}\s+([^\{{]+?)(?:\b(?:extends|implements)\b|$)",
-            keyword
-        ))
-        .unwrap();
+    for pattern in PATTERNS.iter() {
         if let Some(capture) = pattern.captures(tail) {
             values.extend(
                 capture[1]
@@ -1235,7 +1307,11 @@ fn is_injection_context(context: &str) -> bool {
 
 fn injection_qualifier(context: &str) -> Option<String> {
     qualifier_names(context).into_iter().next().or_else(|| {
-        let resource = Regex::new(r#"@Resource\s*\([^\)]*name\s*=\s*[\"']([^\"']+)[\"']"#).unwrap();
+        static RESOURCE: LazyLock<Regex> = LazyLock::new(|| {
+            Regex::new(r#"@Resource\s*\([^\)]*name\s*=\s*[\"']([^\"']+)[\"']"#)
+                .expect("literal pattern is valid")
+        });
+        let resource = &*RESOURCE;
         resource
             .captures(context)
             .and_then(|capture| capture.get(1))
@@ -1257,14 +1333,16 @@ fn parse_constructor_injections(
     line: &str,
     parameters: &str,
 ) -> Vec<RawInjection> {
+    static DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"(?:@[A-Za-z0-9_$.]+(?:\([^)]*\))?\s+)*(?:final\s+)?([A-Za-z0-9_$.<>?]+)\s+([A-Za-z_$][A-Za-z0-9_$]*)$",
+        )
+        .expect("literal pattern is valid")
+    });
     split_parameters(parameters)
         .into_iter()
         .filter_map(|parameter| {
-            let declaration = Regex::new(
-                r"(?:@[A-Za-z0-9_$.]+(?:\([^)]*\))?\s+)*(?:final\s+)?([A-Za-z0-9_$.<>?]+)\s+([A-Za-z_$][A-Za-z0-9_$]*)$",
-            )
-            .unwrap();
-            let capture = declaration.captures(parameter.trim())?;
+            let capture = DECLARATION.captures(parameter.trim())?;
             let variable = capture.get(2)?;
             Some(RawInjection {
                 path: path.to_string(),
@@ -1299,8 +1377,15 @@ fn split_parameters(value: &str) -> Vec<&str> {
 }
 
 fn endpoint_index(sources: &[(String, String)]) -> Vec<SpringEndpointResponse> {
-    let class = Regex::new(r"\bclass\s+([A-Za-z_$][A-Za-z0-9_$]*)").unwrap();
-    let method = Regex::new(r"[A-Za-z0-9_$.<>?]+\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(").unwrap();
+    static CLASS: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"\bclass\s+([A-Za-z_$][A-Za-z0-9_$]*)").expect("literal pattern is valid")
+    });
+    static METHOD: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"[A-Za-z0-9_$.<>?]+\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(")
+            .expect("literal pattern is valid")
+    });
+    let class = &*CLASS;
+    let method = &*METHOD;
     let mut endpoints = Vec::new();
     for (path, source) in sources {
         if !has_annotation(source, "Controller") && !has_annotation(source, "RestController") {
@@ -1377,9 +1462,11 @@ fn mapping(annotation_text: &str) -> Option<(Vec<String>, Vec<String>)> {
         }
     }
     if annotation_text.contains("@RequestMapping") {
-        let method_pattern =
-            Regex::new(r"RequestMethod\.(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|TRACE)").unwrap();
-        let mut methods = method_pattern
+        static METHOD_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+            Regex::new(r"RequestMethod\.(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|TRACE)")
+                .expect("literal pattern is valid")
+        });
+        let mut methods = METHOD_PATTERN
             .captures_iter(annotation_text)
             .filter_map(|capture| capture.get(1).map(|value| value.as_str().to_string()))
             .collect::<Vec<_>>();
@@ -1394,8 +1481,11 @@ fn mapping(annotation_text: &str) -> Option<(Vec<String>, Vec<String>)> {
 }
 
 fn annotation_routes(annotation: &str) -> Vec<String> {
-    let named = Regex::new(r#"(?:value|path)\s*=\s*(\{[^}]*\}|[\"'][^\"']*[\"'])"#).unwrap();
-    let expression = named
+    static NAMED: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r#"(?:value|path)\s*=\s*(\{[^}]*\}|[\"'][^\"']*[\"'])"#)
+            .expect("literal pattern is valid")
+    });
+    let expression = NAMED
         .captures(annotation)
         .and_then(|capture| capture.get(1))
         .map(|value| value.as_str())
