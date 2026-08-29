@@ -57,6 +57,20 @@ public class Real {}
 `;
     expect(parseJavaTypeClipboard(text)?.typeName).toBe("Real");
   });
+
+  test("parses annotation interfaces including public @interface", () => {
+    expect(parseJavaTypeClipboard("public @interface JsonAdapter {}")?.typeName).toBe(
+      "JsonAdapter",
+    );
+    expect(parseJavaTypeClipboard("@interface Fast {}")?.typeName).toBe("Fast");
+  });
+
+  test("prefers a public annotation interface over an earlier package-private class", () => {
+    const text = `class Helper {}
+public @interface JsonAdapter {}
+`;
+    expect(parseJavaTypeClipboard(text)?.typeName).toBe("JsonAdapter");
+  });
 });
 
 describe("javaTypeFileName", () => {

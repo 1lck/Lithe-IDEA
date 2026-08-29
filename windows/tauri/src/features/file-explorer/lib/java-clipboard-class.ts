@@ -10,7 +10,7 @@ export interface ParsedJavaClipboardClass {
   content: string;
 }
 
-const TYPE_KEYWORDS = "class|interface|enum|record";
+const TYPE_KEYWORDS = "@interface|class|interface|enum|record";
 const MODIFIERS =
   "(?:(?:public|protected|private|abstract|final|sealed|non-sealed|static)\\s+)*";
 
