@@ -21,6 +21,9 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
         mavenFeature = MavenFeatureModel(service: maven)
         runFeature = RunFeatureModel(service: run)
         projectDevelopment = ProjectDevelopmentFeatureModel(mavenFeature: mavenFeature, runFeature: runFeature)
+        run.configureMavenContextProvider { [weak maven] in
+            maven?.launchContext
+        }
     }
 
     package var isActive: Bool { maven.isRunning || run.isRunning || tests.isRunning }
@@ -33,7 +36,12 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
     }
 
     package func configureModuleLeases(acquire: @escaping @MainActor (String) -> ModuleLease) {
-        maven.$isRunning.removeDuplicates().sink { [weak self] active in
+        maven.$taskState.map { state in
+            switch state {
+            case .running, .stopping: true
+            case .idle, .cancelled, .failed: false
+            }
+        }.removeDuplicates().sink { [weak self] active in
             guard let self else { return }
             if active, mavenLease == nil { mavenLease = acquire("Maven build is running") }
             if !active { mavenLease?.release(); mavenLease = nil }

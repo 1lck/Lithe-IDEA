@@ -772,6 +772,10 @@ final class AppModel: ObservableObject, Identifiable {
     /// Loads build-system and run state at the workspace boundary. The generic
     /// run lifecycle is intentionally not owned by JavaFeatureModel.
     func loadProjectServices(at workspaceURL: URL, files: [URL]) async {
+        let execution = await activateExecutionModule()
+        if let execution {
+            await execution.projectDevelopment.loadProject(at: workspaceURL, files: files)
+        }
         prepareJavaLanguageServerForWorkspaceIfNeeded(
             at: workspaceURL,
             files: files
@@ -783,9 +787,7 @@ final class AppModel: ObservableObject, Identifiable {
                 ($0.url.standardizedFileURL, $0.text)
             })
         )
-        guard let execution = await activateExecutionModule() else { return }
-        execution.tests.discover(workspaceURL: workspaceURL, files: files)
-        await execution.projectDevelopment.loadProject(at: workspaceURL, files: files)
+        execution?.tests.discover(workspaceURL: workspaceURL, files: files)
     }
 
     var projectName: String {

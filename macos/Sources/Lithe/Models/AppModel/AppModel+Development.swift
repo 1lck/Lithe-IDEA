@@ -77,8 +77,7 @@ extension AppModel {
 
     func runMaven(
         phase: MavenLifecyclePhase,
-        module: MavenModule?,
-        profiles: Set<String>
+        module: MavenModule?
     ) {
         isMavenVisible = true
         isGitLogVisible = false
@@ -89,7 +88,15 @@ extension AppModel {
         isDebugVisible = false
         Task { [weak self] in
             guard let feature = await self?.activateExecutionModule()?.mavenFeature else { return }
-            feature.run(phase: phase, module: module, profiles: profiles)
+            feature.run(phase: phase, module: module)
+        }
+    }
+
+    func runMavenGoal(_ goal: String, module: MavenModule?) {
+        isMavenVisible = true
+        Task { [weak self] in
+            guard let feature = await self?.activateExecutionModule()?.mavenFeature else { return }
+            feature.runCustomGoal(goal, module: module)
         }
     }
 

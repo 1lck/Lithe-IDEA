@@ -79,6 +79,8 @@ pub enum CoreCommand {
     HistoryDelete,
     /// Inspects a declared Maven reactor (`maven.scan`).
     MavenScan,
+    /// Produces a deterministic Maven invocation (`maven.launchPlan`).
+    MavenLaunchPlan,
     /// Normalizes diagnostics from Maven output (`maven.diagnostics`).
     MavenDiagnostics,
     /// Renders and sanitizes shared Markdown (`markdown.render`).
@@ -227,6 +229,7 @@ impl CoreCommand {
             "history.rename" => Some(Self::HistoryRename),
             "history.delete" => Some(Self::HistoryDelete),
             "maven.scan" => Some(Self::MavenScan),
+            "maven.launchPlan" => Some(Self::MavenLaunchPlan),
             "maven.diagnostics" => Some(Self::MavenDiagnostics),
             "markdown.render" => Some(Self::MarkdownRender),
             "lsp.applyTextEdits" => Some(Self::LspApplyTextEdits),

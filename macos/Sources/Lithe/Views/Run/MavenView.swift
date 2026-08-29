@@ -4,17 +4,34 @@ struct MavenView: View {
     @EnvironmentObject private var model: AppModel
     @ObservedObject var feature: MavenFeatureModel
     @State private var selectedModuleID: String?
-    @State private var enabledProfiles: Set<String> = []
+    @State private var selectedPhase: MavenLifecyclePhase?
     @State private var expandedNodeIDs: Set<String> = []
+    @State private var isGoalSheetPresented = false
+    @State private var isSettingsSheetPresented = false
+    @State private var isAddProfilePresented = false
+    @State private var customGoal = ""
+    @State private var customProfile = ""
+    @State private var settingsPath = ""
+    @State private var mavenExecutablePath = ""
+    @State private var javaHomePath = ""
 
     var body: some View {
         VStack(spacing: 0) {
             toolWindowHeader
 
+            if let error = feature.configurationSaveError {
+                configurationErrorBanner(error)
+            }
+            if feature.isReloadRequired {
+                reloadBanner
+            }
+
             if feature.isLoadingProject {
                 ProgressView("Scanning Maven project...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .foregroundStyle(LitheTheme.secondaryText)
+            } else if case .failed(let message) = feature.projectState {
+                failedState(message)
             } else if let project = feature.project {
                 HStack(spacing: 0) {
                     projectPane(project)
@@ -35,6 +52,12 @@ struct MavenView: View {
         .onChange(of: feature.project?.id) { _ in
             resetTreeState()
         }
+        .sheet(isPresented: $isGoalSheetPresented) {
+            goalSheet
+        }
+        .sheet(isPresented: $isSettingsSheetPresented) {
+            settingsSheet
+        }
     }
 
     private var toolWindowHeader: some View {
@@ -52,6 +75,10 @@ struct MavenView: View {
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .lineLimit(1)
+            } else if feature.taskState == .cancelled {
+                Label("Cancelled", systemImage: "stop.circle.fill")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(LitheTheme.warning)
             } else if let exitCode = feature.lastExitCode {
                 Label(
                     exitCode == 0 ? "Succeeded" : "Failed",
@@ -60,6 +87,23 @@ struct MavenView: View {
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(exitCode == 0 ? LitheTheme.success : LitheTheme.error)
             }
+
+            Button(action: runSelected) {
+                LitheSystemIcon(systemImage: "play.fill")
+            }
+            .litheIconButton()
+            .disabled(selectedPhase == nil || feature.isRunning)
+            .help("Run selected Maven lifecycle phase")
+
+            Button {
+                customGoal = ""
+                isGoalSheetPresented = true
+            } label: {
+                LitheSystemIcon(systemImage: "terminal")
+            }
+            .litheIconButton()
+            .disabled(feature.isRunning)
+            .help("Execute Maven goal")
 
             Button(action: refreshProject) {
                 LitheSystemIcon(systemImage: "arrow.clockwise")
@@ -76,6 +120,29 @@ struct MavenView: View {
                 .help("Stop Maven task")
             }
 
+            Button {
+                feature.setSkipTests(!feature.skipTests)
+            } label: {
+                LitheSystemIcon(systemImage: feature.skipTests ? "checkmark.square.fill" : "square")
+            }
+            .litheIconButton()
+            .foregroundStyle(feature.skipTests ? LitheTheme.accent : LitheTheme.secondaryText)
+            .help("Skip tests")
+
+            Button {
+                expandedNodeIDs.removeAll()
+            } label: {
+                LitheSystemIcon(systemImage: "rectangle.compress.vertical")
+            }
+            .litheIconButton()
+            .help("Collapse all")
+
+            Button(action: presentSettings) {
+                LitheSystemIcon(systemImage: "slider.horizontal.3")
+            }
+            .litheIconButton()
+            .help("Maven settings")
+
             Button(action: feature.clearOutput) {
                 Image(systemName: "trash")
             }
@@ -90,17 +157,58 @@ struct MavenView: View {
         Task { await feature.loadProject(at: workspaceURL, files: model.projectFiles) }
     }
 
+    private var reloadBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .foregroundStyle(LitheTheme.warning)
+            Text("Maven configuration changed")
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(LitheTheme.primaryText)
+            Spacer(minLength: 8)
+            Button("Reload JDT LS") {
+                model.restartLanguageServers()
+                feature.acknowledgeReload()
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 32)
+        .background(LitheTheme.warning.opacity(0.1))
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+        }
+    }
+
+    private func configurationErrorBanner(_ message: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(LitheTheme.error)
+            Text(message)
+                .font(.system(size: 11.5))
+                .foregroundStyle(LitheTheme.primaryText)
+                .lineLimit(2)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(LitheTheme.error.opacity(0.08))
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+        }
+    }
+
     private func projectPane(_ project: MavenProject) -> some View {
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 1) {
-                if !project.profiles.isEmpty {
+                if !feature.availableProfiles.isEmpty {
                     treeNode(
                         id: profilesNodeID,
                         title: "Profiles",
                         systemImage: "folder",
                         onLabelAction: { toggleNode(profilesNodeID) }
                     ) {
-                        ForEach(project.profiles) { profile in
+                        profileActions
+                        ForEach(feature.availableProfiles) { profile in
                             profileRow(profile)
                         }
                     }
@@ -179,13 +287,52 @@ struct MavenView: View {
         .frame(height: 24)
     }
 
+    private var profileActions: some View {
+        HStack(spacing: 4) {
+            Button {
+                customProfile = ""
+                isAddProfilePresented = true
+            } label: {
+                Image(systemName: "plus")
+                    .frame(width: 18, height: 20)
+            }
+            .buttonStyle(.plain)
+            .help("Add profile")
+            .popover(isPresented: $isAddProfilePresented, arrowEdge: .trailing) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Add Maven Profile")
+                        .font(.system(size: 13, weight: .semibold))
+                    TextField("Profile ID", text: $customProfile)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 220)
+                        .onSubmit(addCustomProfile)
+                    HStack {
+                        Spacer()
+                        Button("Cancel") { isAddProfilePresented = false }
+                        Button("Add", action: addCustomProfile)
+                            .keyboardShortcut(.defaultAction)
+                            .disabled(customProfile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+                .padding(14)
+            }
+
+            Button(action: feature.restoreDefaultProfiles) {
+                Image(systemName: "arrow.uturn.backward")
+                    .frame(width: 18, height: 20)
+            }
+            .buttonStyle(.plain)
+            .help("Restore default profiles")
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(LitheTheme.secondaryText)
+        .padding(.leading, 2)
+    }
+
     private func lifecycleRow(_ phase: MavenLifecyclePhase, module: MavenModule?) -> some View {
         Button {
-            model.runMaven(
-                phase: phase,
-                module: module,
-                profiles: enabledProfiles
-            )
+            selectedModuleID = module?.id
+            selectedPhase = phase
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: phase.systemImage)
@@ -195,20 +342,31 @@ struct MavenView: View {
                 Text(LocalizedStringKey(phase.title))
                     .lineLimit(1)
                 Spacer(minLength: 0)
-                LitheSystemIcon(systemImage: "play.fill")
-                    .font(.system(size: 8))
-                    .foregroundStyle(LitheTheme.accent)
+                if selectedModuleID == module?.id, selectedPhase == phase {
+                    LitheSystemIcon(systemImage: "play.fill")
+                        .font(.system(size: 8))
+                        .foregroundStyle(LitheTheme.accent)
+                }
             }
             .font(.system(size: 12))
             .foregroundStyle(LitheTheme.primaryText)
             .padding(.horizontal, 2)
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: 24)
+            .background(
+                selectedModuleID == module?.id && selectedPhase == phase
+                    ? LitheTheme.subtleSelection
+                    : .clear
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 4))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .lithePointer()
-        .disabled(feature.isRunning)
+        .simultaneousGesture(TapGesture(count: 2).onEnded {
+            guard !feature.isRunning else { return }
+            feature.run(phase: phase, module: module)
+        })
     }
 
     private func treeNode<Content: View>(
@@ -367,17 +525,174 @@ struct MavenView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    private func failedState(_ message: String) -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: "xmark.octagon")
+                .font(.system(size: 28, weight: .light))
+                .foregroundStyle(LitheTheme.error)
+            Text("Unable to load Maven project")
+                .font(.system(size: 14, weight: .semibold))
+            Text(message)
+                .font(LitheTheme.uiFont)
+                .foregroundStyle(LitheTheme.secondaryText)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 440)
+            Button("Retry", action: refreshProject)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var goalSheet: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Execute Maven Goal")
+                .font(.system(size: 16, weight: .semibold))
+            TextField("Goal", text: $customGoal, prompt: Text("spring-boot:run"))
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(executeCustomGoal)
+            HStack {
+                Spacer()
+                Button("Cancel") { isGoalSheetPresented = false }
+                    .keyboardShortcut(.cancelAction)
+                Button("Run", action: executeCustomGoal)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(customGoal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 420)
+    }
+
+    private var settingsSheet: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Maven Settings")
+                .font(.system(size: 16, weight: .semibold))
+
+            settingsPathRow(
+                title: "settings.xml",
+                value: $settingsPath,
+                choose: {
+                    model.platformUI.chooseFile(title: "Choose Maven settings.xml", prompt: "Choose")
+                }
+            )
+            settingsPathRow(
+                title: "Maven Home or Executable",
+                value: $mavenExecutablePath,
+                choose: {
+                    model.platformUI.chooseDirectory(title: "Choose Maven Home", prompt: "Choose")
+                }
+            )
+            settingsPathRow(
+                title: "Maven JDK",
+                value: $javaHomePath,
+                choose: {
+                    model.platformUI.chooseDirectory(title: "Choose Maven JDK", prompt: "Choose")
+                }
+            )
+
+            if let error = feature.configurationSaveError {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(LitheTheme.error)
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel") { isSettingsSheetPresented = false }
+                    .keyboardShortcut(.cancelAction)
+                Button("Save", action: saveSettings)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 560)
+    }
+
+    private func settingsPathRow(
+        title: String,
+        value: Binding<String>,
+        choose: @escaping () -> URL?
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(LitheTheme.primaryText)
+            HStack(spacing: 6) {
+                TextField("Automatic", text: value)
+                    .textFieldStyle(.roundedBorder)
+                Button {
+                    value.wrappedValue = ""
+                } label: {
+                    Image(systemName: "xmark")
+                }
+                .litheIconButton()
+                .help("Use automatic value")
+                Button {
+                    if let url = choose() {
+                        value.wrappedValue = url.standardizedFileURL.path
+                    }
+                } label: {
+                    Image(systemName: "folder")
+                }
+                .litheIconButton()
+                .help("Choose path")
+            }
+        }
+    }
+
     private func profileBinding(for profile: MavenProfile) -> Binding<Bool> {
         Binding(
-            get: { enabledProfiles.contains(profile.id) },
+            get: { feature.selectedProfiles.contains(profile.id) },
             set: { enabled in
+                var profiles = feature.selectedProfiles
                 if enabled {
-                    enabledProfiles.insert(profile.id)
+                    profiles.insert(profile.id)
                 } else {
-                    enabledProfiles.remove(profile.id)
+                    profiles.remove(profile.id)
                 }
+                feature.setSelectedProfiles(profiles)
             }
         )
+    }
+
+    private func runSelected() {
+        guard let phase = selectedPhase, !feature.isRunning else { return }
+        feature.run(phase: phase, module: selectedModule)
+    }
+
+    private func executeCustomGoal() {
+        let goal = customGoal.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !goal.isEmpty else { return }
+        isGoalSheetPresented = false
+        feature.runCustomGoal(goal, module: selectedModule)
+    }
+
+    private func addCustomProfile() {
+        if feature.addCustomProfile(customProfile) {
+            customProfile = ""
+            isAddProfilePresented = false
+        }
+    }
+
+    private func presentSettings() {
+        settingsPath = feature.settingsPath ?? ""
+        mavenExecutablePath = feature.mavenExecutablePath ?? ""
+        javaHomePath = feature.javaHomePath ?? ""
+        isSettingsSheetPresented = true
+    }
+
+    private func saveSettings() {
+        feature.updateLocalConfiguration(
+            settingsPath: settingsPath,
+            mavenExecutablePath: mavenExecutablePath,
+            javaHomePath: javaHomePath
+        )
+        isSettingsSheetPresented = false
+    }
+
+    private var selectedModule: MavenModule? {
+        guard let selectedModuleID else { return nil }
+        return feature.project?.allModules.first(where: { $0.id == selectedModuleID })
     }
 
     private var profilesNodeID: String { "profiles" }
@@ -408,10 +723,10 @@ struct MavenView: View {
 
     private func resetTreeState() {
         selectedModuleID = nil
-        enabledProfiles = Set(feature.project?.profiles.filter(\.isActiveByDefault).map(\.id) ?? [])
+        selectedPhase = .compile
         expandedNodeIDs = feature.project.map { project in
             var ids: Set<String> = [projectNodeID(project)]
-            if !project.profiles.isEmpty {
+            if !feature.availableProfiles.isEmpty {
                 ids.insert(profilesNodeID)
             }
             return ids

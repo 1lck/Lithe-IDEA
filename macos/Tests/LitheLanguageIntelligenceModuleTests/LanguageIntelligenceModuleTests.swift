@@ -148,6 +148,40 @@ struct LanguageIntelligenceModuleTests {
     }
 
     @Test
+    func javaSessionReceivesTheCurrentMavenContext() throws {
+        let root = URL(fileURLWithPath: "/workspace/java", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.java")
+        let descriptor = try #require(
+            LanguageProviderCatalog.compatibilityFallback.provider(for: source)
+        )
+        let context = MavenLaunchContext(
+            reactorPath: ".",
+            profiles: ["dev", "enterprise"],
+            settingsPath: "/local/settings.xml",
+            skipTests: true,
+            mavenExecutablePath: "/local/maven/bin/mvn",
+            javaHomePath: "/local/jdk"
+        )
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(
+            catalog: .compatibilityFallback,
+            runtimes: [WorkspaceStateLanguageProviderRuntime(
+                descriptor: descriptor,
+                session: session
+            )]
+        )
+        manager.configureMavenContextProvider { requestedDescriptor, requestedRoot in
+            #expect(requestedDescriptor.id == "java")
+            #expect(requestedRoot == root.standardizedFileURL)
+            return context
+        }
+
+        try manager.startLanguageServer(providerID: "java", rootURL: root)
+
+        #expect(session.startedMavenContext == context)
+    }
+
+    @Test
     func languageServerLifecycleLogsAndCallbacksRetainTheOperationID() throws {
         let root = URL(fileURLWithPath: "/workspace/java", isDirectory: true)
         let source = root.appendingPathComponent("Main.java")
@@ -477,12 +511,26 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
     var serverInfo: LanguageServerInfo?
     var onServerInfoChange: ((LanguageServerInfo?) -> Void)?
     private(set) var startedFingerprint: String?
+    private(set) var startedMavenContext: MavenLaunchContext?
     private(set) var stopCallCount = 0
     var startError: Error?
 
-    func start(rootURL _: URL, workspaceFingerprint: String?) throws {
+    func start(rootURL: URL, workspaceFingerprint: String?) throws {
+        try start(
+            rootURL: rootURL,
+            workspaceFingerprint: workspaceFingerprint,
+            mavenContext: nil
+        )
+    }
+
+    func start(
+        rootURL _: URL,
+        workspaceFingerprint: String?,
+        mavenContext: MavenLaunchContext?
+    ) throws {
         if let startError { throw startError }
         startedFingerprint = workspaceFingerprint
+        startedMavenContext = mavenContext
         isRunning = true
     }
 

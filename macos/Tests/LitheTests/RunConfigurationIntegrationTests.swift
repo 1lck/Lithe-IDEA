@@ -1217,15 +1217,26 @@ struct RunConfigurationIntegrationTests {
             jdtlsLaunchResourcesResolver: { _, _ in .available(resources) }
         )
         let session = try #require(runtime.makeLanguageServerSession())
+        let mavenContext = MavenLaunchContext(
+            reactorPath: ".",
+            profiles: ["dev", "enterprise"],
+            settingsPath: "/local/settings.xml",
+            skipTests: true,
+            mavenExecutablePath: "/local/maven/bin/mvn",
+            javaHomePath: "/local/jdk"
+        )
 
         try session.start(
             rootURL: URL(fileURLWithPath: "/workspace", isDirectory: true),
-            workspaceFingerprint: nil
+            workspaceFingerprint: "workspace-fingerprint",
+            mavenContext: mavenContext
         )
 
         let start = try #require(core.startCalls.last)
         #expect(start.runtimeExecutableURL?.path == "/jdk/bin/java")
         #expect(start.jdtlsLaunchResources == resources)
+        #expect(start.workspaceFingerprint == "workspace-fingerprint")
+        #expect(start.mavenContext == mavenContext)
         session.stop()
     }
 
@@ -3228,6 +3239,7 @@ struct RunConfigurationIntegrationTests {
         try store.saveOptions(
             RunOptions(
                 javaHomePath: "/test/jdk-21",
+                mavenSkipTests: false,
                 mavenExecutablePath: "/test/maven/bin/mvn",
                 mavenJavaHomePath: "/test/maven-jdk"
             ),
@@ -3241,6 +3253,7 @@ struct RunConfigurationIntegrationTests {
         #expect(options.javaHomePath == "/test/jdk-21")
         #expect(options.mavenExecutablePath == "/test/maven/bin/mvn")
         #expect(options.mavenJavaHomePath == "/test/maven-jdk")
+        #expect(options.mavenSkipTests == false)
     }
 
     @Test
@@ -4295,6 +4308,8 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         let runtimeExecutableURL: URL?
         let jdtlsLaunchResources: JDTLSLaunchResources?
         let cacheDirectoryURL: URL?
+        let workspaceFingerprint: String?
+        let mavenContext: MavenLaunchContext?
         let initializeTimeout: TimeInterval
         let requestTimeout: TimeInterval
         let shutdownTimeout: TimeInterval
@@ -4366,6 +4381,42 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
     ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
+        startLanguageServer(
+            providerID: providerID,
+            executableURL: executableURL,
+            arguments: arguments,
+            environment: environment,
+            rootURL: rootURL,
+            workingDirectoryURL: workingDirectoryURL,
+            initializationOptions: initializationOptions,
+            runtimeExecutableURL: runtimeExecutableURL,
+            jdtlsLaunchResources: jdtlsLaunchResources,
+            cacheDirectoryURL: cacheDirectoryURL,
+            workspaceFingerprint: workspaceFingerprint,
+            mavenContext: nil,
+            initializeTimeout: initializeTimeout,
+            requestTimeout: requestTimeout,
+            shutdownTimeout: shutdownTimeout
+        )
+    }
+
+    func startLanguageServer(
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        workingDirectoryURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        runtimeExecutableURL: URL?,
+        jdtlsLaunchResources: JDTLSLaunchResources?,
+        cacheDirectoryURL: URL?,
+        workspaceFingerprint: String?,
+        mavenContext: MavenLaunchContext?,
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
         startCalls.append(StartCall(
             providerID: providerID,
             executableURL: executableURL,
@@ -4377,6 +4428,8 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
             runtimeExecutableURL: runtimeExecutableURL,
             jdtlsLaunchResources: jdtlsLaunchResources,
             cacheDirectoryURL: cacheDirectoryURL,
+            workspaceFingerprint: workspaceFingerprint,
+            mavenContext: mavenContext,
             initializeTimeout: initializeTimeout,
             requestTimeout: requestTimeout,
             shutdownTimeout: shutdownTimeout
@@ -4715,7 +4768,8 @@ private struct RunTestRuntimeLocator: RuntimeLocator {
     func isExecutable(at url: URL) -> Bool { url.lastPathComponent != "mvnw" }
     func systemMavenExecutable() -> URL? { URL(fileURLWithPath: "/toolchains/maven/bin/mvn") }
     func mavenExecutable(forHomePath path: String) -> URL? {
-        URL(fileURLWithPath: path, isDirectory: true).appendingPathComponent("bin/mvn")
+        let url = URL(fileURLWithPath: path)
+        return url.lastPathComponent == "mvn" ? url : url.appendingPathComponent("bin/mvn")
     }
     func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? {
         MavenRuntimeCandidate(
