@@ -13,6 +13,7 @@ use crate::protocol::{
 };
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::io::Read;
 use std::io::Write;
 #[cfg(target_os = "windows")]
@@ -216,6 +217,18 @@ pub struct GitStashRestoreResponse {
     pub conflicted_paths: Vec<String>,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Complete identity of a Git reference supplied by a platform client.
+pub struct GitReferenceRequest {
+    /// Fully qualified reference, such as `refs/remotes/origin/main`.
+    pub full_name: String,
+    /// User-facing short name, such as `origin/main`.
+    pub short_name: String,
+    /// Reference namespace: `local`, `remote`, or `tag`.
+    pub kind: String,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Typed mutation request translated into a controlled Git invocation.
@@ -227,11 +240,18 @@ pub struct GitWriteRequest {
     pub paths: Vec<String>,
     #[serde(default)]
     pub reference: Option<String>,
+    /// Preferred typed reference. Legacy callers may still use `reference` and
+    /// `referenceKind`, but new cross-platform workflows send all identity fields.
+    #[serde(default)]
+    pub git_reference: Option<GitReferenceRequest>,
     /// Reference category used by checkout: `local`, `remote`, or `tag`.
     #[serde(default)]
     pub reference_kind: Option<String>,
     #[serde(default)]
     pub revision: Option<String>,
+    /// Commit revisions selected by an operation that rewrites a contiguous range.
+    #[serde(default)]
+    pub revisions: Vec<String>,
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
@@ -263,6 +283,12 @@ pub struct GitDiffRequest {
     pub pathspecs: Vec<String>,
     #[serde(default)]
     pub reference: Option<String>,
+    #[serde(default)]
+    pub git_reference: Option<GitReferenceRequest>,
+    /// Optional typed comparison target. When present, `gitReference` is the
+    /// base and Core constructs the validated two-reference range.
+    #[serde(default)]
+    pub target_git_reference: Option<GitReferenceRequest>,
     #[serde(default)]
     pub commit: Option<String>,
     #[serde(default)]
@@ -317,7 +343,13 @@ pub struct GitCommitFilesRequest {
 /// Request to compare a reference with the current checkout.
 pub struct GitComparisonRequest {
     pub root: String,
-    pub reference: String,
+    #[serde(default)]
+    pub reference: Option<String>,
+    #[serde(default)]
+    pub git_reference: Option<GitReferenceRequest>,
+    /// Optional typed target for a comparison between two references.
+    #[serde(default)]
+    pub target_git_reference: Option<GitReferenceRequest>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -332,7 +364,10 @@ pub struct GitStashesRequest {
 /// Request to identify local edits that would block switching references.
 pub struct GitCheckoutPreflightRequest {
     pub root: String,
-    pub reference: String,
+    #[serde(default)]
+    pub reference: Option<String>,
+    #[serde(default)]
+    pub git_reference: Option<GitReferenceRequest>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -347,7 +382,10 @@ pub struct GitConflictMarkerRequest {
 /// Request to determine whether a merge or rebase can start safely.
 pub struct GitIntegrationPreflightRequest {
     pub root: String,
-    pub reference: String,
+    #[serde(default)]
+    pub reference: Option<String>,
+    #[serde(default)]
+    pub git_reference: Option<GitReferenceRequest>,
     /// Either "merge" or "rebase"; the two have different tolerances for a dirty tree.
     pub operation: String,
 }
@@ -469,11 +507,37 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
         "stageAll" => arguments = vec!["add".into(), "--all".into()],
         "commit" => {
             let message = required_text(request.message.as_deref(), "commit message")?;
+            if !request.paths.is_empty() {
+                let paths = validate_paths(&request.paths)?;
+                let stage_arguments = ["add", "-A", "--"]
+                    .into_iter()
+                    .map(String::from)
+                    .chain(paths.clone())
+                    .collect::<Vec<_>>();
+                let staged = execute_git(&root, &stage_arguments, None)?;
+                if staged.exit_code != 0 {
+                    return Ok(staged);
+                }
+
+                arguments = vec!["commit".into()];
+                if request.amend {
+                    arguments.push("--amend".into());
+                }
+                arguments.extend(["--only".into(), "-m".into(), message, "--".into()]);
+                arguments.extend(paths);
+                return execute_git(&root, &arguments, None);
+            }
             arguments = vec!["commit".into()];
             if request.amend {
                 arguments.push("--amend".into());
             }
             arguments.extend(["-m".into(), message]);
+        }
+        "ignore" => {
+            return append_git_ignore_patterns(&root, &request.paths, GitIgnoreTarget::Repository)
+        }
+        "exclude" => {
+            return append_git_ignore_patterns(&root, &request.paths, GitIgnoreTarget::LocalExclude)
         }
         "cherryPick" => {
             arguments = vec![
@@ -502,9 +566,22 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
             ];
             arguments.insert(0, "reset".into());
         }
+        "editCommitMessage" => {
+            let revision = validated_revision(request.revision.as_deref())?;
+            let message = required_text(request.message.as_deref(), "commit message")?;
+            return edit_commit_message(&root, &revision, &message);
+        }
+        "deleteCommit" => {
+            let revision = validated_revision(request.revision.as_deref())?;
+            return delete_commit(&root, &revision);
+        }
+        "squashCommits" => {
+            let message = required_text(request.message.as_deref(), "commit message")?;
+            return squash_commits(&root, &request.revisions, &message);
+        }
         "createBranch" => {
             let name = validated_branch_name(&root, request.name.as_deref())?;
-            let reference = validated_reference(request.reference.as_deref())?;
+            let reference = write_request_reference(&root, &request)?;
             arguments = if request.checkout {
                 vec!["switch".into(), "-c".into(), name, reference]
             } else {
@@ -516,19 +593,17 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
         }
         "renameBranch" => {
             let name = validated_branch_name(&root, request.name.as_deref())?;
-            let reference = validated_reference(request.reference.as_deref())?;
+            let reference = write_request_reference(&root, &request)?;
             let current = current_branch(&root)?;
             let current_reference = format!("refs/heads/{current}");
-            arguments = if request.reference.as_deref() == Some(current.as_str())
-                || request.reference.as_deref() == Some(current_reference.as_str())
-            {
+            arguments = if reference == current || reference == current_reference {
                 vec!["branch".into(), "-m".into(), name]
             } else {
                 vec!["branch".into(), "-m".into(), reference, name]
             };
         }
         "deleteBranch" => {
-            let reference = validated_reference(request.reference.as_deref())?;
+            let reference = write_request_reference(&root, &request)?;
             let branch = local_branch_name(&reference)?;
             if current_branch(&root)?.as_str() == branch {
                 return Err(CoreError::new(
@@ -539,7 +614,7 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
             arguments = vec!["branch".into(), "-d".into(), "--".into(), branch];
         }
         "merge" => {
-            let reference = validated_reference(request.reference.as_deref())?;
+            let reference = write_request_reference(&root, &request)?;
             if is_current_reference(&root, &reference)? {
                 return Err(CoreError::new(
                     ErrorCode::InvalidRequest,
@@ -549,7 +624,7 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
             arguments = vec!["merge".into(), "--no-edit".into(), reference];
         }
         "rebase" => {
-            let reference = validated_reference(request.reference.as_deref())?;
+            let reference = write_request_reference(&root, &request)?;
             if is_current_reference(&root, &reference)? {
                 return Err(CoreError::new(
                     ErrorCode::InvalidRequest,
@@ -575,19 +650,35 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
                     ))
                 }
             };
-            if let Some(reference) = request.reference.as_deref() {
+            let explicit_reference = if let Some(reference) = request.git_reference.as_ref() {
+                let reference = validated_git_reference(&root, reference)?;
+                if reference.kind != "remote" {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Explicit pull requires a remote Git reference",
+                    ));
+                }
+                Some(reference.full_name)
+            } else if let Some(reference) = request.reference.as_deref() {
                 if request.reference_kind.as_deref() != Some("remote") {
                     return Err(CoreError::new(
                         ErrorCode::InvalidRequest,
                         "Explicit pull requires a remote Git reference",
                     ));
                 }
-                let reference = validated_reference(Some(reference))?;
+                Some(validated_reference(Some(reference))?)
+            } else {
+                None
+            };
+            if let Some(reference) = explicit_reference {
                 let (remote, branch) = mutations::remote_branch_components(&root, &reference)?;
                 arguments.extend(["--".into(), remote, branch]);
             }
         }
-        "push" => return push(&root, request.reference.as_deref()),
+        "push" => {
+            let reference = optional_write_request_reference(&root, &request)?;
+            return push(&root, reference.as_deref());
+        }
         "checkout" => return checkout(&root, request),
         "checkoutRevision" => {
             arguments = vec![
@@ -679,9 +770,22 @@ fn capture_git_with_options(
     input: Option<String>,
     disable_optional_locks: bool,
 ) -> Result<GitProcessOutput, CoreError> {
+    capture_git_with_environment(root, arguments, input, disable_optional_locks, &[])
+}
+
+fn capture_git_with_environment(
+    root: &str,
+    arguments: &[String],
+    input: Option<String>,
+    disable_optional_locks: bool,
+    environment: &[(String, String)],
+) -> Result<GitProcessOutput, CoreError> {
     crate::protocol::cancellation::check()?;
     let mut process = git_process();
-    process.args(arguments).current_dir(root);
+    process
+        .args(arguments)
+        .current_dir(root)
+        .envs(environment.iter().map(|(key, value)| (key, value)));
     if disable_optional_locks {
         process.env("GIT_OPTIONAL_LOCKS", "0");
     }
@@ -783,7 +887,14 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
         ));
     }
 
-    if request.reference.is_some() && request.commit.is_some() {
+    let root = validate_root(&request.root)?;
+    let reference = typed_reference_range(
+        &root,
+        request.git_reference.as_ref(),
+        request.target_git_reference.as_ref(),
+        request.reference.as_deref(),
+    )?;
+    if reference.is_some() && request.commit.is_some() {
         return Err(CoreError::new(
             ErrorCode::InvalidRequest,
             "Git diff cannot combine a reference and a commit",
@@ -801,7 +912,7 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
             format!("--unified={}", request.context_lines),
             commit,
         ]
-    } else if let Some(reference) = request.reference {
+    } else if let Some(reference) = reference {
         validate_revision(&reference)?;
         vec![
             "diff".to_string(),
@@ -1209,7 +1320,14 @@ pub fn commit_files(request: GitCommitFilesRequest) -> Result<GitFilesResponse, 
 /// Computes ahead/behind counts and changed files for a reference comparison.
 pub fn comparison(request: GitComparisonRequest) -> Result<GitComparisonResponse, CoreError> {
     let root = validate_root(&request.root)?;
-    validate_revision(&request.reference)?;
+    let reference = typed_reference_range(
+        &root,
+        request.git_reference.as_ref(),
+        request.target_git_reference.as_ref(),
+        request.reference.as_deref(),
+    )?
+    .ok_or_else(|| CoreError::new(ErrorCode::InvalidRequest, "Missing Git reference"))?;
+    validate_revision(&reference)?;
     let response = readonly_command(GitCommandRequest {
         root,
         arguments: vec![
@@ -1218,7 +1336,7 @@ pub fn comparison(request: GitComparisonRequest) -> Result<GitComparisonResponse
             "diff".to_string(),
             "--name-status".to_string(),
             "--find-renames".to_string(),
-            request.reference,
+            reference,
             "--".to_string(),
         ],
         input: None,
@@ -1243,7 +1361,11 @@ pub fn checkout_preflight(
     request: GitCheckoutPreflightRequest,
 ) -> Result<GitCheckoutPreflightResponse, CoreError> {
     let root = validate_root(&request.root)?;
-    let reference = validated_reference(Some(&request.reference))?;
+    let reference = request_reference(
+        &root,
+        request.git_reference.as_ref(),
+        request.reference.as_deref(),
+    )?;
 
     let dirty = readonly_command(GitCommandRequest {
         root: root.clone(),
@@ -1419,7 +1541,11 @@ pub fn integration_preflight(
     request: GitIntegrationPreflightRequest,
 ) -> Result<GitIntegrationPreflightResponse, CoreError> {
     let root = validate_root(&request.root)?;
-    let reference = validated_reference(Some(&request.reference))?;
+    let reference = request_reference(
+        &root,
+        request.git_reference.as_ref(),
+        request.reference.as_deref(),
+    )?;
     let shape = match request.operation.as_str() {
         "merge" => IntegrationShape::MergeBase,
         "rebase" => IntegrationShape::AnyDirty,
@@ -1899,6 +2025,186 @@ fn required_text(value: Option<&str>, label: &str) -> Result<String, CoreError> 
     }
 }
 
+#[derive(Clone)]
+struct ValidatedGitReference {
+    full_name: String,
+    short_name: String,
+    kind: String,
+}
+
+fn invalid_git_reference() -> CoreError {
+    CoreError::new(ErrorCode::InvalidRequest, "Invalid Git reference")
+}
+
+fn validated_git_reference(
+    root: &str,
+    reference: &GitReferenceRequest,
+) -> Result<ValidatedGitReference, CoreError> {
+    if reference.full_name.contains(['\0', '\n', '\r'])
+        || reference.short_name.contains(['\0', '\n', '\r'])
+        || reference.full_name.chars().any(char::is_whitespace)
+        || reference.short_name.trim() != reference.short_name
+    {
+        return Err(invalid_git_reference());
+    }
+
+    let prefix = match reference.kind.as_str() {
+        "local" => "refs/heads/",
+        "remote" => "refs/remotes/",
+        "tag" => "refs/tags/",
+        _ => return Err(invalid_git_reference()),
+    };
+    let expected_short_name = reference
+        .full_name
+        .strip_prefix(prefix)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(invalid_git_reference)?;
+    if expected_short_name != reference.short_name {
+        return Err(invalid_git_reference());
+    }
+
+    let checked = execute_git_readonly(
+        root,
+        &["check-ref-format".into(), reference.full_name.clone()],
+        None,
+    )?;
+    if checked.exit_code != 0 {
+        return Err(invalid_git_reference());
+    }
+    if reference.kind == "remote" {
+        let (remote, branch) = reference
+            .short_name
+            .split_once('/')
+            .filter(|(remote, branch)| {
+                !remote.is_empty() && !branch.is_empty() && *branch != "HEAD"
+            })
+            .ok_or_else(invalid_git_reference)?;
+        if remote.starts_with('-') || branch.starts_with('-') {
+            return Err(invalid_git_reference());
+        }
+    }
+
+    Ok(ValidatedGitReference {
+        full_name: reference.full_name.clone(),
+        short_name: reference.short_name.clone(),
+        kind: reference.kind.clone(),
+    })
+}
+
+fn legacy_checkout_reference(
+    root: &str,
+    reference: &str,
+    kind: &str,
+) -> Result<ValidatedGitReference, CoreError> {
+    let (full_name, short_name) = match kind {
+        "local" => {
+            let short_name = reference.strip_prefix("refs/heads/").unwrap_or(reference);
+            (format!("refs/heads/{short_name}"), short_name.to_string())
+        }
+        "remote" => {
+            let short_name = reference
+                .strip_prefix("refs/remotes/")
+                .ok_or_else(invalid_git_reference)?;
+            (reference.to_string(), short_name.to_string())
+        }
+        "tag" => {
+            let short_name = reference.strip_prefix("refs/tags/").unwrap_or(reference);
+            (format!("refs/tags/{short_name}"), short_name.to_string())
+        }
+        _ => return Err(invalid_git_reference()),
+    };
+    validated_git_reference(
+        root,
+        &GitReferenceRequest {
+            full_name,
+            short_name,
+            kind: kind.to_string(),
+        },
+    )
+}
+
+fn optional_write_request_reference(
+    root: &str,
+    request: &GitWriteRequest,
+) -> Result<Option<String>, CoreError> {
+    if let Some(reference) = request.git_reference.as_ref() {
+        return validated_git_reference(root, reference).map(|value| Some(value.full_name));
+    }
+    request
+        .reference
+        .as_deref()
+        .map(|reference| validated_reference(Some(reference)))
+        .transpose()
+}
+
+pub(super) fn write_request_reference(
+    root: &str,
+    request: &GitWriteRequest,
+) -> Result<String, CoreError> {
+    optional_write_request_reference(root, request)?
+        .ok_or_else(|| CoreError::new(ErrorCode::InvalidRequest, "Missing Git reference"))
+}
+
+fn checkout_request_reference(
+    root: &str,
+    request: &GitWriteRequest,
+) -> Result<ValidatedGitReference, CoreError> {
+    if let Some(reference) = request.git_reference.as_ref() {
+        return validated_git_reference(root, reference);
+    }
+    let reference = validated_reference(request.reference.as_deref())?;
+    let kind = required_text(request.reference_kind.as_deref(), "reference kind")?;
+    legacy_checkout_reference(root, &reference, &kind)
+}
+
+fn request_reference(
+    root: &str,
+    typed: Option<&GitReferenceRequest>,
+    legacy: Option<&str>,
+) -> Result<String, CoreError> {
+    if let Some(reference) = typed {
+        return validated_git_reference(root, reference).map(|value| value.full_name);
+    }
+    validated_reference(legacy)
+}
+
+fn typed_reference_range(
+    root: &str,
+    base: Option<&GitReferenceRequest>,
+    target: Option<&GitReferenceRequest>,
+    legacy: Option<&str>,
+) -> Result<Option<String>, CoreError> {
+    match (base, target) {
+        (Some(base), Some(target)) => {
+            if legacy.is_some() {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Git comparison cannot combine typed and legacy references",
+                ));
+            }
+            let base = validated_git_reference(root, base)?;
+            let target = validated_git_reference(root, target)?;
+            Ok(Some(format!("{}..{}", base.full_name, target.full_name)))
+        }
+        (None, Some(_)) => Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Git comparison target requires a base reference",
+        )),
+        (Some(base), None) => {
+            if legacy.is_some() {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Git comparison cannot combine typed and legacy references",
+                ));
+            }
+            Ok(Some(validated_git_reference(root, base)?.full_name))
+        }
+        (None, None) => legacy
+            .map(|value| validated_reference(Some(value)))
+            .transpose(),
+    }
+}
+
 fn validate_paths(paths: &[String]) -> Result<Vec<String>, CoreError> {
     if paths.is_empty() || paths.iter().any(|path| !is_safe_pathspec(path)) {
         return Err(CoreError::new(
@@ -1907,6 +2213,599 @@ fn validate_paths(paths: &[String]) -> Result<Vec<String>, CoreError> {
         ));
     }
     Ok(paths.to_vec())
+}
+
+/// Chooses whether ignore patterns belong to the shared repository file or the
+/// current checkout's local Git metadata.
+enum GitIgnoreTarget {
+    Repository,
+    LocalExclude,
+}
+
+fn append_git_ignore_patterns(
+    root: &str,
+    paths: &[String],
+    target: GitIgnoreTarget,
+) -> Result<GitCommandResponse, CoreError> {
+    let patterns = git_ignore_patterns(paths)?;
+    let target_path = match target {
+        GitIgnoreTarget::Repository => repository_root(root)?.join(".gitignore"),
+        GitIgnoreTarget::LocalExclude => git_path(root, "info/exclude")?,
+    };
+    let existing = match std::fs::read(&target_path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => return Err(git_ignore_io_error("read", error)),
+    };
+    let existing_text = String::from_utf8_lossy(&existing);
+    let additions = patterns
+        .into_iter()
+        .filter(|pattern| !existing_text.lines().any(|line| line == pattern))
+        .collect::<Vec<_>>();
+    if additions.is_empty() {
+        return Ok(successful_git_result());
+    }
+
+    if let Some(parent) = target_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| git_ignore_io_error("create", error))?;
+    }
+    let mut appended = String::new();
+    if !existing.is_empty() && !existing.ends_with(b"\n") {
+        appended.push('\n');
+    }
+    for pattern in additions {
+        appended.push_str(&pattern);
+        appended.push('\n');
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(target_path)
+        .map_err(|error| git_ignore_io_error("open", error))?;
+    file.write_all(appended.as_bytes())
+        .map_err(|error| git_ignore_io_error("write", error))?;
+    Ok(successful_git_result())
+}
+
+fn git_ignore_patterns(paths: &[String]) -> Result<Vec<String>, CoreError> {
+    let mut patterns = Vec::with_capacity(paths.len());
+    for path in paths {
+        if path.contains(['\0', '\n', '\r']) {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Git ignore operation contains an invalid path",
+            ));
+        }
+        let normalized = path.replace('\\', "/");
+        let is_directory = normalized.ends_with('/');
+        let normalized = normalized.trim_end_matches('/');
+        if !is_safe_pathspec(normalized) {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Git ignore operation contains an invalid path",
+            ));
+        }
+
+        let mut escaped = String::with_capacity(normalized.len() + 2);
+        escaped.push('/');
+        for character in normalized.chars() {
+            if matches!(character, '*' | '?' | '[' | ']' | '#' | '!' | ' ') {
+                escaped.push('\\');
+            }
+            escaped.push(character);
+        }
+        if is_directory {
+            escaped.push('/');
+        }
+        patterns.push(escaped);
+    }
+    patterns.sort();
+    patterns.dedup();
+    if patterns.is_empty() {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Git ignore operation contains an invalid path",
+        ));
+    }
+    Ok(patterns)
+}
+
+fn repository_root(root: &str) -> Result<PathBuf, CoreError> {
+    git_resolved_path(root, &["rev-parse", "--show-toplevel"], "repository root")
+}
+
+fn git_path(root: &str, path: &str) -> Result<PathBuf, CoreError> {
+    git_resolved_path(
+        root,
+        &["rev-parse", "--path-format=absolute", "--git-path", path],
+        "Git metadata path",
+    )
+}
+
+fn git_resolved_path(root: &str, arguments: &[&str], label: &str) -> Result<PathBuf, CoreError> {
+    let arguments = arguments
+        .iter()
+        .map(|value| value.to_string())
+        .collect::<Vec<_>>();
+    let response = execute_git_readonly(root, &arguments, None)?;
+    if response.exit_code != 0 {
+        return Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            format!("Could not resolve {label}"),
+        )
+        .with_details(response.output));
+    }
+    let path = response.output.trim();
+    if path.is_empty() {
+        return Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            format!("Could not resolve {label}"),
+        ));
+    }
+    Ok(PathBuf::from(path))
+}
+
+fn git_ignore_io_error(action: &str, error: std::io::Error) -> CoreError {
+    let code = if error.kind() == std::io::ErrorKind::PermissionDenied {
+        ErrorCode::PermissionDenied
+    } else {
+        ErrorCode::Unknown
+    };
+    CoreError::new(code, format!("Could not {action} Git ignore file"))
+        .with_details(error.to_string())
+}
+
+fn successful_git_result() -> GitCommandResponse {
+    GitCommandResponse {
+        arguments: Vec::new(),
+        output: String::new(),
+        stdout: String::new(),
+        stderr: String::new(),
+        exit_code: 0,
+        invocations: Vec::new(),
+        operation_error: None,
+        stash_restore: None,
+    }
+}
+
+/// Immutable commit fields needed to rebuild a linear history without invoking
+/// an editor or losing author and committer attribution.
+#[derive(Clone)]
+struct RewriteCommit {
+    tree: String,
+    parents: Vec<String>,
+    author_name: String,
+    author_email: String,
+    author_date: String,
+    committer_name: String,
+    committer_email: String,
+    committer_date: String,
+    message: String,
+}
+
+/// Current local branch context and its first-parent chain, ordered from HEAD
+/// toward the root commit.
+struct HistoryRewriteContext {
+    branch_reference: String,
+    original_head: String,
+    first_parent_chain: Vec<String>,
+    published_commits: HashSet<String>,
+}
+
+fn edit_commit_message(
+    root: &str,
+    revision: &str,
+    message: &str,
+) -> Result<GitCommandResponse, CoreError> {
+    let context = history_rewrite_context(root)?;
+    let target = resolve_commit_revision(root, revision)?;
+    let target_index = history_commit_index(&context, &target)?;
+    let commits = checked_rewrite_range(root, &context, target_index)?;
+    let mut parent = commits[0].parents.first().cloned();
+
+    for (index, commit) in commits.iter().enumerate() {
+        let commit_message = if index == 0 { message } else { &commit.message };
+        parent = Some(write_commit_tree(
+            root,
+            commit,
+            parent.as_deref(),
+            commit_message,
+        )?);
+    }
+
+    update_history_reference(
+        root,
+        &context,
+        parent.as_deref().expect("rewrite range contains a commit"),
+        "lithe: edit commit message",
+    )
+}
+
+fn delete_commit(root: &str, revision: &str) -> Result<GitCommandResponse, CoreError> {
+    let context = history_rewrite_context(root)?;
+    let target = resolve_commit_revision(root, revision)?;
+    let target_index = history_commit_index(&context, &target)?;
+    let commits = checked_rewrite_range(root, &context, target_index)?;
+    let target_commit = &commits[0];
+    let parent = target_commit.parents.first().ok_or_else(|| {
+        CoreError::new(
+            ErrorCode::InvalidRequest,
+            "The root commit cannot be deleted",
+        )
+    })?;
+
+    if target == context.original_head {
+        return execute_git(
+            root,
+            &["reset".into(), "--hard".into(), parent.clone()],
+            None,
+        );
+    }
+
+    execute_git(
+        root,
+        &[
+            "-c".into(),
+            "core.editor=true".into(),
+            "rebase".into(),
+            "--onto".into(),
+            parent.clone(),
+            target,
+        ],
+        None,
+    )
+}
+
+fn squash_commits(
+    root: &str,
+    revisions: &[String],
+    message: &str,
+) -> Result<GitCommandResponse, CoreError> {
+    if revisions.len() < 2 {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Select at least two commits to squash",
+        ));
+    }
+
+    let context = history_rewrite_context(root)?;
+    let mut selected = Vec::with_capacity(revisions.len());
+    for revision in revisions {
+        validate_revision(revision)?;
+        selected.push(resolve_commit_revision(root, revision)?);
+    }
+    selected.sort();
+    selected.dedup();
+    if selected.len() != revisions.len() {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Select distinct commits to squash",
+        ));
+    }
+
+    let mut selected_indices = selected
+        .iter()
+        .map(|commit| history_commit_index(&context, commit))
+        .collect::<Result<Vec<_>, _>>()?;
+    selected_indices.sort_unstable();
+    let newest_index = selected_indices[0];
+    let oldest_index = *selected_indices
+        .last()
+        .expect("at least two commits were selected");
+    if oldest_index - newest_index + 1 != selected_indices.len() {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Only a contiguous range of commits can be squashed",
+        ));
+    }
+
+    let commits = checked_rewrite_range(root, &context, oldest_index)?;
+    let selected_count = oldest_index - newest_index + 1;
+    let oldest = &commits[0];
+    let newest = &commits[selected_count - 1];
+    let mut squashed = oldest.clone();
+    squashed.tree.clone_from(&newest.tree);
+    squashed.committer_name.clone_from(&newest.committer_name);
+    squashed.committer_email.clone_from(&newest.committer_email);
+    squashed.committer_date.clone_from(&newest.committer_date);
+
+    let mut parent = Some(write_commit_tree(
+        root,
+        &squashed,
+        oldest.parents.first().map(String::as_str),
+        message,
+    )?);
+    for commit in commits.iter().skip(selected_count) {
+        parent = Some(write_commit_tree(
+            root,
+            commit,
+            parent.as_deref(),
+            &commit.message,
+        )?);
+    }
+
+    update_history_reference(
+        root,
+        &context,
+        parent.as_deref().expect("squash produces a commit"),
+        "lithe: squash commits",
+    )
+}
+
+fn history_rewrite_context(root: &str) -> Result<HistoryRewriteContext, CoreError> {
+    let operation = operation_state(GitOperationStateRequest {
+        root: root.to_string(),
+    })?;
+    if !operation.kind.is_empty() {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Finish or abort the current Git operation before rewriting history",
+        ));
+    }
+
+    let status = execute_git_readonly(
+        root,
+        &[
+            "status".into(),
+            "--porcelain=v1".into(),
+            "--untracked-files=all".into(),
+        ],
+        None,
+    )?;
+    if status.exit_code != 0 {
+        return Err(
+            CoreError::new(ErrorCode::ProcessFailed, "Git status failed")
+                .with_details(status.output),
+        );
+    }
+    if !status.output.trim().is_empty() {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Commit history can only be rewritten with a clean working tree",
+        ));
+    }
+
+    let branch = execute_git_readonly(
+        root,
+        &["symbolic-ref".into(), "--quiet".into(), "HEAD".into()],
+        None,
+    )?;
+    let branch_reference = branch.output.trim();
+    if branch.exit_code != 0 || !branch_reference.starts_with("refs/heads/") {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Commit history can only be rewritten on a checked out local branch",
+        ));
+    }
+
+    let chain = execute_git_readonly(
+        root,
+        &["rev-list".into(), "--first-parent".into(), "HEAD".into()],
+        None,
+    )?;
+    if chain.exit_code != 0 {
+        return Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Could not read the current branch history",
+        )
+        .with_details(chain.output));
+    }
+    let first_parent_chain = chain
+        .output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(String::from)
+        .collect::<Vec<_>>();
+    let original_head = first_parent_chain.first().cloned().ok_or_else(|| {
+        CoreError::new(
+            ErrorCode::InvalidRequest,
+            "The current branch does not contain any commits",
+        )
+    })?;
+
+    let remote_commits =
+        execute_git_readonly(root, &["rev-list".into(), "--remotes".into()], None)?;
+    if remote_commits.exit_code != 0 {
+        return Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Could not inspect remote Git history",
+        )
+        .with_details(remote_commits.output));
+    }
+
+    Ok(HistoryRewriteContext {
+        branch_reference: branch_reference.to_string(),
+        original_head,
+        first_parent_chain,
+        published_commits: remote_commits
+            .output
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(String::from)
+            .collect(),
+    })
+}
+
+fn resolve_commit_revision(root: &str, revision: &str) -> Result<String, CoreError> {
+    let response = execute_git_readonly(
+        root,
+        &[
+            "rev-parse".into(),
+            "--verify".into(),
+            "--quiet".into(),
+            "--end-of-options".into(),
+            format!("{revision}^{{commit}}"),
+        ],
+        None,
+    )?;
+    let commit = response.output.trim();
+    if response.exit_code != 0 || commit.is_empty() {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "The selected Git commit does not exist",
+        ));
+    }
+    Ok(commit.to_string())
+}
+
+fn history_commit_index(context: &HistoryRewriteContext, commit: &str) -> Result<usize, CoreError> {
+    context
+        .first_parent_chain
+        .iter()
+        .position(|candidate| candidate == commit)
+        .ok_or_else(|| {
+            CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Only commits on the current branch first-parent history can be rewritten",
+            )
+        })
+}
+
+fn checked_rewrite_range(
+    root: &str,
+    context: &HistoryRewriteContext,
+    oldest_index: usize,
+) -> Result<Vec<RewriteCommit>, CoreError> {
+    let hashes = &context.first_parent_chain[..=oldest_index];
+    if hashes
+        .iter()
+        .any(|commit| context.published_commits.contains(commit))
+    {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Commits published to a remote cannot be rewritten",
+        ));
+    }
+
+    let mut commits = hashes
+        .iter()
+        .rev()
+        .map(|hash| read_rewrite_commit(root, hash))
+        .collect::<Result<Vec<_>, _>>()?;
+    if commits.iter().any(|commit| commit.parents.len() > 1) {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "A history range containing merge commits cannot be rewritten",
+        ));
+    }
+    commits.shrink_to_fit();
+    Ok(commits)
+}
+
+fn read_rewrite_commit(root: &str, hash: &str) -> Result<RewriteCommit, CoreError> {
+    let format = "%T%x00%P%x00%an%x00%ae%x00%aI%x00%cn%x00%ce%x00%cI%x00%B%x00";
+    let response = execute_git_readonly(
+        root,
+        &[
+            "show".into(),
+            "--no-patch".into(),
+            "--no-show-signature".into(),
+            format!("--format={format}"),
+            hash.to_string(),
+        ],
+        None,
+    )?;
+    if response.exit_code != 0 {
+        return Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Could not read a commit selected for history rewrite",
+        )
+        .with_details(response.output));
+    }
+
+    let output = response
+        .output
+        .strip_suffix("\0\n")
+        .or_else(|| response.output.strip_suffix('\0'))
+        .unwrap_or(&response.output);
+    let fields = output.splitn(9, '\0').collect::<Vec<_>>();
+    if fields.len() != 9 {
+        return Err(CoreError::new(
+            ErrorCode::ParseFailed,
+            "Could not decode a commit selected for history rewrite",
+        ));
+    }
+    Ok(RewriteCommit {
+        tree: fields[0].to_string(),
+        parents: fields[1].split_whitespace().map(String::from).collect(),
+        author_name: fields[2].to_string(),
+        author_email: fields[3].to_string(),
+        author_date: fields[4].to_string(),
+        committer_name: fields[5].to_string(),
+        committer_email: fields[6].to_string(),
+        committer_date: fields[7].to_string(),
+        message: fields[8].to_string(),
+    })
+}
+
+fn write_commit_tree(
+    root: &str,
+    commit: &RewriteCommit,
+    parent: Option<&str>,
+    message: &str,
+) -> Result<String, CoreError> {
+    let mut arguments = vec![
+        "-c".into(),
+        "commit.gpgSign=false".into(),
+        "commit-tree".into(),
+        commit.tree.clone(),
+    ];
+    if let Some(parent) = parent {
+        arguments.extend(["-p".into(), parent.to_string()]);
+    }
+    arguments.extend(["-F".into(), "-".into()]);
+    let environment = vec![
+        ("GIT_AUTHOR_NAME".into(), commit.author_name.clone()),
+        ("GIT_AUTHOR_EMAIL".into(), commit.author_email.clone()),
+        ("GIT_AUTHOR_DATE".into(), commit.author_date.clone()),
+        ("GIT_COMMITTER_NAME".into(), commit.committer_name.clone()),
+        ("GIT_COMMITTER_EMAIL".into(), commit.committer_email.clone()),
+        ("GIT_COMMITTER_DATE".into(), commit.committer_date.clone()),
+    ];
+    let output = capture_git_with_environment(
+        root,
+        &arguments,
+        Some(message.to_string()),
+        false,
+        &environment,
+    )?;
+    if output.exit_code != 0 {
+        return Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Could not rebuild Git commit history",
+        )
+        .with_details(output.into_command_response(&arguments).output));
+    }
+    let hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if hash.is_empty() {
+        return Err(CoreError::new(
+            ErrorCode::ParseFailed,
+            "Git did not return a rebuilt commit identifier",
+        ));
+    }
+    Ok(hash)
+}
+
+fn update_history_reference(
+    root: &str,
+    context: &HistoryRewriteContext,
+    new_head: &str,
+    reflog_message: &str,
+) -> Result<GitCommandResponse, CoreError> {
+    execute_git(
+        root,
+        &[
+            "update-ref".into(),
+            "-m".into(),
+            reflog_message.into(),
+            context.branch_reference.clone(),
+            new_head.into(),
+            context.original_head.clone(),
+        ],
+        None,
+    )
 }
 
 fn validated_revision(value: Option<&str>) -> Result<String, CoreError> {
@@ -2024,29 +2923,29 @@ fn failed_git_result(error: CoreError) -> GitCommandResponse {
     }
 }
 
-/// Discards both index and working-tree content for a conflict-dialog rollback.
+/// Discards both index and working-tree content for an explicitly confirmed rollback.
 /// The normal `discard` operation deliberately preserves staged content, while
-/// this explicit operation is destructive for the whole path and therefore only
-/// used after the UI's second confirmation.
+/// this explicit operation is destructive for the whole path.
 fn discard_all(root: &str, paths: &[String]) -> Result<GitCommandResponse, CoreError> {
     let mut tracked = Vec::new();
     let mut untracked = Vec::new();
-    let mut status_arguments = vec![
+    let status_arguments = vec![
         "status".to_string(),
-        "--porcelain".to_string(),
+        "--porcelain=v1".to_string(),
+        "-z".to_string(),
         "--untracked-files=all".to_string(),
-        "--".to_string(),
     ];
-    status_arguments.extend(paths.iter().cloned());
     let status = execute_git(root, &status_arguments, None)?;
     if status.exit_code != 0 {
         return Ok(status);
     }
+    let untracked_paths = status
+        .output
+        .split('\0')
+        .filter_map(|record| record.strip_prefix("?? "))
+        .collect::<HashSet<_>>();
     for path in paths {
-        let is_untracked = status.output.lines().any(|line| {
-            (line.starts_with("??") || line.starts_with("!!")) && line[3..].trim() == path
-        });
-        if is_untracked {
+        if untracked_paths.contains(path.as_str()) {
             untracked.push(path.clone());
         } else {
             tracked.push(path.clone());
@@ -2055,12 +2954,25 @@ fn discard_all(root: &str, paths: &[String]) -> Result<GitCommandResponse, CoreE
 
     let mut final_response = status;
     if !tracked.is_empty() {
-        let mut arguments = vec!["checkout".to_string(), "HEAD".to_string(), "--".to_string()];
-        arguments.extend(tracked);
-        final_response = execute_git(root, &arguments, None)?;
-        if final_response.exit_code != 0 {
-            return Ok(final_response);
+        let arguments = vec![
+            "restore".to_string(),
+            "--source=HEAD".to_string(),
+            "--staged".to_string(),
+            "--worktree".to_string(),
+            "--pathspec-from-file=-".to_string(),
+            "--pathspec-file-nul".to_string(),
+        ];
+        // Passing pathspecs over stdin avoids the Windows command-line limit for
+        // large source-control selections and preserves unusual path characters.
+        let pathspec_input = tracked
+            .iter()
+            .flat_map(|path| [path.as_str(), "\0"])
+            .collect::<String>();
+        let restored = execute_git(root, &arguments, Some(pathspec_input))?;
+        if restored.exit_code != 0 {
+            return Ok(restored);
         }
+        final_response = restored;
     }
     if !untracked.is_empty() {
         let mut arguments = vec![
@@ -2350,30 +3262,45 @@ pub(super) fn switch_reference(
     root: &str,
     request: &GitWriteRequest,
 ) -> Result<GitCommandResponse, CoreError> {
-    let reference = validated_reference(request.reference.as_deref())?;
+    let reference = checkout_request_reference(root, request)?;
+    switch_validated_reference(root, &reference, request.force)
+}
+
+fn switch_validated_reference(
+    root: &str,
+    reference: &ValidatedGitReference,
+    force: bool,
+) -> Result<GitCommandResponse, CoreError> {
     let mut base: Vec<String> = vec!["switch".into()];
-    if request.force {
+    if force {
         base.push("--discard-changes".into());
     }
-    match request.reference_kind.as_deref() {
-        Some("local") => {
-            // `git switch` rejects fully qualified refs ("refs/heads/foo"), so pass the
-            // short branch name. Tags still need the full ref for the --detach form.
-            let branch = local_branch_name(&reference)?;
-            base.push(branch);
-            execute_git(root, &base, None)
-        }
-        Some("tag") => {
-            base.push("--detach".into());
-            base.push(reference);
-            execute_git(root, &base, None)
-        }
-        Some("remote") => {
-            let (_, local_name) = mutations::remote_branch_components(root, &reference)?;
-            if !is_safe_pathspec(&local_name) {
+    match reference.kind.as_str() {
+        "local" => {
+            if current_branch(root)? == reference.short_name {
                 return Err(CoreError::new(
                     ErrorCode::InvalidRequest,
-                    "Invalid remote branch name",
+                    "The current branch is already checked out",
+                ));
+            }
+            // `git switch` rejects fully qualified refs ("refs/heads/foo"), so pass the
+            // short branch name. Tags still need the full ref for the --detach form.
+            base.push(reference.short_name.clone());
+            execute_git(root, &base, None)
+        }
+        "tag" => {
+            base.push("--detach".into());
+            base.push(reference.full_name.clone());
+            execute_git(root, &base, None)
+        }
+        "remote" => {
+            let (_, local_name) = reference.short_name.split_once('/').ok_or_else(|| {
+                CoreError::new(ErrorCode::InvalidRequest, "Invalid remote branch name")
+            })?;
+            if current_branch(root)? == local_name {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "The current branch is already checked out",
                 ));
             }
             let local_ref = format!("refs/heads/{local_name}");
@@ -2393,7 +3320,7 @@ pub(super) fn switch_reference(
                 base.push("--track".into());
                 base.push("-c".into());
                 base.push(local_name.to_string());
-                base.push(reference);
+                base.push(reference.full_name.clone());
             }
             execute_git(root, &base, None)
         }

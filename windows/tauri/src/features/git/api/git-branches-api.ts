@@ -7,8 +7,9 @@ import {
   resolveRepositoryPathOrThrow,
 } from "./git-repo-api";
 import type { GitReference } from "../types/git.types";
+import { referencePayload, type GitReferenceInput } from "./git-reference-payload";
 
-interface CheckoutResult {
+export interface CheckoutResult {
   success: boolean;
   hasChanges: boolean;
   message: string;
@@ -31,6 +32,9 @@ const blockingChangesMessage = (blockingPaths: string[]): string => {
   return `Local changes would be overwritten by switching branches: ${listed}${suffix}`;
 };
 
+const localBranchReference = (branchName: string): string =>
+  branchName.startsWith("refs/heads/") ? branchName : `refs/heads/${branchName}`;
+
 export const getBranches = async (repoPath: string): Promise<string[]> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPath(repoPath);
@@ -52,28 +56,21 @@ export const getBranches = async (repoPath: string): Promise<string[]> => {
 export const checkoutBranch = async (
   repoPath: string,
   branchName: string,
-): Promise<CheckoutResult> => {
-  const shortName = branchName.replace(/^refs\/heads\//, "");
-  return checkoutReference(repoPath, {
-    fullName: branchName.startsWith("refs/heads/") ? branchName : `refs/heads/${branchName}`,
-    shortName,
-    kind: "local",
-    isCurrent: false,
-  });
-};
+): Promise<CheckoutResult> => checkoutReference(repoPath, localBranchReference(branchName), "local");
 
 export const checkoutReference = async (
   repoPath: string,
-  reference: GitReference,
+  reference: GitReferenceInput,
+  referenceKind?: "local" | "remote" | "tag",
 ): Promise<CheckoutResult> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
 
-    const preflight = await tauriInvoke<CheckoutPreflightResult>("git_checkout_preflight", {
+    const preflight = await tauriInvoke<CheckoutPreflightResult>("git.checkoutPreflight", {
       repoPath: resolvedRepoPath,
-      reference: reference.fullName,
+      ...referencePayload(reference),
     });
-    if (preflight.blocked) {
+    if (preflight.blockingPaths.length > 0) {
       return {
         success: false,
         hasChanges: true,
@@ -81,19 +78,18 @@ export const checkoutReference = async (
       };
     }
 
-    const result = await tauriInvoke<CheckoutResult>("git_checkout", {
+    await tauriInvoke("git.write", {
       repoPath: resolvedRepoPath,
-      reference: reference.fullName,
-      referenceKind: reference.kind,
+      operation: "checkout",
+      ...referencePayload(reference),
+      ...(typeof reference === "string" && referenceKind ? { referenceKind } : {}),
     });
-    if (result.success) {
-      emitGitChanged({
-        repoPath: resolvedRepoPath,
-        scopes: ["working-tree", "history", "refs"],
-        source: "checkout-branch",
-      });
-    }
-    return result;
+    emitGitChanged({
+      repoPath: resolvedRepoPath,
+      scopes: ["working-tree", "history", "refs"],
+      source: "checkout-branch",
+    });
+    return { success: true, hasChanges: false, message: "" };
   } catch (error) {
     console.error("Failed to checkout branch:", error);
     return {
@@ -104,6 +100,16 @@ export const checkoutReference = async (
   }
 };
 
+export const checkoutRemoteBranch = async (
+  repoPath: string,
+  reference: string,
+): Promise<CheckoutResult> => checkoutReference(repoPath, reference, "remote");
+
+export const checkoutGitReference = async (
+  repoPath: string,
+  reference: GitReference,
+): Promise<CheckoutResult> => checkoutReference(repoPath, reference);
+
 export const createBranch = async (
   repoPath: string,
   branchName: string,
@@ -111,14 +117,12 @@ export const createBranch = async (
 ): Promise<boolean> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
-    await tauriInvoke("git_create_branch", {
+    const source = typeof from === "string" ? localBranchReference(from) : (from ?? "HEAD");
+    await tauriInvoke("git.write", {
       repoPath: resolvedRepoPath,
-      branchName,
-      ...(typeof from === "string"
-        ? { fromBranch: from }
-        : from
-          ? { reference: from.fullName, referenceKind: from.kind }
-          : {}),
+      operation: "createBranch",
+      name: branchName,
+      ...referencePayload(source),
     });
     emitGitChanged({
       repoPath: resolvedRepoPath,
@@ -130,6 +134,92 @@ export const createBranch = async (
     console.error("Failed to create branch:", error);
     return false;
   }
+};
+
+export const createAndCheckoutBranch = async (
+  repoPath: string,
+  branchName: string,
+  reference: GitReferenceInput,
+): Promise<void> => {
+  const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
+  await tauriInvoke("git.write", {
+    repoPath: resolvedRepoPath,
+    operation: "createBranch",
+    name: branchName,
+    ...referencePayload(reference),
+    checkout: true,
+  });
+  emitGitChanged({
+    repoPath: resolvedRepoPath,
+    scopes: ["working-tree", "history", "refs"],
+    source: "create-and-checkout-branch",
+  });
+};
+
+export const renameBranch = async (
+  repoPath: string,
+  branchName: string,
+  newBranchName: string,
+): Promise<void> => {
+  const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
+  await tauriInvoke("git.write", {
+    repoPath: resolvedRepoPath,
+    operation: "renameBranch",
+    reference: localBranchReference(branchName),
+    name: newBranchName,
+  });
+  emitGitChanged({
+    repoPath: resolvedRepoPath,
+    scopes: ["history", "refs"],
+    source: "rename-branch",
+  });
+};
+
+export const pushBranch = async (repoPath: string, branchName: string): Promise<void> => {
+  const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
+  await tauriInvoke("git.write", {
+    repoPath: resolvedRepoPath,
+    operation: "push",
+    reference: localBranchReference(branchName),
+  });
+  emitGitChanged({
+    repoPath: resolvedRepoPath,
+    scopes: ["history", "refs", "remotes"],
+    source: "push-branch",
+  });
+};
+
+export const setBranchUpstream = async (
+  repoPath: string,
+  branchName: string,
+  upstreamShortName: string,
+): Promise<void> => {
+  const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
+  await tauriInvoke("git.command", {
+    repoPath: resolvedRepoPath,
+    arguments: ["branch", "--set-upstream-to", upstreamShortName, branchName],
+  });
+  emitGitChanged({
+    repoPath: resolvedRepoPath,
+    scopes: ["history", "refs", "remotes"],
+    source: "set-branch-upstream",
+  });
+};
+
+export const unsetBranchUpstream = async (
+  repoPath: string,
+  branchName: string,
+): Promise<void> => {
+  const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
+  await tauriInvoke("git.command", {
+    repoPath: resolvedRepoPath,
+    arguments: ["branch", "--unset-upstream", branchName],
+  });
+  emitGitChanged({
+    repoPath: resolvedRepoPath,
+    scopes: ["history", "refs", "remotes"],
+    source: "unset-branch-upstream",
+  });
 };
 
 export const deleteBranch = async (repoPath: string, branchName: string): Promise<boolean> => {

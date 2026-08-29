@@ -52,6 +52,31 @@ export const addWorktree = async (
   }
 };
 
+export const addWorktreeFromReference = async (
+  repoPath: string,
+  path: string,
+  branchName: string,
+  reference: string,
+  upstreamShortName?: string,
+): Promise<void> => {
+  const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
+  await tauriInvoke("git.command", {
+    repoPath: resolvedRepoPath,
+    arguments: ["worktree", "add", "-b", branchName, "--", path, reference],
+  });
+  if (upstreamShortName) {
+    await tauriInvoke("git.command", {
+      repoPath: resolvedRepoPath,
+      arguments: ["branch", "--set-upstream-to", upstreamShortName, branchName],
+    });
+  }
+  emitGitChanged({
+    repoPath: resolvedRepoPath,
+    scopes: ["repository", "history", "refs"],
+    source: "add-reference-worktree",
+  });
+};
+
 export const removeWorktree = async (
   repoPath: string,
   path: string,

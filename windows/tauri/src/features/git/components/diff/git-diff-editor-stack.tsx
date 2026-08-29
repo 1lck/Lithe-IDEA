@@ -186,6 +186,7 @@ function LargeDiffSectionEditor({
         showToolbar={false}
         readOnly={true}
         scrollable={true}
+        alwaysConsumeMouseWheel={false}
         highlightMatches={highlightMatches}
         currentHighlightIndex={currentSearchMatchIndex}
       />
@@ -329,7 +330,10 @@ function EmbeddedDiffSectionEditor({
   if (viewMode === "split") {
     return (
       <div className="grid grid-cols-2 bg-background" style={{ height: `${height}px` }}>
-        <div className="relative overflow-hidden border-border border-r bg-background">
+        <div
+          className="relative overflow-hidden border-border border-r bg-background"
+          data-diff-outer-wheel
+        >
           <DiffLineBackgroundLayer
             lineKinds={splitContent.left.lineKinds}
             lineHeight={lineHeight}
@@ -347,7 +351,7 @@ function EmbeddedDiffSectionEditor({
             }
           />
         </div>
-        <div className="relative overflow-hidden bg-background">
+        <div className="relative overflow-hidden bg-background" data-diff-outer-wheel>
           <DiffLineBackgroundLayer
             lineKinds={splitContent.right.lineKinds}
             lineHeight={lineHeight}
@@ -370,7 +374,11 @@ function EmbeddedDiffSectionEditor({
   }
 
   return (
-    <div className="relative overflow-hidden bg-background" style={{ height: `${height}px` }}>
+    <div
+      className="relative overflow-hidden bg-background"
+      style={{ height: `${height}px` }}
+      data-diff-outer-wheel
+    >
       <DiffLineBackgroundLayer lineKinds={unifiedContent.lineKinds} lineHeight={lineHeight} />
       <CodeEditor
         bufferId={unifiedBufferId}
@@ -678,6 +686,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
   const [currentSearchMatchIndex, setCurrentSearchMatchIndex] = useState(-1);
   const [selectedFileKey, setSelectedFileKey] = useState<string | null>(
     () =>
+      multiDiff.initiallySelectedFileKey ??
       multiDiff.initiallyExpandedFileKey ??
       (multiDiff.files[0] ? getMultiDiffSectionKey(multiDiff, multiDiff.files[0], 0) : null),
   );
@@ -716,6 +725,30 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
   );
   const indexingProgress = multiDiff.indexingProgress;
   const isIndexingDiffs = Boolean(multiDiff.isLoading);
+  useEffect(() => {
+    const scrollContainer = diffStackScrollRef.current;
+    if (!scrollContainer) return;
+
+    const forwardEmbeddedEditorWheel = (event: WheelEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element) || !target.closest("[data-diff-outer-wheel]")) return;
+      if (event.deltaY === 0 || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+
+      const deltaScale =
+        event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? scrollContainer.clientHeight : 1;
+      event.preventDefault();
+      event.stopPropagation();
+      scrollContainer.scrollBy({ top: event.deltaY * deltaScale });
+    };
+
+    scrollContainer.addEventListener("wheel", forwardEmbeddedEditorWheel, {
+      capture: true,
+      passive: false,
+    });
+    return () => {
+      scrollContainer.removeEventListener("wheel", forwardEmbeddedEditorWheel, { capture: true });
+    };
+  }, [isIndexingDiffs]);
   const indexingLabel = indexingProgress
     ? t("git.indexingWithCount", {
         label: indexingProgress.label ?? t("git.indexing"),
@@ -847,6 +880,12 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
     [isWorkingTree],
   );
   useEffect(() => {
+    const initialFileKey = multiDiff.initiallySelectedFileKey;
+    if (!initialFileKey) return;
+
+    handleSelectFileFromTree(initialFileKey);
+  }, [handleSelectFileFromTree, multiDiff]);
+  useEffect(() => {
     const nextKeys = new Set(
       multiDiff.files.map((diff, index) => getMultiDiffSectionKey(multiDiff, diff, index)),
     );
@@ -868,11 +907,17 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
     setSelectedFileKey((previous) => {
       if (previous && nextKeys.has(previous)) return previous;
       return (
+        multiDiff.initiallySelectedFileKey ??
         multiDiff.initiallyExpandedFileKey ??
         (multiDiff.files[0] ? getMultiDiffSectionKey(multiDiff, multiDiff.files[0], 0) : null)
       );
     });
-  }, [multiDiff.fileKeys, multiDiff.files, multiDiff.initiallyExpandedFileKey]);
+  }, [
+    multiDiff.fileKeys,
+    multiDiff.files,
+    multiDiff.initiallyExpandedFileKey,
+    multiDiff.initiallySelectedFileKey,
+  ]);
 
   useEffect(() => {
     if (searchMatches.length === 0) {

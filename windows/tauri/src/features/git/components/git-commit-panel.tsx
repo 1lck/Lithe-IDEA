@@ -7,7 +7,7 @@ import {
   SparkleIcon as Sparkles,
 } from "@/ui/icons";
 import type React from "react";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
@@ -21,17 +21,18 @@ import {
   InlineEditError,
   requestInlineEdit,
 } from "@/features/editor/services/editor-inline-edit-service";
-import { getFileDiff } from "../api/git-diff-api";
-import { commitChanges, getGitLog } from "../api/git-commits-api";
+import { commitSelectedChanges, getGitLog } from "../api/git-commits-api";
 import { getConflictMarkerPaths } from "../api/git-integration-api";
 import { pushChanges, type GitRemoteActionResult } from "../api/git-remotes-api";
+import { loadWorkingTreeFileDiff } from "../services/working-tree-file-diff";
 import { useGitBlameStore } from "../stores/git-blame.store";
 import { useGitStore } from "../stores/git.store";
 import type { GitDiff, GitFile } from "../types/git.types";
 
 interface GitCommitPanelProps {
-  stagedFilesCount: number;
-  stagedFiles: GitFile[];
+  selectedFiles: GitFile[];
+  commitMessage: string;
+  onCommitMessageChange: (message: string) => void;
   currentBranch?: string;
   repoPath?: string;
   ahead?: number;
@@ -39,9 +40,10 @@ interface GitCommitPanelProps {
   onCommitSuccess?: () => void;
   onPull?: () => Promise<unknown> | void;
   isPulling?: boolean;
+  focusRequest?: number;
 }
 
-const MAX_STAGED_FILES_FOR_AI_CONTEXT = 120;
+const MAX_SELECTED_FILES_FOR_AI_CONTEXT = 120;
 const MAX_RECENT_COMMITS_FOR_AI_CONTEXT = 24;
 const MAX_DIFF_FILES_FOR_AI_CONTEXT = 10;
 const MAX_DIFF_LINES_PER_FILE_FOR_AI_CONTEXT = 80;
@@ -70,7 +72,7 @@ const countDiffLines = (diff: GitDiff | null) => {
 };
 
 const formatDiffExcerpt = (file: GitFile, diff: GitDiff | null): string => {
-  if (!diff) return `### ${file.path}\n(no staged text diff available)`;
+  if (!diff) return `### ${file.path}\n(no text diff available)`;
   if (diff.is_binary || diff.is_image) return `### ${file.path}\n(binary or image change)`;
 
   const changedLines: string[] = [];
@@ -104,23 +106,23 @@ const truncateContext = (context: string): string => {
 async function buildCommitMessageContext({
   repoPath,
   currentBranch,
-  stagedFiles,
+  selectedFiles,
   existingDraftHint,
 }: {
   repoPath: string;
   currentBranch?: string;
-  stagedFiles: GitFile[];
+  selectedFiles: GitFile[];
   existingDraftHint: string;
 }): Promise<string> {
-  const stagedFilesForContext = stagedFiles.slice(0, MAX_STAGED_FILES_FOR_AI_CONTEXT);
-  const diffFilesForContext = stagedFiles.slice(0, MAX_DIFF_FILES_FOR_AI_CONTEXT);
-  const [recentCommits, stagedDiffs] = await Promise.all([
+  const selectedFilesForContext = selectedFiles.slice(0, MAX_SELECTED_FILES_FOR_AI_CONTEXT);
+  const diffFilesForContext = selectedFiles.slice(0, MAX_DIFF_FILES_FOR_AI_CONTEXT);
+  const [recentCommits, selectedDiffs] = await Promise.all([
     getGitLog(repoPath, MAX_RECENT_COMMITS_FOR_AI_CONTEXT),
-    Promise.all(diffFilesForContext.map((file) => getFileDiff(repoPath, file.path, true))),
+    Promise.all(diffFilesForContext.map((file) => loadWorkingTreeFileDiff(repoPath, file))),
   ]);
-  const overflowCount = Math.max(stagedFiles.length - stagedFilesForContext.length, 0);
-  const diffOverflowCount = Math.max(stagedFiles.length - diffFilesForContext.length, 0);
-  const totals = stagedDiffs.reduce(
+  const overflowCount = Math.max(selectedFiles.length - selectedFilesForContext.length, 0);
+  const diffOverflowCount = Math.max(selectedFiles.length - diffFilesForContext.length, 0);
+  const totals = selectedDiffs.reduce(
     (sum, diff) => {
       const counts = countDiffLines(diff);
       return {
@@ -137,11 +139,11 @@ async function buildCommitMessageContext({
     .slice(0, MAX_RECENT_COMMITS_FOR_AI_CONTEXT)
     .map((message) => `- ${message}`)
     .join("\n");
-  const stagedLines = stagedFilesForContext
-    .map((file) => `- ${file.status}${file.staged ? " staged" : ""}: ${file.path}`)
+  const selectedLines = selectedFilesForContext
+    .map((file) => `- ${file.status}: ${file.path}`)
     .join("\n");
   const diffExcerpt = diffFilesForContext
-    .map((file, index) => formatDiffExcerpt(file, stagedDiffs[index]))
+    .map((file, index) => formatDiffExcerpt(file, selectedDiffs[index]))
     .join("\n\n");
 
   return truncateContext(
@@ -152,15 +154,15 @@ async function buildCommitMessageContext({
       "Recent commit subjects for style:",
       recentCommitLines || "- none",
       "",
-      `Staged files (${stagedFiles.length}):`,
-      stagedLines || "- none",
-      overflowCount > 0 ? `- ...and ${overflowCount} more staged files` : "",
+      `Selected files (${selectedFiles.length}):`,
+      selectedLines || "- none",
+      overflowCount > 0 ? `- ...and ${overflowCount} more selected files` : "",
       "",
-      `Staged diff summary for sampled files: +${totals.additions} -${totals.deletions}`,
+      `Selected diff summary for sampled files: +${totals.additions} -${totals.deletions}`,
       diffOverflowCount > 0
-        ? `Diff excerpts include ${diffFilesForContext.length} of ${stagedFiles.length} staged files.`
+        ? `Diff excerpts include ${diffFilesForContext.length} of ${selectedFiles.length} selected files.`
         : "",
-      diffExcerpt ? `\nStaged patch excerpts:\n${diffExcerpt}` : "",
+      diffExcerpt ? `\nSelected patch excerpts:\n${diffExcerpt}` : "",
       existingDraftHint ? `\nCurrent draft:\n${existingDraftHint}` : "",
     ]
       .filter(Boolean)
@@ -184,8 +186,9 @@ function normalizeGeneratedCommitMessage(message: string, mode: CommitMessageMod
 }
 
 const GitCommitPanel = ({
-  stagedFilesCount,
-  stagedFiles,
+  selectedFiles,
+  commitMessage,
+  onCommitMessageChange,
   currentBranch,
   repoPath,
   ahead = 0,
@@ -193,6 +196,7 @@ const GitCommitPanel = ({
   onCommitSuccess,
   onPull,
   isPulling = false,
+  focusRequest = 0,
 }: GitCommitPanelProps) => {
   const { t } = useTranslation();
   const aiAutocompleteProvider = useSettingsStore(
@@ -203,7 +207,6 @@ const GitCommitPanel = ({
       ? state.settings.aiAutocompleteCustomModelId
       : state.settings.aiAutocompleteModelId,
   );
-  const [commitMessage, setCommitMessage] = useState("");
   const [isCommitting, setIsCommitting] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [commitMessageMode, setCommitMessageMode] = useState<CommitMessageMode>("title");
@@ -212,6 +215,12 @@ const GitCommitPanel = ({
   const [error, setError] = useState<string | null>(null);
   const generateMenuAnchorRef = useRef<HTMLDivElement>(null);
   const commitTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const selectedFilesCount = selectedFiles.length;
+
+  useEffect(() => {
+    if (focusRequest <= 0) return;
+    globalThis.requestAnimationFrame?.(() => commitTextareaRef.current?.focus());
+  }, [focusRequest]);
 
   useLayoutEffect(() => {
     const textarea = commitTextareaRef.current;
@@ -228,7 +237,7 @@ const GitCommitPanel = ({
   }, [commitMessage]);
 
   const handleGenerateCommitMessage = async () => {
-    if (!repoPath || stagedFilesCount === 0) return;
+    if (!repoPath || selectedFilesCount === 0) return;
     setError(null);
 
     const existingDraftHint = commitMessage.trim();
@@ -238,7 +247,7 @@ const GitCommitPanel = ({
       const selectedText = await buildCommitMessageContext({
         repoPath,
         currentBranch,
-        stagedFiles,
+        selectedFiles,
         existingDraftHint,
       });
       const { editedText } = await requestInlineEdit(
@@ -251,8 +260,8 @@ const GitCommitPanel = ({
           afterSelection: "",
           instruction:
             commitMessageMode === "title"
-              ? "Generate a concise Git commit subject from the staged changes. Return exactly one subject line and nothing else. Keep it under 72 characters when possible. Infer and match the repository's style from recent commit subjects. Do not force conventional commit format unless the recent commits clearly use it."
-              : "Generate a Git commit message from the staged changes. Return a subject line and a short body only when the body adds useful context. Keep the subject under 72 characters when possible. Infer and match the repository's style from recent commit subjects. Do not force conventional commit format unless the recent commits clearly use it.",
+              ? "Generate a concise Git commit subject from the selected changes. Return exactly one subject line and nothing else. Keep it under 72 characters when possible. Infer and match the repository's style from recent commit subjects. Do not force conventional commit format unless the recent commits clearly use it."
+              : "Generate a Git commit message from the selected changes. Return a subject line and a short body only when the body adds useful context. Keep the subject under 72 characters when possible. Infer and match the repository's style from recent commit subjects. Do not force conventional commit format unless the recent commits clearly use it.",
           filePath: getRepoLabel(repoPath),
           languageId: "git-commit",
         },
@@ -264,7 +273,7 @@ const GitCommitPanel = ({
         return;
       }
 
-      setCommitMessage(message);
+      onCommitMessageChange(message);
     } catch (generationError) {
       if (generationError instanceof InlineEditError) {
         setError(generationError.message);
@@ -277,7 +286,7 @@ const GitCommitPanel = ({
   };
 
   const handleCommit = async () => {
-    if (!repoPath || !commitMessage.trim() || stagedFilesCount === 0) return;
+    if (!repoPath || !commitMessage.trim() || selectedFilesCount === 0) return;
 
     // A conflicted merge/rebase must be resolved before the merge commit can
     // be finalized; guard here so Git's raw refusal never reaches the user.
@@ -289,7 +298,10 @@ const GitCommitPanel = ({
 
     let markerPaths: string[];
     try {
-      markerPaths = await getConflictMarkerPaths(repoPath);
+      const selectedPathSet = new Set(selectedFiles.map((file) => file.path));
+      markerPaths = (await getConflictMarkerPaths(repoPath)).filter((path) =>
+        selectedPathSet.has(path),
+      );
     } catch (markerError) {
       console.error("Failed to check staged files for conflict markers:", markerError);
       setError(t("git.verifyConflictMarkersFailed"));
@@ -304,10 +316,14 @@ const GitCommitPanel = ({
     setError(null);
 
     try {
-      const success = await commitChanges(repoPath, commitMessage.trim());
+      const success = await commitSelectedChanges(
+        repoPath,
+        commitMessage.trim(),
+        selectedFiles.map((file) => file.path),
+      );
       if (success) {
         useGitBlameStore.getState().actions.clearAllBlame();
-        setCommitMessage("");
+        onCommitMessageChange("");
         onCommitSuccess?.();
       } else {
         setError(t("git.commitChangesFailed"));
@@ -362,8 +378,8 @@ const GitCommitPanel = ({
   };
 
   const isCommitDisabled =
-    !commitMessage.trim() || stagedFilesCount === 0 || isCommitting || isGenerating;
-  const isGenerateDisabled = stagedFilesCount === 0 || isGenerating || isCommitting;
+    !commitMessage.trim() || selectedFilesCount === 0 || isCommitting || isGenerating;
+  const isGenerateDisabled = selectedFilesCount === 0 || isGenerating || isCommitting;
   const hasRemoteChanges = ahead > 0 || behind > 0;
   const isRemoteActionLoading = remoteAction !== null;
   const composerButtonClassName =
@@ -401,7 +417,7 @@ const GitCommitPanel = ({
         <Textarea
           ref={commitTextareaRef}
           value={commitMessage}
-          onChange={(e) => setCommitMessage(e.target.value)}
+          onChange={(e) => onCommitMessageChange(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={t("git.commitMessagePlaceholder")}
           variant="ghost"
@@ -418,11 +434,11 @@ const GitCommitPanel = ({
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-1 pt-1.5">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
           <span className="px-1 ui-text-sm text-subtle-foreground">
-            {stagedFilesCount > 0
-              ? t(stagedFilesCount === 1 ? "git.fileStaged" : "git.filesStaged", {
-                  count: stagedFilesCount,
+            {selectedFilesCount > 0
+              ? t(selectedFilesCount === 1 ? "git.fileSelected" : "git.filesSelected", {
+                  count: selectedFilesCount,
                 })
-              : t("git.noFilesStaged")}
+              : t("git.noFilesSelected")}
           </span>
 
           {hasRemoteChanges && (

@@ -32,6 +32,7 @@ import {
 } from "@/ui/sidebar";
 import { toast } from "sonner";
 import { formatRelativeDate } from "@/utils/date";
+import { joinPath } from "@/utils/path-helpers";
 import { matchesSearchQuery } from "@/utils/search-match";
 import { getBranches } from "../api/git-branches-api";
 import { getStatusDiffStats } from "../api/git-diff-api";
@@ -110,6 +111,9 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     workspacePath: repoPath,
     isActive,
   });
+  const sourceControlSession = useGitStore((state) =>
+    activeRepoPath ? state.sourceControlSessions[activeRepoPath] : undefined,
+  );
   const refreshPullState = useCallback(async () => {
     if (!activeRepoPath) return;
     await Promise.all([handleManualRefresh(), getRemotes(activeRepoPath)]);
@@ -152,6 +156,32 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
   const [activeTab, setActiveTab] = useState<GitSidebarTab>("changes");
   const [fileDiffStats, setFileDiffStats] = useState<Record<string, GitFileDiffStats>>({});
+  const [commitFocusRequest, setCommitFocusRequest] = useState(0);
+  const commitSelectedPaths = useMemo(
+    () => new Set(sourceControlSession?.commitSelectedPaths ?? []),
+    [sourceControlSession],
+  );
+  const collapsedStatusFolders = useMemo(
+    () => new Set(sourceControlSession?.collapsedFolders ?? []),
+    [sourceControlSession],
+  );
+  const collapsedStatusSections = useMemo(
+    () => new Set(sourceControlSession?.collapsedSections ?? []),
+    [sourceControlSession],
+  );
+  const updateSourceControlSession = useCallback(
+    (update: Parameters<typeof actions.updateSourceControlSession>[1]) => {
+      if (!activeRepoPath) return;
+      actions.updateSourceControlSession(activeRepoPath, update);
+    },
+    [actions, activeRepoPath],
+  );
+  const handleCommitSelectedPathsChange = useCallback(
+    (paths: Set<string>) => {
+      updateSourceControlSession({ commitSelectedPaths: [...paths].sort() });
+    },
+    [updateSourceControlSession],
+  );
 
   const [showCommitDiffList, setShowCommitDiffList] = useState(false);
   const [commitDiffSearchQuery, setCommitDiffSearchQuery] = useState("");
@@ -165,7 +195,6 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     visibleGitFiles,
     visibleGitFileKeySet,
     workingTreeDiffEntriesByScope,
-    stagedFiles,
   } = useMemo(() => {
     const nextGitFileByPath = new Map<string, GitFile>();
     const nextVisibleGitFiles: GitFile[] = [];
@@ -176,7 +205,6 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
         unstaged: [],
         staged: [],
       };
-    const nextStagedFiles: GitFile[] = [];
     const seenDiffableFileKeys = new Set<string>();
 
     for (const file of gitStatus?.files ?? []) {
@@ -191,10 +219,6 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
       const fileKey = `${file.staged ? "staged" : "unstaged"}:${file.path}`;
       nextVisibleGitFiles.push(file);
       nextVisibleGitFileKeySet.add(fileKey);
-
-      if (file.staged) {
-        nextStagedFiles.push(file);
-      }
 
       if (seenDiffableFileKeys.has(fileKey)) {
         continue;
@@ -211,12 +235,30 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
       visibleGitFiles: nextVisibleGitFiles,
       visibleGitFileKeySet: nextVisibleGitFileKeySet,
       workingTreeDiffEntriesByScope: nextWorkingTreeDiffEntriesByScope,
-      stagedFiles: nextStagedFiles,
     };
   }, [gitStatus?.files, showUntrackedFiles]);
   const commitByHash = useMemo(() => {
     return new Map(commits.map((commit) => [commit.hash, commit] as const));
   }, [commits]);
+  useEffect(() => {
+    if (!gitStatus) return;
+    const currentPaths = new Set(gitStatus.files.map((file) => file.path));
+    const selectedPaths = sourceControlSession?.commitSelectedPaths ?? [];
+    const nextPaths = selectedPaths.filter((path) => currentPaths.has(path));
+    if (nextPaths.length !== selectedPaths.length) {
+      updateSourceControlSession({ commitSelectedPaths: nextPaths });
+    }
+  }, [gitStatus, sourceControlSession?.commitSelectedPaths, updateSourceControlSession]);
+  const commitSelectedFiles = useMemo(
+    () =>
+      [...commitSelectedPaths]
+        .sort((left, right) => left.localeCompare(right))
+        .flatMap((path) => {
+          const file = gitFileByPath.get(path);
+          return file ? [file] : [];
+        }),
+    [commitSelectedPaths, gitFileByPath],
+  );
   const handleBranchDiffOpened = useCallback(() => {
     setShowBranchDiffList(false);
     setBranchDiffSearchQuery("");
@@ -240,6 +282,17 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     currentBranch: gitStatus?.branch,
     onBranchDiffOpened: handleBranchDiffOpened,
   });
+  const handleOpenGitPath = useCallback(
+    (path: string, isDirectory: boolean) => {
+      if (isDirectory) {
+        if (!activeRepoPath || !onFileSelect) return;
+        onFileSelect(joinPath(activeRepoPath, path), true);
+        return;
+      }
+      void handleOpenOriginalFile(path);
+    },
+    [activeRepoPath, handleOpenOriginalFile, onFileSelect],
+  );
 
   const handleSelectRepository = useCallback(async () => {
     setIsSelectingRepo(true);
@@ -904,9 +957,23 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                     <GitStatusPanel
                       files={visibleGitFiles}
                       fileDiffStats={fileDiffStats}
+                      commitSelectedPaths={commitSelectedPaths}
+                      onCommitSelectedPathsChange={handleCommitSelectedPathsChange}
+                      collapsedFolders={collapsedStatusFolders}
+                      onCollapsedFoldersChange={(folders) =>
+                        updateSourceControlSession({ collapsedFolders: [...folders].sort() })
+                      }
+                      collapsedSections={collapsedStatusSections}
+                      onCollapsedSectionsChange={(sections) =>
+                        updateSourceControlSession({ collapsedSections: [...sections].sort() })
+                      }
                       onFileSelect={handleGitFileClick}
-                      onOpenFile={handleOpenOriginalFile}
+                      onOpenPath={handleOpenGitPath}
                       onViewDiff={(scope) => void handleViewWorkingTreeDiff(scope)}
+                      onViewFilesDiff={(filePaths) =>
+                        void handleViewWorkingTreeDiff("all", filePaths)
+                      }
+                      onCommitSelection={() => setCommitFocusRequest((request) => request + 1)}
                       onShowCommitDiffPicker={handleShowCommitDiffList}
                       onShowBranchDiffPicker={() => void handleShowBranchDiffList()}
                       onShowStashDiffPicker={() => {
@@ -935,15 +1002,22 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
 
           <SidebarFooter>
             <GitCommitPanel
-              stagedFilesCount={stagedFiles.length}
-              stagedFiles={stagedFiles}
+              selectedFiles={commitSelectedFiles}
+              commitMessage={sourceControlSession?.commitMessage ?? ""}
+              onCommitMessageChange={(commitMessage) =>
+                updateSourceControlSession({ commitMessage })
+              }
               currentBranch={gitStatus.branch}
               repoPath={activeRepoPath}
               ahead={gitStatus.ahead}
               behind={gitStatus.behind}
-              onCommitSuccess={refreshAfterAction}
+              onCommitSuccess={() => {
+                updateSourceControlSession({ commitSelectedPaths: [], commitMessage: "" });
+                void refreshAfterAction();
+              }}
               onPull={handlePull}
               isPulling={pullWorkflow.isPulling}
+              focusRequest={commitFocusRequest}
             />
           </SidebarFooter>
           </div>

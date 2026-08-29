@@ -196,6 +196,7 @@ export function adaptCoreResult<T>(
     case "git_status_diff_stats":
     case "git_commit_diff":
     case "git_ref_diff":
+    case "git_working_tree_ref_diff":
     case "git_stash_diff":
       return adaptDiff(command, args, value) as T;
     case "git_discover_repo":

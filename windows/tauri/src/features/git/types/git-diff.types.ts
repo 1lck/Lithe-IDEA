@@ -111,6 +111,7 @@ export interface MultiFileDiff {
   totalDeletions: number;
   fileKeys?: string[];
   initiallyExpandedFileKey?: string;
+  initiallySelectedFileKey?: string;
   isLoading?: boolean;
   indexingProgress?: {
     processed: number;

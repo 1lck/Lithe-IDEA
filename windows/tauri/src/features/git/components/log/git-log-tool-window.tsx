@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/ui/button";
-import { showConfirmDialog, showPromptDialog } from "@/ui/dialog";
+import { showChoiceDialog, showConfirmDialog, showPromptDialog } from "@/ui/dialog";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/ui/resizable";
 import { tryWriteClipboardText } from "@/utils/clipboard";
 import { useTranslation } from "@/i18n/locale-provider";
@@ -9,6 +9,14 @@ import { useProjectStore } from "@/features/window/stores/project.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useGitLogController } from "../../hooks/use-git-log-controller";
 import { useGitDiffActions } from "../../hooks/use-git-diff-actions";
+import {
+  cherryPickCommit,
+  deleteCommit,
+  editCommitMessage,
+  resetToCommit,
+  squashCommits,
+  type GitResetMode,
+} from "../../api/git-commits-api";
 import { checkoutReference, createBranch } from "../../api/git-branches-api";
 import { createStash, getStashes, popStash } from "../../api/git-stash-api";
 import {
@@ -21,6 +29,10 @@ import {
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
 import { useRepositoryStore } from "../../stores/git-repository.store";
 import type { GitCommit, GitFile, GitReference } from "../../types/git.types";
+import {
+  resolveGitHistoryContextSelection,
+  updateGitHistorySelection,
+} from "../../utils/git-history-selection";
 import type {
   WorkingTreeDiffEntry,
   WorkingTreeDiffScope,
@@ -47,7 +59,10 @@ export function GitLogToolWindow() {
     loadMore,
   } = useGitLogController(repoPath);
   const [selectedCommit, setSelectedCommit] = useState<GitCommit | null>(null);
+  const [selectedCommitHashes, setSelectedCommitHashes] = useState<Set<string>>(new Set());
+  const [isMutatingHistory, setIsMutatingHistory] = useState(false);
   const [isReferenceOperating, setIsReferenceOperating] = useState(false);
+  const selectionAnchorRef = useRef<string | null>(null);
   const mainPanelLayout = useGitLogPreferencesStore.use.mainPanelLayout();
   const { setMainPanelLayout } = useGitLogPreferencesStore.use.actions();
   const currentReference = useMemo(
@@ -81,6 +96,132 @@ export function GitLogToolWindow() {
       commitByHash,
       currentBranch: currentReference?.shortName,
     });
+
+  const selectCommit = (
+    commit: GitCommit,
+    visibleCommitHashes: string[],
+    options: { additive: boolean; range: boolean },
+  ) => {
+    const result = updateGitHistorySelection(
+      visibleCommitHashes,
+      selectedCommitHashes,
+      commit.hash,
+      selectionAnchorRef.current,
+      options,
+    );
+    setSelectedCommitHashes(result.selected);
+    selectionAnchorRef.current = result.anchor;
+    setSelectedCommit(commit);
+  };
+
+  const selectCommitForContextMenu = (commit: GitCommit) => {
+    const next = resolveGitHistoryContextSelection(selectedCommitHashes, commit.hash);
+    setSelectedCommitHashes(next);
+    if (!selectedCommitHashes.has(commit.hash)) selectionAnchorRef.current = commit.hash;
+    setSelectedCommit(commit);
+  };
+
+  const runHistoryAction = async (action: () => Promise<void>) => {
+    setIsMutatingHistory(true);
+    try {
+      await action();
+      setSelectedCommitHashes(new Set());
+      selectionAnchorRef.current = null;
+      setSelectedCommit(null);
+      await refresh();
+    } catch (mutationError) {
+      const message =
+        mutationError instanceof Error
+          ? mutationError.message
+          : typeof mutationError === "object" && mutationError && "message" in mutationError
+            ? String(mutationError.message)
+            : String(mutationError);
+      toast.error(message || t("git.historyMutationFailed"));
+    } finally {
+      setIsMutatingHistory(false);
+    }
+  };
+
+  const editMessage = async (commit: GitCommit) => {
+    if (!repoPath) return;
+    const message = await showPromptDialog(
+      t("git.editCommitMessagePrompt", { hash: commit.shortHash }),
+      {
+        title: t("git.editCommitMessage"),
+        confirmLabel: t("git.saveCommitMessage"),
+        defaultValue: commit.message,
+      },
+    );
+    if (!message?.trim() || message.trim() === commit.message) return;
+    await runHistoryAction(() => editCommitMessage(repoPath, commit.hash, message.trim()));
+  };
+
+  const removeCommit = async (commit: GitCommit) => {
+    if (
+      !repoPath ||
+      !(await showConfirmDialog(
+        t("git.deleteCommitConfirm", { hash: commit.shortHash, message: commit.message }),
+        {
+          title: t("git.deleteCommit"),
+          confirmLabel: t("git.deleteCommit"),
+        },
+      ))
+    ) {
+      return;
+    }
+    await runHistoryAction(() => deleteCommit(repoPath, commit.hash));
+  };
+
+  const squashSelectedCommits = async (commits: GitCommit[]) => {
+    if (!repoPath || commits.length < 2) return;
+    const oldestCommit = commits[commits.length - 1];
+    const message = await showPromptDialog(t("git.squashCommitsPrompt", { count: commits.length }), {
+      title: t("git.squashCommits"),
+      confirmLabel: t("git.squash"),
+      defaultValue: oldestCommit.message,
+    });
+    if (!message?.trim()) return;
+    await runHistoryAction(() =>
+      squashCommits(
+        repoPath,
+        commits.map((commit) => commit.hash),
+        message.trim(),
+      ),
+    );
+  };
+
+  const resetBranchToCommit = async (commit: GitCommit) => {
+    if (!repoPath) return;
+    const mode = await showChoiceDialog<GitResetMode>(
+      t("git.resetToCommitPrompt", { hash: commit.shortHash }),
+      {
+        title: t("git.resetToCommit"),
+        choices: [
+          { value: "soft", label: t("git.resetSoft") },
+          { value: "mixed", label: t("git.resetMixed"), variant: "accent" },
+          { value: "hard", label: t("git.resetHard"), variant: "danger" },
+        ],
+      },
+    );
+    if (!mode) return;
+    await runHistoryAction(() => resetToCommit(repoPath, commit.hash, mode));
+  };
+
+  const cherryPickSelectedCommit = async (commit: GitCommit) => {
+    if (
+      !repoPath ||
+      !(await showConfirmDialog(
+        t("git.cherryPickCommitConfirm", { hash: commit.shortHash, message: commit.message }),
+        {
+          title: t("git.cherryPickCommit"),
+          confirmLabel: t("git.cherryPickCommit"),
+        },
+      ))
+    ) {
+      return;
+    }
+    await runHistoryAction(() => cherryPickCommit(repoPath, commit.hash));
+  };
 
   const reportIntegration = (outcome: IntegrationOutcome, success: string) => {
     if (outcome.status === "clean") toast.success(success);
@@ -183,6 +324,15 @@ export function GitLogToolWindow() {
       if (current && commitByHash.has(current.hash)) return commitByHash.get(current.hash) ?? null;
       return history.commits[0] ?? null;
     });
+
+    const availableHashes = new Set(history.commits.map((commit) => commit.hash));
+    setSelectedCommitHashes((current) => {
+      const next = new Set([...current].filter((hash) => availableHashes.has(hash)));
+      return next.size === current.size ? current : next;
+    });
+    if (selectionAnchorRef.current && !availableHashes.has(selectionAnchorRef.current)) {
+      selectionAnchorRef.current = null;
+    }
   }, [commitByHash, history.commits]);
 
   const openDiff = (commit: GitCommit, filePath?: string) => {
@@ -284,9 +434,12 @@ export function GitLogToolWindow() {
             <GitCommitTable
               commits={history.commits}
               selectedCommit={selectedCommit}
+              selectedCommitHashes={selectedCommitHashes}
+              isMutatingHistory={isMutatingHistory}
               hasMore={history.hasMore}
               isLoadingMore={isLoadingMore}
-              onSelect={setSelectedCommit}
+              onSelect={selectCommit}
+              onContextSelect={selectCommitForContextMenu}
               onOpenDiff={(commit) => openDiff(commit)}
               onCompareWithHead={(commit) => void viewBranchDiff(commit.hash)}
               onCopyHash={(commit) => void copyCommitText(commit.hash, t("git.log.commitHash"))}
@@ -296,6 +449,11 @@ export function GitLogToolWindow() {
                   t("git.log.commitMessage"),
                 )
               }
+              onEditMessage={(commit) => void editMessage(commit)}
+              onDelete={(commit) => void removeCommit(commit)}
+              onSquash={(commits) => void squashSelectedCommits(commits)}
+              onReset={(commit) => void resetBranchToCommit(commit)}
+              onCherryPick={(commit) => void cherryPickSelectedCommit(commit)}
               onLoadMore={() => void loadMore()}
             />
           </ResizablePanel>

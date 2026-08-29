@@ -70,6 +70,23 @@ export const removeRemote = async (repoPath: string, name: string): Promise<bool
   }
 };
 
+export const deleteRemoteBranch = async (
+  repoPath: string,
+  remote: string,
+  branchName: string,
+): Promise<void> => {
+  const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
+  await tauriInvoke("git.command", {
+    repoPath: resolvedRepoPath,
+    arguments: ["push", "--delete", "--", remote, `refs/heads/${branchName}`],
+  });
+  emitGitChanged({
+    repoPath: resolvedRepoPath,
+    scopes: ["history", "refs", "remotes"],
+    source: "delete-remote-branch",
+  });
+};
+
 export const pushChanges = async (
   repoPath: string,
   branch?: string,

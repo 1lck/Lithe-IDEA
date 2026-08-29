@@ -151,9 +151,20 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
             "git.diff"
         }
         "git_ref_diff" => {
-            let base = take_text(&mut payload, "baseRef")?;
-            let target = take_text(&mut payload, "targetRef")?;
-            payload.insert("reference".into(), json!(format!("{base}..{target}")));
+            if payload.contains_key("gitReference") {
+                payload.remove("baseRef");
+                payload.remove("targetRef");
+                payload.remove("reference");
+            } else {
+                let base = take_text(&mut payload, "baseRef")?;
+                let target = take_text(&mut payload, "targetRef")?;
+                payload.insert("reference".into(), json!(format!("{base}..{target}")));
+            }
+            payload.insert("pathspecs".into(), json!(["."]));
+            "git.diff"
+        }
+        "git_working_tree_ref_diff" => {
+            preserve_typed_or_legacy_reference(&mut payload, "reference", false)?;
             payload.insert("pathspecs".into(), json!(["."]));
             "git.diff"
         }
@@ -175,18 +186,22 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
         }
         "git_create_branch" => {
             move_field(&mut payload, "branchName", "name");
-            if !payload.contains_key("reference") {
+            if !payload.contains_key("gitReference") && !payload.contains_key("reference") {
                 if let Some(from_branch) = payload.remove("fromBranch") {
-                    let branch = from_branch
+                    let reference = from_branch
                         .as_str()
                         .filter(|value| !value.trim().is_empty())
                         .map(local_branch_reference)
                         .unwrap_or_else(|| "HEAD".to_string());
-                    payload.insert("reference".into(), json!(branch));
+                    payload.insert("reference".into(), json!(reference));
                 }
+            } else {
+                payload.remove("fromBranch");
             }
             payload.insert("operation".into(), json!("createBranch"));
-            payload.entry("reference").or_insert_with(|| json!("HEAD"));
+            if !payload.contains_key("gitReference") {
+                payload.entry("reference").or_insert_with(|| json!("HEAD"));
+            }
             "git.write"
         }
         "git_delete_branch" => {
@@ -195,34 +210,35 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
             payload.insert("operation".into(), json!("deleteBranch"));
             "git.write"
         }
-        "git_checkout" => {
-            let reference = take_reference(&mut payload)?;
-            let reference_kind = reference_kind(&reference);
-            payload.insert("reference".into(), json!(reference));
-            payload.insert("operation".into(), json!("checkout"));
-            payload
-                .entry("referenceKind")
-                .or_insert_with(|| json!(reference_kind));
-            "git.write"
-        }
-        "git_checkout_and_rebase" => {
-            let reference = take_reference(&mut payload)?;
-            let reference_kind = reference_kind(&reference);
-            payload.insert("reference".into(), json!(reference));
-            payload.insert("operation".into(), json!("checkoutAndRebase"));
-            payload
-                .entry("referenceKind")
-                .or_insert_with(|| json!(reference_kind));
+        "git_checkout" | "git_checkout_and_rebase" => {
+            let typed = payload.contains_key("gitReference");
+            preserve_typed_or_legacy_reference(&mut payload, "branchName", true)?;
+            payload.insert(
+                "operation".into(),
+                json!(if command == "git_checkout" {
+                    "checkout"
+                } else {
+                    "checkoutAndRebase"
+                }),
+            );
+            if !typed {
+                let reference = payload
+                    .get("reference")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "Windows platform command requires reference".to_string())?;
+                let kind = reference_kind(reference);
+                payload
+                    .entry("referenceKind")
+                    .or_insert_with(|| json!(kind));
+            }
             "git.write"
         }
         "git_checkout_preflight" => {
-            let reference = take_reference(&mut payload)?;
-            payload.insert("reference".into(), json!(reference));
+            preserve_typed_or_legacy_reference(&mut payload, "branchName", true)?;
             "git.checkoutPreflight"
         }
         "git_merge" | "git_rebase" => {
-            let reference = take_reference(&mut payload)?;
-            payload.insert("reference".into(), json!(reference));
+            preserve_typed_or_legacy_reference(&mut payload, "branchName", true)?;
             payload.insert(
                 "operation".into(),
                 json!(if command == "git_merge" {
@@ -234,8 +250,7 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
             "git.write"
         }
         "git_integration_preflight" => {
-            let reference = take_reference(&mut payload)?;
-            payload.insert("reference".into(), json!(reference));
+            preserve_typed_or_legacy_reference(&mut payload, "branchName", true)?;
             "git.integrationPreflight"
         }
         "git_operation_state" => "git.operationState",
@@ -505,6 +520,40 @@ fn move_field(payload: &mut Map<String, Value>, from: &str, to: &str) {
     if let Some(value) = payload.remove(from) {
         payload.insert(to.to_string(), value);
     }
+}
+
+fn preserve_typed_or_legacy_reference(
+    payload: &mut Map<String, Value>,
+    legacy_field: &str,
+    qualify_local: bool,
+) -> Result<(), String> {
+    if payload.contains_key("gitReference") {
+        payload.remove(legacy_field);
+        payload.remove("reference");
+        return Ok(());
+    }
+    if let Some(reference) = payload.remove("reference") {
+        let reference = reference
+            .as_str()
+            .map(str::to_string)
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| "Windows platform command requires reference".to_string())?;
+        payload.insert("reference".into(), json!(reference));
+        if legacy_field != "reference" {
+            payload.remove(legacy_field);
+        }
+        return Ok(());
+    }
+    let reference = take_text(payload, legacy_field)?;
+    payload.insert(
+        "reference".into(),
+        json!(if qualify_local {
+            local_branch_reference(&reference)
+        } else {
+            reference
+        }),
+    );
+    Ok(())
 }
 
 /// Windows callers name local branches by their short form, while the shared
@@ -901,6 +950,127 @@ mod tests {
         assert_eq!(
             payload,
             json!({ "root": "C:/work", "pathspecs": ["."], "staged": true })
+        );
+    }
+
+    #[test]
+    fn preserves_typed_remote_references_for_compatibility_commands() {
+        let reference = json!({
+            "fullName": "refs/remotes/origin/feature/checkout",
+            "shortName": "origin/feature/checkout",
+            "kind": "remote"
+        });
+        for (compatibility_command, core_command, operation) in [
+            ("git_checkout", "git.write", Some("checkout")),
+            ("git_checkout_preflight", "git.checkoutPreflight", None),
+            ("git_merge", "git.write", Some("merge")),
+            ("git_rebase", "git.write", Some("rebase")),
+        ] {
+            let (command, payload) = translate(
+                compatibility_command,
+                json!({ "repoPath": "C:/work", "gitReference": reference }),
+            )
+            .unwrap();
+            assert_eq!(command, core_command);
+            assert_eq!(payload.get("gitReference"), Some(&reference));
+            assert_eq!(payload.get("reference"), None);
+            assert_eq!(payload.get("referenceKind"), None);
+            assert_eq!(
+                payload.get("operation").and_then(|value| value.as_str()),
+                operation
+            );
+        }
+
+        let (command, payload) = translate(
+            "git_integration_preflight",
+            json!({
+                "repoPath": "C:/work",
+                "gitReference": reference,
+                "operation": "merge"
+            }),
+        )
+        .unwrap();
+        assert_eq!(command, "git.integrationPreflight");
+        assert_eq!(payload.get("gitReference"), Some(&reference));
+    }
+
+    #[test]
+    fn translates_working_tree_reference_diff() {
+        let (command, payload) = translate(
+            "git_working_tree_ref_diff",
+            json!({
+                "repoPath": "C:/work",
+                "reference": "refs/remotes/origin/main"
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(command, "git.diff");
+        assert_eq!(
+            payload,
+            json!({
+                "root": "C:/work",
+                "reference": "refs/remotes/origin/main",
+                "pathspecs": ["."]
+            })
+        );
+    }
+
+    #[test]
+    fn translates_typed_working_tree_reference_diff_without_rewriting_it() {
+        let reference = json!({
+            "fullName": "refs/tags/v1.0.0",
+            "shortName": "v1.0.0",
+            "kind": "tag"
+        });
+        let (command, payload) = translate(
+            "git_working_tree_ref_diff",
+            json!({ "repoPath": "C:/work", "gitReference": reference }),
+        )
+        .unwrap();
+
+        assert_eq!(command, "git.diff");
+        assert_eq!(
+            payload,
+            json!({
+                "root": "C:/work",
+                "gitReference": reference,
+                "pathspecs": ["."]
+            })
+        );
+    }
+
+    #[test]
+    fn translates_typed_two_reference_diff_without_constructing_a_range() {
+        let base = json!({
+            "fullName": "refs/remotes/origin/main",
+            "shortName": "origin/main",
+            "kind": "remote"
+        });
+        let target = json!({
+            "fullName": "refs/heads/main",
+            "shortName": "main",
+            "kind": "local"
+        });
+        let (command, payload) = translate(
+            "git_ref_diff",
+            json!({
+                "repoPath": "C:/work",
+                "gitReference": base,
+                "targetGitReference": target
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(command, "git.diff");
+        assert_eq!(
+            payload,
+            json!({
+                "root": "C:/work",
+                "gitReference": base,
+                "targetGitReference": target,
+                "pathspecs": ["."]
+            })
         );
     }
 

@@ -160,11 +160,16 @@ export function useGitDiffActions({
   );
 
   const viewWorkingTreeDiff = useCallback(
-    async (scope: WorkingTreeDiffScope = "all") => {
+    async (scope: WorkingTreeDiffScope = "all", filePaths?: string[]) => {
       if (!activeRepoPath) return;
 
       try {
-        const diffEntries = workingTreeDiffEntriesByScope[scope];
+        const selectedFilePaths = filePaths ? new Set(filePaths) : null;
+        const diffEntries = selectedFilePaths
+          ? workingTreeDiffEntriesByScope[scope].filter(([, file]) =>
+              selectedFilePaths.has(file.path),
+            )
+          : workingTreeDiffEntriesByScope[scope];
         if (diffEntries.length === 0) {
           await showAlertDialog(t(WORKING_TREE_EMPTY_LABELS[scope]), t("git.diff.title"));
           return;

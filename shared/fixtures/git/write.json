@@ -30,6 +30,16 @@
       }
     },
     {
+      "operation": "checkout",
+      "payload": {
+        "gitReference": {
+          "fullName": "refs/remotes/origin/feature/core",
+          "shortName": "origin/feature/core",
+          "kind": "remote"
+        }
+      }
+    },
+    {
       "operation": "checkoutAndRebase",
       "payload": {
         "reference": "refs/remotes/origin/feature/core",
@@ -37,10 +47,31 @@
       }
     },
     {
+      "operation": "checkoutAndRebase",
+      "payload": {
+        "gitReference": {
+          "fullName": "refs/remotes/origin/feature/core",
+          "shortName": "origin/feature/core",
+          "kind": "remote"
+        }
+      }
+    },
+    {
       "operation": "pull",
       "payload": {
         "reference": "refs/remotes/origin/feature/core",
         "referenceKind": "remote",
+        "mode": "rebase"
+      }
+    },
+    {
+      "operation": "pull",
+      "payload": {
+        "gitReference": {
+          "fullName": "refs/remotes/origin/feature/core",
+          "shortName": "origin/feature/core",
+          "kind": "remote"
+        },
         "mode": "rebase"
       }
     },
@@ -74,6 +105,17 @@
         "reference": "refs/heads/main",
         "referenceKind": "local",
         "mode": "merge"
+      },
+      "errorCode": "invalid_request"
+    },
+    {
+      "operation": "checkoutAndRebase",
+      "payload": {
+        "gitReference": {
+          "fullName": "refs/remotes/origin/feature/core",
+          "shortName": "feature/core",
+          "kind": "local"
+        }
       },
       "errorCode": "invalid_request"
     }

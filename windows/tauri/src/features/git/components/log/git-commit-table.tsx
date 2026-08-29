@@ -10,12 +10,17 @@ import {
 } from "@/ui/context-menu";
 import { bindScrollContainerWheel } from "@/ui/scroll-container-wheel";
 import {
+  ArrowCounterClockwiseIcon as Reset,
   CopyIcon as Copy,
   EyeIcon as Eye,
   EyeSlashIcon as EyeSlash,
   GitBranchIcon as GitBranch,
+  GitCommitIcon as CherryPick,
   GitDiffIcon as GitDiff,
+  GitMergeIcon as Squash,
   MagnifyingGlassIcon as Search,
+  PencilIcon as Edit,
+  TrashIcon as Trash,
   XIcon,
 } from "@/ui/icons";
 import { Button } from "@/ui/button";
@@ -28,6 +33,10 @@ import {
 import type { GitCommit } from "../../types/git.types";
 import { layoutGitGraph } from "../../utils/git-graph-layout";
 import { matchesGitLogCommit } from "../../utils/git-log-filter";
+import {
+  isContiguousGitHistorySelection,
+  selectedCommitsInHistoryOrder,
+} from "../../utils/git-history-selection";
 import { GitGraphRow } from "./git-graph-row";
 
 const ROW_HEIGHT = 30;
@@ -35,24 +44,44 @@ const ROW_HEIGHT = 30;
 export function GitCommitTable({
   commits,
   selectedCommit,
+  selectedCommitHashes,
+  isMutatingHistory,
   hasMore,
   isLoadingMore,
   onSelect,
+  onContextSelect,
   onOpenDiff,
   onCompareWithHead,
   onCopyHash,
   onCopyMessage,
+  onEditMessage,
+  onDelete,
+  onSquash,
+  onReset,
+  onCherryPick,
   onLoadMore,
 }: {
   commits: GitCommit[];
   selectedCommit: GitCommit | null;
+  selectedCommitHashes: ReadonlySet<string>;
+  isMutatingHistory: boolean;
   hasMore: boolean;
   isLoadingMore: boolean;
-  onSelect: (commit: GitCommit) => void;
+  onSelect: (
+    commit: GitCommit,
+    visibleCommitHashes: string[],
+    options: { additive: boolean; range: boolean },
+  ) => void;
+  onContextSelect: (commit: GitCommit) => void;
   onOpenDiff: (commit: GitCommit) => void;
   onCompareWithHead: (commit: GitCommit) => void;
   onCopyHash: (commit: GitCommit) => void;
   onCopyMessage: (commit: GitCommit) => void;
+  onEditMessage: (commit: GitCommit) => void;
+  onDelete: (commit: GitCommit) => void;
+  onSquash: (commits: GitCommit[]) => void;
+  onReset: (commit: GitCommit) => void;
+  onCherryPick: (commit: GitCommit) => void;
   onLoadMore: () => void;
 }) {
   const { t } = useTranslation();
@@ -66,6 +95,10 @@ export function GitCommitTable({
   const visibleRows = useMemo(
     () => layout.rows.filter((row) => matchesGitLogCommit(row.commit, query, scope)),
     [layout.rows, query, scope],
+  );
+  const visibleCommitHashes = useMemo(
+    () => visibleRows.map((row) => row.commit.hash),
+    [visibleRows],
   );
   const virtualizer = useVirtualizer({
     count: visibleRows.length,
@@ -86,11 +119,11 @@ export function GitCommitTable({
     if (selectedIndex >= 0) virtualizer.scrollToIndex(selectedIndex, { align: "auto" });
   }, [selectedCommit, virtualizer, visibleRows]);
 
-  const selectRowAt = (index: number) => {
+  const selectRowAt = (index: number, options = { additive: false, range: false }) => {
     const nextIndex = Math.max(0, Math.min(index, visibleRows.length - 1));
     const nextCommit = visibleRows[nextIndex]?.commit;
     if (!nextCommit) return;
-    onSelect(nextCommit);
+    onSelect(nextCommit, visibleCommitHashes, options);
     virtualizer.scrollToIndex(nextIndex, { align: "auto" });
     globalThis.requestAnimationFrame?.(() => {
       scrollRef.current
@@ -106,11 +139,17 @@ export function GitCommitTable({
     switch (event.key) {
       case "ArrowDown":
         event.preventDefault();
-        selectRowAt(currentIndex + 1);
+        selectRowAt(currentIndex + 1, {
+          additive: event.ctrlKey || event.metaKey,
+          range: event.shiftKey,
+        });
         break;
       case "ArrowUp":
         event.preventDefault();
-        selectRowAt(currentIndex - 1);
+        selectRowAt(currentIndex - 1, {
+          additive: event.ctrlKey || event.metaKey,
+          range: event.shiftKey,
+        });
         break;
       case "Home":
         event.preventDefault();
@@ -204,13 +243,27 @@ export function GitCommitTable({
             <div className="relative min-w-130" style={{ height: virtualizer.getTotalSize() }}>
               {virtualizer.getVirtualItems().map((virtualRow) => {
                 const row = visibleRows[virtualRow.index];
-                const isSelected = selectedCommit?.hash === row.commit.hash;
+                const isSelected = selectedCommitHashes.has(row.commit.hash);
+                const contextSelection = selectedCommitsInHistoryOrder(
+                  commits,
+                  isSelected ? selectedCommitHashes : new Set([row.commit.hash]),
+                );
+                const hasMultipleContextCommits = contextSelection.length > 1;
+                const canSquash = isContiguousGitHistorySelection(
+                  commits,
+                  new Set(contextSelection.map((commit) => commit.hash)),
+                );
                 return (
                   <ContextMenu key={row.commit.hash}>
                     <ContextMenuTrigger
                       role="button"
-                      tabIndex={isSelected || (!selectedCommit && virtualRow.index === 0) ? 0 : -1}
-                      aria-current={isSelected ? "true" : undefined}
+                      tabIndex={
+                        selectedCommit?.hash === row.commit.hash ||
+                        (!selectedCommit && virtualRow.index === 0)
+                          ? 0
+                          : -1
+                      }
+                      aria-pressed={isSelected}
                       data-git-commit-index={virtualRow.index}
                       className={cn(
                         "absolute inset-x-0 flex items-center border-border/50 border-b px-1 text-left outline-none hover:bg-accent/70 focus-visible:bg-accent/70",
@@ -220,9 +273,14 @@ export function GitCommitTable({
                         height: virtualRow.size,
                         transform: `translateY(${virtualRow.start}px)`,
                       }}
-                      onClick={() => onSelect(row.commit)}
+                      onClick={(event) =>
+                        onSelect(row.commit, visibleCommitHashes, {
+                          additive: event.ctrlKey || event.metaKey,
+                          range: event.shiftKey,
+                        })
+                      }
                       onDoubleClick={() => onOpenDiff(row.commit)}
-                      onContextMenu={() => onSelect(row.commit)}
+                      onContextMenu={() => onContextSelect(row.commit)}
                       onKeyDown={(event) => handleRowKeyDown(event, row.commit)}
                       title={t("git.log.openDiffHint")}
                     >
@@ -235,24 +293,66 @@ export function GitCommitTable({
                       </span>
                     </ContextMenuTrigger>
                     <ContextMenuContent>
-                      <ContextMenuItem onClick={() => onOpenDiff(row.commit)}>
-                        <GitDiff />
-                        {t("git.log.openCommitDiff")}
-                        <ContextMenuShortcut>Enter</ContextMenuShortcut>
-                      </ContextMenuItem>
-                      <ContextMenuItem onClick={() => onCompareWithHead(row.commit)}>
-                        <GitBranch />
-                        {t("git.log.compareWithHead")}
-                      </ContextMenuItem>
-                      <ContextMenuSeparator />
-                      <ContextMenuItem onClick={() => onCopyHash(row.commit)}>
-                        <Copy />
-                        {t("git.log.copyCommitHash")}
-                      </ContextMenuItem>
-                      <ContextMenuItem onClick={() => onCopyMessage(row.commit)}>
-                        <Copy />
-                        {t("git.log.copyCommitMessage")}
-                      </ContextMenuItem>
+                      {hasMultipleContextCommits ? (
+                        <ContextMenuItem
+                          disabled={isMutatingHistory || !canSquash}
+                          onClick={() => onSquash(contextSelection)}
+                        >
+                          <Squash />
+                          {t("git.squashCommits")}
+                        </ContextMenuItem>
+                      ) : (
+                        <>
+                          <ContextMenuItem onClick={() => onOpenDiff(row.commit)}>
+                            <GitDiff />
+                            {t("git.log.openCommitDiff")}
+                            <ContextMenuShortcut>Enter</ContextMenuShortcut>
+                          </ContextMenuItem>
+                          <ContextMenuItem onClick={() => onCompareWithHead(row.commit)}>
+                            <GitBranch />
+                            {t("git.log.compareWithHead")}
+                          </ContextMenuItem>
+                          <ContextMenuSeparator />
+                          <ContextMenuItem
+                            disabled={isMutatingHistory}
+                            onClick={() => onEditMessage(row.commit)}
+                          >
+                            <Edit />
+                            {t("git.editCommitMessage")}
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            variant="destructive"
+                            disabled={isMutatingHistory}
+                            onClick={() => onDelete(row.commit)}
+                          >
+                            <Trash />
+                            {t("git.deleteCommit")}
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            disabled={isMutatingHistory}
+                            onClick={() => onReset(row.commit)}
+                          >
+                            <Reset />
+                            {t("git.resetToCommit")}
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            disabled={isMutatingHistory || commits[0]?.hash === row.commit.hash}
+                            onClick={() => onCherryPick(row.commit)}
+                          >
+                            <CherryPick />
+                            {t("git.cherryPickCommit")}
+                          </ContextMenuItem>
+                          <ContextMenuSeparator />
+                          <ContextMenuItem onClick={() => onCopyHash(row.commit)}>
+                            <Copy />
+                            {t("git.log.copyCommitHash")}
+                          </ContextMenuItem>
+                          <ContextMenuItem onClick={() => onCopyMessage(row.commit)}>
+                            <Copy />
+                            {t("git.log.copyCommitMessage")}
+                          </ContextMenuItem>
+                        </>
+                      )}
                     </ContextMenuContent>
                   </ContextMenu>
                 );

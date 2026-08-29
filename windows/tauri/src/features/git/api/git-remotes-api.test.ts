@@ -15,8 +15,14 @@ mock.module("./git-branches-api", () => ({ getBranches }));
 mock.module("./git-commits-api", () => ({ getGitHistory }));
 mock.module("./git-status-api", () => ({ getGitStatus }));
 
-const { executePullChanges, fetchChanges, getGitPullWorkflow, getPullPreflight, pullChanges } =
-  await import("./git-remotes-api");
+const {
+  deleteRemoteBranch,
+  executePullChanges,
+  fetchChanges,
+  getGitPullWorkflow,
+  getPullPreflight,
+  pullChanges,
+} = await import("./git-remotes-api");
 
 beforeEach(() => {
   invoke.mockReset();
@@ -97,6 +103,30 @@ describe("Git remote Pull API", () => {
       repoPath: "C:/repo",
       scopes: ["working-tree", "history", "refs", "remotes"],
       source: "pull-finished",
+    });
+  });
+
+  test("deletes only the selected branch from the selected remote", async () => {
+    invoke.mockImplementation(async (command: string) =>
+      command === "git_discover_repo" ? "C:/repo" : null,
+    );
+
+    await deleteRemoteBranch("C:/repo", "upstream", "feature/orders");
+
+    expect(invoke).toHaveBeenCalledWith("git.command", {
+      repoPath: "C:/repo",
+      arguments: [
+        "push",
+        "--delete",
+        "--",
+        "upstream",
+        "refs/heads/feature/orders",
+      ],
+    });
+    expect(emitGitChanged).toHaveBeenLastCalledWith({
+      repoPath: "C:/repo",
+      scopes: ["history", "refs", "remotes"],
+      source: "delete-remote-branch",
     });
   });
 });
