@@ -119,6 +119,8 @@ struct GenericDebugView: View {
         switch selectedContent {
         case .debugger:
             inspector
+        case .breakpoints:
+            breakpointInspector
         case .console:
             output
         }
@@ -298,6 +300,190 @@ struct GenericDebugView: View {
     }
 
     private var inspector: some View {
+        HSplitView {
+            executionInspector
+                .frame(minWidth: 240, idealWidth: 320, maxWidth: .infinity)
+            dataInspector
+                .frame(minWidth: 300, idealWidth: 480, maxWidth: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .litheWorkbenchSurface(LitheTheme.sidebar)
+    }
+
+    private var executionInspector: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                sectionHeader("Threads", count: feature.threads.count)
+                if feature.threads.isEmpty {
+                    Button("Load threads") { feature.inspectThreads() }
+                        .buttonStyle(.plain)
+                        .font(LitheTheme.smallFont)
+                        .foregroundStyle(LitheTheme.accent)
+                        .padding(10)
+                } else {
+                    ForEach(feature.threads) { thread in
+                        rowButton(selected: feature.selectedThreadID == thread.id) {
+                            feature.selectThread(thread)
+                        } label: {
+                            Image(systemName: "circle")
+                            Text(thread.name).lineLimit(1)
+                        }
+                        .contextMenu {
+                            if feature.capabilities.supportsSingleThreadExecutionRequests {
+                                Button(feature.state == .paused ? "Resume Thread" : "Pause Thread") {
+                                    feature.executeThread(
+                                        feature.state == .paused ? .continueExecution : .pause,
+                                        thread: thread
+                                    )
+                                }
+                                .disabled(feature.state != .paused && feature.state != .running)
+                            }
+                        }
+                    }
+                }
+
+                divider
+                sectionHeader("Call Stack", count: feature.stackFrames.count)
+                if feature.stackFrames.isEmpty {
+                    placeholder("Pause the process to inspect frames")
+                } else {
+                    ForEach(feature.stackFrames) { frame in
+                        rowButton(selected: feature.selectedFrameID == frame.id) {
+                            feature.selectFrame(frame)
+                            if let sourceURL = frame.sourceURL {
+                                model.openSourceLocation(
+                                    url: sourceURL,
+                                    line: frame.line,
+                                    column: frame.column
+                                )
+                            }
+                        } label: {
+                            Image(systemName: "chevron.right")
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(frame.name).lineLimit(1)
+                                if let sourceURL = frame.sourceURL {
+                                    Text("\(sourceURL.lastPathComponent):\(frame.line)")
+                                        .font(.system(size: 9.5, design: .monospaced))
+                                        .foregroundStyle(LitheTheme.secondaryText)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .litheWorkbenchSurface(LitheTheme.sidebar)
+    }
+
+    private var dataInspector: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    sectionHeader("Variables", count: feature.variables.count)
+                    if feature.variables.isEmpty {
+                        placeholder("Select a stack frame to inspect variables")
+                    } else {
+                        ForEach(feature.visibleVariableRows) { row in
+                            let variable = row.variable
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                Image(systemName: variableSymbol(variable))
+                                    .font(.system(size: variable.isExpandable ? 8 : 4))
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                                Text(variable.name)
+                                    .font(.system(size: 10.5, design: .monospaced))
+                                Text("=")
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                                Text(variable.value)
+                                    .font(.system(size: 10.5, design: .monospaced))
+                                    .foregroundStyle(LitheTheme.accent)
+                                    .lineLimit(2)
+                                Spacer(minLength: 0)
+                            }
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                feature.toggleVariableExpansion(variable)
+                            }
+                            .padding(.leading, 10 + CGFloat(row.depth * 14))
+                            .padding(.trailing, 10)
+                            .padding(.vertical, 5)
+                            .contextMenu {
+                                if feature.capabilities.supportsSetVariable,
+                                   variable.containerReference != nil {
+                                    Button("Set Value…") { editingVariable = variable }
+                                }
+                                if feature.capabilities.supportsDataBreakpoints,
+                                   variable.containerReference != nil {
+                                    Button("Break on Field Access…") {
+                                        feature.requestDataBreakpoint(for: variable)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    divider
+                    watchSectionHeader
+                    if feature.watches.isEmpty {
+                        placeholder("Add an expression to watch while paused")
+                    } else {
+                        ForEach(feature.watches) { watch in
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                Image(systemName: "eye")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(watch.expression)
+                                        .font(.system(size: 10.5, design: .monospaced))
+                                        .lineLimit(1)
+                                    if let error = watch.error {
+                                        Text(error)
+                                            .font(.system(size: 9.5))
+                                            .foregroundStyle(LitheTheme.error)
+                                            .lineLimit(2)
+                                    } else if let value = watch.value {
+                                        HStack(spacing: 4) {
+                                            Text(value)
+                                                .foregroundStyle(LitheTheme.accent)
+                                            if let type = watch.type {
+                                                Text(type).foregroundStyle(LitheTheme.secondaryText)
+                                            }
+                                        }
+                                        .font(.system(size: 9.5, design: .monospaced))
+                                        .lineLimit(2)
+                                    } else {
+                                        Text(feature.state == .paused ? "Evaluating…" : "Not available")
+                                            .font(.system(size: 9.5))
+                                            .foregroundStyle(LitheTheme.secondaryText)
+                                    }
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .contextMenu {
+                                Button("Refresh") { feature.refreshWatches() }
+                                    .disabled(feature.state != .paused)
+                                Button("Edit…") {
+                                    watchEditor = WatchEditorContext(watch: watch)
+                                }
+                                Divider()
+                                Button("Remove", role: .destructive) {
+                                    feature.removeWatch(watch)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            divider
+            evaluateRow
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .litheWorkbenchSurface(LitheTheme.sidebar)
+    }
+
+    private var breakpointInspector: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 Group {
@@ -572,171 +758,6 @@ struct GenericDebugView: View {
                     }
                 }
 
-                Group {
-                    divider
-                    sectionHeader("Threads", count: feature.threads.count)
-                    if feature.threads.isEmpty {
-                        Button("Load threads") { feature.inspectThreads() }
-                            .buttonStyle(.plain)
-                            .font(LitheTheme.smallFont)
-                            .foregroundStyle(LitheTheme.accent)
-                            .padding(10)
-                    } else {
-                        ForEach(feature.threads) { thread in
-                            rowButton(selected: feature.selectedThreadID == thread.id) {
-                                feature.selectThread(thread)
-                            } label: {
-                                Image(systemName: "circle")
-                                Text(thread.name).lineLimit(1)
-                            }
-                            .contextMenu {
-                                if feature.capabilities.supportsSingleThreadExecutionRequests {
-                                    Button(feature.state == .paused ? "Resume Thread" : "Pause Thread") {
-                                        feature.executeThread(
-                                            feature.state == .paused ? .continueExecution : .pause,
-                                            thread: thread
-                                        )
-                                    }
-                                    .disabled(feature.state != .paused && feature.state != .running)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Group {
-                    divider
-                    sectionHeader("Call Stack", count: feature.stackFrames.count)
-                    if feature.stackFrames.isEmpty {
-                        placeholder("Pause the process to inspect frames")
-                    } else {
-                        ForEach(feature.stackFrames) { frame in
-                            rowButton(selected: feature.selectedFrameID == frame.id) {
-                                feature.selectFrame(frame)
-                                if let sourceURL = frame.sourceURL {
-                                    model.openSourceLocation(
-                                        url: sourceURL,
-                                        line: frame.line,
-                                        column: frame.column
-                                    )
-                                }
-                            } label: {
-                                Image(systemName: "chevron.right")
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(frame.name).lineLimit(1)
-                                    if let sourceURL = frame.sourceURL {
-                                        Text("\(sourceURL.lastPathComponent):\(frame.line)")
-                                            .font(.system(size: 9.5, design: .monospaced))
-                                            .foregroundStyle(LitheTheme.secondaryText)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Group {
-                    divider
-                    sectionHeader("Variables", count: feature.variables.count)
-                    if feature.variables.isEmpty {
-                        placeholder("Select a stack frame to inspect variables")
-                    } else {
-                        ForEach(feature.visibleVariableRows) { row in
-                            let variable = row.variable
-                            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                Image(systemName: variableSymbol(variable))
-                                    .font(.system(size: variable.isExpandable ? 8 : 4))
-                                    .foregroundStyle(LitheTheme.secondaryText)
-                                Text(variable.name)
-                                    .font(.system(size: 10.5, design: .monospaced))
-                                Text("=")
-                                    .foregroundStyle(LitheTheme.secondaryText)
-                                Text(variable.value)
-                                    .font(.system(size: 10.5, design: .monospaced))
-                                    .foregroundStyle(LitheTheme.accent)
-                                    .lineLimit(2)
-                                Spacer(minLength: 0)
-                            }
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                feature.toggleVariableExpansion(variable)
-                            }
-                            .padding(.leading, 10 + CGFloat(row.depth * 14))
-                            .padding(.trailing, 10)
-                            .padding(.vertical, 5)
-                            .contextMenu {
-                                if feature.capabilities.supportsSetVariable,
-                                   variable.containerReference != nil {
-                                    Button("Set Value…") { editingVariable = variable }
-                                }
-                                if feature.capabilities.supportsDataBreakpoints,
-                                   variable.containerReference != nil {
-                                    Button("Break on Field Access…") {
-                                        feature.requestDataBreakpoint(for: variable)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Group {
-                    divider
-                    watchSectionHeader
-                    if feature.watches.isEmpty {
-                        placeholder("Add an expression to watch while paused")
-                    } else {
-                        ForEach(feature.watches) { watch in
-                            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                Image(systemName: "eye")
-                                    .font(.system(size: 9))
-                                    .foregroundStyle(LitheTheme.secondaryText)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(watch.expression)
-                                        .font(.system(size: 10.5, design: .monospaced))
-                                        .lineLimit(1)
-                                    if let error = watch.error {
-                                        Text(error)
-                                            .font(.system(size: 9.5))
-                                            .foregroundStyle(LitheTheme.error)
-                                            .lineLimit(2)
-                                    } else if let value = watch.value {
-                                        HStack(spacing: 4) {
-                                            Text(value)
-                                                .foregroundStyle(LitheTheme.accent)
-                                            if let type = watch.type {
-                                                Text(type).foregroundStyle(LitheTheme.secondaryText)
-                                            }
-                                        }
-                                        .font(.system(size: 9.5, design: .monospaced))
-                                        .lineLimit(2)
-                                    } else {
-                                        Text(feature.state == .paused ? "Evaluating…" : "Not available")
-                                            .font(.system(size: 9.5))
-                                            .foregroundStyle(LitheTheme.secondaryText)
-                                    }
-                                }
-                                Spacer(minLength: 0)
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .contextMenu {
-                                Button("Refresh") { feature.refreshWatches() }
-                                    .disabled(feature.state != .paused)
-                                Button("Edit…") {
-                                    watchEditor = WatchEditorContext(watch: watch)
-                                }
-                                Divider()
-                                Button("Remove", role: .destructive) {
-                                    feature.removeWatch(watch)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                divider
-                evaluateRow
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -997,6 +1018,7 @@ struct GenericDebugView: View {
 
 private enum DebugContent: CaseIterable, Identifiable {
     case debugger
+    case breakpoints
     case console
 
     var id: Self { self }
@@ -1004,6 +1026,7 @@ private enum DebugContent: CaseIterable, Identifiable {
     var title: LocalizedStringKey {
         switch self {
         case .debugger: "Debugger"
+        case .breakpoints: "Breakpoints"
         case .console: "Console"
         }
     }
@@ -1011,6 +1034,7 @@ private enum DebugContent: CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .debugger: "ladybug"
+        case .breakpoints: "circle.fill"
         case .console: "terminal"
         }
     }

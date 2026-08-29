@@ -1224,3 +1224,4 @@
 "Log: %@" = "日志：%@";
 "Console" = "控制台";
 "Debugger" = "调试器";
+"Breakpoints" = "断点";

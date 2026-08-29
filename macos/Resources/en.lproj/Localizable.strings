@@ -110,5 +110,6 @@
 "Log: %@" = "Log: %@";
 "Console" = "Console";
 "Debugger" = "Debugger";
+"Breakpoints" = "Breakpoints";
 "Pull Requests integration is under development" = "Pull Requests integration is under development";
 "GitHub sign-in and pull request management are temporarily unavailable." = "GitHub sign-in and pull request management are temporarily unavailable.";
