@@ -1165,43 +1165,68 @@ fn annotation_context(lines: &[&str], index: usize) -> String {
     values.join(" ")
 }
 
-/// The Spring annotations this module recognizes.
+/// Matches `@Name` only when the name is not a prefix of a longer annotation,
+/// so `@Bean` does not match `@BeanFactory`.
+fn annotation_boundary_pattern(name: &str) -> Regex {
+    Regex::new(&format!(r"@{}(?:\s|\(|$)", regex::escape(name)))
+        .expect("an escaped annotation name is a valid pattern")
+}
+
+/// Declares the Spring annotations this module recognizes exactly once, and
+/// derives the type, the spelling, the full list, and the compiled pattern from
+/// that one declaration.
 ///
-/// A closed type keeps the compiled pattern table and every call site in
-/// agreement. Adding an annotation means adding a case, which the exhaustive
-/// [`SpringAnnotation::name`] match forces the author to complete, so detection
-/// can never silently fall back to compiling a pattern on every source line.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub(crate) enum SpringAnnotation {
-    Autowired,
-    Bean,
-    Component,
-    Configuration,
-    Controller,
-    Inject,
-    Primary,
-    Repository,
-    Resource,
-    RestController,
-    Service,
+/// Detection runs several times for every line of every Java source, so each
+/// pattern is compiled once for the process. `pattern` matches on `self` instead
+/// of looking the annotation up in a table, which leaves the compiler to reject
+/// a case that was added without a pattern.
+macro_rules! spring_annotations {
+    ($($variant:ident => $name:literal),+ $(,)?) => {
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+        pub(crate) enum SpringAnnotation {
+            $($variant),+
+        }
+
+        impl SpringAnnotation {
+            /// Every recognized annotation, in declaration order. Production
+            /// code reaches a pattern through a case rather than this list.
+            #[cfg(test)]
+            pub(crate) const ALL: &'static [Self] = &[$(Self::$variant),+];
+
+            pub(crate) fn name(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $name),+
+                }
+            }
+
+            pub(crate) fn pattern(self) -> &'static Regex {
+                match self {
+                    $(Self::$variant => {
+                        static PATTERN: LazyLock<Regex> =
+                            LazyLock::new(|| annotation_boundary_pattern($name));
+                        &PATTERN
+                    })+
+                }
+            }
+        }
+    };
+}
+
+spring_annotations! {
+    Autowired => "Autowired",
+    Bean => "Bean",
+    Component => "Component",
+    Configuration => "Configuration",
+    Controller => "Controller",
+    Inject => "Inject",
+    Primary => "Primary",
+    Repository => "Repository",
+    Resource => "Resource",
+    RestController => "RestController",
+    Service => "Service",
 }
 
 impl SpringAnnotation {
-    /// Every recognized annotation. The pattern table is built from this list.
-    pub(crate) const ALL: [Self; 11] = [
-        Self::Autowired,
-        Self::Bean,
-        Self::Component,
-        Self::Configuration,
-        Self::Controller,
-        Self::Inject,
-        Self::Primary,
-        Self::Repository,
-        Self::Resource,
-        Self::RestController,
-        Self::Service,
-    ];
-
     /// Annotations that declare a Spring component on a type declaration. The
     /// order also drives the alternation in [`component_name`], so changing it
     /// changes which annotation wins on a type carrying several of them.
@@ -1216,46 +1241,6 @@ impl SpringAnnotation {
 
     /// Annotations that mark a field or constructor parameter for injection.
     const INJECTIONS: [Self; 3] = [Self::Autowired, Self::Inject, Self::Resource];
-
-    pub(crate) fn name(self) -> &'static str {
-        match self {
-            Self::Autowired => "Autowired",
-            Self::Bean => "Bean",
-            Self::Component => "Component",
-            Self::Configuration => "Configuration",
-            Self::Controller => "Controller",
-            Self::Inject => "Inject",
-            Self::Primary => "Primary",
-            Self::Repository => "Repository",
-            Self::Resource => "Resource",
-            Self::RestController => "RestController",
-            Self::Service => "Service",
-        }
-    }
-
-    /// Matches `@Name` only when the name is not a prefix of a longer
-    /// annotation, so `@Bean` does not match `@BeanFactory`.
-    ///
-    /// Detection runs several times for every line of every Java source, so the
-    /// patterns are compiled once for the process.
-    pub(crate) fn pattern(self) -> &'static Regex {
-        static PATTERNS: LazyLock<HashMap<SpringAnnotation, Regex>> = LazyLock::new(|| {
-            SpringAnnotation::ALL
-                .into_iter()
-                .map(|annotation| {
-                    let pattern = Regex::new(&format!(
-                        r"@{}(?:\s|\(|$)",
-                        regex::escape(annotation.name())
-                    ))
-                    .expect("an escaped annotation name is a valid pattern");
-                    (annotation, pattern)
-                })
-                .collect()
-        });
-        PATTERNS
-            .get(&self)
-            .expect("the table is built from ALL, which lists every case")
-    }
 
     pub(crate) fn is_present(self, context: &str) -> bool {
         self.pattern().is_match(context)
@@ -1632,13 +1617,12 @@ mod tests {
     use super::*;
     use std::collections::HashSet;
 
-    /// The pattern table is built from `ALL`, so a case added to the type but
-    /// omitted from that list panics on first use instead of quietly compiling a
-    /// pattern on every source line. This covers the table and the boundary each
-    /// entry has to keep.
+    /// `spring_annotations!` derives the type, the spelling, `ALL`, and the
+    /// compiled pattern from one declaration, so a case cannot exist without a
+    /// pattern. This covers the boundary each entry has to keep.
     #[test]
     fn every_supported_annotation_has_a_compiled_boundary_pattern() {
-        for annotation in SpringAnnotation::ALL {
+        for annotation in SpringAnnotation::ALL.iter().copied() {
             let name = annotation.name();
             assert!(
                 annotation.is_present(&format!("@{name} public class Demo")),
