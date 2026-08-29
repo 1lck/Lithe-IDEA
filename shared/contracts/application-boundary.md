@@ -203,6 +203,13 @@ and discards stale pages after the selected frame changes. A native client must
 also stop offering more pages when an adapter returns more children than were
 requested or repeats an already loaded page.
 
+Debugger disconnect ownership is portable. A session started with `launch`
+owns its local debuggee and sends `terminateDebuggee: true` when stopping. A
+session started with `attach` does not own the remote JVM and sends
+`terminateDebuggee: false`; closing the native transport must therefore detach
+without killing the remote process. A session stopped before launch or attach
+also uses the non-terminating policy.
+
 For JDT LS, the standard initialize handshake and project-import readiness use
 separate Core-owned deadlines. Project import fails only after 45 seconds
 without changed progress or the 10-minute absolute safety cap; platform clients

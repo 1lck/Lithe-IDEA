@@ -490,10 +490,15 @@ The compatibility flow is captured in
 `shared/fixtures/debug/dap-session-v1.json`; exception normalization cases are
 captured in `shared/fixtures/debug/exception-info-v1.json`.
 
-`debug.disconnect` emits the protocol handshake and enters `terminating`; the
-platform keeps the socket or process alive long enough to flush the frame,
-then closes it and calls `debug.destroySession`. A session allocates no process,
-socket, timer, or background task, and no session exists until Debug is used.
+`debug.disconnect` emits the protocol handshake and enters `terminating`.
+Core derives DAP `terminateDebuggee` from the session's request kind: `launch`
+uses `true`, while `attach` and a session stopped before either request use
+`false`. This prevents a remote detach from killing a JVM the IDE does not own.
+The compatibility cases are in
+`shared/fixtures/debug/disconnect-policy-v1.json`. The platform keeps the
+socket or process alive long enough to flush the frame, then closes it and
+calls `debug.destroySession`. A session allocates no process, socket, timer, or
+background task, and no session exists until Debug is used.
 
 `lsp.builtinCompletions`, `lsp.builtinHover`, and `lsp.builtinNavigation` are
 the no-process lightweight language path. They accept current-file text, an

@@ -1643,6 +1643,21 @@ struct DebugModuleTests {
     }
 
     @Test
+    func protocolSessionDisconnectTerminatesOnlyLaunchedDebuggees() throws {
+        let launchArguments = try disconnectArguments(for: .launch)
+        #expect(launchArguments["restart"] as? Bool == false)
+        #expect(launchArguments["terminateDebuggee"] as? Bool == true)
+
+        let attachArguments = try disconnectArguments(for: .attach)
+        #expect(attachArguments["restart"] as? Bool == false)
+        #expect(attachArguments["terminateDebuggee"] as? Bool == false)
+
+        let unstartedArguments = try disconnectArguments(for: nil)
+        #expect(unstartedArguments["restart"] as? Bool == false)
+        #expect(unstartedArguments["terminateDebuggee"] as? Bool == false)
+    }
+
+    @Test
     func protocolSessionCreatesAndStopsChildTransport() throws {
         let parent = RecordingTransport()
         let session = DebugAdapterProtocolSession(adapterID: "test-adapter", transport: parent)
@@ -1797,6 +1812,39 @@ struct DebugModuleTests {
                 variablesReference: 0
             )
         }
+    }
+
+    private func disconnectArguments(
+        for requestKind: DebugRequestKind?
+    ) throws -> [String: Any] {
+        let transport = RecordingTransport()
+        let session = DebugAdapterProtocolSession(
+            adapterID: "test-adapter",
+            transport: transport
+        )
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/debug-disconnect"))
+        defer {
+            if session.isRunning { session.stop() }
+        }
+        let initialize = try #require(transport.request(named: "initialize"))
+        transport.emitJSON([
+            "seq": 2,
+            "type": "response",
+            "request_seq": initialize["seq"] as! Int,
+            "success": true,
+            "command": "initialize",
+            "body": [:]
+        ])
+        if let requestKind {
+            try session.launch(DebugLaunchConfiguration(
+                name: "Disconnect Policy",
+                request: requestKind,
+                arguments: [:]
+            ))
+        }
+        session.stop()
+        let disconnect = try #require(transport.request(named: "disconnect"))
+        return try #require(disconnect["arguments"] as? [String: Any])
     }
 }
 

@@ -47,6 +47,7 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
     private var didReceiveInitializedEvent = false
     private var supportsConfigurationDone = false
     private var pendingLaunch: DebugLaunchConfiguration?
+    private var activeRequestKind: DebugRequestKind?
     private var childSessions: [DebugAdapterProtocolSession] = []
     private weak var activeChildSession: DebugAdapterProtocolSession?
 
@@ -137,6 +138,7 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
         if requestArguments["cwd"] == nil, let rootURL {
             requestArguments["cwd"] = rootURL.path
         }
+        activeRequestKind = configuration.request
         state = .launching
         sendRequest(command: configuration.request.rawValue, arguments: requestArguments) { [weak self] result in
             guard let self else { return }
@@ -550,7 +552,7 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
         if transport.isRunning {
             sendRequest(command: "disconnect", arguments: [
                 "restart": false,
-                "terminateDebuggee": true
+                "terminateDebuggee": activeRequestKind == .launch
             ]) { _ in }
         }
         transport.stop()
@@ -944,6 +946,7 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
         supportsConfigurationDone = false
         capabilities = .unknown
         pendingLaunch = nil
+        activeRequestKind = nil
         activeChildSession = nil
         childSessions = []
         if !keepingState { state = .idle }

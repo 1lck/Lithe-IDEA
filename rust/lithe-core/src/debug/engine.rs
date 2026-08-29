@@ -30,6 +30,7 @@ struct DebugSession {
     supports_configuration_done: bool,
     capabilities: DebugCapabilities,
     stepping_filters: DebugSteppingFilters,
+    debug_request_kind: Option<DebugRequestKind>,
     pending_launch: Option<(String, DebugLaunchConfiguration)>,
     outbound_frames: Vec<Vec<u8>>,
     events: Vec<DebugEvent>,
@@ -104,6 +105,7 @@ pub(crate) fn create_session(
         supports_configuration_done: false,
         capabilities: DebugCapabilities::default(),
         stepping_filters: DebugSteppingFilters::unfiltered(),
+        debug_request_kind: None,
         pending_launch: None,
         outbound_frames: Vec::new(),
         events: Vec::new(),
@@ -678,9 +680,12 @@ pub(crate) fn disconnect(request: SessionRequest) -> Result<DebugSessionUpdate, 
         ) {
             return Ok(session.take_update());
         }
+        // An attach session does not own the remote JVM, so disconnect must
+        // never terminate it. A launch session owns the local debuggee.
+        let terminate_debuggee = session.debug_request_kind == Some(DebugRequestKind::Launch);
         session.send_request(
             "disconnect",
-            json!({"restart": false, "terminateDebuggee": true}),
+            json!({"restart": false, "terminateDebuggee": terminate_debuggee}),
             PendingRequest::Disconnect,
         )?;
         session.transition(DebugSessionState::Terminating);
@@ -703,6 +708,7 @@ impl DebugSession {
         operation_id: String,
         configuration: DebugLaunchConfiguration,
     ) -> Result<(), CoreError> {
+        let request_kind = configuration.request;
         let mut arguments = configuration.arguments;
         let filters = normalize_stepping_filters(
             configuration
@@ -719,9 +725,10 @@ impl DebugSession {
         arguments
             .entry("cwd".to_string())
             .or_insert(Value::String(self.root_path.clone()));
+        self.debug_request_kind = Some(request_kind);
         self.transition(DebugSessionState::Launching);
         self.send_request(
-            configuration.request.command(),
+            request_kind.command(),
             Value::Object(arguments),
             PendingRequest::Launch { operation_id },
         )
@@ -2027,6 +2034,58 @@ mod tests {
             false
         );
         assert!(value["events"][1]["result"].get("stack_frames").is_none());
+    }
+
+    #[test]
+    fn disconnect_policy_matches_shared_fixture() {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/fixtures/debug/disconnect-policy-v1.json"
+        )))
+        .unwrap();
+
+        for case in fixture["cases"].as_array().unwrap() {
+            let request_name = case["request"].as_str().unwrap_or("unstarted");
+            let session_id = format!("debug-disconnect-{request_name}");
+            create_session(CreateSessionRequest {
+                session_id: session_id.clone(),
+                adapter_id: "java".to_string(),
+                root_path: "/workspace".to_string(),
+            })
+            .unwrap();
+
+            if case["request"].is_string() {
+                let request_kind = serde_json::from_value(case["request"].clone()).unwrap();
+                launch(LaunchRequest {
+                    session_id: session_id.clone(),
+                    operation_id: format!("{request_name}-main"),
+                    configuration: DebugLaunchConfiguration {
+                        name: "Main".to_string(),
+                        request: request_kind,
+                        arguments: Map::new(),
+                        stepping_filters: None,
+                    },
+                })
+                .unwrap();
+                let initialized = receive_messages(
+                    &session_id,
+                    vec![response_message(1, "initialize", json!({}))],
+                );
+                assert_eq!(
+                    decode_frame(&initialized.outbound_frames[0])["command"],
+                    request_name
+                );
+            }
+
+            let disconnected = disconnect(SessionRequest {
+                session_id: session_id.clone(),
+            })
+            .unwrap();
+            let request = decode_frame(&disconnected.outbound_frames[0]);
+            assert_eq!(request["command"], "disconnect");
+            assert_eq!(request["arguments"], case["expectedArguments"]);
+            destroy_session(SessionRequest { session_id }).unwrap();
+        }
     }
 
     #[test]
