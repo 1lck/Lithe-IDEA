@@ -601,6 +601,7 @@ struct CodeEditorView: NSViewRepresentable {
         private var appliedBlameVisible = false
         private var appliedBlameLines: [GitBlameLine] = []
         private var appliedDebugBreakpointLines = Set<Int>()
+        private var appliedDebugBreakpointStates: [Int: Bool] = [:]
         private var appliedCurrentExecutionLine: Int?
         private var appliedGitMarkers: [GitLineChangeMarker]?
         private var appliedDiagnostics: [EditorDiagnostic] = []
@@ -1223,6 +1224,13 @@ struct CodeEditorView: NSViewRepresentable {
                 $0.fileURL.standardizedFileURL == url
             }.map(\.line)
             let debugBreakpointLines = Set(genericBreakpointLines)
+            let debugBreakpointStates = (model.genericDebugFeatureIfActive?.breakpoints ?? [])
+                .filter { $0.fileURL.standardizedFileURL == url }
+                .reduce(into: [Int: Bool]()) { states, breakpoint in
+                    // A source line can carry multiple column breakpoints;
+                    // show it as confirmed when any adapter location is confirmed.
+                    states[breakpoint.line] = states[breakpoint.line] == true || breakpoint.verified
+                }
             let currentExecutionLine: Int? = {
                 guard let frame = model.genericDebugFeatureIfActive?.stoppedFrame,
                       frame.sourceURL?.standardizedFileURL == url else { return nil }
@@ -1231,10 +1239,12 @@ struct CodeEditorView: NSViewRepresentable {
             if appliedBlameVisible != isBlameVisible
                 || appliedBlameLines != blameLines
                 || appliedDebugBreakpointLines != debugBreakpointLines
+                || appliedDebugBreakpointStates != debugBreakpointStates
                 || appliedCurrentExecutionLine != currentExecutionLine {
                 appliedBlameVisible = isBlameVisible
                 appliedBlameLines = blameLines
                 appliedDebugBreakpointLines = debugBreakpointLines
+                appliedDebugBreakpointStates = debugBreakpointStates
                 appliedCurrentExecutionLine = currentExecutionLine
                 container?.gutterWidthConstraint?.constant = isBlameVisible
                     ? EditorLayoutMetrics.blameMetadataWidth + standardGutterWidth
@@ -1242,7 +1252,7 @@ struct CodeEditorView: NSViewRepresentable {
                 gutter?.update(blameLines: blameLines, isVisible: isBlameVisible) { [weak model] blame in
                     Task { await model?.showGitCommit(blame.commitHash) }
                 }
-                gutter?.updateDebugBreakpointLines(debugBreakpointLines) { [weak model] line in
+                gutter?.updateDebugBreakpointLines(debugBreakpointStates) { [weak model] line in
                     model?.toggleDebugBreakpoint(fileURL: url, line: line)
                 }
                 gutter?.updateCurrentExecutionLine(currentExecutionLine)
@@ -3113,6 +3123,7 @@ final class LineNumberGutterView: NSView {
     private var implementationMarkers: [JavaImplementationMarker] = []
     private var onSelectImplementation: ((JavaImplementationMarker) -> Void)?
     private var debugBreakpointLines: Set<Int> = []
+    private var debugBreakpointVerifiedByLine: [Int: Bool] = [:]
     private var currentExecutionLine: Int?
     private var onToggleDebugBreakpoint: ((Int) -> Void)?
     private var scrollRefreshScheduled = false
@@ -3270,10 +3281,13 @@ final class LineNumberGutterView: NSView {
     }
 
     func updateDebugBreakpointLines(
-        _ lines: Set<Int>,
+        _ states: [Int: Bool],
         onToggle: @escaping (Int) -> Void
     ) {
-        debugBreakpointLines = Set(lines.map { max(0, $0 - 1) })
+        debugBreakpointLines = Set(states.keys.map { max(0, $0 - 1) })
+        debugBreakpointVerifiedByLine = Dictionary(
+            uniqueKeysWithValues: states.map { (max(0, $0.key - 1), $0.value) }
+        )
         onToggleDebugBreakpoint = onToggle
         needsDisplay = true
     }
@@ -3498,8 +3512,8 @@ final class LineNumberGutterView: NSView {
                showsBlameMetadata(line: lineNumber - 1, firstVisibleLine: firstLine) {
                 drawBlame(blame, y: y, height: lineRect.height)
             }
-            if !isBlameVisible, debugBreakpointLines.contains(lineNumber - 1) {
-                drawDebugBreakpoint(y: y, height: lineRect.height)
+            if !isBlameVisible, let verified = debugBreakpointVerifiedByLine[lineNumber - 1] {
+                drawDebugBreakpoint(y: y, height: lineRect.height, verified: verified)
             } else {
                 let markers = implementationMarkers.filter { $0.line == lineNumber - 1 }
                 for marker in markers {
@@ -3669,10 +3683,9 @@ final class LineNumberGutterView: NSView {
         path.stroke()
     }
 
-    private func drawDebugBreakpoint(y: CGFloat, height: CGFloat) {
+    private func drawDebugBreakpoint(y: CGFloat, height: CGFloat, verified: Bool) {
         let markerSize: CGFloat = 9
-        NSColor(red: 0.92, green: 0.28, blue: 0.30, alpha: 0.96).setFill()
-        NSBezierPath(
+        let path = NSBezierPath(
             ovalIn: NSRect(
                 x: editorGutterOriginX + gutterLayout.breakpointRange.lowerBound
                     + (EditorGutterLayout.width(of: gutterLayout.breakpointRange) - markerSize) / 2,
@@ -3680,7 +3693,14 @@ final class LineNumberGutterView: NSView {
                 width: markerSize,
                 height: markerSize
             )
-        ).fill()
+        )
+        NSColor(red: 0.92, green: 0.28, blue: 0.30, alpha: 0.96).setStroke()
+        path.lineWidth = 1.5
+        if verified {
+            path.fill()
+        } else {
+            path.stroke()
+        }
     }
 
     private func drawCurrentExecutionLine(y: CGFloat, height: CGFloat) {
