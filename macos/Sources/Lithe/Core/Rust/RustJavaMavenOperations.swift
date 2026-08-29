@@ -6,7 +6,13 @@ protocol JavaMavenOperations: MavenProjectOperations, RunServerPortParsing, Send
         files: [URL],
         changedFiles: [URL]
     ) -> JavaWorkspacePolicyResult?
-    func scanMavenProject(at rootURL: URL, files: [URL]) -> MavenProject?
+    func scanMavenProject(at rootURL: URL, files: [URL]) throws -> MavenProject?
+    func mavenLaunchPlan(
+        at rootURL: URL,
+        context: MavenLaunchContext,
+        module: String?,
+        goals: [String]
+    ) throws -> MavenLaunchPlan
     func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue]
     func codeVision(
         at rootURL: URL,
@@ -38,6 +44,18 @@ protocol JavaMavenOperations: MavenProjectOperations, RunServerPortParsing, Send
 }
 
 extension JavaMavenOperations {
+    func mavenLaunchPlan(
+        at _: URL,
+        context _: MavenLaunchContext,
+        module _: String?,
+        goals _: [String]
+    ) throws -> MavenLaunchPlan {
+        throw MavenOperationError(
+            code: "not_supported",
+            message: "Maven launch planning is unavailable."
+        )
+    }
+
     func javaWorkspacePolicy(
         at _: URL,
         files _: [URL],
@@ -132,7 +150,7 @@ struct RustJavaMavenOperations: JavaMavenOperations, Sendable {
         )
     }
 
-    func scanMavenProject(at rootURL: URL, files: [URL]) -> MavenProject? {
+    func scanMavenProject(at rootURL: URL, files: [URL]) throws -> MavenProject? {
         let root = rootURL.standardizedFileURL
         let rootComponents = root.pathComponents
         let paths = files.compactMap { fileURL -> String? in
@@ -143,7 +161,27 @@ struct RustJavaMavenOperations: JavaMavenOperations, Sendable {
                 .dropFirst(rootComponents.count)
                 .joined(separator: "/")
         }
-        return core.scanMaven(at: root, paths: paths)?.makeProject(workspaceRootURL: root)
+        return try core.scanMavenResult(at: root, paths: paths)
+            .mapError(MavenOperationError.init)
+            .get()?
+            .makeProject(workspaceRootURL: root)
+    }
+
+    func mavenLaunchPlan(
+        at rootURL: URL,
+        context: MavenLaunchContext,
+        module: String?,
+        goals: [String]
+    ) throws -> MavenLaunchPlan {
+        try core.mavenLaunchPlan(
+            at: rootURL,
+            context: context,
+            module: module,
+            goals: goals
+        )
+        .mapError(MavenOperationError.init)
+        .get()
+        .makeModel()
     }
 
     func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue] {
@@ -342,5 +380,11 @@ struct RustJavaMavenOperations: JavaMavenOperations, Sendable {
                 )
             }
         )
+    }
+}
+
+private extension MavenOperationError {
+    init(_ error: RustCoreBridge.CoreCallError) {
+        self.init(code: error.code, message: error.message, details: error.details)
     }
 }

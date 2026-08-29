@@ -92,8 +92,17 @@ final class JavaDebugFeatureModel: ObservableObject, JavaDebugFeatureTarget {
         configuration: RunConfiguration,
         project: MavenProject,
         projectURL: URL,
-        options: RunOptions
-    ) { service.startMaven(configuration: configuration, project: project, projectURL: projectURL, options: options) }
+        options: RunOptions,
+        mavenContext: MavenLaunchContext?
+    ) {
+        service.startMaven(
+            configuration: configuration,
+            project: project,
+            projectURL: projectURL,
+            options: options,
+            mavenContext: mavenContext
+        )
+    }
     func attachRemote() { service.attachRemote() }
     func toggleBreakpoint(fileURL: URL, line: Int, className: String) {
         service.toggleBreakpoint(fileURL: fileURL, line: line, className: className)
