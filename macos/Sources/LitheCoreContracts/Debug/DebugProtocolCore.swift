@@ -177,6 +177,21 @@ public struct DebugCoreScope: Decodable, Equatable, Sendable {
     public let name: String
     public let variablesReference: Int
     public let expensive: Bool
+    public let namedVariables: Int
+    public let indexedVariables: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case name, variablesReference, expensive, namedVariables, indexedVariables
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        variablesReference = try container.decode(Int.self, forKey: .variablesReference)
+        expensive = try container.decode(Bool.self, forKey: .expensive)
+        namedVariables = max(0, try container.decodeIfPresent(Int.self, forKey: .namedVariables) ?? 0)
+        indexedVariables = max(0, try container.decodeIfPresent(Int.self, forKey: .indexedVariables) ?? 0)
+    }
 }
 
 public struct DebugCoreVariable: Decodable, Equatable, Sendable {
@@ -185,6 +200,23 @@ public struct DebugCoreVariable: Decodable, Equatable, Sendable {
     public let type: String?
     public let evaluateName: String?
     public let variablesReference: Int
+    public let namedVariables: Int
+    public let indexedVariables: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case name, value, type, evaluateName, variablesReference, namedVariables, indexedVariables
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        value = try container.decode(String.self, forKey: .value)
+        type = try container.decodeIfPresent(String.self, forKey: .type)
+        evaluateName = try container.decodeIfPresent(String.self, forKey: .evaluateName)
+        variablesReference = try container.decode(Int.self, forKey: .variablesReference)
+        namedVariables = max(0, try container.decodeIfPresent(Int.self, forKey: .namedVariables) ?? 0)
+        indexedVariables = max(0, try container.decodeIfPresent(Int.self, forKey: .indexedVariables) ?? 0)
+    }
 }
 
 public struct DebugCoreExceptionInfo: Decodable, Equatable, Sendable {
@@ -282,6 +314,9 @@ public protocol DebugProtocolCore: DebugSteppingFilterResolving, Sendable {
         threadID: Int?,
         frameID: Int?,
         variablesReference: Int?,
+        variableFilter: DebugVariableFilter?,
+        start: Int?,
+        count: Int?,
         expression: String?,
         sourcePath: String?,
         line: Int?,

@@ -238,6 +238,60 @@ struct DebugModuleTests {
     }
 
     @Test
+    func coreProtocolSessionForwardsVariablePagingAndChildCounts() throws {
+        let transport = RecordingTransport()
+        let core = RecordingDebugProtocolCore()
+        let session = CoreDebugAdapterProtocolSession(
+            adapterID: "java",
+            transport: transport,
+            core: core,
+            sessionID: "java-variable-paging",
+            deadlineScheduler: RecordingDebugDeadlineScheduler()
+        )
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/java-variable-paging"))
+        defer { session.stop() }
+
+        var result: Result<[DebugVariable], Error>?
+        session.requestVariables(
+            reference: 700,
+            filter: .indexed,
+            start: 100,
+            count: 2
+        ) { result = $0 }
+
+        #expect(core.inspectionRequests.last?.variablesReference == 700)
+        #expect(core.inspectionRequests.last?.variableFilter == .indexed)
+        #expect(core.inspectionRequests.last?.start == 100)
+        #expect(core.inspectionRequests.last?.count == 2)
+
+        let operationID = try #require(core.lastInspectionOperationID)
+        core.enqueueReceive(sessionID: "java-variable-paging", state: "paused", events: [[
+            "sequence": 2,
+            "type": "operationCompleted",
+            "operationId": operationID,
+            "result": [
+                "kind": "variables",
+                "variables": [[
+                    "name": "[100]",
+                    "value": "Customer@100",
+                    "type": "example.Customer",
+                    "evaluateName": "customers[100]",
+                    "variablesReference": 701,
+                    "namedVariables": 4,
+                    "indexedVariables": 5
+                ]]
+            ]
+        ]])
+        transport.emitData(Data("variables-response".utf8))
+
+        let variable = try #require(try result?.get().first)
+        #expect(variable.id == "customers[100]")
+        #expect(variable.containerReference == 700)
+        #expect(variable.namedVariables == 4)
+        #expect(variable.indexedVariables == 5)
+    }
+
+    @Test
     func stoppedEventLoadsThreadStackScopeAndVariablesInOrder() throws {
         let transport = RecordingTransport()
         let core = RecordingDebugProtocolCore()
@@ -764,6 +818,198 @@ struct DebugModuleTests {
     }
 
     @Test
+    func largeIndexedVariableCollectionsLoadInBoundedPages() throws {
+        let session = DeferredInspectionDebugSession()
+        let feature = makeDeferredFeature(
+            session: session,
+            rootPath: "/tmp/java-large-variable-pages"
+        )
+        defer { feature.stop() }
+        let frame = DebugStackFrame(id: 70, name: "main", sourceURL: nil, line: 12, column: 1)
+
+        feature.selectFrame(frame)
+        session.completeScopes(at: 0, with: [DebugScope(
+            id: 70,
+            name: "Locals",
+            variablesReference: 700,
+            expensive: false,
+            indexedVariables: 250
+        )])
+        #expect(session.variablePageRequests == [RecordingDebugVariablePageRequest(
+            reference: 700,
+            filter: .indexed,
+            start: 0,
+            count: 100
+        )])
+
+        session.completeVariables(at: 0, with: indexedVariables(0..<100))
+        #expect(feature.variables.count == 100)
+        #expect(feature.visibleVariableRows.last?.content == .loadMore(
+            parentVariableID: nil,
+            nextCount: 100,
+            remainingCount: 150
+        ))
+
+        feature.loadMoreVariables(parentVariableID: nil)
+        #expect(session.variablePageRequests.last == RecordingDebugVariablePageRequest(
+            reference: 700,
+            filter: .indexed,
+            start: 100,
+            count: 100
+        ))
+        session.completeVariables(at: 1, with: indexedVariables(100..<200))
+        #expect(feature.visibleVariableRows.last?.content == .loadMore(
+            parentVariableID: nil,
+            nextCount: 50,
+            remainingCount: 50
+        ))
+
+        feature.loadMoreVariables(parentVariableID: nil)
+        #expect(session.variablePageRequests.last == RecordingDebugVariablePageRequest(
+            reference: 700,
+            filter: .indexed,
+            start: 200,
+            count: 50
+        ))
+        session.completeVariables(at: 2, with: indexedVariables(200..<250))
+
+        #expect(feature.variables.count == 250)
+        #expect(feature.variables.first?.name == "[0]")
+        #expect(feature.variables.last?.name == "[249]")
+        #expect(feature.visibleVariableRows.count == 250)
+    }
+
+    @Test
+    func namedAndIndexedVariableSegmentsLoadInProtocolOrder() throws {
+        let session = DeferredInspectionDebugSession()
+        let feature = makeDeferredFeature(
+            session: session,
+            rootPath: "/tmp/java-named-indexed-pages"
+        )
+        defer { feature.stop() }
+        let frame = DebugStackFrame(id: 71, name: "main", sourceURL: nil, line: 12, column: 1)
+
+        feature.selectFrame(frame)
+        session.completeScopes(at: 0, with: [DebugScope(
+            id: 71,
+            name: "Locals",
+            variablesReference: 710,
+            expensive: false,
+            namedVariables: 2,
+            indexedVariables: 3
+        )])
+        #expect(session.variablePageRequests.last == RecordingDebugVariablePageRequest(
+            reference: 710,
+            filter: .named,
+            start: 0,
+            count: 2
+        ))
+        session.completeVariables(at: 0, with: [
+            DebugVariable(id: "size", name: "size", value: "3", type: "int", evaluateName: "items.size", variablesReference: 0),
+            DebugVariable(id: "empty", name: "empty", value: "false", type: "boolean", evaluateName: "items.empty", variablesReference: 0)
+        ])
+        #expect(feature.visibleVariableRows.last?.content == .loadMore(
+            parentVariableID: nil,
+            nextCount: 3,
+            remainingCount: 3
+        ))
+
+        feature.loadMoreVariables(parentVariableID: nil)
+        #expect(session.variablePageRequests.last == RecordingDebugVariablePageRequest(
+            reference: 710,
+            filter: .indexed,
+            start: 0,
+            count: 3
+        ))
+        session.completeVariables(at: 1, with: indexedVariables(0..<3))
+
+        #expect(feature.variables.map(\.name) == ["size", "empty", "[0]", "[1]", "[2]"])
+        #expect(feature.visibleVariableRows.count == 5)
+    }
+
+    @Test
+    func repeatedVariablePageStopsWhenAdapterIgnoresStart() throws {
+        let session = DeferredInspectionDebugSession()
+        let feature = makeDeferredFeature(
+            session: session,
+            rootPath: "/tmp/java-ignored-variable-paging"
+        )
+        defer { feature.stop() }
+        let frame = DebugStackFrame(id: 72, name: "main", sourceURL: nil, line: 12, column: 1)
+
+        feature.selectFrame(frame)
+        session.completeScopes(at: 0, with: [DebugScope(
+            id: 72,
+            name: "Locals",
+            variablesReference: 720,
+            expensive: false,
+            indexedVariables: 250
+        )])
+        session.completeVariables(
+            at: 0,
+            with: indexedVariables(0..<100, idPrefix: "page-zero")
+        )
+        feature.loadMoreVariables(parentVariableID: nil)
+        #expect(session.variablePageRequests.last?.start == 100)
+
+        session.completeVariables(
+            at: 1,
+            with: indexedVariables(0..<100, idPrefix: "page-one")
+        )
+
+        #expect(feature.variables.count == 100)
+        #expect(feature.visibleVariableRows.count == 100)
+        feature.loadMoreVariables(parentVariableID: nil)
+        #expect(session.variablePageRequests.count == 2)
+    }
+
+    @Test
+    func staleVariablePageDoesNotEnterNewStackFrame() throws {
+        let session = DeferredInspectionDebugSession()
+        let feature = makeDeferredFeature(
+            session: session,
+            rootPath: "/tmp/java-stale-variable-page"
+        )
+        defer { feature.stop() }
+        let firstFrame = DebugStackFrame(id: 80, name: "first", sourceURL: nil, line: 12, column: 1)
+        let secondFrame = DebugStackFrame(id: 81, name: "second", sourceURL: nil, line: 20, column: 1)
+
+        feature.selectFrame(firstFrame)
+        session.completeScopes(at: 0, with: [DebugScope(
+            id: 80,
+            name: "Locals",
+            variablesReference: 800,
+            expensive: false,
+            indexedVariables: 250
+        )])
+        session.completeVariables(at: 0, with: indexedVariables(0..<100))
+        feature.loadMoreVariables(parentVariableID: nil)
+
+        feature.selectFrame(secondFrame)
+        session.completeScopes(at: 1, with: [DebugScope(
+            id: 81,
+            name: "Locals",
+            variablesReference: 810,
+            expensive: false,
+            indexedVariables: 1
+        )])
+        let current = DebugVariable(
+            id: "current",
+            name: "current",
+            value: "true",
+            type: "boolean",
+            evaluateName: "current",
+            variablesReference: 0
+        )
+        session.completeVariables(at: 2, with: [current])
+        session.completeVariables(at: 1, with: indexedVariables(100..<200))
+
+        #expect(feature.selectedFrameID == 81)
+        #expect(feature.variables == [current])
+        #expect(feature.visibleVariableRows.map(\.variable) == [current])
+    }
+
+    @Test
     func exceptionStopsLoadCurrentMetadataAndDiscardStaleResponses() throws {
         let capabilities = DebugAdapterCapabilities(
             negotiated: true,
@@ -1121,10 +1367,10 @@ struct DebugModuleTests {
             ]
         ]])
         transport.emitData(Data("child-variables-response".utf8))
-        #expect(feature.visibleVariableRows.map(\.variable.name) == ["user", "name"])
+        #expect(feature.visibleVariableRows.compactMap { $0.variable?.name } == ["user", "name"])
         #expect(feature.visibleVariableRows.map(\.depth) == [0, 1])
         feature.toggleVariableExpansion(user)
-        #expect(feature.visibleVariableRows.map(\.variable.name) == ["user"])
+        #expect(feature.visibleVariableRows.compactMap { $0.variable?.name } == ["user"])
         #expect(feature.variables.first?.name == "user")
 
         feature.toggleBreakpointMute()
@@ -1511,6 +1757,47 @@ struct DebugModuleTests {
             EmptyModule(id: .execution, name: "Execution")
         }
     }
+
+    private func makeDeferredFeature(
+        session: DeferredInspectionDebugSession,
+        rootPath: String
+    ) -> GenericDebugFeatureModel {
+        let descriptor = DebugProviderDescriptor(
+            id: "java",
+            displayName: "Java",
+            fileExtensions: ["java"]
+        )
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        let root = URL(fileURLWithPath: rootPath, isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.java")
+        precondition(feature.start(
+            fileURL: source,
+            rootURL: root,
+            configuration: DebugLaunchConfiguration(
+                name: "Main",
+                request: .launch,
+                arguments: ["mainClass": .string("example.Main")]
+            )
+        ))
+        return feature
+    }
+
+    private func indexedVariables(
+        _ range: Range<Int>,
+        idPrefix: String = "item"
+    ) -> [DebugVariable] {
+        range.map { index in
+            DebugVariable(
+                id: "\(idPrefix)-\(index)",
+                name: "[\(index)]",
+                value: "Item@\(index)",
+                type: "example.Item",
+                evaluateName: nil,
+                variablesReference: 0
+            )
+        }
+    }
 }
 
 @MainActor
@@ -1652,6 +1939,16 @@ private struct RecordingDebugInspectionRequest: Equatable {
     let threadID: Int?
     let frameID: Int?
     let variablesReference: Int?
+    let variableFilter: DebugVariableFilter?
+    let start: Int?
+    let count: Int?
+}
+
+private struct RecordingDebugVariablePageRequest: Equatable {
+    let reference: Int
+    let filter: DebugVariableFilter?
+    let start: Int?
+    let count: Int?
 }
 
 @MainActor
@@ -1672,6 +1969,9 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
     )] = []
     private var variableRequests: [(
         reference: Int,
+        filter: DebugVariableFilter?,
+        start: Int?,
+        count: Int?,
         completion: (Result<[DebugVariable], Error>) -> Void
     )] = []
     private var exceptionInfoRequests: [(
@@ -1682,6 +1982,16 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
     var stackTraceThreadIDs: [Int] { stackTraceRequests.map(\.threadID) }
     var scopeFrameIDs: [Int] { scopeRequests.map(\.frameID) }
     var variableReferences: [Int] { variableRequests.map(\.reference) }
+    var variablePageRequests: [RecordingDebugVariablePageRequest] {
+        variableRequests.map {
+            RecordingDebugVariablePageRequest(
+                reference: $0.reference,
+                filter: $0.filter,
+                start: $0.start,
+                count: $0.count
+            )
+        }
+    }
     var exceptionInfoThreadIDs: [Int] { exceptionInfoRequests.map(\.threadID) }
 
     init(capabilities: DebugAdapterCapabilities = .unknown) {
@@ -1732,7 +2042,23 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
         reference: Int,
         completion: @escaping (Result<[DebugVariable], Error>) -> Void
     ) {
-        variableRequests.append((reference, completion))
+        requestVariables(
+            reference: reference,
+            filter: nil,
+            start: nil,
+            count: nil,
+            completion: completion
+        )
+    }
+
+    func requestVariables(
+        reference: Int,
+        filter: DebugVariableFilter?,
+        start: Int?,
+        count: Int?,
+        completion: @escaping (Result<[DebugVariable], Error>) -> Void
+    ) {
+        variableRequests.append((reference, filter, start, count, completion))
     }
 
     func evaluate(
@@ -1911,6 +2237,9 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
         threadID: Int?,
         frameID: Int?,
         variablesReference: Int?,
+        variableFilter: DebugVariableFilter?,
+        start: Int?,
+        count: Int?,
         expression _: String?,
         sourcePath _: String?,
         line _: Int?,
@@ -1922,7 +2251,10 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
             kind: kind,
             threadID: threadID,
             frameID: frameID,
-            variablesReference: variablesReference
+            variablesReference: variablesReference,
+            variableFilter: variableFilter,
+            start: start,
+            count: count
         ))
         return update(sessionID: sessionID, state: "paused")
     }

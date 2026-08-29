@@ -481,13 +481,28 @@ public struct DebugScope: Identifiable, Equatable, Sendable {
     public let name: String
     public let variablesReference: Int
     public let expensive: Bool
+    public let namedVariables: Int
+    public let indexedVariables: Int
 
-    public init(id: Int, name: String, variablesReference: Int, expensive: Bool) {
+    public init(
+        id: Int,
+        name: String,
+        variablesReference: Int,
+        expensive: Bool,
+        namedVariables: Int = 0,
+        indexedVariables: Int = 0
+    ) {
         self.id = id
         self.name = name
         self.variablesReference = variablesReference
         self.expensive = expensive
+        self.namedVariables = max(0, namedVariables)
+        self.indexedVariables = max(0, indexedVariables)
     }
+}
+
+public enum DebugVariableFilter: String, Codable, Equatable, Sendable {
+    case named, indexed
 }
 
 public struct DebugVariable: Identifiable, Equatable, Sendable {
@@ -498,6 +513,8 @@ public struct DebugVariable: Identifiable, Equatable, Sendable {
     public let evaluateName: String?
     public let variablesReference: Int
     public let containerReference: Int?
+    public let namedVariables: Int
+    public let indexedVariables: Int
     public var isExpandable: Bool { variablesReference > 0 }
 
     public init(
@@ -507,7 +524,9 @@ public struct DebugVariable: Identifiable, Equatable, Sendable {
         type: String?,
         evaluateName: String?,
         variablesReference: Int,
-        containerReference: Int? = nil
+        containerReference: Int? = nil,
+        namedVariables: Int = 0,
+        indexedVariables: Int = 0
     ) {
         self.id = id
         self.name = name
@@ -516,6 +535,8 @@ public struct DebugVariable: Identifiable, Equatable, Sendable {
         self.evaluateName = evaluateName
         self.variablesReference = variablesReference
         self.containerReference = containerReference
+        self.namedVariables = max(0, namedVariables)
+        self.indexedVariables = max(0, indexedVariables)
     }
 }
 
@@ -576,6 +597,13 @@ public protocol DebugAdapterControllingSession: DebugAdapterSession {
     func requestStackTrace(threadID: Int, completion: @escaping (Result<[DebugStackFrame], Error>) -> Void)
     func requestScopes(frameID: Int, completion: @escaping (Result<[DebugScope], Error>) -> Void)
     func requestVariables(reference: Int, completion: @escaping (Result<[DebugVariable], Error>) -> Void)
+    func requestVariables(
+        reference: Int,
+        filter: DebugVariableFilter?,
+        start: Int?,
+        count: Int?,
+        completion: @escaping (Result<[DebugVariable], Error>) -> Void
+    )
     func setVariable(
         variablesReference: Int,
         name: String,
@@ -629,6 +657,15 @@ public extension DebugAdapterControllingSession {
         completion: @escaping (Result<DebugExceptionInfo, Error>) -> Void
     ) {
         completion(.failure(DebugAdapterCapabilityError.unsupported("exception information")))
+    }
+    func requestVariables(
+        reference: Int,
+        filter _: DebugVariableFilter?,
+        start _: Int?,
+        count _: Int?,
+        completion: @escaping (Result<[DebugVariable], Error>) -> Void
+    ) {
+        requestVariables(reference: reference, completion: completion)
     }
     func setVariable(
         variablesReference _: Int,

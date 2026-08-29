@@ -377,6 +377,23 @@ impl DebugInspectKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+/// Selects the named or indexed child collection of a debugger variable.
+pub enum DebugVariableFilter {
+    Named,
+    Indexed,
+}
+
+impl DebugVariableFilter {
+    pub(crate) fn argument(self) -> &'static str {
+        match self {
+            Self::Named => "named",
+            Self::Indexed => "indexed",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Parameters for one thread, frame, variable, or expression inspection.
@@ -390,6 +407,14 @@ pub struct InspectRequest {
     pub frame_id: Option<i64>,
     #[serde(default)]
     pub variables_reference: Option<i64>,
+    #[serde(default)]
+    pub variable_filter: Option<DebugVariableFilter>,
+    /// Zero-based child offset for a paged variables request.
+    #[serde(default)]
+    pub start: Option<i64>,
+    /// Maximum child count for a paged variables request.
+    #[serde(default)]
+    pub count: Option<i64>,
     #[serde(default)]
     pub expression: Option<String>,
     #[serde(default)]
@@ -633,6 +658,10 @@ pub struct DebugScope {
     pub name: String,
     pub variables_reference: i64,
     pub expensive: bool,
+    /// Adapter-reported count of named children, or zero when unavailable.
+    pub named_variables: i64,
+    /// Adapter-reported count of indexed children, or zero when unavailable.
+    pub indexed_variables: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -644,6 +673,10 @@ pub struct DebugVariable {
     pub r#type: Option<String>,
     pub evaluate_name: Option<String>,
     pub variables_reference: i64,
+    /// Adapter-reported count of named children, or zero when unavailable.
+    pub named_variables: i64,
+    /// Adapter-reported count of indexed children, or zero when unavailable.
+    pub indexed_variables: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]

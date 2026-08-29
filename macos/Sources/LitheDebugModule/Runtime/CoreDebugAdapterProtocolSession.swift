@@ -293,7 +293,9 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
                         id: scope.variablesReference * 1_000 + offset,
                         name: scope.name,
                         variablesReference: scope.variablesReference,
-                        expensive: scope.expensive
+                        expensive: scope.expensive,
+                        namedVariables: scope.namedVariables,
+                        indexedVariables: scope.indexedVariables
                     )
                 })
             })
@@ -304,7 +306,29 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         reference: Int,
         completion: @escaping (Result<[DebugVariable], Error>) -> Void
     ) {
-        inspect(kind: "variables", variablesReference: reference) { result in
+        requestVariables(
+            reference: reference,
+            filter: nil,
+            start: nil,
+            count: nil,
+            completion: completion
+        )
+    }
+
+    public func requestVariables(
+        reference: Int,
+        filter: DebugVariableFilter?,
+        start: Int?,
+        count: Int?,
+        completion: @escaping (Result<[DebugVariable], Error>) -> Void
+    ) {
+        inspect(
+            kind: "variables",
+            variablesReference: reference,
+            variableFilter: filter,
+            start: start,
+            count: count
+        ) { result in
             completion(result.flatMap { value in
                 guard value.kind == "variables", let variables = value.variables else {
                     return .failure(DebugAdapterProtocolError.invalidResponse("variables"))
@@ -312,7 +336,11 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
                 return .success(variables.enumerated().map { offset, variable in
                     Self.makeVariable(
                         variable,
-                        fallbackID: "\(reference):\(offset)",
+                        fallbackID: [
+                            String(reference),
+                            filter?.rawValue ?? "all",
+                            String((start ?? 0) + offset)
+                        ].joined(separator: ":"),
                         containerReference: reference
                     )
                 })
@@ -435,6 +463,9 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         threadID: Int? = nil,
         frameID: Int? = nil,
         variablesReference: Int? = nil,
+        variableFilter: DebugVariableFilter? = nil,
+        start: Int? = nil,
+        count: Int? = nil,
         expression: String? = nil,
         sourcePath: String? = nil,
         line: Int? = nil,
@@ -455,6 +486,9 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
                 threadID: threadID,
                 frameID: frameID,
                 variablesReference: variablesReference,
+                variableFilter: variableFilter,
+                start: start,
+                count: count,
                 expression: expression,
                 sourcePath: sourcePath,
                 line: line,
@@ -668,7 +702,9 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
             type: variable.type,
             evaluateName: variable.evaluateName,
             variablesReference: variable.variablesReference,
-            containerReference: containerReference
+            containerReference: containerReference,
+            namedVariables: variable.namedVariables,
+            indexedVariables: variable.indexedVariables
         )
     }
 

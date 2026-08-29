@@ -364,11 +364,37 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
         reference: Int,
         completion: @escaping (Result<[DebugVariable], Error>) -> Void
     ) {
+        requestVariables(
+            reference: reference,
+            filter: nil,
+            start: nil,
+            count: nil,
+            completion: completion
+        )
+    }
+
+    public func requestVariables(
+        reference: Int,
+        filter: DebugVariableFilter?,
+        start: Int?,
+        count: Int?,
+        completion: @escaping (Result<[DebugVariable], Error>) -> Void
+    ) {
         if let activeChildSession {
-            activeChildSession.requestVariables(reference: reference, completion: completion)
+            activeChildSession.requestVariables(
+                reference: reference,
+                filter: filter,
+                start: start,
+                count: count,
+                completion: completion
+            )
             return
         }
-        sendRequest(command: "variables", arguments: ["variablesReference": reference]) { result in
+        var arguments: [String: Any] = ["variablesReference": reference]
+        if let filter { arguments["filter"] = filter.rawValue }
+        if let start { arguments["start"] = start }
+        if let count { arguments["count"] = count }
+        sendRequest(command: "variables", arguments: arguments) { result in
             completion(result.flatMap { response in
                 guard let values = (response["body"] as? [String: Any])?["variables"] as? [[String: Any]] else {
                     return .failure(DebugAdapterProtocolError.invalidResponse("variables"))
@@ -376,7 +402,11 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
                 return .success(values.enumerated().compactMap { index, value in
                     Self.parseVariable(
                         value,
-                        fallbackID: "\(reference):\(index)",
+                        fallbackID: [
+                            String(reference),
+                            filter?.rawValue ?? "all",
+                            String((start ?? 0) + index)
+                        ].joined(separator: ":"),
                         containerReference: reference
                     )
                 })
@@ -420,7 +450,9 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
                     type: body["type"] as? String,
                     evaluateName: nil,
                     variablesReference: body["variablesReference"] as? Int ?? 0,
-                    containerReference: variablesReference
+                    containerReference: variablesReference,
+                    namedVariables: body["namedVariables"] as? Int ?? 0,
+                    indexedVariables: body["indexedVariables"] as? Int ?? 0
                 ))
             })
         }
@@ -449,7 +481,9 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
                     value: value,
                     type: body["type"] as? String,
                     evaluateName: expression,
-                    variablesReference: body["variablesReference"] as? Int ?? 0
+                    variablesReference: body["variablesReference"] as? Int ?? 0,
+                    namedVariables: body["namedVariables"] as? Int ?? 0,
+                    indexedVariables: body["indexedVariables"] as? Int ?? 0
                 ))
             })
         }
@@ -941,7 +975,9 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
             id: value["presentationHint"] as? Int ?? reference * 1_000 + offset,
             name: name,
             variablesReference: reference,
-            expensive: value["expensive"] as? Bool ?? false
+            expensive: value["expensive"] as? Bool ?? false,
+            namedVariables: value["namedVariables"] as? Int ?? 0,
+            indexedVariables: value["indexedVariables"] as? Int ?? 0
         )
     }
 
@@ -959,7 +995,9 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
             type: value["type"] as? String,
             evaluateName: value["evaluateName"] as? String,
             variablesReference: value["variablesReference"] as? Int ?? 0,
-            containerReference: containerReference
+            containerReference: containerReference,
+            namedVariables: value["namedVariables"] as? Int ?? 0,
+            indexedVariables: value["indexedVariables"] as? Int ?? 0
         )
     }
 

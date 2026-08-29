@@ -1032,6 +1032,8 @@ impl DebugSession {
                                 .get("variablesReference")
                                 .and_then(Value::as_i64)
                                 .unwrap_or(0),
+                            named_variables: nonnegative_count_field(&body, "namedVariables"),
+                            indexed_variables: nonnegative_count_field(&body, "indexedVariables"),
                         },
                     },
                 });
@@ -1273,6 +1275,13 @@ impl PendingRequest {
 }
 
 fn inspect_arguments(request: &InspectRequest) -> Result<Map<String, Value>, CoreError> {
+    if request.kind != DebugInspectKind::Variables
+        && (request.variable_filter.is_some() || request.start.is_some() || request.count.is_some())
+    {
+        return Err(invalid_request(
+            "Debug variable paging is only valid for variables inspection.",
+        ));
+    }
     let mut arguments = Map::new();
     match request.kind {
         DebugInspectKind::Threads => {}
@@ -1296,6 +1305,21 @@ fn inspect_arguments(request: &InspectRequest) -> Result<Map<String, Value>, Cor
                     "variablesReference"
                 )?),
             );
+            if let Some(filter) = request.variable_filter {
+                arguments.insert("filter".to_string(), json!(filter.argument()));
+            }
+            if let Some(start) = request.start {
+                arguments.insert(
+                    "start".to_string(),
+                    json!(required_nonnegative(Some(start), "start")?),
+                );
+            }
+            if let Some(count) = request.count {
+                arguments.insert(
+                    "count".to_string(),
+                    json!(required_positive(Some(count), "count")?),
+                );
+            }
         }
         DebugInspectKind::Evaluate => {
             let expression = request.expression.as_deref().unwrap_or_default().trim();
@@ -1389,6 +1413,8 @@ fn normalize_inspection(
                     .get("variablesReference")
                     .and_then(Value::as_i64)
                     .unwrap_or(0),
+                named_variables: nonnegative_count_field(body, "namedVariables"),
+                indexed_variables: nonnegative_count_field(body, "indexedVariables"),
             },
         }),
         DebugInspectKind::ExceptionInfo => Ok(DebugOperationResult::ExceptionInfo {
@@ -1698,6 +1724,8 @@ fn parse_scope(value: &Value) -> Option<DebugScope> {
             .get("expensive")
             .and_then(Value::as_bool)
             .unwrap_or(false),
+        named_variables: nonnegative_count_field(value, "namedVariables"),
+        indexed_variables: nonnegative_count_field(value, "indexedVariables"),
     })
 }
 
@@ -1711,7 +1739,13 @@ fn parse_variable(value: &Value) -> Option<DebugVariable> {
             .get("variablesReference")
             .and_then(Value::as_i64)
             .unwrap_or(0),
+        named_variables: nonnegative_count_field(value, "namedVariables"),
+        indexed_variables: nonnegative_count_field(value, "indexedVariables"),
     })
+}
+
+fn nonnegative_count_field(value: &Value, key: &str) -> i64 {
+    value.get(key).and_then(Value::as_i64).unwrap_or(0).max(0)
 }
 
 fn parse_breakpoint(
@@ -1996,6 +2030,81 @@ mod tests {
     }
 
     #[test]
+    fn variable_paging_arguments_reject_invalid_combinations() {
+        let base = InspectRequest {
+            session_id: "debug-variable-validation".to_string(),
+            operation_id: "variables".to_string(),
+            kind: DebugInspectKind::Variables,
+            thread_id: None,
+            frame_id: None,
+            variables_reference: Some(700),
+            variable_filter: Some(DebugVariableFilter::Indexed),
+            start: Some(0),
+            count: Some(100),
+            expression: None,
+            source_path: None,
+            line: None,
+            column: None,
+        };
+
+        let mut negative_start = base.clone();
+        negative_start.start = Some(-1);
+        let error = inspect_arguments(&negative_start).unwrap_err();
+        assert!(matches!(error.code, ErrorCode::InvalidRequest));
+
+        let mut zero_count = base.clone();
+        zero_count.count = Some(0);
+        let error = inspect_arguments(&zero_count).unwrap_err();
+        assert!(matches!(error.code, ErrorCode::InvalidRequest));
+
+        let mut non_variable_request = base;
+        non_variable_request.kind = DebugInspectKind::Threads;
+        non_variable_request.variables_reference = None;
+        non_variable_request.start = None;
+        non_variable_request.count = None;
+        let error = inspect_arguments(&non_variable_request).unwrap_err();
+        assert!(matches!(error.code, ErrorCode::InvalidRequest));
+    }
+
+    #[test]
+    fn variable_child_counts_are_normalized_for_scopes_and_evaluation() {
+        let scopes = normalize_inspection(
+            DebugInspectKind::Scopes,
+            &json!({
+                "scopes": [{
+                    "name": "Locals",
+                    "variablesReference": 700,
+                    "expensive": false,
+                    "namedVariables": -2,
+                    "indexedVariables": 250
+                }]
+            }),
+            &DebugSteppingFilters::default(),
+            "/workspace",
+        )
+        .unwrap();
+        let scopes = serde_json::to_value(scopes).unwrap();
+        assert_eq!(scopes["scopes"][0]["namedVariables"], 0);
+        assert_eq!(scopes["scopes"][0]["indexedVariables"], 250);
+
+        let evaluation = normalize_inspection(
+            DebugInspectKind::Evaluate,
+            &json!({
+                "result": "Customer[250]",
+                "variablesReference": 701,
+                "namedVariables": 4,
+                "indexedVariables": -1
+            }),
+            &DebugSteppingFilters::default(),
+            "/workspace",
+        )
+        .unwrap();
+        let evaluation = serde_json::to_value(evaluation).unwrap();
+        assert_eq!(evaluation["variable"]["namedVariables"], 4);
+        assert_eq!(evaluation["variable"]["indexedVariables"], 0);
+    }
+
+    #[test]
     fn java_stepping_filters_are_normalized_projected_and_mark_stack_frames() {
         let defaults = stepping_filters(DebugSteppingFiltersRequest {
             adapter_id: "java".to_string(),
@@ -2106,6 +2215,9 @@ mod tests {
             thread_id: Some(11),
             frame_id: None,
             variables_reference: None,
+            variable_filter: None,
+            start: None,
+            count: None,
             expression: None,
             source_path: None,
             line: None,
@@ -2426,6 +2538,9 @@ mod tests {
             thread_id: None,
             frame_id: None,
             variables_reference: None,
+            variable_filter: None,
+            start: None,
+            count: None,
             expression: None,
             source_path: None,
             line: None,
@@ -2634,7 +2749,13 @@ mod tests {
             vec![response_message(
                 3,
                 "setVariable",
-                json!({"value": "7", "type": "int", "variablesReference": 0}),
+                json!({
+                    "value": "7",
+                    "type": "int",
+                    "variablesReference": 0,
+                    "namedVariables": -1,
+                    "indexedVariables": 2
+                }),
             )],
         );
         assert!(completed.events.iter().any(|event| matches!(
@@ -2646,6 +2767,8 @@ mod tests {
                 && variable.name == "count"
                 && variable.value == "7"
                 && variable.r#type.as_deref() == Some("int")
+                && variable.named_variables == 0
+                && variable.indexed_variables == 2
         )));
         destroy_session(SessionRequest {
             session_id: session_id.to_string(),
@@ -2701,6 +2824,9 @@ mod tests {
             thread_id: None,
             frame_id: None,
             variables_reference: None,
+            variable_filter: None,
+            start: None,
+            count: None,
             expression: None,
             source_path: None,
             line: None,
@@ -2915,6 +3041,9 @@ mod tests {
             thread_id: None,
             frame_id: Some(7),
             variables_reference: None,
+            variable_filter: None,
+            start: None,
+            count: None,
             expression: None,
             source_path: None,
             line: None,
@@ -2978,6 +3107,9 @@ mod tests {
             thread_id: None,
             frame_id: None,
             variables_reference: None,
+            variable_filter: None,
+            start: None,
+            count: None,
             expression: None,
             source_path: Some("/workspace/src/Main.java".to_string()),
             line: Some(20),
@@ -3084,6 +3216,9 @@ mod tests {
             thread_id: fixture["request"]["threadId"].as_i64(),
             frame_id: None,
             variables_reference: None,
+            variable_filter: None,
+            start: None,
+            count: None,
             expression: None,
             source_path: None,
             line: None,
@@ -3102,6 +3237,100 @@ mod tests {
             vec![response_message(
                 3,
                 "exceptionInfo",
+                fixture["adapterResponse"].clone(),
+            )],
+        );
+        let result = completed.events.iter().find_map(|event| match &event.body {
+            DebugEventBody::OperationCompleted {
+                operation_id,
+                result,
+            } if operation_id == fixture["request"]["operationId"].as_str().unwrap() => {
+                Some(result)
+            }
+            _ => None,
+        });
+        assert_eq!(
+            serde_json::to_value(result.unwrap()).unwrap(),
+            fixture["expected"]
+        );
+        destroy_session(SessionRequest {
+            session_id: session_id.to_string(),
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn variable_paging_is_forwarded_and_normalized_from_shared_fixture() {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/fixtures/debug/variable-paging-v1.json"
+        )))
+        .unwrap();
+        let session_id = "debug-variable-paging";
+        create_session(CreateSessionRequest {
+            session_id: session_id.to_string(),
+            adapter_id: "java".to_string(),
+            root_path: "/workspace".to_string(),
+        })
+        .unwrap();
+        launch(LaunchRequest {
+            session_id: session_id.to_string(),
+            operation_id: "launch".to_string(),
+            configuration: DebugLaunchConfiguration {
+                name: "Main".to_string(),
+                request: DebugRequestKind::Launch,
+                arguments: Map::new(),
+                stepping_filters: None,
+            },
+        })
+        .unwrap();
+        receive_messages(
+            session_id,
+            vec![response_message(1, "initialize", json!({}))],
+        );
+        receive_messages(session_id, vec![response_message(2, "launch", json!({}))]);
+        receive_messages(
+            session_id,
+            vec![json!({
+                "seq": 103,
+                "type": "event",
+                "event": "stopped",
+                "body": {"reason": "breakpoint", "threadId": 11}
+            })],
+        );
+
+        let inspection = inspect(InspectRequest {
+            session_id: session_id.to_string(),
+            operation_id: fixture["request"]["operationId"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+            kind: DebugInspectKind::Variables,
+            thread_id: None,
+            frame_id: None,
+            variables_reference: fixture["request"]["variablesReference"].as_i64(),
+            variable_filter: serde_json::from_value(fixture["request"]["variableFilter"].clone())
+                .unwrap(),
+            start: fixture["request"]["start"].as_i64(),
+            count: fixture["request"]["count"].as_i64(),
+            expression: None,
+            source_path: None,
+            line: None,
+            column: None,
+        })
+        .unwrap();
+        let request = decode_frame(&inspection.outbound_frames[0]);
+        assert_eq!(request["command"], "variables");
+        assert_eq!(request["arguments"]["variablesReference"], 700);
+        assert_eq!(request["arguments"]["filter"], "indexed");
+        assert_eq!(request["arguments"]["start"], 100);
+        assert_eq!(request["arguments"]["count"], 2);
+
+        let completed = receive_messages(
+            session_id,
+            vec![response_message(
+                3,
+                "variables",
                 fixture["adapterResponse"].clone(),
             )],
         );
@@ -3166,6 +3395,9 @@ mod tests {
             thread_id: Some(13),
             frame_id: None,
             variables_reference: None,
+            variable_filter: None,
+            start: None,
+            count: None,
             expression: None,
             source_path: None,
             line: None,

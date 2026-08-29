@@ -467,7 +467,16 @@ disable unsupported actions after negotiation.
 caller's `operationId`. `debug.inspect` supports `threads`, `stackTrace`,
 `scopes`, `variables`, `evaluate`, and capability-gated `exceptionInfo`;
 required thread, frame, variable reference, and expression fields are validated
-before a request is emitted. Exception information is available only while
+before a request is emitted. A `variables` inspection may additionally carry
+`variableFilter` (`named` or `indexed`), zero-based `start`, and positive
+`count`; Core maps them to DAP `filter`, `start`, and `count` and rejects those
+fields for every other inspection kind. Normalized scopes, variables,
+evaluations, and variable-mutation results include non-negative
+`namedVariables` and `indexedVariables` counts, using zero when the adapter
+omits or reports an invalid negative value. The compatibility cases are in
+`shared/fixtures/debug/variable-paging-v1.json`.
+
+Exception information is available only while
 paused and normalizes the exception type, description, break mode, optional
 stack trace, evaluation name, and nested exception details. The Java adapter
 currently supplies the type, description, and break mode but no expandable

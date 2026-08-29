@@ -182,6 +182,9 @@ extension RustCoreBridge: DebugProtocolCore {
         threadID: Int?,
         frameID: Int?,
         variablesReference: Int?,
+        variableFilter: DebugVariableFilter?,
+        start: Int?,
+        count: Int?,
         expression: String?,
         sourcePath: String?,
         line: Int?,
@@ -196,6 +199,9 @@ extension RustCoreBridge: DebugProtocolCore {
                 threadID: threadID,
                 frameID: frameID,
                 variablesReference: variablesReference,
+                variableFilter: variableFilter,
+                start: start,
+                count: count,
                 expression: expression,
                 sourcePath: sourcePath,
                 line: line,
@@ -381,6 +387,9 @@ private struct DebugInspectPayload: Encodable {
     let threadID: Int?
     let frameID: Int?
     let variablesReference: Int?
+    let variableFilter: DebugVariableFilter?
+    let start: Int?
+    let count: Int?
     let expression: String?
     let sourcePath: String?
     let line: Int?
@@ -393,6 +402,7 @@ private struct DebugInspectPayload: Encodable {
         case threadID = "threadId"
         case frameID = "frameId"
         case variablesReference
+        case variableFilter, start, count
         case expression
         case sourcePath, line, column
     }

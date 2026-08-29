@@ -193,6 +193,16 @@ native products decide how that data is presented beside the current frame's
 ordinary scopes and variables. An adapter that supplies no object reference
 does not make the exception itself expandable through this contract.
 
+Debugger variable paging is portable. Rust Core owns the standard DAP
+`filter`, zero-based `start`, and positive `count` request projection and
+normalizes adapter-reported `namedVariables` and `indexedVariables` counts to
+non-negative values. Native products own tree expansion and page-size policy;
+the macOS reference product loads at most 100 children per request, appends
+named children before indexed children, exposes an in-tree load-more action,
+and discards stale pages after the selected frame changes. A native client must
+also stop offering more pages when an adapter returns more children than were
+requested or repeats an already loaded page.
+
 For JDT LS, the standard initialize handshake and project-import readiness use
 separate Core-owned deadlines. Project import fails only after 45 seconds
 without changed progress or the 10-minute absolute safety cap; platform clients

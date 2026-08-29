@@ -436,43 +436,52 @@ struct GenericDebugView: View {
                         divider
                     }
                     sectionHeader("Variables", count: feature.variables.count)
-                    if feature.variables.isEmpty {
+                    if feature.visibleVariableRows.isEmpty {
                         placeholder("Select a stack frame to inspect variables")
                     } else {
                         ForEach(feature.visibleVariableRows) { row in
-                            let variable = row.variable
-                            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                Image(systemName: variableSymbol(variable))
-                                    .font(.system(size: variable.isExpandable ? 8 : 4))
-                                    .foregroundStyle(LitheTheme.secondaryText)
-                                Text(variable.name)
-                                    .font(.system(size: 10.5, design: .monospaced))
-                                Text("=")
-                                    .foregroundStyle(LitheTheme.secondaryText)
-                                Text(variable.value)
-                                    .font(.system(size: 10.5, design: .monospaced))
-                                    .foregroundStyle(LitheTheme.accent)
-                                    .lineLimit(2)
-                                Spacer(minLength: 0)
-                            }
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                feature.toggleVariableExpansion(variable)
-                            }
-                            .padding(.leading, 10 + CGFloat(row.depth * 14))
-                            .padding(.trailing, 10)
-                            .padding(.vertical, 5)
-                            .contextMenu {
-                                if feature.capabilities.supportsSetVariable,
-                                   variable.containerReference != nil {
-                                    Button("Set Value…") { editingVariable = variable }
+                            switch row.content {
+                            case .variable(let variable):
+                                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                    Image(systemName: variableSymbol(variable))
+                                        .font(.system(size: variable.isExpandable ? 8 : 4))
+                                        .foregroundStyle(LitheTheme.secondaryText)
+                                    Text(variable.name)
+                                        .font(.system(size: 10.5, design: .monospaced))
+                                    Text("=")
+                                        .foregroundStyle(LitheTheme.secondaryText)
+                                    Text(variable.value)
+                                        .font(.system(size: 10.5, design: .monospaced))
+                                        .foregroundStyle(LitheTheme.accent)
+                                        .lineLimit(2)
+                                    Spacer(minLength: 0)
                                 }
-                                if feature.capabilities.supportsDataBreakpoints,
-                                   variable.containerReference != nil {
-                                    Button("Break on Field Access…") {
-                                        feature.requestDataBreakpoint(for: variable)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    feature.toggleVariableExpansion(variable)
+                                }
+                                .padding(.leading, 10 + CGFloat(row.depth * 14))
+                                .padding(.trailing, 10)
+                                .padding(.vertical, 5)
+                                .contextMenu {
+                                    if feature.capabilities.supportsSetVariable,
+                                       variable.containerReference != nil {
+                                        Button("Set Value…") { editingVariable = variable }
+                                    }
+                                    if feature.capabilities.supportsDataBreakpoints,
+                                       variable.containerReference != nil {
+                                        Button("Break on Field Access…") {
+                                            feature.requestDataBreakpoint(for: variable)
+                                        }
                                     }
                                 }
+                            case .loadMore(let parentVariableID, let nextCount, let remainingCount):
+                                variableLoadMoreRow(
+                                    parentVariableID: parentVariableID,
+                                    nextCount: nextCount,
+                                    remainingCount: remainingCount,
+                                    depth: row.depth
+                                )
                             }
                         }
                     }
@@ -1085,6 +1094,43 @@ struct GenericDebugView: View {
         guard variable.isExpandable else { return "circle.fill" }
         if feature.isVariableLoading(variable) { return "hourglass" }
         return feature.isVariableExpanded(variable) ? "chevron.down" : "chevron.right"
+    }
+
+    private func variableLoadMoreRow(
+        parentVariableID: String?,
+        nextCount: Int,
+        remainingCount: Int?,
+        depth: Int
+    ) -> some View {
+        let isLoading = feature.isVariablePageLoading(parentVariableID: parentVariableID)
+        return Button {
+            feature.loadMoreVariables(parentVariableID: parentVariableID)
+        } label: {
+            HStack(spacing: 6) {
+                if isLoading {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 9))
+                }
+                Text(isLoading ? "Loading…" : "Load \(nextCount) more")
+                    .font(LitheTheme.smallFont)
+                if let remainingCount, !isLoading {
+                    Text("\(remainingCount) remaining")
+                        .font(.system(size: 9.5, design: .monospaced))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(LitheTheme.secondaryText)
+            .padding(.leading, 10 + CGFloat(depth * 14))
+            .padding(.trailing, 10)
+            .frame(minHeight: 27)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isLoading)
+        .accessibilityLabel(isLoading ? "Loading debugger variables" : "Load more debugger variables")
     }
 
     private func breakpointColor(_ breakpoint: GenericDebugBreakpoint) -> Color {
