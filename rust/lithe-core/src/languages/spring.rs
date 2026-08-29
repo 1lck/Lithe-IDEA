@@ -1574,21 +1574,33 @@ fn find_mapping_annotation(text: &str) -> Option<(SpringMappingAnnotation, &str)
     Some((annotation, isolate_annotation_at(text, start)))
 }
 
-/// Slices one annotation starting at `start` (`@Name` … optional argument list)
-/// so route extraction cannot read string literals from a neighboring decoy.
+/// Slices one annotation starting at `start` (`@Name` followed by an optional
+/// argument list) so route extraction cannot read string literals from a
+/// neighboring decoy.
+///
+/// A later annotation's `(` is not this annotation's argument list. After the
+/// name, only whitespace may appear before `(`.
 fn isolate_annotation_at(text: &str, start: usize) -> &str {
     let rest = &text[start..];
-    let Some(open_index) = rest.find('(') else {
-        let end = rest
-            .char_indices()
-            .skip(1)
-            .find(|(_, character)| {
-                !(character.is_ascii_alphanumeric() || *character == '_' || *character == '$')
-            })
-            .map(|(index, _)| index)
-            .unwrap_or(rest.len());
-        return &rest[..end];
-    };
+    let name_end = rest
+        .char_indices()
+        .skip(1)
+        .find(|(_, character)| {
+            !(character.is_ascii_alphanumeric() || *character == '_' || *character == '$')
+        })
+        .map(|(index, _)| index)
+        .unwrap_or(rest.len());
+    let after_name = rest.get(name_end..).unwrap_or("");
+    let whitespace_len = after_name
+        .chars()
+        .take_while(|character| character.is_whitespace())
+        .map(char::len_utf8)
+        .sum::<usize>();
+    let after_whitespace = after_name.get(whitespace_len..).unwrap_or("");
+    if !after_whitespace.starts_with('(') {
+        return &rest[..name_end];
+    }
+    let open_index = name_end + whitespace_len;
     let mut depth = 0isize;
     for (index, character) in rest[open_index..].char_indices() {
         match character {
@@ -1877,5 +1889,18 @@ mod tests {
             .expect("leftmost Mapping should win");
         assert_eq!(leftmost.0, SpringMappingAnnotation::PutMapping);
         assert_eq!(leftmost.2, vec!["/first".to_string()]);
+    }
+
+    #[test]
+    fn mapping_does_not_take_routes_from_a_following_unrelated_annotation() {
+        let bare = mapping("@GetMapping @Custom(\"/decoy\")")
+            .expect("bare GetMapping should still match");
+        assert_eq!(bare.0, SpringMappingAnnotation::GetMapping);
+        assert_eq!(bare.1, vec!["GET".to_string()]);
+        assert_eq!(bare.2, vec![String::new()]);
+
+        let spaced = mapping("@GetMapping (\"/x\") @Custom(\"/decoy\")")
+            .expect("GetMapping with its own argument list should keep that route");
+        assert_eq!(spaced.2, vec!["/x".to_string()]);
     }
 }
