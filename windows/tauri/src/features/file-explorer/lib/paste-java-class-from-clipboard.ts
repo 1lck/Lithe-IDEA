@@ -81,8 +81,11 @@ export async function tryPasteJavaClassFromSystemClipboard(options: {
     throw new JavaClipboardPasteError("exists", fileName);
   }
 
+  const result = await Promise.resolve(
+    options.createFileInDirectory(options.targetDirectory, fileName),
+  );
   const createdPath = requireCreatedFilePath(
-    await Promise.resolve(options.createFileInDirectory(options.targetDirectory, fileName)),
+    typeof result === "string" ? result : undefined,
     fileName,
   );
 
