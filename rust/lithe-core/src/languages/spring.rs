@@ -1546,9 +1546,7 @@ fn endpoint_index(sources: &[(String, String)]) -> Vec<SpringEndpointResponse> {
 /// When several Mapping annotations appear in one context, the leftmost source
 /// span wins so selection does not depend on declaration order in
 /// [`SpringMappingAnnotation::ALL`].
-fn mapping(
-    annotation_text: &str,
-) -> Option<(SpringMappingAnnotation, Vec<String>, Vec<String>)> {
+fn mapping(annotation_text: &str) -> Option<(SpringMappingAnnotation, Vec<String>, Vec<String>)> {
     let (annotation, isolated) = find_mapping_annotation(annotation_text)?;
     let methods = match annotation.fixed_http_method() {
         Some(method) => vec![method.to_string()],
@@ -1893,8 +1891,8 @@ mod tests {
 
     #[test]
     fn mapping_does_not_take_routes_from_a_following_unrelated_annotation() {
-        let bare = mapping("@GetMapping @Custom(\"/decoy\")")
-            .expect("bare GetMapping should still match");
+        let bare =
+            mapping("@GetMapping @Custom(\"/decoy\")").expect("bare GetMapping should still match");
         assert_eq!(bare.0, SpringMappingAnnotation::GetMapping);
         assert_eq!(bare.1, vec!["GET".to_string()]);
         assert_eq!(bare.2, vec![String::new()]);
