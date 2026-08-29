@@ -14,11 +14,11 @@ enum GitCommitFilesLoadOutcome: Equatable, Sendable {
     case superseded
 }
 
-/// Serializes commit-file reads while prioritizing the latest visible selection
-/// over filtering and speculative prefetch work.
+/// Coordinates commit-file reads with bounded concurrency and prioritizes the
+/// latest visible selection over filtering and speculative prefetch work.
 @MainActor
 final class GitCommitFilesLoader {
-    private enum RequestPurpose {
+    private enum RequestPurpose: Equatable {
         case selected
         case query
         case prefetch
@@ -31,6 +31,7 @@ final class GitCommitFilesLoader {
 
     private struct Waiter {
         let id: UUID
+        let purpose: RequestPurpose
         let continuation: AsyncStream<GitCommitFilesLoadOutcome>.Continuation
     }
 
@@ -46,23 +47,27 @@ final class GitCommitFilesLoader {
 
     private let service: GitService
     private let cacheCapacity: Int
+    private let physicalLoadLimit: Int
     private var cache: [CacheKey: [GitCommitFile]] = [:]
     private var cacheRecency: [CacheKey] = []
     private var generation: UInt64 = 0
-    private var inFlightRequest: Request?
+    private var activeRequests: [UUID: Request] = [:]
     private var pendingSelectedRequest: Request?
     private var pendingQueryRequests: [Request] = []
     private var pendingPrefetchRequests: [Request] = []
-    private var workerTask: Task<Void, Never>?
 
-    init(service: GitService, cacheCapacity: Int = 128) {
+    init(
+        service: GitService,
+        cacheCapacity: Int = 128,
+        physicalLoadLimit: Int = 2
+    ) {
         self.service = service
         self.cacheCapacity = max(1, cacheCapacity)
+        self.physicalLoadLimit = max(1, physicalLoadLimit)
     }
 
     var hasActiveWork: Bool {
-        workerTask != nil
-            || inFlightRequest != nil
+        !activeRequests.isEmpty
             || pendingSelectedRequest != nil
             || !pendingQueryRequests.isEmpty
             || !pendingPrefetchRequests.isEmpty
@@ -81,10 +86,11 @@ final class GitCommitFilesLoader {
     ) -> Task<GitCommitFilesLoadOutcome, Never> {
         let key = makeKey(for: commit, at: repositoryRoot)
 
-        // A visible selection invalidates queued speculative work immediately.
-        // The synchronous Git operation already in flight is allowed to finish,
-        // but no second operation starts beside it.
-        supersedePendingSelectedRequest(unlessMatching: key)
+        // A superseded physical read may be synchronous and therefore unable to
+        // stop promptly. Its selected waiter is completed immediately, while the
+        // read may still populate only its cache entry. The newest selection can
+        // then use the second physical slot without waiting for stale work.
+        supersedeSelectedWaiters(unlessMatching: key)
         pendingPrefetchRequests = []
 
         if let files = cachedFiles(for: commit, at: repositoryRoot) {
@@ -151,11 +157,11 @@ final class GitCommitFilesLoader {
                 waiters: []
             ))
         }
-        ensureWorker()
+        startPendingRequestsIfPossible()
     }
 
-    /// Invalidates queued work and cache entries without starting another
-    /// operation beside a synchronous read that is already executing.
+    /// Invalidates queued work and cache entries. Reads already executing may
+    /// finish, but their generation prevents them from repopulating the cache.
     func reset() {
         generation &+= 1
         cache = [:]
@@ -167,10 +173,12 @@ final class GitCommitFilesLoader {
         }
         pendingQueryRequests = []
         pendingPrefetchRequests = []
-        if var inFlightRequest {
-            resumeWaiters(in: inFlightRequest, with: .superseded)
-            inFlightRequest.waiters = []
-            self.inFlightRequest = inFlightRequest
+        for requestID in Array(activeRequests.keys) {
+            guard var request = activeRequests[requestID] else { continue }
+            resumeWaiters(in: request, with: .superseded)
+            request.waiters = []
+            request.purpose = .prefetch
+            activeRequests[requestID] = request
         }
     }
 
@@ -192,7 +200,11 @@ final class GitCommitFilesLoader {
                 self?.cancelWaiter(waiterID)
             }
         }
-        let waiter = Waiter(id: waiterID, continuation: streamContinuation)
+        let waiter = Waiter(
+            id: waiterID,
+            purpose: purpose,
+            continuation: streamContinuation
+        )
         enqueueDemand(
             purpose: purpose,
             commit: commit,
@@ -212,13 +224,16 @@ final class GitCommitFilesLoader {
         waiter: Waiter
     ) {
         let key = makeKey(for: commit, at: repositoryRoot)
-        // A reset invalidates the result of the synchronous read that is
-        // already running. Keep that read serialized, but never attach a new
-        // generation's waiter to it or the new request could be completed as
-        // stale without ever being retried.
-        if inFlightRequest?.key == key,
-           inFlightRequest?.generation == generation {
-            inFlightRequest?.waiters.append(waiter)
+        if let requestID = activeRequests.first(where: {
+            $0.value.key == key && $0.value.generation == generation
+        })?.key, var request = activeRequests[requestID] {
+            request.waiters.append(waiter)
+            if purpose == .selected {
+                request.purpose = .selected
+            } else if request.purpose == .prefetch {
+                request.purpose = .query
+            }
+            activeRequests[requestID] = request
             return
         }
         if pendingSelectedRequest?.key == key {
@@ -229,13 +244,13 @@ final class GitCommitFilesLoader {
             var request = pendingQueryRequests.remove(at: queryIndex)
             request.waiters.append(waiter)
             if purpose == .selected {
-                supersedePendingSelectedRequest(unlessMatching: key)
+                supersedeSelectedWaiters(unlessMatching: key)
                 request.purpose = .selected
                 pendingSelectedRequest = request
             } else {
                 pendingQueryRequests.insert(request, at: queryIndex)
             }
-            ensureWorker()
+            startPendingRequestsIfPossible()
             return
         }
 
@@ -244,12 +259,12 @@ final class GitCommitFilesLoader {
             request.purpose = purpose
             request.waiters = [waiter]
             if purpose == .selected {
-                supersedePendingSelectedRequest(unlessMatching: key)
+                supersedeSelectedWaiters(unlessMatching: key)
                 pendingSelectedRequest = request
             } else {
                 pendingQueryRequests.append(request)
             }
-            ensureWorker()
+            startPendingRequestsIfPossible()
             return
         }
 
@@ -263,43 +278,60 @@ final class GitCommitFilesLoader {
             waiters: [waiter]
         )
         if purpose == .selected {
-            supersedePendingSelectedRequest(unlessMatching: key)
+            supersedeSelectedWaiters(unlessMatching: key)
             pendingSelectedRequest = request
         } else {
             pendingQueryRequests.append(request)
         }
-        ensureWorker()
+        startPendingRequestsIfPossible()
     }
 
-    private func supersedePendingSelectedRequest(unlessMatching key: CacheKey) {
-        guard let request = pendingSelectedRequest, request.key != key else { return }
-        resumeWaiters(in: request, with: .superseded)
-        pendingSelectedRequest = nil
+    private func supersedeSelectedWaiters(unlessMatching key: CacheKey) {
+        if var request = pendingSelectedRequest, request.key != key {
+            pendingSelectedRequest = nil
+            let selectedWaiters = removeSelectedWaiters(from: &request)
+            resumeWaiters(selectedWaiters, with: .superseded)
+            if !request.waiters.isEmpty {
+                request.purpose = .query
+                enqueuePendingQueryRequest(request)
+            }
+        }
+
+        for requestID in Array(activeRequests.keys) {
+            guard var request = activeRequests[requestID], request.key != key else { continue }
+            let selectedWaiters = removeSelectedWaiters(from: &request)
+            guard !selectedWaiters.isEmpty else { continue }
+            request.purpose = remainingPurpose(for: request)
+            activeRequests[requestID] = request
+            resumeWaiters(selectedWaiters, with: .superseded)
+        }
     }
 
-    private func ensureWorker() {
-        guard workerTask == nil,
-              inFlightRequest != nil
-                || pendingSelectedRequest != nil
-                || !pendingQueryRequests.isEmpty
-                || !pendingPrefetchRequests.isEmpty else {
-            return
-        }
-        workerTask = Task { @MainActor [weak self] in
-            await self?.runWorker()
-        }
+    private func removeSelectedWaiters(from request: inout Request) -> [Waiter] {
+        let selectedWaiters = request.waiters.filter { $0.purpose == .selected }
+        request.waiters.removeAll { $0.purpose == .selected }
+        return selectedWaiters
     }
 
-    private func runWorker() async {
-        while let request = takeNextRequest() {
-            inFlightRequest = request
-            let files = await service.files(
-                in: request.commit,
-                at: request.repositoryRoot
-            )
-            finishInFlightRequest(requestID: request.id, files: files)
+    private func remainingPurpose(for request: Request) -> RequestPurpose {
+        if request.waiters.contains(where: { $0.purpose == .selected }) {
+            return .selected
         }
-        workerTask = nil
+        return request.waiters.contains(where: { $0.purpose == .query }) ? .query : .prefetch
+    }
+
+    private func startPendingRequestsIfPossible() {
+        while activeRequests.count < physicalLoadLimit, let request = takeNextRequest() {
+            activeRequests[request.id] = request
+            let service = self.service
+            Task { @MainActor [weak self] in
+                let files = await service.files(
+                    in: request.commit,
+                    at: request.repositoryRoot
+                )
+                self?.finishActiveRequest(requestID: request.id, files: files)
+            }
+        }
     }
 
     private func takeNextRequest() -> Request? {
@@ -310,35 +342,46 @@ final class GitCommitFilesLoader {
         if !pendingQueryRequests.isEmpty {
             return pendingQueryRequests.removeFirst()
         }
-        if !pendingPrefetchRequests.isEmpty {
+        // One speculative read is enough to warm the cache while leaving room
+        // for a newly selected commit to start without waiting for prefetch.
+        if !pendingPrefetchRequests.isEmpty,
+           !activeRequests.values.contains(where: { $0.purpose == .prefetch }) {
             return pendingPrefetchRequests.removeFirst()
         }
         return nil
     }
 
-    private func finishInFlightRequest(requestID: UUID, files: [GitCommitFile]?) {
-        guard let request = inFlightRequest, request.id == requestID else { return }
-        inFlightRequest = nil
-        guard request.generation == generation else {
+    private func finishActiveRequest(requestID: UUID, files: [GitCommitFile]?) {
+        guard let request = activeRequests.removeValue(forKey: requestID) else { return }
+        if request.generation != generation {
             resumeWaiters(in: request, with: .superseded)
-            return
-        }
-        guard let files else {
+        } else if let files {
+            cache(files, for: request.key)
+            resumeWaiters(in: request, with: .ready(files))
+        } else {
+            // Failures are deliberately not cached, so a retry can issue a new
+            // physical read instead of treating the failure as an empty commit.
             resumeWaiters(in: request, with: .failed)
-            return
         }
-        cache(files, for: request.key)
-        resumeWaiters(in: request, with: .ready(files))
+        startPendingRequestsIfPossible()
     }
 
     private func cancelWaiter(_ waiterID: UUID) {
-        if var request = inFlightRequest {
+        for requestID in Array(activeRequests.keys) {
+            guard var request = activeRequests[requestID] else { continue }
             request.waiters.removeAll { $0.id == waiterID }
-            inFlightRequest = request
+            request.purpose = remainingPurpose(for: request)
+            activeRequests[requestID] = request
         }
         if var request = pendingSelectedRequest {
             request.waiters.removeAll { $0.id == waiterID }
-            pendingSelectedRequest = request.waiters.isEmpty ? nil : request
+            pendingSelectedRequest = nil
+            if request.waiters.contains(where: { $0.purpose == .selected }) {
+                pendingSelectedRequest = request
+            } else if !request.waiters.isEmpty {
+                request.purpose = .query
+                enqueuePendingQueryRequest(request)
+            }
         }
         for index in pendingQueryRequests.indices.reversed() {
             pendingQueryRequests[index].waiters.removeAll { $0.id == waiterID }
@@ -349,7 +392,9 @@ final class GitCommitFilesLoader {
     }
 
     private func containsPendingOrActiveRequest(for key: CacheKey) -> Bool {
-        (inFlightRequest?.key == key && inFlightRequest?.generation == generation)
+        activeRequests.values.contains(where: {
+            $0.key == key && $0.generation == generation
+        })
             || pendingSelectedRequest?.key == key
             || pendingQueryRequests.contains(where: { $0.key == key })
             || pendingPrefetchRequests.contains(where: { $0.key == key })
@@ -360,10 +405,26 @@ final class GitCommitFilesLoader {
         with outcome: GitCommitFilesLoadOutcome
     ) {
         guard let request else { return }
-        for waiter in request.waiters {
+        resumeWaiters(request.waiters, with: outcome)
+    }
+
+    private func resumeWaiters(
+        _ waiters: [Waiter],
+        with outcome: GitCommitFilesLoadOutcome
+    ) {
+        for waiter in waiters {
             waiter.continuation.yield(outcome)
             waiter.continuation.finish()
         }
+    }
+
+    private func enqueuePendingQueryRequest(_ request: Request) {
+        if let index = pendingQueryRequests.firstIndex(where: { $0.key == request.key }) {
+            pendingQueryRequests[index].waiters.append(contentsOf: request.waiters)
+        } else {
+            pendingQueryRequests.append(request)
+        }
+        startPendingRequestsIfPossible()
     }
 
     private func makeKey(for commit: GitCommit, at repositoryRoot: URL) -> CacheKey {

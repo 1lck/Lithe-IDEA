@@ -54,7 +54,7 @@ struct GitLogView: View {
         static let rowHeight: CGFloat = 38
         static let treeRowHeight: CGFloat = 28
         static let toolbarHeight: CGFloat = 38
-        static let commitFileLoadDelay = Duration.milliseconds(16)
+        static let commitFileLoadDelay = Duration.milliseconds(120)
         static let darkConsoleText = Color(red: 0.76, green: 0.77, blue: 0.79)
         static let darkConsoleMetadata = Color(red: 0.69, green: 0.70, blue: 0.72)
     }
@@ -180,6 +180,11 @@ struct GitLogView: View {
         .onChange(of: model.gitConsoleEntries.last?.id) { _ in
             guard model.gitConsoleEntries.last?.succeeded == false else { return }
             selectedGitToolTab = .console
+        }
+        .onAppear {
+            if let commit = model.selectedGitCommit {
+                scheduleGitCommitFileLoad(for: commit)
+            }
         }
         .onDisappear {
             gitCommitFileLoadTask?.cancel()
