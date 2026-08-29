@@ -14,7 +14,6 @@ export interface Model {
   id: string;
   name: string;
   maxTokens: number;
-  proOnly?: boolean;
 }
 
 // Helper to check if a provider ID is an agent

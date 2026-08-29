@@ -2,6 +2,7 @@ import Foundation
 
 extension AppModel {
     func connectGitHubWithDeviceFlow() async {
+        guard LitheFeatureAvailability.githubPullRequests else { return }
         await githubFeature.beginDeviceAuthorization(
             workspaceURL: workspaceURL,
             onAuthorization: { [weak self] authorization in
@@ -15,6 +16,7 @@ extension AppModel {
     }
 
     func connectGitHub(personalAccessToken: String) async {
+        guard LitheFeatureAvailability.githubPullRequests else { return }
         await githubFeature.connect(
             personalAccessToken: personalAccessToken,
             workspaceURL: workspaceURL
@@ -22,10 +24,12 @@ extension AppModel {
     }
 
     func disconnectGitHub() async {
+        guard LitheFeatureAvailability.githubPullRequests else { return }
         await githubFeature.disconnect()
     }
 
     func checkoutSelectedPullRequest() async {
+        guard LitheFeatureAvailability.githubPullRequests else { return }
         if await githubFeature.checkout(workspaceURL: workspaceURL) {
             await refreshGit()
             showNotification("Pull request branch checked out")
@@ -33,6 +37,7 @@ extension AppModel {
     }
 
     func publishGitHubPullRequestBranch(named name: String) async -> String? {
+        guard LitheFeatureAvailability.githubPullRequests else { return nil }
         let branch = await githubFeature.publishPullRequestBranch(
             named: name,
             workspaceURL: workspaceURL

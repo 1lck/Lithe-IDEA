@@ -5,10 +5,10 @@ import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { GENERATED_CDN_DIR } from "./extension-workspace";
-import { SERVICE_DEFAULTS } from "@/config/service-defaults";
+import { requireExtensionsCdnBaseUrl } from "./cdn-config";
 
 const targetDir = process.env.EXTENSIONS_CDN_ROOT;
-const cdnBaseUrl = process.env.EXTENSIONS_CDN_BASE_URL || SERVICE_DEFAULTS.extensionsCdnBaseUrl;
+const cdnBaseUrl = requireExtensionsCdnBaseUrl();
 
 if (!targetDir) {
   console.error("Missing EXTENSIONS_CDN_ROOT environment variable.");

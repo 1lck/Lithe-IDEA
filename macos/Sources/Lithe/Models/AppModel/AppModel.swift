@@ -55,6 +55,7 @@ final class AppModel: ObservableObject, Identifiable {
                 case .changes:
                     await self.refreshGit()
                 case .pullRequests:
+                    guard LitheFeatureAvailability.githubPullRequests else { return }
                     await self.githubFeature.refresh(workspaceURL: self.workspaceURL)
                 default:
                     break
@@ -432,9 +433,11 @@ final class AppModel: ObservableObject, Identifiable {
                 guard documentID != nil else { return }
                 self?.terminalPlacementFeature.activateDocument()
             }
-        Task { [weak self] in
-            guard let self else { return }
-            await self.githubFeature.restore(workspaceURL: self.workspaceURL)
+        if LitheFeatureAvailability.githubPullRequests {
+            Task { [weak self] in
+                guard let self else { return }
+                await self.githubFeature.restore(workspaceURL: self.workspaceURL)
+            }
         }
         workspaceFeature.configureProjection(
             documentsProvider: { [weak self] in
@@ -450,7 +453,8 @@ final class AppModel: ObservableObject, Identifiable {
             restoreSession: { [weak self] session, availableFiles in
                 guard let self else { return }
                 let availablePaths = Set(availableFiles.map { $0.standardizedFileURL.path })
-                self.selectedSidebar = SidebarDestination(rawValue: session.selectedSidebar) ?? .project
+                let restoredSidebar = SidebarDestination(rawValue: session.selectedSidebar) ?? .project
+                self.selectedSidebar = restoredSidebar.isAvailable ? restoredSidebar : .project
                 let paths = session.openPaths.filter { availablePaths.contains($0) }
                 await withTaskGroup(of: Void.self) { group in
                     for path in paths {
@@ -1523,6 +1527,9 @@ final class AppModel: ObservableObject, Identifiable {
         base: String,
         head: String
     ) async throws -> PullRequestDescriptionOutput {
+        guard LitheFeatureAvailability.githubPullRequests else {
+            throw GitHubService.ServiceError.oauthClientNotConfigured
+        }
         refreshAIConfigurations()
         let input = try await githubFeature.pullRequestDescriptionInput(base: base, head: head)
         let value = try await services.moduleRuntime.activateCapability(.aiPullRequestDescription)
