@@ -1286,6 +1286,9 @@ struct CodeEditorView: NSViewRepresentable {
                               }) else { return }
                         feature.setBreakpointEnabled(breakpoint, enabled: enabled)
                     },
+                    onToggleAll: { [weak model] in
+                        model?.genericDebugFeatureIfActive?.toggleBreakpointMute()
+                    },
                     onRunToCursor: { [weak model] line in
                         model?.runToCursor(fileURL: url, line: line + 1, column: 1)
                     },
@@ -3166,6 +3169,7 @@ final class LineNumberGutterView: NSView {
     private var onToggleDebugBreakpoint: ((Int) -> Void)?
     private var onRemoveDebugBreakpoint: ((Int) -> Void)?
     private var onSetDebugBreakpointEnabled: ((Int, Bool) -> Void)?
+    private var onToggleAllDebugBreakpoints: (() -> Void)?
     private var onRunToCursor: ((Int) -> Void)?
     private var isRunToCursorEnabled = false
     private var contextGutterLine: Int?
@@ -3329,6 +3333,7 @@ final class LineNumberGutterView: NSView {
         onToggle: @escaping (Int) -> Void,
         onRemove: ((Int) -> Void)? = nil,
         onSetEnabled: ((Int, Bool) -> Void)? = nil,
+        onToggleAll: (() -> Void)? = nil,
         onRunToCursor: ((Int) -> Void)? = nil,
         isRunToCursorEnabled: Bool = false
     ) {
@@ -3339,6 +3344,7 @@ final class LineNumberGutterView: NSView {
         onToggleDebugBreakpoint = onToggle
         onRemoveDebugBreakpoint = onRemove
         onSetDebugBreakpointEnabled = onSetEnabled
+        onToggleAllDebugBreakpoints = onToggleAll
         self.onRunToCursor = onRunToCursor
         self.isRunToCursorEnabled = isRunToCursorEnabled
         needsDisplay = true
@@ -4004,6 +4010,11 @@ final class LineNumberGutterView: NSView {
             menu.items.last?.target = self
             menu.addItem(withTitle: "Remove Breakpoint", action: #selector(removeDebugBreakpointFromMenu), keyEquivalent: "")
             menu.items.last?.target = self
+            if onToggleAllDebugBreakpoints != nil {
+                menu.addItem(.separator())
+                menu.addItem(withTitle: "Mute All Breakpoints", action: #selector(toggleAllDebugBreakpointsFromMenu), keyEquivalent: "")
+                menu.items.last?.target = self
+            }
             return menu
         }
         if gutterLayout.lineNumberRange.contains(localX),
@@ -4054,6 +4065,10 @@ final class LineNumberGutterView: NSView {
 
     @objc private func removeDebugBreakpointFromMenu() {
         if let line = contextDebugBreakpointLine { onRemoveDebugBreakpoint?(line) }
+    }
+
+    @objc private func toggleAllDebugBreakpointsFromMenu() {
+        onToggleAllDebugBreakpoints?()
     }
 
     @objc private func runToCursorFromGutterMenu() {
