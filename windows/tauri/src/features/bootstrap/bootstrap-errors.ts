@@ -1,23 +1,9 @@
-import { recordCrashReport } from "@/features/telemetry/services/telemetry";
-
 interface BootstrapStep {
   name: string;
 }
 
 function logBootstrapError(step: string, error: unknown) {
   console.error(`App bootstrap failed during ${step}:`, error);
-  void recordCrashReport({
-    kind: "bootstrap_error",
-    step,
-    ...(error instanceof Error
-      ? {
-          message: error.message,
-          stack: error.stack || null,
-        }
-      : {
-          message: String(error),
-        }),
-  });
 }
 
 export function reportBootstrapResults(

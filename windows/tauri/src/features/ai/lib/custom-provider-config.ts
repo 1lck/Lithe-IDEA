@@ -4,43 +4,35 @@ import { getProviderApiToken } from "@/features/ai/services/ai-token-service";
 export const CUSTOM_CHAT_PROVIDER_ID = "custom";
 export const CUSTOM_AUTOCOMPLETE_PROVIDER_ID = "autocomplete-custom";
 
-export function resolveCustomProviderBaseUrl(settings: Settings): string {
-  return settings.aiCustomBaseUrl || settings.aiAutocompleteCustomBaseUrl;
+export type CustomProviderScope = "chat" | "autocomplete";
+
+export function resolveCustomProviderId(scope: CustomProviderScope): string {
+  return scope === "chat" ? CUSTOM_CHAT_PROVIDER_ID : CUSTOM_AUTOCOMPLETE_PROVIDER_ID;
 }
 
-function isKnownNonCustomModelId(modelId: string): boolean {
-  return [
-    "claude-",
-    "gpt-",
-    "o1",
-    "o3",
-    "o4",
-    "gemini-",
-    "grok-",
-    "deepseek-",
-    "mistral",
-    "codestral",
-    "devstral",
-    "qwen",
-    "v0-",
-  ].some((prefix) => modelId.startsWith(prefix));
+export function resolveCustomProviderBaseUrl(
+  settings: Settings,
+  scope: CustomProviderScope,
+): string {
+  return scope === "chat" ? settings.aiCustomBaseUrl : settings.aiAutocompleteCustomBaseUrl;
 }
 
-export function resolveCustomProviderModelId(settings: Settings, modelId: string): string {
-  const chatModelId = settings.aiCustomModelId.trim();
-  const autocompleteModelId = settings.aiAutocompleteCustomModelId.trim();
+export function resolveCustomProviderModelId(
+  settings: Settings,
+  modelId: string,
+  scope: CustomProviderScope,
+): string {
+  const configuredModelId =
+    scope === "chat"
+      ? settings.aiCustomModelId.trim()
+      : settings.aiAutocompleteCustomModelId.trim();
   const currentModelId = modelId.trim();
 
-  if (chatModelId) return chatModelId;
-  if (autocompleteModelId && (!currentModelId || isKnownNonCustomModelId(currentModelId))) {
-    return autocompleteModelId;
-  }
-  return currentModelId || autocompleteModelId;
+  return configuredModelId || currentModelId;
 }
 
-export async function getCustomProviderApiToken(): Promise<string | null> {
-  return (
-    (await getProviderApiToken(CUSTOM_CHAT_PROVIDER_ID)) ||
-    (await getProviderApiToken(CUSTOM_AUTOCOMPLETE_PROVIDER_ID))
-  );
+export async function getCustomProviderApiToken(
+  scope: CustomProviderScope,
+): Promise<string | null> {
+  return getProviderApiToken(resolveCustomProviderId(scope));
 }

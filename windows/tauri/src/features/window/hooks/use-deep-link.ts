@@ -68,7 +68,6 @@ type DeepLinkAction =
   | { type: "settings"; tab: SettingsTab; extensionsCategory?: Settings["extensionsActiveTab"] };
 
 const SUPPORTED_SETTINGS_TABS = new Set<SettingsTab>([
-  "account",
   "general",
   "editor",
   "git",
@@ -76,8 +75,6 @@ const SUPPORTED_SETTINGS_TABS = new Set<SettingsTab>([
   "ai",
   "keyboard",
   "language",
-  "collaboration",
-  "enterprise",
   "advanced",
   "terminal",
   "file-explorer",

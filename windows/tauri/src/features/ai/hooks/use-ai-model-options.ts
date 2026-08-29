@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useProFeature } from "@/extensions/ui/hooks/use-pro-feature";
 import { useProviderById } from "@/features/ai/hooks/use-available-providers";
 import { getCustomModelOptions } from "@/features/ai/lib/custom-model-options";
 import { canUseProviderWithoutApiKey } from "@/features/ai/lib/provider-access";
@@ -8,14 +7,12 @@ import { getProvider } from "@/features/ai/services/providers/ai-provider-regist
 import { useAIChatStore } from "@/features/ai/stores/ai-chat.store";
 import { getProviderById } from "@/features/ai/types/providers.types";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
-import { useAuthStore } from "@/features/window/stores/auth.store";
 import { useTranslation } from "@/i18n/locale-provider";
 
 export interface AIModelOption {
   id: string;
   name: string;
   maxTokens?: number;
-  proOnly?: boolean;
 }
 
 export function useAIModelOptions(
@@ -26,8 +23,6 @@ export function useAIModelOptions(
   const { t } = useTranslation();
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [modelFetchError, setModelFetchError] = useState<string | null>(null);
-  const { hasHostedAi } = useProFeature();
-  const subscription = useAuthStore((state) => state.subscription);
   const dynamicModels = useAIChatStore((state) => state.dynamicModels);
   const setDynamicModels = useAIChatStore((state) => state.actions.setDynamicModels);
   const customModelId = useSettingsStore((state) => state.settings.aiCustomModelId);
@@ -49,8 +44,6 @@ export function useAIModelOptions(
     const apiKey = config?.requiresApiKey ? await getProviderApiToken(providerId) : undefined;
     const canFetchWithoutApiKey = providerId === "openrouter";
     const canUseWithoutApiKey = canUseProviderWithoutApiKey({
-      providerId,
-      subscription,
       hasStoredKey: Boolean(apiKey),
       requiresApiKey: config?.requiresApiKey ?? true,
     });
@@ -72,7 +65,7 @@ export function useAIModelOptions(
     } finally {
       setIsLoadingModels(false);
     }
-  }, [isCustomProvider, providerId, setDynamicModels, subscription, t]);
+  }, [isCustomProvider, providerId, setDynamicModels, t]);
 
   useEffect(() => {
     void fetchDynamicModels();
@@ -96,7 +89,6 @@ export function useAIModelOptions(
       mergedModels.set(model.id, {
         id: model.id,
         name: model.name,
-        proOnly: existingModel?.proOnly,
         maxTokens: model.maxTokens ?? existingModel?.maxTokens ?? 4096,
       });
     }
@@ -132,7 +124,6 @@ export function useAIModelOptions(
   return {
     availableModels,
     currentModelName,
-    hasHostedAi,
     isCustomProvider,
     isLoadingModels,
     modelFetchError,

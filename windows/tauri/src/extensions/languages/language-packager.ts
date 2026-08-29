@@ -17,7 +17,6 @@ import { registerLanguageAssetOverride } from "@/features/editor/lib/wasm-parser
 import { getServiceUrls } from "@/config/services";
 
 const CDN_BASE_URL = getServiceUrls().extensionsCdnBaseUrl;
-const MANIFESTS_URL = `${CDN_BASE_URL}/manifests.json`;
 const BUNDLED_PARSER_BASE_URL = "/tree-sitter/parsers";
 
 interface ExternalLanguageContribution {
@@ -325,10 +324,14 @@ function processManifests(manifests: Record<string, ExternalLanguageManifest>) {
 export async function initializeLanguagePackager(): Promise<void> {
   if (initialized) return;
   if (initPromise) return initPromise;
+  if (!CDN_BASE_URL) {
+    initialized = true;
+    return;
+  }
 
   initPromise = (async () => {
     try {
-      const response = await fetch(MANIFESTS_URL);
+      const response = await fetch(`${CDN_BASE_URL}/manifests.json`);
       if (!response.ok) {
         throw new Error(`Failed to fetch manifests: ${response.status} ${response.statusText}`);
       }

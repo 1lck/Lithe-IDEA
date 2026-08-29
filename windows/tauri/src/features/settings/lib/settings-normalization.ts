@@ -17,7 +17,6 @@ import { normalizeConfiguredFontFamily } from "@/features/settings/lib/font-fami
 import {
   FOOTER_LEADING_ITEM_IDS,
   FOOTER_TRAILING_ITEM_IDS,
-  HEADER_TRAILING_ITEM_IDS,
   SIDEBAR_ACTIVITY_ITEM_IDS,
   normalizeItemOrder,
 } from "@/features/layout/config/item-order";
@@ -159,15 +158,12 @@ const EXTERNAL_EDITOR_MODES = new Set<Settings["externalEditor"]>([
   "custom",
 ]);
 const SETTINGS_SECTIONS = new Set<SettingsSection>([
-  "account",
   "general",
   "editor",
   "git",
   "appearance",
   "ai",
   "keyboard",
-  "collaboration",
-  "enterprise",
   "advanced",
   "terminal",
   "file-explorer",
@@ -551,10 +547,6 @@ export function normalizeSettings(settings: Settings): Settings {
 
   normalizedSettings.iconTheme = normalizeIconTheme(normalizedSettings.iconTheme);
 
-  normalizedSettings.headerTrailingItemsOrder = normalizeItemOrder(
-    normalizedSettings.headerTrailingItemsOrder,
-    HEADER_TRAILING_ITEM_IDS,
-  );
   normalizedSettings.sidebarActivityItemsOrder = normalizeItemOrder(
     normalizedSettings.sidebarActivityItemsOrder,
     SIDEBAR_ACTIVITY_ITEM_IDS,

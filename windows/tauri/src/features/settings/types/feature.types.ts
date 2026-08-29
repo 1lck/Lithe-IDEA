@@ -20,7 +20,6 @@ export interface CoreFeaturesState {
   docker: boolean;
   outline: boolean;
   aiChat: boolean;
-  teamCollaboration: boolean;
   breadcrumbs: boolean;
   persistentCommands: boolean;
   webViewer: boolean;

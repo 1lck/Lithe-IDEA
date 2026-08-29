@@ -21,10 +21,7 @@ import { Card } from "@/ui/card";
 import { ScrollArea } from "@/ui/scroll-area";
 import Select from "@/ui/select";
 import Switch from "@/ui/switch";
-import { getServiceUrls } from "@/config/services";
 import { ReleaseNotesContent } from "./release-notes-content";
-
-const telemetryLearnMoreUrl = getServiceUrls().telemetryDocsUrl;
 
 interface OnboardingViewProps {
   bufferId: string;
@@ -59,7 +56,6 @@ export default function OnboardingView({ bufferId, context }: OnboardingViewProp
     useShallow((state) => ({
       keybindingPreset: state.settings.keybindingPreset,
       openFoldersInNewWindow: state.settings.openFoldersInNewWindow,
-      telemetry: state.settings.telemetry,
       vimMode: state.settings.vimMode,
     })),
   );
@@ -70,7 +66,6 @@ export default function OnboardingView({ bufferId, context }: OnboardingViewProp
   const whatsNewInfo = useWhatsNewStore((state) => state.info);
   const completeOnboarding = useOnboardingStore((state) => state.actions.complete);
   const viewModel = buildOnboardingViewModel(context, t);
-  const [telemetry, setTelemetry] = useState(settings.telemetry);
   const [vimMode, setVimMode] = useState(settings.vimMode);
   const [openFoldersInNewWindow, setOpenFoldersInNewWindow] = useState(
     settings.openFoldersInNewWindow,
@@ -81,20 +76,17 @@ export default function OnboardingView({ bufferId, context }: OnboardingViewProp
   );
 
   useEffect(() => {
-    setTelemetry(settings.telemetry);
     setVimMode(settings.vimMode);
     setOpenFoldersInNewWindow(settings.openFoldersInNewWindow);
     setKeybindingPreset(settings.keybindingPreset);
   }, [
     settings.keybindingPreset,
     settings.openFoldersInNewWindow,
-    settings.telemetry,
     settings.vimMode,
   ]);
 
   const persistSelections = async () => {
     await Promise.all([
-      updateSetting("telemetry", telemetry),
       updateSetting("vimMode", vimMode),
       updateSetting("openFoldersInNewWindow", openFoldersInNewWindow),
       updateSetting("askWhereToOpenProjects", false),
@@ -179,25 +171,6 @@ export default function OnboardingView({ bufferId, context }: OnboardingViewProp
                 variant="default"
                 aria-label={t("onboarding.keybindingPreset")}
               />
-            </SettingRow>
-
-            <SettingRow
-              title={t("onboarding.shareAnonymousTelemetry")}
-              description={
-                <>
-                  {t("onboarding.telemetryDescription")}{" "}
-                  <a
-                    href={telemetryLearnMoreUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary hover:underline"
-                  >
-                    {t("onboarding.learnMore")}
-                  </a>
-                </>
-              }
-            >
-              <Switch checked={telemetry} onChange={setTelemetry} />
             </SettingRow>
 
             <SettingRow title={t("onboarding.enableVimMode")}>

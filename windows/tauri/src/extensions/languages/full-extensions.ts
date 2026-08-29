@@ -481,5 +481,7 @@ const fullExtensions: ExtensionManifest[] = [
  * Get all full extension manifests
  */
 export function getFullExtensions(): ExtensionManifest[] {
-  return fullExtensions;
+  return fullExtensions.filter(
+    (extension) => extension.id !== "lithe.php" || Boolean(CDN_BASE_URL),
+  );
 }
