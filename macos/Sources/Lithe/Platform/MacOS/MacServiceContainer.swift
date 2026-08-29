@@ -53,6 +53,7 @@ final class MacServiceContainer {
         moduleLaunchMode: ModuleLaunchMode = .normal,
         moduleStore providedModuleStore: MacModuleConfigurationStore? = nil,
         workspaceOperations providedWorkspaceOperations: (any WorkspaceOperations)? = nil,
+        runConfigurationOperations providedRunConfigurationOperations: (any RunConfigurationOperations)? = nil,
         pluginRuntimeRecovery: MacPluginRuntimeRecoveryCoordinator? = nil,
         authorizationCallbackRouter providedAuthorizationCallbackRouter: MacExternalAuthorizationCallbackRouter? = nil
     ) {
@@ -74,6 +75,10 @@ final class MacServiceContainer {
             preferences: store
         )
         self.runConfigurationStore = runConfigurationStore
+        // Only the run-configuration boundary is overridable. The concrete store
+        // stays available for callers that need the macOS adapter itself.
+        let runConfigurationOperations: any RunConfigurationOperations =
+            providedRunConfigurationOperations ?? runConfigurationStore
         let fileOperations = MacWorkspaceFileOperations()
         let processRunner = MacProcessRunner()
         let secureStore = MacLocalSecretStore()
@@ -320,7 +325,7 @@ final class MacServiceContainer {
                             fileAccess: MacRunFileAccess(storage: fileStorage),
                             preferences: MacRunPreferenceStore(store: store),
                             serverPortParser: javaMavenOperations,
-                            runConfigurationOperations: runConfigurationStore,
+                            runConfigurationOperations: runConfigurationOperations,
                             executableResolver: executableResolver,
                             languageProviderCatalog: languagePackRegistry.catalog,
                             languageRunProviders: languagePackRegistry.runProviders,
@@ -395,7 +400,7 @@ final class MacServiceContainer {
                             processFactory: { MacStreamingProcess(processRegistry: processRegistry, moduleID: .debug) },
                             fileStorage: fileStorage,
                             javaMavenOperations: javaMavenOperations,
-                            runConfigurationOperations: runConfigurationStore
+                            runConfigurationOperations: runConfigurationOperations
                         ),
                         adapterSessions: adapterSessions
                     )

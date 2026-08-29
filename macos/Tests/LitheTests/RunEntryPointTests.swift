@@ -80,6 +80,48 @@ struct RunEntryPointTests {
         #expect(resumed, "the deferred Run was never resumed")
     }
 
+    /// A workspace that already has a configuration reports `configurationStatus
+    /// == .ready` as soon as it is bound, which used to be enough to launch. With
+    /// a provisional inventory the Maven project is absent, so toolchains resolve
+    /// without it. Readiness has to be checked before the configuration status.
+    @Test
+    func runWithExistingConfigurationLaunchesOnlyAfterTheSnapshotArrives() async throws {
+        let workspace = try JavaWorkspaceFixture()
+        defer { workspace.remove() }
+        let workspaceOperations = GatedWorkspaceOperations(snapshot: workspace.snapshot)
+        let runConfigurations = ReadyRunConfigurationOperations()
+        let model = makeAppModel(
+            workspaceOperations: workspaceOperations,
+            runConfigurationOperations: runConfigurations
+        )
+
+        model.openProjectDirectly(workspace.root)
+        model.runSelectedConfiguration()
+
+        let deferred = await awaitChange(on: model) { model.pendingRunAction != nil }
+        #expect(deferred, "Run must be deferred while the file inventory is provisional")
+        let runFeature = try #require(model.runFeatureIfActive)
+        #expect(
+            runFeature.configurationStatus == .ready,
+            "the seeded configuration should already report ready"
+        )
+        #expect(
+            runConfigurations.launchPlanCallCount == 0,
+            "Run must not build a launch plan from a provisional inventory"
+        )
+
+        workspaceOperations.releaseSnapshot()
+
+        let resumed = await awaitChange(on: model) { model.pendingRunAction == nil }
+        #expect(resumed, "the deferred Run was never resumed")
+        #expect(
+            runFeature.isProjectReady(
+                for: workspace.root,
+                snapshotID: model.workspaceSnapshotID
+            )
+        )
+    }
+
     /// Debugging reaches the same run feature through its own entry point.
     @Test
     func debugBeforeTheSnapshotDefersGenerationUntilTheInventoryIsComplete() async throws {
@@ -129,13 +171,17 @@ struct RunEntryPointTests {
         #expect(ready, "opening a project should make the run project ready")
     }
 
-    private func makeAppModel(workspaceOperations: any WorkspaceOperations) -> AppModel {
+    private func makeAppModel(
+        workspaceOperations: any WorkspaceOperations,
+        runConfigurationOperations: (any RunConfigurationOperations)? = nil
+    ) -> AppModel {
         let store = RunEntryPointTestStore()
         let settings = AppSettings(store: store)
         let services = MacServiceContainer(
             store: store,
             settings: settings,
-            workspaceOperations: workspaceOperations
+            workspaceOperations: workspaceOperations,
+            runConfigurationOperations: runConfigurationOperations
         ).services
         return AppModel(settings: settings, services: services)
     }
@@ -217,6 +263,55 @@ private final class GatedWorkspaceOperations: WorkspaceOperations, @unchecked Se
             encoding: .utf8
         )) != nil
     }
+}
+
+/// Reports a workspace that already carries a configuration, which the Swift test
+/// binary cannot obtain from the real store because it does not link the Rust
+/// Core. Records launch-plan requests so a test can prove no launch was built.
+private final class ReadyRunConfigurationOperations: RunConfigurationOperations, @unchecked Sendable {
+    private let lock = NSLock()
+    private var launchPlanCalls = 0
+
+    var launchPlanCallCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return launchPlanCalls
+    }
+
+    func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
+        ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
+    }
+
+    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+        RunConfigurationGenerationResult(entryCount: 1)
+    }
+
+    func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
+        RunConfigurationResolution(
+            configurations: [EffectiveRunConfiguration(
+                configuration: .currentFile,
+                options: RunOptions()
+            )],
+            diagnostics: [],
+            defaultConfigurationID: RunConfiguration.currentFileID
+        )
+    }
+
+    func launchPlan(
+        at projectURL: URL,
+        configurationID: String,
+        currentFile: String?,
+        classPath: String?,
+        debugPort: Int?
+    ) throws -> SharedLaunchPlan {
+        lock.lock()
+        launchPlanCalls += 1
+        lock.unlock()
+        throw RunConfigurationOperationFailure(message: "Launching is out of scope for this test")
+    }
+
+    func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String { draft.name }
+    func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {}
 }
 
 private final class RunEntryPointTestStore: KeyValueStore, @unchecked Sendable {
