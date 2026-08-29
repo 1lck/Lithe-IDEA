@@ -4,6 +4,8 @@ import LitheCoreContracts
 enum DebugLaunchConfigurationResolutionError: LocalizedError, Equatable {
     case unsupportedProvider(String)
     case javaLaunchTargetUnavailable
+    case invalidJavaAttachHost
+    case invalidJavaAttachPort
     case noRustBinaryConfiguration
     case rustExecutableNotBuilt(URL, binary: String)
 
@@ -13,6 +15,10 @@ enum DebugLaunchConfigurationResolutionError: LocalizedError, Equatable {
             return "The \(provider) Debug Adapter is not installed yet."
         case .javaLaunchTargetUnavailable:
             return "The Java language service could not resolve a main class for this file."
+        case .invalidJavaAttachHost:
+            return "Enter the host name of the running JVM."
+        case .invalidJavaAttachPort:
+            return "Enter a JVM debug port between 1 and 65535."
         case .noRustBinaryConfiguration:
             return "No Cargo binary run configuration matches this Rust file."
         case .rustExecutableNotBuilt(let url, let binary):
@@ -102,6 +108,24 @@ struct DebugLaunchConfigurationResolver {
         default:
             throw DebugLaunchConfigurationResolutionError.unsupportedProvider(provider.displayName)
         }
+    }
+
+    func resolveJavaAttach(host: String, port: Int) throws -> DebugLaunchConfiguration {
+        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedHost.isEmpty else {
+            throw DebugLaunchConfigurationResolutionError.invalidJavaAttachHost
+        }
+        guard (1...65_535).contains(port) else {
+            throw DebugLaunchConfigurationResolutionError.invalidJavaAttachPort
+        }
+        return DebugLaunchConfiguration(
+            name: "\(normalizedHost):\(port)",
+            request: .attach,
+            arguments: [
+                "hostName": .string(normalizedHost),
+                "port": .integer(port)
+            ]
+        )
     }
 
     private func javaConfiguration(

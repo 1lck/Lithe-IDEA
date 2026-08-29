@@ -14,6 +14,7 @@ struct GenericDebugView: View {
     @State private var watchEditor: WatchEditorContext?
     @State private var smartStepTargets: [DebugStepInTarget] = []
     @State private var isSmartStepPickerPresented = false
+    @State private var isJavaAttachPresented = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -96,6 +97,11 @@ struct GenericDebugView: View {
                 }
             }
         }
+        .sheet(isPresented: $isJavaAttachPresented) {
+            JavaAttachView { host, port in
+                model.attachJavaDebugger(host: host, port: port)
+            }
+        }
     }
 
     private var header: some View {
@@ -118,6 +124,12 @@ struct GenericDebugView: View {
                     .lineLimit(1)
             }
             Spacer()
+            Button { isJavaAttachPresented = true } label: {
+                Image(systemName: "link")
+            }
+            .litheIconButton()
+            .disabled(feature.isSessionActive)
+            .help("Connect to running JVM")
             controlButton(
                 feature.state == .running ? "pause.fill" : "play.fill",
                 help: feature.state == .running ? "Pause" : "Continue",
@@ -758,6 +770,9 @@ struct GenericDebugView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .tint(LitheTheme.accent)
+            Button("Connect to Running JVM") { isJavaAttachPresented = true }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -906,6 +921,54 @@ struct GenericDebugView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct JavaAttachView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var host = "localhost"
+    @State private var port = "5005"
+    let onAttach: (String, Int) -> Void
+
+    private var parsedPort: Int? {
+        guard let value = Int(port), (1...65_535).contains(value) else { return nil }
+        return value
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Connect to Running JVM")
+                .font(.system(size: 14, weight: .semibold))
+            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 10) {
+                GridRow {
+                    Text("Host")
+                    TextField("localhost", text: $host)
+                        .textFieldStyle(.roundedBorder)
+                }
+                GridRow {
+                    Text("Port")
+                    TextField("5005", text: $port)
+                        .textFieldStyle(.roundedBorder)
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Connect") {
+                    guard let parsedPort else { return }
+                    onAttach(host.trimmingCharacters(in: .whitespacesAndNewlines), parsedPort)
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(
+                    host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || parsedPort == nil
+                )
+            }
+        }
+        .padding(18)
+        .frame(width: 360)
     }
 }
 

@@ -322,6 +322,49 @@ extension AppModel {
         Task { [weak self] in await self?.startDebuggingAfterActivation() }
     }
 
+    func attachJavaDebugger(host: String, port: Int) {
+        Task { [weak self] in
+            await self?.attachJavaDebuggerAfterActivation(host: host, port: port)
+        }
+    }
+
+    private func attachJavaDebuggerAfterActivation(host: String, port: Int) async {
+        guard let workspaceURL,
+              await activateDebugModule() != nil else { return }
+        let sourceURL = ([activeDocument?.url].compactMap { $0 } + projectFiles)
+            .map(\.standardizedFileURL)
+            .first {
+                languageProviderCatalog.provider(for: $0)?.id == "java"
+            }
+        guard let sourceURL else {
+            showNotification("Open a Java project before connecting the debugger")
+            return
+        }
+        let configuration: DebugLaunchConfiguration
+        do {
+            configuration = try debugLaunchConfigurationResolver.resolveJavaAttach(
+                host: host,
+                port: port
+            )
+        } catch {
+            showNotification(error.localizedDescription)
+            return
+        }
+        guard let genericDebugFeature = genericDebugFeatureIfActive,
+              genericDebugFeature.start(
+                  fileURL: sourceURL,
+                  rootURL: workspaceURL,
+                  configuration: configuration
+              ) else {
+            showNotification(
+                genericDebugFeatureIfActive?.errorMessage ?? "Could not connect to the JVM"
+            )
+            isDebugVisible = true
+            return
+        }
+        showDebugToolWindow()
+    }
+
     private func startDebuggingAfterActivation() async {
         guard await activateExecutionModule() != nil,
               await activateDebugModule() != nil else { return }
@@ -630,6 +673,10 @@ extension AppModel {
             isDebugVisible = true
             return
         }
+        showDebugToolWindow()
+    }
+
+    private func showDebugToolWindow() {
         isDebugVisible = true
         isGitLogVisible = false
         isTerminalVisible = false

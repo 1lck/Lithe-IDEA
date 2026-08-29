@@ -373,6 +373,26 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func javaAttachUsesTheSharedDAPSessionWithValidatedEndpointArguments() throws {
+        let resolver = DebugLaunchConfigurationResolver(fileExists: { _ in true })
+
+        let configuration = try resolver.resolveJavaAttach(host: "  localhost ", port: 5005)
+
+        #expect(configuration.name == "localhost:5005")
+        #expect(configuration.request == .attach)
+        #expect(configuration.arguments == [
+            "hostName": .string("localhost"),
+            "port": .integer(5005)
+        ])
+        #expect(throws: DebugLaunchConfigurationResolutionError.invalidJavaAttachHost) {
+            try resolver.resolveJavaAttach(host: "  ", port: 5005)
+        }
+        #expect(throws: DebugLaunchConfigurationResolutionError.invalidJavaAttachPort) {
+            try resolver.resolveJavaAttach(host: "localhost", port: 65_536)
+        }
+    }
+
+    @Test
     func macToolDiscoveryReportsProjectHomebrewAndXcodeSources() {
         let root = URL(fileURLWithPath: "/tmp/mac-tool-project", isDirectory: true)
         let executablePaths: Set<String> = [
