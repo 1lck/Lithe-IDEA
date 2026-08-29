@@ -17,6 +17,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useEventListener } from "usehooks-ts";
 import { useFileClipboardStore } from "@/features/file-explorer/stores/file-explorer-clipboard.store";
 import { useFileTreeStore } from "@/features/file-explorer/stores/file-explorer-tree.store";
+import { pasteIntoExplorerDirectory } from "@/features/file-explorer/lib/paste-into-explorer-directory";
 import {
   collectFileTreeSearchHits,
   filterFileTreeEntries,
@@ -50,6 +51,7 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import Dialog from "@/ui/dialog";
 import { EmptyState } from "@/ui/empty";
+import { toast } from "sonner";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -1161,8 +1163,21 @@ function FileExplorerTreeComponent({
             const sep = current.path.includes("\\") ? "\\" : "/";
             const targetDir = isDir ? current.path : current.path.split(sep).slice(0, -1).join(sep);
             if (targetDir) {
-              clipboardActions.paste(targetDir).then(() => {
-                onRefreshDirectory?.(targetDir, { force: true });
+              void pasteIntoExplorerDirectory({
+                targetDirectory: targetDir,
+                createFileInDirectory: onCreateNewFileInDirectory,
+                refreshDirectory: onRefreshDirectory,
+                onJavaClassCreated: (fileName) => {
+                  toast.success(t("files.created", { name: fileName }));
+                },
+                onJavaClassFailed: (fileName, error) => {
+                  toast.error(t("files.createFailed", { name: fileName }), {
+                    description: error instanceof Error ? error.message : undefined,
+                  });
+                },
+                onNothingToPaste: () => {
+                  toast.error(t("files.nothingToPaste"));
+                },
               });
             }
             return;

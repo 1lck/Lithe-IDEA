@@ -33,6 +33,7 @@ import {
 import { openLocalHistoryForPath } from "@/features/local-history/utils/open-local-history";
 import { useFileClipboardStore } from "@/features/file-explorer/stores/file-explorer-clipboard.store";
 import { useFileTreeStore } from "@/features/file-explorer/stores/file-explorer-tree.store";
+import { pasteIntoExplorerDirectory } from "@/features/file-explorer/lib/paste-into-explorer-directory";
 import type { ContextMenuState } from "@/features/file-system/types/app.types";
 import { Button } from "@/ui/button";
 import { Dropdown, type MenuItem } from "@/ui/dropdown";
@@ -120,7 +121,6 @@ export function useFileExplorerContextMenu({
   );
   const [propertiesDialog, setPropertiesDialog] = useState<PropertiesDialogState | null>(null);
   const clipboardActions = useFileClipboardStore.getState().actions;
-  const clipboard = useFileClipboardStore((state) => state.clipboard);
 
   const createEnvTemplateFile = useCallback(
     async (sourcePath: string, targetFileName: string, options?: { overwrite?: boolean }) => {
@@ -402,14 +402,27 @@ export function useFileExplorerContextMenu({
       },
     );
 
-    if (clipboard && contextMenu.isDir) {
+    if (contextMenu.isDir) {
       items.push({
         id: "paste",
         label: t("files.paste"),
         icon: <Clipboard />,
         onClick: () => {
-          clipboardActions.paste(contextMenu.path).then(() => {
-            onRefreshDirectory?.(contextMenu.path, { force: true });
+          void pasteIntoExplorerDirectory({
+            targetDirectory: contextMenu.path,
+            createFileInDirectory: onCreateNewFileInDirectory,
+            refreshDirectory: onRefreshDirectory,
+            onJavaClassCreated: (fileName) => {
+              toast.success(t("files.created", { name: fileName }));
+            },
+            onJavaClassFailed: (fileName, error) => {
+              toast.error(t("files.createFailed", { name: fileName }), {
+                description: error instanceof Error ? error.message : undefined,
+              });
+            },
+            onNothingToPaste: () => {
+              toast.error(t("files.nothingToPaste"));
+            },
           });
         },
       });
@@ -457,7 +470,6 @@ export function useFileExplorerContextMenu({
     return items;
   }, [
     canRemoveWorkspaceRootPath,
-    clipboard,
     clipboardActions,
     contextMenu,
     createEnvTemplateFile,
