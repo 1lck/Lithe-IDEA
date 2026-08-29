@@ -13,6 +13,43 @@ import LitheTerminalModule
 @Suite("Lithe core logic")
 struct LitheCoreLogicTests {
     @Test
+    func workspaceRelativeFilePathsUseDefaultFileIcons() {
+        let expectations: [(path: String, kind: LitheIconKind)] = [
+            ("rust/lithe-core/src/lib.rs", .rustSource),
+            ("Cargo.toml", .toml),
+            ("src/main/java/App.java", .javaGeneric),
+            ("docs/README.md", .markdown),
+            (".gitignore", .gitignore),
+            ("Dockerfile", .docker),
+            ("assets/unknown.custom", .generic),
+            ("LICENSE", .generic)
+        ]
+
+        for expectation in expectations {
+            #expect(LitheIcons.kind(forFilePath: expectation.path) == expectation.kind)
+        }
+    }
+
+    @Test
+    func fileURLAndWorkspaceRelativePathIconKindsStayAligned() {
+        let paths = [
+            "pom.xml",
+            ".env.production",
+            "build.gradle.kts",
+            "Sources/App.swift",
+            "config/settings.yaml"
+        ]
+
+        for path in paths {
+            let url = URL(fileURLWithPath: "/workspace").appendingPathComponent(path)
+            #expect(
+                LitheIcons.kind(for: url, isDirectory: false)
+                    == LitheIcons.kind(forFilePath: path)
+            )
+        }
+    }
+
+    @Test
     func javaInterfaceSymbolAcceptsUnicodeIdentifiers() {
         #expect(
             LitheIcons.javaSymbolKind(fromSourcePrefix: "public interface 用户服务 {}")
