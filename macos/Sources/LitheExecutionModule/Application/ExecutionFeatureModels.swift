@@ -165,6 +165,10 @@ package final class RunFeatureModel: ObservableObject {
         service.isProjectReady(for: workspace, snapshotID: snapshotID)
     }
 
+    package func hasReadyInventory(for workspace: URL) -> Bool {
+        service.hasReadyInventory(for: workspace)
+    }
+
     package func reportGenerationProjectNotReady() {
         isGenerationConfirmationPresented = false
         service.reportGenerationProjectNotReady()

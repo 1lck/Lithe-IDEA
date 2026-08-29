@@ -114,6 +114,13 @@ package final class RunService: ObservableObject {
         projectLoadState.isReady(for: workspace, snapshotID: snapshotID)
     }
 
+    /// Whether a complete inventory for `workspace` is already loaded, even if a
+    /// newer snapshot has since been published. Entry points use this to tell a
+    /// superseded inventory apart from one that was never loaded.
+    package func hasReadyInventory(for workspace: URL) -> Bool {
+        projectLoadState.hasReadyInventory(for: workspace)
+    }
+
     /// Surfaces the "project still loading" generation notice without scanning.
     ///
     /// AppModel uses this when readiness cannot be established for the current

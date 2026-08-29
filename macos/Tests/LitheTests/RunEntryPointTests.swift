@@ -25,7 +25,7 @@ struct RunEntryPointTests {
 
         // The entry point binds the workspace so existing configuration is
         // readable, but the pending snapshot must keep generation out.
-        let bound = await awaitChange(on: model) {
+        let bound = await awaitLoadDrivenChange(on: model) {
             model.runFeatureIfActive?.projectLoadState == .bound(workspace: workspace.root.standardizedFileURL)
         }
         #expect(bound, "the Run entry point never bound the workspace")
@@ -38,7 +38,7 @@ struct RunEntryPointTests {
 
         operations.releaseSnapshot()
 
-        let ready = await awaitChange(on: model) {
+        let ready = await awaitLoadDrivenChange(on: model) {
             model.runFeatureIfActive?.isProjectReady(
                 for: workspace.root,
                 snapshotID: model.workspaceSnapshotID
@@ -64,19 +64,19 @@ struct RunEntryPointTests {
         model.openProjectDirectly(workspace.root)
         model.runSelectedConfiguration()
 
-        let deferred = await awaitChange(on: model) { model.pendingRunAction?.kind == .run }
+        let deferred = await awaitLoadDrivenChange(on: model) { model.pendingRunAction?.kind == .run }
         #expect(deferred, "Run must be deferred while the inventory is provisional")
 
         operations.releaseSnapshot()
 
-        let ready = await awaitChange(on: model) {
+        let ready = await awaitLoadDrivenChange(on: model) {
             model.runFeatureIfActive?.isProjectReady(
                 for: workspace.root,
                 snapshotID: model.workspaceSnapshotID
             ) == true
         }
         #expect(ready, "the applied snapshot never made the run project ready")
-        let resumed = await awaitChange(on: model) { model.pendingRunAction == nil }
+        let resumed = await awaitLoadDrivenChange(on: model) { model.pendingRunAction == nil }
         #expect(resumed, "the deferred Run was never resumed")
     }
 
@@ -98,7 +98,7 @@ struct RunEntryPointTests {
         model.openProjectDirectly(workspace.root)
         model.runSelectedConfiguration()
 
-        let deferred = await awaitChange(on: model) { model.pendingRunAction?.kind == .run }
+        let deferred = await awaitLoadDrivenChange(on: model) { model.pendingRunAction?.kind == .run }
         #expect(deferred, "Run must be deferred while the file inventory is provisional")
         let runFeature = try #require(model.runFeatureIfActive)
         #expect(
@@ -115,9 +115,7 @@ struct RunEntryPointTests {
         // Production clears the deferred action before it re-issues Run, so
         // waiting for the action to clear would pass even if the relaunch were
         // dropped. The launch plan request is what proves Run actually ran.
-        let relaunched = await awaitChange(on: model) {
-            runConfigurations.launchPlanCallCount == 1
-        }
+        let relaunched = await runConfigurations.launchPlanRequested(1)
         #expect(relaunched, "the deferred Run was never actually re-issued")
         #expect(model.pendingRunAction == nil)
         #expect(
@@ -162,7 +160,7 @@ struct RunEntryPointTests {
             "the snapshot-driven load never started"
         )
         runConfigurations.release(2)
-        let ready = await awaitChange(on: model) {
+        let ready = await awaitLoadDrivenChange(on: model) {
             model.runFeatureIfActive?.isProjectReady(
                 for: workspace.root,
                 snapshotID: model.workspaceSnapshotID
@@ -171,7 +169,7 @@ struct RunEntryPointTests {
         #expect(ready, "the snapshot-driven load never made the run project ready")
         // Wait for the snapshot-driven load to finish completely, so its resume
         // point has already run and found nothing deferred.
-        let snapshotLoadFinished = await awaitChange(on: model) {
+        let snapshotLoadFinished = await awaitLoadDrivenChange(on: model) {
             model.runFeatureIfActive?.isLoadingProject == false
                 && runConfigurations.resolveCallCount == 1
         }
@@ -179,9 +177,7 @@ struct RunEntryPointTests {
 
         runConfigurations.release(1)
 
-        let relaunched = await awaitChange(on: model) {
-            runConfigurations.launchPlanCallCount == 1
-        }
+        let relaunched = await runConfigurations.launchPlanRequested(1)
         #expect(relaunched, "Run was neither launched nor resumed after the snapshot landed")
         #expect(model.pendingRunAction == nil)
     }
@@ -197,7 +193,7 @@ struct RunEntryPointTests {
         model.openProjectDirectly(workspace.root)
         model.startDebugging()
 
-        let bound = await awaitChange(on: model) {
+        let bound = await awaitLoadDrivenChange(on: model) {
             model.runFeatureIfActive?.projectLoadState == .bound(workspace: workspace.root.standardizedFileURL)
         }
         #expect(bound, "the Debug entry point never bound the workspace")
@@ -205,7 +201,7 @@ struct RunEntryPointTests {
 
         operations.releaseSnapshot()
 
-        let ready = await awaitChange(on: model) {
+        let ready = await awaitLoadDrivenChange(on: model) {
             model.runFeatureIfActive?.isProjectReady(
                 for: workspace.root,
                 snapshotID: model.workspaceSnapshotID
@@ -226,7 +222,7 @@ struct RunEntryPointTests {
 
         model.openProjectDirectly(workspace.root)
 
-        let ready = await awaitChange(on: model) {
+        let ready = await awaitLoadDrivenChange(on: model) {
             model.runFeatureIfActive?.isProjectReady(
                 for: workspace.root,
                 snapshotID: model.workspaceSnapshotID
@@ -253,7 +249,7 @@ struct RunEntryPointTests {
         model.openProjectDirectly(workspace.root)
         model.startRunConfiguration(configuration)
 
-        let deferred = await awaitChange(on: model) {
+        let deferred = await awaitLoadDrivenChange(on: model) {
             model.pendingRunAction?.kind == .startConfiguration(configuration)
         }
         #expect(deferred, "direct start must be deferred while the inventory is provisional")
@@ -264,9 +260,7 @@ struct RunEntryPointTests {
 
         workspaceOperations.releaseSnapshot()
 
-        let relaunched = await awaitChange(on: model) {
-            runConfigurations.launchPlanCallCount == 1
-        }
+        let relaunched = await runConfigurations.launchPlanRequested(1)
         #expect(relaunched, "the deferred direct start was never actually re-issued")
         #expect(model.pendingRunAction == nil)
     }
@@ -288,7 +282,7 @@ struct RunEntryPointTests {
         model.openProjectDirectly(workspace.root)
         model.runAllServiceConfigurations()
 
-        let deferred = await awaitChange(on: model) {
+        let deferred = await awaitLoadDrivenChange(on: model) {
             model.pendingRunAction?.kind == .runAllServices
         }
         #expect(deferred, "run-all-services must be deferred while the inventory is provisional")
@@ -299,16 +293,155 @@ struct RunEntryPointTests {
 
         workspaceOperations.releaseSnapshot()
 
-        let relaunched = await awaitChange(on: model) {
-            runConfigurations.launchPlanCallCount == 1
-        }
+        let relaunched = await runConfigurations.launchPlanRequested(1)
         #expect(relaunched, "the deferred run-all-services was never actually re-issued")
         #expect(model.pendingRunAction == nil)
     }
 
-    /// When ensure loads snapshot A and snapshot B is published before that load
-    /// finishes — and B's callback has not yet consumed into the run service —
-    /// generation must stop rather than scan A's still-ready inventory.
+    /// Restart must use the same readiness funnel as direct start. A published
+    /// but not-yet-consumed refresh still leaves the run service on the old
+    /// inventory; restarting then would rebuild a launch plan from that stale
+    /// scan.
+    @Test
+    func restartDefersWhenANewerSnapshotIsPublishedButNotYetConsumed() async throws {
+        let workspace = try JavaWorkspaceFixture()
+        defer { workspace.remove() }
+
+        let first = workspace.snapshot
+        let secondSource = workspace.root.appendingPathComponent("src/main/java/demo/Other.java")
+        try """
+        package demo;
+        public class Other {
+          public static void main(String[] args) {}
+        }
+        """.write(to: secondSource, atomically: true, encoding: .utf8)
+        let second = WorkspaceSnapshot(
+            root: first.root,
+            files: [workspace.sourceURL, secondSource],
+            id: UUID()
+        )
+
+        let workspaceOperations = SequencedGatedWorkspaceOperations(snapshots: [first, second])
+        let watchContext = GatedGitWatchContextProvider()
+        defer { watchContext.releaseAll() }
+        let runConfigurations = ReadyRunConfigurationOperations()
+        let model = makeAppModel(
+            workspaceOperations: workspaceOperations,
+            runConfigurationOperations: runConfigurations,
+            gitWatchContextProvider: watchContext
+        )
+
+        // Establish lastConfiguration through the same deferred-run path the
+        // existing entry tests already cover, then refresh to a newer snapshot
+        // without letting the run service consume it.
+        model.openProjectDirectly(workspace.root)
+        model.runSelectedConfiguration()
+        let deferredRun = await awaitLoadDrivenChange(on: model) { model.pendingRunAction?.kind == .run }
+        #expect(deferredRun, "the initial run must defer until the first snapshot arrives")
+
+        workspaceOperations.releaseNext()
+        #expect(await watchContext.entered(1))
+        watchContext.release(1)
+        let launched = await runConfigurations.launchPlanRequested(1)
+        #expect(launched, "the initial run never requested a launch plan")
+        #expect(model.runFeatureIfActive?.lastConfiguration != nil)
+        #expect(model.pendingRunAction == nil)
+
+        let refreshTask = Task { await model.workspaceFeature.refreshCurrent() }
+        workspaceOperations.releaseNext()
+        #expect(await watchContext.entered(2))
+        let advanced = await awaitLoadDrivenChange(on: model) {
+            model.workspaceSnapshotID == second.id
+        }
+        #expect(advanced, "the refreshed snapshot was never published")
+        #expect(
+            model.runFeatureIfActive?.isProjectReady(for: workspace.root, snapshotID: first.id) == true,
+            "the run service should still hold the first snapshot while B's callback is held"
+        )
+
+        model.restartSelectedRun()
+        let deferredRestart = await awaitLoadDrivenChange(on: model) {
+            model.pendingRunAction?.kind == .restart
+        }
+        #expect(deferredRestart, "Restart must defer while the newer snapshot is unpublished to the run service")
+        #expect(
+            runConfigurations.launchPlanCallCount == 1,
+            "Restart must not rebuild a launch plan from the superseded inventory"
+        )
+
+        watchContext.release(2)
+        let relaunched = await runConfigurations.launchPlanRequested(2)
+        #expect(relaunched, "the deferred Restart was never actually re-issued")
+        #expect(model.pendingRunAction == nil)
+        _ = await refreshTask.value
+    }
+
+    /// An entry task that started for workspace A must not re-record its action
+    /// against B after a project switch, and must not wipe B's own pending.
+    @Test
+    func directStartFromTheOldWorkspaceIsNotDeferredIntoTheNewWorkspace() async throws {
+        let workspaceA = try JavaWorkspaceFixture()
+        let workspaceB = try JavaWorkspaceFixture()
+        defer {
+            workspaceA.remove()
+            workspaceB.remove()
+        }
+
+        let workspaceOperations = MultiRootGatedWorkspaceOperations(snapshotsByRoot: [
+            workspaceA.root: workspaceA.snapshot,
+            workspaceB.root: workspaceB.snapshot,
+        ])
+        defer {
+            workspaceOperations.release(workspaceA.root)
+            workspaceOperations.release(workspaceB.root)
+        }
+        // Hold both scans until the test decides so B's direct start defers.
+        let runConfigurations = InspectionGatedRunConfigurationOperations()
+        defer { runConfigurations.releaseAll() }
+        let model = makeAppModel(
+            workspaceOperations: workspaceOperations,
+            runConfigurationOperations: runConfigurations
+        )
+        let configurationA = ReadyRunConfigurationOperations.entryPoint
+        let configurationB = ReadyRunConfigurationOperations.serviceEntryPoint
+
+        model.openProjectDirectly(workspaceA.root)
+        model.startRunConfiguration(configurationA)
+        #expect(await runConfigurations.inspectionEntered(1))
+
+        model.openProjectDirectly(workspaceB.root)
+        #expect(model.pendingRunAction == nil, "opening B must clear A's pending")
+
+        // Keep B's snapshot gated so the direct start defers for B itself.
+        model.startRunConfiguration(configurationB)
+        #expect(await runConfigurations.inspectionEntered(2))
+        runConfigurations.release(2)
+        let deferredForB = await awaitLoadDrivenChange(on: model) {
+            model.pendingRunAction?.kind == .startConfiguration(configurationB)
+                && model.pendingRunAction?.workspace == workspaceB.root.standardizedFileURL
+        }
+        #expect(deferredForB, "B should record its own deferred direct start")
+
+        // A's in-flight ensure finishes after the switch. It must be treated as
+        // stale: no re-defer against B, and B's pending must survive.
+        runConfigurations.release(1)
+        let corruptedByStaleA = await awaitChange(on: model, timeout: .seconds(1)) {
+            model.pendingRunAction?.kind == .startConfiguration(configurationA)
+        }
+        #expect(
+            !corruptedByStaleA,
+            "a stale entry task for A must not re-defer its configuration onto B"
+        )
+        #expect(
+            model.pendingRunAction?.kind == .startConfiguration(configurationB)
+                && model.pendingRunAction?.workspace == workspaceB.root.standardizedFileURL,
+            "B's pending action must survive the stale A task finishing"
+        )
+    }
+
+    /// When snapshot B is already published but its callback has not consumed it
+    /// into the run service, generation must stop rather than scan the still-ready
+    /// A inventory.
     @Test
     func generateRefusesStaleReadyInventoryWhenSnapshotAdvancesDuringLoad() async throws {
         let workspace = try JavaWorkspaceFixture()
@@ -341,14 +474,12 @@ struct RunEntryPointTests {
 
         model.openProjectDirectly(workspace.root)
         workspaceOperations.releaseNext()
-        // Rebuild publishes the snapshot, then waits in updateWatchConfiguration
-        // before onSnapshotLoaded can start the run-service load.
         #expect(await watchContext.entered(1))
         watchContext.release(1)
         #expect(await runConfigurations.inspectionEntered(1))
         runConfigurations.release(1)
 
-        let readyForFirst = await awaitChange(on: model) {
+        let readyForFirst = await awaitLoadDrivenChange(on: model) {
             model.runFeatureIfActive?.isProjectReady(
                 for: workspace.root,
                 snapshotID: first.id
@@ -357,48 +488,28 @@ struct RunEntryPointTests {
         #expect(readyForFirst, "the first snapshot never made the run project ready")
 
         let runFeature = try #require(model.runFeatureIfActive)
-        // Force a reload path so ensure captures the first snapshot, then waits.
-        let bindTask = Task {
-            await runFeature.loadProject(
-                at: workspace.root,
-                files: [],
-                mavenProject: nil,
-                snapshotID: nil
-            )
-        }
-        #expect(await runConfigurations.inspectionEntered(2))
-        runConfigurations.release(2)
-        await bindTask.value
-        #expect(runFeature.projectLoadState == .bound(workspace: workspace.root.standardizedFileURL))
-
-        let generateTask = Task { await model.generateRunConfigurations() }
-        #expect(await runConfigurations.inspectionEntered(3))
-
-        // Publish B, but hold its watch-context await so onSnapshotLoaded cannot
-        // consume B into the run service before ensure finishes loading A.
         let refreshTask = Task { await model.workspaceFeature.refreshCurrent() }
         workspaceOperations.releaseNext()
         #expect(await watchContext.entered(2))
-        let advanced = await awaitChange(on: model) {
+        let advanced = await awaitLoadDrivenChange(on: model) {
             model.workspaceSnapshotID == second.id
         }
         #expect(advanced, "the refreshed snapshot was never published")
+        #expect(
+            runFeature.isProjectReady(for: workspace.root, snapshotID: first.id),
+            "the run service should still hold A while B's callback is held"
+        )
 
-        runConfigurations.release(3)
-        await generateTask.value
+        await model.generateRunConfigurations()
         #expect(runFeature.generationState == .projectNotReady)
         #expect(
             runConfigurations.generatedInventories.isEmpty,
             "generation must not scan the superseded inventory"
         )
-        #expect(
-            runFeature.isProjectReady(for: workspace.root, snapshotID: first.id),
-            "ensure should have finished loading A while B was only published"
-        )
 
         watchContext.release(2)
-        #expect(await runConfigurations.inspectionEntered(4))
-        runConfigurations.release(4)
+        #expect(await runConfigurations.inspectionEntered(2))
+        runConfigurations.release(2)
         _ = await refreshTask.value
     }
 
@@ -418,6 +529,19 @@ struct RunEntryPointTests {
         ).services
         return AppModel(settings: settings, services: services)
     }
+}
+
+/// Awaits a state this suite reaches only after a full snapshot-driven load —
+/// watch configuration, project load, toolchain resolution, and the deferred
+/// resume that follows. That pipeline is far longer than a single publication,
+/// so these waits carry the same deadline as the file's cross-load gates
+/// instead of the shared default a failing test would otherwise hit first.
+@MainActor
+private func awaitLoadDrivenChange(
+    on model: AppModel,
+    until isSatisfied: @escaping @MainActor @Sendable () -> Bool
+) async -> Bool {
+    await awaitChange(on: model, timeout: .seconds(30), until: isSatisfied)
 }
 
 /// A real workspace on disk holding one Java entry point, so generation runs
@@ -547,17 +671,82 @@ private final class SequencedGatedWorkspaceOperations: WorkspaceOperations, @unc
     }
 }
 
+/// Holds each workspace root's snapshot behind its own gate so a test can keep
+/// an old project's scan suspended while a new project opens.
+private final class MultiRootGatedWorkspaceOperations: WorkspaceOperations, @unchecked Sendable {
+    private let lock = NSLock()
+    private var snapshotsByRoot: [String: WorkspaceSnapshot]
+    private var gatesByRoot: [String: TestGate]
+
+    init(snapshotsByRoot: [URL: WorkspaceSnapshot]) {
+        var snapshots: [String: WorkspaceSnapshot] = [:]
+        var gates: [String: TestGate] = [:]
+        for (root, snapshot) in snapshotsByRoot {
+            let key = root.standardizedFileURL.path
+            snapshots[key] = snapshot
+            gates[key] = TestGate()
+        }
+        self.snapshotsByRoot = snapshots
+        self.gatesByRoot = gates
+    }
+
+    func release(_ root: URL) {
+        gatesByRoot[root.standardizedFileURL.path]?.open()
+    }
+
+    func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? {
+        let key = rootURL.standardizedFileURL.path
+        lock.lock()
+        let gate = gatesByRoot[key]
+        let snapshot = snapshotsByRoot[key]
+        lock.unlock()
+        guard let gate, gate.waitSynchronously(timeout: 30) else { return nil }
+        return snapshot
+    }
+
+    func readFile(at rootURL: URL, relativePath: String) -> String? {
+        try? String(contentsOf: rootURL.appendingPathComponent(relativePath), encoding: .utf8)
+    }
+
+    func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool {
+        (try? text.write(
+            to: rootURL.appendingPathComponent(relativePath),
+            atomically: true,
+            encoding: .utf8
+        )) != nil
+    }
+}
+
 /// Reports a workspace that already carries a configuration, which the Swift test
 /// binary cannot obtain from the real store because it does not link the Rust
 /// Core. Records launch-plan requests so a test can prove no launch was built.
 private final class ReadyRunConfigurationOperations: RunConfigurationOperations, @unchecked Sendable {
     private let lock = NSLock()
     private var launchPlanCalls = 0
+    private let launchPlanRequests: [TestGate]
+
+    init(capacity: Int = 8) {
+        launchPlanRequests = (0..<capacity).map { _ in TestGate() }
+    }
 
     var launchPlanCallCount: Int {
         lock.lock()
         defer { lock.unlock() }
         return launchPlanCalls
+    }
+
+    /// Waits for the `ordinal`-th launch plan (1-based) to be requested.
+    ///
+    /// The call count is not published through the model, so observing
+    /// `objectWillChange` could miss an increment that lands after the last
+    /// publication. Signalling from the request itself keeps the wait
+    /// deterministic.
+    ///
+    /// The deadline spans a whole snapshot-driven load — watch configuration,
+    /// project load, and toolchain resolution — so it matches the other
+    /// cross-load gates in this file rather than a single publication.
+    func launchPlanRequested(_ ordinal: Int) async -> Bool {
+        await launchPlanRequests[ordinal - 1].waitUntilOpen(timeout: .seconds(30))
     }
 
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
@@ -616,7 +805,9 @@ private final class ReadyRunConfigurationOperations: RunConfigurationOperations,
     ) throws -> SharedLaunchPlan {
         lock.lock()
         launchPlanCalls += 1
+        let ordinal = launchPlanCalls
         lock.unlock()
+        launchPlanRequests[ordinal - 1].open()
         throw RunConfigurationOperationFailure(message: "Launching is out of scope for this test")
     }
 
@@ -630,6 +821,7 @@ private final class ReadyRunConfigurationOperations: RunConfigurationOperations,
 private final class InspectionGatedRunConfigurationOperations: RunConfigurationOperations, @unchecked Sendable {
     private let entered: [TestGate]
     private let releases: [TestGate]
+    private let launchPlanRequests: [TestGate]
     private let lock = NSLock()
     private var inspectCalls = 0
     private var launchPlanCalls = 0
@@ -638,12 +830,20 @@ private final class InspectionGatedRunConfigurationOperations: RunConfigurationO
     init(capacity: Int = 8) {
         entered = (0..<capacity).map { _ in TestGate() }
         releases = (0..<capacity).map { _ in TestGate() }
+        launchPlanRequests = (0..<capacity).map { _ in TestGate() }
     }
 
     var launchPlanCallCount: Int {
         lock.lock()
         defer { lock.unlock() }
         return launchPlanCalls
+    }
+
+    /// Signalled from the request itself, because the count is not published
+    /// through the model and an `objectWillChange` wait could miss it. The
+    /// deadline spans a whole snapshot-driven load, like the gates above.
+    func launchPlanRequested(_ ordinal: Int) async -> Bool {
+        await launchPlanRequests[ordinal - 1].waitUntilOpen(timeout: .seconds(30))
     }
 
     var resolveCallCount: Int {
@@ -705,7 +905,9 @@ private final class InspectionGatedRunConfigurationOperations: RunConfigurationO
     ) throws -> SharedLaunchPlan {
         lock.lock()
         launchPlanCalls += 1
+        let ordinal = launchPlanCalls
         lock.unlock()
+        launchPlanRequests[ordinal - 1].open()
         throw RunConfigurationOperationFailure(message: "Launching is out of scope for this test")
     }
 

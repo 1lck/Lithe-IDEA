@@ -925,6 +925,7 @@ final class AppModel: ObservableObject, Identifiable {
         mavenFeatureIfActive?.reset()
         runFeatureIfActive?.reset()
         pendingRunAction = nil
+        scheduleObjectWillChangeRelay()
         debugFeatureIfActive?.reset()
         genericDebugFeatureIfActive?.reset()
         clearLanguageNavigationProjection()
@@ -1036,6 +1037,7 @@ final class AppModel: ObservableObject, Identifiable {
         mavenFeatureIfActive?.reset()
         runFeatureIfActive?.reset()
         pendingRunAction = nil
+        scheduleObjectWillChangeRelay()
         debugFeatureIfActive?.reset()
         genericDebugFeatureIfActive?.reset()
         javaFeature.stop()

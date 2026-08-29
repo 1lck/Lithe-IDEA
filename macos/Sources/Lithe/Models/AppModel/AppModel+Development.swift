@@ -15,10 +15,22 @@ struct PendingRunAction: Equatable {
         case debug
         case startConfiguration(RunConfiguration)
         case runAllServices
+        case restart
     }
 
     let kind: Kind
     let workspace: URL
+}
+
+/// Result of bringing the run feature up to a specific workspace's snapshot.
+///
+/// Distinguishing "still waiting on this workspace" from "this entry task is
+/// stale" is what stops a cross-workspace await from re-recording the old
+/// action against the new project's pending slot.
+private enum RunProjectReadiness: Equatable {
+    case ready
+    case waitingForSnapshot(workspace: URL)
+    case stale
 }
 
 @MainActor
@@ -169,14 +181,19 @@ extension AppModel {
     /// inventory, and scanning it would overwrite `generated.json` with stale
     /// entry points.
     func generateRunConfigurations() async {
+        guard let workspace = workspaceURL?.standardizedFileURL else { return }
         guard let runFeature = await activateExecutionModule()?.runFeature else { return }
-        // Report the pending workspace through the generation state when the
-        // snapshot has not arrived, which the run panel surfaces as a notice.
-        guard await ensureRunProjectReady(runFeature) else {
+        guard isCurrentWorkspace(workspace) else { return }
+        switch await ensureRunProjectReady(runFeature, for: workspace) {
+        case .ready:
+            await runFeature.generateRunConfigurations()
+        case .waitingForSnapshot:
+            // Report the pending workspace through the generation state when the
+            // snapshot has not arrived, which the run panel surfaces as a notice.
             runFeature.reportGenerationProjectNotReady()
+        case .stale:
             return
         }
-        await runFeature.generateRunConfigurations()
     }
 
     func openRunConfiguration(relativePath: String?) {
@@ -221,48 +238,75 @@ extension AppModel {
         snapshotID: UUID?,
         resumesDeferredRunAction: Bool = false
     ) async {
+        let target = workspaceURL.standardizedFileURL
+        guard isCurrentWorkspace(target) else { return }
         prepareJavaLanguageServerForWorkspaceIfNeeded(
-            at: workspaceURL,
+            at: target,
             files: files
         )
         springFeature.scheduleLoad(
-            workspaceURL: workspaceURL,
+            workspaceURL: target,
             files: files,
             textOverrides: Dictionary(uniqueKeysWithValues: openDocuments.map {
                 ($0.url.standardizedFileURL, $0.text)
             })
         )
         guard let execution = await activateExecutionModule() else { return }
-        execution.tests.discover(workspaceURL: workspaceURL, files: files)
+        // Module activation suspends; a project switch must not let this load
+        // write the captured inventory into the new workspace's run service.
+        guard isCurrentWorkspace(target) else { return }
+        execution.tests.discover(workspaceURL: target, files: files)
         // `files` and `snapshotID` are captured together by the caller. Reading
         // the applied snapshot here instead would pair this file list with a
         // newer scan's identity, which the readiness comparison cannot detect.
         await execution.projectDevelopment.loadProject(
-            at: workspaceURL,
+            at: target,
             files: files,
             snapshotID: snapshotID
         )
+        guard isCurrentWorkspace(target) else { return }
         guard resumesDeferredRunAction else { return }
         resumeDeferredRunAction(
             execution.runFeature,
-            workspace: workspaceURL,
+            workspace: target,
             snapshotID: snapshotID
         )
     }
 
-    /// Brings the run feature up to the workspace snapshot the workspace feature
-    /// currently holds, and reports whether it got there.
+    private func isCurrentWorkspace(_ workspace: URL) -> Bool {
+        workspaceURL?.standardizedFileURL == workspace.standardizedFileURL
+    }
+
+    /// Brings the run feature up to the snapshot for a captured workspace.
     ///
-    /// Run, Debug, and identification all scan or launch from the file inventory
-    /// the run service holds, so each of them needs the inventory to match the
-    /// current snapshot rather than merely being bound to the workspace.
-    private func ensureRunProjectReady(_ runFeature: RunFeatureModel) async -> Bool {
-        guard let workspaceURL else { return false }
+    /// Entry tasks capture the workspace before any await so a cross-project
+    /// switch can be reported as `.stale` instead of being re-deferred against
+    /// whatever URL is current when the load finishes.
+    ///
+    /// When a newer snapshot is published but the run service still holds an
+    /// older `.ready` inventory for this workspace, the snapshot callback owns
+    /// the transition. Loading from the entry path would race that callback and
+    /// let Restart proceed from a half-applied refresh.
+    ///
+    /// When the run service is not already ready for this workspace, the entry
+    /// path applies the published scan itself (open-before-run, prune, tool
+    /// window) so readiness does not wait on a callback that may never arrive.
+    private func ensureRunProjectReady(
+        _ runFeature: RunFeatureModel,
+        for workspace: URL
+    ) async -> RunProjectReadiness {
+        let target = workspace.standardizedFileURL
+        guard isCurrentWorkspace(target) else { return .stale }
         // One read, so the file list and the identity describe the same scan.
         let applied = workspaceFeature.appliedSnapshot
-        if runFeature.isProjectReady(for: workspaceURL, snapshotID: applied?.id) { return true }
+        if runFeature.isProjectReady(for: target, snapshotID: applied?.id) { return .ready }
+        if applied != nil, runFeature.hasReadyInventory(for: target) {
+            return .waitingForSnapshot(workspace: target)
+        }
+        // No matching ready inventory: bind provisionally, or apply the
+        // published scan when one already exists.
         await loadProjectServices(
-            at: workspaceURL,
+            at: target,
             files: applied?.files ?? [],
             snapshotID: applied?.id
         )
@@ -270,16 +314,21 @@ extension AppModel {
         // flight, including its deferred-run resume with nothing pending yet.
         // Comparing against the pre-await capture would then treat a ready
         // project as not ready, defer the action, and leave it stranded.
+        guard isCurrentWorkspace(target) else { return .stale }
         let current = workspaceFeature.appliedSnapshot
-        return runFeature.isProjectReady(for: workspaceURL, snapshotID: current?.id)
+        if runFeature.isProjectReady(for: target, snapshotID: current?.id) {
+            return .ready
+        }
+        return .waitingForSnapshot(workspace: target)
     }
 
     /// Continues an action that arrived before the snapshot did. The workspace
     /// rebuild always finishes by applying a snapshot, so recording the intent is
     /// enough to resume without polling or waiting.
     ///
-    /// The action is dropped when the applied snapshot belongs to a different
-    /// workspace, which is the case the user is no longer waiting on.
+    /// A load for workspace A must not clear a pending action that belongs to B:
+    /// openProject already cleared A's pending on the switch, and a stale A
+    /// callback arriving later would otherwise wipe B's newly recorded intent.
     /// `snapshotID` is the scan this load just applied, not whatever the
     /// workspace holds now. Reading the current identity here would compare the
     /// run feature against a scan it has not consumed.
@@ -289,43 +338,55 @@ extension AppModel {
         snapshotID: UUID?
     ) {
         guard let action = pendingRunAction else { return }
-        guard action.workspace == workspace.standardizedFileURL else {
-            pendingRunAction = nil
-            return
-        }
+        guard action.workspace == workspace.standardizedFileURL else { return }
         guard runFeature.isProjectReady(for: workspace, snapshotID: snapshotID) else {
             return
         }
-        pendingRunAction = nil
+        setPendingRunAction(nil)
         switch action.kind {
         case .run: runSelectedConfiguration()
         case .debug: startDebugging()
         case .startConfiguration(let configuration): startRunConfiguration(configuration)
         case .runAllServices: runAllServiceConfigurations()
+        case .restart: restartSelectedRun()
         }
     }
 
-    /// Records an action the current workspace snapshot is not ready for.
-    private func deferRunAction(_ kind: PendingRunAction.Kind) {
-        guard let workspaceURL else {
-            pendingRunAction = nil
-            return
-        }
-        pendingRunAction = PendingRunAction(
-            kind: kind,
-            workspace: workspaceURL.standardizedFileURL
-        )
+    /// Records an action for the workspace the entry task captured, not whatever
+    /// URL happens to be current after an await.
+    private func clearPendingRunAction(for workspace: URL) {
+        guard pendingRunAction?.workspace == workspace.standardizedFileURL else { return }
+        setPendingRunAction(nil)
+    }
+
+    private func setPendingRunAction(_ action: PendingRunAction?) {
+        pendingRunAction = action
+        // pendingRunAction is not @Published; relay so tests and any UI that
+        // observes AppModel learn about defer/resume without a feature load.
+        scheduleObjectWillChangeRelay()
+    }
+
+    private func deferRunAction(_ kind: PendingRunAction.Kind, for workspace: URL) {
+        let target = workspace.standardizedFileURL
+        guard isCurrentWorkspace(target) else { return }
+        setPendingRunAction(PendingRunAction(kind: kind, workspace: target))
     }
 
     private func runSelectedConfigurationAfterActivation() async {
+        guard let workspace = workspaceURL?.standardizedFileURL else { return }
         guard let runFeature = await activateExecutionModule()?.runFeature else { return }
-        guard await ensureRunProjectReady(runFeature) else {
+        guard isCurrentWorkspace(workspace) else { return }
+        switch await ensureRunProjectReady(runFeature, for: workspace) {
+        case .ready:
+            clearPendingRunAction(for: workspace)
+        case .waitingForSnapshot(let waitingWorkspace):
             // Launching from a provisional inventory resolves toolchains without
             // the Maven project, so wait for the snapshot instead of running.
-            deferRunAction(.run)
+            deferRunAction(.run, for: waitingWorkspace)
+            return
+        case .stale:
             return
         }
-        pendingRunAction = nil
         guard runFeature.configurationStatus == .ready else {
             runFeature.requestRunConfigurationGeneration(intent: .run)
             return
@@ -338,6 +399,7 @@ extension AppModel {
         )) {
             return
         }
+        guard isCurrentWorkspace(workspace) else { return }
         if configuration.usesCurrentEditorFile,
            let activeDocument,
            activeDocument.isDirty {
@@ -350,6 +412,7 @@ extension AppModel {
                 return
             }
         }
+        guard isCurrentWorkspace(workspace) else { return }
         runFeature.runSelected(currentFileURL: activeDocument?.url)
         isRunVisible = true
         isGitLogVisible = false
@@ -362,8 +425,20 @@ extension AppModel {
     func restartSelectedRun() {
         isRunVisible = true
         Task { [weak self] in
-            guard let self,
-                  let runFeature = await activateExecutionModule()?.runFeature else { return }
+            guard let self else { return }
+            guard let workspace = workspaceURL?.standardizedFileURL else { return }
+            guard let runFeature = await activateExecutionModule()?.runFeature else { return }
+            guard isCurrentWorkspace(workspace) else { return }
+            guard runFeature.lastConfiguration != nil else { return }
+            switch await ensureRunProjectReady(runFeature, for: workspace) {
+            case .ready:
+                clearPendingRunAction(for: workspace)
+            case .waitingForSnapshot(let waitingWorkspace):
+                deferRunAction(.restart, for: waitingWorkspace)
+                return
+            case .stale:
+                return
+            }
             guard let configuration = runFeature.lastConfiguration else { return }
             if !(await activateLanguageRunExtensionIfNeeded(
                 for: configuration,
@@ -372,46 +447,63 @@ extension AppModel {
             )) {
                 return
             }
+            guard isCurrentWorkspace(workspace) else { return }
             runFeature.restart()
         }
     }
 
     func startRunConfiguration(_ configuration: RunConfiguration) {
         Task { [weak self] in
-            guard let self,
-                  let runFeature = await activateExecutionModule()?.runFeature else { return }
-            guard await ensureRunProjectReady(runFeature) else {
+            guard let self else { return }
+            guard let workspace = workspaceURL?.standardizedFileURL else { return }
+            guard let runFeature = await activateExecutionModule()?.runFeature else { return }
+            guard isCurrentWorkspace(workspace) else { return }
+            switch await ensureRunProjectReady(runFeature, for: workspace) {
+            case .ready:
+                clearPendingRunAction(for: workspace)
+            case .waitingForSnapshot(let waitingWorkspace):
                 // Direct play buttons reach here without going through
                 // `runSelectedConfiguration`, so they need the same readiness
-                // gate and must remember which configuration to resume.
-                deferRunAction(.startConfiguration(configuration))
+                // gate and must remember which configuration to resume — bound
+                // to the workspace this task started for, not the URL after an
+                // await.
+                deferRunAction(.startConfiguration(configuration), for: waitingWorkspace)
+                return
+            case .stale:
                 return
             }
-            pendingRunAction = nil
             guard await activateLanguageRunExtensionIfNeeded(
                 for: configuration,
                 currentFileURL: activeDocument?.url,
                 runFeature: runFeature
             ) else { return }
+            guard isCurrentWorkspace(workspace) else { return }
             runFeature.startConfiguration(configuration)
         }
     }
 
     func runAllServiceConfigurations() {
         Task { [weak self] in
-            guard let self,
-                  let runFeature = await activateExecutionModule()?.runFeature else { return }
-            guard await ensureRunProjectReady(runFeature) else {
-                deferRunAction(.runAllServices)
+            guard let self else { return }
+            guard let workspace = workspaceURL?.standardizedFileURL else { return }
+            guard let runFeature = await activateExecutionModule()?.runFeature else { return }
+            guard isCurrentWorkspace(workspace) else { return }
+            switch await ensureRunProjectReady(runFeature, for: workspace) {
+            case .ready:
+                clearPendingRunAction(for: workspace)
+            case .waitingForSnapshot(let waitingWorkspace):
+                deferRunAction(.runAllServices, for: waitingWorkspace)
+                return
+            case .stale:
                 return
             }
-            pendingRunAction = nil
             for configuration in runFeature.configurations where configuration.execution == .service {
                 guard await activateLanguageRunExtensionIfNeeded(
                     for: configuration,
                     currentFileURL: nil,
                     runFeature: runFeature
                 ) else { return }
+                guard isCurrentWorkspace(workspace) else { return }
             }
             runFeature.runAllServices()
         }
@@ -506,14 +598,20 @@ extension AppModel {
     }
 
     private func startDebuggingAfterActivation() async {
+        guard let workspace = workspaceURL?.standardizedFileURL else { return }
         guard let execution = await activateExecutionModule(),
               let debug = await activateDebugModule() else { return }
+        guard isCurrentWorkspace(workspace) else { return }
         let runFeature = execution.runFeature
-        guard await ensureRunProjectReady(runFeature) else {
-            deferRunAction(.debug)
+        switch await ensureRunProjectReady(runFeature, for: workspace) {
+        case .ready:
+            clearPendingRunAction(for: workspace)
+        case .waitingForSnapshot(let waitingWorkspace):
+            deferRunAction(.debug, for: waitingWorkspace)
+            return
+        case .stale:
             return
         }
-        pendingRunAction = nil
         let debugFeature = debug.javaFeature
         javaFeature.configureRuntime(
             mavenFeature: execution.mavenFeature,
