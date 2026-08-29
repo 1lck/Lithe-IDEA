@@ -26,6 +26,14 @@ describe("extension CDN tooling configuration", () => {
     ).toThrow("must not contain a query or fragment");
   });
 
+  test("rejects empty query and fragment delimiters", () => {
+    for (const suffix of ["?", "#", "?#"]) {
+      expect(() =>
+        resolveExtensionsCdnBaseUrl(`https://cdn.example.test/extensions${suffix}`),
+      ).toThrow("must not contain a query or fragment");
+    }
+  });
+
   test("normalizes a valid explicit CDN URL", () => {
     expect(resolveExtensionsCdnBaseUrl(" https://cdn.example.test/extensions/// ")).toBe(
       "https://cdn.example.test/extensions",
