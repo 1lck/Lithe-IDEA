@@ -15,17 +15,17 @@ struct GenericDebugView: View {
     @State private var smartStepTargets: [DebugStepInTarget] = []
     @State private var isSmartStepPickerPresented = false
     @State private var isJavaAttachPresented = false
+    @State private var selectedContent: DebugContent = .debugger
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             if feature.isSessionActive || !feature.output.isEmpty || feature.errorMessage != nil {
-                HStack(spacing: 0) {
-                    inspector
-                        .frame(width: 300)
-                    Rectangle().fill(LitheTheme.divider).frame(width: 1)
-                    output
+                VStack(spacing: 0) {
+                    contentTabs
+                    Rectangle().fill(LitheTheme.divider).frame(height: 1)
+                    activeContent
                 }
             } else {
                 emptyState
@@ -102,6 +102,68 @@ struct GenericDebugView: View {
                 model.attachJavaDebugger(host: host, port: port)
             }
         }
+        .onChange(of: feature.state) { state in
+            switch state {
+            case .paused:
+                selectedContent = .debugger
+            case .failed:
+                selectedContent = .console
+            default:
+                break
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var activeContent: some View {
+        switch selectedContent {
+        case .debugger:
+            inspector
+        case .console:
+            output
+        }
+    }
+
+    private var contentTabs: some View {
+        HStack(spacing: 0) {
+            ForEach(DebugContent.allCases) { content in
+                Button {
+                    selectedContent = content
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: content.systemImage)
+                            .font(.system(size: 10, weight: .medium))
+                        Text(content.title)
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .foregroundStyle(
+                        selectedContent == content
+                            ? LitheTheme.primaryText
+                            : LitheTheme.secondaryText
+                    )
+                    .padding(.horizontal, 12)
+                    .frame(height: 29)
+                    .overlay(alignment: .bottom) {
+                        if selectedContent == content {
+                            Rectangle()
+                                .fill(LitheTheme.accent)
+                                .frame(height: 2)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer(minLength: 0)
+            if feature.state == .paused {
+                Label(feature.stoppedReason ?? "Paused", systemImage: "pause.circle.fill")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(LitheTheme.warning)
+                    .lineLimit(1)
+                    .padding(.trailing, 10)
+            }
+        }
+        .litheWorkbenchSurface(LitheTheme.toolHeader)
     }
 
     private var header: some View {
@@ -677,6 +739,7 @@ struct GenericDebugView: View {
                 evaluateRow
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .litheWorkbenchSurface(LitheTheme.sidebar)
     }
 
@@ -734,26 +797,34 @@ struct GenericDebugView: View {
     }
 
     private var output: some View {
-        ScrollView([.vertical, .horizontal]) {
-            VStack(alignment: .leading, spacing: 8) {
-                if let stoppedReason = feature.stoppedReason {
-                    Label(stoppedReason, systemImage: "pause.circle.fill")
-                        .font(.system(size: 11.5, weight: .medium))
-                        .foregroundStyle(LitheTheme.warning)
+        GeometryReader { geometry in
+            ScrollView([.vertical, .horizontal]) {
+                VStack(alignment: .leading, spacing: 8) {
+                    if let stoppedReason = feature.stoppedReason {
+                        Label(stoppedReason, systemImage: "pause.circle.fill")
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundStyle(LitheTheme.warning)
+                    }
+                    if let errorMessage = feature.errorMessage {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(LitheTheme.error)
+                    }
+                    Text(feature.output.isEmpty ? "Waiting for Debug Adapter output…" : feature.output)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(LitheTheme.primaryText)
+                        .textSelection(.enabled)
                 }
-                if let errorMessage = feature.errorMessage {
-                    Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(LitheTheme.error)
-                }
-                Text(feature.output.isEmpty ? "Waiting for Debug Adapter output…" : feature.output)
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(LitheTheme.primaryText)
-                    .textSelection(.enabled)
+                .frame(
+                    minWidth: max(0, geometry.size.width - 24),
+                    minHeight: max(0, geometry.size.height - 24),
+                    alignment: .topLeading
+                )
+                .padding(12)
             }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-            .padding(12)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .litheWorkbenchSurface(LitheTheme.editor)
     }
 
     private var emptyState: some View {
@@ -921,6 +992,27 @@ struct GenericDebugView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+private enum DebugContent: CaseIterable, Identifiable {
+    case debugger
+    case console
+
+    var id: Self { self }
+
+    var title: LocalizedStringKey {
+        switch self {
+        case .debugger: "Debugger"
+        case .console: "Console"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .debugger: "ladybug"
+        case .console: "terminal"
+        }
     }
 }
 
