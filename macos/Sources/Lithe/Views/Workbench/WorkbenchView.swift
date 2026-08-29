@@ -503,6 +503,8 @@ struct WorkbenchView: View {
 
             Spacer(minLength: 22)
 
+            debugLaunchButton
+
             backgroundPickerButton
 
         }
@@ -517,6 +519,34 @@ struct WorkbenchView: View {
                         .toggleWorkspaceZoom()
                 }
         }
+    }
+
+    private var debugLaunchButton: some View {
+        Button {
+            model.startDebugging()
+        } label: {
+            HStack(spacing: 5) {
+                LitheIDEAIcon(
+                    resourcePath: "toolwindows/toolWindowDebugger.svg",
+                    size: 16,
+                    fallbackSystemImage: "ladybug.fill"
+                )
+                if let configuration = model.runFeatureIfActive?.selectedConfiguration {
+                    Text(configuration.name)
+                        .font(.system(size: 11.5, weight: .medium))
+                        .lineLimit(1)
+                }
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 30)
+            .litheRowHover(isActive: false, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
+        }
+        .buttonStyle(.plain)
+        .lithePointer()
+        .foregroundStyle(LitheTheme.success)
+        .help("Debug selected run configuration")
+        .accessibilityLabel("Debug selected run configuration")
+        .accessibilityIdentifier("debug-selected-run-configuration")
     }
 
     private var backgroundPickerButton: some View {

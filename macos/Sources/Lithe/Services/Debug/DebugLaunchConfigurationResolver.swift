@@ -112,12 +112,29 @@ struct DebugLaunchConfigurationResolver {
         target: JavaDebugLaunchTarget,
         options: (RunConfiguration) -> RunOptions
     ) -> DebugLaunchConfiguration {
+        // Debug is a second execution mode for the selected Run configuration.
+        // Keep every Java configuration eligible here so its JDK, Maven,
+        // working-directory, VM/program arguments, profiles, and environment
+        // overrides are carried over unchanged.
         let configuration = selectedConfiguration.flatMap { selected in
-            selected.kind.isMavenBacked ? selected : nil
+            selected.kind.providerID == "java" || selected.kind.isMavenBacked ? selected : nil
+        }
+        let runOptions = configuration.map(options)
+        let mainClass = configuration?.mainClass ?? target.mainClass
+        let configuredWorkingDirectory = runOptions?.workingDirectoryPath
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let workingDirectory: String
+        if configuredWorkingDirectory.isEmpty {
+            workingDirectory = workspaceURL.standardizedFileURL.path
+        } else {
+            workingDirectory = URL(
+                fileURLWithPath: configuredWorkingDirectory,
+                relativeTo: workspaceURL
+            ).standardizedFileURL.path
         }
         var arguments: [String: ToolingJSONValue] = [
-            "mainClass": .string(target.mainClass),
-            "cwd": .string(workspaceURL.standardizedFileURL.path),
+            "mainClass": .string(mainClass),
+            "cwd": .string(workingDirectory),
             "console": .string("internalConsole")
         ]
         if let projectName = target.projectName {
@@ -129,8 +146,7 @@ struct DebugLaunchConfigurationResolver {
         if !target.classPaths.isEmpty {
             arguments["classPaths"] = .array(target.classPaths.map(ToolingJSONValue.string))
         }
-        if let configuration {
-            let runOptions = options(configuration)
+        if let runOptions {
             let programArguments = RunArgumentParser.parse(runOptions.arguments)
             if !programArguments.isEmpty {
                 arguments["args"] = .array(programArguments.map(ToolingJSONValue.string))

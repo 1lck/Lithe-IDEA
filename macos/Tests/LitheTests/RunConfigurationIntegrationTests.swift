@@ -308,6 +308,50 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func javaDebugReusesTheSelectedRunConfigurationOptions() throws {
+        let provider = try #require(LanguageProviderCatalog.standard.provider(
+            for: URL(fileURLWithPath: "/tmp/java-project/src/main/java/com/acme/Main.java")
+        ))
+        let root = URL(fileURLWithPath: "/tmp/java-project", isDirectory: true)
+        let selected = RunConfiguration(
+            id: "java-main:service",
+            name: "Service",
+            kind: .javaMain,
+            execution: .application,
+            modulePath: "service",
+            mainClass: "com.acme.ConfiguredMain"
+        )
+        let options = RunOptions(
+            workingDirectoryPath: "service",
+            vmArguments: "-Xmx1g -Dprofile=dev",
+            programArguments: "--port 8080",
+            environment: ["APP_ENV": "dev"]
+        )
+        let resolver = DebugLaunchConfigurationResolver(fileExists: { _ in true })
+        let configuration = try resolver.resolve(
+            provider: provider,
+            documentURL: root.appendingPathComponent("src/main/java/com/acme/Main.java"),
+            workspaceURL: root,
+            configurations: [selected],
+            selectedConfiguration: selected,
+            javaTarget: JavaDebugLaunchTarget(
+                mainClass: "com.acme.ResolvedByJdtls",
+                projectName: nil,
+                modulePaths: [],
+                classPaths: []
+            ),
+            options: { _ in options }
+        )
+
+        #expect(configuration.name == "Service")
+        #expect(configuration.arguments["mainClass"] == .string("com.acme.ConfiguredMain"))
+        #expect(configuration.arguments["cwd"] == .string(root.appendingPathComponent("service").path))
+        #expect(configuration.arguments["vmArgs"] == .array([.string("-Xmx1g"), .string("-Dprofile=dev")]))
+        #expect(configuration.arguments["args"] == .array([.string("--port"), .string("8080")]))
+        #expect(configuration.arguments["env"] == .object(["APP_ENV": .string("dev")]))
+    }
+
+    @Test
     func macToolDiscoveryReportsProjectHomebrewAndXcodeSources() {
         let root = URL(fileURLWithPath: "/tmp/mac-tool-project", isDirectory: true)
         let executablePaths: Set<String> = [

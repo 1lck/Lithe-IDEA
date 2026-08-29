@@ -510,6 +510,12 @@ extension AppModel {
             showNotification("No language provider is available for this file")
             return
         }
+        // Debug is the second execution mode for the Run selection. Re-apply
+        // the selection here so its project-scoped Java runtime override is
+        // active even when the Run panel was never opened in this session.
+        if let selectedConfiguration = runFeature.selectedConfiguration {
+            runFeature.select(selectedConfiguration)
+        }
         if document.isDirty {
             do {
                 let previousText = document.savedText

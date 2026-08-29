@@ -526,6 +526,7 @@ struct RunView: View {
                         onToggle: nil
                     ) {
                         selectedSessionID = nil
+                        model.selectRunConfiguration(.currentFile)
                     }
 
                     ForEach(RunConfigurationExecution.displayOrder, id: \.self) { execution in
@@ -595,12 +596,14 @@ struct RunView: View {
                 if let session, session.isRunning {
                     feature.stopModule(session)
                 } else {
+                    model.selectRunConfiguration(configuration)
                     model.startRunConfiguration(configuration)
                     selectedSessionID = configuration.id
                 }
             }
         ) {
             selectedSessionID = configuration.id
+            model.selectRunConfiguration(configuration)
         }
     }
 

@@ -103,6 +103,12 @@ package final class RunFeatureModel: ObservableObject {
         service.source(for: configuration)
     }
 
+    /// Applies the same selected configuration side effects used by Run,
+    /// including project-scoped Java runtime selection, before Debug starts.
+    package func select(_ configuration: RunConfiguration) {
+        service.select(configuration)
+    }
+
     package func serviceURL(for configuration: RunConfiguration) -> URL? {
         service.serviceURL(for: configuration)
     }
@@ -178,7 +184,6 @@ package final class RunFeatureModel: ObservableObject {
         isGenerationConfirmationPresented = true
     }
 
-    package func select(_ configuration: RunConfiguration) { service.select(configuration) }
     @discardableResult
     package func registerLanguageRunExtension(
         _ provider: any LanguageRunExtensionProviding,
