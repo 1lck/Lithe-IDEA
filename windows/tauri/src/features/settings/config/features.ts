@@ -11,7 +11,6 @@ import {
   MagnifyingGlassIcon as Search,
   HardDrivesIcon as Server,
   TerminalWindowIcon as TerminalIcon,
-  UsersThreeIcon as UsersThree,
 } from "@/ui/icons";
 import type { CoreFeature, CoreFeaturesState } from "../types/feature.types";
 
@@ -79,14 +78,6 @@ export const createCoreFeaturesList = (coreFeatures: CoreFeaturesState): CoreFea
     description: "Agentic code assistance and workspace tasks",
     icon: MessageSquare,
     enabled: coreFeatures.aiChat,
-  },
-  {
-    id: "teamCollaboration",
-    name: "Collaboration",
-    description: "Team workspace invites, roles, projects, and channels",
-    icon: UsersThree,
-    enabled: coreFeatures.teamCollaboration,
-    status: "experimental",
   },
   {
     id: "breadcrumbs",

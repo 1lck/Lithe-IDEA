@@ -40,7 +40,6 @@ type CommandPaletteSettings = Pick<
   | "parameterHints"
   | "semanticTokens"
   | "showMinimap"
-  | "telemetry"
   | "vimMode"
   | "vimRelativeLineNumbers"
   | "wordWrap"
@@ -62,7 +61,6 @@ interface SettingsActionsParams {
 }
 
 const settingsTabLabels: Record<SettingsTab, string> = {
-  account: "Account",
   general: "General",
   editor: "Editor",
   git: "Git",
@@ -71,8 +69,6 @@ const settingsTabLabels: Record<SettingsTab, string> = {
   keyboard: "Keybindings",
   language: "Editor",
   logs: "Logs",
-  collaboration: "Collaboration",
-  enterprise: "Enterprise",
   advanced: "Advanced",
   terminal: "Terminal",
   "file-explorer": "Files",
@@ -80,19 +76,14 @@ const settingsTabLabels: Record<SettingsTab, string> = {
 
 const settingsTabCommands = (Object.entries(settingsTabLabels) as Array<[SettingsTab, string]>)
   .map(([tab, label]) => ({ tab, label }))
-  .filter(
-    ({ tab }) =>
-      !["account", "ai", "collaboration", "enterprise", "language"].includes(tab),
-  );
+  .filter(({ tab }) => !["ai", "language"].includes(tab));
 
 function getMatchingSettingsRecords(query: string) {
   const trimmedQuery = query.trim();
   if (trimmedQuery.length < 2) return [];
 
   return settingsSearchIndex
-    .filter(
-      (record) => !["account", "ai", "collaboration", "enterprise"].includes(record.tab),
-    )
+    .filter((record) => record.tab !== "ai")
     .filter((record) => record.id !== "editor-vim-mode")
     .map((record) => {
       const score = scoreSearchQuery(trimmedQuery, [
@@ -451,19 +442,6 @@ export const createSettingsActions = (params: SettingsActionsParams): Action[] =
       category: "Editor",
       action: () => {
         updateSetting("showMinimap", !settings.showMinimap);
-        onClose();
-      },
-    },
-    {
-      id: "toggle-telemetry",
-      label: settings.telemetry ? "Advanced: Disable Telemetry" : "Advanced: Enable Telemetry",
-      description: settings.telemetry
-        ? "Stop sending anonymous usage diagnostics"
-        : "Enable anonymous usage diagnostics",
-      icon: <Info />,
-      category: "Advanced",
-      action: () => {
-        updateSetting("telemetry", !settings.telemetry);
         onClose();
       },
     },

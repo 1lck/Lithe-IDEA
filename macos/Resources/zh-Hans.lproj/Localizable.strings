@@ -376,6 +376,8 @@
 "Running" = "运行中";
 
 /* GitHub pull requests. */
+"Pull Requests integration is under development" = "拉取请求集成正在开发中";
+"GitHub sign-in and pull request management are temporarily unavailable." = "GitHub 登录和拉取请求管理暂时不可用。";
 "Pull Requests" = "拉取请求";
 "Refresh pull requests" = "刷新拉取请求";
 "Restoring GitHub connection" = "正在恢复 GitHub 连接";

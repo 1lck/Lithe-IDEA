@@ -54,11 +54,6 @@ const ProjectNameMenu = lazy(() =>
     default: module.ProjectNameMenu,
   })),
 );
-const ExtensionGenerationCommand = lazy(() =>
-  import("@/features/generate/components/extension-generation-command").then((module) => ({
-    default: module.ExtensionGenerationCommand,
-  })),
-);
 const QuickOpen = lazy(() => import("@/features/quick-open/components/quick-open"));
 const WindowCloseGuard = lazy(() =>
   import("@/features/window/components/window-close-guard").then((module) => ({
@@ -342,7 +337,6 @@ export function MainLayout() {
         <Suspense fallback={null}>
           <QuickOpen />
           <CommandPalette />
-          <ExtensionGenerationCommand />
           <ProjectNameMenu />
 
           <ConnectionDialog
