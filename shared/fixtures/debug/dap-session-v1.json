@@ -100,6 +100,7 @@
         "supportsCancelRequest": true,
         "supportsSingleThreadExecutionRequests": true,
         "supportsRestartRequest": true,
+        "supportsExceptionInfoRequest": true,
         "supportsExceptionFilterOptions": true,
         "exceptionBreakpointFilters": [
           {

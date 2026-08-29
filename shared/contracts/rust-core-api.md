@@ -458,21 +458,28 @@ flows are rejected unless the adapter advertised the matching capability.
 The successful DAP initialize response emits a normalized `capabilities` event.
 It includes conditional, hit-count, log, function, data, and exception
 breakpoint support; variable mutation; restart and terminate requests; step
-back; request cancellation; single-thread execution; step-in targets; goto
-targets; and ordered exception filters. Native UIs
+back; exception information; request cancellation; single-thread execution;
+step-in targets; goto targets; and ordered exception filters. Native UIs
 must treat capability state as unknown until this event arrives and hide or
 disable unsupported actions after negotiation.
 
 `debug.execute` correlates continue, pause, next, step-in, and step-out to the
 caller's `operationId`. `debug.inspect` supports `threads`, `stackTrace`,
-`scopes`, `variables`, and `evaluate`; required thread, frame, variable
-reference, and expression fields are validated before a request is emitted.
+`scopes`, `variables`, `evaluate`, and capability-gated `exceptionInfo`;
+required thread, frame, variable reference, and expression fields are validated
+before a request is emitted. Exception information is available only while
+paused and normalizes the exception type, description, break mode, optional
+stack trace, evaluation name, and nested exception details. The Java adapter
+currently supplies the type, description, and break mode but no expandable
+exception object reference, so native clients continue to inspect ordinary
+frame scopes for local state.
 Terminal operation events are exactly one of `operationCompleted` with a typed
 result or `operationFailed` with the adapter command and safe message. Other
 ordered events are `stateChanged`, `initialized`, `output`, `stopped`,
 `continued`, `terminated`, and `breakpoint`. Source coordinates are one-based.
 The compatibility flow is captured in
-`shared/fixtures/debug/dap-session-v1.json`.
+`shared/fixtures/debug/dap-session-v1.json`; exception normalization cases are
+captured in `shared/fixtures/debug/exception-info-v1.json`.
 
 `debug.disconnect` emits the protocol handshake and enters `terminating`; the
 platform keeps the socket or process alive long enough to flush the frame,

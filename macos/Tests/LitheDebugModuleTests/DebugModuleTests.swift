@@ -46,6 +46,7 @@ struct DebugModuleTests {
                 "supportsRestartRequest": true,
                 "supportsTerminateRequest": true,
                 "supportsStepBack": true,
+                "supportsExceptionInfoRequest": true,
                 "supportsStepInTargetsRequest": true,
                 "supportsGotoTargetsRequest": true,
                 "exceptionBreakpointFilters": [[
@@ -62,6 +63,7 @@ struct DebugModuleTests {
         #expect(session.capabilities.supportsConditionalBreakpoints)
         #expect(session.capabilities.supportsFunctionBreakpoints)
         #expect(session.capabilities.supportsDataBreakpoints)
+        #expect(session.capabilities.supportsExceptionInfoRequest)
         #expect(session.capabilities.exceptionBreakpointFilters.first?.filter == "caught")
 
         var dataInfoResult: Result<DebugDataBreakpointInfo, Error>?
@@ -131,6 +133,56 @@ struct DebugModuleTests {
         transport.emitData(Data("threads-response".utf8))
 
         #expect(try threadsResult?.get() == [DebugThread(id: 7, name: "main")])
+
+        var exceptionInfoResult: Result<DebugExceptionInfo, Error>?
+        session.requestExceptionInfo(threadID: 7) { exceptionInfoResult = $0 }
+        let exceptionOperationID = try #require(core.lastInspectionOperationID)
+        core.enqueueReceive(state: "paused", events: [[
+            "sequence": 6,
+            "type": "operationCompleted",
+            "operationId": exceptionOperationID,
+            "result": [
+                "kind": "exceptionInfo",
+                "exceptionInfo": [
+                    "exceptionId": "java.lang.IllegalStateException",
+                    "description": "java.lang.IllegalStateException: session expired",
+                    "breakMode": "always",
+                    "details": [
+                        "message": "session expired",
+                        "typeName": "IllegalStateException",
+                        "fullTypeName": "java.lang.IllegalStateException",
+                        "evaluateName": "exception",
+                        "stackTrace": "at example.Main.run(Main.java:12)",
+                        "innerExceptions": [[
+                            "message": "token expired",
+                            "typeName": "TokenExpiredException",
+                            "fullTypeName": "example.TokenExpiredException",
+                            "innerExceptions": []
+                        ]]
+                    ]
+                ]
+            ]
+        ]])
+        transport.emitData(Data("exception-info-response".utf8))
+        #expect(try exceptionInfoResult?.get() == DebugExceptionInfo(
+            exceptionID: "java.lang.IllegalStateException",
+            description: "java.lang.IllegalStateException: session expired",
+            breakMode: "always",
+            details: DebugExceptionDetails(
+                message: "session expired",
+                typeName: "IllegalStateException",
+                fullTypeName: "java.lang.IllegalStateException",
+                evaluateName: "exception",
+                stackTrace: "at example.Main.run(Main.java:12)",
+                innerExceptions: [DebugExceptionDetails(
+                    message: "token expired",
+                    typeName: "TokenExpiredException",
+                    fullTypeName: "example.TokenExpiredException",
+                    evaluateName: nil,
+                    stackTrace: nil
+                )]
+            )
+        ))
 
         var stepTargetsResult: Result<[DebugStepInTarget], Error>?
         session.requestStepInTargets(frameID: 7) { stepTargetsResult = $0 }
@@ -221,14 +273,40 @@ struct DebugModuleTests {
 
         core.enqueueReceive(sessionID: "java-stopped-context", state: "paused", events: [[
             "sequence": 1,
+            "type": "capabilities",
+            "capabilities": [
+                "supportsConfigurationDone": false,
+                "supportsConditionalBreakpoints": false,
+                "supportsHitConditionalBreakpoints": false,
+                "supportsLogPoints": false,
+                "supportsFunctionBreakpoints": false,
+                "supportsDataBreakpoints": false,
+                "supportsExceptionOptions": false,
+                "supportsExceptionFilterOptions": false,
+                "supportsSetVariable": false,
+                "supportsCancelRequest": false,
+                "supportsSingleThreadExecutionRequests": false,
+                "supportsRestartRequest": false,
+                "supportsTerminateRequest": false,
+                "supportsStepBack": false,
+                "supportsExceptionInfoRequest": true,
+                "supportsStepInTargetsRequest": false,
+                "supportsGotoTargetsRequest": false,
+                "exceptionBreakpointFilters": []
+            ]
+        ], [
+            "sequence": 2,
             "type": "stopped",
-            "reason": "breakpoint",
-            "threadId": 13
+            "reason": "exception",
+            "threadId": 13,
+            "description": "java.lang.IllegalStateException: session expired"
         ]])
         transport.emitData(Data("stopped-event".utf8))
-        #expect(core.inspectionRequests.map(\.kind) == ["threads"])
+        #expect(core.inspectionRequests.map(\.kind) == ["exceptionInfo", "threads"])
 
-        let threadsOperationID = try #require(core.lastInspectionOperationID)
+        let threadsOperationID = try #require(
+            core.inspectionRequests.first(where: { $0.kind == "threads" })?.operationID
+        )
         core.enqueueReceive(sessionID: "java-stopped-context", state: "paused", events: [[
             "sequence": 2,
             "type": "operationCompleted",
@@ -242,10 +320,14 @@ struct DebugModuleTests {
             ]
         ]])
         transport.emitData(Data("threads-response".utf8))
-        #expect(core.inspectionRequests.map(\.kind) == ["threads", "stackTrace"])
+        #expect(core.inspectionRequests.map(\.kind) == [
+            "exceptionInfo", "threads", "stackTrace"
+        ])
         #expect(core.inspectionRequests.last?.threadID == 13)
 
-        let stackOperationID = try #require(core.lastInspectionOperationID)
+        let stackOperationID = try #require(
+            core.inspectionRequests.first(where: { $0.kind == "stackTrace" })?.operationID
+        )
         core.enqueueReceive(sessionID: "java-stopped-context", state: "paused", events: [[
             "sequence": 3,
             "type": "operationCompleted",
@@ -262,10 +344,14 @@ struct DebugModuleTests {
             ]
         ]])
         transport.emitData(Data("stack-response".utf8))
-        #expect(core.inspectionRequests.map(\.kind) == ["threads", "stackTrace", "scopes"])
+        #expect(core.inspectionRequests.map(\.kind) == [
+            "exceptionInfo", "threads", "stackTrace", "scopes"
+        ])
         #expect(core.inspectionRequests.last?.frameID == 70)
 
-        let scopesOperationID = try #require(core.lastInspectionOperationID)
+        let scopesOperationID = try #require(
+            core.inspectionRequests.first(where: { $0.kind == "scopes" })?.operationID
+        )
         core.enqueueReceive(sessionID: "java-stopped-context", state: "paused", events: [[
             "sequence": 4,
             "type": "operationCompleted",
@@ -281,11 +367,13 @@ struct DebugModuleTests {
         ]])
         transport.emitData(Data("scopes-response".utf8))
         #expect(core.inspectionRequests.map(\.kind) == [
-            "threads", "stackTrace", "scopes", "variables"
+            "exceptionInfo", "threads", "stackTrace", "scopes", "variables"
         ])
         #expect(core.inspectionRequests.last?.variablesReference == 200)
 
-        let variablesOperationID = try #require(core.lastInspectionOperationID)
+        let variablesOperationID = try #require(
+            core.inspectionRequests.first(where: { $0.kind == "variables" })?.operationID
+        )
         core.enqueueReceive(sessionID: "java-stopped-context", state: "paused", events: [[
             "sequence": 5,
             "type": "operationCompleted",
@@ -311,6 +399,25 @@ struct DebugModuleTests {
         #expect(stoppedLocation?.0 == source.standardizedFileURL)
         #expect(stoppedLocation?.1 == 12)
         #expect(stoppedLocation?.2 == 5)
+
+        let exceptionOperationID = try #require(
+            core.inspectionRequests.first(where: { $0.kind == "exceptionInfo" })?.operationID
+        )
+        core.enqueueReceive(sessionID: "java-stopped-context", state: "paused", events: [[
+            "sequence": 6,
+            "type": "operationCompleted",
+            "operationId": exceptionOperationID,
+            "result": [
+                "kind": "exceptionInfo",
+                "exceptionInfo": [
+                    "exceptionId": "java.lang.IllegalStateException",
+                    "description": "java.lang.IllegalStateException: session expired",
+                    "breakMode": "always"
+                ]
+            ]
+        ]])
+        transport.emitData(Data("late-exception-response".utf8))
+        #expect(feature.exceptionInfo?.exceptionID == "java.lang.IllegalStateException")
     }
 
     @Test
@@ -657,6 +764,72 @@ struct DebugModuleTests {
     }
 
     @Test
+    func exceptionStopsLoadCurrentMetadataAndDiscardStaleResponses() throws {
+        let capabilities = DebugAdapterCapabilities(
+            negotiated: true,
+            supportsExceptionInfoRequest: true
+        )
+        let session = DeferredInspectionDebugSession(capabilities: capabilities)
+        let descriptor = DebugProviderDescriptor(
+            id: "java",
+            displayName: "Java",
+            fileExtensions: ["java"]
+        )
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        let root = URL(fileURLWithPath: "/tmp/java-exception-info", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.java")
+        #expect(feature.start(
+            fileURL: source,
+            rootURL: root,
+            configuration: DebugLaunchConfiguration(
+                name: "Main",
+                request: .launch,
+                arguments: ["mainClass": .string("example.Main")]
+            )
+        ))
+        defer { feature.stop() }
+        session.emit(.capabilities(capabilities))
+
+        let staleInfo = DebugExceptionInfo(
+            exceptionID: "example.StaleException",
+            description: "stale",
+            breakMode: "always",
+            details: nil
+        )
+        let currentInfo = DebugExceptionInfo(
+            exceptionID: "example.LoginException",
+            description: "Login failed",
+            breakMode: "userUnhandled",
+            details: nil
+        )
+
+        session.emit(.stopped(reason: "exception", threadID: 1, description: "stale stop"))
+        #expect(session.exceptionInfoThreadIDs == [1])
+        session.emit(.stopped(reason: "breakpoint", threadID: 2, description: nil))
+        session.completeExceptionInfo(at: 0, with: staleInfo)
+        #expect(feature.exceptionInfo == nil)
+
+        session.emit(.stopped(reason: "exception", threadID: 3, description: "Login failed"))
+        #expect(session.exceptionInfoThreadIDs == [1, 3])
+        session.completeExceptionInfo(at: 1, with: currentInfo)
+        #expect(feature.exceptionInfo == currentInfo)
+
+        session.emit(.continued(threadID: 3))
+        #expect(feature.exceptionInfo == nil)
+        session.emit(.capabilities(.unknown))
+        session.emit(.stopped(reason: "exception", threadID: 4, description: nil))
+        #expect(session.exceptionInfoThreadIDs == [1, 3])
+
+        session.emit(.capabilities(capabilities))
+        session.emit(.stopped(reason: "exception", threadID: 5, description: nil))
+        session.completeExceptionInfo(at: 2, with: currentInfo)
+        #expect(feature.exceptionInfo == currentInfo)
+        session.emit(.terminated(exitCode: 1))
+        #expect(feature.exceptionInfo == nil)
+    }
+
+    @Test
     func genericBreakpointsPreserveAdvancedOptionsAcrossMuteAndClear() throws {
         let transport = RecordingTransport()
         let core = RecordingDebugProtocolCore()
@@ -729,6 +902,7 @@ struct DebugModuleTests {
                 "supportsRestartRequest": false,
                 "supportsTerminateRequest": false,
                 "supportsStepBack": false,
+                "supportsExceptionInfoRequest": false,
                 "supportsStepInTargetsRequest": false,
                 "supportsGotoTargetsRequest": false,
                 "exceptionBreakpointFilters": [[
@@ -1071,6 +1245,7 @@ struct DebugModuleTests {
                 "supportsDataBreakpoints": true,
                 "supportsSetVariable": true,
                 "supportsStepBack": true,
+                "supportsExceptionInfoRequest": false,
                 "supportsStepInTargetsRequest": true,
                 "supportsGotoTargetsRequest": true,
                 "supportsRestartRequest": true,
@@ -1472,6 +1647,7 @@ private final class FailingDebugSteppingFilterPersistence:
 }
 
 private struct RecordingDebugInspectionRequest: Equatable {
+    let operationID: String
     let kind: String
     let threadID: Int?
     let frameID: Int?
@@ -1480,6 +1656,7 @@ private struct RecordingDebugInspectionRequest: Equatable {
 
 @MainActor
 private final class DeferredInspectionDebugSession: DebugAdapterControllingSession {
+    let capabilities: DebugAdapterCapabilities
     private(set) var isRunning = false
     private(set) var state: DebugAdapterState = .idle
     var onStateChange: ((DebugAdapterState) -> Void)?
@@ -1497,10 +1674,19 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
         reference: Int,
         completion: (Result<[DebugVariable], Error>) -> Void
     )] = []
+    private var exceptionInfoRequests: [(
+        threadID: Int,
+        completion: (Result<DebugExceptionInfo, Error>) -> Void
+    )] = []
 
     var stackTraceThreadIDs: [Int] { stackTraceRequests.map(\.threadID) }
     var scopeFrameIDs: [Int] { scopeRequests.map(\.frameID) }
     var variableReferences: [Int] { variableRequests.map(\.reference) }
+    var exceptionInfoThreadIDs: [Int] { exceptionInfoRequests.map(\.threadID) }
+
+    init(capabilities: DebugAdapterCapabilities = .unknown) {
+        self.capabilities = capabilities
+    }
 
     func start(rootURL _: URL) throws {
         isRunning = true
@@ -1520,6 +1706,13 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
     func setBreakpoints(_: [DebugSourceBreakpoint], in _: URL) {}
     func execute(_: DebugExecutionCommand, threadID _: Int?) {}
     func requestThreads(_: @escaping (Result<[DebugThread], Error>) -> Void) {}
+
+    func requestExceptionInfo(
+        threadID: Int,
+        completion: @escaping (Result<DebugExceptionInfo, Error>) -> Void
+    ) {
+        exceptionInfoRequests.append((threadID, completion))
+    }
 
     func requestStackTrace(
         threadID: Int,
@@ -1566,6 +1759,10 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
 
     func completeVariables(at index: Int, with variables: [DebugVariable]) {
         variableRequests[index].completion(.success(variables))
+    }
+
+    func completeExceptionInfo(at index: Int, with info: DebugExceptionInfo) {
+        exceptionInfoRequests[index].completion(.success(info))
     }
 }
 
@@ -1721,6 +1918,7 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
     ) throws -> DebugCoreUpdate {
         lastInspectionOperationID = operationID
         inspectionRequests.append(RecordingDebugInspectionRequest(
+            operationID: operationID,
             kind: kind,
             threadID: threadID,
             frameID: frameID,

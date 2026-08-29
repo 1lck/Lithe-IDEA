@@ -282,6 +282,50 @@ public struct DebugDataBreakpointInfo: Equatable, Sendable {
     }
 }
 
+public struct DebugExceptionInfo: Equatable, Sendable {
+    public let exceptionID: String
+    public let description: String?
+    public let breakMode: String
+    public let details: DebugExceptionDetails?
+
+    public init(
+        exceptionID: String,
+        description: String?,
+        breakMode: String,
+        details: DebugExceptionDetails?
+    ) {
+        self.exceptionID = exceptionID
+        self.description = description
+        self.breakMode = breakMode
+        self.details = details
+    }
+}
+
+public struct DebugExceptionDetails: Equatable, Sendable {
+    public let message: String?
+    public let typeName: String?
+    public let fullTypeName: String?
+    public let evaluateName: String?
+    public let stackTrace: String?
+    public let innerExceptions: [DebugExceptionDetails]
+
+    public init(
+        message: String?,
+        typeName: String?,
+        fullTypeName: String?,
+        evaluateName: String?,
+        stackTrace: String?,
+        innerExceptions: [DebugExceptionDetails] = []
+    ) {
+        self.message = message
+        self.typeName = typeName
+        self.fullTypeName = fullTypeName
+        self.evaluateName = evaluateName
+        self.stackTrace = stackTrace
+        self.innerExceptions = innerExceptions
+    }
+}
+
 public struct DebugStepInTarget: Identifiable, Equatable, Sendable {
     public let id: Int
     public let label: String
@@ -351,6 +395,7 @@ public struct DebugAdapterCapabilities: Equatable, Sendable {
     public let supportsRestartRequest: Bool
     public let supportsTerminateRequest: Bool
     public let supportsStepBack: Bool
+    public let supportsExceptionInfoRequest: Bool
     public let supportsStepInTargetsRequest: Bool
     public let supportsGotoTargetsRequest: Bool
     public let exceptionBreakpointFilters: [DebugExceptionBreakpointFilter]
@@ -373,6 +418,7 @@ public struct DebugAdapterCapabilities: Equatable, Sendable {
         supportsRestartRequest: Bool = false,
         supportsTerminateRequest: Bool = false,
         supportsStepBack: Bool = false,
+        supportsExceptionInfoRequest: Bool = false,
         supportsStepInTargetsRequest: Bool = false,
         supportsGotoTargetsRequest: Bool = false,
         exceptionBreakpointFilters: [DebugExceptionBreakpointFilter] = []
@@ -392,6 +438,7 @@ public struct DebugAdapterCapabilities: Equatable, Sendable {
         self.supportsRestartRequest = supportsRestartRequest
         self.supportsTerminateRequest = supportsTerminateRequest
         self.supportsStepBack = supportsStepBack
+        self.supportsExceptionInfoRequest = supportsExceptionInfoRequest
         self.supportsStepInTargetsRequest = supportsStepInTargetsRequest
         self.supportsGotoTargetsRequest = supportsGotoTargetsRequest
         self.exceptionBreakpointFilters = exceptionBreakpointFilters
@@ -522,6 +569,10 @@ public protocol DebugAdapterControllingSession: DebugAdapterSession {
         completion: @escaping (Result<[DebugGotoTarget], Error>) -> Void
     )
     func requestThreads(_ completion: @escaping (Result<[DebugThread], Error>) -> Void)
+    func requestExceptionInfo(
+        threadID: Int,
+        completion: @escaping (Result<DebugExceptionInfo, Error>) -> Void
+    )
     func requestStackTrace(threadID: Int, completion: @escaping (Result<[DebugStackFrame], Error>) -> Void)
     func requestScopes(frameID: Int, completion: @escaping (Result<[DebugScope], Error>) -> Void)
     func requestVariables(reference: Int, completion: @escaping (Result<[DebugVariable], Error>) -> Void)
@@ -572,6 +623,12 @@ public extension DebugAdapterControllingSession {
         completion: @escaping (Result<DebugDataBreakpointInfo, Error>) -> Void
     ) {
         completion(.failure(DebugAdapterCapabilityError.unsupported("data breakpoints")))
+    }
+    func requestExceptionInfo(
+        threadID _: Int,
+        completion: @escaping (Result<DebugExceptionInfo, Error>) -> Void
+    ) {
+        completion(.failure(DebugAdapterCapabilityError.unsupported("exception information")))
     }
     func setVariable(
         variablesReference _: Int,

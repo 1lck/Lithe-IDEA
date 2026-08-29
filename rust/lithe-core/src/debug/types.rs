@@ -357,6 +357,7 @@ pub enum DebugInspectKind {
     Scopes,
     Variables,
     Evaluate,
+    ExceptionInfo,
     StepInTargets,
     GotoTargets,
 }
@@ -369,6 +370,7 @@ impl DebugInspectKind {
             Self::Scopes => "scopes",
             Self::Variables => "variables",
             Self::Evaluate => "evaluate",
+            Self::ExceptionInfo => "exceptionInfo",
             Self::StepInTargets => "stepInTargets",
             Self::GotoTargets => "gotoTargets",
         }
@@ -435,6 +437,7 @@ pub struct DebugCapabilities {
     pub supports_restart_request: bool,
     pub supports_terminate_request: bool,
     pub supports_step_back: bool,
+    pub supports_exception_info_request: bool,
     pub supports_step_in_targets_request: bool,
     pub supports_goto_targets_request: bool,
     pub exception_breakpoint_filters: Vec<DebugExceptionBreakpointFilter>,
@@ -541,6 +544,9 @@ pub enum DebugOperationResult {
     Evaluate {
         variable: DebugVariable,
     },
+    ExceptionInfo {
+        exception_info: DebugExceptionInfo,
+    },
     SetVariable {
         variable: DebugVariable,
     },
@@ -638,4 +644,26 @@ pub struct DebugVariable {
     pub r#type: Option<String>,
     pub evaluate_name: Option<String>,
     pub variables_reference: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Exception metadata returned for the thread that caused an exception pause.
+pub struct DebugExceptionInfo {
+    pub exception_id: String,
+    pub description: Option<String>,
+    pub break_mode: String,
+    pub details: Option<DebugExceptionDetails>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Optional adapter-provided exception detail tree.
+pub struct DebugExceptionDetails {
+    pub message: Option<String>,
+    pub type_name: Option<String>,
+    pub full_type_name: Option<String>,
+    pub evaluate_name: Option<String>,
+    pub stack_trace: Option<String>,
+    pub inner_exceptions: Vec<DebugExceptionDetails>,
 }

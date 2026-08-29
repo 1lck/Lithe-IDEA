@@ -186,6 +186,13 @@ persistence and decide whether matching consecutive frames are collapsed or
 expanded in their native call-stack UI. No Debug session, adapter process, or
 background task is created merely because stepping preferences exist.
 
+Exception pause metadata is portable when the adapter advertises the standard
+exception-information request. Rust Core normalizes the exception type,
+description, break mode, stack trace, evaluation name, and nested details;
+native products decide how that data is presented beside the current frame's
+ordinary scopes and variables. An adapter that supplies no object reference
+does not make the exception itself expandable through this contract.
+
 For JDT LS, the standard initialize handshake and project-import readiness use
 separate Core-owned deadlines. Project import fails only after 45 seconds
 without changed progress or the 10-minute absolute safety cap; platform clients

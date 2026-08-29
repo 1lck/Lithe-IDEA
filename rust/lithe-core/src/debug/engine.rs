@@ -625,6 +625,18 @@ pub(crate) fn inspect(request: InspectRequest) -> Result<DebugSessionUpdate, Cor
                 "The debug adapter does not support run to cursor.",
             ));
         }
+        if request.kind == DebugInspectKind::ExceptionInfo {
+            if session.state != DebugSessionState::Paused {
+                return Err(invalid_request(
+                    "Exception information requires a paused debug session.",
+                ));
+            }
+            if !session.capabilities.supports_exception_info_request {
+                return Err(invalid_request(
+                    "The debug adapter does not support exception information.",
+                ));
+            }
+        }
         session.send_request(
             request.kind.command(),
             Value::Object(arguments),
@@ -1299,6 +1311,12 @@ fn inspect_arguments(request: &InspectRequest) -> Result<Map<String, Value>, Cor
                 arguments.insert("frameId".to_string(), json!(frame_id));
             }
         }
+        DebugInspectKind::ExceptionInfo => {
+            arguments.insert(
+                "threadId".to_string(),
+                json!(required_positive(request.thread_id, "threadId")?),
+            );
+        }
         DebugInspectKind::StepInTargets => {
             arguments.insert(
                 "frameId".to_string(),
@@ -1373,6 +1391,14 @@ fn normalize_inspection(
                     .unwrap_or(0),
             },
         }),
+        DebugInspectKind::ExceptionInfo => Ok(DebugOperationResult::ExceptionInfo {
+            exception_info: DebugExceptionInfo {
+                exception_id: required_str(body, "exceptionId")?.to_string(),
+                description: string_field(body, "description"),
+                break_mode: required_str(body, "breakMode")?.to_string(),
+                details: body.get("details").and_then(parse_exception_details),
+            },
+        }),
         DebugInspectKind::StepInTargets => Ok(DebugOperationResult::StepInTargets {
             targets: required_array(body, "targets")?
                 .iter()
@@ -1386,6 +1412,24 @@ fn normalize_inspection(
                 .collect(),
         }),
     }
+}
+
+fn parse_exception_details(value: &Value) -> Option<DebugExceptionDetails> {
+    value.as_object()?;
+    Some(DebugExceptionDetails {
+        message: string_field(value, "message"),
+        type_name: string_field(value, "typeName"),
+        full_type_name: string_field(value, "fullTypeName"),
+        evaluate_name: string_field(value, "evaluateName"),
+        stack_trace: string_field(value, "stackTrace"),
+        inner_exceptions: value
+            .get("innerException")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(parse_exception_details)
+            .collect(),
+    })
 }
 
 fn parse_step_in_target(value: &Value) -> Option<DebugStepInTarget> {
@@ -1721,6 +1765,7 @@ fn parse_capabilities(value: &Value) -> DebugCapabilities {
         supports_restart_request: bool_field(value, "supportsRestartRequest"),
         supports_terminate_request: bool_field(value, "supportsTerminateRequest"),
         supports_step_back: bool_field(value, "supportsStepBack"),
+        supports_exception_info_request: bool_field(value, "supportsExceptionInfoRequest"),
         supports_step_in_targets_request: bool_field(value, "supportsStepInTargetsRequest"),
         supports_goto_targets_request: bool_field(value, "supportsGotoTargetsRequest"),
         exception_breakpoint_filters: value
@@ -2974,6 +3019,160 @@ mod tests {
         let request = decode_frame(&goto.outbound_frames[0]);
         assert_eq!(request["command"], "goto");
         assert_eq!(request["arguments"]["targetId"], 31);
+        destroy_session(SessionRequest {
+            session_id: session_id.to_string(),
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn exception_information_is_capability_gated_and_normalized() {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/fixtures/debug/exception-info-v1.json"
+        )))
+        .unwrap();
+        let session_id = "debug-exception-info";
+        create_session(CreateSessionRequest {
+            session_id: session_id.to_string(),
+            adapter_id: "java".to_string(),
+            root_path: "/workspace".to_string(),
+        })
+        .unwrap();
+        launch(LaunchRequest {
+            session_id: session_id.to_string(),
+            operation_id: "launch".to_string(),
+            configuration: DebugLaunchConfiguration {
+                name: "Main".to_string(),
+                request: DebugRequestKind::Launch,
+                arguments: Map::new(),
+                stepping_filters: None,
+            },
+        })
+        .unwrap();
+        let initialized = receive_messages(
+            session_id,
+            vec![response_message(
+                1,
+                "initialize",
+                json!({"supportsExceptionInfoRequest": true}),
+            )],
+        );
+        assert!(initialized.events.iter().any(|event| matches!(
+            &event.body,
+            DebugEventBody::Capabilities { capabilities }
+                if capabilities.supports_exception_info_request
+        )));
+        receive_messages(session_id, vec![response_message(2, "launch", json!({}))]);
+        receive_messages(
+            session_id,
+            vec![json!({
+                "seq": 103,
+                "type": "event",
+                "event": "stopped",
+                "body": {"reason": "exception", "threadId": fixture["request"]["threadId"]}
+            })],
+        );
+
+        let inspection = inspect(InspectRequest {
+            session_id: session_id.to_string(),
+            operation_id: fixture["request"]["operationId"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+            kind: DebugInspectKind::ExceptionInfo,
+            thread_id: fixture["request"]["threadId"].as_i64(),
+            frame_id: None,
+            variables_reference: None,
+            expression: None,
+            source_path: None,
+            line: None,
+            column: None,
+        })
+        .unwrap();
+        let request = decode_frame(&inspection.outbound_frames[0]);
+        assert_eq!(request["command"], "exceptionInfo");
+        assert_eq!(
+            request["arguments"]["threadId"],
+            fixture["request"]["threadId"]
+        );
+
+        let completed = receive_messages(
+            session_id,
+            vec![response_message(
+                3,
+                "exceptionInfo",
+                fixture["adapterResponse"].clone(),
+            )],
+        );
+        let result = completed.events.iter().find_map(|event| match &event.body {
+            DebugEventBody::OperationCompleted {
+                operation_id,
+                result,
+            } if operation_id == fixture["request"]["operationId"].as_str().unwrap() => {
+                Some(result)
+            }
+            _ => None,
+        });
+        assert_eq!(
+            serde_json::to_value(result.unwrap()).unwrap(),
+            fixture["expected"]
+        );
+        destroy_session(SessionRequest {
+            session_id: session_id.to_string(),
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn exception_information_is_rejected_when_the_adapter_does_not_support_it() {
+        let session_id = "debug-exception-info-unsupported";
+        create_session(CreateSessionRequest {
+            session_id: session_id.to_string(),
+            adapter_id: "java".to_string(),
+            root_path: "/workspace".to_string(),
+        })
+        .unwrap();
+        launch(LaunchRequest {
+            session_id: session_id.to_string(),
+            operation_id: "launch".to_string(),
+            configuration: DebugLaunchConfiguration {
+                name: "Main".to_string(),
+                request: DebugRequestKind::Launch,
+                arguments: Map::new(),
+                stepping_filters: None,
+            },
+        })
+        .unwrap();
+        receive_messages(
+            session_id,
+            vec![response_message(1, "initialize", json!({}))],
+        );
+        receive_messages(session_id, vec![response_message(2, "launch", json!({}))]);
+        receive_messages(
+            session_id,
+            vec![json!({
+                "seq": 103,
+                "type": "event",
+                "event": "stopped",
+                "body": {"reason": "exception", "threadId": 13}
+            })],
+        );
+
+        let error = inspect(InspectRequest {
+            session_id: session_id.to_string(),
+            operation_id: "exception-main".to_string(),
+            kind: DebugInspectKind::ExceptionInfo,
+            thread_id: Some(13),
+            frame_id: None,
+            variables_reference: None,
+            expression: None,
+            source_path: None,
+            line: None,
+            column: None,
+        })
+        .unwrap_err();
+        assert!(matches!(error.code, ErrorCode::InvalidRequest));
         destroy_session(SessionRequest {
             session_id: session_id.to_string(),
         })

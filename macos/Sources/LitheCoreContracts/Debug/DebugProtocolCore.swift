@@ -74,6 +74,7 @@ public struct DebugCoreCapabilities: Decodable, Equatable, Sendable {
     public let supportsRestartRequest: Bool
     public let supportsTerminateRequest: Bool
     public let supportsStepBack: Bool
+    public let supportsExceptionInfoRequest: Bool
     public let supportsStepInTargetsRequest: Bool
     public let supportsGotoTargetsRequest: Bool
     public let exceptionBreakpointFilters: [DebugExceptionBreakpointFilter]
@@ -87,6 +88,7 @@ public struct DebugCoreOperationResult: Decodable, Equatable, Sendable {
     public let scopes: [DebugCoreScope]?
     public let variables: [DebugCoreVariable]?
     public let variable: DebugCoreVariable?
+    public let exceptionInfo: DebugCoreExceptionInfo?
     public let dataID: String?
     public let description: String?
     public let accessTypes: [String]?
@@ -94,7 +96,7 @@ public struct DebugCoreOperationResult: Decodable, Equatable, Sendable {
     public let targets: [DebugCoreTarget]?
 
     private enum CodingKeys: String, CodingKey {
-        case kind, command, threads, stackFrames, scopes, variables, variable
+        case kind, command, threads, stackFrames, scopes, variables, variable, exceptionInfo
         case dataID = "dataId"
         case description, accessTypes, canPersist, targets
     }
@@ -183,6 +185,27 @@ public struct DebugCoreVariable: Decodable, Equatable, Sendable {
     public let type: String?
     public let evaluateName: String?
     public let variablesReference: Int
+}
+
+public struct DebugCoreExceptionInfo: Decodable, Equatable, Sendable {
+    public let exceptionID: String
+    public let description: String?
+    public let breakMode: String
+    public let details: DebugCoreExceptionDetails?
+
+    private enum CodingKeys: String, CodingKey {
+        case exceptionID = "exceptionId"
+        case description, breakMode, details
+    }
+}
+
+public struct DebugCoreExceptionDetails: Decodable, Equatable, Sendable {
+    public let message: String?
+    public let typeName: String?
+    public let fullTypeName: String?
+    public let evaluateName: String?
+    public let stackTrace: String?
+    public let innerExceptions: [DebugCoreExceptionDetails]
 }
 
 /// Focused policy boundary for portable debugger stepping defaults and validation.

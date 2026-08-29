@@ -88,6 +88,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     @Published public private(set) var output = ""
     @Published public private(set) var errorMessage: String?
     @Published public private(set) var stoppedReason: String?
+    @Published public private(set) var exceptionInfo: DebugExceptionInfo?
     @Published public private(set) var breakpoints: [GenericDebugBreakpoint] = []
     @Published public private(set) var exceptionBreakpoints: [GenericDebugExceptionBreakpoint] = []
     @Published public private(set) var functionBreakpoints: [GenericDebugFunctionBreakpoint] = []
@@ -208,6 +209,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         output = ""
         errorMessage = nil
         stoppedReason = nil
+        exceptionInfo = nil
         threads = []
         stackFrames = []
         scopes = []
@@ -262,6 +264,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         }
         state = .idle
         stoppedReason = nil
+        exceptionInfo = nil
         selectedThreadID = nil
         selectedFrameID = nil
         stoppedFrame = nil
@@ -692,6 +695,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
 
     public func selectThread(_ thread: DebugThread) {
         let generation = beginInspectionTransition()
+        exceptionInfo = nil
         selectedThreadID = thread.id
         selectedFrameID = nil
         selectedFrame = nil
@@ -711,7 +715,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                 self.areFilteredStackFramesExpanded = false
                 self.selectedFrameID = frames.first?.id
                 if let frame = frames.first {
-                    self.selectFrame(frame)
+                    self.selectFrame(frame, generation: generation)
                 } else {
                     self.selectedFrame = nil
                 }
@@ -722,6 +726,10 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
 
     public func selectFrame(_ frame: DebugStackFrame) {
         let generation = beginInspectionTransition()
+        selectFrame(frame, generation: generation)
+    }
+
+    private func selectFrame(_ frame: DebugStackFrame, generation: Int) {
         selectedFrameID = frame.id
         selectedFrame = frame
         scopes = []
@@ -975,6 +983,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         case .stopped(let reason, let threadID, let description):
             let generation = beginInspectionTransition()
             stoppedReason = description ?? reason
+            exceptionInfo = nil
             selectedThreadID = threadID
             selectedFrameID = nil
             selectedFrame = nil
@@ -984,10 +993,18 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             scopes = []
             resetVariableTree()
             invalidateWatchResults()
-            loadStoppedContext(threadID: threadID, generation: generation)
+            if reason == "exception", let threadID {
+                loadExceptionInfo(threadID: threadID, generation: generation)
+            }
+            loadStoppedContext(
+                threadID: threadID,
+                generation: generation,
+                shouldLoadExceptionInfo: reason == "exception" && threadID == nil
+            )
         case .continued:
             invalidateInspectionRequests()
             stoppedReason = nil
+            exceptionInfo = nil
             selectedThreadID = nil
             selectedFrameID = nil
             stoppedFrame = nil
@@ -1001,6 +1018,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         case .terminated(let exitCode):
             invalidateInspectionRequests()
             stoppedReason = nil
+            exceptionInfo = nil
             selectedThreadID = nil
             selectedFrameID = nil
             stoppedFrame = nil
@@ -1035,7 +1053,11 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         }
     }
 
-    private func loadStoppedContext(threadID: Int?, generation: Int) {
+    private func loadStoppedContext(
+        threadID: Int?,
+        generation: Int,
+        shouldLoadExceptionInfo: Bool
+    ) {
         guard let session = activeSession else { return }
         session.requestThreads { [weak self] result in
             guard let self, self.inspectionGeneration == generation else { return }
@@ -1047,6 +1069,12 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                 } ?? threads.first?.id ?? threadID
                 self.selectedThreadID = selectedThreadID
                 if let selectedThreadID {
+                    if shouldLoadExceptionInfo {
+                        self.loadExceptionInfo(
+                            threadID: selectedThreadID,
+                            generation: generation
+                        )
+                    }
                     self.loadStoppedStack(threadID: selectedThreadID, generation: generation)
                 }
             case .failure(let error):
@@ -1069,10 +1097,24 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                 self.areFilteredStackFramesExpanded = false
                 self.selectedFrameID = frames.first?.id
                 if let frame = frames.first {
-                    self.selectFrame(frame)
+                    self.selectFrame(frame, generation: generation)
                 } else {
                     self.selectedFrame = nil
                 }
+            case .failure(let error):
+                self.record(error)
+            }
+        }
+    }
+
+    private func loadExceptionInfo(threadID: Int, generation: Int) {
+        guard capabilities.supportsExceptionInfoRequest,
+              let session = activeSession else { return }
+        session.requestExceptionInfo(threadID: threadID) { [weak self] result in
+            guard let self, self.inspectionGeneration == generation else { return }
+            switch result {
+            case .success(let info):
+                self.exceptionInfo = info
             case .failure(let error):
                 self.record(error)
             }

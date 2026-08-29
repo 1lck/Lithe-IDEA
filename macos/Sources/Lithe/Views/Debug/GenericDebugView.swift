@@ -431,6 +431,10 @@ struct GenericDebugView: View {
         VStack(spacing: 0) {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    if let exceptionInfo = feature.exceptionInfo {
+                        exceptionInspector(exceptionInfo)
+                        divider
+                    }
                     sectionHeader("Variables", count: feature.variables.count)
                     if feature.variables.isEmpty {
                         placeholder("Select a stack frame to inspect variables")
@@ -813,6 +817,85 @@ struct GenericDebugView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .litheWorkbenchSurface(LitheTheme.sidebar)
+    }
+
+    private func exceptionInspector(_ info: DebugExceptionInfo) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 7) {
+                Label("Exception", systemImage: "exclamationmark.octagon.fill")
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(LitheTheme.error)
+                Spacer(minLength: 8)
+                Text(exceptionBreakModeTitle(info.breakMode))
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+            Text(info.exceptionID)
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(LitheTheme.primaryText)
+                .textSelection(.enabled)
+            if let description = info.description,
+               !description.isEmpty,
+               description != info.exceptionID {
+                Text(description)
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(LitheTheme.warning)
+                    .textSelection(.enabled)
+            }
+            if let details = info.details {
+                if let message = details.message,
+                   !message.isEmpty,
+                   message != info.description {
+                    Text(message)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .textSelection(.enabled)
+                }
+                ForEach(Array(nestedExceptionDetails(details).enumerated()), id: \.offset) { _, cause in
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                        Image(systemName: "arrow.turn.down.right")
+                            .font(.system(size: 8))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(cause.fullTypeName ?? cause.typeName ?? "Nested exception")
+                                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            if let message = cause.message, !message.isEmpty {
+                                Text(message)
+                                    .font(.system(size: 9.5))
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                            }
+                        }
+                    }
+                }
+                if let stackTrace = details.stackTrace, !stackTrace.isEmpty {
+                    Text(stackTrace)
+                        .font(.system(size: 9.5, design: .monospaced))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .lineLimit(12)
+                        .textSelection(.enabled)
+                }
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LitheTheme.error.opacity(0.06))
+        .accessibilityElement(children: .contain)
+    }
+
+    private func nestedExceptionDetails(
+        _ details: DebugExceptionDetails
+    ) -> [DebugExceptionDetails] {
+        details.innerExceptions.flatMap { [$0] + nestedExceptionDetails($0) }
+    }
+
+    private func exceptionBreakModeTitle(_ breakMode: String) -> String {
+        switch breakMode {
+        case "always": "Always break"
+        case "unhandled": "Unhandled"
+        case "userUnhandled": "User-unhandled"
+        case "never": "Never break"
+        default: breakMode
+        }
     }
 
     private var evaluateRow: some View {

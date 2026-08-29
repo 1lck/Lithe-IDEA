@@ -233,6 +233,29 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         }
     }
 
+    public func requestExceptionInfo(
+        threadID: Int,
+        completion: @escaping (Result<DebugExceptionInfo, Error>) -> Void
+    ) {
+        guard capabilities.supportsExceptionInfoRequest else {
+            completion(.failure(DebugAdapterCapabilityError.unsupported("exception information")))
+            return
+        }
+        inspect(kind: "exceptionInfo", threadID: threadID) { result in
+            completion(result.flatMap { value in
+                guard value.kind == "exceptionInfo", let info = value.exceptionInfo else {
+                    return .failure(DebugAdapterProtocolError.invalidResponse("exceptionInfo"))
+                }
+                return .success(DebugExceptionInfo(
+                    exceptionID: info.exceptionID,
+                    description: info.description,
+                    breakMode: info.breakMode,
+                    details: info.details.map(Self.makeExceptionDetails)
+                ))
+            })
+        }
+    }
+
     public func requestStackTrace(
         threadID: Int,
         completion: @escaping (Result<[DebugStackFrame], Error>) -> Void
@@ -573,6 +596,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
             supportsRestartRequest: value.supportsRestartRequest,
             supportsTerminateRequest: value.supportsTerminateRequest,
             supportsStepBack: value.supportsStepBack,
+            supportsExceptionInfoRequest: value.supportsExceptionInfoRequest,
             supportsStepInTargetsRequest: value.supportsStepInTargetsRequest,
             supportsGotoTargetsRequest: value.supportsGotoTargetsRequest,
             exceptionBreakpointFilters: value.exceptionBreakpointFilters
@@ -645,6 +669,19 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
             evaluateName: variable.evaluateName,
             variablesReference: variable.variablesReference,
             containerReference: containerReference
+        )
+    }
+
+    private static func makeExceptionDetails(
+        _ details: DebugCoreExceptionDetails
+    ) -> DebugExceptionDetails {
+        DebugExceptionDetails(
+            message: details.message,
+            typeName: details.typeName,
+            fullTypeName: details.fullTypeName,
+            evaluateName: details.evaluateName,
+            stackTrace: details.stackTrace,
+            innerExceptions: details.innerExceptions.map(makeExceptionDetails)
         )
     }
 }
