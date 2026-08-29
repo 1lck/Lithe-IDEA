@@ -604,6 +604,7 @@ struct CodeEditorView: NSViewRepresentable {
         private var appliedDebugBreakpointStates: [Int: Bool] = [:]
         private var appliedDebugBreakpointMessages: [Int: String] = [:]
         private var appliedRunToCursorEnabled = false
+        private var appliedBreakpointsMuted = false
         private var appliedCurrentExecutionLine: Int?
         private var appliedGitMarkers: [GitLineChangeMarker]?
         private var appliedDiagnostics: [EditorDiagnostic] = []
@@ -1247,12 +1248,14 @@ struct CodeEditorView: NSViewRepresentable {
                 return frame.line
             }()
             let isRunToCursorEnabled = model.genericDebugFeatureIfActive?.state == .paused
+            let areBreakpointsMuted = model.genericDebugFeatureIfActive?.areBreakpointsMuted ?? false
             if appliedBlameVisible != isBlameVisible
                 || appliedBlameLines != blameLines
                 || appliedDebugBreakpointLines != debugBreakpointLines
                 || appliedDebugBreakpointStates != debugBreakpointStates
                 || appliedDebugBreakpointMessages != debugBreakpointMessages
                 || appliedRunToCursorEnabled != isRunToCursorEnabled
+                || appliedBreakpointsMuted != areBreakpointsMuted
                 || appliedCurrentExecutionLine != currentExecutionLine {
                 appliedBlameVisible = isBlameVisible
                 appliedBlameLines = blameLines
@@ -1260,6 +1263,7 @@ struct CodeEditorView: NSViewRepresentable {
                 appliedDebugBreakpointStates = debugBreakpointStates
                 appliedDebugBreakpointMessages = debugBreakpointMessages
                 appliedRunToCursorEnabled = isRunToCursorEnabled
+                appliedBreakpointsMuted = areBreakpointsMuted
                 appliedCurrentExecutionLine = currentExecutionLine
                 container?.gutterWidthConstraint?.constant = isBlameVisible
                     ? EditorLayoutMetrics.blameMetadataWidth + standardGutterWidth
@@ -1292,7 +1296,8 @@ struct CodeEditorView: NSViewRepresentable {
                     onRunToCursor: { [weak model] line in
                         model?.runToCursor(fileURL: url, line: line + 1, column: 1)
                     },
-                    isRunToCursorEnabled: isRunToCursorEnabled
+                    isRunToCursorEnabled: isRunToCursorEnabled,
+                    areBreakpointsMuted: areBreakpointsMuted
                 )
                 gutter?.updateDebugBreakpointMessages(debugBreakpointMessages)
                 gutter?.updateCurrentExecutionLine(currentExecutionLine)
@@ -3172,6 +3177,7 @@ final class LineNumberGutterView: NSView {
     private var onToggleAllDebugBreakpoints: (() -> Void)?
     private var onRunToCursor: ((Int) -> Void)?
     private var isRunToCursorEnabled = false
+    private var areBreakpointsMuted = false
     private var contextGutterLine: Int?
     private var contextDebugBreakpointLine: Int?
     private var scrollRefreshScheduled = false
@@ -3335,7 +3341,8 @@ final class LineNumberGutterView: NSView {
         onSetEnabled: ((Int, Bool) -> Void)? = nil,
         onToggleAll: (() -> Void)? = nil,
         onRunToCursor: ((Int) -> Void)? = nil,
-        isRunToCursorEnabled: Bool = false
+        isRunToCursorEnabled: Bool = false,
+        areBreakpointsMuted: Bool = false
     ) {
         debugBreakpointLines = Set(states.keys.map { max(0, $0 - 1) })
         debugBreakpointVerifiedByLine = Dictionary(
@@ -3347,6 +3354,7 @@ final class LineNumberGutterView: NSView {
         onToggleAllDebugBreakpoints = onToggleAll
         self.onRunToCursor = onRunToCursor
         self.isRunToCursorEnabled = isRunToCursorEnabled
+        self.areBreakpointsMuted = areBreakpointsMuted
         needsDisplay = true
     }
 
@@ -3758,7 +3766,7 @@ final class LineNumberGutterView: NSView {
                 height: markerSize
             )
         )
-        NSColor(red: 0.92, green: 0.28, blue: 0.30, alpha: 0.96).setStroke()
+        NSColor(red: 0.92, green: 0.28, blue: 0.30, alpha: areBreakpointsMuted ? 0.42 : 0.96).setStroke()
         path.lineWidth = 1.5
         if verified {
             path.fill()
@@ -4012,7 +4020,7 @@ final class LineNumberGutterView: NSView {
             menu.items.last?.target = self
             if onToggleAllDebugBreakpoints != nil {
                 menu.addItem(.separator())
-                menu.addItem(withTitle: "Mute All Breakpoints", action: #selector(toggleAllDebugBreakpointsFromMenu), keyEquivalent: "")
+                menu.addItem(withTitle: areBreakpointsMuted ? "Unmute All Breakpoints" : "Mute All Breakpoints", action: #selector(toggleAllDebugBreakpointsFromMenu), keyEquivalent: "")
                 menu.items.last?.target = self
             }
             return menu
