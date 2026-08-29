@@ -18,6 +18,7 @@ import { useEventListener } from "usehooks-ts";
 import { useFileClipboardStore } from "@/features/file-explorer/stores/file-explorer-clipboard.store";
 import { useFileTreeStore } from "@/features/file-explorer/stores/file-explorer-tree.store";
 import { pasteIntoExplorerDirectory } from "@/features/file-explorer/lib/paste-into-explorer-directory";
+import { JavaClipboardPasteError } from "@/features/file-explorer/lib/paste-java-class-from-clipboard";
 import {
   collectFileTreeSearchHits,
   filterFileTreeEntries,
@@ -1170,8 +1171,20 @@ function FileExplorerTreeComponent({
                 onJavaClassCreated: (fileName) => {
                   toast.success(t("files.created", { name: fileName }));
                 },
-                onJavaClassFailed: (fileName, error) => {
-                  toast.error(t("files.createFailed", { name: fileName }), {
+                onJavaClassFailed: (error) => {
+                  if (error instanceof JavaClipboardPasteError) {
+                    if (error.code === "exists") {
+                      toast.error(t("files.javaClassAlreadyExists", { name: error.fileName ?? "" }));
+                      return;
+                    }
+                    if (error.code === "remote") {
+                      toast.error(t("files.javaPasteRemoteUnsupported"));
+                      return;
+                    }
+                    toast.error(t("files.createFailed", { name: error.fileName ?? "Java class" }));
+                    return;
+                  }
+                  toast.error(t("files.createFailed", { name: "Java class" }), {
                     description: error instanceof Error ? error.message : undefined,
                   });
                 },

@@ -1,16 +1,44 @@
 import { readClipboardText } from "@/utils/clipboard";
 import { writeFile } from "@/features/file-system/controllers/platform";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import { isRemotePath } from "@/features/remote/utils/remote-path";
 import { getBaseName, joinPath } from "@/utils/path-helpers";
-import {
-  nextJavaClassFileName,
-  parseJavaTypeClipboard,
-} from "./java-clipboard-class";
+import { javaTypeFileName, parseJavaTypeClipboard } from "./java-clipboard-class";
 
 export type CreateFileInDirectory = (
   directoryPath: string,
   fileName: string,
 ) => void | string | Promise<string | undefined>;
+
+export type JavaClipboardPasteErrorCode = "exists" | "remote" | "create-failed";
+
+export class JavaClipboardPasteError extends Error {
+  readonly code: JavaClipboardPasteErrorCode;
+  readonly fileName?: string;
+
+  constructor(code: JavaClipboardPasteErrorCode, fileName?: string) {
+    super(code);
+    this.name = "JavaClipboardPasteError";
+    this.code = code;
+    this.fileName = fileName;
+  }
+}
+
+export function assertLocalJavaPasteDirectory(directoryPath: string): void {
+  if (isRemotePath(directoryPath)) {
+    throw new JavaClipboardPasteError("remote");
+  }
+}
+
+export function requireCreatedFilePath(
+  createdPath: string | undefined,
+  fileName: string,
+): string {
+  if (!createdPath) {
+    throw new JavaClipboardPasteError("create-failed", fileName);
+  }
+  return createdPath;
+}
 
 async function pathLooksOccupied(path: string): Promise<boolean> {
   try {
@@ -25,23 +53,6 @@ async function pathLooksOccupied(path: string): Promise<boolean> {
       return false;
     }
   }
-}
-
-async function resolveUniqueJavaFileName(
-  targetDirectory: string,
-  typeName: string,
-): Promise<string> {
-  const existing = new Set<string>();
-  // Probe the common IDEA-style candidates until one is free.
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    const candidate = nextJavaClassFileName(typeName, existing);
-    const fullPath = joinPath(targetDirectory, candidate);
-    if (!(await pathLooksOccupied(fullPath))) {
-      return candidate;
-    }
-    existing.add(candidate.toLowerCase());
-  }
-  return `${typeName} copy ${Date.now()}.java`;
 }
 
 /**
@@ -62,10 +73,18 @@ export async function tryPasteJavaClassFromSystemClipboard(options: {
   const parsed = parseJavaTypeClipboard(text);
   if (!parsed) return null;
 
-  const fileName = await resolveUniqueJavaFileName(options.targetDirectory, parsed.typeName);
-  const createdPath =
-    (await Promise.resolve(options.createFileInDirectory(options.targetDirectory, fileName))) ||
-    joinPath(options.targetDirectory, fileName);
+  assertLocalJavaPasteDirectory(options.targetDirectory);
+
+  const fileName = javaTypeFileName(parsed.typeName);
+  const destination = joinPath(options.targetDirectory, fileName);
+  if (await pathLooksOccupied(destination)) {
+    throw new JavaClipboardPasteError("exists", fileName);
+  }
+
+  const createdPath = requireCreatedFilePath(
+    await Promise.resolve(options.createFileInDirectory(options.targetDirectory, fileName)),
+    fileName,
+  );
 
   await writeFile(createdPath, parsed.content);
 

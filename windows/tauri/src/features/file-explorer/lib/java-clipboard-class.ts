@@ -14,13 +14,89 @@ const TYPE_KEYWORDS = "class|interface|enum|record";
 const MODIFIERS =
   "(?:(?:public|protected|private|abstract|final|sealed|non-sealed|static)\\s+)*";
 
-const PUBLIC_TYPE_PATTERN = new RegExp(
-  String.raw`(?:^|\n)\s*public\s+${MODIFIERS}(?:${TYPE_KEYWORDS})\s+([A-Za-z_$][\w$]*)\b`,
+const TYPE_AT_CURSOR = new RegExp(
+  String.raw`^(public\s+)?${MODIFIERS}(?:${TYPE_KEYWORDS})\s+([A-Za-z_$][\w$]*)\b`,
 );
 
-const ANY_TYPE_PATTERN = new RegExp(
-  String.raw`(?:^|\n)\s*${MODIFIERS}(?:${TYPE_KEYWORDS})\s+([A-Za-z_$][\w$]*)\b`,
-);
+function isIdentifierChar(character: string): boolean {
+  return /[A-Za-z0-9_$]/.test(character);
+}
+
+function skipLineComment(source: string, index: number): number {
+  const newline = source.indexOf("\n", index);
+  return newline === -1 ? source.length : newline + 1;
+}
+
+function skipBlockComment(source: string, index: number): number {
+  const end = source.indexOf("*/", index + 2);
+  return end === -1 ? source.length : end + 2;
+}
+
+function skipQuoted(source: string, index: number, quote: string): number {
+  let cursor = index + 1;
+  while (cursor < source.length) {
+    if (source[cursor] === "\\") {
+      cursor += 2;
+      continue;
+    }
+    if (source[cursor] === quote) return cursor + 1;
+    cursor += 1;
+  }
+  return source.length;
+}
+
+function skipTextBlock(source: string, index: number): number {
+  const end = source.indexOf('"""', index + 3);
+  return end === -1 ? source.length : end + 3;
+}
+
+/**
+ * Walks the source and records type declarations that sit outside comments
+ * and strings at brace depth 0, so nested and commented types cannot win.
+ */
+function scanTopLevelJavaTypes(source: string): { name: string; isPublic: boolean }[] {
+  const types: { name: string; isPublic: boolean }[] = [];
+  let index = 0;
+  let depth = 0;
+
+  while (index < source.length) {
+    if (source.startsWith("//", index)) {
+      index = skipLineComment(source, index);
+      continue;
+    }
+    if (source.startsWith("/*", index)) {
+      index = skipBlockComment(source, index);
+      continue;
+    }
+    if (source.startsWith('"""', index)) {
+      index = skipTextBlock(source, index);
+      continue;
+    }
+    const current = source[index];
+    if (current === '"' || current === "'") {
+      index = skipQuoted(source, index, current);
+      continue;
+    }
+
+    if (depth === 0) {
+      const atTokenStart = index === 0 || !isIdentifierChar(source[index - 1] ?? "");
+      if (atTokenStart) {
+        const match = source.slice(index).match(TYPE_AT_CURSOR);
+        if (match?.[2]) {
+          types.push({ name: match[2], isPublic: Boolean(match[1]) });
+          index += match[0].length;
+          continue;
+        }
+      }
+    }
+
+    if (current === "{") depth += 1;
+    else if (current === "}" && depth > 0) depth -= 1;
+    index += 1;
+  }
+
+  return types;
+}
 
 /**
  * Returns the primary Java type in `text`, preferring a `public` type so the
@@ -30,32 +106,13 @@ export function parseJavaTypeClipboard(text: string): ParsedJavaClipboardClass |
   const content = text.replace(/^\uFEFF/, "");
   if (!content.trim()) return null;
 
-  const publicMatch = content.match(PUBLIC_TYPE_PATTERN);
-  if (publicMatch?.[1]) {
-    return { typeName: publicMatch[1], content };
-  }
-
-  const anyMatch = content.match(ANY_TYPE_PATTERN);
-  if (anyMatch?.[1]) {
-    return { typeName: anyMatch[1], content };
-  }
-
-  return null;
+  const types = scanTopLevelJavaTypes(content);
+  const publicType = types.find((type) => type.isPublic);
+  const chosen = publicType ?? types[0];
+  if (!chosen) return null;
+  return { typeName: chosen.name, content };
 }
 
-/** Builds `Name.java`, then `Name copy.java`, `Name copy 2.java`, … */
-export function nextJavaClassFileName(
-  typeName: string,
-  existingNames: ReadonlySet<string>,
-): string {
-  const base = `${typeName}.java`;
-  if (!existingNames.has(base.toLowerCase())) return base;
-
-  let suffix = 1;
-  while (true) {
-    const candidate =
-      suffix === 1 ? `${typeName} copy.java` : `${typeName} copy ${suffix}.java`;
-    if (!existingNames.has(candidate.toLowerCase())) return candidate;
-    suffix += 1;
-  }
+export function javaTypeFileName(typeName: string): string {
+  return `${typeName}.java`;
 }

@@ -34,6 +34,7 @@ import { openLocalHistoryForPath } from "@/features/local-history/utils/open-loc
 import { useFileClipboardStore } from "@/features/file-explorer/stores/file-explorer-clipboard.store";
 import { useFileTreeStore } from "@/features/file-explorer/stores/file-explorer-tree.store";
 import { pasteIntoExplorerDirectory } from "@/features/file-explorer/lib/paste-into-explorer-directory";
+import { JavaClipboardPasteError } from "@/features/file-explorer/lib/paste-java-class-from-clipboard";
 import type { ContextMenuState } from "@/features/file-system/types/app.types";
 import { Button } from "@/ui/button";
 import { Dropdown, type MenuItem } from "@/ui/dropdown";
@@ -415,8 +416,20 @@ export function useFileExplorerContextMenu({
             onJavaClassCreated: (fileName) => {
               toast.success(t("files.created", { name: fileName }));
             },
-            onJavaClassFailed: (fileName, error) => {
-              toast.error(t("files.createFailed", { name: fileName }), {
+            onJavaClassFailed: (error) => {
+              if (error instanceof JavaClipboardPasteError) {
+                if (error.code === "exists") {
+                  toast.error(t("files.javaClassAlreadyExists", { name: error.fileName ?? "" }));
+                  return;
+                }
+                if (error.code === "remote") {
+                  toast.error(t("files.javaPasteRemoteUnsupported"));
+                  return;
+                }
+                toast.error(t("files.createFailed", { name: error.fileName ?? "Java class" }));
+                return;
+              }
+              toast.error(t("files.createFailed", { name: "Java class" }), {
                 description: error instanceof Error ? error.message : undefined,
               });
             },

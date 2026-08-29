@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  nextJavaClassFileName,
+  javaTypeFileName,
   parseJavaTypeClipboard,
 } from "./java-clipboard-class";
 
@@ -41,13 +41,28 @@ public interface TeamApi {}
     expect(parseJavaTypeClipboard("just some notes")).toBeNull();
     expect(parseJavaTypeClipboard("")).toBeNull();
   });
+
+  test("ignores nested types at brace depth greater than zero", () => {
+    const text = `class Outer {
+  public static class Inner {}
+}
+`;
+    expect(parseJavaTypeClipboard(text)?.typeName).toBe("Outer");
+  });
+
+  test("ignores type declarations inside comments", () => {
+    const text = `/* public class FakeInBlock {} */
+// public class FakeInLine {}
+public class Real {}
+`;
+    expect(parseJavaTypeClipboard(text)?.typeName).toBe("Real");
+  });
 });
 
-describe("nextJavaClassFileName", () => {
-  test("avoids collisions with copy suffixes", () => {
-    const existing = new Set(["mappingprefixdemocontroller.java", "mappingprefixdemocontroller copy.java"]);
-    expect(nextJavaClassFileName("MappingPrefixDemoController", existing)).toBe(
-      "MappingPrefixDemoController copy 2.java",
+describe("javaTypeFileName", () => {
+  test("uses the type name as the java file name", () => {
+    expect(javaTypeFileName("MappingPrefixDemoController")).toBe(
+      "MappingPrefixDemoController.java",
     );
   });
 });

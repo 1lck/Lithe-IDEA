@@ -13,7 +13,7 @@ export async function pasteIntoExplorerDirectory(options: {
   createFileInDirectory?: CreateFileInDirectory;
   refreshDirectory?: (path: string, options?: { force?: boolean }) => void;
   onJavaClassCreated?: (fileName: string) => void;
-  onJavaClassFailed?: (fileName: string, error: unknown) => void;
+  onJavaClassFailed?: (error: unknown) => void;
   onNothingToPaste?: () => void;
 }): Promise<"files" | "java-class" | "nothing"> {
   const { targetDirectory, createFileInDirectory, refreshDirectory } = options;
@@ -44,8 +44,7 @@ export async function pasteIntoExplorerDirectory(options: {
     options.onJavaClassCreated?.(created.fileName);
     return "java-class";
   } catch (error) {
-    const fallbackName = "Java class";
-    options.onJavaClassFailed?.(fallbackName, error);
+    options.onJavaClassFailed?.(error);
     return "nothing";
   }
 }
