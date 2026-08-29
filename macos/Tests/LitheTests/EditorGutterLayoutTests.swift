@@ -5,6 +5,19 @@ import Testing
 @Suite("Editor gutter layout")
 struct EditorGutterLayoutTests {
     @Test
+    func debugHoverResolvesOnlyJavaIdentifierTokens() throws {
+        let source = "userService.login(userName)" as NSString
+
+        let service = try #require(DebugHoverExpressionResolver.expression(at: 5, in: source))
+        let argument = try #require(DebugHoverExpressionResolver.expression(at: 22, in: source))
+
+        #expect(service.0 == "userService")
+        #expect(source.substring(with: service.1) == "userService")
+        #expect(argument.0 == "userName")
+        #expect(DebugHoverExpressionResolver.expression(at: 11, in: source) == nil)
+    }
+
+    @Test
     func editorBreakpointLinesConvertToOneBasedProductLines() {
         #expect(EditorDebugBreakpointLocation.productLine(forEditorLine: 0) == 1)
         #expect(EditorDebugBreakpointLocation.productLine(forEditorLine: 7) == 8)

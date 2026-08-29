@@ -611,6 +611,25 @@ extension AppModel {
         }
     }
 
+    func requestDebugHover(
+        expression: String,
+        completion: @escaping (String?) -> Void
+    ) {
+        guard let feature = genericDebugFeatureIfActive,
+              feature.state == .paused else {
+            completion(nil)
+            return
+        }
+        feature.evaluateForHover(expression) { variable in
+            guard let variable else {
+                completion(nil)
+                return
+            }
+            let type = variable.type.map { " : \($0)" } ?? ""
+            completion("\(expression)\(type) = \(variable.value)")
+        }
+    }
+
     private func startGenericDebugging(_ document: EditorDocument) {
         Task { [weak self] in await self?.startGenericDebuggingAfterActivation(document) }
     }

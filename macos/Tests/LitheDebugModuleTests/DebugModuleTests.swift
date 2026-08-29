@@ -361,6 +361,56 @@ struct DebugModuleTests {
         transport.emitData(Data("watch-response".utf8))
         #expect(feature.watches.first?.value == "8")
 
+        var hoverValue: DebugVariable?
+        feature.evaluateForHover("count") { hoverValue = $0 }
+        let hoverOperationID = try #require(core.lastInspectionOperationID)
+        core.enqueueReceive(sessionID: "java-breakpoints", state: "paused", events: [[
+            "sequence": 7,
+            "type": "operationCompleted",
+            "operationId": hoverOperationID,
+            "result": [
+                "kind": "evaluate",
+                "variable": [
+                    "name": "count",
+                    "value": "7",
+                    "type": "int",
+                    "variablesReference": 0
+                ]
+            ]
+        ]])
+        transport.emitData(Data("hover-response".utf8))
+        #expect(hoverValue?.value == "7")
+
+        var staleHoverValue: DebugVariable?
+        feature.evaluateForHover("count") { staleHoverValue = $0 }
+        let staleHoverOperationID = try #require(core.lastInspectionOperationID)
+        core.enqueueReceive(sessionID: "java-breakpoints", state: "running", events: [[
+            "sequence": 8,
+            "type": "stateChanged",
+            "state": "running"
+        ], [
+            "sequence": 9,
+            "type": "operationCompleted",
+            "operationId": staleHoverOperationID,
+            "result": [
+                "kind": "evaluate",
+                "variable": [
+                    "name": "count",
+                    "value": "8",
+                    "type": "int",
+                    "variablesReference": 0
+                ]
+            ]
+        ]])
+        transport.emitData(Data("stale-hover-response".utf8))
+        #expect(staleHoverValue == nil)
+        core.enqueueReceive(sessionID: "java-breakpoints", state: "paused", events: [[
+            "sequence": 10,
+            "type": "stopped",
+            "reason": "breakpoint"
+        ]])
+        transport.emitData(Data("next-stopped-event".utf8))
+
         feature.requestDataBreakpoint(for: DebugVariable(
             id: "count",
             name: "count",

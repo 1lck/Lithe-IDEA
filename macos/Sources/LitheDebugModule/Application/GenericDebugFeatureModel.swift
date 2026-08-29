@@ -763,6 +763,29 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         }
     }
 
+    public func evaluateForHover(
+        _ expression: String,
+        completion: @escaping (DebugVariable?) -> Void
+    ) {
+        let value = expression.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty,
+              state == .paused,
+              let session = activeSession else {
+            completion(nil)
+            return
+        }
+        let frameID = selectedFrameID
+        session.evaluate(value, frameID: frameID) { [weak self] result in
+            guard let self,
+                  self.state == .paused,
+                  self.selectedFrameID == frameID else {
+                completion(nil)
+                return
+            }
+            completion(try? result.get())
+        }
+    }
+
     public func clearOutput() { output = "" }
 
     private var activeSession: (any DebugAdapterControllingSession)? {

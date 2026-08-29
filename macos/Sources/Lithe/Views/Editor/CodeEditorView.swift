@@ -114,6 +114,30 @@ enum EditorDebugBreakpointLocation {
     static func productLine(forEditorLine line: Int) -> Int { line + 1 }
 }
 
+enum DebugHoverExpressionResolver {
+    static func expression(at location: Int, in source: NSString) -> (String, NSRange)? {
+        guard source.length > 0 else { return nil }
+        let characters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_$"))
+        let position = min(max(0, location), source.length - 1)
+        guard let scalar = UnicodeScalar(source.character(at: position)),
+              characters.contains(scalar) else { return nil }
+        var start = position
+        var end = position + 1
+        while start > 0,
+              let scalar = UnicodeScalar(source.character(at: start - 1)),
+              characters.contains(scalar) { start -= 1 }
+        while end < source.length,
+              let scalar = UnicodeScalar(source.character(at: end)),
+              characters.contains(scalar) { end += 1 }
+        let range = NSRange(location: start, length: end - start)
+        let value = source.substring(with: range)
+        guard value.first?.isLetter == true || value.first == "_" || value.first == "$" else {
+            return nil
+        }
+        return (value, range)
+    }
+}
+
 struct EditorLanguageFeatureTransition: Equatable {
     let refreshImplementationMarkers: Bool
     let clearImplementationMarkers: Bool
@@ -411,6 +435,9 @@ struct CodeEditorView: NSViewRepresentable {
                 column: column + 1
             )
         }
+        textView.onDebugHover = { [weak model] expression, completion in
+            model?.requestDebugHover(expression: expression, completion: completion)
+        }
         textView.onFindStateChange = { [weak coordinator = context.coordinator] index, count in
             coordinator?.scheduleFindStateUpdate(currentIndex: index, count: count)
         }
@@ -485,6 +512,7 @@ struct CodeEditorView: NSViewRepresentable {
         let debugFeature = model.genericDebugFeatureIfActive
         textView.isRunToCursorEnabled = debugFeature?.state == .paused
             && debugFeature?.capabilities.supportsGotoTargetsRequest == true
+        textView.isDebugHoverEnabled = debugFeature?.state == .paused
         context.coordinator.restoreViewportWhenReady()
         return container
     }
@@ -511,6 +539,13 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.isDarkAppearance = palette.isDark
         context.coordinator.colorTheme = settings.colorTheme
         context.coordinator.requestInitialFocusIfNeeded()
+
+        if let codeTextView = textView as? CodeTextView {
+            let debugFeature = model.genericDebugFeatureIfActive
+            codeTextView.isRunToCursorEnabled = debugFeature?.state == .paused
+                && debugFeature?.capabilities.supportsGotoTargetsRequest == true
+            codeTextView.isDebugHoverEnabled = debugFeature?.state == .paused
+        }
 
         let languageFeatures = model.languageToolingSessionsIfActive?.features(for: document.url) ?? []
         let fontSize = settings.editorFontSize
@@ -1592,6 +1627,12 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     var onCodeActionsRequested: ((Int, Int) -> Void)?
     var onRunToCursor: ((Int, Int) -> Void)?
     var isRunToCursorEnabled = false
+    var onDebugHover: ((String, @escaping (String?) -> Void) -> Void)?
+    var isDebugHoverEnabled = false {
+        didSet {
+            if !isDebugHoverEnabled { clearDebugHover() }
+        }
+    }
     var onPasteImage: (() -> Bool)?
 
     private var findMatchRanges: [NSRange] = []
@@ -1600,6 +1641,9 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     private var lastCaretBackgroundRanges: [NSRange] = []
     private var completionItemsByID: [String: LanguageServerCompletionItem] = [:]
     private var languageHoverPopover: NSPopover?
+    private var debugHoverPopover: NSPopover?
+    private var debugHoverWorkItem: DispatchWorkItem?
+    private var pendingDebugHover: (expression: String, range: NSRange)?
 
     private var currentLineColor = CodeEditorPalette.dark.currentLine
     private var bracketColor = CodeEditorPalette.dark.bracket
@@ -2586,18 +2630,24 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         let summaryRegion = foldSummaryRegion(at: point)
         updateFoldHover(to: summaryRegion?.id)
         if summaryRegion != nil {
+            clearDebugHover()
             NSCursor.pointingHand.set()
             return
         }
         if hitTest(point) is CodeVisionLinkButton {
+            clearDebugHover()
             NSCursor.pointingHand.set()
             return
         }
         if isLanguageNavigationEnabled,
            hasNavigationModifier(event.modifierFlags) {
             updateLinkHighlight(at: point)
-            if linkRange != nil { return }
+            if linkRange != nil {
+                clearDebugHover()
+                return
+            }
         }
+        updateDebugHover(at: point)
         NSCursor.iBeam.set()
     }
 
@@ -2618,12 +2668,14 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         super.mouseExited(with: event)
         updateFoldHover(to: nil)
         clearLinkHighlight()
+        clearDebugHover()
         NSCursor.arrow.set()
     }
 
     override func resignFirstResponder() -> Bool {
         updateFoldHover(to: nil)
         clearLinkHighlight()
+        clearDebugHover()
         return super.resignFirstResponder()
     }
 
@@ -2837,6 +2889,105 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         let text = source.substring(with: range)
         guard text.first?.isLetter == true || text.first == "_" || text.first == "$" else { return nil }
         return (text, range)
+    }
+
+    private func updateDebugHover(at point: NSPoint) {
+        guard isDebugHoverEnabled,
+              let characterIndex = characterIndex(at: point),
+              let resolved = DebugHoverExpressionResolver.expression(
+                  at: characterIndex,
+                  in: string as NSString
+              ),
+              let layoutManager,
+              let textContainer else {
+            clearDebugHover()
+            return
+        }
+        let glyphRange = layoutManager.glyphRange(
+            forCharacterRange: resolved.1,
+            actualCharacterRange: nil
+        )
+        let glyphRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        let containerPoint = NSPoint(
+            x: point.x - textContainerOrigin.x,
+            y: point.y - textContainerOrigin.y
+        )
+        guard glyphRect.insetBy(dx: -2, dy: -2).contains(containerPoint) else {
+            clearDebugHover()
+            return
+        }
+        if pendingDebugHover?.expression == resolved.0,
+           pendingDebugHover?.range == resolved.1 { return }
+        debugHoverWorkItem?.cancel()
+        debugHoverPopover?.close()
+        pendingDebugHover = (resolved.0, resolved.1)
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self,
+                  self.pendingDebugHover?.expression == resolved.0,
+                  self.pendingDebugHover?.range == resolved.1 else { return }
+            self.onDebugHover?(resolved.0) { [weak self] value in
+                guard let self,
+                      let value,
+                      self.pendingDebugHover?.expression == resolved.0,
+                      self.pendingDebugHover?.range == resolved.1 else { return }
+                self.presentDebugHover(value, range: resolved.1)
+            }
+        }
+        debugHoverWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: workItem)
+    }
+
+    private func presentDebugHover(_ value: String, range: NSRange) {
+        guard let layoutManager, let textContainer else { return }
+        let glyphRange = layoutManager.glyphRange(
+            forCharacterRange: range,
+            actualCharacterRange: nil
+        )
+        var anchor = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        anchor.origin.x += textContainerOrigin.x
+        anchor.origin.y += textContainerOrigin.y
+        let label = NSTextField(wrappingLabelWithString: value)
+        label.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        label.textColor = NSColor(white: 0.9, alpha: 1)
+        label.maximumNumberOfLines = 6
+        label.preferredMaxLayoutWidth = 420
+        let controller = NSViewController()
+        let container = NSView()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 10),
+            label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -10),
+            label.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
+            label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8)
+        ])
+        container.wantsLayer = true
+        container.layer?.backgroundColor = NSColor(
+            red: 0.105,
+            green: 0.11,
+            blue: 0.12,
+            alpha: 1
+        ).cgColor
+        controller.view = container
+        let fittingSize = label.fittingSize
+        controller.preferredContentSize = NSSize(
+            width: min(440, fittingSize.width + 20),
+            height: min(140, fittingSize.height + 16)
+        )
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        popover.contentViewController = controller
+        popover.show(relativeTo: anchor, of: self, preferredEdge: .maxY)
+        debugHoverPopover = popover
+    }
+
+    private func clearDebugHover() {
+        debugHoverWorkItem?.cancel()
+        debugHoverWorkItem = nil
+        pendingDebugHover = nil
+        debugHoverPopover?.close()
+        debugHoverPopover = nil
     }
 
     private func enclosingCodeScope(at caret: Int, in source: NSString) -> NSRange? {
