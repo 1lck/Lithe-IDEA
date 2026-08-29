@@ -22,7 +22,7 @@ struct GitLogView: View {
     @State private var pendingCommitOperation: GitCommitOperationRequest?
     @State private var pendingBranchOperation: GitBranchOperationRequest?
     @State private var comparisonSourceReference: GitReference?
-    @State private var showCommitDecorations = true
+    @State private var showCommitDecorations = false
     @State private var selectedGitToolTab = GitToolTab.log
     @State private var gitConsoleAutoScrolls = true
     @State private var gitConsoleWrapsLines = false
@@ -31,12 +31,14 @@ struct GitLogView: View {
     @State private var gitLogPathFilter = ""
     @State private var gitLogPathDraft = ""
     @State private var showsGitLogPathPopover = false
+    @State private var gitCommitFileLoadTask: Task<Void, Never>?
     @State private var graphLayout = GitGraphLayout(
         rows: [],
         laneCount: 0,
         hasMissingParents: false
     )
     @FocusState private var gitLogSearchFocused: Bool
+    @FocusState private var gitLogCommitListFocused: Bool
 
     /// IntelliJ's Git tool window uses the macOS system UI font throughout;
     /// only hashes and timestamps use a monospaced face. Keeping these values
@@ -52,6 +54,7 @@ struct GitLogView: View {
         static let rowHeight: CGFloat = 38
         static let treeRowHeight: CGFloat = 28
         static let toolbarHeight: CGFloat = 38
+        static let commitFileLoadDelay = Duration.milliseconds(16)
         static let darkConsoleText = Color(red: 0.76, green: 0.77, blue: 0.79)
         static let darkConsoleMetadata = Color(red: 0.69, green: 0.70, blue: 0.72)
     }
@@ -177,6 +180,9 @@ struct GitLogView: View {
         .onChange(of: model.gitConsoleEntries.last?.id) { _ in
             guard model.gitConsoleEntries.last?.succeeded == false else { return }
             selectedGitToolTab = .console
+        }
+        .onDisappear {
+            gitCommitFileLoadTask?.cancel()
         }
         .sheet(item: $branchDialogRequest) { request in
             GitBranchNameDialog(request: request) { name, checkout in
@@ -341,9 +347,17 @@ struct GitLogView: View {
             .help("Git tool window actions")
 
             Spacer(minLength: 12)
+
+            Button {
+                model.isGitLogVisible = false
+            } label: {
+                Image(systemName: "minus")
+            }
+            .litheIconButton()
+            .help("Hide Git tool window")
         }
         .padding(.leading, 12)
-        .padding(.trailing, 42)
+        .padding(.trailing, 7)
         .frame(height: 32)
         .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.toolHeader)
         .overlay(alignment: .bottom) {
@@ -972,11 +986,22 @@ struct GitLogView: View {
                         }
                     }
                     .litheScrollViewChrome(hideHorizontal: true)
+                    .focusable()
+                    .focused($gitLogCommitListFocused)
+                    .gitLogFocusEffectHidden()
+                    .onMoveCommand { direction in
+                        switch direction {
+                        case .up:
+                            moveGitLogCommitSelection(by: -1)
+                        case .down:
+                            moveGitLogCommitSelection(by: 1)
+                        default:
+                            break
+                        }
+                    }
                     .onChange(of: model.selectedGitCommit?.hash) { _ in
                         guard let hash = model.selectedGitCommit?.hash else { return }
-                        withAnimation(.easeOut(duration: 0.16)) {
-                            proxy.scrollTo(hash, anchor: .center)
-                        }
+                        proxy.scrollTo(hash)
                     }
                 }
             }
@@ -1047,12 +1072,38 @@ struct GitLogView: View {
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
-            if model.selectedGitCommitFiles.isEmpty {
-                Text(model.selectedGitCommit == nil ? "Select a commit" : "No changed files")
+            switch model.selectedGitCommitFilesLoadState {
+            case .idle:
+                Text("Select a commit")
                     .font(LitheTheme.uiFont)
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
+            case .loading:
+                VStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Loading changed files…")
+                }
+                .font(LitheTheme.uiFont)
+                .foregroundStyle(LitheTheme.secondaryText)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .failed:
+                VStack(spacing: 8) {
+                    Text("Could not load changed files")
+                    if let commit = model.selectedGitCommit {
+                        Button("Retry") {
+                            scheduleGitCommitFileLoad(for: commit)
+                        }
+                    }
+                }
+                .font(LitheTheme.uiFont)
+                .foregroundStyle(LitheTheme.secondaryText)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .ready where model.selectedGitCommitFiles.isEmpty:
+                Text("No changed files")
+                    .font(LitheTheme.uiFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .ready:
                 GeometryReader { geometry in
                     ScrollView(.vertical) {
                         LazyVStack(alignment: .leading, spacing: 0) {
@@ -1097,6 +1148,7 @@ struct GitLogView: View {
                     Spacer(minLength: 0)
                 }
                 .padding(11)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .textSelection(.enabled)
             } else {
                 Text("Commit details")
@@ -1109,8 +1161,30 @@ struct GitLogView: View {
     }
 
     private var filteredCommits: [GitCommit] {
-        guard let hashes = model.gitLogMatchedCommitHashes else { return model.gitCommits }
+        guard let hashes = visibleCommitHashes else { return model.gitCommits }
         return model.gitCommits.filter { hashes.contains($0.hash) }
+    }
+
+    private func moveGitLogCommitSelection(by offset: Int) {
+        guard let commit = GitLogCommitSelection.adjacentCommit(
+            in: filteredCommits,
+            selectedHash: model.selectedGitCommit?.hash,
+            offset: offset
+        ) else { return }
+        model.previewGitCommitSelection(commit)
+        scheduleGitCommitFileLoad(for: commit)
+    }
+
+    private func scheduleGitCommitFileLoad(for commit: GitCommit) {
+        gitCommitFileLoadTask?.cancel()
+        gitCommitFileLoadTask = Task { [model] in
+            do {
+                try await Task.sleep(for: GitVisual.commitFileLoadDelay)
+            } catch {
+                return
+            }
+            await model.loadGitCommitFiles(for: commit)
+        }
     }
 
     private var checkoutReference: GitReference? {
@@ -1143,7 +1217,9 @@ struct GitLogView: View {
         let pendingOperation = $pendingCommitOperation
         return GitGraphRowActions(
             onSelect: { [model] commit in
-                Task { await model.selectGitCommit(commit) }
+                gitLogCommitListFocused = true
+                model.previewGitCommitSelection(commit)
+                scheduleGitCommitFileLoad(for: commit)
             },
             onCherryPick: { commit in
                 pendingOperation.wrappedValue = GitCommitOperationRequest(kind: .cherryPick, commit: commit)
@@ -1591,6 +1667,34 @@ private enum GitLogAuthorSelection: Hashable {
             return nil
         case .author(let name, let email):
             return GitIdentity(name: name, email: email)
+        }
+    }
+}
+
+enum GitLogCommitSelection {
+    static func adjacentCommit(
+        in commits: [GitCommit],
+        selectedHash: String?,
+        offset: Int
+    ) -> GitCommit? {
+        guard !commits.isEmpty, offset == -1 || offset == 1 else { return nil }
+        guard let selectedHash,
+              let selectedIndex = commits.firstIndex(where: { $0.hash == selectedHash }) else {
+            return offset < 0 ? commits.last : commits.first
+        }
+        let targetIndex = selectedIndex + offset
+        guard commits.indices.contains(targetIndex) else { return nil }
+        return commits[targetIndex]
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func gitLogFocusEffectHidden() -> some View {
+        if #available(macOS 14.0, *) {
+            focusEffectDisabled()
+        } else {
+            self
         }
     }
 }
