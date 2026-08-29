@@ -97,6 +97,9 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     @Published public private(set) var areBreakpointsMuted = false
     @Published public private(set) var capabilities: DebugAdapterCapabilities = .unknown
     @Published public private(set) var stoppedFrame: DebugStackFrame?
+    /// The frame currently selected in the call stack, which may differ from
+    /// the frame that initially caused the stop.
+    @Published public private(set) var selectedFrame: DebugStackFrame?
 
     /// Delivers the selected stopped frame to the host editor for source
     /// navigation. The Debug module does not own editor presentation.
@@ -161,6 +164,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         selectedThreadID = nil
         selectedFrameID = nil
         stoppedFrame = nil
+        selectedFrame = nil
         do {
             if requestedBreakpointsByFile[fileURL.standardizedFileURL] != nil {
                 try sessions.setBreakpoints(
@@ -199,6 +203,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         selectedThreadID = nil
         selectedFrameID = nil
         stoppedFrame = nil
+        selectedFrame = nil
         threads = []
         stackFrames = []
         scopes = []
@@ -558,7 +563,6 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                 self?.selectedFrameID = frames.first?.id
                 if let frame = frames.first {
                     self?.selectFrame(frame)
-                    self?.publishStoppedLocation(frame)
                 }
             case .failure(let error): self?.record(error)
             }
@@ -568,6 +572,8 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     public func selectFrame(_ frame: DebugStackFrame) {
         activeSession?.cancelPendingOperations()
         selectedFrameID = frame.id
+        selectedFrame = frame
+        publishStoppedLocation(frame)
         refreshWatches()
         guard let session = activeSession else { return }
         session.requestScopes(frameID: frame.id) { [weak self] result in
@@ -776,7 +782,6 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                         self?.stackFrames = frames
                         if let frame = frames.first {
                             self?.selectFrame(frame)
-                            self?.publishStoppedLocation(frame)
                         }
                     }
                 }
@@ -784,6 +789,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         case .continued:
             stoppedReason = nil
             stoppedFrame = nil
+            selectedFrame = nil
             activeSession?.cancelPendingOperations()
             resetVariableTree()
             invalidateWatchResults()

@@ -1241,7 +1241,7 @@ struct CodeEditorView: NSViewRepresentable {
                 uniquingKeysWith: { first, _ in first }
             )
             let currentExecutionLine: Int? = {
-                guard let frame = model.genericDebugFeatureIfActive?.stoppedFrame,
+                guard let frame = model.genericDebugFeatureIfActive?.selectedFrame,
                       frame.sourceURL?.standardizedFileURL == url else { return nil }
                 return frame.line
             }()
