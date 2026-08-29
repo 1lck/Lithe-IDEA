@@ -17,7 +17,11 @@
       "launcherJarPath": "/opt/lithe/jdtls/plugins/org.eclipse.equinox.launcher_1.7.0.jar",
       "configurationDirectory": "/opt/lithe/jdtls/config_mac",
       "lombokAgentPath": "/opt/lithe/jdtls/lombok/lombok.jar",
-      "javaDebugBundlePath": "/opt/lithe/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar"
+      "javaDebugBundlePath": "/opt/lithe/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar",
+      "javaExtensionBundlePaths": [
+        "/opt/lithe/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar",
+        "/opt/lithe/jdtls/java-test/extensions/com.microsoft.java.test.plugin-0.42.0.jar"
+      ]
     },
     "cacheDirectory": "/var/cache/lithe/language-servers",
     "workspaceFingerprint": "build=|modules=|jdtls=1.55.0",

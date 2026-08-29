@@ -94,7 +94,10 @@ struct JavaLanguageServerRuntimeTests {
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("lithe-jdtls-resolver-\(UUID().uuidString)", isDirectory: true)
         defer { try? fileManager.removeItem(at: root) }
-        for directory in ["bin", "plugins", "config_mac", "config_mac_arm", "lombok", "java-debug"] {
+        for directory in [
+            "bin", "plugins", "config_mac", "config_mac_arm", "lombok", "java-debug",
+            "java-test/extensions"
+        ] {
             try fileManager.createDirectory(
                 at: root.appendingPathComponent(directory, isDirectory: true),
                 withIntermediateDirectories: true
@@ -109,7 +112,9 @@ struct JavaLanguageServerRuntimeTests {
             firstLauncher,
             root.appendingPathComponent("plugins/org.eclipse.equinox.launcher_2.0.0.jar"),
             root.appendingPathComponent("lombok/lombok.jar"),
-            root.appendingPathComponent("java-debug/com.microsoft.java.debug.plugin-0.53.1.jar")
+            root.appendingPathComponent("java-debug/com.microsoft.java.debug.plugin-0.53.1.jar"),
+            root.appendingPathComponent("java-test/extensions/org.opentest4j_1.2.0.jar"),
+            root.appendingPathComponent("java-test/extensions/com.microsoft.java.test.plugin-0.42.0.jar")
         ] {
             try Data().write(to: file)
         }
@@ -130,6 +135,11 @@ struct JavaLanguageServerRuntimeTests {
             resources.javaDebugBundleURL?.lastPathComponent
                 == "com.microsoft.java.debug.plugin-0.53.1.jar"
         )
+        #expect(resources.javaExtensionBundleURLs.map(\.lastPathComponent) == [
+            "com.microsoft.java.debug.plugin-0.53.1.jar",
+            "com.microsoft.java.test.plugin-0.42.0.jar",
+            "org.opentest4j_1.2.0.jar"
+        ])
     }
 
     @Test
@@ -158,7 +168,7 @@ struct JavaLanguageServerRuntimeTests {
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("lithe-jdtls-architecture-\(UUID().uuidString)", isDirectory: true)
         defer { try? fileManager.removeItem(at: root) }
-        for directory in ["bin", "plugins", "lombok", "java-debug"] {
+        for directory in ["bin", "plugins", "lombok", "java-debug", "java-test/extensions"] {
             try fileManager.createDirectory(
                 at: root.appendingPathComponent(directory, isDirectory: true),
                 withIntermediateDirectories: true
@@ -180,7 +190,8 @@ struct JavaLanguageServerRuntimeTests {
             root.appendingPathComponent("bin/jdtls"),
             root.appendingPathComponent("plugins/org.eclipse.equinox.launcher_1.0.0.jar"),
             root.appendingPathComponent("lombok/lombok.jar"),
-            root.appendingPathComponent("java-debug/com.microsoft.java.debug.plugin-0.53.1.jar")
+            root.appendingPathComponent("java-debug/com.microsoft.java.debug.plugin-0.53.1.jar"),
+            root.appendingPathComponent("java-test/extensions/com.microsoft.java.test.plugin-0.42.0.jar")
         ] {
             try Data().write(to: file)
         }

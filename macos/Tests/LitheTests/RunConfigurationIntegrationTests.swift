@@ -1362,7 +1362,13 @@ struct RunConfigurationIntegrationTests {
             lombokAgentURL: URL(fileURLWithPath: "/jdtls/lombok/lombok.jar"),
             javaDebugBundleURL: URL(
                 fileURLWithPath: "/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar"
-            )
+            ),
+            javaExtensionBundleURLs: [
+                URL(
+                    fileURLWithPath:
+                        "/jdtls/java-test/extensions/com.microsoft.java.test.plugin-0.42.0.jar"
+                )
+            ]
         )
         let runtime = StdioLanguageProviderRuntime(
             descriptor: descriptor,

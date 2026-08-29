@@ -208,14 +208,16 @@ pub(crate) fn adapt_start(context: &JdtStartContext) -> JdtStartAdaptation {
     }
 }
 
-/// Adds the JDT LS client extensions required for class-file navigation.
+/// Adds the JDT LS client extensions required for Java tooling.
 ///
 /// Catalog-provided options are preserved, while the provider-owned capability
 /// is authoritative because virtual class files cannot be opened without it.
+/// Extension bundles are appended in caller order without duplicating catalog
+/// entries, which keeps Debug and Test plugin activation deterministic.
 pub(crate) fn adapt_initialization_options(
     provider_id: &str,
     initialization_options: Option<Value>,
-    java_debug_bundle_path: Option<&Path>,
+    java_extension_bundle_paths: &[PathBuf],
 ) -> Option<Value> {
     if !is_java_provider(provider_id) {
         return initialization_options;
@@ -236,8 +238,7 @@ pub(crate) fn adapt_initialization_options(
         .expect("the extended capabilities were normalized to an object")
         .insert("classFileContentsSupport".to_string(), Value::Bool(true));
 
-    if let Some(bundle_path) = java_debug_bundle_path {
-        let bundle = Value::String(bundle_path.to_string_lossy().into_owned());
+    if !java_extension_bundle_paths.is_empty() {
         let bundles = options
             .entry("bundles")
             .or_insert_with(|| Value::Array(Vec::new()));
@@ -247,8 +248,11 @@ pub(crate) fn adapt_initialization_options(
         let bundles = bundles
             .as_array_mut()
             .expect("the Java extension bundles were normalized to an array");
-        if !bundles.contains(&bundle) {
-            bundles.push(bundle);
+        for bundle_path in java_extension_bundle_paths {
+            let bundle = Value::String(bundle_path.to_string_lossy().into_owned());
+            if !bundles.contains(&bundle) {
+                bundles.push(bundle);
+            }
         }
     }
 
@@ -1129,7 +1133,7 @@ mod tests {
         assert!(initialized_notification("rust").is_none());
         assert!(virtual_source_resolve_params("rust", "jdt://contents/A.class").is_none());
         assert_eq!(
-            adapt_initialization_options("rust", Some(json!({ "custom": true })), None),
+            adapt_initialization_options("rust", Some(json!({ "custom": true })), &[]),
             Some(json!({ "custom": true }))
         );
         let location = ProviderLocation {
@@ -1152,9 +1156,12 @@ mod tests {
                     "classFileContentsSupport": false
                 }
             })),
-            Some(Path::new(
-                "/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar",
-            )),
+            &[
+                PathBuf::from("/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar"),
+                PathBuf::from(
+                    "/jdtls/java-test/extensions/com.microsoft.java.test.plugin-0.42.0.jar",
+                ),
+            ],
         )
         .unwrap();
 
@@ -1171,7 +1178,8 @@ mod tests {
             options["bundles"],
             json!([
                 "/plugins/custom.jar",
-                "/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar"
+                "/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar",
+                "/jdtls/java-test/extensions/com.microsoft.java.test.plugin-0.42.0.jar"
             ])
         );
     }

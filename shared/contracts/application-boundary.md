@@ -143,12 +143,14 @@ preparing, ready, failure, and timeout notifications; a navigation command while
 preparing ends after the notice and is never replayed later.
 
 macOS and Windows adapters discover the selected JDT LS installation's Equinox
-launcher JAR, platform configuration directory, Lombok agent, and bundled Java
-executable. They submit those paths as structured launch resources; Rust Core
-owns the JVM flags and directly starts `java`/`java.exe` with array arguments.
-Packaged JDT LS therefore has no runtime dependency on shell wrappers,
-PowerShell, or the user's `PATH`. Legacy wrappers are an external-plan
-compatibility fallback and are not the packaged execution path.
+launcher JAR, platform configuration directory, Lombok agent, Java Debug
+Server, and bundled Java executable. Java Test-capable adapters additionally
+submit ordered extension bundles; Rust Core owns their ordering and
+de-duplication, the JVM flags, and direct `java`/`java.exe` startup with array
+arguments. The macOS TestNG runner remains a packaged native resource used only
+when a TestNG session starts. Packaged JDT LS therefore has no runtime dependency
+on shell wrappers, PowerShell, or the user's `PATH`. Legacy wrappers are an
+external-plan compatibility fallback and are not the packaged execution path.
 
 Platforms observe JDT LS version and non-recursive build-file metadata, while
 Rust Core alone validates and reduces those observations to the opaque workspace

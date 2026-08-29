@@ -16,5 +16,12 @@
   "javaDebugPluginSHA256": "daaaa5f63f527dc1e9bfa7bae1aca006b69fb29fa0525d7e284d3420ec7b9c44",
   "javaDebugLicenseURL": "https://raw.githubusercontent.com/microsoft/java-debug/0.53.1/LICENSE.txt",
   "javaDebugLicenseSHA256": "f494326c16bc95ebb14874ea5fa2c16a963eb36d1f2ab6fe99490073709771c1",
+  "javaTestExtensionVersion": "0.42.0",
+  "javaTestArchiveURL": "https://open-vsx.org/api/vscjava/vscode-java-test/0.42.0/file/vscjava.vscode-java-test-0.42.0.vsix",
+  "javaTestArchiveSHA256": "6293167533595b812d0490c5e2b649f920bf61eb331f17de6046364fe3894bea",
+  "javaTestPluginSHA256": "3f8a5af986b0440223845f34e70860ee50a096375692dd5ebe69ebc8a75ab99f",
+  "javaTestRunnerSHA256": "f7f3298c28ae0a01f69e45744648a2a81867228e48027374669e4ef7bfc15bc7",
+  "javaTestLicenseURL": "https://raw.githubusercontent.com/microsoft/vscode-java-test/0.42.0/LICENSE.txt",
+  "javaTestLicenseSHA256": "8314299543336aa4fe5c1d1d6cf278d538b387aad74cba37e50f5c4d34add9f3",
   "minimumJavaVersion": 17
 }

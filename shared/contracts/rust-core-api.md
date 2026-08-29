@@ -532,9 +532,11 @@ provider such as JDT LS that has a later readiness signal,
 progress and `serviceReadyAbsoluteTimeoutMilliseconds` is the final safety cap.
 The defaults are 45 seconds idle and 10 minutes absolute; duplicate progress
 does not refresh the idle deadline. `jdtlsLaunchResources`, when present,
-contains `launcherJarPath`, `configurationDirectory`, `lombokAgentPath`, and the
-optional `javaDebugBundlePath`; it
-is valid only for the Java provider and requires `runtimeExecutablePath`. Rust
+contains `launcherJarPath`, `configurationDirectory`, `lombokAgentPath`, the
+legacy optional `javaDebugBundlePath`, and ordered
+`javaExtensionBundlePaths`. It is valid only for the Java provider and requires
+`runtimeExecutablePath`. Rust loads the legacy Debug bundle first when present,
+then appends the extension bundle paths with stable de-duplication. Rust
 then uses `runtimeExecutablePath` as the process executable and constructs the
 complete deterministic JDT LS JVM argument list. When the structured object is
 absent, the selected `executablePath` and legacy wrapper arguments remain the
@@ -554,10 +556,11 @@ diagnostic snapshot in `underlyingMessage`.
 
 Platform adapters own filesystem discovery and validate that packaged JDT LS
 contains the Equinox launcher, platform configuration directory, Lombok agent,
-and bundled Java. They do not construct JVM commands. Packaged macOS and Windows
-plans always use structured direct launch, so runtime startup has no shell,
-PowerShell, or user-`PATH` dependency. Wrapper launch remains optional only for
-external or older plans.
+Java Debug Server, and bundled Java. Java Test-capable hosts additionally
+validate their extension bundles and runner. They do not construct JVM commands.
+Packaged macOS and Windows plans always use structured direct launch, so runtime
+startup has no shell, PowerShell, or user-`PATH` dependency. Wrapper launch
+remains optional only for external or older plans.
 
 For JDT LS, platform adapters observe root Maven/Gradle descriptor timestamps
 and sizes, names of direct Maven module directories, and the selected JDT LS
