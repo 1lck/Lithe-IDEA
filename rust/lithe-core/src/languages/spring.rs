@@ -140,11 +140,10 @@ fn property_reference_index(sources: &[(String, String)]) -> Vec<SpringPropertyR
         Regex::new(r#"@Value\s*\(\s*[\"']\$\{\s*([^}:\s]+)(?::[^}]*)?\s*\}[\"']\s*\)"#)
             .expect("literal pattern is valid")
     });
-    let annotation = &*ANNOTATION;
     let mut references = Vec::new();
     for (path, source) in sources {
         for (index, line) in source.lines().enumerate() {
-            for capture in annotation.captures_iter(line) {
+            for capture in ANNOTATION.captures_iter(line) {
                 let Some(key) = capture.get(1) else { continue };
                 references.push(SpringPropertyReferenceResponse {
                     key: canonical_property_name(key.as_str()),
@@ -410,7 +409,6 @@ fn append_configuration_properties(
         )
         .expect("literal pattern is valid")
     });
-    let annotation = &*ANNOTATION;
     let mut types = HashMap::new();
     for (path, source) in sources {
         for value in parse_configuration_types(path, source) {
@@ -418,7 +416,7 @@ fn append_configuration_properties(
         }
     }
     for (_, source) in sources {
-        for capture in annotation.captures_iter(source) {
+        for capture in ANNOTATION.captures_iter(source) {
             let Some(prefix) = capture.get(1) else {
                 continue;
             };
@@ -463,13 +461,11 @@ fn parse_configuration_types(path: &str, source: &str) -> Vec<ConfigurationType>
         )
         .expect("literal pattern is valid")
     });
-    let declaration = &*DECLARATION;
-    let field = &*FIELD;
     let mut types = Vec::<ConfigurationType>::new();
     let mut stack = Vec::<usize>::new();
     let mut depth = 0isize;
     for (index, line) in source.lines().enumerate() {
-        if let Some(capture) = declaration.captures(line) {
+        if let Some(capture) = DECLARATION.captures(line) {
             let name = capture.get(1).unwrap();
             let body_depth = depth + brace_delta(line);
             let mut value = ConfigurationType {
@@ -489,7 +485,7 @@ fn parse_configuration_types(path: &str, source: &str) -> Vec<ConfigurationType>
             stack.push(types.len() - 1);
         } else if let Some(type_index) = stack.last().copied() {
             if depth == types[type_index].body_depth {
-                if let Some(capture) = field.captures(line) {
+                if let Some(capture) = FIELD.captures(line) {
                     let name = capture.get(2).unwrap();
                     types[type_index].fields.push(ConfigurationField {
                         name: name.as_str().to_string(),
@@ -947,12 +943,9 @@ fn bean_index(
         )
         .expect("literal pattern is valid")
     });
-    let type_declaration = &*TYPE_DECLARATION;
-    let method = &*METHOD;
-    let field = &*FIELD;
     let mut supertypes = HashMap::<String, Vec<String>>::new();
     for (_, source) in sources {
-        for capture in type_declaration.captures_iter(source) {
+        for capture in TYPE_DECLARATION.captures_iter(source) {
             let Some(name) = capture.get(2) else { continue };
             let tail = capture
                 .get(3)
@@ -966,7 +959,7 @@ fn bean_index(
     let mut raw_injections = Vec::new();
     for (path, source) in sources {
         let lines = source.lines().collect::<Vec<_>>();
-        let source_type = type_declaration
+        let source_type = TYPE_DECLARATION
             .captures(source)
             .and_then(|capture| capture.get(2))
             .map(|value| value.as_str().to_string());
@@ -979,7 +972,7 @@ fn bean_index(
             .map_or(0, |pattern| pattern.captures_iter(source).count());
         for (index, line) in lines.iter().enumerate() {
             let context = annotation_context(&lines, index);
-            if let Some(capture) = type_declaration.captures(line) {
+            if let Some(capture) = TYPE_DECLARATION.captures(line) {
                 if has_component_annotation(&context) {
                     let name = capture.get(2).unwrap();
                     let default_name = lower_camel(name.as_str());
@@ -1003,7 +996,7 @@ fn bean_index(
                 }
             }
             if SpringAnnotation::Bean.is_present(&context) {
-                if let Some(capture) = method.captures(line) {
+                if let Some(capture) = METHOD.captures(line) {
                     let type_name = simple_type(capture.get(1).unwrap().as_str());
                     let declaration_name = capture.get(2).unwrap();
                     let aliases = bean_names(&context);
@@ -1031,7 +1024,7 @@ fn bean_index(
                 }
             }
             if is_injection_context(&context) {
-                if let Some(capture) = field.captures(line) {
+                if let Some(capture) = FIELD.captures(line) {
                     let type_name = simple_type(capture.get(1).unwrap().as_str());
                     let name = capture.get(2).unwrap();
                     raw_injections.push(RawInjection {
@@ -1182,7 +1175,7 @@ fn annotation_boundary_pattern(name: &str) -> Regex {
 /// a case that was added without a pattern.
 macro_rules! spring_annotations {
     ($($variant:ident => $name:literal),+ $(,)?) => {
-        #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+        #[derive(Clone, Copy)]
         pub(crate) enum SpringAnnotation {
             $($variant),+
         }
@@ -1278,8 +1271,7 @@ fn qualifier_names(context: &str) -> Vec<String> {
         Regex::new(r#"@Qualifier\s*\(\s*[\"']([^\"']+)[\"']\s*\)"#)
             .expect("literal pattern is valid")
     });
-    let pattern = &*PATTERN;
-    pattern
+    PATTERN
         .captures_iter(context)
         .filter_map(|capture| capture.get(1).map(|value| value.as_str().to_string()))
         .collect()
@@ -1297,8 +1289,7 @@ fn bean_names(context: &str) -> Vec<String> {
 fn quoted_values(value: &str) -> Vec<String> {
     static PATTERN: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r#"[\"']([^\"']*)[\"']"#).expect("literal pattern is valid"));
-    let pattern = &*PATTERN;
-    pattern
+    PATTERN
         .captures_iter(value)
         .filter_map(|capture| capture.get(1).map(|item| item.as_str().to_string()))
         .collect()
@@ -1355,8 +1346,7 @@ fn injection_qualifier(context: &str) -> Option<String> {
             Regex::new(r#"@Resource\s*\([^\)]*name\s*=\s*[\"']([^\"']+)[\"']"#)
                 .expect("literal pattern is valid")
         });
-        let resource = &*RESOURCE;
-        resource
+        RESOURCE
             .captures(context)
             .and_then(|capture| capture.get(1))
             .map(|value| value.as_str().to_string())
@@ -1422,8 +1412,6 @@ fn endpoint_index(sources: &[(String, String)]) -> Vec<SpringEndpointResponse> {
         Regex::new(r"[A-Za-z0-9_$.<>?]+\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(")
             .expect("literal pattern is valid")
     });
-    let class = &*CLASS;
-    let method = &*METHOD;
     let mut endpoints = Vec::new();
     for (path, source) in sources {
         if !SpringAnnotation::Controller.is_present(source)
@@ -1431,7 +1419,7 @@ fn endpoint_index(sources: &[(String, String)]) -> Vec<SpringEndpointResponse> {
         {
             continue;
         }
-        let controller = class
+        let controller = CLASS
             .captures(source)
             .and_then(|capture| capture.get(1))
             .map(|value| value.as_str().to_string())
@@ -1453,12 +1441,12 @@ fn endpoint_index(sources: &[(String, String)]) -> Vec<SpringEndpointResponse> {
             let declaration = declaration_index
                 .and_then(|value| lines.get(value).copied())
                 .unwrap_or_default();
-            if annotation.contains("@RequestMapping") && class.is_match(declaration) {
+            if annotation.contains("@RequestMapping") && CLASS.is_match(declaration) {
                 base_routes = routes;
                 index = annotation_end + 1;
                 continue;
             }
-            let method_name = method
+            let method_name = METHOD
                 .captures(declaration)
                 .and_then(|capture| capture.get(1))
                 .map(|value| value.as_str())
