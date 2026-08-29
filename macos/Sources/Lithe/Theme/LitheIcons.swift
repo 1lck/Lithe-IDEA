@@ -149,7 +149,18 @@ enum LitheIcons {
 
     static func kind(for url: URL, isDirectory: Bool, isInsideSourceRoot: Bool = false) -> LitheIconKind {
         if isDirectory { return directoryKind(for: url, isInsideSourceRoot: isInsideSourceRoot) }
-        return fileKind(for: url)
+        return fileKind(
+            fileName: url.lastPathComponent,
+            pathExtension: url.pathExtension
+        )
+    }
+
+    static func kind(forFilePath path: String) -> LitheIconKind {
+        let fileName = (path as NSString).lastPathComponent
+        return fileKind(
+            fileName: fileName,
+            pathExtension: (fileName as NSString).pathExtension
+        )
     }
 
     static func ideaAssetPath(forSystemImage systemImage: String) -> String? {
@@ -197,8 +208,8 @@ enum LitheIcons {
         }
     }
 
-    private static func fileKind(for url: URL) -> LitheIconKind {
-        let name = url.lastPathComponent.lowercased()
+    private static func fileKind(fileName: String, pathExtension: String) -> LitheIconKind {
+        let name = fileName.lowercased()
         if name == "pom.xml" { return .maven }
         if name == ".gitignore" || name == ".gitattributes" || name == ".dockerignore" { return .gitignore }
         if name == ".classpath" || name == ".project" || name == ".factorypath" { return .xml }
@@ -209,7 +220,7 @@ enum LitheIcons {
         // .env.local、.env.production 的扩展名不是 env。
         if name == ".env" || name.hasPrefix(".env.") { return .properties }
 
-        switch url.pathExtension.lowercased() {
+        switch pathExtension.lowercased() {
         case "java": return .javaGeneric
         case "class", "jar": return .binary
         case "swift": return .swiftSource

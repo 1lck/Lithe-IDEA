@@ -14,7 +14,6 @@ import { activateExtensionContributions } from "../runtime/extension-contributio
 import { extensionRegistry } from "./extension-registry";
 import {
   findExtensionForFile,
-  isExtensionAllowedByEnterprisePolicy,
   mergeMarketplaceLanguageExtensions,
 } from "./extension-store-helpers";
 import {
@@ -37,11 +36,6 @@ import type { AvailableExtension, ExtensionInstallationMetadata } from "./extens
 import type { ExtensionManifest } from "../types/extension-manifest";
 import { getManifestDatabaseContributions } from "../types/extension-contributions";
 import { readInstalledBundledContributionExtensionIds } from "./bundled-contribution-install-state";
-import {
-  recordExtensionLifecycleTelemetry,
-  recordExtensionRegistrySync,
-  recordExtensionUpdateCheck,
-} from "@/features/telemetry/services/telemetry";
 
 function isBuiltInDatabaseExtension(manifest: ExtensionManifest): boolean {
   return getManifestDatabaseContributions(manifest).some((provider) => provider.id === "sqlite");
@@ -202,14 +196,6 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
             }
           });
 
-          void recordExtensionRegistrySync({
-            installedExtensions: Array.from(installedExtensions.entries()).map(
-              ([id, extension]) => ({
-                id,
-                version: extension.version,
-              }),
-            ),
-          });
         } catch (error) {
           console.error("Failed to load installed extensions:", error);
           set((state) => {
@@ -234,12 +220,6 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
         const extension = get().availableExtensions.get(extensionId);
         if (!extension) {
           throw new Error(`Extension ${extensionId} not found in registry`);
-        }
-
-        if (!isExtensionAllowedByEnterprisePolicy(extensionId)) {
-          throw new Error(
-            `Installation blocked by enterprise policy. "${extensionId}" is not in the extension allowlist.`,
-          );
         }
 
         if (!extension.manifest.installation) {
@@ -307,11 +287,6 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
             reloadInstalledExtensions: get().actions.loadInstalledExtensions,
           });
 
-          void recordExtensionLifecycleTelemetry({
-            type: "extension_install",
-            extensionId,
-            version: extension.manifest.version,
-          });
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
 
@@ -363,11 +338,6 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
             reloadInstalledExtensions: get().actions.loadInstalledExtensions,
           });
 
-          void recordExtensionLifecycleTelemetry({
-            type: "extension_uninstall",
-            extensionId,
-            version: extension.manifest.version,
-          });
         } catch (error) {
           console.error(`Failed to uninstall extension ${extensionId}:`, error);
           throw error;
@@ -461,13 +431,6 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
             state.isCheckingUpdates = false;
           });
 
-          void recordExtensionUpdateCheck({
-            installedExtensions: installed.map((extension) => ({
-              id: resolveInstalledExtensionId(extension, get().availableExtensions),
-              version: extension.version,
-            })),
-            updates,
-          });
 
           return updates;
         } catch (error) {
@@ -483,12 +446,6 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
         const extension = get().availableExtensions.get(extensionId);
         if (!extension) {
           throw new Error(`Extension ${extensionId} not found`);
-        }
-
-        if (!isExtensionAllowedByEnterprisePolicy(extensionId)) {
-          throw new Error(
-            `Update blocked by enterprise policy. "${extensionId}" is not in the extension allowlist.`,
-          );
         }
 
         await updateExtensionLifecycle({
@@ -508,11 +465,6 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
           reinstall: () => get().actions.installExtension(extensionId),
         });
 
-        void recordExtensionLifecycleTelemetry({
-          type: "extension_update",
-          extensionId,
-          version: extension.manifest.version,
-        });
       },
     },
   })),

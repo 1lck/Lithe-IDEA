@@ -4,8 +4,8 @@ import { $ } from "bun";
 import { createHash } from "node:crypto";
 import { chmod, cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { SERVICE_DEFAULTS } from "@/config/service-defaults";
 import { basename, dirname, join, resolve } from "node:path";
+import { requireExtensionsCdnBaseUrl } from "./cdn-config";
 import {
   LITHE_ROOT,
   getContributionArray,
@@ -17,7 +17,7 @@ import {
   writeStableTarGz,
 } from "./extension-workspace";
 
-const cdnBaseUrl = process.env.EXTENSIONS_CDN_BASE_URL || SERVICE_DEFAULTS.extensionsCdnBaseUrl;
+const cdnBaseUrl = requireExtensionsCdnBaseUrl();
 
 function argValue(name: string) {
   const index = process.argv.indexOf(name);

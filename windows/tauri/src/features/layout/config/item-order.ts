@@ -1,4 +1,3 @@
-export const HEADER_TRAILING_ITEM_IDS = [] as const;
 export const SIDEBAR_ACTIVITY_ITEM_IDS = [
   "files",
   "git",
@@ -26,7 +25,6 @@ export const FOOTER_TRAILING_ITEM_IDS = [
   "gitChanges",
 ] as const;
 
-export type HeaderTrailingItemId = "account";
 export type SidebarActivityItemId = (typeof SIDEBAR_ACTIVITY_ITEM_IDS)[number];
 export type FooterLeadingItemId = (typeof FOOTER_LEADING_ITEM_IDS)[number] | "debugger";
 export type FooterTrailingItemId = (typeof FOOTER_TRAILING_ITEM_IDS)[number];
