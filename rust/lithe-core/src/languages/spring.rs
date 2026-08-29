@@ -20,6 +20,16 @@ const MAX_METADATA_ARCHIVES: usize = 20_000;
 static REPOSITORY_METADATA_CACHE: OnceLock<Mutex<HashMap<PathBuf, Vec<SpringPropertyResponse>>>> =
     OnceLock::new();
 
+/// One Java parameter declaration: optional annotations, an optional `final`,
+/// the type, and the parameter name. Record components and constructor
+/// parameters share this grammar, so they must not drift into two patterns.
+static JAVA_PARAMETER_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?:@[A-Za-z0-9_$.]+(?:\([^)]*\))?\s+)*(?:final\s+)?([A-Za-z0-9_$.<>?]+)\s+([A-Za-z_$][A-Za-z0-9_$]*)$",
+    )
+    .expect("literal pattern is valid")
+});
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Workspace paths and an optional trusted dependency repository to index.
@@ -511,17 +521,10 @@ fn parse_record_components(
     line: &str,
     components: &str,
 ) -> Vec<ConfigurationField> {
-    static COMPONENT: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(
-            r"(?:@[A-Za-z0-9_$.]+(?:\([^)]*\))?\s+)*(?:final\s+)?([A-Za-z0-9_$.<>?]+)\s+([A-Za-z_$][A-Za-z0-9_$]*)$",
-        )
-        .expect("literal pattern is valid")
-    });
-    let component = &*COMPONENT;
     split_parameters(components)
         .into_iter()
         .filter_map(|value| {
-            let capture = component.captures(value.trim())?;
+            let capture = JAVA_PARAMETER_DECLARATION.captures(value.trim())?;
             let name = capture.get(2)?;
             Some(ConfigurationField {
                 name: name.as_str().to_string(),
@@ -995,11 +998,11 @@ fn bean_index(
                         },
                         names,
                         assignable_types: assignable_types(name.as_str(), &supertypes),
-                        primary: has_annotation(&context, "Primary"),
+                        primary: SpringAnnotation::Primary.is_present(&context),
                     });
                 }
             }
-            if has_annotation(&context, "Bean") {
+            if SpringAnnotation::Bean.is_present(&context) {
                 if let Some(capture) = method.captures(line) {
                     let type_name = simple_type(capture.get(1).unwrap().as_str());
                     let declaration_name = capture.get(2).unwrap();
@@ -1023,7 +1026,7 @@ fn bean_index(
                         },
                         names,
                         assignable_types: assignable_types(&type_name, &supertypes),
-                        primary: has_annotation(&context, "Primary"),
+                        primary: SpringAnnotation::Primary.is_present(&context),
                     });
                 }
             }
@@ -1162,68 +1165,124 @@ fn annotation_context(lines: &[&str], index: usize) -> String {
     values.join(" ")
 }
 
-/// Matches `@Name` only when the name is not a prefix of a longer annotation,
-/// so `@Bean` does not match `@BeanFactory`.
-fn annotation_regex(name: &str) -> Regex {
-    Regex::new(&format!(r"@{}(?:\s|\(|$)", regex::escape(name)))
-        .expect("an escaped annotation name is a valid pattern")
+/// The Spring annotations this module recognizes.
+///
+/// A closed type keeps the compiled pattern table and every call site in
+/// agreement. Adding an annotation means adding a case, which the exhaustive
+/// [`SpringAnnotation::name`] match forces the author to complete, so detection
+/// can never silently fall back to compiling a pattern on every source line.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(crate) enum SpringAnnotation {
+    Autowired,
+    Bean,
+    Component,
+    Configuration,
+    Controller,
+    Inject,
+    Primary,
+    Repository,
+    Resource,
+    RestController,
+    Service,
 }
 
-/// `has_annotation` runs several times for every line of every Java source, so
-/// the patterns for the annotations this module recognizes are compiled once.
-fn cached_annotation_regex(name: &str) -> Option<&'static Regex> {
-    static PATTERNS: LazyLock<HashMap<&'static str, Regex>> = LazyLock::new(|| {
-        [
-            "Autowired",
-            "Bean",
-            "Component",
-            "Configuration",
-            "Controller",
-            "Inject",
-            "Primary",
-            "Repository",
-            "Resource",
-            "RestController",
-            "Service",
-        ]
-        .into_iter()
-        .map(|name| (name, annotation_regex(name)))
-        .collect()
-    });
-    PATTERNS.get(name)
-}
+impl SpringAnnotation {
+    /// Every recognized annotation. The pattern table is built from this list.
+    pub(crate) const ALL: [Self; 11] = [
+        Self::Autowired,
+        Self::Bean,
+        Self::Component,
+        Self::Configuration,
+        Self::Controller,
+        Self::Inject,
+        Self::Primary,
+        Self::Repository,
+        Self::Resource,
+        Self::RestController,
+        Self::Service,
+    ];
 
-fn has_annotation(context: &str, name: &str) -> bool {
-    match cached_annotation_regex(name) {
-        Some(pattern) => pattern.is_match(context),
-        // The cache lists today's callers. Compiling on demand keeps the helper
-        // correct if a caller starts recognizing another annotation.
-        None => annotation_regex(name).is_match(context),
+    /// Annotations that declare a Spring component on a type declaration. The
+    /// order also drives the alternation in [`component_name`], so changing it
+    /// changes which annotation wins on a type carrying several of them.
+    const COMPONENTS: [Self; 6] = [
+        Self::Component,
+        Self::Service,
+        Self::Repository,
+        Self::Controller,
+        Self::RestController,
+        Self::Configuration,
+    ];
+
+    /// Annotations that mark a field or constructor parameter for injection.
+    const INJECTIONS: [Self; 3] = [Self::Autowired, Self::Inject, Self::Resource];
+
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Autowired => "Autowired",
+            Self::Bean => "Bean",
+            Self::Component => "Component",
+            Self::Configuration => "Configuration",
+            Self::Controller => "Controller",
+            Self::Inject => "Inject",
+            Self::Primary => "Primary",
+            Self::Repository => "Repository",
+            Self::Resource => "Resource",
+            Self::RestController => "RestController",
+            Self::Service => "Service",
+        }
+    }
+
+    /// Matches `@Name` only when the name is not a prefix of a longer
+    /// annotation, so `@Bean` does not match `@BeanFactory`.
+    ///
+    /// Detection runs several times for every line of every Java source, so the
+    /// patterns are compiled once for the process.
+    pub(crate) fn pattern(self) -> &'static Regex {
+        static PATTERNS: LazyLock<HashMap<SpringAnnotation, Regex>> = LazyLock::new(|| {
+            SpringAnnotation::ALL
+                .into_iter()
+                .map(|annotation| {
+                    let pattern = Regex::new(&format!(
+                        r"@{}(?:\s|\(|$)",
+                        regex::escape(annotation.name())
+                    ))
+                    .expect("an escaped annotation name is a valid pattern");
+                    (annotation, pattern)
+                })
+                .collect()
+        });
+        PATTERNS
+            .get(&self)
+            .expect("the table is built from ALL, which lists every case")
+    }
+
+    pub(crate) fn is_present(self, context: &str) -> bool {
+        self.pattern().is_match(context)
     }
 }
 
 fn has_component_annotation(context: &str) -> bool {
-    [
-        "Component",
-        "Service",
-        "Repository",
-        "Controller",
-        "RestController",
-        "Configuration",
-    ]
-    .iter()
-    .any(|name| has_annotation(context, name))
+    SpringAnnotation::COMPONENTS
+        .iter()
+        .any(|annotation| annotation.is_present(context))
 }
 
 fn component_name(context: &str) -> Option<String> {
+    // Built from COMPONENTS so the recognized set cannot diverge from the one
+    // has_component_annotation uses.
     static ANNOTATION: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(
-            r#"@(Component|Service|Repository|Controller|RestController|Configuration)\s*\([^\)]*[\"']([^\"']+)[\"']"#,
-        )
-        .expect("literal pattern is valid")
+        let alternation = SpringAnnotation::COMPONENTS
+            .iter()
+            .map(|annotation| regex::escape(annotation.name()))
+            .collect::<Vec<_>>()
+            .join("|");
+        Regex::new(&format!(
+            r#"@({alternation})\s*\([^\)]*[\"']([^\"']+)[\"']"#
+        ))
+        .expect("escaped annotation names produce a valid pattern")
     });
-    let annotation = &*ANNOTATION;
-    annotation
+    ANNOTATION
         .captures(context)
         .and_then(|capture| capture.get(2))
         .map(|value| value.as_str().to_string())
@@ -1300,9 +1359,9 @@ fn assignable_types(type_name: &str, supertypes: &HashMap<String, Vec<String>>) 
 }
 
 fn is_injection_context(context: &str) -> bool {
-    ["Autowired", "Inject", "Resource"]
+    SpringAnnotation::INJECTIONS
         .iter()
-        .any(|name| has_annotation(context, name))
+        .any(|annotation| annotation.is_present(context))
 }
 
 fn injection_qualifier(context: &str) -> Option<String> {
@@ -1333,16 +1392,10 @@ fn parse_constructor_injections(
     line: &str,
     parameters: &str,
 ) -> Vec<RawInjection> {
-    static DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(
-            r"(?:@[A-Za-z0-9_$.]+(?:\([^)]*\))?\s+)*(?:final\s+)?([A-Za-z0-9_$.<>?]+)\s+([A-Za-z_$][A-Za-z0-9_$]*)$",
-        )
-        .expect("literal pattern is valid")
-    });
     split_parameters(parameters)
         .into_iter()
         .filter_map(|parameter| {
-            let capture = DECLARATION.captures(parameter.trim())?;
+            let capture = JAVA_PARAMETER_DECLARATION.captures(parameter.trim())?;
             let variable = capture.get(2)?;
             Some(RawInjection {
                 path: path.to_string(),
@@ -1388,7 +1441,9 @@ fn endpoint_index(sources: &[(String, String)]) -> Vec<SpringEndpointResponse> {
     let method = &*METHOD;
     let mut endpoints = Vec::new();
     for (path, source) in sources {
-        if !has_annotation(source, "Controller") && !has_annotation(source, "RestController") {
+        if !SpringAnnotation::Controller.is_present(source)
+            && !SpringAnnotation::RestController.is_present(source)
+        {
             continue;
         }
         let controller = class
@@ -1570,4 +1625,83 @@ fn lower_camel(value: &str) -> String {
         .next()
         .map(|first| first.to_lowercase().collect::<String>() + characters.as_str())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    /// The pattern table is built from `ALL`, so a case added to the type but
+    /// omitted from that list panics on first use instead of quietly compiling a
+    /// pattern on every source line. This covers the table and the boundary each
+    /// entry has to keep.
+    #[test]
+    fn every_supported_annotation_has_a_compiled_boundary_pattern() {
+        for annotation in SpringAnnotation::ALL {
+            let name = annotation.name();
+            assert!(
+                annotation.is_present(&format!("@{name} public class Demo")),
+                "{name} should match its own annotation"
+            );
+            assert!(
+                annotation.is_present(&format!("@{name}(\"value\")")),
+                "{name} should match when it carries arguments"
+            );
+            assert!(
+                annotation.is_present(&format!("@{name}")),
+                "{name} should match at the end of a context"
+            );
+            assert!(
+                !annotation.is_present(&format!("@{name}Extended public class Demo")),
+                "{name} must not match a longer annotation sharing its prefix"
+            );
+        }
+
+        let names = SpringAnnotation::ALL
+            .iter()
+            .map(|annotation| annotation.name())
+            .collect::<HashSet<_>>();
+        assert_eq!(
+            names.len(),
+            SpringAnnotation::ALL.len(),
+            "every case needs a distinct annotation name"
+        );
+    }
+
+    /// Component detection and component naming must recognize the same
+    /// annotations, so both read COMPONENTS instead of repeating the list.
+    #[test]
+    fn component_detection_and_naming_recognize_the_same_annotations() {
+        for annotation in SpringAnnotation::COMPONENTS {
+            let name = annotation.name();
+            assert!(
+                has_component_annotation(&format!("@{name}\npublic class Demo")),
+                "{name} should be detected as a component annotation"
+            );
+            assert_eq!(
+                component_name(&format!("@{name}(\"custom\")\npublic class Demo")).as_deref(),
+                Some("custom"),
+                "{name} should expose its declared bean name"
+            );
+        }
+
+        assert!(!has_component_annotation("@Bean\npublic Clock clock()"));
+        assert_eq!(component_name("@Qualifier(\"custom\")"), None);
+    }
+
+    /// Record components and constructor parameters share one pattern, so a
+    /// declaration parsed by one path must be parsed identically by the other.
+    #[test]
+    fn record_components_and_constructor_parameters_share_one_declaration_pattern() {
+        let parameters = "@Qualifier(\"stripe\") final PaymentService payments";
+        let fields = parse_record_components("Demo.java", 1, parameters, parameters);
+        let injections = parse_constructor_injections("Demo.java", 1, parameters, parameters);
+
+        assert_eq!(fields.len(), 1);
+        assert_eq!(injections.len(), 1);
+        assert_eq!(fields[0].name, "payments");
+        assert_eq!(fields[0].type_name, "PaymentService");
+        assert_eq!(injections[0].type_name, "PaymentService");
+    }
 }
