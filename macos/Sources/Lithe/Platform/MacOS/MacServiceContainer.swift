@@ -54,6 +54,7 @@ final class MacServiceContainer {
         moduleStore providedModuleStore: MacModuleConfigurationStore? = nil,
         workspaceOperations providedWorkspaceOperations: (any WorkspaceOperations)? = nil,
         runConfigurationOperations providedRunConfigurationOperations: (any RunConfigurationOperations)? = nil,
+        gitWatchContextProvider providedGitWatchContextProvider: (any GitWatchContextProviding)? = nil,
         pluginRuntimeRecovery: MacPluginRuntimeRecoveryCoordinator? = nil,
         authorizationCallbackRouter providedAuthorizationCallbackRouter: MacExternalAuthorizationCallbackRouter? = nil
     ) {
@@ -503,7 +504,8 @@ final class MacServiceContainer {
             fileOperations: fileOperations,
             binaryFileViewerRegistry: binaryFileViewerRegistry,
             projectRuntimeService: runtimeService,
-            gitWatchContextProvider: RustGitWatchContextProvider(core: rustCore),
+            gitWatchContextProvider: providedGitWatchContextProvider
+                ?? RustGitWatchContextProvider(core: rustCore),
             githubService: githubService,
             secureStore: secureStore,
             databaseSecureStore: databaseSecureStore,

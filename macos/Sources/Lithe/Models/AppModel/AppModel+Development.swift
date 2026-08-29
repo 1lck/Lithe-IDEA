@@ -6,11 +6,15 @@ import LitheModuleAPI
 /// An action deferred until the run feature holds the current workspace snapshot.
 ///
 /// The workspace it was deferred for is part of the value so a snapshot applied
-/// for a different workspace cannot resume it.
+/// for a different workspace cannot resume it. Direct launch entry points also
+/// keep the concrete configuration (or the all-services intent) so resume can
+/// re-issue the same action the UI asked for.
 struct PendingRunAction: Equatable {
     enum Kind: Equatable {
         case run
         case debug
+        case startConfiguration(RunConfiguration)
+        case runAllServices
     }
 
     let kind: Kind
@@ -160,12 +164,18 @@ extension AppModel {
     ///
     /// Routing it through here is what keeps the run service from scanning a
     /// superseded snapshot: the service can only compare its own state, so the
-    /// caller has to bring it up to the current snapshot first.
+    /// caller has to bring it up to the current snapshot first. When that fails,
+    /// generation must stop — the service may still hold an older `.ready`
+    /// inventory, and scanning it would overwrite `generated.json` with stale
+    /// entry points.
     func generateRunConfigurations() async {
         guard let runFeature = await activateExecutionModule()?.runFeature else { return }
         // Report the pending workspace through the generation state when the
         // snapshot has not arrived, which the run panel surfaces as a notice.
-        _ = await ensureRunProjectReady(runFeature)
+        guard await ensureRunProjectReady(runFeature) else {
+            runFeature.reportGenerationProjectNotReady()
+            return
+        }
         await runFeature.generateRunConfigurations()
     }
 
@@ -290,6 +300,8 @@ extension AppModel {
         switch action.kind {
         case .run: runSelectedConfiguration()
         case .debug: startDebugging()
+        case .startConfiguration(let configuration): startRunConfiguration(configuration)
+        case .runAllServices: runAllServiceConfigurations()
         }
     }
 
@@ -367,12 +379,20 @@ extension AppModel {
     func startRunConfiguration(_ configuration: RunConfiguration) {
         Task { [weak self] in
             guard let self,
-                  let runFeature = await activateExecutionModule()?.runFeature,
-                  await activateLanguageRunExtensionIfNeeded(
-                      for: configuration,
-                      currentFileURL: activeDocument?.url,
-                      runFeature: runFeature
-                  ) else { return }
+                  let runFeature = await activateExecutionModule()?.runFeature else { return }
+            guard await ensureRunProjectReady(runFeature) else {
+                // Direct play buttons reach here without going through
+                // `runSelectedConfiguration`, so they need the same readiness
+                // gate and must remember which configuration to resume.
+                deferRunAction(.startConfiguration(configuration))
+                return
+            }
+            pendingRunAction = nil
+            guard await activateLanguageRunExtensionIfNeeded(
+                for: configuration,
+                currentFileURL: activeDocument?.url,
+                runFeature: runFeature
+            ) else { return }
             runFeature.startConfiguration(configuration)
         }
     }
@@ -381,6 +401,11 @@ extension AppModel {
         Task { [weak self] in
             guard let self,
                   let runFeature = await activateExecutionModule()?.runFeature else { return }
+            guard await ensureRunProjectReady(runFeature) else {
+                deferRunAction(.runAllServices)
+                return
+            }
+            pendingRunAction = nil
             for configuration in runFeature.configurations where configuration.execution == .service {
                 guard await activateLanguageRunExtensionIfNeeded(
                     for: configuration,

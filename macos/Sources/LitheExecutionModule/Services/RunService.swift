@@ -114,6 +114,15 @@ package final class RunService: ObservableObject {
         projectLoadState.isReady(for: workspace, snapshotID: snapshotID)
     }
 
+    /// Surfaces the "project still loading" generation notice without scanning.
+    ///
+    /// AppModel uses this when readiness cannot be established for the current
+    /// snapshot: the service may still hold an older `.ready` inventory, and
+    /// calling `generateRunConfigurations` would scan that stale list.
+    package func reportGenerationProjectNotReady() {
+        generationState = .projectNotReady
+    }
+
     @discardableResult
     package func registerLanguageRunExtension(
         _ provider: any LanguageRunExtensionProviding,

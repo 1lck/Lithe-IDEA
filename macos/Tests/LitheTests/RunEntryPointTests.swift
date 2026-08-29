@@ -235,9 +235,177 @@ struct RunEntryPointTests {
         #expect(ready, "opening a project should make the run project ready")
     }
 
+    /// The Run panel's play buttons call `startRunConfiguration`, not
+    /// `runSelectedConfiguration`. That path must defer under a provisional
+    /// inventory and remember the concrete configuration for resume.
+    @Test
+    func startRunConfigurationDefersAndResumesAfterTheSnapshotArrives() async throws {
+        let workspace = try JavaWorkspaceFixture()
+        defer { workspace.remove() }
+        let workspaceOperations = GatedWorkspaceOperations(snapshot: workspace.snapshot)
+        let runConfigurations = ReadyRunConfigurationOperations()
+        let model = makeAppModel(
+            workspaceOperations: workspaceOperations,
+            runConfigurationOperations: runConfigurations
+        )
+        let configuration = ReadyRunConfigurationOperations.entryPoint
+
+        model.openProjectDirectly(workspace.root)
+        model.startRunConfiguration(configuration)
+
+        let deferred = await awaitChange(on: model) {
+            model.pendingRunAction?.kind == .startConfiguration(configuration)
+        }
+        #expect(deferred, "direct start must be deferred while the inventory is provisional")
+        #expect(
+            runConfigurations.launchPlanCallCount == 0,
+            "direct start must not build a launch plan from a provisional inventory"
+        )
+
+        workspaceOperations.releaseSnapshot()
+
+        let relaunched = await awaitChange(on: model) {
+            runConfigurations.launchPlanCallCount == 1
+        }
+        #expect(relaunched, "the deferred direct start was never actually re-issued")
+        #expect(model.pendingRunAction == nil)
+    }
+
+    /// The Run panel's "Run All Services" button calls `runAllServiceConfigurations`,
+    /// which must defer under a provisional inventory and remember that batch
+    /// intent — not collapse into a generic `.run`.
+    @Test
+    func runAllServicesDefersAndResumesAfterTheSnapshotArrives() async throws {
+        let workspace = try JavaWorkspaceFixture()
+        defer { workspace.remove() }
+        let workspaceOperations = GatedWorkspaceOperations(snapshot: workspace.snapshot)
+        let runConfigurations = ReadyRunConfigurationOperations()
+        let model = makeAppModel(
+            workspaceOperations: workspaceOperations,
+            runConfigurationOperations: runConfigurations
+        )
+
+        model.openProjectDirectly(workspace.root)
+        model.runAllServiceConfigurations()
+
+        let deferred = await awaitChange(on: model) {
+            model.pendingRunAction?.kind == .runAllServices
+        }
+        #expect(deferred, "run-all-services must be deferred while the inventory is provisional")
+        #expect(
+            runConfigurations.launchPlanCallCount == 0,
+            "run-all-services must not build a launch plan from a provisional inventory"
+        )
+
+        workspaceOperations.releaseSnapshot()
+
+        let relaunched = await awaitChange(on: model) {
+            runConfigurations.launchPlanCallCount == 1
+        }
+        #expect(relaunched, "the deferred run-all-services was never actually re-issued")
+        #expect(model.pendingRunAction == nil)
+    }
+
+    /// When ensure loads snapshot A and snapshot B is published before that load
+    /// finishes — and B's callback has not yet consumed into the run service —
+    /// generation must stop rather than scan A's still-ready inventory.
+    @Test
+    func generateRefusesStaleReadyInventoryWhenSnapshotAdvancesDuringLoad() async throws {
+        let workspace = try JavaWorkspaceFixture()
+        defer { workspace.remove() }
+
+        let first = workspace.snapshot
+        let secondSource = workspace.root.appendingPathComponent("src/main/java/demo/Other.java")
+        try """
+        package demo;
+        public class Other {
+          public static void main(String[] args) {}
+        }
+        """.write(to: secondSource, atomically: true, encoding: .utf8)
+        let second = WorkspaceSnapshot(
+            root: first.root,
+            files: [workspace.sourceURL, secondSource],
+            id: UUID()
+        )
+
+        let workspaceOperations = SequencedGatedWorkspaceOperations(snapshots: [first, second])
+        let watchContext = GatedGitWatchContextProvider()
+        defer { watchContext.releaseAll() }
+        let runConfigurations = InventoryRecordingGatedRunConfigurationOperations()
+        defer { runConfigurations.releaseAll() }
+        let model = makeAppModel(
+            workspaceOperations: workspaceOperations,
+            runConfigurationOperations: runConfigurations,
+            gitWatchContextProvider: watchContext
+        )
+
+        model.openProjectDirectly(workspace.root)
+        workspaceOperations.releaseNext()
+        // Rebuild publishes the snapshot, then waits in updateWatchConfiguration
+        // before onSnapshotLoaded can start the run-service load.
+        #expect(await watchContext.entered(1))
+        watchContext.release(1)
+        #expect(await runConfigurations.inspectionEntered(1))
+        runConfigurations.release(1)
+
+        let readyForFirst = await awaitChange(on: model) {
+            model.runFeatureIfActive?.isProjectReady(
+                for: workspace.root,
+                snapshotID: first.id
+            ) == true
+        }
+        #expect(readyForFirst, "the first snapshot never made the run project ready")
+
+        let runFeature = try #require(model.runFeatureIfActive)
+        // Force a reload path so ensure captures the first snapshot, then waits.
+        let bindTask = Task {
+            await runFeature.loadProject(
+                at: workspace.root,
+                files: [],
+                mavenProject: nil,
+                snapshotID: nil
+            )
+        }
+        #expect(await runConfigurations.inspectionEntered(2))
+        runConfigurations.release(2)
+        await bindTask.value
+        #expect(runFeature.projectLoadState == .bound(workspace: workspace.root.standardizedFileURL))
+
+        let generateTask = Task { await model.generateRunConfigurations() }
+        #expect(await runConfigurations.inspectionEntered(3))
+
+        // Publish B, but hold its watch-context await so onSnapshotLoaded cannot
+        // consume B into the run service before ensure finishes loading A.
+        let refreshTask = Task { await model.workspaceFeature.refreshCurrent() }
+        workspaceOperations.releaseNext()
+        #expect(await watchContext.entered(2))
+        let advanced = await awaitChange(on: model) {
+            model.workspaceSnapshotID == second.id
+        }
+        #expect(advanced, "the refreshed snapshot was never published")
+
+        runConfigurations.release(3)
+        await generateTask.value
+        #expect(runFeature.generationState == .projectNotReady)
+        #expect(
+            runConfigurations.generatedInventories.isEmpty,
+            "generation must not scan the superseded inventory"
+        )
+        #expect(
+            runFeature.isProjectReady(for: workspace.root, snapshotID: first.id),
+            "ensure should have finished loading A while B was only published"
+        )
+
+        watchContext.release(2)
+        #expect(await runConfigurations.inspectionEntered(4))
+        runConfigurations.release(4)
+        _ = await refreshTask.value
+    }
+
     private func makeAppModel(
         workspaceOperations: any WorkspaceOperations,
-        runConfigurationOperations: (any RunConfigurationOperations)? = nil
+        runConfigurationOperations: (any RunConfigurationOperations)? = nil,
+        gitWatchContextProvider: (any GitWatchContextProviding)? = nil
     ) -> AppModel {
         let store = RunEntryPointTestStore()
         let settings = AppSettings(store: store)
@@ -245,7 +413,8 @@ struct RunEntryPointTests {
             store: store,
             settings: settings,
             workspaceOperations: workspaceOperations,
-            runConfigurationOperations: runConfigurationOperations
+            runConfigurationOperations: runConfigurationOperations,
+            gitWatchContextProvider: gitWatchContextProvider
         ).services
         return AppModel(settings: settings, services: services)
     }
@@ -331,6 +500,53 @@ private final class GatedWorkspaceOperations: WorkspaceOperations, @unchecked Se
     }
 }
 
+/// Releases workspace snapshots one at a time so a refresh can publish a newer
+/// scan while an older project load is still in flight.
+private final class SequencedGatedWorkspaceOperations: WorkspaceOperations, @unchecked Sendable {
+    private let lock = NSLock()
+    private var remaining: [WorkspaceSnapshot]
+    private let gates: [TestGate]
+    private var nextReleaseIndex = 0
+
+    init(snapshots: [WorkspaceSnapshot]) {
+        remaining = snapshots
+        gates = snapshots.map { _ in TestGate() }
+    }
+
+    func releaseNext() {
+        lock.lock()
+        let index = nextReleaseIndex
+        nextReleaseIndex += 1
+        let gate = index < gates.count ? gates[index] : nil
+        lock.unlock()
+        gate?.open()
+    }
+
+    func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? {
+        lock.lock()
+        let consumed = gates.count - remaining.count
+        let gate = consumed < gates.count ? gates[consumed] : nil
+        lock.unlock()
+        guard let gate, gate.waitSynchronously(timeout: 30) else { return nil }
+        lock.lock()
+        defer { lock.unlock() }
+        guard !remaining.isEmpty else { return nil }
+        return remaining.removeFirst()
+    }
+
+    func readFile(at rootURL: URL, relativePath: String) -> String? {
+        try? String(contentsOf: rootURL.appendingPathComponent(relativePath), encoding: .utf8)
+    }
+
+    func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool {
+        (try? text.write(
+            to: rootURL.appendingPathComponent(relativePath),
+            atomically: true,
+            encoding: .utf8
+        )) != nil
+    }
+}
+
 /// Reports a workspace that already carries a configuration, which the Swift test
 /// binary cannot obtain from the real store because it does not link the Rust
 /// Core. Records launch-plan requests so a test can prove no launch was built.
@@ -363,12 +579,29 @@ private final class ReadyRunConfigurationOperations: RunConfigurationOperations,
         mainClass: "demo.App"
     )
 
+    /// A service configuration so `runAllServiceConfigurations` has something to
+    /// launch after a deferred resume.
+    static let serviceEntryPoint = RunConfiguration(
+        id: "spring-boot:demo.App",
+        name: "App (Spring Boot)",
+        kind: .mavenFramework(.springBoot),
+        execution: .service,
+        modulePath: nil,
+        mainClass: "demo.App"
+    )
+
     func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
         RunConfigurationResolution(
-            configurations: [EffectiveRunConfiguration(
-                configuration: Self.entryPoint,
-                options: RunOptions()
-            )],
+            configurations: [
+                EffectiveRunConfiguration(
+                    configuration: Self.entryPoint,
+                    options: RunOptions()
+                ),
+                EffectiveRunConfiguration(
+                    configuration: Self.serviceEntryPoint,
+                    options: RunOptions()
+                ),
+            ],
             diagnostics: [],
             defaultConfigurationID: Self.entryPoint.id
         )
@@ -454,6 +687,129 @@ private final class InspectionGatedRunConfigurationOperations: RunConfigurationO
         resolveCalls += 1
         lock.unlock()
         return RunConfigurationResolution(
+            configurations: [EffectiveRunConfiguration(
+                configuration: ReadyRunConfigurationOperations.entryPoint,
+                options: RunOptions()
+            )],
+            diagnostics: [],
+            defaultConfigurationID: ReadyRunConfigurationOperations.entryPoint.id
+        )
+    }
+
+    func launchPlan(
+        at projectURL: URL,
+        configurationID: String,
+        currentFile: String?,
+        classPath: String?,
+        debugPort: Int?
+    ) throws -> SharedLaunchPlan {
+        lock.lock()
+        launchPlanCalls += 1
+        lock.unlock()
+        throw RunConfigurationOperationFailure(message: "Launching is out of scope for this test")
+    }
+
+    func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String { draft.name }
+    func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {}
+}
+
+/// Holds `updateWatchConfiguration`'s git-context fetch so a test can publish a
+/// newer snapshot without letting `onSnapshotLoaded` consume it yet.
+private final class GatedGitWatchContextProvider: GitWatchContextProviding, @unchecked Sendable {
+    private let entered: [TestGate]
+    private let releases: [TestGate]
+    private let queue = DispatchQueue(label: "lithe.tests.gated-git-watch-context")
+    private var calls = 0
+
+    init(capacity: Int = 8) {
+        entered = (0..<capacity).map { _ in TestGate() }
+        releases = (0..<capacity).map { _ in TestGate() }
+    }
+
+    func entered(_ ordinal: Int) async -> Bool {
+        await entered[ordinal - 1].waitUntilOpen(timeout: .seconds(5))
+    }
+
+    func release(_ ordinal: Int) {
+        releases[ordinal - 1].open()
+    }
+
+    func releaseAll() {
+        releases.forEach { $0.open() }
+    }
+
+    func watchContext(for workspace: URL) async -> GitWatchContext? {
+        let ordinal: Int = await withCheckedContinuation { continuation in
+            queue.async {
+                self.calls += 1
+                continuation.resume(returning: self.calls)
+            }
+        }
+        entered[ordinal - 1].open()
+        _ = await releases[ordinal - 1].waitUntilOpen(timeout: .seconds(30))
+        return nil
+    }
+}
+
+/// Like `InspectionGatedRunConfigurationOperations`, but also records every
+/// generate inventory so a superseded-snapshot test can prove generation never
+/// scanned the stale file list.
+private final class InventoryRecordingGatedRunConfigurationOperations: RunConfigurationOperations, @unchecked Sendable {
+    private let entered: [TestGate]
+    private let releases: [TestGate]
+    private let lock = NSLock()
+    private var inspectCalls = 0
+    private var launchPlanCalls = 0
+    private var inventories: [[URL]] = []
+
+    init(capacity: Int = 8) {
+        entered = (0..<capacity).map { _ in TestGate() }
+        releases = (0..<capacity).map { _ in TestGate() }
+    }
+
+    var launchPlanCallCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return launchPlanCalls
+    }
+
+    var generatedInventories: [[URL]] {
+        lock.lock()
+        defer { lock.unlock() }
+        return inventories
+    }
+
+    func inspectionEntered(_ ordinal: Int) async -> Bool {
+        await entered[ordinal - 1].waitUntilOpen(timeout: .seconds(5))
+    }
+
+    func release(_ ordinal: Int) {
+        releases[ordinal - 1].open()
+    }
+
+    func releaseAll() {
+        releases.forEach { $0.open() }
+    }
+
+    func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
+        lock.lock()
+        inspectCalls += 1
+        let ordinal = inspectCalls
+        lock.unlock()
+        entered[ordinal - 1].open()
+        _ = releases[ordinal - 1].waitSynchronously(timeout: 30)
+        return ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
+    }
+
+    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+        lock.lock()
+        inventories.append(files)
+        lock.unlock()
+        return RunConfigurationGenerationResult(entryCount: files.count)
+    }
+
+    func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
+        RunConfigurationResolution(
             configurations: [EffectiveRunConfiguration(
                 configuration: ReadyRunConfigurationOperations.entryPoint,
                 options: RunOptions()

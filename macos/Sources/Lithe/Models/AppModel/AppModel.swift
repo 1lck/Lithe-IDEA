@@ -518,11 +518,11 @@ final class AppModel: ObservableObject, Identifiable {
                 guard let feature = await self?.activateHistoryModule() else { return }
                 await feature.updateVisibilityRules(rules.localHistoryRules)
             },
-            onSnapshotLoaded: { [weak self] snapshot, isInitialLoad in
-                guard let self, let workspaceURL = self.workspaceURL else { return }
-                // WorkspaceFeatureModel requests the single Git refresh after this callback.
-                // The applied snapshot is the event a deferred Run waits for, and
-                // it carries its own identity so the pair cannot drift.
+            onSnapshotLoaded: { [weak self] workspaceURL, snapshot, isInitialLoad in
+                guard let self else { return }
+                // The rebuild already rejected a stale workspace before calling
+                // us, and it passes that workspace with the snapshot so this
+                // load cannot pair A.files with B's URL after a project switch.
                 await self.loadProjectServices(
                     at: workspaceURL,
                     files: snapshot.files,

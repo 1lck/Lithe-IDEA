@@ -66,7 +66,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     private var reloadProjectServices: (@MainActor () async -> Void)?
     private var refreshGit: (@MainActor () async -> Void)?
     private var updateHistoryVisibilityRules: (@MainActor (FileVisibilityRules) async -> Void)?
-    private var onSnapshotLoaded: (@MainActor (WorkspaceSnapshot, Bool) async -> Void)?
+    private var onSnapshotLoaded: (@MainActor (URL, WorkspaceSnapshot, Bool) async -> Void)?
     private var warmSearchIndex: (@MainActor (URL, FileVisibilityRules) -> Void)?
     private var updateSearchIndex: (@MainActor (URL, [String], FileVisibilityRules) async -> Void)?
     private var invalidateSearchIndex: (@MainActor (URL, FileVisibilityRules) -> Void)?
@@ -102,7 +102,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         reloadProjectServices: @escaping @MainActor () async -> Void,
         refreshGit: @escaping @MainActor () async -> Void,
         updateHistoryVisibilityRules: @escaping @MainActor (FileVisibilityRules) async -> Void,
-        onSnapshotLoaded: @escaping @MainActor (WorkspaceSnapshot, Bool) async -> Void,
+        onSnapshotLoaded: @escaping @MainActor (URL, WorkspaceSnapshot, Bool) async -> Void,
         warmSearchIndex: @escaping @MainActor (URL, FileVisibilityRules) -> Void,
         updateSearchIndex: @escaping @MainActor (URL, [String], FileVisibilityRules) async -> Void,
         invalidateSearchIndex: @escaping @MainActor (URL, FileVisibilityRules) -> Void
@@ -310,14 +310,23 @@ package final class WorkspaceFeatureModel: ObservableObject {
             isRefreshingWorkspace = false
         }
 
+        // Session restore and watch setup can suspend. A project switch in that
+        // window must not let this rebuild keep mutating the new workspace or
+        // deliver this scan under the new root's identity.
         if !hasRestoredWorkspaceSession {
             if let restoreSession, let session = workspaceSessionStore.load(for: workspaceURL) {
                 await restoreSession(session, snapshot.files)
             }
+            guard isCurrent() else { return .stale }
             hasRestoredWorkspaceSession = true
         }
+        guard isCurrent() else { return .stale }
         await updateWatchConfiguration()
-        await onSnapshotLoaded?(snapshot, isInitialLoad)
+        guard isCurrent() else { return .stale }
+        // Pass the rebuild's workspace with the snapshot so the callback never
+        // re-reads a global URL that may already belong to a different project.
+        await onSnapshotLoaded?(workspaceURL, snapshot, isInitialLoad)
+        guard isCurrent() else { return .stale }
         await requestGitRefreshNow()
         if pendingFullRescan || pendingWatchRootsChanged {
             scheduleRecovery()

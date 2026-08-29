@@ -165,6 +165,11 @@ package final class RunFeatureModel: ObservableObject {
         service.isProjectReady(for: workspace, snapshotID: snapshotID)
     }
 
+    package func reportGenerationProjectNotReady() {
+        isGenerationConfirmationPresented = false
+        service.reportGenerationProjectNotReady()
+    }
+
     package func loadProject(
         at workspaceURL: URL,
         files: [URL],
