@@ -313,6 +313,136 @@ struct DebugModuleTests {
     }
 
     @Test
+    func rapidInspectionSelectionDiscardsOutOfOrderResults() throws {
+        let session = DeferredInspectionDebugSession()
+        let descriptor = DebugProviderDescriptor(
+            id: "java",
+            displayName: "Java",
+            fileExtensions: ["java"]
+        )
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        let root = URL(fileURLWithPath: "/tmp/java-inspection-selection", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.java")
+        #expect(feature.start(
+            fileURL: source,
+            rootURL: root,
+            configuration: DebugLaunchConfiguration(
+                name: "Main",
+                request: .launch,
+                arguments: ["mainClass": .string("example.Main")]
+            )
+        ))
+        defer { feature.stop() }
+
+        let firstThread = DebugThread(id: 1, name: "worker-1")
+        let secondThread = DebugThread(id: 2, name: "worker-2")
+        let staleFrame = DebugStackFrame(
+            id: 10,
+            name: "stale",
+            sourceURL: source,
+            line: 10,
+            column: 1
+        )
+        let firstFrame = DebugStackFrame(
+            id: 20,
+            name: "first",
+            sourceURL: source,
+            line: 20,
+            column: 1
+        )
+        let secondFrame = DebugStackFrame(
+            id: 21,
+            name: "second",
+            sourceURL: source,
+            line: 21,
+            column: 1
+        )
+
+        // The older thread response arrives after the newer selection has
+        // already loaded its frames. It must not replace the active stack.
+        feature.selectThread(firstThread)
+        feature.selectThread(secondThread)
+        #expect(session.stackTraceThreadIDs == [1, 2])
+        session.completeStackTrace(at: 1, with: [firstFrame, secondFrame])
+        session.completeStackTrace(at: 0, with: [staleFrame])
+
+        #expect(feature.selectedThreadID == 2)
+        #expect(feature.stackFrames.map(\.id) == [20, 21])
+        #expect(feature.selectedFrameID == 20)
+        #expect(session.scopeFrameIDs == [20])
+
+        // The first frame's scope response arrives after the second frame was
+        // selected. It must not start a stale variables request.
+        feature.selectFrame(secondFrame)
+        #expect(session.scopeFrameIDs == [20, 21])
+        session.completeScopes(
+            at: 1,
+            with: [DebugScope(id: 210, name: "Locals", variablesReference: 210, expensive: false)]
+        )
+        session.completeScopes(
+            at: 0,
+            with: [DebugScope(id: 200, name: "Locals", variablesReference: 200, expensive: false)]
+        )
+
+        #expect(feature.selectedFrameID == 21)
+        #expect(feature.scopes.map(\.variablesReference) == [210])
+        #expect(session.variableReferences == [210])
+
+        // A variables response from the previously selected frame must not
+        // overwrite the variables that belong to the current frame.
+        feature.selectFrame(firstFrame)
+        session.completeScopes(
+            at: 2,
+            with: [DebugScope(id: 200, name: "Locals", variablesReference: 200, expensive: false)]
+        )
+        let currentVariable = DebugVariable(
+            id: "user",
+            name: "user",
+            value: "CurrentUser@1",
+            type: "CurrentUser",
+            evaluateName: "user",
+            variablesReference: 300
+        )
+        session.completeVariables(at: 1, with: [currentVariable])
+        session.completeVariables(at: 0, with: [
+            DebugVariable(
+                id: "stale",
+                name: "stale",
+                value: "OldUser@1",
+                type: "OldUser",
+                evaluateName: "stale",
+                variablesReference: 0
+            )
+        ])
+        #expect(feature.variables == [currentVariable])
+
+        // Child-variable loading is also scoped to the selected frame.
+        feature.toggleVariableExpansion(currentVariable)
+        #expect(session.variableReferences == [210, 200, 300])
+        feature.selectFrame(secondFrame)
+        session.completeVariables(at: 2, with: [
+            DebugVariable(
+                id: "name",
+                name: "name",
+                value: "stale child",
+                type: "String",
+                evaluateName: "user.name",
+                variablesReference: 0
+            )
+        ])
+        #expect(feature.variables.isEmpty)
+        #expect(feature.variableChildren.isEmpty)
+        #expect(feature.loadingVariableIDs.isEmpty)
+
+        session.emit(.continued(threadID: secondThread.id))
+        #expect(feature.selectedThreadID == nil)
+        #expect(feature.selectedFrameID == nil)
+        #expect(feature.stackFrames.isEmpty)
+        #expect(feature.scopes.isEmpty)
+    }
+
+    @Test
     func genericBreakpointsPreserveAdvancedOptionsAcrossMuteAndClear() throws {
         let transport = RecordingTransport()
         let core = RecordingDebugProtocolCore()
@@ -1074,6 +1204,97 @@ private struct RecordingDebugInspectionRequest: Equatable {
     let threadID: Int?
     let frameID: Int?
     let variablesReference: Int?
+}
+
+@MainActor
+private final class DeferredInspectionDebugSession: DebugAdapterControllingSession {
+    private(set) var isRunning = false
+    private(set) var state: DebugAdapterState = .idle
+    var onStateChange: ((DebugAdapterState) -> Void)?
+    var onEvent: ((DebugAdapterEvent) -> Void)?
+
+    private var stackTraceRequests: [(
+        threadID: Int,
+        completion: (Result<[DebugStackFrame], Error>) -> Void
+    )] = []
+    private var scopeRequests: [(
+        frameID: Int,
+        completion: (Result<[DebugScope], Error>) -> Void
+    )] = []
+    private var variableRequests: [(
+        reference: Int,
+        completion: (Result<[DebugVariable], Error>) -> Void
+    )] = []
+
+    var stackTraceThreadIDs: [Int] { stackTraceRequests.map(\.threadID) }
+    var scopeFrameIDs: [Int] { scopeRequests.map(\.frameID) }
+    var variableReferences: [Int] { variableRequests.map(\.reference) }
+
+    func start(rootURL _: URL) throws {
+        isRunning = true
+        state = .ready
+    }
+
+    func stop() {
+        isRunning = false
+        state = .idle
+    }
+
+    func launch(_: DebugLaunchConfiguration) throws {
+        state = .paused
+        onStateChange?(.paused)
+    }
+
+    func setBreakpoints(_: [DebugSourceBreakpoint], in _: URL) {}
+    func execute(_: DebugExecutionCommand, threadID _: Int?) {}
+    func requestThreads(_: @escaping (Result<[DebugThread], Error>) -> Void) {}
+
+    func requestStackTrace(
+        threadID: Int,
+        completion: @escaping (Result<[DebugStackFrame], Error>) -> Void
+    ) {
+        stackTraceRequests.append((threadID, completion))
+    }
+
+    func requestScopes(
+        frameID: Int,
+        completion: @escaping (Result<[DebugScope], Error>) -> Void
+    ) {
+        scopeRequests.append((frameID, completion))
+    }
+
+    func requestVariables(
+        reference: Int,
+        completion: @escaping (Result<[DebugVariable], Error>) -> Void
+    ) {
+        variableRequests.append((reference, completion))
+    }
+
+    func evaluate(
+        _: String,
+        frameID _: Int?,
+        completion _: @escaping (Result<DebugVariable, Error>) -> Void
+    ) {}
+
+    // This double deliberately delivers responses after cancellation to model
+    // adapters and callback queues that cannot retract an already-sent result.
+    func cancelPendingOperations() {}
+
+    func emit(_ event: DebugAdapterEvent) {
+        onEvent?(event)
+    }
+
+    func completeStackTrace(at index: Int, with frames: [DebugStackFrame]) {
+        stackTraceRequests[index].completion(.success(frames))
+    }
+
+    func completeScopes(at index: Int, with scopes: [DebugScope]) {
+        scopeRequests[index].completion(.success(scopes))
+    }
+
+    func completeVariables(at index: Int, with variables: [DebugVariable]) {
+        variableRequests[index].completion(.success(variables))
+    }
 }
 
 @MainActor

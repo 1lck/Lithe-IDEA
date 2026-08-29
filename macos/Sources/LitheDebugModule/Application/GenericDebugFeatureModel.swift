@@ -112,6 +112,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     private var activeFileURL: URL?
     private let maximumOutputCharacters = 400_000
     private var watchGeneration = 0
+    private var inspectionGeneration = 0
 
     public init(
         sessions: DebugAdapterSessionManager,
@@ -197,6 +198,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     }
 
     public func stop() {
+        invalidateInspectionRequests()
         if let activeFileURL {
             dataBreakpoints.removeAll { !$0.canPersist }
             try? sessions.setDataBreakpoints(coreDataBreakpoints, for: activeFileURL)
@@ -586,64 +588,98 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
 
     public func inspectThreads() {
         guard let session = activeSession else { return }
+        let generation = inspectionGeneration
         session.requestThreads { [weak self] result in
+            guard let self, self.inspectionGeneration == generation else { return }
             switch result {
             case .success(let threads):
-                self?.threads = threads
-                if self?.selectedThreadID == nil { self?.selectedThreadID = threads.first?.id }
-            case .failure(let error): self?.record(error)
+                self.threads = threads
+                if self.selectedThreadID == nil { self.selectedThreadID = threads.first?.id }
+            case .failure(let error): self.record(error)
             }
         }
     }
 
     public func selectThread(_ thread: DebugThread) {
-        activeSession?.cancelPendingOperations()
+        let generation = beginInspectionTransition()
         selectedThreadID = thread.id
+        selectedFrameID = nil
+        selectedFrame = nil
+        stackFrames = []
+        scopes = []
+        resetVariableTree()
+        invalidateWatchResults()
         guard let session = activeSession else { return }
         session.requestStackTrace(threadID: thread.id) { [weak self] result in
+            guard let self,
+                  self.inspectionGeneration == generation,
+                  self.selectedThreadID == thread.id else { return }
             switch result {
             case .success(let frames):
-                self?.stackFrames = frames
-                self?.selectedFrameID = frames.first?.id
+                self.stackFrames = frames
+                self.selectedFrameID = frames.first?.id
                 if let frame = frames.first {
-                    self?.selectFrame(frame)
+                    self.selectFrame(frame)
+                } else {
+                    self.selectedFrame = nil
                 }
-            case .failure(let error): self?.record(error)
+            case .failure(let error): self.record(error)
             }
         }
     }
 
     public func selectFrame(_ frame: DebugStackFrame) {
-        activeSession?.cancelPendingOperations()
+        let generation = beginInspectionTransition()
         selectedFrameID = frame.id
         selectedFrame = frame
+        scopes = []
+        resetVariableTree()
+        invalidateWatchResults()
         publishStoppedLocation(frame)
         refreshWatches()
         guard let session = activeSession else { return }
         session.requestScopes(frameID: frame.id) { [weak self] result in
+            guard let self,
+                  self.inspectionGeneration == generation,
+                  self.selectedFrameID == frame.id else { return }
             switch result {
             case .success(let scopes):
-                self?.scopes = scopes
+                self.scopes = scopes
                 if let scope = scopes.first(where: { !$0.expensive }) ?? scopes.first {
-                    self?.loadVariables(reference: scope.variablesReference)
+                    self.loadVariables(
+                        reference: scope.variablesReference,
+                        frameID: frame.id,
+                        generation: generation
+                    )
                 } else {
-                    self?.resetVariableTree()
+                    self.resetVariableTree()
                 }
-            case .failure(let error): self?.record(error)
+            case .failure(let error): self.record(error)
             }
         }
     }
 
     public func loadVariables(reference: Int) {
+        loadVariables(
+            reference: reference,
+            frameID: selectedFrameID,
+            generation: inspectionGeneration
+        )
+    }
+
+    private func loadVariables(reference: Int, frameID: Int?, generation: Int) {
         guard let session = activeSession else { return }
         session.requestVariables(reference: reference) { [weak self] result in
+            guard let self,
+                  self.inspectionGeneration == generation,
+                  self.selectedFrameID == frameID else { return }
             switch result {
             case .success(let variables):
-                self?.variables = variables
-                self?.variableChildren = [:]
-                self?.expandedVariableIDs = []
-                self?.loadingVariableIDs = []
-            case .failure(let error): self?.record(error)
+                self.variables = variables
+                self.variableChildren = [:]
+                self.expandedVariableIDs = []
+                self.loadingVariableIDs = []
+            case .failure(let error): self.record(error)
             }
         }
     }
@@ -660,8 +696,12 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         }
         guard !loadingVariableIDs.contains(variable.id), let session = activeSession else { return }
         loadingVariableIDs.insert(variable.id)
+        let frameID = selectedFrameID
+        let generation = inspectionGeneration
         session.requestVariables(reference: variable.variablesReference) { [weak self] result in
-            guard let self else { return }
+            guard let self,
+                  self.inspectionGeneration == generation,
+                  self.selectedFrameID == frameID else { return }
             self.loadingVariableIDs.remove(variable.id)
             switch result {
             case .success(let children):
@@ -690,12 +730,16 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
               capabilities.supportsSetVariable,
               let containerReference = variable.containerReference,
               let session = activeSession else { return }
+        let frameID = selectedFrameID
+        let generation = inspectionGeneration
         session.setVariable(
             variablesReference: containerReference,
             name: variable.name,
             value: value
         ) { [weak self] result in
-            guard let self else { return }
+            guard let self,
+                  self.inspectionGeneration == generation,
+                  self.selectedFrameID == frameID else { return }
             switch result {
             case .success(let replacement):
                 let updated = DebugVariable(
@@ -837,17 +881,40 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         case .output(_, let text):
             append(text)
         case .stopped(let reason, let threadID, let description):
+            let generation = beginInspectionTransition()
             stoppedReason = description ?? reason
             selectedThreadID = threadID
-            loadStoppedContext(threadID: threadID)
+            selectedFrameID = nil
+            selectedFrame = nil
+            threads = []
+            stackFrames = []
+            scopes = []
+            resetVariableTree()
+            invalidateWatchResults()
+            loadStoppedContext(threadID: threadID, generation: generation)
         case .continued:
+            invalidateInspectionRequests()
             stoppedReason = nil
+            selectedThreadID = nil
+            selectedFrameID = nil
             stoppedFrame = nil
             selectedFrame = nil
-            activeSession?.cancelPendingOperations()
+            threads = []
+            stackFrames = []
+            scopes = []
             resetVariableTree()
             invalidateWatchResults()
         case .terminated(let exitCode):
+            invalidateInspectionRequests()
+            stoppedReason = nil
+            selectedThreadID = nil
+            selectedFrameID = nil
+            stoppedFrame = nil
+            selectedFrame = nil
+            threads = []
+            stackFrames = []
+            scopes = []
+            resetVariableTree()
             invalidateWatchResults()
             if let exitCode { append("Debug session exited with code \(exitCode).\n") }
         case .breakpoint(let resolved):
@@ -873,10 +940,10 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         }
     }
 
-    private func loadStoppedContext(threadID: Int?) {
+    private func loadStoppedContext(threadID: Int?, generation: Int) {
         guard let session = activeSession else { return }
         session.requestThreads { [weak self] result in
-            guard let self else { return }
+            guard let self, self.inspectionGeneration == generation else { return }
             switch result {
             case .success(let threads):
                 self.threads = threads
@@ -885,29 +952,45 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                 } ?? threads.first?.id ?? threadID
                 self.selectedThreadID = selectedThreadID
                 if let selectedThreadID {
-                    self.loadStoppedStack(threadID: selectedThreadID)
+                    self.loadStoppedStack(threadID: selectedThreadID, generation: generation)
                 }
             case .failure(let error):
                 self.record(error)
                 if let threadID {
-                    self.loadStoppedStack(threadID: threadID)
+                    self.loadStoppedStack(threadID: threadID, generation: generation)
                 }
             }
         }
     }
 
-    private func loadStoppedStack(threadID: Int) {
+    private func loadStoppedStack(threadID: Int, generation: Int) {
         activeSession?.requestStackTrace(threadID: threadID) { [weak self] result in
-            guard let self else { return }
+            guard let self,
+                  self.inspectionGeneration == generation,
+                  self.selectedThreadID == threadID else { return }
             switch result {
             case .success(let frames):
                 self.stackFrames = frames
                 self.selectedFrameID = frames.first?.id
-                if let frame = frames.first { self.selectFrame(frame) }
+                if let frame = frames.first {
+                    self.selectFrame(frame)
+                } else {
+                    self.selectedFrame = nil
+                }
             case .failure(let error):
                 self.record(error)
             }
         }
+    }
+
+    private func beginInspectionTransition() -> Int {
+        inspectionGeneration &+= 1
+        activeSession?.cancelPendingOperations()
+        return inspectionGeneration
+    }
+
+    private func invalidateInspectionRequests() {
+        _ = beginInspectionTransition()
     }
 
     private func publishStoppedLocation(_ frame: DebugStackFrame) {
