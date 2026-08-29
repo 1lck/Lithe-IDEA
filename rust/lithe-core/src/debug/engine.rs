@@ -1663,6 +1663,49 @@ mod tests {
     }
 
     #[test]
+    fn debug_update_serializes_variant_fields_with_contract_casing() {
+        let update = DebugSessionUpdate {
+            session_id: "debug-contract-casing".to_string(),
+            state: DebugSessionState::Paused,
+            outbound_frames: Vec::new(),
+            events: vec![
+                DebugEvent {
+                    sequence: 1,
+                    body: DebugEventBody::Stopped {
+                        reason: "breakpoint".to_string(),
+                        thread_id: Some(13),
+                        description: None,
+                    },
+                },
+                DebugEvent {
+                    sequence: 2,
+                    body: DebugEventBody::OperationCompleted {
+                        operation_id: "stack-1".to_string(),
+                        result: DebugOperationResult::StackTrace {
+                            stack_frames: vec![DebugStackFrame {
+                                id: 7,
+                                name: "example.Main.run".to_string(),
+                                source_path: Some("/workspace/Main.java".to_string()),
+                                line: 12,
+                                column: 1,
+                            }],
+                        },
+                    },
+                },
+            ],
+        };
+
+        let value = serde_json::to_value(update).unwrap();
+        assert_eq!(value["events"][0]["threadId"], 13);
+        assert!(value["events"][0].get("thread_id").is_none());
+        assert_eq!(value["events"][1]["operationId"], "stack-1");
+        assert!(value["events"][1].get("operation_id").is_none());
+        assert_eq!(value["events"][1]["result"]["kind"], "stackTrace");
+        assert_eq!(value["events"][1]["result"]["stackFrames"][0]["id"], 7);
+        assert!(value["events"][1]["result"].get("stack_frames").is_none());
+    }
+
+    #[test]
     fn initialize_launch_breakpoints_and_inspection_are_reduced_in_order() {
         let session_id = "debug-engine-flow";
         let created = create_session(CreateSessionRequest {

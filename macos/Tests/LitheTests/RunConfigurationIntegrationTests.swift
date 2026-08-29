@@ -367,8 +367,8 @@ struct RunConfigurationIntegrationTests {
         #expect(configuration.name == "Service")
         #expect(configuration.arguments["mainClass"] == .string("com.acme.ConfiguredMain"))
         #expect(configuration.arguments["cwd"] == .string(root.appendingPathComponent("service").path))
-        #expect(configuration.arguments["vmArgs"] == .array([.string("-Xmx1g"), .string("-Dprofile=dev")]))
-        #expect(configuration.arguments["args"] == .array([.string("--port"), .string("8080")]))
+        #expect(configuration.arguments["vmArgs"] == .string("-Xmx1g -Dprofile=dev"))
+        #expect(configuration.arguments["args"] == .string("--port 8080"))
         #expect(configuration.arguments["env"] == .object(["APP_ENV": .string("dev")]))
     }
 

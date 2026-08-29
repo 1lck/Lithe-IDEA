@@ -171,16 +171,16 @@ struct DebugLaunchConfigurationResolver {
             arguments["classPaths"] = .array(target.classPaths.map(ToolingJSONValue.string))
         }
         if let runOptions {
-            let programArguments = RunArgumentParser.parse(runOptions.arguments)
+            let programArguments = runOptions.arguments.trimmingCharacters(in: .whitespacesAndNewlines)
             if !programArguments.isEmpty {
-                arguments["args"] = .array(programArguments.map(ToolingJSONValue.string))
+                arguments["args"] = .string(programArguments)
             }
             if !runOptions.environment.isEmpty {
                 arguments["env"] = .object(runOptions.environment.mapValues(ToolingJSONValue.string))
             }
-            let vmArguments = RunArgumentParser.parse(runOptions.vmArguments)
+            let vmArguments = runOptions.vmArguments.trimmingCharacters(in: .whitespacesAndNewlines)
             if !vmArguments.isEmpty {
-                arguments["vmArgs"] = .array(vmArguments.map(ToolingJSONValue.string))
+                arguments["vmArgs"] = .string(vmArguments)
             }
         }
         return DebugLaunchConfiguration(

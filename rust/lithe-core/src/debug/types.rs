@@ -370,7 +370,11 @@ pub struct DebugEvent {
 }
 
 #[derive(Debug, Clone, Serialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 /// Provider-neutral lifecycle, output, breakpoint, and request result events.
 pub enum DebugEventBody {
     StateChanged {
@@ -420,7 +424,11 @@ pub enum DebugOperationFailureCode {
 }
 
 #[derive(Debug, Clone, Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 /// Typed terminal data for one caller-owned debug operation.
 pub enum DebugOperationResult {
     Acknowledged {

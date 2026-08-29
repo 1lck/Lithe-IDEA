@@ -186,6 +186,133 @@ struct DebugModuleTests {
     }
 
     @Test
+    func stoppedEventLoadsThreadStackScopeAndVariablesInOrder() throws {
+        let transport = RecordingTransport()
+        let core = RecordingDebugProtocolCore()
+        let descriptor = DebugProviderDescriptor(
+            id: "java",
+            displayName: "Java",
+            fileExtensions: ["java"]
+        )
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
+            CoreDebugAdapterProtocolSession(
+                adapterID: "java",
+                transport: transport,
+                core: core,
+                sessionID: "java-stopped-context",
+                deadlineScheduler: RecordingDebugDeadlineScheduler()
+            )
+        }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        let root = URL(fileURLWithPath: "/tmp/java-stopped-context", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.java")
+        var stoppedLocation: (URL, Int, Int)?
+        feature.onStoppedLocation = { stoppedLocation = ($0, $1, $2) }
+        #expect(feature.start(
+            fileURL: source,
+            rootURL: root,
+            configuration: DebugLaunchConfiguration(
+                name: "Main",
+                request: .launch,
+                arguments: ["mainClass": .string("example.Main")]
+            )
+        ))
+        defer { feature.stop() }
+
+        core.enqueueReceive(sessionID: "java-stopped-context", state: "paused", events: [[
+            "sequence": 1,
+            "type": "stopped",
+            "reason": "breakpoint",
+            "threadId": 13
+        ]])
+        transport.emitData(Data("stopped-event".utf8))
+        #expect(core.inspectionRequests.map(\.kind) == ["threads"])
+
+        let threadsOperationID = try #require(core.lastInspectionOperationID)
+        core.enqueueReceive(sessionID: "java-stopped-context", state: "paused", events: [[
+            "sequence": 2,
+            "type": "operationCompleted",
+            "operationId": threadsOperationID,
+            "result": [
+                "kind": "threads",
+                "threads": [
+                    ["id": 2, "name": "Reference Handler"],
+                    ["id": 13, "name": "http-nio-exec-1"]
+                ]
+            ]
+        ]])
+        transport.emitData(Data("threads-response".utf8))
+        #expect(core.inspectionRequests.map(\.kind) == ["threads", "stackTrace"])
+        #expect(core.inspectionRequests.last?.threadID == 13)
+
+        let stackOperationID = try #require(core.lastInspectionOperationID)
+        core.enqueueReceive(sessionID: "java-stopped-context", state: "paused", events: [[
+            "sequence": 3,
+            "type": "operationCompleted",
+            "operationId": stackOperationID,
+            "result": [
+                "kind": "stackTrace",
+                "stackFrames": [[
+                    "id": 70,
+                    "name": "example.Main.run",
+                    "sourcePath": source.path,
+                    "line": 12,
+                    "column": 5
+                ]]
+            ]
+        ]])
+        transport.emitData(Data("stack-response".utf8))
+        #expect(core.inspectionRequests.map(\.kind) == ["threads", "stackTrace", "scopes"])
+        #expect(core.inspectionRequests.last?.frameID == 70)
+
+        let scopesOperationID = try #require(core.lastInspectionOperationID)
+        core.enqueueReceive(sessionID: "java-stopped-context", state: "paused", events: [[
+            "sequence": 4,
+            "type": "operationCompleted",
+            "operationId": scopesOperationID,
+            "result": [
+                "kind": "scopes",
+                "scopes": [[
+                    "name": "Locals",
+                    "variablesReference": 200,
+                    "expensive": false
+                ]]
+            ]
+        ]])
+        transport.emitData(Data("scopes-response".utf8))
+        #expect(core.inspectionRequests.map(\.kind) == [
+            "threads", "stackTrace", "scopes", "variables"
+        ])
+        #expect(core.inspectionRequests.last?.variablesReference == 200)
+
+        let variablesOperationID = try #require(core.lastInspectionOperationID)
+        core.enqueueReceive(sessionID: "java-stopped-context", state: "paused", events: [[
+            "sequence": 5,
+            "type": "operationCompleted",
+            "operationId": variablesOperationID,
+            "result": [
+                "kind": "variables",
+                "variables": [[
+                    "name": "count",
+                    "value": "7",
+                    "type": "int",
+                    "variablesReference": 0
+                ]]
+            ]
+        ]])
+        transport.emitData(Data("variables-response".utf8))
+
+        #expect(feature.selectedThreadID == 13)
+        #expect(feature.threads.map(\.id) == [2, 13])
+        #expect(feature.selectedFrame?.id == 70)
+        #expect(feature.scopes.first?.variablesReference == 200)
+        #expect(feature.variables.first?.value == "7")
+        #expect(stoppedLocation?.0 == source.standardizedFileURL)
+        #expect(stoppedLocation?.1 == 12)
+        #expect(stoppedLocation?.2 == 5)
+    }
+
+    @Test
     func genericBreakpointsPreserveAdvancedOptionsAcrossMuteAndClear() throws {
         let transport = RecordingTransport()
         let core = RecordingDebugProtocolCore()
@@ -942,6 +1069,13 @@ private final class RecordingBreakpointPersistence: DebugBreakpointPersisting, @
     }
 }
 
+private struct RecordingDebugInspectionRequest: Equatable {
+    let kind: String
+    let threadID: Int?
+    let frameID: Int?
+    let variablesReference: Int?
+}
+
 @MainActor
 private final class RecordingDebugProtocolCore: DebugProtocolCore {
     private var receiveUpdates: [DebugCoreUpdate] = []
@@ -956,6 +1090,7 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
     private(set) var cancelledOperationReasons: [String] = []
     private(set) var lastExecutionSingleThread: Bool?
     private(set) var lastExecutionThreadID: Int?
+    private(set) var inspectionRequests: [RecordingDebugInspectionRequest] = []
 
     func createDebugSession(
         sessionID: String,
@@ -1066,16 +1201,22 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
     func inspectDebugSession(
         sessionID: String,
         operationID: String,
-        kind _: String,
-        threadID _: Int?,
-        frameID _: Int?,
-        variablesReference _: Int?,
+        kind: String,
+        threadID: Int?,
+        frameID: Int?,
+        variablesReference: Int?,
         expression _: String?,
         sourcePath _: String?,
         line _: Int?,
         column _: Int?
     ) throws -> DebugCoreUpdate {
         lastInspectionOperationID = operationID
+        inspectionRequests.append(RecordingDebugInspectionRequest(
+            kind: kind,
+            threadID: threadID,
+            frameID: frameID,
+            variablesReference: variablesReference
+        ))
         return update(sessionID: sessionID, state: "paused")
     }
 

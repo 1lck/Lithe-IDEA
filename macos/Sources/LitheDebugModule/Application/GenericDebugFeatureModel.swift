@@ -839,20 +839,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         case .stopped(let reason, let threadID, let description):
             stoppedReason = description ?? reason
             selectedThreadID = threadID
-            inspectThreads()
-            if let threadID,
-               let thread = threads.first(where: { $0.id == threadID }) {
-                selectThread(thread)
-            } else if let threadID, let session = activeSession {
-                session.requestStackTrace(threadID: threadID) { [weak self] result in
-                    if case .success(let frames) = result {
-                        self?.stackFrames = frames
-                        if let frame = frames.first {
-                            self?.selectFrame(frame)
-                        }
-                    }
-                }
-            }
+            loadStoppedContext(threadID: threadID)
         case .continued:
             stoppedReason = nil
             stoppedFrame = nil
@@ -882,6 +869,43 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             }) {
                 breakpoints[index].verified = resolved.verified
                 breakpoints[index].message = resolved.message
+            }
+        }
+    }
+
+    private func loadStoppedContext(threadID: Int?) {
+        guard let session = activeSession else { return }
+        session.requestThreads { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let threads):
+                self.threads = threads
+                let selectedThreadID = threadID.flatMap { stoppedID in
+                    threads.first(where: { $0.id == stoppedID })?.id
+                } ?? threads.first?.id ?? threadID
+                self.selectedThreadID = selectedThreadID
+                if let selectedThreadID {
+                    self.loadStoppedStack(threadID: selectedThreadID)
+                }
+            case .failure(let error):
+                self.record(error)
+                if let threadID {
+                    self.loadStoppedStack(threadID: threadID)
+                }
+            }
+        }
+    }
+
+    private func loadStoppedStack(threadID: Int) {
+        activeSession?.requestStackTrace(threadID: threadID) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let frames):
+                self.stackFrames = frames
+                self.selectedFrameID = frames.first?.id
+                if let frame = frames.first { self.selectFrame(frame) }
+            case .failure(let error):
+                self.record(error)
             }
         }
     }
