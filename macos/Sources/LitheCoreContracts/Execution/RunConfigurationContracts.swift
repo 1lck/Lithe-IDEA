@@ -76,10 +76,18 @@ package enum ProjectLoadState: Equatable, Sendable {
         }
     }
 
-    /// Whether the inventory for `workspace` is complete enough to generate from.
-    package func isReady(for workspace: URL) -> Bool {
-        guard case .ready(let boundWorkspace, _) = self else { return false }
-        return boundWorkspace == workspace.standardizedFileURL
+    /// Whether the inventory matches `snapshotID` for `workspace`, and is
+    /// therefore the current, complete inventory.
+    ///
+    /// Comparing the snapshot as well as the workspace is what rejects a
+    /// superseded snapshot of the same workspace: a refresh publishes a new
+    /// snapshot before the run service consumes it, and scanning the previous
+    /// inventory would miss entry points the refresh added.
+    package func isReady(for workspace: URL, snapshotID: UUID?) -> Bool {
+        guard let snapshotID,
+              case .ready(let boundWorkspace, let boundSnapshotID) = self
+        else { return false }
+        return boundWorkspace == workspace.standardizedFileURL && boundSnapshotID == snapshotID
     }
 }
 

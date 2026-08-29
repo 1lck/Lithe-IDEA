@@ -98,7 +98,7 @@ struct ExecutionModuleTests {
         // Binding without a snapshot only unlocks reading existing configuration.
         await service.loadProject(at: root, files: [], mavenProject: nil)
         #expect(service.projectLoadState == .bound(workspace: root))
-        #expect(!service.isProjectReady(for: root))
+        #expect(!service.isProjectReady(for: root, snapshotID: UUID()))
         await service.generateRunConfigurations()
         #expect(service.generationState == .projectNotReady)
         #expect(operations.generateCallCount == 0)
@@ -106,6 +106,9 @@ struct ExecutionModuleTests {
         let snapshotID = UUID()
         await service.loadProject(at: root, files: [], mavenProject: nil, snapshotID: snapshotID)
         #expect(service.projectLoadState == .ready(workspace: root, snapshotID: snapshotID))
+        #expect(service.isProjectReady(for: root, snapshotID: snapshotID))
+        // A superseded snapshot of the same workspace is not ready.
+        #expect(!service.isProjectReady(for: root, snapshotID: UUID()))
         await service.generateRunConfigurations()
 
         #expect(operations.generateCallCount == 1)

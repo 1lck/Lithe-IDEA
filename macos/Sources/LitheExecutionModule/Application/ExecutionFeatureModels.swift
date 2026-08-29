@@ -161,8 +161,8 @@ package final class RunFeatureModel: ObservableObject {
 
     package var projectLoadState: ProjectLoadState { service.projectLoadState }
 
-    package func isProjectReady(for workspace: URL) -> Bool {
-        service.isProjectReady(for: workspace)
+    package func isProjectReady(for workspace: URL, snapshotID: UUID?) -> Bool {
+        service.isProjectReady(for: workspace, snapshotID: snapshotID)
     }
 
     package func loadProject(
@@ -221,8 +221,8 @@ package final class ProjectDevelopmentFeatureModel {
         self.runFeature = runFeature
     }
 
-    package func isRunProjectReady(for workspace: URL) -> Bool {
-        runFeature.isProjectReady(for: workspace)
+    package func isRunProjectReady(for workspace: URL, snapshotID: UUID?) -> Bool {
+        runFeature.isProjectReady(for: workspace, snapshotID: snapshotID)
     }
 
     package func loadProject(at workspaceURL: URL, files: [URL], snapshotID: UUID? = nil) async {

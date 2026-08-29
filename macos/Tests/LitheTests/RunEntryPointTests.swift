@@ -29,7 +29,7 @@ struct RunEntryPointTests {
             model.runFeatureIfActive?.projectLoadState.workspace != nil
         }
         #expect(bound, "the Run entry point never bound the workspace")
-        #expect(model.runFeatureIfActive?.isProjectReady(for: workspace.root) == false)
+        #expect(model.runFeatureIfActive?.isProjectReady(for: workspace.root, snapshotID: model.workspaceSnapshotID) == false)
 
         let runFeature = try #require(model.runFeatureIfActive)
         await runFeature.generateRunConfigurations()
@@ -39,12 +39,45 @@ struct RunEntryPointTests {
         operations.releaseSnapshot()
 
         let ready = await awaitChange(on: model) {
-            model.runFeatureIfActive?.isProjectReady(for: workspace.root) == true
+            model.runFeatureIfActive?.isProjectReady(
+                for: workspace.root,
+                snapshotID: model.workspaceSnapshotID
+            ) == true
         }
         #expect(ready, "the applied snapshot never made the run project ready")
         // Which paths generation then scans is asserted against the run
         // configuration store in ExecutionModuleTests, because the Swift test
         // binary does not link the Rust Core that performs the scan.
+    }
+
+    /// Launching from a provisional inventory resolves toolchains without the
+    /// Maven project, so Run has to defer rather than proceed on a bound-only
+    /// workspace. The deferred action is remembered and resumed by the load the
+    /// snapshot drives, which is what lets the user press Run once.
+    @Test
+    func runDefersAndResumesWhenTheSnapshotArrivesLater() async throws {
+        let workspace = try JavaWorkspaceFixture()
+        defer { workspace.remove() }
+        let operations = GatedWorkspaceOperations(snapshot: workspace.snapshot)
+        let model = makeAppModel(workspaceOperations: operations)
+
+        model.openProjectDirectly(workspace.root)
+        model.runSelectedConfiguration()
+
+        let deferred = await awaitChange(on: model) { model.pendingRunAction != nil }
+        #expect(deferred, "Run must be deferred while the inventory is provisional")
+
+        operations.releaseSnapshot()
+
+        let ready = await awaitChange(on: model) {
+            model.runFeatureIfActive?.isProjectReady(
+                for: workspace.root,
+                snapshotID: model.workspaceSnapshotID
+            ) == true
+        }
+        #expect(ready, "the applied snapshot never made the run project ready")
+        let resumed = await awaitChange(on: model) { model.pendingRunAction == nil }
+        #expect(resumed, "the deferred Run was never resumed")
     }
 
     /// Debugging reaches the same run feature through its own entry point.
@@ -62,12 +95,15 @@ struct RunEntryPointTests {
             model.runFeatureIfActive?.projectLoadState.workspace != nil
         }
         #expect(bound, "the Debug entry point never bound the workspace")
-        #expect(model.runFeatureIfActive?.isProjectReady(for: workspace.root) == false)
+        #expect(model.runFeatureIfActive?.isProjectReady(for: workspace.root, snapshotID: model.workspaceSnapshotID) == false)
 
         operations.releaseSnapshot()
 
         let ready = await awaitChange(on: model) {
-            model.runFeatureIfActive?.isProjectReady(for: workspace.root) == true
+            model.runFeatureIfActive?.isProjectReady(
+                for: workspace.root,
+                snapshotID: model.workspaceSnapshotID
+            ) == true
         }
         #expect(ready, "the applied snapshot never made the run project ready")
     }
@@ -85,7 +121,10 @@ struct RunEntryPointTests {
         model.openProjectDirectly(workspace.root)
 
         let ready = await awaitChange(on: model) {
-            model.runFeatureIfActive?.isProjectReady(for: workspace.root) == true
+            model.runFeatureIfActive?.isProjectReady(
+                for: workspace.root,
+                snapshotID: model.workspaceSnapshotID
+            ) == true
         }
         #expect(ready, "opening a project should make the run project ready")
     }

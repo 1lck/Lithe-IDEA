@@ -110,8 +110,8 @@ package final class RunService: ObservableObject {
     /// therefore complete enough to generate a configuration from. Entry points
     /// that activate the execution module on demand use this to decide whether
     /// the project still has to be loaded.
-    package func isProjectReady(for workspace: URL) -> Bool {
-        projectLoadState.isReady(for: workspace)
+    package func isProjectReady(for workspace: URL, snapshotID: UUID?) -> Bool {
+        projectLoadState.isReady(for: workspace, snapshotID: snapshotID)
     }
 
     @discardableResult
@@ -223,7 +223,7 @@ package final class RunService: ObservableObject {
         // provisional inventory would write a configuration that omits entry
         // points the workspace contains. Dropping the request silently is also
         // indistinguishable from a broken button, so report the pending state.
-        guard let projectURL, projectLoadState.isReady(for: projectURL) else {
+        guard let projectURL, case .ready = projectLoadState else {
             generationState = .projectNotReady
             return
         }

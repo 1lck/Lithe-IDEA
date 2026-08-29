@@ -146,6 +146,9 @@ final class AppModel: ObservableObject, Identifiable {
     private var workbenchBackgroundFeatureObservation: AnyCancellable?
     private var isProjectSessionActive = true
     private var fileVisibilityRulesObserverID: UUID?
+    /// Run or Debug that arrived before the workspace snapshot reached the run
+    /// feature. `loadProjectServices` resumes it once the inventory matches.
+    var pendingRunAction: PendingRunAction?
     private var requestProjectOpen: ((URL) -> Void)?
     private var didCloseProject: (() -> Void)?
     private var securityScopedWorkspaceURL: URL?
@@ -749,36 +752,6 @@ final class AppModel: ObservableObject, Identifiable {
         }
     }
 
-    /// Loads build-system and run state at the workspace boundary. The generic
-    /// run lifecycle is intentionally not owned by JavaFeatureModel.
-    ///
-    /// Spring indexing is scheduled rather than awaited. It scales with the
-    /// number of Java sources, and run configurations, test discovery, and the
-    /// Git refresh that follows this call must not wait for it.
-    func loadProjectServices(at workspaceURL: URL, files: [URL]) async {
-        prepareJavaLanguageServerForWorkspaceIfNeeded(
-            at: workspaceURL,
-            files: files
-        )
-        springFeature.scheduleLoad(
-            workspaceURL: workspaceURL,
-            files: files,
-            textOverrides: Dictionary(uniqueKeysWithValues: openDocuments.map {
-                ($0.url.standardizedFileURL, $0.text)
-            })
-        )
-        guard let execution = await activateExecutionModule() else { return }
-        execution.tests.discover(workspaceURL: workspaceURL, files: files)
-        // The workspace feature owns snapshot identity. Passing it through lets
-        // the run service tell a complete file inventory from a provisional one,
-        // so generation never scans a partial workspace.
-        await execution.projectDevelopment.loadProject(
-            at: workspaceURL,
-            files: files,
-            snapshotID: workspaceFeature.snapshotID
-        )
-    }
-
     var projectName: String {
         workspaceURL?.lastPathComponent ?? "Lithe"
     }
@@ -944,6 +917,7 @@ final class AppModel: ObservableObject, Identifiable {
         runtimeFeature.openProject(at: normalizedURL)
         mavenFeatureIfActive?.reset()
         runFeatureIfActive?.reset()
+        pendingRunAction = nil
         debugFeatureIfActive?.reset()
         genericDebugFeatureIfActive?.reset()
         clearLanguageNavigationProjection()
@@ -1054,6 +1028,7 @@ final class AppModel: ObservableObject, Identifiable {
         runtimeFeature.closeProject()
         mavenFeatureIfActive?.reset()
         runFeatureIfActive?.reset()
+        pendingRunAction = nil
         debugFeatureIfActive?.reset()
         genericDebugFeatureIfActive?.reset()
         javaFeature.stop()

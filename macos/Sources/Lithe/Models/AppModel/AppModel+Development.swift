@@ -3,6 +3,12 @@ import LitheCoreContracts
 import LitheExecutionModule
 import LitheModuleAPI
 
+/// An action deferred until the run feature holds the current workspace snapshot.
+enum PendingRunAction {
+    case run
+    case debug
+}
+
 @MainActor
 extension AppModel {
     func toggleSpringEndpoints() {
@@ -142,6 +148,19 @@ extension AppModel {
         runFeatureIfActive?.select(configuration)
     }
 
+    /// The single entry point for identification.
+    ///
+    /// Routing it through here is what keeps the run service from scanning a
+    /// superseded snapshot: the service can only compare its own state, so the
+    /// caller has to bring it up to the current snapshot first.
+    func generateRunConfigurations() async {
+        guard let runFeature = await activateExecutionModule()?.runFeature else { return }
+        // Report the pending workspace through the generation state when the
+        // snapshot has not arrived, which the run panel surfaces as a notice.
+        _ = await ensureRunProjectReady(runFeature)
+        await runFeature.generateRunConfigurations()
+    }
+
     func openRunConfiguration(relativePath: String?) {
         guard let workspaceURL else { return }
         let url = workspaceURL.appendingPathComponent(relativePath ?? ".lithe/run/generated.json")
@@ -153,22 +172,78 @@ extension AppModel {
         Task { [weak self] in await self?.runSelectedConfigurationAfterActivation() }
     }
 
-    /// Run and Debug can activate the execution module before the workspace
-    /// snapshot reaches the run feature, which leaves it without a project. The
-    /// tool-window entry points already load on demand; these do the same so
-    /// every entry point observes the same state.
+    /// Loads build-system and run state at the workspace boundary. The generic
+    /// run lifecycle is intentionally not owned by JavaFeatureModel.
     ///
-    /// This does not make an unfinished snapshot ready. When the snapshot is
-    /// still pending, the load binds the workspace so existing configuration is
-    /// readable and generation keeps reporting `projectNotReady`.
-    private func loadProjectServicesIfRunProjectIsNotReady(_ runFeature: RunFeatureModel) async {
-        guard let workspaceURL, !runFeature.isProjectReady(for: workspaceURL) else { return }
+    /// Spring indexing is scheduled rather than awaited. It scales with the
+    /// number of Java sources, and run configurations, test discovery, and the
+    /// Git refresh that follows this call must not wait for it.
+    func loadProjectServices(at workspaceURL: URL, files: [URL]) async {
+        prepareJavaLanguageServerForWorkspaceIfNeeded(
+            at: workspaceURL,
+            files: files
+        )
+        springFeature.scheduleLoad(
+            workspaceURL: workspaceURL,
+            files: files,
+            textOverrides: Dictionary(uniqueKeysWithValues: openDocuments.map {
+                ($0.url.standardizedFileURL, $0.text)
+            })
+        )
+        guard let execution = await activateExecutionModule() else { return }
+        execution.tests.discover(workspaceURL: workspaceURL, files: files)
+        // The workspace feature owns snapshot identity. Passing it through lets
+        // the run service tell a complete file inventory from a provisional one,
+        // so generation never scans a partial workspace.
+        await execution.projectDevelopment.loadProject(
+            at: workspaceURL,
+            files: files,
+            snapshotID: workspaceSnapshotID
+        )
+        resumePendingRunActionIfProjectBecameReady(execution.runFeature)
+    }
+
+    /// Brings the run feature up to the workspace snapshot the workspace feature
+    /// currently holds, and reports whether it got there.
+    ///
+    /// Run, Debug, and identification all scan or launch from the file inventory
+    /// the run service holds, so each of them needs the inventory to match the
+    /// current snapshot rather than merely being bound to the workspace.
+    private func ensureRunProjectReady(_ runFeature: RunFeatureModel) async -> Bool {
+        guard let workspaceURL else { return false }
+        let snapshotID = workspaceSnapshotID
+        if runFeature.isProjectReady(for: workspaceURL, snapshotID: snapshotID) { return true }
         await loadProjectServices(at: workspaceURL, files: projectFiles)
+        return runFeature.isProjectReady(
+            for: workspaceURL,
+            snapshotID: workspaceSnapshotID
+        )
+    }
+
+    /// Continues an action that arrived before the snapshot did. The workspace
+    /// rebuild always finishes with `loadProjectServices`, so recording the
+    /// intent is enough to resume without polling or waiting.
+    private func resumePendingRunActionIfProjectBecameReady(_ runFeature: RunFeatureModel) {
+        guard let action = pendingRunAction,
+              let workspaceURL,
+              runFeature.isProjectReady(for: workspaceURL, snapshotID: workspaceSnapshotID)
+        else { return }
+        pendingRunAction = nil
+        switch action {
+        case .run: runSelectedConfiguration()
+        case .debug: startDebugging()
+        }
     }
 
     private func runSelectedConfigurationAfterActivation() async {
         guard let runFeature = await activateExecutionModule()?.runFeature else { return }
-        await loadProjectServicesIfRunProjectIsNotReady(runFeature)
+        guard await ensureRunProjectReady(runFeature) else {
+            // Launching from a provisional inventory resolves toolchains without
+            // the Maven project, so wait for the snapshot instead of running.
+            pendingRunAction = .run
+            return
+        }
+        pendingRunAction = nil
         guard runFeature.configurationStatus == .ready else {
             runFeature.requestRunConfigurationGeneration(intent: .run)
             return
@@ -339,7 +414,11 @@ extension AppModel {
         guard let execution = await activateExecutionModule(),
               let debug = await activateDebugModule() else { return }
         let runFeature = execution.runFeature
-        await loadProjectServicesIfRunProjectIsNotReady(runFeature)
+        guard await ensureRunProjectReady(runFeature) else {
+            pendingRunAction = .debug
+            return
+        }
+        pendingRunAction = nil
         let debugFeature = debug.javaFeature
         javaFeature.configureRuntime(
             mavenFeature: execution.mavenFeature,
