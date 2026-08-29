@@ -602,6 +602,7 @@ struct CodeEditorView: NSViewRepresentable {
         private var appliedBlameLines: [GitBlameLine] = []
         private var appliedDebugBreakpointLines = Set<Int>()
         private var appliedDebugBreakpointStates: [Int: Bool] = [:]
+        private var appliedDebugBreakpointMessages: [Int: String] = [:]
         private var appliedCurrentExecutionLine: Int?
         private var appliedGitMarkers: [GitLineChangeMarker]?
         private var appliedDiagnostics: [EditorDiagnostic] = []
@@ -1231,6 +1232,14 @@ struct CodeEditorView: NSViewRepresentable {
                     // show it as confirmed when any adapter location is confirmed.
                     states[breakpoint.line] = states[breakpoint.line] == true || breakpoint.verified
                 }
+            let debugBreakpointMessages = Dictionary(
+                model.genericDebugFeatureIfActive?.breakpoints
+                    .filter { $0.fileURL.standardizedFileURL == url }
+                    .compactMap { breakpoint in
+                        breakpoint.message.map { (breakpoint.line, $0) }
+                    } ?? [],
+                uniquingKeysWith: { first, _ in first }
+            )
             let currentExecutionLine: Int? = {
                 guard let frame = model.genericDebugFeatureIfActive?.stoppedFrame,
                       frame.sourceURL?.standardizedFileURL == url else { return nil }
@@ -1240,11 +1249,13 @@ struct CodeEditorView: NSViewRepresentable {
                 || appliedBlameLines != blameLines
                 || appliedDebugBreakpointLines != debugBreakpointLines
                 || appliedDebugBreakpointStates != debugBreakpointStates
+                || appliedDebugBreakpointMessages != debugBreakpointMessages
                 || appliedCurrentExecutionLine != currentExecutionLine {
                 appliedBlameVisible = isBlameVisible
                 appliedBlameLines = blameLines
                 appliedDebugBreakpointLines = debugBreakpointLines
                 appliedDebugBreakpointStates = debugBreakpointStates
+                appliedDebugBreakpointMessages = debugBreakpointMessages
                 appliedCurrentExecutionLine = currentExecutionLine
                 container?.gutterWidthConstraint?.constant = isBlameVisible
                     ? EditorLayoutMetrics.blameMetadataWidth + standardGutterWidth
@@ -1255,6 +1266,7 @@ struct CodeEditorView: NSViewRepresentable {
                 gutter?.updateDebugBreakpointLines(debugBreakpointStates) { [weak model] line in
                     model?.toggleDebugBreakpoint(fileURL: url, line: line)
                 }
+                gutter?.updateDebugBreakpointMessages(debugBreakpointMessages)
                 gutter?.updateCurrentExecutionLine(currentExecutionLine)
             }
         }
@@ -3124,6 +3136,7 @@ final class LineNumberGutterView: NSView {
     private var onSelectImplementation: ((JavaImplementationMarker) -> Void)?
     private var debugBreakpointLines: Set<Int> = []
     private var debugBreakpointVerifiedByLine: [Int: Bool] = [:]
+    private var debugBreakpointMessagesByLine: [Int: String] = [:]
     private var currentExecutionLine: Int?
     private var onToggleDebugBreakpoint: ((Int) -> Void)?
     private var scrollRefreshScheduled = false
@@ -3295,6 +3308,12 @@ final class LineNumberGutterView: NSView {
     func updateCurrentExecutionLine(_ line: Int?) {
         currentExecutionLine = line.map { max(0, $0 - 1) }
         needsDisplay = true
+    }
+
+    func updateDebugBreakpointMessages(_ messages: [Int: String]) {
+        debugBreakpointMessagesByLine = messages.reduce(into: [:]) {
+            $0[max(0, $1.key - 1)] = $1.value
+        }
     }
 
     func updateGitLineChanges(
@@ -3778,6 +3797,7 @@ final class LineNumberGutterView: NSView {
         super.mouseMoved(with: event)
         let point = convert(event.locationInWindow, from: nil)
         updateFoldHover(at: point)
+        updateBreakpointToolTip(at: point)
         if foldRegion(at: point) != nil {
             NSCursor.pointingHand.set()
         }
@@ -3795,6 +3815,20 @@ final class LineNumberGutterView: NSView {
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         updateFoldHover(at: nil)
+        toolTip = nil
+    }
+
+    private func updateBreakpointToolTip(at point: NSPoint) {
+        let localX = point.x - editorGutterOriginX
+        guard gutterLayout.breakpointRange.contains(localX),
+              let line = editorLine(at: point),
+              let verified = debugBreakpointVerifiedByLine[line] else {
+            toolTip = nil
+            return
+        }
+        let state = verified ? "Breakpoint verified" : "Breakpoint not verified"
+        let detail = debugBreakpointMessagesByLine[line].map { " — \($0)" } ?? ""
+        toolTip = "Line \(line + 1): \(state)\(detail)"
     }
 
     private func updateFoldHover(at point: NSPoint?) {
