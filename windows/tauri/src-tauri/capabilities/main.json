@@ -50,7 +50,7 @@
       "identifier": "http:default",
       "allow": [
         {
-          "url": "https://lithe.dev/**"
+          "url": "https://lithe.top/**"
         },
         {
           "url": "https://api.openai.com/**"

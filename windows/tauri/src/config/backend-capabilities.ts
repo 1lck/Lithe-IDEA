@@ -2,7 +2,6 @@ export const BACKEND_UNAVAILABLE_TOOLTIP = "待开发";
 
 export const backendCapabilities = {
   agent: false,
-  collaboration: false,
   database: false,
   debugger: false,
   docker: false,

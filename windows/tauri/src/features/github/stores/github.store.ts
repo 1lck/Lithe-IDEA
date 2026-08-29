@@ -10,11 +10,9 @@ import type {
   PullRequestDetails,
   PullRequestFile,
 } from "../types/github.types";
-import { syncGitHubTokenFromAccount } from "../services/github-token-service";
 import {
   AUTH_CACHE_TTL_MS,
   fetchNormalizedPRDetails,
-  getGitHubAccountStatus,
   getGitHubErrorMessage,
   getPRDetailsCacheKey,
   getPRListCacheKey,
@@ -43,7 +41,6 @@ interface PRDetailsCacheEntry {
 }
 
 type GitHubAuthStatus = "authenticated" | "notAuthenticated";
-type GitHubAccountStatus = "unknown" | "notSignedIn" | "notConnected" | "connected";
 
 interface GitHubState {
   prs: PullRequest[];
@@ -54,7 +51,6 @@ interface GitHubState {
   isAuthenticated: boolean;
   isCheckingAuth: boolean;
   authStatus: GitHubAuthStatus;
-  githubAccountStatus: GitHubAccountStatus;
   authError: string | null;
   currentUser: string | null;
   // Selected PR state
@@ -80,7 +76,6 @@ const initialState: GitHubState = {
   isAuthenticated: false,
   isCheckingAuth: false,
   authStatus: "notAuthenticated" as GitHubAuthStatus,
-  githubAccountStatus: "unknown" as GitHubAccountStatus,
   authError: null,
   currentUser: null,
   // Selected PR state
@@ -115,18 +110,10 @@ const useGitHubStoreBase = create(
           return;
         }
 
-        const authState = get();
-        const hasResolvedAuthState =
-          authState.isAuthenticated ||
-          authState.githubAccountStatus === "notSignedIn" ||
-          authState.githubAccountStatus === "notConnected" ||
-          authState.authError !== null;
-
         if (
           !options?.force &&
           authCheckedAt &&
-          isFresh(authCheckedAt, AUTH_CACHE_TTL_MS) &&
-          hasResolvedAuthState
+          isFresh(authCheckedAt, AUTH_CACHE_TTL_MS)
         ) {
           return;
         }
@@ -145,67 +132,17 @@ const useGitHubStoreBase = create(
               isAuthenticated: true,
               isCheckingAuth: false,
               authStatus: status,
-              githubAccountStatus: "connected",
               currentUser: user,
               error: null,
               authError: null,
             });
           } else {
-            let githubAccountStatus = get().githubAccountStatus;
-
-            if (status === "notAuthenticated") {
-              try {
-                const syncResult = await syncGitHubTokenFromAccount();
-                githubAccountStatus = getGitHubAccountStatus(syncResult.status);
-
-                if (syncResult.status === "synced") {
-                  const syncedStatus = await invoke<GitHubAuthStatus>("github_check_auth");
-
-                  if (syncedStatus === "authenticated") {
-                    const user = await invoke<string>("github_get_current_user");
-                    set({
-                      isAuthenticated: true,
-                      isCheckingAuth: false,
-                      authStatus: syncedStatus,
-                      githubAccountStatus,
-                      currentUser: user,
-                      error: null,
-                      authError: null,
-                    });
-                    authCheckedAt = Date.now();
-                    return;
-                  }
-
-                  set({
-                    isAuthenticated: false,
-                    isCheckingAuth: false,
-                    authStatus: syncedStatus,
-                    githubAccountStatus,
-                    currentUser: null,
-                    authError:
-                      "A GitHub token was synced from your Lithe account, but GitHub rejected it.",
-                  });
-                  authCheckedAt = Date.now();
-                  return;
-                }
-              } catch (error) {
-                const message = getGitHubErrorMessage(error);
-                console.error("Failed to sync GitHub account token:", error);
-                set({ authError: `Failed to sync GitHub account token: ${message}` });
-              }
-            }
-
             set({
               isAuthenticated: false,
               isCheckingAuth: false,
               authStatus: status,
-              githubAccountStatus,
               currentUser: null,
-              authError:
-                get().authError ??
-                (status === "notAuthenticated"
-                  ? "No valid GitHub token is available for this workspace."
-                  : null),
+              authError: null,
             });
           }
           authCheckedAt = Date.now();
@@ -216,7 +153,6 @@ const useGitHubStoreBase = create(
             isAuthenticated: false,
             isCheckingAuth: false,
             authStatus: "notAuthenticated",
-            githubAccountStatus: get().githubAccountStatus,
             authError: message,
             currentUser: null,
           });

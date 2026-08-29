@@ -1,5 +1,4 @@
 {
-  "$schema": "https://lithe.dev/schemas/extension.json",
   "id": "lithe.icon-theme.material",
   "name": "material-icons",
   "displayName": "Material Icons",

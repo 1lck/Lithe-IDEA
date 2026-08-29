@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { SERVICE_DEFAULTS } from "@/config/service-defaults";
+import { requireExtensionsCdnBaseUrl } from "./cdn-config";
 import {
   getContributionArray,
   getExtensionCdnPath,
@@ -16,7 +16,7 @@ import {
   writeStableTarGz,
 } from "./extension-workspace";
 
-const cdnBaseUrl = process.env.EXTENSIONS_CDN_BASE_URL || SERVICE_DEFAULTS.extensionsCdnBaseUrl;
+const cdnBaseUrl = requireExtensionsCdnBaseUrl();
 
 function shouldPackage(manifest: Record<string, unknown>) {
   const hasNativeSidecar = getContributionArray(manifest, "databases").length > 0;

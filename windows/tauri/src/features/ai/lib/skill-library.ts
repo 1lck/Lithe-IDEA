@@ -78,6 +78,8 @@ async function fetchSkillDetail(entry: SkillRegistryEntry): Promise<SkillRegistr
 }
 
 export async function loadMarketplaceSkills(): Promise<MarketplaceSkill[]> {
+  if (!SKILLS_REGISTRY_URL) return [];
+
   try {
     const response = await fetch(SKILLS_REGISTRY_URL);
     if (!response.ok) return [];

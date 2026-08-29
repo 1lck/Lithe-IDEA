@@ -21,8 +21,6 @@ import { useDeepLink } from "@/features/window/hooks/use-deep-link";
 import { useExternalNavigationGuard } from "@/features/window/hooks/use-external-navigation-guard";
 import { useFontLoading } from "@/features/window/hooks/use-font-loading";
 import { usePlatformSetup } from "@/features/window/hooks/use-platform-setup";
-import { useSettingsSync } from "@/features/window/hooks/use-settings-sync";
-import { useAuthStore } from "@/features/window/stores/auth.store";
 import {
   enqueueWindowOpenRequest,
   parseWindowOpenUrl,
@@ -33,7 +31,6 @@ export function useAppBootstrap() {
   const initializeOnboarding = useOnboardingStore((state) => state.actions.initialize);
 
   usePlatformSetup();
-  useSettingsSync();
   useFontLoading();
   useDeepLink();
   useCliOpen();
@@ -59,10 +56,6 @@ export function useAppBootstrap() {
       window.cancelAnimationFrame(frame);
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, []);
-
-  useEffect(() => {
-    void useAuthStore.getState().actions.initialize();
   }, []);
 
   useEffect(() => {
