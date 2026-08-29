@@ -105,6 +105,11 @@ enum EditorGutterHitTarget: Equatable {
     case gitChange
 }
 
+struct EditorDebugBreakpointState: Equatable {
+    let enabled: Bool
+    let verified: Bool
+}
+
 struct EditorLanguageFeatureTransition: Equatable {
     let refreshImplementationMarkers: Bool
     let clearImplementationMarkers: Bool
@@ -601,7 +606,7 @@ struct CodeEditorView: NSViewRepresentable {
         private var appliedBlameVisible = false
         private var appliedBlameLines: [GitBlameLine] = []
         private var appliedDebugBreakpointLines = Set<Int>()
-        private var appliedDebugBreakpointStates: [Int: Bool] = [:]
+        private var appliedDebugBreakpointStates: [Int: EditorDebugBreakpointState] = [:]
         private var appliedDebugBreakpointMessages: [Int: String] = [:]
         private var appliedRunToCursorEnabled = false
         private var appliedBreakpointsMuted = false
@@ -1229,10 +1234,14 @@ struct CodeEditorView: NSViewRepresentable {
             let debugBreakpointLines = Set(genericBreakpointLines)
             let debugBreakpointStates = (model.genericDebugFeatureIfActive?.breakpoints ?? [])
                 .filter { $0.fileURL.standardizedFileURL == url }
-                .reduce(into: [Int: Bool]()) { states, breakpoint in
+                .reduce(into: [Int: EditorDebugBreakpointState]()) { states, breakpoint in
                     // A source line can carry multiple column breakpoints;
                     // show it as confirmed when any adapter location is confirmed.
-                    states[breakpoint.line] = states[breakpoint.line] == true || breakpoint.verified
+                    let previous = states[breakpoint.line]
+                    states[breakpoint.line] = EditorDebugBreakpointState(
+                        enabled: previous?.enabled == true || breakpoint.enabled,
+                        verified: previous?.verified == true || breakpoint.verified
+                    )
                 }
             let debugBreakpointMessages = Dictionary(
                 model.genericDebugFeatureIfActive?.breakpoints
@@ -3168,7 +3177,7 @@ final class LineNumberGutterView: NSView {
     private var implementationMarkers: [JavaImplementationMarker] = []
     private var onSelectImplementation: ((JavaImplementationMarker) -> Void)?
     private var debugBreakpointLines: Set<Int> = []
-    private var debugBreakpointVerifiedByLine: [Int: Bool] = [:]
+    private var debugBreakpointStatesByLine: [Int: EditorDebugBreakpointState] = [:]
     private var debugBreakpointMessagesByLine: [Int: String] = [:]
     private var currentExecutionLine: Int?
     private var onToggleDebugBreakpoint: ((Int) -> Void)?
@@ -3335,7 +3344,7 @@ final class LineNumberGutterView: NSView {
     }
 
     func updateDebugBreakpointLines(
-        _ states: [Int: Bool],
+        _ states: [Int: EditorDebugBreakpointState],
         onToggle: @escaping (Int) -> Void,
         onRemove: ((Int) -> Void)? = nil,
         onSetEnabled: ((Int, Bool) -> Void)? = nil,
@@ -3345,7 +3354,7 @@ final class LineNumberGutterView: NSView {
         areBreakpointsMuted: Bool = false
     ) {
         debugBreakpointLines = Set(states.keys.map { max(0, $0 - 1) })
-        debugBreakpointVerifiedByLine = Dictionary(
+        debugBreakpointStatesByLine = Dictionary(
             uniqueKeysWithValues: states.map { (max(0, $0.key - 1), $0.value) }
         )
         onToggleDebugBreakpoint = onToggle
@@ -3584,8 +3593,8 @@ final class LineNumberGutterView: NSView {
                showsBlameMetadata(line: lineNumber - 1, firstVisibleLine: firstLine) {
                 drawBlame(blame, y: y, height: lineRect.height)
             }
-            if !isBlameVisible, let verified = debugBreakpointVerifiedByLine[lineNumber - 1] {
-                drawDebugBreakpoint(y: y, height: lineRect.height, verified: verified)
+            if !isBlameVisible, let state = debugBreakpointStatesByLine[lineNumber - 1] {
+                drawDebugBreakpoint(y: y, height: lineRect.height, state: state)
             } else {
                 let markers = implementationMarkers.filter { $0.line == lineNumber - 1 }
                 for marker in markers {
@@ -3755,7 +3764,11 @@ final class LineNumberGutterView: NSView {
         path.stroke()
     }
 
-    private func drawDebugBreakpoint(y: CGFloat, height: CGFloat, verified: Bool) {
+    private func drawDebugBreakpoint(
+        y: CGFloat,
+        height: CGFloat,
+        state: EditorDebugBreakpointState
+    ) {
         let markerSize: CGFloat = 9
         let path = NSBezierPath(
             ovalIn: NSRect(
@@ -3766,9 +3779,10 @@ final class LineNumberGutterView: NSView {
                 height: markerSize
             )
         )
-        NSColor(red: 0.92, green: 0.28, blue: 0.30, alpha: areBreakpointsMuted ? 0.42 : 0.96).setStroke()
+        let isInactive = areBreakpointsMuted || !state.enabled
+        NSColor(red: 0.92, green: 0.28, blue: 0.30, alpha: isInactive ? 0.42 : 0.96).setStroke()
         path.lineWidth = 1.5
-        if verified {
+        if state.verified {
             path.fill()
         } else {
             path.stroke()
@@ -3875,13 +3889,18 @@ final class LineNumberGutterView: NSView {
         let localX = point.x - editorGutterOriginX
         guard gutterLayout.breakpointRange.contains(localX),
               let line = editorLine(at: point),
-              let verified = debugBreakpointVerifiedByLine[line] else {
+              let state = debugBreakpointStatesByLine[line] else {
             toolTip = nil
             return
         }
-        let state = verified ? "Breakpoint verified" : "Breakpoint not verified"
+        let stateLabel: String
+        if !state.enabled {
+            stateLabel = "Breakpoint disabled"
+        } else {
+            stateLabel = state.verified ? "Breakpoint verified" : "Breakpoint not verified"
+        }
         let detail = debugBreakpointMessagesByLine[line].map { " — \($0)" } ?? ""
-        toolTip = "Line \(line + 1): \(state)\(detail)"
+        toolTip = "Line \(line + 1): \(stateLabel)\(detail)"
     }
 
     private func updateFoldHover(at point: NSPoint?) {
@@ -4010,10 +4029,10 @@ final class LineNumberGutterView: NSView {
         let localX = point.x - editorGutterOriginX
         if gutterLayout.breakpointRange.contains(localX),
            let line = editorLine(at: point),
-           let verified = debugBreakpointVerifiedByLine[line] {
+           let state = debugBreakpointStatesByLine[line] {
             contextDebugBreakpointLine = line
             let menu = NSMenu(title: "Breakpoint")
-            let toggleTitle = verified ? "Disable Breakpoint" : "Enable Breakpoint"
+            let toggleTitle = state.enabled ? "Disable Breakpoint" : "Enable Breakpoint"
             menu.addItem(withTitle: toggleTitle, action: #selector(toggleDebugBreakpointFromMenu), keyEquivalent: "")
             menu.items.last?.target = self
             menu.addItem(withTitle: "Remove Breakpoint", action: #selector(removeDebugBreakpointFromMenu), keyEquivalent: "")
@@ -4067,8 +4086,8 @@ final class LineNumberGutterView: NSView {
 
     @objc private func toggleDebugBreakpointFromMenu() {
         guard let line = contextDebugBreakpointLine,
-              let verified = debugBreakpointVerifiedByLine[line] else { return }
-        onSetDebugBreakpointEnabled?(line, !verified)
+              let state = debugBreakpointStatesByLine[line] else { return }
+        onSetDebugBreakpointEnabled?(line, !state.enabled)
     }
 
     @objc private func removeDebugBreakpointFromMenu() {
