@@ -288,6 +288,111 @@ public class ApiController {
     fs::remove_dir_all(root).expect("Spring fixture should be removable");
 }
 
+/// Annotation detection matches `@Name` only when the name ends at whitespace,
+/// an argument list, or the end of the context. Caching the compiled patterns
+/// must not turn a prefix such as `@Bean` into a match for `@BeanFactory`.
+#[test]
+fn spring_index_does_not_treat_longer_annotations_as_recognized_ones() {
+    let root = temporary_root("spring-annotation-boundary");
+    let java = root.join("src/main/java/demo");
+    fs::create_dir_all(&java).expect("Java fixture directory should be creatable");
+    fs::write(
+        java.join("RealConfig.java"),
+        r#"package demo;
+@Configuration
+public class RealConfig {
+  @Bean
+  public Clock clock() { return null; }
+  @BeanFactory
+  public Clock decoyClock() { return null; }
+}
+"#,
+    )
+    .expect("configuration fixture should be writable");
+    fs::write(
+        java.join("DecoyService.java"),
+        "package demo;\n@ServiceLocator\npublic class DecoyService {}\n",
+    )
+    .expect("decoy fixture should be writable");
+    fs::write(
+        java.join("DecoyController.java"),
+        "package demo;\n@RestControllerAdvice\npublic class DecoyController {\n  @GetMapping(\"/decoy\")\n  public String decoy() { return \"\"; }\n}\n",
+    )
+    .expect("decoy controller fixture should be writable");
+
+    let paths = [
+        "src/main/java/demo/RealConfig.java",
+        "src/main/java/demo/DecoyService.java",
+        "src/main/java/demo/DecoyController.java",
+    ];
+    let response = execute_spring(&root, &paths, serde_json::json!({}));
+    assert_eq!(response["ok"], true, "{response}");
+
+    let beans = response["data"]["beans"].as_array().unwrap();
+    let names = beans
+        .iter()
+        .map(|value| value["name"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert!(names.contains(&"clock"), "{response}");
+    assert!(names.contains(&"realConfig"), "{response}");
+    assert!(!names.contains(&"decoyClock"), "{response}");
+    assert!(!names.contains(&"decoyService"), "{response}");
+
+    // @RestControllerAdvice is not @RestController, so no route is collected.
+    assert!(
+        response["data"]["endpoints"].as_array().unwrap().is_empty(),
+        "{response}"
+    );
+
+    fs::remove_dir_all(root).expect("Spring fixture should be removable");
+}
+
+/// Custom annotations that only share a Mapping prefix must not become
+/// endpoints or class-level base routes; exact Spring Mapping names still do.
+#[test]
+fn spring_index_ignores_mapping_annotations_that_only_share_a_prefix() {
+    let root = temporary_root("spring-mapping-prefix");
+    let java = root.join("src/main/java/demo");
+    fs::create_dir_all(&java).expect("Java fixture directory should be creatable");
+    fs::write(
+        java.join("DemoController.java"),
+        r#"package demo;
+@RestController
+@RequestMappingFoo("/base")
+public class DemoController {
+  @GetMappingCustom("/x")
+  public String custom() { return ""; }
+  @PostMappingCustom("/post")
+  public String postCustom() { return ""; }
+  @PutMappingCustom("/put")
+  public String putCustom() { return ""; }
+  @DeleteMappingCustom("/delete")
+  public String deleteCustom() { return ""; }
+  @PatchMappingCustom("/patch")
+  public String patchCustom() { return ""; }
+  @GetMapping("/real")
+  public String real() { return ""; }
+}
+"#,
+    )
+    .expect("controller fixture should be writable");
+
+    let response = execute_spring(
+        &root,
+        &["src/main/java/demo/DemoController.java"],
+        serde_json::json!({}),
+    );
+    assert_eq!(response["ok"], true, "{response}");
+
+    let endpoints = response["data"]["endpoints"].as_array().unwrap();
+    assert_eq!(endpoints.len(), 1, "{response}");
+    assert_eq!(endpoints[0]["route"], "/real");
+    assert_eq!(endpoints[0]["httpMethods"][0], "GET");
+    assert_eq!(endpoints[0]["method"], "real");
+
+    fs::remove_dir_all(root).expect("Spring fixture should be removable");
+}
+
 #[test]
 fn spring_dependency_metadata_cache_refresh_is_explicit() {
     let root = temporary_root("spring-metadata-cache");
