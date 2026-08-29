@@ -74,7 +74,6 @@ protocol RuntimeLocator: Sendable {
     func systemMavenExecutable() -> URL?
     func mavenExecutable(forHomePath path: String) -> URL?
     func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate?
-    func systemJDBExecutable() -> URL?
     /// The JDTLS runtime JDK bundled with the application, if present.
     /// Returns the home directory URL (containing `bin/java`). Returns `nil`
     /// in development builds or on platforms that do not bundle a JDK.

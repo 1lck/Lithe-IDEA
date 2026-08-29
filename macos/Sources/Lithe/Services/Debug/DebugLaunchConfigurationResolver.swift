@@ -3,6 +3,7 @@ import LitheCoreContracts
 
 enum DebugLaunchConfigurationResolutionError: LocalizedError, Equatable {
     case unsupportedProvider(String)
+    case javaLaunchTargetUnavailable
     case noRustBinaryConfiguration
     case rustExecutableNotBuilt(URL, binary: String)
 
@@ -10,6 +11,8 @@ enum DebugLaunchConfigurationResolutionError: LocalizedError, Equatable {
         switch self {
         case .unsupportedProvider(let provider):
             return "The \(provider) Debug Adapter is not installed yet."
+        case .javaLaunchTargetUnavailable:
+            return "The Java language service could not resolve a main class for this file."
         case .noRustBinaryConfiguration:
             return "No Cargo binary run configuration matches this Rust file."
         case .rustExecutableNotBuilt(let url, let binary):
@@ -47,15 +50,20 @@ struct DebugLaunchConfigurationResolver {
         workspaceURL: URL,
         configurations: [RunConfiguration],
         selectedConfiguration: RunConfiguration?,
+        javaTarget: JavaDebugLaunchTarget? = nil,
         options: (RunConfiguration) -> RunOptions
     ) throws -> DebugLaunchConfiguration {
         switch provider.id {
         case "java":
+            guard let javaTarget else {
+                throw DebugLaunchConfigurationResolutionError.javaLaunchTargetUnavailable
+            }
             return javaConfiguration(
                 documentURL: documentURL,
                 workspaceURL: workspaceURL,
                 configurations: configurations,
                 selectedConfiguration: selectedConfiguration,
+                target: javaTarget,
                 options: options
             )
         case "python":
@@ -101,16 +109,26 @@ struct DebugLaunchConfigurationResolver {
         workspaceURL: URL,
         configurations: [RunConfiguration],
         selectedConfiguration: RunConfiguration?,
+        target: JavaDebugLaunchTarget,
         options: (RunConfiguration) -> RunOptions
     ) -> DebugLaunchConfiguration {
         let configuration = selectedConfiguration.flatMap { selected in
             selected.kind.isMavenBacked ? selected : nil
         }
         var arguments: [String: ToolingJSONValue] = [
-            "mainClass": .string(inferJavaMainClass(documentURL: documentURL, workspaceURL: workspaceURL)),
+            "mainClass": .string(target.mainClass),
             "cwd": .string(workspaceURL.standardizedFileURL.path),
             "console": .string("internalConsole")
         ]
+        if let projectName = target.projectName {
+            arguments["projectName"] = .string(projectName)
+        }
+        if !target.modulePaths.isEmpty {
+            arguments["modulePaths"] = .array(target.modulePaths.map(ToolingJSONValue.string))
+        }
+        if !target.classPaths.isEmpty {
+            arguments["classPaths"] = .array(target.classPaths.map(ToolingJSONValue.string))
+        }
         if let configuration {
             let runOptions = options(configuration)
             let programArguments = RunArgumentParser.parse(runOptions.arguments)
@@ -124,35 +142,12 @@ struct DebugLaunchConfigurationResolver {
             if !vmArguments.isEmpty {
                 arguments["vmArgs"] = .array(vmArguments.map(ToolingJSONValue.string))
             }
-            if let modulePath = configuration.modulePath, !modulePath.isEmpty {
-                arguments["projectName"] = .string(modulePath)
-            }
         }
         return DebugLaunchConfiguration(
             name: configuration?.name ?? documentURL.lastPathComponent,
             request: .launch,
             arguments: arguments
         )
-    }
-
-    private func inferJavaMainClass(documentURL: URL, workspaceURL: URL) -> String {
-        let file = documentURL.standardizedFileURL
-        let root = workspaceURL.standardizedFileURL
-        let relative = file.path.hasPrefix(root.path + "/")
-            ? String(file.path.dropFirst(root.path.count + 1))
-            : file.lastPathComponent
-        let components = relative.split(separator: "/").map(String.init)
-        let sourceRoots = ["src/main/java", "src/test/java", "src/main/kotlin"]
-        let sourceRootIndex: Int? = sourceRoots.compactMap { sourceRoot -> Int? in
-            let rootComponents = sourceRoot.split(separator: "/").map(String.init)
-            guard components.count > rootComponents.count,
-                  Array(components.prefix(rootComponents.count)) == rootComponents else { return nil }
-            return rootComponents.count
-        }.first
-        let classComponents = Array(components.dropFirst(sourceRootIndex ?? max(0, components.count - 1)))
-        let className = classComponents.joined(separator: ".")
-            .replacingOccurrences(of: ".java", with: "")
-        return className.isEmpty ? file.deletingPathExtension().lastPathComponent : className
     }
 
     private func nodeConfiguration(

@@ -6,7 +6,6 @@ import LitheExecutionModule
 @MainActor
 extension AppModel {
     struct DebugFeatureAccess {
-        let javaFeature: JavaDebugFeatureModel
         let genericFeature: GenericDebugFeatureModel
     }
     struct ExecutionFeatureAccess {
@@ -18,9 +17,6 @@ extension AppModel {
 
     var mavenFeatureIfActive: MavenFeatureModel? { executionCapability?.mavenFeature }
     var runFeatureIfActive: RunFeatureModel? { executionCapability?.runFeature }
-    var debugFeatureIfActive: JavaDebugFeatureModel? {
-        debugCapability?.javaFeature as? JavaDebugFeatureModel
-    }
     var genericDebugFeatureIfActive: GenericDebugFeatureModel? {
         debugCapability?.genericFeature as? GenericDebugFeatureModel
     }
@@ -54,24 +50,18 @@ extension AppModel {
     }
 
     func activateDebugModule() async -> DebugFeatureAccess? {
-        if let javaFeature = debugFeatureIfActive,
-           let genericFeature = genericDebugFeatureIfActive {
-            return DebugFeatureAccess(javaFeature: javaFeature, genericFeature: genericFeature)
+        if let genericFeature = genericDebugFeatureIfActive {
+            return DebugFeatureAccess(genericFeature: genericFeature)
         }
         do {
             let value = try await services.moduleRuntime.activateCapability(.debugWorkspace)
             guard let capability = value as? LitheDebugModule.DebugModuleCapability,
-                  let javaFeature = capability.javaFeature as? JavaDebugFeatureModel,
                   let genericFeature = capability.genericFeature as? GenericDebugFeatureModel else { return nil }
             cacheModuleCapability(capability, id: .debugWorkspace, moduleID: .debug)
-            self.javaFeature.configureRuntime(
-                mavenFeature: mavenFeatureIfActive,
-                debugFeature: javaFeature
-            )
-            observeModuleFeature(.debug, observation: javaFeature.objectWillChange.sink { [weak self] _ in
+            observeModuleFeature(.debug, observation: genericFeature.objectWillChange.sink { [weak self] _ in
                 self?.scheduleObjectWillChangeRelay()
             })
-            return DebugFeatureAccess(javaFeature: javaFeature, genericFeature: genericFeature)
+            return DebugFeatureAccess(genericFeature: genericFeature)
         } catch {
             showNotification(error.localizedDescription)
             return nil

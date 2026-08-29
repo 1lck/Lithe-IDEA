@@ -96,6 +96,8 @@ pub(crate) struct JdtDirectLaunchResources {
     pub launcher_jar_path: PathBuf,
     pub configuration_directory: PathBuf,
     pub lombok_agent_path: PathBuf,
+    #[serde(default)]
+    pub java_debug_bundle_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq)]
@@ -213,6 +215,7 @@ pub(crate) fn adapt_start(context: &JdtStartContext) -> JdtStartAdaptation {
 pub(crate) fn adapt_initialization_options(
     provider_id: &str,
     initialization_options: Option<Value>,
+    java_debug_bundle_path: Option<&Path>,
 ) -> Option<Value> {
     if !is_java_provider(provider_id) {
         return initialization_options;
@@ -232,6 +235,22 @@ pub(crate) fn adapt_initialization_options(
         .as_object_mut()
         .expect("the extended capabilities were normalized to an object")
         .insert("classFileContentsSupport".to_string(), Value::Bool(true));
+
+    if let Some(bundle_path) = java_debug_bundle_path {
+        let bundle = Value::String(bundle_path.to_string_lossy().into_owned());
+        let bundles = options
+            .entry("bundles")
+            .or_insert_with(|| Value::Array(Vec::new()));
+        if !bundles.is_array() {
+            *bundles = Value::Array(Vec::new());
+        }
+        let bundles = bundles
+            .as_array_mut()
+            .expect("the Java extension bundles were normalized to an array");
+        if !bundles.contains(&bundle) {
+            bundles.push(bundle);
+        }
+    }
 
     Some(Value::Object(options))
 }
@@ -992,6 +1011,9 @@ mod tests {
             launcher_jar_path: PathBuf::from("/jdtls/plugins/equinox.jar"),
             configuration_directory: PathBuf::from("/jdtls/config_mac"),
             lombok_agent_path: PathBuf::from("/jdtls/lombok/lombok.jar"),
+            java_debug_bundle_path: Some(PathBuf::from(
+                "/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar",
+            )),
         });
         context.arguments = vec![
             "--stdio".to_string(),
@@ -1107,7 +1129,7 @@ mod tests {
         assert!(initialized_notification("rust").is_none());
         assert!(virtual_source_resolve_params("rust", "jdt://contents/A.class").is_none());
         assert_eq!(
-            adapt_initialization_options("rust", Some(json!({ "custom": true }))),
+            adapt_initialization_options("rust", Some(json!({ "custom": true })), None),
             Some(json!({ "custom": true }))
         );
         let location = ProviderLocation {
@@ -1124,11 +1146,15 @@ mod tests {
             "JAVA",
             Some(json!({
                 "workspace": { "custom": true },
+                "bundles": ["/plugins/custom.jar"],
                 "extendedClientCapabilities": {
                     "customCapability": true,
                     "classFileContentsSupport": false
                 }
             })),
+            Some(Path::new(
+                "/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar",
+            )),
         )
         .unwrap();
 
@@ -1140,6 +1166,13 @@ mod tests {
         assert_eq!(
             options["extendedClientCapabilities"]["classFileContentsSupport"],
             true
+        );
+        assert_eq!(
+            options["bundles"],
+            json!([
+                "/plugins/custom.jar",
+                "/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar"
+            ])
         );
     }
 

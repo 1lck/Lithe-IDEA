@@ -189,6 +189,122 @@ struct LanguageIntelligenceModuleTests {
     }
 
     @Test
+    func javaDebugServerWaitsForJdtlsReadyAndReturnsItsPort() async throws {
+        let root = URL(fileURLWithPath: "/workspace/java-debug", isDirectory: true)
+        let descriptor = try #require(
+            LanguageProviderCatalog.compatibilityFallback.provider(
+                for: root.appendingPathComponent("Main.java")
+            )
+        )
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(
+            catalog: .compatibilityFallback,
+            runtimes: [WorkspaceStateLanguageProviderRuntime(
+                descriptor: descriptor,
+                session: session
+            )]
+        )
+        let task = Task { try await manager.startJavaDebugServer(rootURL: root) }
+        defer { task.cancel() }
+
+        await session.waitUntilStarted()
+        #expect(session.executedCommands.isEmpty)
+        session.publish(.ready)
+        let command = await session.waitForExecuteCommand()
+        #expect(command.command == "vscode.java.startDebugSession")
+        #expect(command.arguments.isEmpty)
+        session.completeExecuteReturningValue(.success(.integer(5005)))
+
+        #expect(try await task.value == 5005)
+    }
+
+    @Test
+    func javaDebugLaunchTargetUsesJdtlsProjectMetadataForTheCurrentFile() async throws {
+        let root = URL(fileURLWithPath: "/workspace/java-debug", isDirectory: true)
+        let source = root.appendingPathComponent("service/src/main/java/example/Main.java")
+        let descriptor = try #require(
+            LanguageProviderCatalog.compatibilityFallback.provider(for: source)
+        )
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(
+            catalog: .compatibilityFallback,
+            runtimes: [WorkspaceStateLanguageProviderRuntime(
+                descriptor: descriptor,
+                session: session
+            )]
+        )
+        let task = Task {
+            try await manager.resolveJavaDebugLaunchTarget(fileURL: source, rootURL: root)
+        }
+        defer { task.cancel() }
+
+        await session.waitUntilStarted()
+        session.publish(.ready)
+        let command = await session.waitForExecuteCommand()
+        #expect(command.command == "vscode.java.resolveMainClass")
+        #expect(command.arguments.isEmpty)
+        session.completeExecuteReturningValue(.success(.array([
+            .object([
+                "mainClass": .string("other/example.Main"),
+                "projectName": .string("other"),
+                "filePath": .string(root.appendingPathComponent("other/Main.java").path),
+            ]),
+            .object([
+                "mainClass": .string("service/example.Main"),
+                "projectName": .string("service"),
+                "filePath": .string(source.path),
+            ]),
+        ])))
+
+        let classpathCommand = await session.waitForExecuteCommand(number: 2)
+        #expect(classpathCommand.command == "vscode.java.resolveClasspath")
+        #expect(classpathCommand.arguments == [
+            .string("service/example.Main"),
+            .string("service"),
+            .string("runtime"),
+        ])
+        session.completeExecuteReturningValue(.success(.array([
+            .array([.string("/workspace/modules")]),
+            .array([.string("/workspace/classes")]),
+        ])))
+
+        #expect(try await task.value == JavaDebugLaunchTarget(
+            mainClass: "service/example.Main",
+            projectName: "service",
+            modulePaths: ["/workspace/modules"],
+            classPaths: ["/workspace/classes"]
+        ))
+    }
+
+    @Test
+    func cancellingJavaDebugServerStartupReleasesTheReadyWait() async throws {
+        let root = URL(fileURLWithPath: "/workspace/java-debug-cancel", isDirectory: true)
+        let descriptor = try #require(
+            LanguageProviderCatalog.compatibilityFallback.provider(
+                for: root.appendingPathComponent("Main.java")
+            )
+        )
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(
+            catalog: .compatibilityFallback,
+            runtimes: [WorkspaceStateLanguageProviderRuntime(
+                descriptor: descriptor,
+                session: session
+            )]
+        )
+        let task = Task { try await manager.startJavaDebugServer(rootURL: root) }
+
+        await session.waitUntilStarted()
+        task.cancel()
+
+        await #expect(throws: CancellationError.self) {
+            try await task.value
+        }
+        session.publish(.ready)
+        #expect(session.executedCommands.isEmpty)
+    }
+
+    @Test
     func languageServerStartTimeoutIsLoggedWithTheOperationID() throws {
         let root = URL(fileURLWithPath: "/workspace/java", isDirectory: true)
         let source = root.appendingPathComponent("Main.java")
@@ -479,15 +595,46 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
     private(set) var startedFingerprint: String?
     private(set) var stopCallCount = 0
     var startError: Error?
+    private(set) var executedCommands: [LanguageServerCommand] = []
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var executeWaiters: [(
+        number: Int,
+        continuation: CheckedContinuation<LanguageServerCommand, Never>
+    )] = []
+    private var executeValueCompletion: ((Result<ToolingJSONValue, Error>) -> Void)?
 
     func start(rootURL _: URL, workspaceFingerprint: String?) throws {
         if let startError { throw startError }
         startedFingerprint = workspaceFingerprint
         isRunning = true
+        let waiters = startWaiters
+        startWaiters = []
+        waiters.forEach { $0.resume() }
     }
 
     func publish(_ state: LanguageServerSessionState) {
         onStateChange?(state)
+    }
+
+    func waitUntilStarted() async {
+        if isRunning { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func waitForExecuteCommand(number: Int = 1) async -> LanguageServerCommand {
+        precondition(number > 0)
+        if executedCommands.count >= number { return executedCommands[number - 1] }
+        return await withCheckedContinuation { continuation in
+            executeWaiters.append((number, continuation))
+        }
+    }
+
+    func completeExecuteReturningValue(_ result: Result<ToolingJSONValue, Error>) {
+        let completion = executeValueCompletion
+        executeValueCompletion = nil
+        completion?(result)
     }
 
     func synchronize(fileURL _: URL, text _: String, languageID _: String) throws {}
@@ -565,6 +712,20 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
         completion _: @escaping (Result<Void, Error>) -> Void
     ) throws {
         throw WorkspaceStateSessionError.unexpectedOperation
+    }
+
+    func executeReturningValue(
+        _ command: LanguageServerCommand,
+        fileURL _: URL,
+        completion: @escaping (Result<ToolingJSONValue, Error>) -> Void
+    ) throws {
+        executedCommands.append(command)
+        executeValueCompletion = completion
+        let readyWaiters = executeWaiters.filter { $0.number <= executedCommands.count }
+        executeWaiters.removeAll { $0.number <= executedCommands.count }
+        readyWaiters.forEach {
+            $0.continuation.resume(returning: executedCommands[$0.number - 1])
+        }
     }
 
     func resolveVirtualDocument(

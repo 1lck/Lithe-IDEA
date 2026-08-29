@@ -339,6 +339,26 @@ final class MacServiceContainer {
             try moduleRegistry.register(ModuleFactory(manifest: DebugModule.moduleManifest, contributions: DebugModule.moduleContributions) {
                 DebugModule(makeGraph: {
                     let debugFactories: [String: () -> (any DebugAdapterSession)?] = [
+                        "java": {
+                            CoreDebugAdapterProtocolSession(
+                                adapterID: "java",
+                                transport: MacJavaDebugAdapterTransport(
+                                    portResolver: { rootURL in
+                                        guard let capability = try await moduleRuntime
+                                            .activateCapability(.languageIntelligence)
+                                            as? LanguageIntelligenceCapability else {
+                                            throw MacJavaDebugAdapterTransport.TransportError
+                                                .languageIntelligenceUnavailable
+                                        }
+                                        return try await capability.sessions.startJavaDebugServer(
+                                            rootURL: rootURL
+                                        )
+                                    }
+                                ),
+                                core: rustCore,
+                                deadlineScheduler: MacDebugOperationDeadlineScheduler()
+                            )
+                        },
                         "go": {
                             guard let executable = runtimeService.executableOnPath("dlv") else { return nil }
                             return DebugAdapterProtocolSession(
@@ -388,16 +408,7 @@ final class MacServiceContainer {
                             )
                         }
                     )
-                    let graph = DebugFeatureGraph(
-                        java: JavaDebugService(
-                            runtimeService: runtimeService,
-                            processFactory: { MacStreamingProcess(processRegistry: processRegistry, moduleID: .debug) },
-                            fileStorage: fileStorage,
-                            javaMavenOperations: javaMavenOperations,
-                            runConfigurationOperations: runConfigurationStore
-                        ),
-                        adapterSessions: adapterSessions
-                    )
+                    let graph = DebugFeatureGraph(adapterSessions: adapterSessions)
                     return graph
                 })
             })

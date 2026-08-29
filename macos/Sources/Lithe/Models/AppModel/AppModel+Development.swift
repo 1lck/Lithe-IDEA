@@ -322,60 +322,19 @@ extension AppModel {
     }
 
     private func startDebuggingAfterActivation() async {
-        guard let execution = await activateExecutionModule(),
-              let debug = await activateDebugModule() else { return }
-        let runFeature = execution.runFeature
-        let debugFeature = debug.javaFeature
-        javaFeature.configureRuntime(
-            mavenFeature: execution.mavenFeature,
-            debugFeature: debugFeature
-        )
+        guard await activateExecutionModule() != nil,
+              await activateDebugModule() != nil else { return }
         if let document = activeDocument,
            languageProviderCatalog.provider(for: document.url)?
                .capabilities.contains(.debugAdapter) == true {
             startGenericDebugging(document)
             return
         }
-        if debugFeature.targetKind == .currentFile,
-           let document = activeDocument,
-           languageProviderCatalog.provider(for: document.url)?.id != "java" {
-            let language = languageProviderCatalog.provider(for: document.url)?.displayName
-                ?? "This file type"
-            showNotification("\(language) debugging is not available on this machine")
-            isDebugVisible = true
-            return
-        }
-        if debugFeature.targetKind == .runConfiguration,
-           runFeature.configurationStatus != .ready {
-            runFeature.requestRunConfigurationGeneration(intent: .debug)
-            return
-        }
-        if runFeature.blockingToolchainDiagnostic != nil {
-            isRunVisible = true
-            isDebugVisible = false
-            isGitLogVisible = false
-            isTerminalVisible = false
-            isReferencesVisible = false
-            isProblemsVisible = false
-            isMavenVisible = false
-            return
-        }
-        guard javaFeature.startDebugging(
-            currentDocument: activeDocument,
-            workspaceURL: workspaceURL,
-            runFeature: runFeature,
-            saveDocument: { [weak self] document in try self?.saveDocument(document) },
-            recordSave: { [weak self] document, previousText in
-                self?.recordSave(document, previousText: previousText)
-            }
-        ) else { return }
+        let language = activeDocument.flatMap {
+            languageProviderCatalog.provider(for: $0.url)?.displayName
+        } ?? "This file type"
+        showNotification("\(language) debugging is not available on this machine")
         isDebugVisible = true
-        isGitLogVisible = false
-        isTerminalVisible = false
-        isReferencesVisible = false
-        isProblemsVisible = false
-        isMavenVisible = false
-        isRunVisible = false
     }
 
     func toggleTests() {
@@ -487,11 +446,7 @@ extension AppModel {
     }
 
     func stopDebugging() {
-        if genericDebugFeatureIfActive?.providerID != nil {
-            genericDebugFeatureIfActive?.stop()
-        } else {
-            debugFeatureIfActive?.stop()
-        }
+        genericDebugFeatureIfActive?.stop()
     }
 
     func toggleDebugBreakpointAtCaret() {
@@ -511,25 +466,36 @@ extension AppModel {
                 guard let feature = await self?.activateDebugModule()?.genericFeature else { return }
                 feature.toggleBreakpoint(fileURL: fileURL, line: line)
             }
-        } else if javaFeature.supportsLegacyDebugging(fileURL: fileURL) {
-            javaFeature.toggleDebugBreakpoint(at: fileURL, line: line, documents: openDocuments)
         } else {
             showNotification("Debugging is not supported for this file type")
         }
     }
 
-    var prefersGenericDebugUI: Bool {
-        if genericDebugFeatureIfActive?.providerID != nil { return true }
-        guard let document = activeDocument else { return false }
-        // Never show the Java/JDB panel for another language. A configured
-        // Provider may still be unavailable locally; the generic panel can
-        // then present the Provider's installation error without leaking a
-        // Java-specific workflow into that project.
-        guard let descriptor = languageProviderCatalog.provider(for: document.url) else {
-            return true
+    func runToCursor(fileURL: URL, line: Int, column: Int) {
+        guard let feature = genericDebugFeatureIfActive,
+              feature.state == .paused,
+              feature.capabilities.supportsGotoTargetsRequest else {
+            showNotification("Run to Cursor is unavailable for the active debug session")
+            return
         }
-        return descriptor.id != "java"
-            || descriptor.capabilities.contains(.debugAdapter)
+        feature.requestRunToCursor(
+            fileURL: fileURL,
+            line: line,
+            column: column
+        ) { [weak self, weak feature] result in
+            switch result {
+            case .success(let targets):
+                guard let target = targets.min(by: {
+                    abs(($0.column ?? column) - column) < abs(($1.column ?? column) - column)
+                }) else {
+                    self?.showNotification("No executable location was found at the cursor")
+                    return
+                }
+                feature?.runToCursor(target)
+            case .failure(let error):
+                self?.showNotification(error.localizedDescription)
+            }
+        }
     }
 
     private func startGenericDebugging(_ document: EditorDocument) {
@@ -556,12 +522,23 @@ extension AppModel {
         }
         let configuration: DebugLaunchConfiguration
         do {
+            let javaTarget: JavaDebugLaunchTarget?
+            if provider.id == "java" {
+                let sessions = try await languageSessionsForWorkspaceMaintenance()
+                javaTarget = try await sessions.resolveJavaDebugLaunchTarget(
+                    fileURL: document.url,
+                    rootURL: workspaceURL
+                )
+            } else {
+                javaTarget = nil
+            }
             configuration = try debugLaunchConfigurationResolver.resolve(
                 provider: provider,
                 documentURL: document.url,
                 workspaceURL: workspaceURL,
                 configurations: runFeature.configurations,
                 selectedConfiguration: runFeature.selectedConfiguration,
+                javaTarget: javaTarget,
                 options: { [runFeature] in runFeature.options(for: $0) }
             )
         } catch {

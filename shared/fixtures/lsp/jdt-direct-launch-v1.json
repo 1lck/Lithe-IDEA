@@ -16,7 +16,8 @@
     "jdtlsLaunchResources": {
       "launcherJarPath": "/opt/lithe/jdtls/plugins/org.eclipse.equinox.launcher_1.7.0.jar",
       "configurationDirectory": "/opt/lithe/jdtls/config_mac",
-      "lombokAgentPath": "/opt/lithe/jdtls/lombok/lombok.jar"
+      "lombokAgentPath": "/opt/lithe/jdtls/lombok/lombok.jar",
+      "javaDebugBundlePath": "/opt/lithe/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar"
     },
     "cacheDirectory": "/var/cache/lithe/language-servers",
     "workspaceFingerprint": "build=|modules=|jdtls=1.55.0",

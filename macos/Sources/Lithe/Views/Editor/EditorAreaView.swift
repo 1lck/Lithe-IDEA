@@ -993,7 +993,6 @@ struct EditorAreaView: View {
             if let document {
                 CodeEditorView(
                     document: document,
-                    debugService: model.debugFeatureIfActive,
                     shouldFocus: !showsHeader && document.id == model.activeDocumentID,
                     viewportStore: editorViewportStore
                 )
@@ -1159,7 +1158,6 @@ struct EditorAreaView: View {
     ) -> some View {
         CodeEditorView(
             document: document,
-            debugService: model.debugFeatureIfActive,
             shouldFocus: true,
             markdownScrollPosition: markdownScrollPosition,
             viewportStore: editorViewportStore

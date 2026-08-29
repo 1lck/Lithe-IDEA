@@ -4,6 +4,11 @@ set -euo pipefail
 ROOT_DIR="${0:A:h:h}"
 cd "$ROOT_DIR"
 
+java_debug_server_version="$(
+    /usr/bin/plutil -extract javaDebugServerVersion raw -o - third_party/jdtls/manifest.json
+)"
+java_debug_plugin_name="com.microsoft.java.debug.plugin-$java_debug_server_version.jar"
+
 temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/lithe-package-verification.XXXXXX")
 trap 'rm -rf -- "$temporary_directory"' EXIT
 jdtls_root="$temporary_directory/jdtls"
@@ -22,7 +27,8 @@ mkdir -p \
     "$jdtls_root/config_mac" \
     "$jdtls_root/config_win" \
     "$jdtls_root/bin" \
-    "$jdtls_root/lombok"
+    "$jdtls_root/lombok" \
+    "$jdtls_root/java-debug"
 cat > "$jdtls_root/bin/jdtls" <<'LAUNCHER'
 #!/bin/zsh
 java_agent_argument="-javaagent:../lombok/lombok.jar"
@@ -36,6 +42,8 @@ LAUNCHER
 : > "$jdtls_root/lombok/lombok.jar"
 : > "$jdtls_root/lombok/LICENSE-MIT.txt"
 : > "$jdtls_root/plugins/org.eclipse.equinox.launcher_1.0.0.jar"
+: > "$jdtls_root/java-debug/$java_debug_plugin_name"
+: > "$jdtls_root/java-debug/LICENSE-EPL-1.0.txt"
 
 for missing_configuration in config_mac_arm config_mac; do
     broken_jdtls_root="$temporary_directory/jdtls-missing-$missing_configuration"
@@ -104,6 +112,8 @@ required_resources=(
     "$app_path/Contents/Resources/LanguageServers/jdtls/config_mac_arm"
     "$app_path/Contents/Resources/LanguageServers/jdtls/config_mac"
     "$app_path/Contents/Resources/LanguageServers/jdtls/lombok/lombok.jar"
+    "$app_path/Contents/Resources/LanguageServers/jdtls/java-debug/$java_debug_plugin_name"
+    "$app_path/Contents/Resources/LanguageServers/jdtls/java-debug/LICENSE-EPL-1.0.txt"
     "$app_path/Contents/Resources/LanguageServers/jdk-arm64/bin/java"
     "$app_path/Contents/Resources/LanguageServers/jdk-arm64/lib"
     "$app_path/Contents/Resources/LanguageServers/jdk-x86_64/bin/java"

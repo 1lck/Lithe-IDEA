@@ -111,6 +111,9 @@ pub struct JdtlsLaunchResources {
     pub configuration_directory: String,
     /// Lombok agent shipped with the selected JDT LS installation.
     pub lombok_agent_path: String,
+    /// Optional Java Debug Server bundle loaded lazily by JDT LS.
+    #[serde(default)]
+    pub java_debug_bundle_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -725,6 +728,10 @@ impl LspEngine {
                     launcher_jar_path: PathBuf::from(&resources.launcher_jar_path),
                     configuration_directory: PathBuf::from(&resources.configuration_directory),
                     lombok_agent_path: PathBuf::from(&resources.lombok_agent_path),
+                    java_debug_bundle_path: resources
+                        .java_debug_bundle_path
+                        .as_deref()
+                        .map(PathBuf::from),
                 }
             }),
             arguments: request.arguments.clone(),
@@ -771,6 +778,11 @@ impl LspEngine {
             initialization_options: adapt_initialization_options(
                 &request.provider_id,
                 request.initialization_options,
+                request
+                    .jdtls_launch_resources
+                    .as_ref()
+                    .and_then(|resources| resources.java_debug_bundle_path.as_deref())
+                    .map(Path::new),
             ),
         })?;
         let request_id = (initialize.state.next_request_id - 1).to_string();
@@ -2527,6 +2539,10 @@ fn validate_start_request(request: &StartServerRequest) -> Result<(), CoreError>
             || !is_valid_process_path(Some(&resources.launcher_jar_path))
             || !is_valid_process_path(Some(&resources.configuration_directory))
             || !is_valid_process_path(Some(&resources.lombok_agent_path))
+            || resources
+                .java_debug_bundle_path
+                .as_deref()
+                .is_some_and(|path| !is_valid_process_path(Some(path)))
         {
             return Err(invalid_field("jdtlsLaunchResources/runtimeExecutablePath"));
         }
@@ -4316,6 +4332,10 @@ mod tests {
             launcher_jar_path: "/opt/lithe/jdtls/plugins/equinox.jar".to_string(),
             configuration_directory: "/opt/lithe/jdtls/config_mac".to_string(),
             lombok_agent_path: "/opt/lithe/jdtls/lombok/lombok.jar".to_string(),
+            java_debug_bundle_path: Some(
+                "/opt/lithe/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar"
+                    .to_string(),
+            ),
         });
         request.cache_directory = Some(cache.to_string_lossy().into_owned());
         engine
@@ -5259,10 +5279,16 @@ public class Main {
         let source_path = source_directory.join("Main.java");
         std::fs::write(&source_path, source).expect("smoke source should be written");
 
-        let root_uri = url::Url::from_directory_path(&workspace)
+        let canonical_workspace = workspace
+            .canonicalize()
+            .expect("smoke workspace should canonicalize");
+        let canonical_source_path = source_path
+            .canonicalize()
+            .expect("smoke source should canonicalize");
+        let root_uri = url::Url::from_directory_path(&canonical_workspace)
             .expect("workspace should convert to a file URI")
             .to_string();
-        let source_uri = url::Url::from_file_path(&source_path)
+        let source_uri = url::Url::from_file_path(&canonical_source_path)
             .expect("source should convert to a file URI")
             .to_string();
         let engine = LspEngine::new();
@@ -6025,6 +6051,7 @@ public class Main {
             launcher_jar_path: "/jdtls/plugins/equinox.jar".to_string(),
             configuration_directory: "/jdtls/config_mac".to_string(),
             lombok_agent_path: "/jdtls/lombok/lombok.jar".to_string(),
+            java_debug_bundle_path: None,
         });
 
         assert!(validate_start_request(&request).is_err());

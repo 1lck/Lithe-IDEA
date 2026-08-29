@@ -213,22 +213,6 @@ final class ProjectRuntimeService: ObservableObject {
         return message
     }
 
-    func jdbExecutableURL(
-        overridePath: String? = nil,
-        for processKind: ProjectRuntimeProcessKind = .java
-    ) -> URL? {
-        let home = processKind == .maven
-            ? mavenJavaHomeURL(overridePath: overridePath)
-            : javaHomeURL(overridePath: overridePath)
-        if let home {
-            let candidate = home.appendingPathComponent("bin/jdb")
-            if runtimeLocator.isExecutable(at: candidate) {
-                return candidate
-            }
-        }
-        return runtimeLocator.systemJDBExecutable()
-    }
-
     func mavenJavaHomeURL(overridePath: String? = nil) -> URL? {
         if let overridePath {
             let normalizedPath = normalizedOverridePath(overridePath)
@@ -321,34 +305,17 @@ final class ProjectRuntimeService: ObservableObject {
                 status: .jdkMissing,
                 projectURL: projectURL,
                 javaHomePath: nil,
-                javaExecutablePath: nil,
-                jdbExecutablePath: runtimeLocator.systemJDBExecutable()?.path
+                javaExecutablePath: nil
             )
             return
         }
 
         let javaExecutable = javaHome.appendingPathComponent("bin/java")
-        let bundledJDB = javaHome.appendingPathComponent("bin/jdb")
-        let jdbExecutable = runtimeLocator.isExecutable(at: bundledJDB)
-            ? bundledJDB
-            : runtimeLocator.systemJDBExecutable()
-        guard let jdbExecutable else {
-            javaEnvironmentReport = JavaEnvironmentReport(
-                status: .jdbMissing,
-                projectURL: projectURL,
-                javaHomePath: javaHome.path,
-                javaExecutablePath: javaExecutable.path,
-                jdbExecutablePath: nil
-            )
-            return
-        }
-
         javaEnvironmentReport = JavaEnvironmentReport(
             status: .ready,
             projectURL: projectURL,
             javaHomePath: javaHome.path,
-            javaExecutablePath: javaExecutable.path,
-            jdbExecutablePath: jdbExecutable.path
+            javaExecutablePath: javaExecutable.path
         )
     }
 

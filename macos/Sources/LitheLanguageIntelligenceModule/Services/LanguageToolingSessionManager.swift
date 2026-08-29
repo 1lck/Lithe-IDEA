@@ -8,6 +8,7 @@ package enum LanguageToolingSessionError: LocalizedError, Equatable, Sendable {
     case providerNotInstalled(String)
     case toolingUnavailable(String)
     case capabilityUnavailable(provider: String, capability: String)
+    case invalidJavaDebugServerPort
 
     package var errorDescription: String? {
         switch self {
@@ -19,6 +20,8 @@ package enum LanguageToolingSessionError: LocalizedError, Equatable, Sendable {
             return message
         case .capabilityUnavailable(let provider, let capability):
             return "The \(provider) provider does not support \(capability)."
+        case .invalidJavaDebugServerPort:
+            return "The Java Debug Server returned an invalid TCP port."
         }
     }
 }
@@ -51,6 +54,7 @@ package final class LanguageToolingSessionManager: ObservableObject {
     private var diagnosticsByProviderID: [String: [URL: [LanguageServerDiagnostic]]] = [:]
     private var languageFeatureProviders: [any LanguageFeatureProvider]
     private var languageServerFeatureProviders: [String: LanguageServerFeatureProvider] = [:]
+    private var languageServerReadyWaiters: [UUID: LanguageServerReadyWaiter] = [:]
     private let workspaceFingerprintProvider: (LanguageProviderDescriptor, URL) throws -> String?
     private let workspaceStateResetter: ((LanguageProviderDescriptor, URL, String?) throws -> Void)?
     private let workspaceStateCleaner: ((LanguageProviderDescriptor, URL, String?) throws -> Int)?
@@ -265,6 +269,154 @@ package final class LanguageToolingSessionManager: ObservableObject {
         return languageServerOperationIDs[providerID] ?? operationID
     }
 
+    /// Starts or reuses JDT LS, then asks its bundled Java Debug extension for
+    /// the loopback DAP port. The caller remains responsible for the socket.
+    package func startJavaDebugServer(rootURL: URL) async throws -> UInt16 {
+        let normalizedRoot = rootURL.standardizedFileURL
+        _ = try startLanguageServer(providerID: "java", rootURL: normalizedRoot)
+        try await waitUntilLanguageServerReady(providerID: "java", rootURL: normalizedRoot)
+        let value = try await executeJavaCommand(
+            "vscode.java.startDebugSession",
+            arguments: [],
+            rootURL: normalizedRoot
+        )
+        let portValue: Int?
+        switch value {
+        case .integer(let value): portValue = value
+        case .string(let value): portValue = Int(value)
+        default: portValue = nil
+        }
+        guard let portValue, (1...Int(UInt16.max)).contains(portValue) else {
+            throw LanguageToolingSessionError.invalidJavaDebugServerPort
+        }
+        return UInt16(portValue)
+    }
+
+    /// Resolves the current Java source through JDT LS project metadata instead
+    /// of deriving package or module names from its filesystem path.
+    package func resolveJavaDebugLaunchTarget(
+        fileURL: URL,
+        rootURL: URL
+    ) async throws -> JavaDebugLaunchTarget {
+        let normalizedRoot = rootURL.standardizedFileURL
+        let resolvedFile = fileURL.standardizedFileURL.resolvingSymlinksInPath()
+        _ = try startLanguageServer(providerID: "java", rootURL: normalizedRoot)
+        try await waitUntilLanguageServerReady(providerID: "java", rootURL: normalizedRoot)
+        let value = try await executeJavaCommand(
+            "vscode.java.resolveMainClass",
+            arguments: [],
+            rootURL: normalizedRoot
+        )
+        guard case .array(let values) = value else {
+            throw LanguageToolingSessionError.toolingUnavailable(
+                "The Java language service returned an invalid main-class list."
+            )
+        }
+        let targets = values.compactMap(Self.javaDebugLaunchTarget)
+        let exactMatches = targets.filter { target in
+            guard let filePath = target.filePath else { return false }
+            return URL(fileURLWithPath: filePath)
+                .standardizedFileURL
+                .resolvingSymlinksInPath() == resolvedFile
+        }
+        let selected: JavaDebugLaunchTarget
+        if exactMatches.count == 1 {
+            selected = exactMatches[0].target
+        } else if targets.count == 1 {
+            selected = targets[0].target
+        } else {
+            let message = exactMatches.isEmpty
+                ? "No Java main method was found in \(resolvedFile.lastPathComponent)."
+                : "More than one Java main method was found in \(resolvedFile.lastPathComponent)."
+            throw LanguageToolingSessionError.toolingUnavailable(message)
+        }
+        let classpathValue = try await executeJavaCommand(
+            "vscode.java.resolveClasspath",
+            arguments: [
+                .string(selected.mainClass),
+                .string(selected.projectName ?? ""),
+                .string("runtime"),
+            ],
+            rootURL: normalizedRoot
+        )
+        guard case .array(let pathGroups) = classpathValue,
+              pathGroups.count == 2 else {
+            throw LanguageToolingSessionError.toolingUnavailable(
+                "The Java language service returned an invalid runtime classpath."
+            )
+        }
+        let modulePaths = Self.stringValues(pathGroups[0])
+        let classPaths = Self.stringValues(pathGroups[1])
+        guard !modulePaths.isEmpty || !classPaths.isEmpty else {
+            throw LanguageToolingSessionError.toolingUnavailable(
+                "The Java language service could not resolve the runtime classpath."
+            )
+        }
+        return JavaDebugLaunchTarget(
+            mainClass: selected.mainClass,
+            projectName: selected.projectName,
+            modulePaths: modulePaths,
+            classPaths: classPaths
+        )
+    }
+
+    private func executeJavaCommand(
+        _ commandID: String,
+        arguments: [ToolingJSONValue],
+        rootURL: URL
+    ) async throws -> ToolingJSONValue {
+        let command = LanguageServerCommand(
+            title: commandID,
+            command: commandID,
+            arguments: arguments
+        )
+        return try await withCheckedThrowingContinuation { continuation in
+            do {
+                try executeReturningValue(
+                    command,
+                    fileURL: rootURL.appendingPathComponent("Main.java"),
+                    rootURL: rootURL
+                ) { result in
+                    continuation.resume(with: result)
+                }
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+
+    private static func javaDebugLaunchTarget(
+        _ value: ToolingJSONValue
+    ) -> ResolvedJavaDebugLaunchTarget? {
+        guard case .object(let object) = value,
+              case .string(let mainClass)? = object["mainClass"],
+              mainClass.isEmpty == false else { return nil }
+        let projectName: String?
+        if case .string(let value)? = object["projectName"], value.isEmpty == false {
+            projectName = value
+        } else {
+            projectName = nil
+        }
+        let filePath: String?
+        if case .string(let value)? = object["filePath"], value.isEmpty == false {
+            filePath = value
+        } else {
+            filePath = nil
+        }
+        return ResolvedJavaDebugLaunchTarget(
+            target: JavaDebugLaunchTarget(mainClass: mainClass, projectName: projectName),
+            filePath: filePath
+        )
+    }
+
+    private static func stringValues(_ value: ToolingJSONValue) -> [String] {
+        guard case .array(let values) = value else { return [] }
+        return values.compactMap { value in
+            guard case .string(let value) = value, !value.isEmpty else { return nil }
+            return value
+        }
+    }
+
     package func notifyWorkspaceFilesChanged(
         providerID: String,
         changes: [LanguageServerWorkspaceFileChange]
@@ -359,6 +511,11 @@ package final class LanguageToolingSessionManager: ObservableObject {
         languageServerInfos[providerID] = nil
         languageServerFeatureProviders[providerID] = nil
         languageServerStates[providerID] = .stopped
+        resumeLanguageServerReadyWaiters(
+            providerID: providerID,
+            state: .stopped,
+            rootURL: nil
+        )
         onLanguageServerStateChange?(
             providerID,
             .stopped,
@@ -573,6 +730,25 @@ package final class LanguageToolingSessionManager: ObservableObject {
         }
         if let session = readyLanguageServerSession(for: fileURL) {
             try session.execute(command, fileURL: fileURL, completion: completion)
+            return
+        }
+        throw unavailableLanguageServerError(for: fileURL)
+    }
+
+    package func executeReturningValue(
+        _ command: LanguageServerCommand,
+        fileURL: URL,
+        rootURL _: URL,
+        completion: @escaping (Result<ToolingJSONValue, Error>) -> Void
+    ) throws {
+        guard command.command.isEmpty == false else {
+            throw LanguageToolingSessionError.capabilityUnavailable(
+                provider: catalog.provider(for: fileURL)?.displayName ?? fileURL.pathExtension,
+                capability: "execute command"
+            )
+        }
+        if let session = readyLanguageServerSession(for: fileURL) {
+            try session.executeReturningValue(command, fileURL: fileURL, completion: completion)
             return
         }
         throw unavailableLanguageServerError(for: fileURL)
@@ -1131,6 +1307,11 @@ package final class LanguageToolingSessionManager: ObservableObject {
     ) {
         guard languageServerSessionIdentities[providerID] == sessionIdentity else { return }
         languageServerStates[providerID] = state
+        resumeLanguageServerReadyWaiters(
+            providerID: providerID,
+            state: state,
+            rootURL: languageServerRoots[providerID]
+        )
         switch state {
         case .stopped, .failed:
             clearLanguageServerSession(
@@ -1166,6 +1347,80 @@ package final class LanguageToolingSessionManager: ObservableObject {
             state,
             languageServerOperationIDs[providerID]
         )
+    }
+
+    private func waitUntilLanguageServerReady(
+        providerID: String,
+        rootURL: URL
+    ) async throws {
+        if languageServerStates[providerID] == .ready,
+           languageServerRoots[providerID] == rootURL {
+            return
+        }
+        let waiterID = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, Error>) in
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                languageServerReadyWaiters[waiterID] = LanguageServerReadyWaiter(
+                    providerID: providerID,
+                    rootURL: rootURL,
+                    continuation: continuation
+                )
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.cancelLanguageServerReadyWaiter(waiterID)
+            }
+        }
+    }
+
+    private func cancelLanguageServerReadyWaiter(_ waiterID: UUID) {
+        languageServerReadyWaiters.removeValue(forKey: waiterID)?
+            .continuation.resume(throwing: CancellationError())
+    }
+
+    private func resumeLanguageServerReadyWaiters(
+        providerID: String,
+        state: LanguageServerSessionState,
+        rootURL: URL?
+    ) {
+        let matching = languageServerReadyWaiters.filter { _, waiter in
+            waiter.providerID == providerID
+        }
+        for (waiterID, waiter) in matching {
+            switch state {
+            case .ready where rootURL == waiter.rootURL:
+                languageServerReadyWaiters.removeValue(forKey: waiterID)?
+                    .continuation.resume()
+            case .failed(let failure):
+                languageServerReadyWaiters.removeValue(forKey: waiterID)?
+                    .continuation.resume(throwing: LanguageToolingSessionError.toolingUnavailable(
+                        failure.message ?? "The \(providerID) language server failed."
+                    ))
+            case .stopped:
+                languageServerReadyWaiters.removeValue(forKey: waiterID)?
+                    .continuation.resume(throwing: LanguageToolingSessionError.toolingUnavailable(
+                        "The \(providerID) language server stopped before becoming ready."
+                    ))
+            default:
+                break
+            }
+        }
+    }
+
+    private struct LanguageServerReadyWaiter {
+        let providerID: String
+        let rootURL: URL
+        let continuation: CheckedContinuation<Void, Error>
+    }
+
+    private struct ResolvedJavaDebugLaunchTarget {
+        let target: JavaDebugLaunchTarget
+        let filePath: String?
     }
 
     private func replaceDiagnostics(

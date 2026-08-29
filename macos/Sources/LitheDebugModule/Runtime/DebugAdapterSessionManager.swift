@@ -23,6 +23,9 @@ public final class DebugAdapterSessionManager: ObservableObject {
     private var sessions: [String: any DebugAdapterSession] = [:]
     private var roots: [String: URL] = [:]
     private var requestedBreakpoints: [String: [URL: [DebugSourceBreakpoint]]] = [:]
+    private var requestedExceptionBreakpoints: [String: [DebugExceptionBreakpoint]] = [:]
+    private var requestedFunctionBreakpoints: [String: [DebugFunctionBreakpoint]] = [:]
+    private var requestedDataBreakpoints: [String: [DebugDataBreakpoint]] = [:]
 
     public init(
         providers: [DebugProviderDescriptor],
@@ -71,6 +74,15 @@ public final class DebugAdapterSessionManager: ObservableObject {
             for (source, breakpoints) in requestedBreakpoints[descriptor.id] ?? [:] {
                 controlling.setBreakpoints(breakpoints, in: source)
             }
+            if let breakpoints = requestedExceptionBreakpoints[descriptor.id] {
+                controlling.setExceptionBreakpoints(breakpoints)
+            }
+            if let breakpoints = requestedFunctionBreakpoints[descriptor.id] {
+                controlling.setFunctionBreakpoints(breakpoints)
+            }
+            if let breakpoints = requestedDataBreakpoints[descriptor.id] {
+                controlling.setDataBreakpoints(breakpoints)
+            }
         }
         return session
     }
@@ -104,6 +116,45 @@ public final class DebugAdapterSessionManager: ObservableObject {
         session(providerID: descriptor.id)?.setBreakpoints(breakpoints, in: fileURL)
     }
 
+    public func setExceptionBreakpoints(
+        _ breakpoints: [DebugExceptionBreakpoint],
+        for fileURL: URL
+    ) throws {
+        guard let descriptor = provider(for: fileURL) else {
+            throw DebugProviderError.noProvider(
+                fileExtension: fileURL.pathExtension.lowercased()
+            )
+        }
+        requestedExceptionBreakpoints[descriptor.id] = breakpoints
+        session(providerID: descriptor.id)?.setExceptionBreakpoints(breakpoints)
+    }
+
+    public func setFunctionBreakpoints(
+        _ breakpoints: [DebugFunctionBreakpoint],
+        for fileURL: URL
+    ) throws {
+        guard let descriptor = provider(for: fileURL) else {
+            throw DebugProviderError.noProvider(
+                fileExtension: fileURL.pathExtension.lowercased()
+            )
+        }
+        requestedFunctionBreakpoints[descriptor.id] = breakpoints
+        session(providerID: descriptor.id)?.setFunctionBreakpoints(breakpoints)
+    }
+
+    public func setDataBreakpoints(
+        _ breakpoints: [DebugDataBreakpoint],
+        for fileURL: URL
+    ) throws {
+        guard let descriptor = provider(for: fileURL) else {
+            throw DebugProviderError.noProvider(
+                fileExtension: fileURL.pathExtension.lowercased()
+            )
+        }
+        requestedDataBreakpoints[descriptor.id] = breakpoints
+        session(providerID: descriptor.id)?.setDataBreakpoints(breakpoints)
+    }
+
     public func session(providerID: String) -> (any DebugAdapterControllingSession)? {
         sessions[providerID] as? any DebugAdapterControllingSession
     }
@@ -122,6 +173,9 @@ public final class DebugAdapterSessionManager: ObservableObject {
         lastEvents.removeAll()
         verifiedBreakpoints.removeAll()
         requestedBreakpoints.removeAll()
+        requestedExceptionBreakpoints.removeAll()
+        requestedFunctionBreakpoints.removeAll()
+        requestedDataBreakpoints.removeAll()
     }
 
     private func configureCallbacks(

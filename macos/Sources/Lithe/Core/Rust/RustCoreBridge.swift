@@ -1425,6 +1425,7 @@ struct RustCoreBridge: Sendable {
         let launcherJarPath: String
         let configurationDirectory: String
         let lombokAgentPath: String
+        let javaDebugBundlePath: String?
     }
 
     private struct LspSessionIdentifierRequest: Encodable {
@@ -2971,7 +2972,8 @@ struct RustCoreBridge: Sendable {
                     LspJdtlsLaunchResourcesRequest(
                         launcherJarPath: $0.launcherJarURL.path,
                         configurationDirectory: $0.configurationDirectoryURL.path,
-                        lombokAgentPath: $0.lombokAgentURL.path
+                        lombokAgentPath: $0.lombokAgentURL.path,
+                        javaDebugBundlePath: $0.javaDebugBundleURL?.path
                     )
                 },
                 cacheDirectory: cacheDirectoryURL?.standardizedFileURL.path,

@@ -592,8 +592,6 @@ final class AppModel: ObservableObject, Identifiable {
             .sink { [weak self] ids in self?.editorTabOrderFeature.reconcileDocuments(orderedIDs: ids) }
         javaFeature.configure(
             documentProvider: { [weak self] in self?.activeDocument },
-            caretProvider: { [weak self] in self?.editorCaret },
-            notify: { [weak self] message in self?.showNotification(message) },
             loadBlame: { [weak self] fileURL in
                 guard let self else { return [] }
                 guard let feature = await self.activateGitModule() else { return [] }
@@ -732,7 +730,7 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     private func reloadJavaRuntimeServices() {
-        debugFeatureIfActive?.stop()
+        genericDebugFeatureIfActive?.stop()
         mavenFeatureIfActive?.stop()
         languageToolingSessionsIfActive?.stopLanguageServer(providerID: "java")
         javaFeature.stop()
@@ -933,7 +931,6 @@ final class AppModel: ObservableObject, Identifiable {
         runtimeFeature.openProject(at: normalizedURL)
         mavenFeatureIfActive?.reset()
         runFeatureIfActive?.reset()
-        debugFeatureIfActive?.reset()
         genericDebugFeatureIfActive?.reset()
         clearLanguageNavigationProjection()
         javaFeature.stop()
@@ -1043,7 +1040,6 @@ final class AppModel: ObservableObject, Identifiable {
         runtimeFeature.closeProject()
         mavenFeatureIfActive?.reset()
         runFeatureIfActive?.reset()
-        debugFeatureIfActive?.reset()
         genericDebugFeatureIfActive?.reset()
         javaFeature.stop()
         springFeature.reset()

@@ -24,6 +24,19 @@ public protocol DebugAdapterChildTransportProviding: AnyObject {
     func makeChildTransport() -> (any DebugAdapterTransport)?
 }
 
+@MainActor
+public protocol DebugOperationDeadline: AnyObject {
+    func cancel()
+}
+
+@MainActor
+public protocol DebugOperationDeadlineScheduling: AnyObject {
+    func schedule(
+        afterMilliseconds: Int,
+        action: @escaping @MainActor () -> Void
+    ) -> any DebugOperationDeadline
+}
+
 public extension DebugAdapterSession {
     var state: DebugAdapterState { isRunning ? .running : .idle }
 }
@@ -32,11 +45,11 @@ public enum DebugAdapterState: String, Equatable, Sendable {
     case idle, initializing, ready, launching, running, paused, terminated, failed
 }
 
-public enum DebugRequestKind: String, Equatable, Sendable {
+public enum DebugRequestKind: String, Codable, Equatable, Sendable {
     case launch, attach
 }
 
-public struct DebugLaunchConfiguration: Equatable, Sendable {
+public struct DebugLaunchConfiguration: Codable, Equatable, Sendable {
     public let name: String
     public let request: DebugRequestKind
     public let arguments: [String: ToolingJSONValue]
@@ -48,15 +61,49 @@ public struct DebugLaunchConfiguration: Equatable, Sendable {
     }
 }
 
-public struct DebugSourceBreakpoint: Hashable, Sendable {
+/// JDT LS-owned identity for one Java launch target. `mainClass` may include
+/// the JPMS module prefix (`module/name.Type`) required by Java Debug Server.
+public struct JavaDebugLaunchTarget: Equatable, Sendable {
+    public let mainClass: String
+    public let projectName: String?
+    public let modulePaths: [String]
+    public let classPaths: [String]
+
+    public init(
+        mainClass: String,
+        projectName: String?,
+        modulePaths: [String] = [],
+        classPaths: [String] = []
+    ) {
+        self.mainClass = mainClass
+        self.projectName = projectName
+        self.modulePaths = modulePaths
+        self.classPaths = classPaths
+    }
+}
+
+public struct DebugSourceBreakpoint: Codable, Hashable, Sendable {
     public let line: Int
     public let column: Int?
+    public let enabled: Bool
     public let condition: String?
+    public let hitCondition: String?
+    public let logMessage: String?
 
-    public init(line: Int, column: Int? = nil, condition: String? = nil) {
+    public init(
+        line: Int,
+        column: Int? = nil,
+        enabled: Bool = true,
+        condition: String? = nil,
+        hitCondition: String? = nil,
+        logMessage: String? = nil
+    ) {
         self.line = line
         self.column = column
+        self.enabled = enabled
         self.condition = condition
+        self.hitCondition = hitCondition
+        self.logMessage = logMessage
     }
 }
 
@@ -64,17 +111,252 @@ public struct DebugBreakpoint: Identifiable, Equatable, Sendable {
     public let id: Int
     public let verified: Bool
     public let message: String?
+    public let functionName: String?
+    public let dataID: String?
     public let sourceURL: URL?
     public let line: Int?
     public let column: Int?
 
-    public init(id: Int, verified: Bool, message: String?, sourceURL: URL?, line: Int?, column: Int?) {
+    public init(
+        id: Int,
+        verified: Bool,
+        message: String?,
+        sourceURL: URL?,
+        line: Int?,
+        column: Int?,
+        functionName: String? = nil,
+        dataID: String? = nil
+    ) {
         self.id = id
         self.verified = verified
         self.message = message
+        self.functionName = functionName
+        self.dataID = dataID
         self.sourceURL = sourceURL
         self.line = line
         self.column = column
+    }
+}
+
+public struct DebugExceptionBreakpointFilter: Codable, Equatable, Sendable {
+    public let filter: String
+    public let label: String
+    public let description: String?
+    public let isDefault: Bool
+    public let supportsCondition: Bool
+    public let conditionDescription: String?
+
+    public init(
+        filter: String,
+        label: String,
+        description: String?,
+        isDefault: Bool,
+        supportsCondition: Bool,
+        conditionDescription: String?
+    ) {
+        self.filter = filter
+        self.label = label
+        self.description = description
+        self.isDefault = isDefault
+        self.supportsCondition = supportsCondition
+        self.conditionDescription = conditionDescription
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case filter, label, description
+        case isDefault = "default"
+        case supportsCondition, conditionDescription
+    }
+}
+
+public struct DebugExceptionBreakpoint: Codable, Hashable, Sendable {
+    public let filter: String
+    public let enabled: Bool
+    public let condition: String?
+
+    public init(filter: String, enabled: Bool = true, condition: String? = nil) {
+        self.filter = filter
+        self.enabled = enabled
+        self.condition = condition
+    }
+}
+
+public struct DebugFunctionBreakpoint: Codable, Hashable, Sendable {
+    public let name: String
+    public let enabled: Bool
+    public let condition: String?
+    public let hitCondition: String?
+
+    public init(
+        name: String,
+        enabled: Bool = true,
+        condition: String? = nil,
+        hitCondition: String? = nil
+    ) {
+        self.name = name
+        self.enabled = enabled
+        self.condition = condition
+        self.hitCondition = hitCondition
+    }
+}
+
+public struct DebugDataBreakpoint: Codable, Hashable, Sendable {
+    public let dataID: String
+    public let label: String?
+    public let enabled: Bool
+    public let accessType: String?
+    public let condition: String?
+    public let hitCondition: String?
+
+    public init(
+        dataID: String,
+        label: String? = nil,
+        enabled: Bool = true,
+        accessType: String? = nil,
+        condition: String? = nil,
+        hitCondition: String? = nil
+    ) {
+        self.dataID = dataID
+        self.label = label
+        self.enabled = enabled
+        self.accessType = accessType
+        self.condition = condition
+        self.hitCondition = hitCondition
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case dataID = "dataId"
+        case label, enabled, accessType, condition, hitCondition
+    }
+}
+
+public struct DebugDataBreakpointInfo: Equatable, Sendable {
+    public let dataID: String?
+    public let description: String
+    public let accessTypes: [String]
+    public let canPersist: Bool
+
+    public init(dataID: String?, description: String, accessTypes: [String], canPersist: Bool) {
+        self.dataID = dataID
+        self.description = description
+        self.accessTypes = accessTypes
+        self.canPersist = canPersist
+    }
+}
+
+public struct DebugStepInTarget: Identifiable, Equatable, Sendable {
+    public let id: Int
+    public let label: String
+    public let line: Int?
+    public let column: Int?
+    public let endLine: Int?
+    public let endColumn: Int?
+
+    public init(
+        id: Int,
+        label: String,
+        line: Int?,
+        column: Int?,
+        endLine: Int?,
+        endColumn: Int?
+    ) {
+        self.id = id
+        self.label = label
+        self.line = line
+        self.column = column
+        self.endLine = endLine
+        self.endColumn = endColumn
+    }
+}
+
+public struct DebugGotoTarget: Identifiable, Equatable, Sendable {
+    public let id: Int
+    public let label: String
+    public let line: Int
+    public let column: Int?
+    public let endLine: Int?
+    public let endColumn: Int?
+    public let instructionPointerReference: String?
+
+    public init(
+        id: Int,
+        label: String,
+        line: Int,
+        column: Int?,
+        endLine: Int?,
+        endColumn: Int?,
+        instructionPointerReference: String?
+    ) {
+        self.id = id
+        self.label = label
+        self.line = line
+        self.column = column
+        self.endLine = endLine
+        self.endColumn = endColumn
+        self.instructionPointerReference = instructionPointerReference
+    }
+}
+
+public struct DebugAdapterCapabilities: Equatable, Sendable {
+    public let negotiated: Bool
+    public let supportsConfigurationDone: Bool
+    public let supportsConditionalBreakpoints: Bool
+    public let supportsHitConditionalBreakpoints: Bool
+    public let supportsLogPoints: Bool
+    public let supportsFunctionBreakpoints: Bool
+    public let supportsDataBreakpoints: Bool
+    public let supportsExceptionOptions: Bool
+    public let supportsExceptionFilterOptions: Bool
+    public let supportsSetVariable: Bool
+    public let supportsCancelRequest: Bool
+    public let supportsSingleThreadExecutionRequests: Bool
+    public let supportsRestartRequest: Bool
+    public let supportsTerminateRequest: Bool
+    public let supportsStepBack: Bool
+    public let supportsStepInTargetsRequest: Bool
+    public let supportsGotoTargetsRequest: Bool
+    public let exceptionBreakpointFilters: [DebugExceptionBreakpointFilter]
+
+    public static let unknown = DebugAdapterCapabilities()
+
+    public init(
+        negotiated: Bool = false,
+        supportsConfigurationDone: Bool = false,
+        supportsConditionalBreakpoints: Bool = false,
+        supportsHitConditionalBreakpoints: Bool = false,
+        supportsLogPoints: Bool = false,
+        supportsFunctionBreakpoints: Bool = false,
+        supportsDataBreakpoints: Bool = false,
+        supportsExceptionOptions: Bool = false,
+        supportsExceptionFilterOptions: Bool = false,
+        supportsSetVariable: Bool = false,
+        supportsCancelRequest: Bool = false,
+        supportsSingleThreadExecutionRequests: Bool = false,
+        supportsRestartRequest: Bool = false,
+        supportsTerminateRequest: Bool = false,
+        supportsStepBack: Bool = false,
+        supportsStepInTargetsRequest: Bool = false,
+        supportsGotoTargetsRequest: Bool = false,
+        exceptionBreakpointFilters: [DebugExceptionBreakpointFilter] = []
+    ) {
+        self.negotiated = negotiated
+        self.supportsConfigurationDone = supportsConfigurationDone
+        self.supportsConditionalBreakpoints = supportsConditionalBreakpoints
+        self.supportsHitConditionalBreakpoints = supportsHitConditionalBreakpoints
+        self.supportsLogPoints = supportsLogPoints
+        self.supportsFunctionBreakpoints = supportsFunctionBreakpoints
+        self.supportsDataBreakpoints = supportsDataBreakpoints
+        self.supportsExceptionOptions = supportsExceptionOptions
+        self.supportsExceptionFilterOptions = supportsExceptionFilterOptions
+        self.supportsSetVariable = supportsSetVariable
+        self.supportsCancelRequest = supportsCancelRequest
+        self.supportsSingleThreadExecutionRequests = supportsSingleThreadExecutionRequests
+        self.supportsRestartRequest = supportsRestartRequest
+        self.supportsTerminateRequest = supportsTerminateRequest
+        self.supportsStepBack = supportsStepBack
+        self.supportsStepInTargetsRequest = supportsStepInTargetsRequest
+        self.supportsGotoTargetsRequest = supportsGotoTargetsRequest
+        self.exceptionBreakpointFilters = exceptionBreakpointFilters
     }
 }
 
@@ -121,6 +403,7 @@ public struct DebugVariable: Identifiable, Equatable, Sendable {
     public let type: String?
     public let evaluateName: String?
     public let variablesReference: Int
+    public let containerReference: Int?
     public var isExpandable: Bool { variablesReference > 0 }
 
     public init(
@@ -129,7 +412,8 @@ public struct DebugVariable: Identifiable, Equatable, Sendable {
         value: String,
         type: String?,
         evaluateName: String?,
-        variablesReference: Int
+        variablesReference: Int,
+        containerReference: Int? = nil
     ) {
         self.id = id
         self.name = name
@@ -137,11 +421,13 @@ public struct DebugVariable: Identifiable, Equatable, Sendable {
         self.type = type
         self.evaluateName = evaluateName
         self.variablesReference = variablesReference
+        self.containerReference = containerReference
     }
 }
 
 public enum DebugAdapterEvent: Equatable, Sendable {
     case initialized
+    case capabilities(DebugAdapterCapabilities)
     case output(category: String?, output: String)
     case stopped(reason: String, threadID: Int?, description: String?)
     case continued(threadID: Int?)
@@ -149,21 +435,115 @@ public enum DebugAdapterEvent: Equatable, Sendable {
     case breakpoint(DebugBreakpoint)
 }
 
-public enum DebugExecutionCommand: String, Equatable, Sendable {
+public enum DebugExecutionCommand: String, Codable, Equatable, Sendable {
     case continueExecution = "continue"
-    case pause, next, stepIn, stepOut
+    case pause, next, stepIn, stepOut, stepBack, goto, restart, terminate
 }
 
 @MainActor
 public protocol DebugAdapterControllingSession: DebugAdapterSession {
+    var capabilities: DebugAdapterCapabilities { get }
     var onStateChange: ((DebugAdapterState) -> Void)? { get set }
     var onEvent: ((DebugAdapterEvent) -> Void)? { get set }
     func launch(_ configuration: DebugLaunchConfiguration) throws
     func setBreakpoints(_ breakpoints: [DebugSourceBreakpoint], in fileURL: URL)
+    func setExceptionBreakpoints(_ breakpoints: [DebugExceptionBreakpoint])
+    func setFunctionBreakpoints(_ breakpoints: [DebugFunctionBreakpoint])
+    func setDataBreakpoints(_ breakpoints: [DebugDataBreakpoint])
+    func requestDataBreakpointInfo(
+        name: String,
+        variablesReference: Int?,
+        frameID: Int?,
+        completion: @escaping (Result<DebugDataBreakpointInfo, Error>) -> Void
+    )
     func execute(_ command: DebugExecutionCommand, threadID: Int?)
+    func execute(_ command: DebugExecutionCommand, threadID: Int?, targetID: Int?)
+    func execute(
+        _ command: DebugExecutionCommand,
+        threadID: Int?,
+        targetID: Int?,
+        singleThread: Bool
+    )
+    func requestStepInTargets(
+        frameID: Int,
+        completion: @escaping (Result<[DebugStepInTarget], Error>) -> Void
+    )
+    func requestGotoTargets(
+        fileURL: URL,
+        line: Int,
+        column: Int?,
+        completion: @escaping (Result<[DebugGotoTarget], Error>) -> Void
+    )
     func requestThreads(_ completion: @escaping (Result<[DebugThread], Error>) -> Void)
     func requestStackTrace(threadID: Int, completion: @escaping (Result<[DebugStackFrame], Error>) -> Void)
     func requestScopes(frameID: Int, completion: @escaping (Result<[DebugScope], Error>) -> Void)
     func requestVariables(reference: Int, completion: @escaping (Result<[DebugVariable], Error>) -> Void)
+    func setVariable(
+        variablesReference: Int,
+        name: String,
+        value: String,
+        completion: @escaping (Result<DebugVariable, Error>) -> Void
+    )
     func evaluate(_ expression: String, frameID: Int?, completion: @escaping (Result<DebugVariable, Error>) -> Void)
+    func cancelPendingOperations()
+}
+
+public extension DebugAdapterControllingSession {
+    var capabilities: DebugAdapterCapabilities { .unknown }
+    func setExceptionBreakpoints(_: [DebugExceptionBreakpoint]) {}
+    func setFunctionBreakpoints(_: [DebugFunctionBreakpoint]) {}
+    func setDataBreakpoints(_: [DebugDataBreakpoint]) {}
+    func execute(_ command: DebugExecutionCommand, threadID: Int?, targetID _: Int?) {
+        execute(command, threadID: threadID)
+    }
+    func execute(
+        _ command: DebugExecutionCommand,
+        threadID: Int?,
+        targetID: Int?,
+        singleThread _: Bool
+    ) {
+        execute(command, threadID: threadID, targetID: targetID)
+    }
+    func requestStepInTargets(
+        frameID _: Int,
+        completion: @escaping (Result<[DebugStepInTarget], Error>) -> Void
+    ) {
+        completion(.failure(DebugAdapterCapabilityError.unsupported("smart step into")))
+    }
+    func requestGotoTargets(
+        fileURL _: URL,
+        line _: Int,
+        column _: Int?,
+        completion: @escaping (Result<[DebugGotoTarget], Error>) -> Void
+    ) {
+        completion(.failure(DebugAdapterCapabilityError.unsupported("run to cursor")))
+    }
+    func requestDataBreakpointInfo(
+        name _: String,
+        variablesReference _: Int?,
+        frameID _: Int?,
+        completion: @escaping (Result<DebugDataBreakpointInfo, Error>) -> Void
+    ) {
+        completion(.failure(DebugAdapterCapabilityError.unsupported("data breakpoints")))
+    }
+    func setVariable(
+        variablesReference _: Int,
+        name _: String,
+        value _: String,
+        completion: @escaping (Result<DebugVariable, Error>) -> Void
+    ) {
+        completion(.failure(DebugAdapterCapabilityError.unsupported("variable mutation")))
+    }
+    func cancelPendingOperations() {}
+}
+
+public enum DebugAdapterCapabilityError: LocalizedError, Sendable {
+    case unsupported(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case let .unsupported(feature):
+            "The active debug adapter does not support \(feature)."
+        }
+    }
 }

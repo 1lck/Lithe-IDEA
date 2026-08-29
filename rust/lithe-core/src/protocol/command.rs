@@ -83,6 +83,34 @@ pub enum CoreCommand {
     MavenDiagnostics,
     /// Renders and sanitizes shared Markdown (`markdown.render`).
     MarkdownRender,
+    /// Creates one transport-neutral Debug Adapter Protocol session (`debug.createSession`).
+    DebugCreateSession,
+    /// Queues a launch or attach request for a debug session (`debug.launch`).
+    DebugLaunch,
+    /// Replaces breakpoints for one source file (`debug.setBreakpoints`).
+    DebugSetBreakpoints,
+    /// Replaces exception filters for one debug session (`debug.setExceptionBreakpoints`).
+    DebugSetExceptionBreakpoints,
+    /// Replaces named function breakpoints for one debug session (`debug.setFunctionBreakpoints`).
+    DebugSetFunctionBreakpoints,
+    /// Resolves one adapter-owned data breakpoint identity (`debug.dataBreakpointInfo`).
+    DebugDataBreakpointInfo,
+    /// Replaces data breakpoints for one debug session (`debug.setDataBreakpoints`).
+    DebugSetDataBreakpoints,
+    /// Replaces one visible variable value (`debug.setVariable`).
+    DebugSetVariable,
+    /// Cancels or times out one pending debug operation (`debug.cancelOperation`).
+    DebugCancelOperation,
+    /// Queues continue, pause, or stepping control (`debug.execute`).
+    DebugExecute,
+    /// Queues one normalized debugger inspection request (`debug.inspect`).
+    DebugInspect,
+    /// Reduces bytes received from a platform-owned DAP transport (`debug.receive`).
+    DebugReceive,
+    /// Begins the DAP disconnect handshake (`debug.disconnect`).
+    DebugDisconnect,
+    /// Removes all state for a debug session (`debug.destroySession`).
+    DebugDestroySession,
     /// Applies validated UTF-16 LSP text edits (`lsp.applyTextEdits`).
     LspApplyTextEdits,
     /// Reduces an LSP snippet to insertion text (`lsp.plainSnippet`).
@@ -229,6 +257,20 @@ impl CoreCommand {
             "maven.scan" => Some(Self::MavenScan),
             "maven.diagnostics" => Some(Self::MavenDiagnostics),
             "markdown.render" => Some(Self::MarkdownRender),
+            "debug.createSession" => Some(Self::DebugCreateSession),
+            "debug.launch" => Some(Self::DebugLaunch),
+            "debug.setBreakpoints" => Some(Self::DebugSetBreakpoints),
+            "debug.setExceptionBreakpoints" => Some(Self::DebugSetExceptionBreakpoints),
+            "debug.setFunctionBreakpoints" => Some(Self::DebugSetFunctionBreakpoints),
+            "debug.dataBreakpointInfo" => Some(Self::DebugDataBreakpointInfo),
+            "debug.setDataBreakpoints" => Some(Self::DebugSetDataBreakpoints),
+            "debug.setVariable" => Some(Self::DebugSetVariable),
+            "debug.cancelOperation" => Some(Self::DebugCancelOperation),
+            "debug.execute" => Some(Self::DebugExecute),
+            "debug.inspect" => Some(Self::DebugInspect),
+            "debug.receive" => Some(Self::DebugReceive),
+            "debug.disconnect" => Some(Self::DebugDisconnect),
+            "debug.destroySession" => Some(Self::DebugDestroySession),
             "lsp.applyTextEdits" => Some(Self::LspApplyTextEdits),
             "lsp.plainSnippet" => Some(Self::LspPlainSnippet),
             "lsp.builtinCompletions" => Some(Self::LspBuiltinCompletions),
@@ -330,5 +372,27 @@ mod tests {
     #[test]
     fn parses_document_lifecycle_command() {
         assert!(CoreCommand::parse("document.lifecycle").is_some());
+    }
+
+    #[test]
+    fn parses_debug_runtime_commands() {
+        for command in [
+            "debug.createSession",
+            "debug.launch",
+            "debug.setBreakpoints",
+            "debug.setExceptionBreakpoints",
+            "debug.setFunctionBreakpoints",
+            "debug.dataBreakpointInfo",
+            "debug.setDataBreakpoints",
+            "debug.setVariable",
+            "debug.cancelOperation",
+            "debug.execute",
+            "debug.inspect",
+            "debug.receive",
+            "debug.disconnect",
+            "debug.destroySession",
+        ] {
+            assert!(CoreCommand::parse(command).is_some(), "missing {command}");
+        }
     }
 }

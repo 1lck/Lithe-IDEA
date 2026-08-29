@@ -374,11 +374,27 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         fileURL: URL,
         completion: @escaping (Result<Void, Error>) -> Void
     ) throws {
+        try executeReturningValue(command, fileURL: fileURL) { result in
+            completion(result.map { _ in () })
+        }
+    }
+
+    package func executeReturningValue(
+        _ command: LanguageServerCommand,
+        fileURL: URL,
+        completion: @escaping (Result<ToolingJSONValue, Error>) -> Void
+    ) throws {
         // A workspace command belongs to the server rather than to a document, so
         // it carries no document URI and is not gated on one being open.
         _ = fileURL
         try request(.executeCommand, fileURL: nil, command: command) { result in
-            completion(result.map { _ in () })
+            completion(result.flatMap { event in
+                guard case .object(let object)? = event.result,
+                      let value = object["value"] else {
+                    return .failure(LanguageServerRuntimeSessionError.missingResult)
+                }
+                return .success(value)
+            })
         }
     }
 

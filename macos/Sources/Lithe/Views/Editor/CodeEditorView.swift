@@ -306,7 +306,6 @@ struct CodeEditorView: NSViewRepresentable {
     @EnvironmentObject private var diagnosticsStore: EditorDiagnosticsStore
     @EnvironmentObject private var settings: AppSettings
     @ObservedObject var document: EditorDocument
-    var debugService: JavaDebugFeatureModel?
     var shouldFocus = true
     var markdownScrollPosition: Binding<MarkdownScrollPosition>? = nil
     let viewportStore: EditorViewportStore
@@ -315,7 +314,6 @@ struct CodeEditorView: NSViewRepresentable {
         Coordinator(
             document: document,
             model: model,
-            debugService: debugService,
             markdownScrollPosition: markdownScrollPosition,
             viewportStore: viewportStore
         )
@@ -397,6 +395,13 @@ struct CodeEditorView: NSViewRepresentable {
         textView.onFindRequested = { [weak model] in model?.showFindBar() }
         textView.onFindNextRequested = { [weak model] in model?.navigateFind(offset: 1) }
         textView.onFindPreviousRequested = { [weak model] in model?.navigateFind(offset: -1) }
+        textView.onRunToCursor = { [weak model] line, column in
+            model?.runToCursor(
+                fileURL: document.url,
+                line: line + 1,
+                column: column + 1
+            )
+        }
         textView.onFindStateChange = { [weak coordinator = context.coordinator] index, count in
             coordinator?.scheduleFindStateUpdate(currentIndex: index, count: count)
         }
@@ -468,6 +473,9 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.updateDiagnostics()
         context.coordinator.shouldFocus = shouldFocus
         context.coordinator.requestInitialFocusIfNeeded()
+        let debugFeature = model.genericDebugFeatureIfActive
+        textView.isRunToCursorEnabled = debugFeature?.state == .paused
+            && debugFeature?.capabilities.supportsGotoTargetsRequest == true
         context.coordinator.restoreViewportWhenReady()
         return container
     }
@@ -480,7 +488,6 @@ struct CodeEditorView: NSViewRepresentable {
             || context.coordinator.colorTheme != settings.colorTheme
         context.coordinator.document = document
         context.coordinator.model = model
-        context.coordinator.debugService = debugService
         context.coordinator.shouldFocus = shouldFocus
         context.coordinator.markdownScrollPosition = markdownScrollPosition
         container.displaysTransparentBackground = showsWorkbenchBackground
@@ -555,7 +562,6 @@ struct CodeEditorView: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         weak var document: EditorDocument?
         weak var model: AppModel?
-        weak var debugService: JavaDebugFeatureModel?
         let fileName: String
         let fileExtension: String
         weak var textView: NSTextView?
@@ -611,13 +617,11 @@ struct CodeEditorView: NSViewRepresentable {
         init(
             document: EditorDocument,
             model: AppModel,
-            debugService: JavaDebugFeatureModel?,
             markdownScrollPosition: Binding<MarkdownScrollPosition>?,
             viewportStore: EditorViewportStore
         ) {
             self.document = document
             self.model = model
-            self.debugService = debugService
             self.markdownScrollPosition = markdownScrollPosition
             self.viewportStore = viewportStore
             fileName = document.url.lastPathComponent
@@ -1214,13 +1218,10 @@ struct CodeEditorView: NSViewRepresentable {
 
             let isBlameVisible = model.blameVisibleURL == url
             let blameLines = model.gitBlameLines[url] ?? []
-            let javaBreakpointLines = debugService?.breakpoints.filter {
-                $0.fileURL.standardizedFileURL == url
-            }.map(\.line) ?? []
             let genericBreakpointLines = (model.genericDebugFeatureIfActive?.breakpoints ?? []).filter {
                 $0.fileURL.standardizedFileURL == url
             }.map(\.line)
-            let debugBreakpointLines = Set(javaBreakpointLines + genericBreakpointLines)
+            let debugBreakpointLines = Set(genericBreakpointLines)
             if appliedBlameVisible != isBlameVisible
                 || appliedBlameLines != blameLines
                 || appliedDebugBreakpointLines != debugBreakpointLines {
@@ -1493,6 +1494,8 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     var onRenameRequested: ((Int, Int, String) -> Void)?
     var onFormatRequested: (() -> Void)?
     var onCodeActionsRequested: ((Int, Int) -> Void)?
+    var onRunToCursor: ((Int, Int) -> Void)?
+    var isRunToCursorEnabled = false
     var onPasteImage: (() -> Bool)?
 
     private var findMatchRanges: [NSRange] = []
@@ -2791,6 +2794,17 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
         let menu = super.menu(for: event) ?? NSMenu()
         let languageItems = languageContextMenuItems()
+        if onRunToCursor != nil {
+            let runToCursor = NSMenuItem(
+                title: "Run to Cursor",
+                action: #selector(runToCursorFromMenu),
+                keyEquivalent: ""
+            )
+            runToCursor.target = self
+            runToCursor.isEnabled = isRunToCursorEnabled
+            menu.insertItem(.separator(), at: 0)
+            menu.insertItem(runToCursor, at: 0)
+        }
         guard !languageItems.isEmpty else { return menu }
         menu.insertItem(.separator(), at: 0)
         for item in languageItems.reversed() { menu.insertItem(item, at: 0) }
@@ -2814,6 +2828,11 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         add(.formatting, "Format Document", #selector(formatDocumentFromMenu))
         add(.codeActions, "Source Actions…", #selector(codeActionsFromMenu))
         return languageItems
+    }
+
+    @objc private func runToCursorFromMenu() {
+        let position = languageServerPosition(at: selectedRange().location)
+        onRunToCursor?(position.line, position.utf16Column)
     }
 
     @objc private func goToDefinitionFromMenu() {

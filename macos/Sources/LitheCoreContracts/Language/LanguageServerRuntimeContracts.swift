@@ -34,15 +34,18 @@ package struct JDTLSLaunchResources: Equatable, Sendable {
     package let launcherJarURL: URL
     package let configurationDirectoryURL: URL
     package let lombokAgentURL: URL
+    package let javaDebugBundleURL: URL?
 
     package init(
         launcherJarURL: URL,
         configurationDirectoryURL: URL,
-        lombokAgentURL: URL
+        lombokAgentURL: URL,
+        javaDebugBundleURL: URL? = nil
     ) {
         self.launcherJarURL = launcherJarURL.standardizedFileURL
         self.configurationDirectoryURL = configurationDirectoryURL.standardizedFileURL
         self.lombokAgentURL = lombokAgentURL.standardizedFileURL
+        self.javaDebugBundleURL = javaDebugBundleURL?.standardizedFileURL
     }
 }
 
