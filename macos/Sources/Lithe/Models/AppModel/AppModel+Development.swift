@@ -1,5 +1,6 @@
 import Foundation
 import LitheCoreContracts
+import LitheDebugModule
 import LitheExecutionModule
 import LitheModuleAPI
 
@@ -460,6 +461,17 @@ extension AppModel {
     }
 
     func toggleDebugBreakpoint(fileURL: URL, line: Int) {
+        if languageProviderCatalog.provider(for: fileURL)?.id == "java",
+           let document = openDocuments.first(where: {
+               $0.url.standardizedFileURL == fileURL.standardizedFileURL
+           }),
+           !DebugBreakpointLocationValidator.isExecutableJavaLine(
+               source: document.text,
+               line: line
+           ) {
+            showNotification("This line cannot hold a Java breakpoint")
+            return
+        }
         if languageProviderCatalog.provider(for: fileURL)?
             .capabilities.contains(.debugAdapter) == true {
             Task { [weak self] in

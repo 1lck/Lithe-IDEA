@@ -10,6 +10,27 @@ import Testing
 @MainActor
 struct RunConfigurationIntegrationTests {
     @Test
+    func javaBreakpointLocationPreflightRejectsNonExecutableLines() {
+        let source = """
+        package demo;
+        // comment
+
+        public class Main {
+            /* block comment */
+            void run() {
+                System.out.println("ok");
+            }
+        }
+        """
+
+        #expect(!DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 2))
+        #expect(!DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 3))
+        #expect(!DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 5))
+        #expect(DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 7))
+        #expect(!DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 8))
+    }
+
+    @Test
     func providerCapabilitiesKeepProcessEditorsLanguageNeutral() {
         let process = RunConfigurationKind.process(provider: "python.script").capabilities
         #expect(process.contains(.workingDirectory))
