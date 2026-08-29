@@ -347,6 +347,52 @@ public class RealConfig {
     fs::remove_dir_all(root).expect("Spring fixture should be removable");
 }
 
+/// Custom annotations that only share a Mapping prefix must not become
+/// endpoints or class-level base routes; exact Spring Mapping names still do.
+#[test]
+fn spring_index_ignores_mapping_annotations_that_only_share_a_prefix() {
+    let root = temporary_root("spring-mapping-prefix");
+    let java = root.join("src/main/java/demo");
+    fs::create_dir_all(&java).expect("Java fixture directory should be creatable");
+    fs::write(
+        java.join("DemoController.java"),
+        r#"package demo;
+@RestController
+@RequestMappingFoo("/base")
+public class DemoController {
+  @GetMappingCustom("/x")
+  public String custom() { return ""; }
+  @PostMappingCustom("/post")
+  public String postCustom() { return ""; }
+  @PutMappingCustom("/put")
+  public String putCustom() { return ""; }
+  @DeleteMappingCustom("/delete")
+  public String deleteCustom() { return ""; }
+  @PatchMappingCustom("/patch")
+  public String patchCustom() { return ""; }
+  @GetMapping("/real")
+  public String real() { return ""; }
+}
+"#,
+    )
+    .expect("controller fixture should be writable");
+
+    let response = execute_spring(
+        &root,
+        &["src/main/java/demo/DemoController.java"],
+        serde_json::json!({}),
+    );
+    assert_eq!(response["ok"], true, "{response}");
+
+    let endpoints = response["data"]["endpoints"].as_array().unwrap();
+    assert_eq!(endpoints.len(), 1, "{response}");
+    assert_eq!(endpoints[0]["route"], "/real");
+    assert_eq!(endpoints[0]["httpMethods"][0], "GET");
+    assert_eq!(endpoints[0]["method"], "real");
+
+    fs::remove_dir_all(root).expect("Spring fixture should be removable");
+}
+
 #[test]
 fn spring_dependency_metadata_cache_refresh_is_explicit() {
     let root = temporary_root("spring-metadata-cache");
