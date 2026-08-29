@@ -158,6 +158,37 @@ struct ExecutionModuleTests {
         )
     }
 
+    /// A broken configuration must stay regenerable. Inventory readiness and
+    /// configuration validity are separate concerns, so an unreadable
+    /// `generated.json` must not make the project un-ready and lock the user out
+    /// of the only action that repairs it.
+    @Test
+    func unreadableConfigurationStillAllowsRegeneration() async throws {
+        let operations = FailingInspectionRunConfigurationOperations()
+        let service = RunService(
+            runtime: TestRuntime(),
+            process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() },
+            fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(),
+            serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: operations,
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let snapshotID = UUID()
+
+        await service.loadProject(at: root, files: [], mavenProject: nil, snapshotID: snapshotID)
+
+        #expect(service.configurationStatus == .invalid("generated.json is invalid"))
+        #expect(service.isProjectReady(for: root, snapshotID: snapshotID))
+
+        await service.generateRunConfigurations()
+        #expect(service.generationState != .projectNotReady)
+    }
+
     @Test
     func currentGoFileRunsThroughExtensionOwnedSession() async throws {
         let builtInProcess = TestStreamingProcess()
@@ -467,6 +498,28 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
     }
     func launchPlan(at projectURL: URL, configurationID: String, currentFile: String?, classPath: String?, debugPort: Int?) throws -> SharedLaunchPlan {
         throw RunConfigurationOperationFailure(message: "Unavailable in identification test")
+    }
+    func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String { draft.name }
+    func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {}
+}
+
+/// Reports an unreadable configuration so a test can observe the failed state.
+private struct FailingInspectionRunConfigurationOperations: RunConfigurationOperations {
+    func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
+        ProjectRunConfigurationInspection(
+            status: .invalid("generated.json is invalid"),
+            diagnostics: [],
+            recoveryAction: .editConfiguration
+        )
+    }
+    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+        RunConfigurationGenerationResult(entryCount: 0)
+    }
+    func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
+        RunConfigurationResolution(configurations: [], diagnostics: [], defaultConfigurationID: nil)
+    }
+    func launchPlan(at projectURL: URL, configurationID: String, currentFile: String?, classPath: String?, debugPort: Int?) throws -> SharedLaunchPlan {
+        throw RunConfigurationOperationFailure(message: "Unavailable in inspection test")
     }
     func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String { draft.name }
     func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {}

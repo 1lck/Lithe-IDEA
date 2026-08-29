@@ -47,14 +47,21 @@ package struct ProjectRunConfigurationInspection: Equatable, Sendable {
     }
 }
 
-/// How a run service is bound to a workspace.
+/// How complete the workspace file inventory a run service holds is.
 ///
 /// Being bound to a workspace URL and holding a complete file inventory are
 /// different things. Reading an existing configuration only needs the URL, while
 /// generating one scans the inventory, so a provisional inventory would write a
 /// configuration that omits entry points the workspace actually contains.
+///
+/// This describes the inventory only. Whether the configuration on disk is
+/// readable is `ProjectRunConfigurationStatus`, and the two must stay separate:
+/// a broken `generated.json` has to remain regenerable.
 package enum ProjectLoadState: Equatable, Sendable {
     case idle
+    /// A load is in flight. Entering this state before the load's first
+    /// suspension point is what stops a cancelled or superseded load from
+    /// leaving the previous `ready` inventory in place.
     case loading(workspace: URL)
     /// Bound to the workspace, but the file inventory is provisional because the
     /// workspace snapshot has not been applied yet. Existing configuration can be
@@ -63,18 +70,6 @@ package enum ProjectLoadState: Equatable, Sendable {
     /// The inventory came from the identified workspace snapshot, so generation
     /// can scan it safely.
     case ready(workspace: URL, snapshotID: UUID)
-    case failed(workspace: URL, message: String)
-
-    /// The workspace this state describes, when it describes one.
-    package var workspace: URL? {
-        switch self {
-        case .idle: nil
-        case .loading(let workspace): workspace
-        case .bound(let workspace): workspace
-        case .ready(let workspace, _): workspace
-        case .failed(let workspace, _): workspace
-        }
-    }
 
     /// Whether the inventory matches `snapshotID` for `workspace`, and is
     /// therefore the current, complete inventory.

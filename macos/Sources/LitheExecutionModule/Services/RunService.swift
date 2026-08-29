@@ -173,6 +173,10 @@ package final class RunService: ObservableObject {
             selectedConfigurationIDsByProject[currentProject.path] = selectedConfigurationID
         }
         self.projectURL = workspace
+        // Whether the existing configuration parses is `configurationStatus`, not
+        // this state. Keeping them apart is what lets a broken generated.json be
+        // regenerated: folding a parse failure in here would block generation,
+        // which is the only way to repair it.
         projectLoadState = snapshotID
             .map { .ready(workspace: workspace, snapshotID: $0) }
             ?? .bound(workspace: workspace)

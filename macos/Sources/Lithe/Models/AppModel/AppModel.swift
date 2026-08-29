@@ -508,7 +508,7 @@ final class AppModel: ObservableObject, Identifiable {
             },
             reloadProjectServices: { [weak self] in
                 guard let self, let workspaceURL = self.workspaceURL else { return }
-                await self.loadProjectServices(at: workspaceURL, files: self.projectFiles)
+                await self.loadProjectServicesForAppliedSnapshot(at: workspaceURL)
             },
             refreshGit: { [weak self] in
                 guard let feature = self?.gitFeatureIfActive else { return }
@@ -521,7 +521,14 @@ final class AppModel: ObservableObject, Identifiable {
             onSnapshotLoaded: { [weak self] snapshot, isInitialLoad in
                 guard let self, let workspaceURL = self.workspaceURL else { return }
                 // WorkspaceFeatureModel requests the single Git refresh after this callback.
-                await self.loadProjectServices(at: workspaceURL, files: snapshot.files)
+                // The applied snapshot is the event a deferred Run waits for, and
+                // it carries its own identity so the pair cannot drift.
+                await self.loadProjectServices(
+                    at: workspaceURL,
+                    files: snapshot.files,
+                    snapshotID: snapshot.id,
+                    resumesDeferredRunAction: true
+                )
                 if isInitialLoad {
                     self.projectHistoryFeatureIfActive?.seed(files: snapshot.files)
                 }
@@ -747,7 +754,7 @@ final class AppModel: ObservableObject, Identifiable {
             }
             Task { [weak self] in
                 guard let self else { return }
-                await self.loadProjectServices(at: workspaceURL, files: self.projectFiles)
+                await self.loadProjectServicesForAppliedSnapshot(at: workspaceURL)
             }
         }
     }

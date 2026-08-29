@@ -26,7 +26,7 @@ struct RunEntryPointTests {
         // The entry point binds the workspace so existing configuration is
         // readable, but the pending snapshot must keep generation out.
         let bound = await awaitChange(on: model) {
-            model.runFeatureIfActive?.projectLoadState.workspace != nil
+            model.runFeatureIfActive?.projectLoadState == .bound(workspace: workspace.root.standardizedFileURL)
         }
         #expect(bound, "the Run entry point never bound the workspace")
         #expect(model.runFeatureIfActive?.isProjectReady(for: workspace.root, snapshotID: model.workspaceSnapshotID) == false)
@@ -64,7 +64,7 @@ struct RunEntryPointTests {
         model.openProjectDirectly(workspace.root)
         model.runSelectedConfiguration()
 
-        let deferred = await awaitChange(on: model) { model.pendingRunAction != nil }
+        let deferred = await awaitChange(on: model) { model.pendingRunAction?.kind == .run }
         #expect(deferred, "Run must be deferred while the inventory is provisional")
 
         operations.releaseSnapshot()
@@ -98,7 +98,7 @@ struct RunEntryPointTests {
         model.openProjectDirectly(workspace.root)
         model.runSelectedConfiguration()
 
-        let deferred = await awaitChange(on: model) { model.pendingRunAction != nil }
+        let deferred = await awaitChange(on: model) { model.pendingRunAction?.kind == .run }
         #expect(deferred, "Run must be deferred while the file inventory is provisional")
         let runFeature = try #require(model.runFeatureIfActive)
         #expect(
@@ -112,14 +112,78 @@ struct RunEntryPointTests {
 
         workspaceOperations.releaseSnapshot()
 
-        let resumed = await awaitChange(on: model) { model.pendingRunAction == nil }
-        #expect(resumed, "the deferred Run was never resumed")
+        // Production clears the deferred action before it re-issues Run, so
+        // waiting for the action to clear would pass even if the relaunch were
+        // dropped. The launch plan request is what proves Run actually ran.
+        let relaunched = await awaitChange(on: model) {
+            runConfigurations.launchPlanCallCount == 1
+        }
+        #expect(relaunched, "the deferred Run was never actually re-issued")
+        #expect(model.pendingRunAction == nil)
         #expect(
             runFeature.isProjectReady(
                 for: workspace.root,
                 snapshotID: model.workspaceSnapshotID
             )
         )
+    }
+
+    /// When Run's own provisional load is still in flight, the snapshot can land
+    /// and be fully consumed first — including the deferred-run resume, which
+    /// finds nothing pending. The entry point must then re-check the *current*
+    /// snapshot rather than the one it captured before that load, or it defers
+    /// an action nothing will ever resume.
+    @Test
+    func runResumesWhenTheSnapshotLandsDuringTheEntryPointsOwnLoad() async throws {
+        let workspace = try JavaWorkspaceFixture()
+        defer { workspace.remove() }
+        let workspaceOperations = GatedWorkspaceOperations(snapshot: workspace.snapshot)
+        let runConfigurations = InspectionGatedRunConfigurationOperations()
+        defer { runConfigurations.releaseAll() }
+        let model = makeAppModel(
+            workspaceOperations: workspaceOperations,
+            runConfigurationOperations: runConfigurations
+        )
+
+        model.openProjectDirectly(workspace.root)
+        model.runSelectedConfiguration()
+
+        // The Run entry point starts its own load while the scan is gated, so it
+        // captures "no snapshot applied".
+        #expect(
+            await runConfigurations.inspectionEntered(1),
+            "the Run entry point never started its own load"
+        )
+
+        // The snapshot lands and is fully consumed while that load is suspended.
+        workspaceOperations.releaseSnapshot()
+        #expect(
+            await runConfigurations.inspectionEntered(2),
+            "the snapshot-driven load never started"
+        )
+        runConfigurations.release(2)
+        let ready = await awaitChange(on: model) {
+            model.runFeatureIfActive?.isProjectReady(
+                for: workspace.root,
+                snapshotID: model.workspaceSnapshotID
+            ) == true
+        }
+        #expect(ready, "the snapshot-driven load never made the run project ready")
+        // Wait for the snapshot-driven load to finish completely, so its resume
+        // point has already run and found nothing deferred.
+        let snapshotLoadFinished = await awaitChange(on: model) {
+            model.runFeatureIfActive?.isLoadingProject == false
+                && runConfigurations.resolveCallCount == 1
+        }
+        #expect(snapshotLoadFinished, "the snapshot-driven load never finished")
+
+        runConfigurations.release(1)
+
+        let relaunched = await awaitChange(on: model) {
+            runConfigurations.launchPlanCallCount == 1
+        }
+        #expect(relaunched, "Run was neither launched nor resumed after the snapshot landed")
+        #expect(model.pendingRunAction == nil)
     }
 
     /// Debugging reaches the same run feature through its own entry point.
@@ -134,7 +198,7 @@ struct RunEntryPointTests {
         model.startDebugging()
 
         let bound = await awaitChange(on: model) {
-            model.runFeatureIfActive?.projectLoadState.workspace != nil
+            model.runFeatureIfActive?.projectLoadState == .bound(workspace: workspace.root.standardizedFileURL)
         }
         #expect(bound, "the Debug entry point never bound the workspace")
         #expect(model.runFeatureIfActive?.isProjectReady(for: workspace.root, snapshotID: model.workspaceSnapshotID) == false)
@@ -246,7 +310,9 @@ private final class GatedWorkspaceOperations: WorkspaceOperations, @unchecked Se
     func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? {
         // Runs on the workspace feature's detached scan task, never the main
         // actor, and the bounded wait keeps a failing test from pinning it.
-        guard gate.waitSynchronously() else { return nil }
+        // The race test holds this gate while an inspect is suspended, so the
+        // deadline must outlast that coordination window.
+        guard gate.waitSynchronously(timeout: 30) else { return nil }
         lock.lock()
         defer { lock.unlock() }
         return preparedSnapshot
@@ -286,14 +352,114 @@ private final class ReadyRunConfigurationOperations: RunConfigurationOperations,
         RunConfigurationGenerationResult(entryCount: 1)
     }
 
+    /// A configuration that does not depend on the active editor file, so a
+    /// resumed Run reaches the launch plan instead of stopping at "no open file".
+    static let entryPoint = RunConfiguration(
+        id: "java-main:demo.App",
+        name: "App",
+        kind: .javaMain,
+        execution: .application,
+        modulePath: nil,
+        mainClass: "demo.App"
+    )
+
     func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
         RunConfigurationResolution(
             configurations: [EffectiveRunConfiguration(
-                configuration: .currentFile,
+                configuration: Self.entryPoint,
                 options: RunOptions()
             )],
             diagnostics: [],
-            defaultConfigurationID: RunConfiguration.currentFileID
+            defaultConfigurationID: Self.entryPoint.id
+        )
+    }
+
+    func launchPlan(
+        at projectURL: URL,
+        configurationID: String,
+        currentFile: String?,
+        classPath: String?,
+        debugPort: Int?
+    ) throws -> SharedLaunchPlan {
+        lock.lock()
+        launchPlanCalls += 1
+        lock.unlock()
+        throw RunConfigurationOperationFailure(message: "Launching is out of scope for this test")
+    }
+
+    func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String { draft.name }
+    func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {}
+}
+
+/// Reports a workspace that already carries a configuration, and lets a test
+/// release each `inspect` individually so it can decide what happens while a
+/// specific project load is suspended.
+private final class InspectionGatedRunConfigurationOperations: RunConfigurationOperations, @unchecked Sendable {
+    private let entered: [TestGate]
+    private let releases: [TestGate]
+    private let lock = NSLock()
+    private var inspectCalls = 0
+    private var launchPlanCalls = 0
+    private var resolveCalls = 0
+
+    init(capacity: Int = 8) {
+        entered = (0..<capacity).map { _ in TestGate() }
+        releases = (0..<capacity).map { _ in TestGate() }
+    }
+
+    var launchPlanCallCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return launchPlanCalls
+    }
+
+    var resolveCallCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return resolveCalls
+    }
+
+    /// Waits for the `ordinal`-th inspection (1-based) to reach its gate.
+    func inspectionEntered(_ ordinal: Int) async -> Bool {
+        await entered[ordinal - 1].waitUntilOpen(timeout: .seconds(5))
+    }
+
+    func release(_ ordinal: Int) {
+        releases[ordinal - 1].open()
+    }
+
+    func releaseAll() {
+        releases.forEach { $0.open() }
+    }
+
+    func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
+        lock.lock()
+        inspectCalls += 1
+        let ordinal = inspectCalls
+        lock.unlock()
+        // Runs on the run service's utility queue, never the cooperative
+        // executor. The race test holds the first gate across a full
+        // snapshot-driven load, so the deadline must cover that window.
+        entered[ordinal - 1].open()
+        _ = releases[ordinal - 1].waitSynchronously(timeout: 30)
+        return ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
+    }
+
+    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+        RunConfigurationGenerationResult(entryCount: 1)
+    }
+
+    func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
+        lock.lock()
+        resolveCalls += 1
+        lock.unlock()
+        return RunConfigurationResolution(
+            configurations: [EffectiveRunConfiguration(
+                configuration: ReadyRunConfigurationOperations.entryPoint,
+                options: RunOptions()
+            )],
+            diagnostics: [],
+            defaultConfigurationID: ReadyRunConfigurationOperations.entryPoint.id
         )
     }
 

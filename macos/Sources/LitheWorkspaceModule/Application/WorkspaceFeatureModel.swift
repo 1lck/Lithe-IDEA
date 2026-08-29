@@ -12,11 +12,13 @@ package enum WorkspaceRebuildResult: Sendable {
 @MainActor
 package final class WorkspaceFeatureModel: ObservableObject {
     @Published package private(set) var rootNode: FileNode?
-    @Published package private(set) var projectFiles: [URL] = []
-    /// Identifies the snapshot `projectFiles` came from, and is `nil` whenever no
-    /// snapshot has been applied. Consumers that scan the file inventory use this
-    /// to tell a complete inventory from a provisional one.
-    @Published package private(set) var snapshotID: UUID?
+    /// The scan currently applied to the workspace, or `nil` before one is.
+    ///
+    /// Consumers that scan the file inventory read this once so the file list and
+    /// its identity always come from the same scan.
+    @Published package private(set) var appliedSnapshot: WorkspaceSnapshot?
+
+    package var projectFiles: [URL] { appliedSnapshot?.files ?? [] }
     @Published package private(set) var isLoadingWorkspace = false
     @Published package private(set) var isRefreshingWorkspace = false
     @Published package private(set) var loadErrorMessage: String?
@@ -187,8 +189,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         workspaceURL = nil
         hasRestoredWorkspaceSession = false
         rootNode = nil
-        projectFiles = []
-        snapshotID = nil
+        appliedSnapshot = nil
         isLoadingWorkspace = false
         isRefreshingWorkspace = false
         loadErrorMessage = nil
@@ -298,8 +299,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }
         loadErrorMessage = nil
         rootNode = snapshot.root
-        projectFiles = snapshot.files
-        snapshotID = UUID()
+        appliedSnapshot = snapshot
         scheduleSearchIndexWarm(at: workspaceURL, rules: rules)
 
         // The tree is usable as soon as the shared snapshot is ready. Service
@@ -833,8 +833,18 @@ package final class WorkspaceFeatureModel: ObservableObject {
     }
 
     private func removeProjectItemFromSnapshot(_ targetURL: URL) {
-        projectFiles.removeAll { urlContains(targetURL, child: $0) }
         rootNode = rootNode.flatMap { removingProjectItem(targetURL, from: $0) }
+        // Dropping files changes the inventory, so the result is a new scan and
+        // needs a new identity. Reusing the old one would let a consumer treat a
+        // shortened inventory as the scan it had already accepted.
+        //
+        // The pruned tree is carried over too, so the applied snapshot never
+        // disagrees with `rootNode` about what the workspace contains.
+        guard let applied = appliedSnapshot else { return }
+        appliedSnapshot = WorkspaceSnapshot(
+            root: rootNode ?? applied.root,
+            files: applied.files.filter { !urlContains(targetURL, child: $0) }
+        )
     }
 
     private func removingProjectItem(_ targetURL: URL, from node: FileNode) -> FileNode? {
