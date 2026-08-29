@@ -2,6 +2,16 @@ import Foundation
 import LitheCoreContracts
 
 extension RustCoreBridge: DebugProtocolCore {
+    func resolveDebugSteppingFilters(
+        adapterID: String,
+        filters: DebugSteppingFilters?
+    ) throws -> DebugSteppingFilters {
+        try executeResult(
+            command: "debug.steppingFilters",
+            payload: DebugSteppingFiltersPayload(adapterID: adapterID, filters: filters)
+        ).get()
+    }
+
     func createDebugSession(
         sessionID: String,
         adapterID: String,
@@ -230,6 +240,16 @@ private struct DebugCreateSessionPayload: Encodable {
         case sessionID = "sessionId"
         case adapterID = "adapterId"
         case rootPath
+    }
+}
+
+private struct DebugSteppingFiltersPayload: Encodable {
+    let adapterID: String
+    let filters: DebugSteppingFilters?
+
+    private enum CodingKeys: String, CodingKey {
+        case adapterID = "adapterId"
+        case filters
     }
 }
 

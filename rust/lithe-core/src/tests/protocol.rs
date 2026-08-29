@@ -59,3 +59,32 @@ fn debug_create_and_destroy_commands_cross_the_json_boundary() {
     assert_eq!(destroyed["ok"], true);
     assert_eq!(destroyed["data"]["destroyed"], true);
 }
+
+#[test]
+fn debug_stepping_filters_match_the_shared_contract_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../shared/fixtures/debug/stepping-filters-v1.json"
+    )))
+    .expect("debug stepping-filter fixture should be valid JSON");
+
+    for case in fixture["cases"]
+        .as_array()
+        .expect("debug stepping-filter fixture should contain cases")
+    {
+        let request = serde_json::json!({
+            "id": case["name"],
+            "command": "debug.steppingFilters",
+            "payload": case["payload"]
+        });
+        let response: Value = serde_json::from_str(&execute_json(&request.to_string()))
+            .expect("debug stepping-filter response should be JSON");
+
+        assert_eq!(response["ok"], true, "fixture case {}", case["name"]);
+        assert_eq!(
+            response["data"], case["expected"],
+            "fixture case {}",
+            case["name"]
+        );
+    }
+}

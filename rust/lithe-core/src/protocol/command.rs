@@ -87,6 +87,8 @@ pub enum CoreCommand {
     DebugCreateSession,
     /// Queues a launch or attach request for a debug session (`debug.launch`).
     DebugLaunch,
+    /// Returns or normalizes portable stepping filters (`debug.steppingFilters`).
+    DebugSteppingFilters,
     /// Replaces breakpoints for one source file (`debug.setBreakpoints`).
     DebugSetBreakpoints,
     /// Replaces exception filters for one debug session (`debug.setExceptionBreakpoints`).
@@ -259,6 +261,7 @@ impl CoreCommand {
             "markdown.render" => Some(Self::MarkdownRender),
             "debug.createSession" => Some(Self::DebugCreateSession),
             "debug.launch" => Some(Self::DebugLaunch),
+            "debug.steppingFilters" => Some(Self::DebugSteppingFilters),
             "debug.setBreakpoints" => Some(Self::DebugSetBreakpoints),
             "debug.setExceptionBreakpoints" => Some(Self::DebugSetExceptionBreakpoints),
             "debug.setFunctionBreakpoints" => Some(Self::DebugSetFunctionBreakpoints),
@@ -379,6 +382,7 @@ mod tests {
         for command in [
             "debug.createSession",
             "debug.launch",
+            "debug.steppingFilters",
             "debug.setBreakpoints",
             "debug.setExceptionBreakpoints",
             "debug.setFunctionBreakpoints",

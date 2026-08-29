@@ -59,6 +59,98 @@ pub struct DebugLaunchConfiguration {
     pub request: DebugRequestKind,
     #[serde(default)]
     pub arguments: serde_json::Map<String, Value>,
+    /// Optional portable stepping policy projected into adapter-specific launch arguments.
+    #[serde(default)]
+    pub stepping_filters: Option<DebugSteppingFilters>,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Portable class and method filters used for stepping and stack-frame presentation.
+pub struct DebugSteppingFilters {
+    /// Adapter-neutral class-name patterns; Java also accepts `$JDK` and `$Libraries`.
+    #[serde(default)]
+    pub class_name_filters: Vec<String>,
+    /// Whether compiler-generated methods should be skipped.
+    #[serde(default)]
+    pub skip_synthetics: bool,
+    /// Whether class static initializers should be skipped.
+    #[serde(default)]
+    pub skip_static_initializers: bool,
+    /// Whether constructors should be skipped.
+    #[serde(default)]
+    pub skip_constructors: bool,
+    /// Whether native clients should collapse stack frames matched by the class filters.
+    #[serde(default)]
+    pub hide_filtered_stack_frames: bool,
+}
+
+impl DebugSteppingFilters {
+    pub(crate) fn defaults_for_adapter(adapter_id: &str) -> Self {
+        if adapter_id == "java" {
+            Self::default()
+        } else {
+            Self::unfiltered()
+        }
+    }
+
+    pub(crate) fn unfiltered() -> Self {
+        Self {
+            class_name_filters: Vec::new(),
+            skip_synthetics: false,
+            skip_static_initializers: false,
+            skip_constructors: false,
+            hide_filtered_stack_frames: false,
+        }
+    }
+}
+
+impl Default for DebugSteppingFilters {
+    fn default() -> Self {
+        Self {
+            class_name_filters: default_java_class_name_filters(),
+            skip_synthetics: true,
+            skip_static_initializers: true,
+            // IDEA leaves constructor skipping off by default because application
+            // initialization is often meaningful user code.
+            skip_constructors: false,
+            hide_filtered_stack_frames: true,
+        }
+    }
+}
+
+fn default_java_class_name_filters() -> Vec<String> {
+    [
+        "$JDK",
+        "com.ibm.ws.*",
+        "com.springsource.loaded.*",
+        "com.sun.proxy.*",
+        "javassist.*",
+        "jdk.proxy*.*",
+        "junit.*",
+        "net.bytebuddy.*",
+        "net.sf.cglib.*",
+        "org.apache.webbeans.*",
+        "org.junit.*",
+        "org.mockito.*",
+        "org.springframework.aop.framework.*",
+        "org.springframework.cglib.*",
+        "org.springsource.loaded.*",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect()
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Returns an adapter's defaults or normalizes a native client's stepping policy.
+pub struct DebugSteppingFiltersRequest {
+    /// Stable adapter identifier, such as `java`.
+    pub adapter_id: String,
+    /// Optional client override; omission requests the adapter defaults.
+    #[serde(default)]
+    pub filters: Option<DebugSteppingFilters>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -524,6 +616,8 @@ pub struct DebugStackFrame {
     pub source_path: Option<String>,
     pub line: i64,
     pub column: i64,
+    /// True when the active portable stepping policy matches this frame.
+    pub is_filtered: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

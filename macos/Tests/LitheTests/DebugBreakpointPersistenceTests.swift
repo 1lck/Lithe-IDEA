@@ -1,4 +1,5 @@
 import Foundation
+import LitheCoreContracts
 import LitheDebugModule
 @testable import Lithe
 import Testing
@@ -48,6 +49,44 @@ struct DebugBreakpointPersistenceTests {
 
         #expect(throws: MacDebugBreakpointStoreError.self) {
             try store.loadBreakpoints(for: root)
+        }
+    }
+
+    @Test
+    func macStorePersistsSteppingFiltersByAdapter() throws {
+        let preferences = DebugBreakpointTestStore()
+        let store = MacDebugSteppingFilterStore(store: preferences)
+        let java = DebugSteppingFilters(
+            classNameFilters: ["$JDK", "org.mockito.*"],
+            skipSynthetics: true,
+            skipStaticInitializers: true,
+            skipConstructors: false,
+            hideFilteredStackFrames: true
+        )
+        let go = DebugSteppingFilters(
+            classNameFilters: [],
+            skipSynthetics: false,
+            skipStaticInitializers: false,
+            skipConstructors: false,
+            hideFilteredStackFrames: false
+        )
+
+        try store.saveSteppingFilters(java, adapterID: "java")
+        try store.saveSteppingFilters(go, adapterID: "go")
+
+        #expect(try store.loadSteppingFilters(adapterID: "java") == java)
+        #expect(try store.loadSteppingFilters(adapterID: "go") == go)
+        #expect(try store.loadSteppingFilters(adapterID: "python") == nil)
+    }
+
+    @Test
+    func macStoreReportsCorruptSteppingFilterData() {
+        let preferences = DebugBreakpointTestStore()
+        preferences.set(Data("not-json".utf8), forKey: "lithe.debug.steppingFilters.java")
+        let store = MacDebugSteppingFilterStore(store: preferences)
+
+        #expect(throws: MacDebugSteppingFilterStoreError.self) {
+            try store.loadSteppingFilters(adapterID: "java")
         }
     }
 }

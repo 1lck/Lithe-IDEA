@@ -29,6 +29,7 @@ struct DebugSession {
     did_receive_initialized: bool,
     supports_configuration_done: bool,
     capabilities: DebugCapabilities,
+    stepping_filters: DebugSteppingFilters,
     pending_launch: Option<(String, DebugLaunchConfiguration)>,
     outbound_frames: Vec<Vec<u8>>,
     events: Vec<DebugEvent>,
@@ -102,6 +103,7 @@ pub(crate) fn create_session(
         did_receive_initialized: false,
         supports_configuration_done: false,
         capabilities: DebugCapabilities::default(),
+        stepping_filters: DebugSteppingFilters::unfiltered(),
         pending_launch: None,
         outbound_frames: Vec::new(),
         events: Vec::new(),
@@ -149,6 +151,18 @@ pub(crate) fn launch(request: LaunchRequest) -> Result<DebugSessionUpdate, CoreE
         }
         Ok(session.take_update())
     })
+}
+
+/// Returns deterministic adapter defaults or a normalized native-client override.
+pub(crate) fn stepping_filters(
+    request: DebugSteppingFiltersRequest,
+) -> Result<DebugSteppingFilters, CoreError> {
+    validate_identifier(&request.adapter_id, "adapterId")?;
+    normalize_stepping_filters(
+        request
+            .filters
+            .unwrap_or_else(|| DebugSteppingFilters::defaults_for_adapter(&request.adapter_id)),
+    )
 }
 
 /// Stores a deterministic breakpoint set and sends it after DAP initialization.
@@ -678,6 +692,15 @@ impl DebugSession {
         configuration: DebugLaunchConfiguration,
     ) -> Result<(), CoreError> {
         let mut arguments = configuration.arguments;
+        let filters = normalize_stepping_filters(
+            configuration
+                .stepping_filters
+                .unwrap_or_else(|| DebugSteppingFilters::defaults_for_adapter(&self.adapter_id)),
+        )?;
+        if self.adapter_id == "java" && !arguments.contains_key("stepFilters") {
+            arguments.insert("stepFilters".to_string(), java_step_filters(&filters));
+        }
+        self.stepping_filters = filters;
         arguments
             .entry("name".to_string())
             .or_insert(Value::String(configuration.name));
@@ -1022,7 +1045,8 @@ impl DebugSession {
                 });
             }
             PendingRequest::Inspect { operation_id, kind } => {
-                let result = normalize_inspection(kind, &body)?;
+                let result =
+                    normalize_inspection(kind, &body, &self.stepping_filters, &self.root_path)?;
                 self.emit(DebugEventBody::OperationCompleted {
                     operation_id,
                     result,
@@ -1305,6 +1329,8 @@ fn inspect_arguments(request: &InspectRequest) -> Result<Map<String, Value>, Cor
 fn normalize_inspection(
     kind: DebugInspectKind,
     body: &Value,
+    stepping_filters: &DebugSteppingFilters,
+    root_path: &str,
 ) -> Result<DebugOperationResult, CoreError> {
     match kind {
         DebugInspectKind::Threads => Ok(DebugOperationResult::Threads {
@@ -1316,7 +1342,7 @@ fn normalize_inspection(
         DebugInspectKind::StackTrace => Ok(DebugOperationResult::StackTrace {
             stack_frames: required_array(body, "stackFrames")?
                 .iter()
-                .filter_map(parse_stack_frame)
+                .filter_map(|value| parse_stack_frame(value, stepping_filters, root_path))
                 .collect(),
         }),
         DebugInspectKind::Scopes => Ok(DebugOperationResult::Scopes {
@@ -1392,18 +1418,232 @@ fn parse_thread(value: &Value) -> Option<DebugThread> {
     })
 }
 
-fn parse_stack_frame(value: &Value) -> Option<DebugStackFrame> {
+fn parse_stack_frame(
+    value: &Value,
+    stepping_filters: &DebugSteppingFilters,
+    root_path: &str,
+) -> Option<DebugStackFrame> {
+    let name = value.get("name")?.as_str()?.to_string();
+    let source_path = value
+        .get("source")
+        .and_then(|source| source.get("path"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let presentation_hint = value.get("presentationHint").and_then(Value::as_str);
     Some(DebugStackFrame {
         id: value.get("id")?.as_i64()?,
-        name: value.get("name")?.as_str()?.to_string(),
-        source_path: value
-            .get("source")
-            .and_then(|source| source.get("path"))
-            .and_then(Value::as_str)
-            .map(str::to_string),
+        is_filtered: stack_frame_matches_filters(
+            &name,
+            source_path.as_deref(),
+            presentation_hint,
+            stepping_filters,
+            root_path,
+        ),
+        name,
+        source_path,
         line: value.get("line").and_then(Value::as_i64).unwrap_or(1),
         column: value.get("column").and_then(Value::as_i64).unwrap_or(1),
     })
+}
+
+fn normalize_stepping_filters(
+    mut filters: DebugSteppingFilters,
+) -> Result<DebugSteppingFilters, CoreError> {
+    const MAXIMUM_FILTER_COUNT: usize = 256;
+    const MAXIMUM_FILTER_LENGTH: usize = 256;
+
+    let mut normalized = Vec::with_capacity(filters.class_name_filters.len());
+    for filter in filters.class_name_filters {
+        let filter = filter.trim();
+        if filter.is_empty() {
+            continue;
+        }
+        if filter.chars().count() > MAXIMUM_FILTER_LENGTH || filter.chars().any(char::is_control) {
+            return Err(invalid_request(
+                "Debug stepping filters must be short single-line class patterns.",
+            ));
+        }
+        normalized.push(filter.to_string());
+    }
+    normalized.sort();
+    normalized.dedup();
+    if normalized.len() > MAXIMUM_FILTER_COUNT {
+        return Err(invalid_request(
+            "Debug stepping filters cannot contain more than 256 class patterns.",
+        ));
+    }
+    filters.class_name_filters = normalized;
+    Ok(filters)
+}
+
+fn java_step_filters(filters: &DebugSteppingFilters) -> Value {
+    json!({
+        "skipClasses": filters.class_name_filters,
+        "skipSynthetics": filters.skip_synthetics,
+        "skipStaticInitializers": filters.skip_static_initializers,
+        "skipConstructors": filters.skip_constructors
+    })
+}
+
+fn stack_frame_matches_filters(
+    name: &str,
+    source_path: Option<&str>,
+    presentation_hint: Option<&str>,
+    filters: &DebugSteppingFilters,
+    root_path: &str,
+) -> bool {
+    filters
+        .class_name_filters
+        .iter()
+        .any(|filter| match filter.as_str() {
+            "$JDK" => is_jdk_frame(name, source_path, presentation_hint),
+            "$Libraries" => is_library_frame(source_path, presentation_hint, root_path),
+            pattern => class_pattern_matches_frame(pattern, name, source_path),
+        })
+}
+
+fn class_pattern_matches_frame(pattern: &str, name: &str, source_path: Option<&str>) -> bool {
+    if wildcard_match(pattern, name) || name == pattern || name.starts_with(&format!("{pattern}."))
+    {
+        return true;
+    }
+
+    let simple_type = name.split('.').next().unwrap_or(name);
+    if source_path.is_none()
+        && !pattern.contains('*')
+        && pattern
+            .rsplit('.')
+            .next()
+            .is_some_and(|value| value == simple_type)
+    {
+        return true;
+    }
+
+    source_path.is_some_and(|source_path| source_path_matches_pattern(source_path, pattern))
+}
+
+fn source_path_matches_pattern(source_path: &str, pattern: &str) -> bool {
+    let source_path = source_path.replace('\\', "/");
+    let slash_pattern = format!("*{}*", pattern.replace('.', "/"));
+    let dotted_pattern = format!("*{pattern}*");
+    wildcard_match(&slash_pattern, &source_path) || wildcard_match(&dotted_pattern, &source_path)
+}
+
+fn is_jdk_frame(name: &str, source_path: Option<&str>, presentation_hint: Option<&str>) -> bool {
+    if ["com.sun.", "java.", "javax.", "jdk.", "org.omg.", "sun."]
+        .iter()
+        .any(|prefix| name.starts_with(prefix))
+    {
+        return true;
+    }
+    if presentation_hint == Some("subtle") && source_path.is_none() {
+        return true;
+    }
+    let Some(source_path) = source_path else {
+        return false;
+    };
+    let source_path = source_path.replace('\\', "/");
+    if source_path.contains("/java.base/")
+        || source_path.contains("/java.desktop/")
+        || source_path.contains("/java.logging/")
+        || source_path.contains("/java.management/")
+        || source_path.contains("/java.naming/")
+        || source_path.contains("/java.net.http/")
+        || source_path.contains("/java.sql/")
+        || source_path.contains("/java.xml/")
+        || source_path.contains("/jdk.")
+    {
+        return true;
+    }
+    [
+        "java/applet",
+        "java/awt",
+        "java/beans",
+        "java/io",
+        "java/lang",
+        "java/math",
+        "java/net",
+        "java/nio",
+        "java/rmi",
+        "java/security",
+        "java/sql",
+        "java/text",
+        "java/time",
+        "java/util",
+        "javax",
+        "jdk",
+        "sun",
+        "com/sun",
+        "org/omg",
+    ]
+    .iter()
+    .any(|prefix| source_has_path_prefix(&source_path, prefix))
+}
+
+fn source_has_path_prefix(source_path: &str, prefix: &str) -> bool {
+    source_path.contains(&format!("/{prefix}/")) || source_path.contains(&format!("/{prefix}."))
+}
+
+fn is_library_frame(
+    source_path: Option<&str>,
+    presentation_hint: Option<&str>,
+    root_path: &str,
+) -> bool {
+    if presentation_hint == Some("subtle") || source_path.is_none() {
+        return true;
+    }
+    let source_path = source_path.unwrap_or_default();
+    !source_path_is_within_root(source_path, root_path) && path_is_absolute_or_uri(source_path)
+}
+
+fn source_path_is_within_root(source_path: &str, root_path: &str) -> bool {
+    let source_path = normalized_comparison_path(source_path);
+    let root_path = normalized_comparison_path(root_path);
+    source_path == root_path
+        || source_path
+            .strip_prefix(&root_path)
+            .is_some_and(|suffix| suffix.starts_with('/'))
+}
+
+fn normalized_comparison_path(path: &str) -> String {
+    path.strip_prefix("file://")
+        .unwrap_or(path)
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .to_ascii_lowercase()
+}
+
+fn path_is_absolute_or_uri(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    path.starts_with('/') || path.contains("://") || (bytes.len() >= 2 && bytes[1] == b':')
+}
+
+fn wildcard_match(pattern: &str, value: &str) -> bool {
+    let pattern = pattern.as_bytes();
+    let value = value.as_bytes();
+    let (mut pattern_index, mut value_index) = (0, 0);
+    let (mut star_index, mut star_value_index) = (None, 0);
+
+    while value_index < value.len() {
+        if pattern_index < pattern.len() && pattern[pattern_index] == value[value_index] {
+            pattern_index += 1;
+            value_index += 1;
+        } else if pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
+            star_index = Some(pattern_index);
+            pattern_index += 1;
+            star_value_index = value_index;
+        } else if let Some(star) = star_index {
+            pattern_index = star + 1;
+            star_value_index += 1;
+            value_index = star_value_index;
+        } else {
+            return false;
+        }
+    }
+    while pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
+        pattern_index += 1;
+    }
+    pattern_index == pattern.len()
 }
 
 fn parse_scope(value: &Value) -> Option<DebugScope> {
@@ -1688,6 +1928,7 @@ mod tests {
                                 source_path: Some("/workspace/Main.java".to_string()),
                                 line: 12,
                                 column: 1,
+                                is_filtered: false,
                             }],
                         },
                     },
@@ -1702,7 +1943,200 @@ mod tests {
         assert!(value["events"][1].get("operation_id").is_none());
         assert_eq!(value["events"][1]["result"]["kind"], "stackTrace");
         assert_eq!(value["events"][1]["result"]["stackFrames"][0]["id"], 7);
+        assert_eq!(
+            value["events"][1]["result"]["stackFrames"][0]["isFiltered"],
+            false
+        );
         assert!(value["events"][1]["result"].get("stack_frames").is_none());
+    }
+
+    #[test]
+    fn java_stepping_filters_are_normalized_projected_and_mark_stack_frames() {
+        let defaults = stepping_filters(DebugSteppingFiltersRequest {
+            adapter_id: "java".to_string(),
+            filters: None,
+        })
+        .unwrap();
+        assert!(defaults.class_name_filters.contains(&"$JDK".to_string()));
+        assert!(defaults.skip_synthetics);
+        assert!(!defaults.skip_constructors);
+
+        let filters = stepping_filters(DebugSteppingFiltersRequest {
+            adapter_id: "java".to_string(),
+            filters: Some(DebugSteppingFilters {
+                class_name_filters: vec![
+                    " org.mockito.* ".to_string(),
+                    "$JDK".to_string(),
+                    "org.mockito.*".to_string(),
+                    String::new(),
+                ],
+                skip_synthetics: true,
+                skip_static_initializers: false,
+                skip_constructors: true,
+                hide_filtered_stack_frames: true,
+            }),
+        })
+        .unwrap();
+        assert_eq!(filters.class_name_filters, ["$JDK", "org.mockito.*"]);
+
+        let multiline_error = stepping_filters(DebugSteppingFiltersRequest {
+            adapter_id: "java".to_string(),
+            filters: Some(DebugSteppingFilters {
+                class_name_filters: vec!["example.Valid\nexample.Invalid".to_string()],
+                skip_synthetics: false,
+                skip_static_initializers: false,
+                skip_constructors: false,
+                hide_filtered_stack_frames: false,
+            }),
+        })
+        .unwrap_err();
+        assert!(matches!(multiline_error.code, ErrorCode::InvalidRequest));
+
+        let excessive_filter_error = stepping_filters(DebugSteppingFiltersRequest {
+            adapter_id: "java".to_string(),
+            filters: Some(DebugSteppingFilters {
+                class_name_filters: (0..257)
+                    .map(|index| format!("example.Type{index}"))
+                    .collect(),
+                skip_synthetics: false,
+                skip_static_initializers: false,
+                skip_constructors: false,
+                hide_filtered_stack_frames: false,
+            }),
+        })
+        .unwrap_err();
+        assert!(matches!(
+            excessive_filter_error.code,
+            ErrorCode::InvalidRequest
+        ));
+
+        let session_id = "debug-java-stepping-filters";
+        create_session(CreateSessionRequest {
+            session_id: session_id.to_string(),
+            adapter_id: "java".to_string(),
+            root_path: "/workspace".to_string(),
+        })
+        .unwrap();
+        launch(LaunchRequest {
+            session_id: session_id.to_string(),
+            operation_id: "launch".to_string(),
+            configuration: DebugLaunchConfiguration {
+                name: "Main".to_string(),
+                request: DebugRequestKind::Launch,
+                arguments: Map::new(),
+                stepping_filters: Some(filters),
+            },
+        })
+        .unwrap();
+        let initialized = receive_messages(
+            session_id,
+            vec![response_message(1, "initialize", json!({}))],
+        );
+        let launch_request = decode_frame(&initialized.outbound_frames[0]);
+        assert_eq!(launch_request["command"], "launch");
+        assert_eq!(
+            launch_request["arguments"]["stepFilters"]["skipClasses"],
+            json!(["$JDK", "org.mockito.*"])
+        );
+        assert_eq!(
+            launch_request["arguments"]["stepFilters"]["skipConstructors"],
+            true
+        );
+        receive_messages(
+            session_id,
+            vec![
+                response_message(2, "launch", json!({})),
+                json!({
+                    "seq": 103,
+                    "type": "event",
+                    "event": "stopped",
+                    "body": {"reason": "breakpoint", "threadId": 11}
+                }),
+            ],
+        );
+        inspect(InspectRequest {
+            session_id: session_id.to_string(),
+            operation_id: "stack".to_string(),
+            kind: DebugInspectKind::StackTrace,
+            thread_id: Some(11),
+            frame_id: None,
+            variables_reference: None,
+            expression: None,
+            source_path: None,
+            line: None,
+            column: None,
+        })
+        .unwrap();
+        let stack = receive_messages(
+            session_id,
+            vec![response_message(
+                3,
+                "stackTrace",
+                json!({"stackFrames": [
+                    {
+                        "id": 7,
+                        "name": "Method.invoke(Object,Object[])",
+                        "source": {
+                            "path": "jdt://contents/java.base/java/lang/reflect/Method.class"
+                        },
+                        "line": 1,
+                        "column": 1
+                    },
+                    {
+                        "id": 8,
+                        "name": "MockMethodInterceptor.intercept(Object,Method,Object[],Invoker)",
+                        "source": {
+                            "path": "jdt://contents/mockito-core/org/mockito/internal/creation/bytebuddy/MockMethodInterceptor.class"
+                        },
+                        "line": 1,
+                        "column": 1
+                    },
+                    {
+                        "id": 9,
+                        "name": "example.LoginService.authenticate",
+                        "source": {"path": "/workspace/LoginService.java"},
+                        "line": 24,
+                        "column": 5
+                    }
+                ]}),
+            )],
+        );
+        assert!(stack.events.iter().any(|event| matches!(
+            &event.body,
+            DebugEventBody::OperationCompleted {
+                operation_id,
+                result: DebugOperationResult::StackTrace { stack_frames }
+            } if operation_id == "stack"
+                && stack_frames.len() == 3
+                && stack_frames[0].is_filtered
+                && stack_frames[1].is_filtered
+                && !stack_frames[2].is_filtered
+        )));
+        let library_filters = DebugSteppingFilters {
+            class_name_filters: vec!["$Libraries".to_string()],
+            skip_synthetics: false,
+            skip_static_initializers: false,
+            skip_constructors: false,
+            hide_filtered_stack_frames: true,
+        };
+        assert!(stack_frame_matches_filters(
+            "Dependency.call()",
+            Some("/dependencies/example/Dependency.java"),
+            None,
+            &library_filters,
+            "/workspace"
+        ));
+        assert!(!stack_frame_matches_filters(
+            "LoginService.authenticate()",
+            Some("/workspace/LoginService.java"),
+            None,
+            &library_filters,
+            "/workspace"
+        ));
+        destroy_session(SessionRequest {
+            session_id: session_id.to_string(),
+        })
+        .unwrap();
     }
 
     #[test]
@@ -1727,6 +2161,7 @@ mod tests {
                 name: "Main".to_string(),
                 request: DebugRequestKind::Launch,
                 arguments: Map::from_iter([("mainClass".to_string(), json!("example.Main"))]),
+                stepping_filters: None,
             },
         })
         .unwrap();
@@ -2112,6 +2547,7 @@ mod tests {
                 name: "Main".to_string(),
                 request: DebugRequestKind::Launch,
                 arguments: Map::new(),
+                stepping_filters: None,
             },
         })
         .unwrap();
@@ -2188,6 +2624,7 @@ mod tests {
                 name: "Main".to_string(),
                 request: DebugRequestKind::Launch,
                 arguments: Map::new(),
+                stepping_filters: None,
             },
         })
         .unwrap();
@@ -2304,6 +2741,7 @@ mod tests {
                 name: "Main".to_string(),
                 request: DebugRequestKind::Launch,
                 arguments: Map::new(),
+                stepping_filters: None,
             },
         })
         .unwrap();
@@ -2399,6 +2837,7 @@ mod tests {
                 name: "Main".to_string(),
                 request: DebugRequestKind::Launch,
                 arguments: Map::new(),
+                stepping_filters: None,
             },
         })
         .unwrap();

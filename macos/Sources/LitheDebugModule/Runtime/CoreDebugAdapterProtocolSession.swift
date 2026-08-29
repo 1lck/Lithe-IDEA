@@ -248,7 +248,8 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
                         name: $0.name,
                         sourceURL: $0.sourcePath.map { URL(fileURLWithPath: $0) },
                         line: $0.line,
-                        column: $0.column
+                        column: $0.column,
+                        isFiltered: $0.isFiltered
                     )
                 })
             })

@@ -15,6 +15,7 @@ struct GenericDebugView: View {
     @State private var smartStepTargets: [DebugStepInTarget] = []
     @State private var isSmartStepPickerPresented = false
     @State private var isJavaAttachPresented = false
+    @State private var isJavaSteppingSettingsPresented = false
     @State private var selectedContent: DebugContent = .debugger
 
     var body: some View {
@@ -100,6 +101,15 @@ struct GenericDebugView: View {
         .sheet(isPresented: $isJavaAttachPresented) {
             JavaAttachView { host, port in
                 model.attachJavaDebugger(host: host, port: port)
+            }
+        }
+        .sheet(isPresented: $isJavaSteppingSettingsPresented) {
+            if let filters = feature.javaSteppingFilters {
+                JavaSteppingFiltersView(
+                    filters: filters,
+                    onSave: feature.updateJavaSteppingFilters,
+                    onReset: feature.resetJavaSteppingFilters
+                )
             }
         }
         .onChange(of: feature.state) { state in
@@ -188,6 +198,14 @@ struct GenericDebugView: View {
                     .lineLimit(1)
             }
             Spacer()
+            if feature.javaSteppingFilters != nil {
+                Button { isJavaSteppingSettingsPresented = true } label: {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                }
+                .litheIconButton()
+                .disabled(feature.isSessionActive)
+                .help("Java stepping filters")
+            }
             Button { isJavaAttachPresented = true } label: {
                 Image(systemName: "link")
             }
@@ -347,26 +365,59 @@ struct GenericDebugView: View {
                 if feature.stackFrames.isEmpty {
                     placeholder("Pause the process to inspect frames")
                 } else {
-                    ForEach(feature.stackFrames) { frame in
-                        rowButton(selected: feature.selectedFrameID == frame.id) {
-                            feature.selectFrame(frame)
-                            if let sourceURL = frame.sourceURL {
-                                model.openSourceLocation(
-                                    url: sourceURL,
-                                    line: frame.line,
-                                    column: frame.column
-                                )
-                            }
+                    if feature.areFilteredStackFramesExpanded,
+                       feature.hiddenStackFrameCount > 0 {
+                        Button {
+                            feature.collapseFilteredStackFrames()
                         } label: {
-                            Image(systemName: "chevron.right")
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(frame.name).lineLimit(1)
+                            Label("Collapse filtered frames", systemImage: "rectangle.compress.vertical")
+                                .font(LitheTheme.smallFont)
+                                .foregroundStyle(LitheTheme.secondaryText)
+                                .padding(.horizontal, 10)
+                                .frame(minHeight: 27)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    ForEach(feature.visibleStackFrameRows) { row in
+                        if let frame = row.frame {
+                            rowButton(selected: feature.selectedFrameID == frame.id) {
+                                feature.selectFrame(frame)
                                 if let sourceURL = frame.sourceURL {
-                                    Text("\(sourceURL.lastPathComponent):\(frame.line)")
-                                        .font(.system(size: 9.5, design: .monospaced))
-                                        .foregroundStyle(LitheTheme.secondaryText)
+                                    model.openSourceLocation(
+                                        url: sourceURL,
+                                        line: frame.line,
+                                        column: frame.column
+                                    )
+                                }
+                            } label: {
+                                Image(systemName: frame.isFiltered ? "ellipsis" : "chevron.right")
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(frame.name).lineLimit(1)
+                                    if let sourceURL = frame.sourceURL {
+                                        Text("\(sourceURL.lastPathComponent):\(frame.line)")
+                                            .font(.system(size: 9.5, design: .monospaced))
+                                            .foregroundStyle(LitheTheme.secondaryText)
+                                    }
                                 }
                             }
+                            .opacity(frame.isFiltered ? 0.58 : 1)
+                        } else {
+                            Button {
+                                feature.expandFilteredStackFrames()
+                            } label: {
+                                Label(
+                                    "\(row.hiddenFrameCount) filtered frames",
+                                    systemImage: "ellipsis.circle"
+                                )
+                                .font(LitheTheme.smallFont)
+                                .foregroundStyle(LitheTheme.secondaryText)
+                                .padding(.horizontal, 10)
+                                .frame(minHeight: 27)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Show JDK, proxy, and framework frames")
                         }
                     }
                 }
@@ -1085,6 +1136,113 @@ private struct JavaAttachView: View {
         }
         .padding(18)
         .frame(width: 360)
+    }
+}
+
+private struct JavaSteppingFiltersView: View {
+    @Environment(\.dismiss) private var dismiss
+    let onSave: (DebugSteppingFilters) -> Void
+    let onReset: () -> Void
+    @State private var skipJDK: Bool
+    @State private var skipLibraries: Bool
+    @State private var skipSynthetics: Bool
+    @State private var skipStaticInitializers: Bool
+    @State private var skipConstructors: Bool
+    @State private var hideFilteredStackFrames: Bool
+    @State private var classPatterns: String
+
+    init(
+        filters: DebugSteppingFilters,
+        onSave: @escaping (DebugSteppingFilters) -> Void,
+        onReset: @escaping () -> Void
+    ) {
+        self.onSave = onSave
+        self.onReset = onReset
+        _skipJDK = State(initialValue: filters.classNameFilters.contains("$JDK"))
+        _skipLibraries = State(initialValue: filters.classNameFilters.contains("$Libraries"))
+        _skipSynthetics = State(initialValue: filters.skipSynthetics)
+        _skipStaticInitializers = State(initialValue: filters.skipStaticInitializers)
+        _skipConstructors = State(initialValue: filters.skipConstructors)
+        _hideFilteredStackFrames = State(initialValue: filters.hideFilteredStackFrames)
+        _classPatterns = State(initialValue: filters.classNameFilters
+            .filter { $0 != "$JDK" && $0 != "$Libraries" }
+            .joined(separator: "\n"))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Java Stepping Filters")
+                    .font(.system(size: 15, weight: .semibold))
+                Text("Controls where Step Into stops. Changes apply to the next Java debug session.")
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+
+            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
+                GridRow {
+                    Toggle("Skip JDK and reflection code", isOn: $skipJDK)
+                    Toggle("Skip third-party libraries", isOn: $skipLibraries)
+                }
+                GridRow {
+                    Toggle("Skip synthetic methods", isOn: $skipSynthetics)
+                    Toggle("Skip static initializers", isOn: $skipStaticInitializers)
+                }
+                GridRow {
+                    Toggle("Skip constructors", isOn: $skipConstructors)
+                    Toggle("Collapse matching stack frames", isOn: $hideFilteredStackFrames)
+                }
+            }
+            .toggleStyle(.checkbox)
+            .font(.system(size: 11))
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Additional class patterns")
+                    .font(.system(size: 11, weight: .semibold))
+                Text("One pattern per line, for example org.mockito.* or com.example.generated.*")
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+                TextEditor(text: $classPatterns)
+                    .font(.system(size: 11, design: .monospaced))
+                    .scrollContentBackground(.hidden)
+                    .padding(6)
+                    .background(LitheTheme.sidebar)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 5)
+                            .stroke(LitheTheme.divider, lineWidth: 1)
+                    }
+                    .frame(minHeight: 185)
+            }
+
+            HStack {
+                Button("Reset Defaults") {
+                    onReset()
+                    dismiss()
+                }
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Save") {
+                    var patterns = classPatterns
+                        .split(whereSeparator: \Character.isNewline)
+                        .map(String.init)
+                    if skipJDK { patterns.append("$JDK") }
+                    if skipLibraries { patterns.append("$Libraries") }
+                    onSave(DebugSteppingFilters(
+                        classNameFilters: patterns,
+                        skipSynthetics: skipSynthetics,
+                        skipStaticInitializers: skipStaticInitializers,
+                        skipConstructors: skipConstructors,
+                        hideFilteredStackFrames: hideFilteredStackFrames
+                    ))
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(18)
+        .frame(width: 560, height: 470)
+        .litheWorkbenchSurface(LitheTheme.editor)
     }
 }
 

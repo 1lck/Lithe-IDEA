@@ -83,6 +83,7 @@ stable error code and a user-facing message:
 | `maven.diagnostics` | Parse stable Maven compiler diagnostics from build output |
 | `debug.createSession` | Create a transport-neutral DAP session and return its initialize frame |
 | `debug.launch` | Queue a launch or attach request, including during initialization |
+| `debug.steppingFilters` | Return adapter defaults or normalize portable stepping filters |
 | `debug.setBreakpoints` | Replace and deterministically order one source's DAP breakpoints |
 | `debug.setExceptionBreakpoints` | Replace and deterministically order one session's exception filters |
 | `debug.setFunctionBreakpoints` | Replace and deterministically order one session's named function breakpoints |
@@ -375,9 +376,27 @@ back through `debug.receive` as `{ sessionId, dataBase64 }`; partial and
 consecutive messages are buffered and reduced in Rust.
 
 `debug.launch` accepts an `operationId` and a language-neutral configuration
-containing `name`, request kind (`launch` or `attach`), and provider arguments.
+containing `name`, request kind (`launch` or `attach`), provider arguments, and
+optional portable `steppingFilters`.
 Launch submitted during initialization is retained until the initialize
-response. `debug.setBreakpoints` accepts one-based line and optional column,
+response. For Java, Core projects those filters into the adapter's `stepFilters`
+launch object unless the provider arguments already contain an explicit value.
+`debug.steppingFilters` accepts `{ adapterId, filters? }`; omission of `filters`
+returns deterministic adapter defaults, while a supplied value is trimmed,
+sorted, de-duplicated, and validated before persistence or launch. Omitted
+fields inside a supplied value are empty or false, so future adapters never
+inherit Java policy accidentally. Java class
+patterns support `$JDK`, `$Libraries`, and adapter-compatible wildcards. Other
+adapters default to an unfiltered policy until their integration defines one.
+The portable cases are in
+`shared/fixtures/debug/stepping-filters-v1.json`.
+
+Normalized stack frames include `isFiltered`. Core derives it from the active
+class filters using the DAP frame name, source path, presentation hint, and
+session root. This classification is presentation metadata only: Core returns
+the complete ordered stack, while native UIs may collapse consecutive matching
+frames and must allow users to expand them. `debug.setBreakpoints` accepts
+one-based line and optional column,
 enabled state, condition, hit condition, and log message values. Rust sorts and
 de-duplicates the complete source set, retains disabled entries without sending
 them to the adapter, waits for the DAP `initialized` event, then sends all

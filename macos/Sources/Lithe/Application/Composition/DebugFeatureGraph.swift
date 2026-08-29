@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import LitheCoreContracts
 import LitheDebugModule
 import LitheModuleAPI
 
@@ -12,12 +13,16 @@ final class DebugFeatureGraph: NSObject, DebugServiceGraph {
 
     init(
         adapterSessions: DebugAdapterSessionManager,
-        breakpointPersistence: (any DebugBreakpointPersisting)? = nil
+        breakpointPersistence: (any DebugBreakpointPersisting)? = nil,
+        steppingFilterResolver: (any DebugSteppingFilterResolving)? = nil,
+        steppingFilterPersistence: (any DebugSteppingFilterPersisting)? = nil
     ) {
         self.adapterSessions = adapterSessions
         genericFeature = GenericDebugFeatureModel(
             sessions: adapterSessions,
-            breakpointPersistence: breakpointPersistence
+            breakpointPersistence: breakpointPersistence,
+            steppingFilterResolver: steppingFilterResolver,
+            steppingFilterPersistence: steppingFilterPersistence
         )
     }
 

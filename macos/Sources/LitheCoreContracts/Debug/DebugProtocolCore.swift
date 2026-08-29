@@ -138,6 +138,37 @@ public struct DebugCoreStackFrame: Decodable, Equatable, Sendable {
     public let sourcePath: String?
     public let line: Int
     public let column: Int
+    public let isFiltered: Bool
+
+    public init(
+        id: Int,
+        name: String,
+        sourcePath: String?,
+        line: Int,
+        column: Int,
+        isFiltered: Bool = false
+    ) {
+        self.id = id
+        self.name = name
+        self.sourcePath = sourcePath
+        self.line = line
+        self.column = column
+        self.isFiltered = isFiltered
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, sourcePath, line, column, isFiltered
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(Int.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        sourcePath = try container.decodeIfPresent(String.self, forKey: .sourcePath)
+        line = try container.decode(Int.self, forKey: .line)
+        column = try container.decode(Int.self, forKey: .column)
+        isFiltered = try container.decodeIfPresent(Bool.self, forKey: .isFiltered) ?? false
+    }
 }
 
 public struct DebugCoreScope: Decodable, Equatable, Sendable {
@@ -154,10 +185,19 @@ public struct DebugCoreVariable: Decodable, Equatable, Sendable {
     public let variablesReference: Int
 }
 
+/// Focused policy boundary for portable debugger stepping defaults and validation.
+@MainActor
+public protocol DebugSteppingFilterResolving: Sendable {
+    func resolveDebugSteppingFilters(
+        adapterID: String,
+        filters: DebugSteppingFilters?
+    ) throws -> DebugSteppingFilters
+}
+
 /// Transport-neutral Debug Core boundary. Native products own processes and
 /// sockets; this contract owns DAP framing, state, sequencing, and normalized data.
 @MainActor
-public protocol DebugProtocolCore: Sendable {
+public protocol DebugProtocolCore: DebugSteppingFilterResolving, Sendable {
     func createDebugSession(
         sessionID: String,
         adapterID: String,

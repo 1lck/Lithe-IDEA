@@ -72,6 +72,14 @@ public struct GenericDebugVariableRow: Identifiable, Equatable, Sendable {
     public let depth: Int
 }
 
+public struct GenericDebugStackFrameRow: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let frame: DebugStackFrame?
+    public let hiddenFrameCount: Int
+
+    public var isHiddenGroup: Bool { frame == nil }
+}
+
 @MainActor
 public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatureTarget {
     @Published public private(set) var providerID: String?
@@ -100,6 +108,8 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     /// The frame currently selected in the call stack, which may differ from
     /// the frame that initially caused the stop.
     @Published public private(set) var selectedFrame: DebugStackFrame?
+    @Published public private(set) var javaSteppingFilters: DebugSteppingFilters?
+    @Published public private(set) var areFilteredStackFramesExpanded = false
 
     /// Delivers the selected stopped frame to the host editor for source
     /// navigation. The Debug module does not own editor presentation.
@@ -107,6 +117,8 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
 
     private let sessions: DebugAdapterSessionManager
     private let breakpointPersistence: (any DebugBreakpointPersisting)?
+    private let steppingFilterResolver: (any DebugSteppingFilterResolving)?
+    private let steppingFilterPersistence: (any DebugSteppingFilterPersisting)?
     private var requestedBreakpointsByFile: [URL: [Int: DebugSourceBreakpoint]] = [:]
     private var workspaceURL: URL?
     private var activeFileURL: URL?
@@ -116,10 +128,14 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
 
     public init(
         sessions: DebugAdapterSessionManager,
-        breakpointPersistence: (any DebugBreakpointPersisting)? = nil
+        breakpointPersistence: (any DebugBreakpointPersisting)? = nil,
+        steppingFilterResolver: (any DebugSteppingFilterResolving)? = nil,
+        steppingFilterPersistence: (any DebugSteppingFilterPersisting)? = nil
     ) {
         self.sessions = sessions
         self.breakpointPersistence = breakpointPersistence
+        self.steppingFilterResolver = steppingFilterResolver
+        self.steppingFilterPersistence = steppingFilterPersistence
         sessions.onStateChange = { [weak self] providerID, state in
             guard self?.providerID == providerID else { return }
             self?.state = state
@@ -128,6 +144,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             guard self?.providerID == providerID else { return }
             self?.consume(event)
         }
+        loadJavaSteppingFilters()
     }
 
     public var isSessionActive: Bool {
@@ -148,6 +165,35 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         var rows: [GenericDebugVariableRow] = []
         appendVisibleVariables(variables, parentPath: "root", depth: 0, to: &rows)
         return rows
+    }
+    public var visibleStackFrameRows: [GenericDebugStackFrameRow] {
+        guard javaSteppingFilters?.hideFilteredStackFrames == true,
+              !areFilteredStackFramesExpanded else {
+            return stackFrames.map(stackFrameRow)
+        }
+        var rows: [GenericDebugStackFrameRow] = []
+        var hiddenCount = 0
+        var hiddenStartID: Int?
+        for frame in stackFrames {
+            if frame.isFiltered {
+                hiddenCount += 1
+                hiddenStartID = hiddenStartID ?? frame.id
+                continue
+            }
+            appendHiddenStackFrames(
+                count: hiddenCount,
+                startID: hiddenStartID,
+                to: &rows
+            )
+            hiddenCount = 0
+            hiddenStartID = nil
+            rows.append(stackFrameRow(frame))
+        }
+        appendHiddenStackFrames(count: hiddenCount, startID: hiddenStartID, to: &rows)
+        return rows
+    }
+    public var hiddenStackFrameCount: Int {
+        stackFrames.lazy.filter(\.isFiltered).count
     }
 
     public func start(
@@ -182,10 +228,18 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             if !dataBreakpoints.isEmpty {
                 try sessions.setDataBreakpoints(coreDataBreakpoints, for: fileURL)
             }
+            let effectiveConfiguration: DebugLaunchConfiguration
+            if providerID == "java", let javaSteppingFilters {
+                effectiveConfiguration = configuration.applying(
+                    steppingFilters: javaSteppingFilters
+                )
+            } else {
+                effectiveConfiguration = configuration
+            }
             let session = try sessions.launch(
                 for: fileURL,
                 rootURL: rootURL,
-                configuration: configuration
+                configuration: effectiveConfiguration
             )
             state = session.state
             return true
@@ -214,6 +268,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         selectedFrame = nil
         threads = []
         stackFrames = []
+        areFilteredStackFramesExpanded = false
         scopes = []
         resetVariableTree()
         invalidateWatchResults()
@@ -525,6 +580,41 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         session.execute(command, threadID: selectedThreadID)
     }
 
+    public func updateJavaSteppingFilters(_ filters: DebugSteppingFilters) {
+        do {
+            let normalized = try steppingFilterResolver?.resolveDebugSteppingFilters(
+                adapterID: "java",
+                filters: filters
+            ) ?? filters
+            javaSteppingFilters = normalized
+            areFilteredStackFramesExpanded = false
+            try steppingFilterPersistence?.saveSteppingFilters(normalized, adapterID: "java")
+        } catch {
+            record(error)
+        }
+    }
+
+    public func resetJavaSteppingFilters() {
+        guard let steppingFilterResolver else { return }
+        do {
+            let defaults = try steppingFilterResolver.resolveDebugSteppingFilters(
+                adapterID: "java",
+                filters: nil
+            )
+            updateJavaSteppingFilters(defaults)
+        } catch {
+            record(error)
+        }
+    }
+
+    public func expandFilteredStackFrames() {
+        areFilteredStackFramesExpanded = true
+    }
+
+    public func collapseFilteredStackFrames() {
+        areFilteredStackFramesExpanded = false
+    }
+
     public func executeThread(_ command: DebugExecutionCommand, thread: DebugThread) {
         guard capabilities.supportsSingleThreadExecutionRequests,
               (command == .continueExecution && state == .paused)
@@ -606,6 +696,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         selectedFrameID = nil
         selectedFrame = nil
         stackFrames = []
+        areFilteredStackFramesExpanded = false
         scopes = []
         resetVariableTree()
         invalidateWatchResults()
@@ -617,6 +708,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             switch result {
             case .success(let frames):
                 self.stackFrames = frames
+                self.areFilteredStackFramesExpanded = false
                 self.selectedFrameID = frames.first?.id
                 if let frame = frames.first {
                     self.selectFrame(frame)
@@ -888,6 +980,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             selectedFrame = nil
             threads = []
             stackFrames = []
+            areFilteredStackFramesExpanded = false
             scopes = []
             resetVariableTree()
             invalidateWatchResults()
@@ -901,6 +994,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             selectedFrame = nil
             threads = []
             stackFrames = []
+            areFilteredStackFramesExpanded = false
             scopes = []
             resetVariableTree()
             invalidateWatchResults()
@@ -913,6 +1007,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             selectedFrame = nil
             threads = []
             stackFrames = []
+            areFilteredStackFramesExpanded = false
             scopes = []
             resetVariableTree()
             invalidateWatchResults()
@@ -971,6 +1066,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             switch result {
             case .success(let frames):
                 self.stackFrames = frames
+                self.areFilteredStackFramesExpanded = false
                 self.selectedFrameID = frames.first?.id
                 if let frame = frames.first {
                     self.selectFrame(frame)
@@ -987,6 +1083,63 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         inspectionGeneration &+= 1
         activeSession?.cancelPendingOperations()
         return inspectionGeneration
+    }
+
+    private func loadJavaSteppingFilters() {
+        guard let steppingFilterResolver else { return }
+        let persisted: DebugSteppingFilters?
+        do {
+            persisted = try steppingFilterPersistence?.loadSteppingFilters(adapterID: "java")
+        } catch {
+            record(error)
+            loadDefaultJavaSteppingFilters(using: steppingFilterResolver)
+            return
+        }
+        do {
+            javaSteppingFilters = try steppingFilterResolver.resolveDebugSteppingFilters(
+                adapterID: "java",
+                filters: persisted
+            )
+        } catch {
+            record(error)
+            if persisted != nil {
+                loadDefaultJavaSteppingFilters(using: steppingFilterResolver)
+            }
+        }
+    }
+
+    private func loadDefaultJavaSteppingFilters(
+        using steppingFilterResolver: any DebugSteppingFilterResolving
+    ) {
+        do {
+            javaSteppingFilters = try steppingFilterResolver.resolveDebugSteppingFilters(
+                adapterID: "java",
+                filters: nil
+            )
+        } catch {
+            record(error)
+        }
+    }
+
+    private func stackFrameRow(_ frame: DebugStackFrame) -> GenericDebugStackFrameRow {
+        GenericDebugStackFrameRow(
+            id: "frame-\(frame.id)",
+            frame: frame,
+            hiddenFrameCount: 0
+        )
+    }
+
+    private func appendHiddenStackFrames(
+        count: Int,
+        startID: Int?,
+        to rows: inout [GenericDebugStackFrameRow]
+    ) {
+        guard count > 0, let startID else { return }
+        rows.append(GenericDebugStackFrameRow(
+            id: "filtered-\(startID)",
+            frame: nil,
+            hiddenFrameCount: count
+        ))
     }
 
     private func invalidateInspectionRequests() {

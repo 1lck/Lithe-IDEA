@@ -30,7 +30,7 @@ verification scripts are the executable source of boundary checks.
 | Runtime | Java/Maven requirements, normalized candidates, and effective toolchain references | JDK/Maven probing and executable paths |
 | Language tooling | provider catalog, local fallback results, complete LSP process/session runtime, capabilities, diagnostics, UTF-16 edits, and normalized feature results | executable/environment discovery and UI provider routing |
 | Java/Maven/Spring | deterministic Maven-root selection, project structure, modules and profiles; compiler diagnostic parsing; Java source structure, symbols, code vision, run-configuration detection, Spring configuration/bean/endpoint indexing, and JDTLS/Java Debug adapter policy | JDK/Maven discovery, local dependency-repository selection, Java/Maven child processes, and sockets |
-| Run/Debug | versioned configuration documents, three-layer resolution, diagnostics, platform-neutral launch plans, DAP framing/state, breakpoints, threads, stacks, variables, and events | project file persistence, adapter discovery, child processes, sockets, native termination, and UI |
+| Run/Debug | versioned configuration documents, three-layer resolution, diagnostics, platform-neutral launch plans, DAP framing/state, breakpoints, stepping filters, threads, stacks, variables, and events | project and preference persistence, adapter discovery, child processes, sockets, native termination, and UI |
 | Terminal | input bytes, output bytes, lifecycle | PTY/ConPTY, shell and environment |
 | Workbench background | versioned source (`none`, bundled slot `01`–`10`, or `custom`) and opacity | UI, image rendering, bundled-resource packaging, local-image access permission and persistence |
 | Local History | revision metadata, text content, restore result | persistence location and file operations |
@@ -178,6 +178,13 @@ is then supported or unsupported. Failures retain stable `code`, `stage`, exit
 code, and diagnostic detail across the Rust, Swift, and TypeScript boundaries.
 Domain and adapter layers return stable reasons rather than user-facing prose;
 each product's presentation layer owns localized notification text.
+
+Debugger stepping policy is portable. Rust Core owns adapter defaults,
+normalization, validation, adapter launch projection, and the `isFiltered`
+classification on normalized stack frames. Platform products own preference
+persistence and decide whether matching consecutive frames are collapsed or
+expanded in their native call-stack UI. No Debug session, adapter process, or
+background task is created merely because stepping preferences exist.
 
 For JDT LS, the standard initialize handshake and project-import readiness use
 separate Core-owned deadlines. Project import fails only after 45 seconds

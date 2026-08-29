@@ -74,6 +74,7 @@ final class MacServiceContainer {
         )
         self.runConfigurationStore = runConfigurationStore
         let debugBreakpointStore = MacDebugBreakpointStore(store: store)
+        let debugSteppingFilterStore = MacDebugSteppingFilterStore(store: store)
         let fileOperations = MacWorkspaceFileOperations()
         let processRunner = MacProcessRunner()
         let secureStore = MacLocalSecretStore()
@@ -411,7 +412,9 @@ final class MacServiceContainer {
                     )
                     let graph = DebugFeatureGraph(
                         adapterSessions: adapterSessions,
-                        breakpointPersistence: debugBreakpointStore
+                        breakpointPersistence: debugBreakpointStore,
+                        steppingFilterResolver: rustCore,
+                        steppingFilterPersistence: debugSteppingFilterStore
                     )
                     return graph
                 })

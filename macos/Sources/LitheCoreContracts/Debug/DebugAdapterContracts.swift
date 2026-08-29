@@ -53,11 +53,49 @@ public struct DebugLaunchConfiguration: Codable, Equatable, Sendable {
     public let name: String
     public let request: DebugRequestKind
     public let arguments: [String: ToolingJSONValue]
+    public let steppingFilters: DebugSteppingFilters?
 
-    public init(name: String, request: DebugRequestKind, arguments: [String: ToolingJSONValue]) {
+    public init(
+        name: String,
+        request: DebugRequestKind,
+        arguments: [String: ToolingJSONValue],
+        steppingFilters: DebugSteppingFilters? = nil
+    ) {
         self.name = name
         self.request = request
         self.arguments = arguments
+        self.steppingFilters = steppingFilters
+    }
+
+    public func applying(steppingFilters: DebugSteppingFilters) -> Self {
+        Self(
+            name: name,
+            request: request,
+            arguments: arguments,
+            steppingFilters: steppingFilters
+        )
+    }
+}
+
+public struct DebugSteppingFilters: Codable, Equatable, Sendable {
+    public let classNameFilters: [String]
+    public let skipSynthetics: Bool
+    public let skipStaticInitializers: Bool
+    public let skipConstructors: Bool
+    public let hideFilteredStackFrames: Bool
+
+    public init(
+        classNameFilters: [String],
+        skipSynthetics: Bool,
+        skipStaticInitializers: Bool,
+        skipConstructors: Bool,
+        hideFilteredStackFrames: Bool
+    ) {
+        self.classNameFilters = classNameFilters
+        self.skipSynthetics = skipSynthetics
+        self.skipStaticInitializers = skipStaticInitializers
+        self.skipConstructors = skipConstructors
+        self.hideFilteredStackFrames = hideFilteredStackFrames
     }
 }
 
@@ -372,13 +410,22 @@ public struct DebugStackFrame: Identifiable, Equatable, Sendable {
     public let sourceURL: URL?
     public let line: Int
     public let column: Int
+    public let isFiltered: Bool
 
-    public init(id: Int, name: String, sourceURL: URL?, line: Int, column: Int) {
+    public init(
+        id: Int,
+        name: String,
+        sourceURL: URL?,
+        line: Int,
+        column: Int,
+        isFiltered: Bool = false
+    ) {
         self.id = id
         self.name = name
         self.sourceURL = sourceURL
         self.line = line
         self.column = column
+        self.isFiltered = isFiltered
     }
 }
 

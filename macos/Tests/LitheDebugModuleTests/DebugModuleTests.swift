@@ -305,11 +305,225 @@ struct DebugModuleTests {
         #expect(feature.selectedThreadID == 13)
         #expect(feature.threads.map(\.id) == [2, 13])
         #expect(feature.selectedFrame?.id == 70)
+        #expect(feature.selectedFrame?.isFiltered == false)
         #expect(feature.scopes.first?.variablesReference == 200)
         #expect(feature.variables.first?.value == "7")
         #expect(stoppedLocation?.0 == source.standardizedFileURL)
         #expect(stoppedLocation?.1 == 12)
         #expect(stoppedLocation?.2 == 5)
+    }
+
+    @Test
+    func javaSteppingFiltersLoadDefaultsAndPersistNormalizedOverrides() {
+        let defaults = DebugSteppingFilters(
+            classNameFilters: ["$JDK", "org.junit.*"],
+            skipSynthetics: true,
+            skipStaticInitializers: true,
+            skipConstructors: false,
+            hideFilteredStackFrames: true
+        )
+        let normalized = DebugSteppingFilters(
+            classNameFilters: ["$JDK", "org.mockito.*"],
+            skipSynthetics: true,
+            skipStaticInitializers: false,
+            skipConstructors: true,
+            hideFilteredStackFrames: true
+        )
+        let resolver = RecordingDebugSteppingFilterResolver(
+            defaults: defaults,
+            normalizedOverride: normalized
+        )
+        let persistence = RecordingDebugSteppingFilterPersistence()
+        let manager = DebugAdapterSessionManager(providers: []) { _, _ in nil }
+        let feature = GenericDebugFeatureModel(
+            sessions: manager,
+            steppingFilterResolver: resolver,
+            steppingFilterPersistence: persistence
+        )
+
+        #expect(feature.javaSteppingFilters == defaults)
+        #expect(resolver.requests == [RecordingDebugSteppingFilterResolution(
+            adapterID: "java",
+            filters: nil
+        )])
+
+        let override = DebugSteppingFilters(
+            classNameFilters: [" org.mockito.* ", "$JDK", "org.mockito.*", ""],
+            skipSynthetics: true,
+            skipStaticInitializers: false,
+            skipConstructors: true,
+            hideFilteredStackFrames: true
+        )
+        feature.updateJavaSteppingFilters(override)
+
+        #expect(resolver.requests.last == RecordingDebugSteppingFilterResolution(
+            adapterID: "java",
+            filters: override
+        ))
+        #expect(feature.javaSteppingFilters == normalized)
+        #expect(persistence.filtersByAdapterID["java"] == normalized)
+    }
+
+    @Test
+    func javaSteppingFiltersFallBackToDefaultsWhenPersistenceCannotBeRead() {
+        let defaults = DebugSteppingFilters(
+            classNameFilters: ["$JDK", "org.junit.*"],
+            skipSynthetics: true,
+            skipStaticInitializers: true,
+            skipConstructors: false,
+            hideFilteredStackFrames: true
+        )
+        let resolver = RecordingDebugSteppingFilterResolver(
+            defaults: defaults,
+            normalizedOverride: defaults
+        )
+        let manager = DebugAdapterSessionManager(providers: []) { _, _ in nil }
+        let feature = GenericDebugFeatureModel(
+            sessions: manager,
+            steppingFilterResolver: resolver,
+            steppingFilterPersistence: FailingDebugSteppingFilterPersistence()
+        )
+
+        #expect(feature.javaSteppingFilters == defaults)
+        #expect(feature.errorMessage != nil)
+        #expect(resolver.requests == [RecordingDebugSteppingFilterResolution(
+            adapterID: "java",
+            filters: nil
+        )])
+    }
+
+    @Test
+    func javaLaunchAppliesResolvedSteppingFilters() throws {
+        let transport = RecordingTransport()
+        let core = RecordingDebugProtocolCore()
+        let descriptor = DebugProviderDescriptor(
+            id: "java",
+            displayName: "Java",
+            fileExtensions: ["java"]
+        )
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
+            CoreDebugAdapterProtocolSession(
+                adapterID: "java",
+                transport: transport,
+                core: core,
+                sessionID: "java-stepping-launch",
+                deadlineScheduler: RecordingDebugDeadlineScheduler()
+            )
+        }
+        let feature = GenericDebugFeatureModel(
+            sessions: manager,
+            steppingFilterResolver: core
+        )
+        let root = URL(fileURLWithPath: "/tmp/java-stepping-launch", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.java")
+
+        #expect(feature.start(
+            fileURL: source,
+            rootURL: root,
+            configuration: DebugLaunchConfiguration(
+                name: "Main",
+                request: .launch,
+                arguments: ["mainClass": .string("example.Main")]
+            )
+        ))
+        defer { feature.stop() }
+
+        #expect(feature.javaSteppingFilters == core.defaultSteppingFilters)
+        #expect(core.lastLaunchConfiguration?.steppingFilters == core.defaultSteppingFilters)
+    }
+
+    @Test
+    func filteredStackFramesCollapseByConsecutiveRunsAndRestoreOrder() {
+        let session = DeferredInspectionDebugSession()
+        let descriptor = DebugProviderDescriptor(
+            id: "java",
+            displayName: "Java",
+            fileExtensions: ["java"]
+        )
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
+        let defaults = DebugSteppingFilters(
+            classNameFilters: ["$JDK"],
+            skipSynthetics: true,
+            skipStaticInitializers: true,
+            skipConstructors: false,
+            hideFilteredStackFrames: true
+        )
+        let feature = GenericDebugFeatureModel(
+            sessions: manager,
+            steppingFilterResolver: RecordingDebugSteppingFilterResolver(
+                defaults: defaults,
+                normalizedOverride: defaults
+            )
+        )
+        let root = URL(fileURLWithPath: "/tmp/java-filtered-stack", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.java")
+        #expect(feature.start(
+            fileURL: source,
+            rootURL: root,
+            configuration: DebugLaunchConfiguration(
+                name: "Main",
+                request: .launch,
+                arguments: ["mainClass": .string("example.Main")]
+            )
+        ))
+        defer { feature.stop() }
+
+        feature.selectThread(DebugThread(id: 7, name: "main"))
+        session.completeStackTrace(at: 0, with: [
+            DebugStackFrame(
+                id: 1,
+                name: "example.LoginController.login",
+                sourceURL: source,
+                line: 20,
+                column: 5
+            ),
+            DebugStackFrame(
+                id: 2,
+                name: "java.lang.reflect.Method.invoke",
+                sourceURL: nil,
+                line: 1,
+                column: 1,
+                isFiltered: true
+            ),
+            DebugStackFrame(
+                id: 3,
+                name: "org.springframework.cglib.Proxy.invoke",
+                sourceURL: nil,
+                line: 1,
+                column: 1,
+                isFiltered: true
+            ),
+            DebugStackFrame(
+                id: 4,
+                name: "example.Dispatcher.dispatch",
+                sourceURL: source,
+                line: 42,
+                column: 3
+            ),
+            DebugStackFrame(
+                id: 5,
+                name: "jdk.proxy1.$Proxy0.invoke",
+                sourceURL: nil,
+                line: 1,
+                column: 1,
+                isFiltered: true
+            )
+        ])
+
+        #expect(feature.hiddenStackFrameCount == 3)
+        #expect(feature.visibleStackFrameRows.map(\.id) == [
+            "frame-1", "filtered-2", "frame-4", "filtered-5"
+        ])
+        #expect(feature.visibleStackFrameRows.map(\.hiddenFrameCount) == [0, 2, 0, 1])
+
+        feature.expandFilteredStackFrames()
+        #expect(feature.visibleStackFrameRows.compactMap(\.frame?.id) == [1, 2, 3, 4, 5])
+        #expect(feature.visibleStackFrameRows.allSatisfy { !$0.isHiddenGroup })
+
+        feature.collapseFilteredStackFrames()
+        #expect(feature.visibleStackFrameRows.map(\.id) == [
+            "frame-1", "filtered-2", "frame-4", "filtered-5"
+        ])
     }
 
     @Test
@@ -1199,6 +1413,64 @@ private final class RecordingBreakpointPersistence: DebugBreakpointPersisting, @
     }
 }
 
+private struct RecordingDebugSteppingFilterResolution: Equatable {
+    let adapterID: String
+    let filters: DebugSteppingFilters?
+}
+
+@MainActor
+private final class RecordingDebugSteppingFilterResolver: DebugSteppingFilterResolving {
+    let defaults: DebugSteppingFilters
+    let normalizedOverride: DebugSteppingFilters
+    private(set) var requests: [RecordingDebugSteppingFilterResolution] = []
+
+    init(defaults: DebugSteppingFilters, normalizedOverride: DebugSteppingFilters) {
+        self.defaults = defaults
+        self.normalizedOverride = normalizedOverride
+    }
+
+    func resolveDebugSteppingFilters(
+        adapterID: String,
+        filters: DebugSteppingFilters?
+    ) throws -> DebugSteppingFilters {
+        requests.append(RecordingDebugSteppingFilterResolution(
+            adapterID: adapterID,
+            filters: filters
+        ))
+        return filters == nil ? defaults : normalizedOverride
+    }
+}
+
+private final class RecordingDebugSteppingFilterPersistence:
+    DebugSteppingFilterPersisting,
+    @unchecked Sendable
+{
+    var filtersByAdapterID: [String: DebugSteppingFilters] = [:]
+
+    func loadSteppingFilters(adapterID: String) throws -> DebugSteppingFilters? {
+        filtersByAdapterID[adapterID]
+    }
+
+    func saveSteppingFilters(_ filters: DebugSteppingFilters, adapterID: String) throws {
+        filtersByAdapterID[adapterID] = filters
+    }
+}
+
+private enum DebugSteppingFilterPersistenceTestError: Error {
+    case unreadable
+}
+
+private final class FailingDebugSteppingFilterPersistence:
+    DebugSteppingFilterPersisting,
+    @unchecked Sendable
+{
+    func loadSteppingFilters(adapterID _: String) throws -> DebugSteppingFilters? {
+        throw DebugSteppingFilterPersistenceTestError.unreadable
+    }
+
+    func saveSteppingFilters(_: DebugSteppingFilters, adapterID _: String) throws {}
+}
+
 private struct RecordingDebugInspectionRequest: Equatable {
     let kind: String
     let threadID: Int?
@@ -1312,6 +1584,21 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
     private(set) var lastExecutionSingleThread: Bool?
     private(set) var lastExecutionThreadID: Int?
     private(set) var inspectionRequests: [RecordingDebugInspectionRequest] = []
+    private(set) var lastLaunchConfiguration: DebugLaunchConfiguration?
+    let defaultSteppingFilters = DebugSteppingFilters(
+        classNameFilters: ["$JDK", "org.junit.*"],
+        skipSynthetics: true,
+        skipStaticInitializers: true,
+        skipConstructors: false,
+        hideFilteredStackFrames: true
+    )
+
+    func resolveDebugSteppingFilters(
+        adapterID _: String,
+        filters: DebugSteppingFilters?
+    ) throws -> DebugSteppingFilters {
+        filters ?? defaultSteppingFilters
+    }
 
     func createDebugSession(
         sessionID: String,
@@ -1328,9 +1615,10 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
     func launchDebugSession(
         sessionID: String,
         operationID _: String,
-        configuration _: DebugLaunchConfiguration
+        configuration: DebugLaunchConfiguration
     ) throws -> DebugCoreUpdate {
-        update(sessionID: sessionID, state: "launching")
+        lastLaunchConfiguration = configuration
+        return update(sessionID: sessionID, state: "launching")
     }
 
     func setDebugBreakpoints(
