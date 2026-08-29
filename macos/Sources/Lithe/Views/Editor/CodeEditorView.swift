@@ -1263,9 +1263,26 @@ struct CodeEditorView: NSViewRepresentable {
                 gutter?.update(blameLines: blameLines, isVisible: isBlameVisible) { [weak model] blame in
                     Task { await model?.showGitCommit(blame.commitHash) }
                 }
-                gutter?.updateDebugBreakpointLines(debugBreakpointStates) { [weak model] line in
-                    model?.toggleDebugBreakpoint(fileURL: url, line: line)
-                }
+                gutter?.updateDebugBreakpointLines(
+                    debugBreakpointStates,
+                    onToggle: { [weak model] line in
+                        model?.toggleDebugBreakpoint(fileURL: url, line: line)
+                    },
+                    onRemove: { [weak model] line in
+                        guard let feature = model?.genericDebugFeatureIfActive,
+                              let breakpoint = feature.breakpoints.first(where: {
+                                  $0.fileURL.standardizedFileURL == url && $0.line == line
+                              }) else { return }
+                        feature.removeBreakpoint(breakpoint)
+                    },
+                    onSetEnabled: { [weak model] line, enabled in
+                        guard let feature = model?.genericDebugFeatureIfActive,
+                              let breakpoint = feature.breakpoints.first(where: {
+                                  $0.fileURL.standardizedFileURL == url && $0.line == line
+                              }) else { return }
+                        feature.setBreakpointEnabled(breakpoint, enabled: enabled)
+                    }
+                )
                 gutter?.updateDebugBreakpointMessages(debugBreakpointMessages)
                 gutter?.updateCurrentExecutionLine(currentExecutionLine)
             }
@@ -3139,6 +3156,9 @@ final class LineNumberGutterView: NSView {
     private var debugBreakpointMessagesByLine: [Int: String] = [:]
     private var currentExecutionLine: Int?
     private var onToggleDebugBreakpoint: ((Int) -> Void)?
+    private var onRemoveDebugBreakpoint: ((Int) -> Void)?
+    private var onSetDebugBreakpointEnabled: ((Int, Bool) -> Void)?
+    private var contextDebugBreakpointLine: Int?
     private var scrollRefreshScheduled = false
     private var hoveredFoldID: String?
     private var foldIndicatorOpacities: [String: CGFloat] = [:]
@@ -3295,13 +3315,17 @@ final class LineNumberGutterView: NSView {
 
     func updateDebugBreakpointLines(
         _ states: [Int: Bool],
-        onToggle: @escaping (Int) -> Void
+        onToggle: @escaping (Int) -> Void,
+        onRemove: ((Int) -> Void)? = nil,
+        onSetEnabled: ((Int, Bool) -> Void)? = nil
     ) {
         debugBreakpointLines = Set(states.keys.map { max(0, $0 - 1) })
         debugBreakpointVerifiedByLine = Dictionary(
             uniqueKeysWithValues: states.map { (max(0, $0.key - 1), $0.value) }
         )
         onToggleDebugBreakpoint = onToggle
+        onRemoveDebugBreakpoint = onRemove
+        onSetDebugBreakpointEnabled = onSetEnabled
         needsDisplay = true
     }
 
@@ -3955,6 +3979,18 @@ final class LineNumberGutterView: NSView {
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
         let localX = point.x - editorGutterOriginX
+        if gutterLayout.breakpointRange.contains(localX),
+           let line = editorLine(at: point),
+           let verified = debugBreakpointVerifiedByLine[line] {
+            contextDebugBreakpointLine = line
+            let menu = NSMenu(title: "Breakpoint")
+            let toggleTitle = verified ? "Disable Breakpoint" : "Enable Breakpoint"
+            menu.addItem(withTitle: toggleTitle, action: #selector(toggleDebugBreakpointFromMenu), keyEquivalent: "")
+            menu.items.last?.target = self
+            menu.addItem(withTitle: "Remove Breakpoint", action: #selector(removeDebugBreakpointFromMenu), keyEquivalent: "")
+            menu.items.last?.target = self
+            return menu
+        }
         guard gutterLayout.gitChangeRange.contains(localX),
               let line = editorLine(at: point),
               let marker = gitLineChangeMarkersByLine[line] else {
@@ -3978,6 +4014,16 @@ final class LineNumberGutterView: NSView {
             menu.items.last?.target = self
         }
         return menu
+    }
+
+    @objc private func toggleDebugBreakpointFromMenu() {
+        guard let line = contextDebugBreakpointLine,
+              let verified = debugBreakpointVerifiedByLine[line] else { return }
+        onSetDebugBreakpointEnabled?(line, !verified)
+    }
+
+    @objc private func removeDebugBreakpointFromMenu() {
+        if let line = contextDebugBreakpointLine { onRemoveDebugBreakpoint?(line) }
     }
 
     private func editorLine(at point: NSPoint) -> Int? {
