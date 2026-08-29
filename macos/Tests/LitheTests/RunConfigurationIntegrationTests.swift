@@ -3078,10 +3078,13 @@ struct RunConfigurationIntegrationTests {
             generationEntryCount: 0
         )
 
+        // A snapshot identity marks the inventory complete, which is what lets
+        // generation run; an empty workspace legitimately has no entry point.
         await fixture.service.loadProject(
             at: fixture.root,
             files: [],
-            mavenProject: fixture.mavenProject
+            mavenProject: fixture.mavenProject,
+            snapshotID: UUID()
         )
         await fixture.service.generateRunConfigurations()
 
@@ -3667,10 +3670,10 @@ struct RunConfigurationIntegrationTests {
             runConfigurationOperations: operations
         )
 
-        await service.loadProject(at: root, files: [], mavenProject: nil)
+        await service.loadProject(at: root, files: [], mavenProject: nil, snapshotID: UUID())
         let generation = Task { await service.generateRunConfigurations() }
         #expect(await operations.waitUntilBlocked())
-        await service.loadProject(at: root, files: [], mavenProject: nil)
+        await service.loadProject(at: root, files: [], mavenProject: nil, snapshotID: UUID())
         operations.releaseGeneration()
         await generation.value
 

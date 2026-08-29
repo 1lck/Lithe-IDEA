@@ -13,6 +13,10 @@ package enum WorkspaceRebuildResult: Sendable {
 package final class WorkspaceFeatureModel: ObservableObject {
     @Published package private(set) var rootNode: FileNode?
     @Published package private(set) var projectFiles: [URL] = []
+    /// Identifies the snapshot `projectFiles` came from, and is `nil` whenever no
+    /// snapshot has been applied. Consumers that scan the file inventory use this
+    /// to tell a complete inventory from a provisional one.
+    @Published package private(set) var snapshotID: UUID?
     @Published package private(set) var isLoadingWorkspace = false
     @Published package private(set) var isRefreshingWorkspace = false
     @Published package private(set) var loadErrorMessage: String?
@@ -184,6 +188,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         hasRestoredWorkspaceSession = false
         rootNode = nil
         projectFiles = []
+        snapshotID = nil
         isLoadingWorkspace = false
         isRefreshingWorkspace = false
         loadErrorMessage = nil
@@ -294,6 +299,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         loadErrorMessage = nil
         rootNode = snapshot.root
         projectFiles = snapshot.files
+        snapshotID = UUID()
         scheduleSearchIndexWarm(at: workspaceURL, rules: rules)
 
         // The tree is usable as soon as the shared snapshot is ready. Service

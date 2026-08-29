@@ -52,6 +52,7 @@ final class MacServiceContainer {
         processRegistry: ManagedProcessRegistry = ManagedProcessRegistry(),
         moduleLaunchMode: ModuleLaunchMode = .normal,
         moduleStore providedModuleStore: MacModuleConfigurationStore? = nil,
+        workspaceOperations providedWorkspaceOperations: (any WorkspaceOperations)? = nil,
         pluginRuntimeRecovery: MacPluginRuntimeRecoveryCoordinator? = nil,
         authorizationCallbackRouter providedAuthorizationCallbackRouter: MacExternalAuthorizationCallbackRouter? = nil
     ) {
@@ -405,7 +406,12 @@ final class MacServiceContainer {
             preconditionFailure("Invalid execution/debug module graph: \(error.localizedDescription)")
         }
         let gitOperations = RustGitOperations(core: rustCore)
-        let workspaceOperations = RustWorkspaceOperations(core: rustCore)
+        let rustWorkspaceOperations = RustWorkspaceOperations(core: rustCore)
+        // Only the workspace snapshot boundary is overridable. Search and local
+        // history need the concrete Rust operations, which carry their own
+        // capabilities beyond WorkspaceOperations.
+        let workspaceOperations: any WorkspaceOperations =
+            providedWorkspaceOperations ?? rustWorkspaceOperations
         let localHistoryOperations = RustLocalHistoryOperations(core: rustCore)
         let markdownRenderer = RustMarkdownRendering(core: rustCore)
         let markdownImageImporter = MarkdownImageImportService(storage: fileStorage)
@@ -417,11 +423,11 @@ final class MacServiceContainer {
                 )
             })
             try moduleRegistry.register(ModuleFactory(manifest: SearchModule.moduleManifest, contributions: SearchModule.moduleContributions) {
-                SearchModule(operations: workspaceOperations)
+                SearchModule(operations: rustWorkspaceOperations)
             })
             try moduleRegistry.register(ModuleFactory(manifest: HistoryModule.moduleManifest, contributions: HistoryModule.moduleContributions) {
                 HistoryModule(
-                    workspaceAccess: MacLocalHistoryWorkspaceAccess(workspaceOperations: workspaceOperations, fileOperations: fileOperations),
+                    workspaceAccess: MacLocalHistoryWorkspaceAccess(workspaceOperations: rustWorkspaceOperations, fileOperations: fileOperations),
                     storage: MacLocalHistoryStorage(storage: fileStorage),
                     operations: localHistoryOperations
                 )

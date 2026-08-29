@@ -180,7 +180,7 @@ struct RunView: View {
             )
         }
         switch feature.generationState {
-        case .projectNotLoaded:
+        case .projectNotReady:
             return (
                 String(localized: "Project is still loading"),
                 String(localized: "Wait for the project to finish loading, then identify it again."),

@@ -66,10 +66,10 @@ struct ExecutionModuleTests {
             languageRunProviders: .standard(catalog: .compatibilityFallback)
         )
 
-        #expect(!service.isProjectLoaded)
+        #expect(service.projectLoadState == .idle)
         await service.generateRunConfigurations()
 
-        #expect(service.generationState == .projectNotLoaded)
+        #expect(service.generationState == .projectNotReady)
         #expect(operations.generateCallCount == 0)
         #expect(service.configurationStatus == .missing)
     }
@@ -93,15 +93,66 @@ struct ExecutionModuleTests {
         let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
 
         await service.generateRunConfigurations()
-        #expect(service.generationState == .projectNotLoaded)
+        #expect(service.generationState == .projectNotReady)
 
+        // Binding without a snapshot only unlocks reading existing configuration.
         await service.loadProject(at: root, files: [], mavenProject: nil)
-        #expect(service.isProjectLoaded)
+        #expect(service.projectLoadState == .bound(workspace: root))
+        #expect(!service.isProjectReady(for: root))
+        await service.generateRunConfigurations()
+        #expect(service.generationState == .projectNotReady)
+        #expect(operations.generateCallCount == 0)
+
+        let snapshotID = UUID()
+        await service.loadProject(at: root, files: [], mavenProject: nil, snapshotID: snapshotID)
+        #expect(service.projectLoadState == .ready(workspace: root, snapshotID: snapshotID))
         await service.generateRunConfigurations()
 
         #expect(operations.generateCallCount == 1)
         #expect(service.generationState == .succeeded(entryCount: 1))
         #expect(service.configurationStatus == .ready)
+    }
+
+    /// Generation scans the inventory the service holds, so a workspace that was
+    /// bound before its snapshot arrived must not be scanned with the provisional
+    /// list. Doing so writes a configuration that omits real entry points.
+    @Test
+    func generationScansTheSnapshotInventoryAndNeverAProvisionalOne() async throws {
+        let operations = RecordingRunConfigurationOperations()
+        let service = RunService(
+            runtime: TestRuntime(),
+            process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() },
+            fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(),
+            serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: operations,
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let source = root.appendingPathComponent("src/main/java/demo/App.java")
+
+        // The workspace snapshot has not arrived, so the inventory is empty.
+        await service.loadProject(at: root, files: [], mavenProject: nil)
+        await service.generateRunConfigurations()
+        #expect(service.generationState == .projectNotReady)
+        #expect(operations.generatedInventories.isEmpty, "a provisional inventory must not be scanned")
+
+        await service.loadProject(
+            at: root,
+            files: [source],
+            mavenProject: nil,
+            snapshotID: UUID()
+        )
+        await service.generateRunConfigurations()
+
+        #expect(service.generationState == .succeeded(entryCount: 1))
+        #expect(
+            operations.generatedInventories == [[source]],
+            "generation must scan exactly the inventory the snapshot reported"
+        )
     }
 
     @Test
@@ -383,19 +434,22 @@ private struct TestRunConfigurationOperations: RunConfigurationOperations {
     func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {}
 }
 
-/// Counts generation attempts so a test can prove that an unloaded project
-/// never reaches the store.
+/// Records the file inventory each generation attempt was given, so a test can
+/// prove both that a pending workspace never reaches the store and that a ready
+/// one is scanned with the complete inventory.
 private final class RecordingRunConfigurationOperations: RunConfigurationOperations, @unchecked Sendable {
-    private(set) var generateCallCount = 0
+    private(set) var generatedInventories: [[URL]] = []
+
+    var generateCallCount: Int { generatedInventories.count }
 
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(
-            status: generateCallCount == 0 ? .missing : .ready,
+            status: generatedInventories.isEmpty ? .missing : .ready,
             diagnostics: []
         )
     }
     func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
-        generateCallCount += 1
+        generatedInventories.append(files)
         return RunConfigurationGenerationResult(entryCount: 1)
     }
     func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {

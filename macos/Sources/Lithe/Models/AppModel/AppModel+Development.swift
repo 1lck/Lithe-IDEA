@@ -154,17 +154,21 @@ extension AppModel {
     }
 
     /// Run and Debug can activate the execution module before the workspace
-    /// snapshot has loaded it, which leaves the run feature without a project.
-    /// The tool-window entry points already load on demand; these do the same so
+    /// snapshot reaches the run feature, which leaves it without a project. The
+    /// tool-window entry points already load on demand; these do the same so
     /// every entry point observes the same state.
-    private func loadProjectServicesIfRunProjectIsUnbound(_ runFeature: RunFeatureModel) async {
-        guard !runFeature.isProjectLoaded, let workspaceURL else { return }
+    ///
+    /// This does not make an unfinished snapshot ready. When the snapshot is
+    /// still pending, the load binds the workspace so existing configuration is
+    /// readable and generation keeps reporting `projectNotReady`.
+    private func loadProjectServicesIfRunProjectIsNotReady(_ runFeature: RunFeatureModel) async {
+        guard let workspaceURL, !runFeature.isProjectReady(for: workspaceURL) else { return }
         await loadProjectServices(at: workspaceURL, files: projectFiles)
     }
 
     private func runSelectedConfigurationAfterActivation() async {
         guard let runFeature = await activateExecutionModule()?.runFeature else { return }
-        await loadProjectServicesIfRunProjectIsUnbound(runFeature)
+        await loadProjectServicesIfRunProjectIsNotReady(runFeature)
         guard runFeature.configurationStatus == .ready else {
             runFeature.requestRunConfigurationGeneration(intent: .run)
             return
@@ -335,7 +339,7 @@ extension AppModel {
         guard let execution = await activateExecutionModule(),
               let debug = await activateDebugModule() else { return }
         let runFeature = execution.runFeature
-        await loadProjectServicesIfRunProjectIsUnbound(runFeature)
+        await loadProjectServicesIfRunProjectIsNotReady(runFeature)
         let debugFeature = debug.javaFeature
         javaFeature.configureRuntime(
             mavenFeature: execution.mavenFeature,

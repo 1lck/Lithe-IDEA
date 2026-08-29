@@ -765,7 +765,14 @@ final class AppModel: ObservableObject, Identifiable {
         )
         guard let execution = await activateExecutionModule() else { return }
         execution.tests.discover(workspaceURL: workspaceURL, files: files)
-        await execution.projectDevelopment.loadProject(at: workspaceURL, files: files)
+        // The workspace feature owns snapshot identity. Passing it through lets
+        // the run service tell a complete file inventory from a provisional one,
+        // so generation never scans a partial workspace.
+        await execution.projectDevelopment.loadProject(
+            at: workspaceURL,
+            files: files,
+            snapshotID: workspaceFeature.snapshotID
+        )
     }
 
     var projectName: String {

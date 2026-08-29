@@ -47,11 +47,48 @@ package struct ProjectRunConfigurationInspection: Equatable, Sendable {
     }
 }
 
+/// How a run service is bound to a workspace.
+///
+/// Being bound to a workspace URL and holding a complete file inventory are
+/// different things. Reading an existing configuration only needs the URL, while
+/// generating one scans the inventory, so a provisional inventory would write a
+/// configuration that omits entry points the workspace actually contains.
+package enum ProjectLoadState: Equatable, Sendable {
+    case idle
+    case loading(workspace: URL)
+    /// Bound to the workspace, but the file inventory is provisional because the
+    /// workspace snapshot has not been applied yet. Existing configuration can be
+    /// read; generation must wait.
+    case bound(workspace: URL)
+    /// The inventory came from the identified workspace snapshot, so generation
+    /// can scan it safely.
+    case ready(workspace: URL, snapshotID: UUID)
+    case failed(workspace: URL, message: String)
+
+    /// The workspace this state describes, when it describes one.
+    package var workspace: URL? {
+        switch self {
+        case .idle: nil
+        case .loading(let workspace): workspace
+        case .bound(let workspace): workspace
+        case .ready(let workspace, _): workspace
+        case .failed(let workspace, _): workspace
+        }
+    }
+
+    /// Whether the inventory for `workspace` is complete enough to generate from.
+    package func isReady(for workspace: URL) -> Bool {
+        guard case .ready(let boundWorkspace, _) = self else { return false }
+        return boundWorkspace == workspace.standardizedFileURL
+    }
+}
+
 package enum RunConfigurationGenerationState: Equatable, Sendable {
     case idle
-    /// The request arrived before the workspace finished loading, so there was
-    /// no project to identify. Nothing failed and nothing was written.
-    case projectNotLoaded
+    /// The request arrived before the workspace snapshot was applied, so there
+    /// was no complete file inventory to identify. Nothing failed, and nothing
+    /// was written.
+    case projectNotReady
     case succeeded(entryCount: Int)
     case noEntries
     case failed(String)
