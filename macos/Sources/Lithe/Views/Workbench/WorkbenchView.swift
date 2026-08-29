@@ -503,6 +503,7 @@ struct WorkbenchView: View {
 
             Spacer(minLength: 22)
 
+            debugConfigurationPicker
             debugLaunchButton
 
             backgroundPickerButton
@@ -547,6 +548,49 @@ struct WorkbenchView: View {
         .help("Debug selected run configuration")
         .accessibilityLabel("Debug selected run configuration")
         .accessibilityIdentifier("debug-selected-run-configuration")
+    }
+
+    private var debugConfigurationPicker: some View {
+        Menu {
+            if let runFeature = model.runFeatureIfActive,
+               !runFeature.configurations.isEmpty {
+                ForEach(runFeature.configurations) { configuration in
+                    Button {
+                        model.selectRunConfiguration(configuration)
+                    } label: {
+                        HStack {
+                            RunConfigurationIcon(kind: configuration.kind, size: 14)
+                            Text(configuration.name)
+                            if configuration.id == runFeature.selectedConfiguration?.id {
+                                Spacer()
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            } else {
+                Button("Current File") {
+                    model.selectRunConfiguration(.currentFile)
+                }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+                Text(model.runFeatureIfActive?.selectedConfiguration?.name ?? "Current File")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(LitheTheme.primaryText)
+            .padding(.horizontal, 8)
+            .frame(maxWidth: 190, minHeight: 30)
+            .litheRowHover(isActive: false, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize(horizontal: true, vertical: false)
+        .help("Select run configuration for Run or Debug")
+        .accessibilityLabel("Select run configuration for Run or Debug")
+        .accessibilityIdentifier("run-configuration-picker")
     }
 
     private var backgroundPickerButton: some View {
