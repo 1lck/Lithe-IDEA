@@ -335,8 +335,8 @@ package struct GitService: Sendable {
         } ?? GitHistorySnapshot(references: [], commits: [], hasMore: false)
     }
 
-    func files(in commit: GitCommit, at repositoryRoot: URL) async -> [GitCommitFile] {
-        await read(priority: .utility) { $0.files(in: commit, at: repositoryRoot) } ?? []
+    func files(in commit: GitCommit, at repositoryRoot: URL) async -> [GitCommitFile]? {
+        await read(priority: .utility) { $0.files(in: commit, at: repositoryRoot) }
     }
 
     func diffDocument(

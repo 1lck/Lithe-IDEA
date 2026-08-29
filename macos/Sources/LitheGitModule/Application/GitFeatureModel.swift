@@ -48,6 +48,8 @@ package final class GitFeatureModel: ObservableObject {
     @Published package var selectedGitReference: GitReference?
     @Published package var selectedGitCommit: GitCommit?
     @Published package private(set) var selectedGitCommitFiles: [GitCommitFile] = []
+    @Published package private(set) var selectedGitCommitFilesLoadState =
+        GitCommitFilesLoadState.idle
     @Published package var selectedGitCommitFile: GitCommitFile?
     @Published package var selectedGitCommitDiffContext: GitCommitDiffContext?
     @Published package private(set) var isLoadingGitHistory = false
@@ -62,15 +64,10 @@ package final class GitFeatureModel: ObservableObject {
     @Published package private(set) var isCloningRepository = false
 
     private let service: GitService
+    private let commitFilesLoader: GitCommitFilesLoader
     private var gitIdentity: GitIdentity?
     private var commitPathsByHash: [String: Set<String>] = [:]
-    private var commitFilesByCacheKey: [GitCommitFilesCacheKey: [GitCommitFile]] = [:]
-    private var commitFilesCacheRecency: [GitCommitFilesCacheKey] = []
-    private var commitFilesLoadsByCacheKey: [
-        GitCommitFilesCacheKey: Task<[GitCommitFile], Never>
-    ] = [:]
-    private var commitFilesPrefetchTask: Task<Void, Never>?
-    private var commitFilesPrefetchID: UUID?
+    private var selectedGitCommitFilesGeneration: UInt64 = 0
     private var gitLogFilterGeneration = UUID()
     private let shelveService: ShelveService?
     private let snapshotProvider: @Sendable (URL) async -> GitSnapshot?
@@ -97,9 +94,6 @@ package final class GitFeatureModel: ObservableObject {
     private var loadingLineChangeURLs: Set<URL> = []
     private var lineChangeHunks: [URL: [String: DiffHunk]] = [:]
 
-    // Historical commit contents are immutable by hash; keep the hot working set
-    // bounded so repeated navigation stays instant without unbounded memory growth.
-    private static let commitFilesCacheCapacity = 128
     private static let commitFilesPrefetchRadius = 4
 
     package init(
@@ -111,6 +105,7 @@ package final class GitFeatureModel: ObservableObject {
         diffDocumentProvider: (@Sendable (GitChange, GitDiffWhitespaceMode) async -> DiffDocument)? = nil
     ) {
         self.service = service
+        commitFilesLoader = GitCommitFilesLoader(service: service)
         self.shelveService = shelveService
         self.snapshotProvider = snapshotProvider ?? { await service.snapshot(for: $0) }
         self.stashesProvider = stashesProvider ?? { await service.stashes(at: $0) }
@@ -160,8 +155,7 @@ package final class GitFeatureModel: ObservableObject {
             || isPerformingBranchOperation
             || isCloningRepository
             || isResolvingGitOperation
-            || commitFilesPrefetchTask != nil
-            || !commitFilesLoadsByCacheKey.isEmpty
+            || commitFilesLoader.hasActiveWork
     }
 
     package func reset() {
@@ -215,6 +209,7 @@ package final class GitFeatureModel: ObservableObject {
         selectedGitReference = nil
         selectedGitCommit = nil
         selectedGitCommitFiles = []
+        selectedGitCommitFilesLoadState = .idle
         selectedGitCommitFile = nil
         selectedGitCommitDiffContext = nil
         branchComparison = nil
@@ -1265,12 +1260,15 @@ package final class GitFeatureModel: ObservableObject {
         if let nextCommit {
             if previousCommitHash == nextCommit.hash {
                 selectedGitCommit = nextCommit
+                await loadGitCommitFiles(for: nextCommit)
             } else {
                 await selectGitCommit(nextCommit)
             }
         } else {
+            selectedGitCommitFilesGeneration &+= 1
             selectedGitCommit = nil
             selectedGitCommitFiles = []
+            selectedGitCommitFilesLoadState = .idle
             selectedGitCommitFile = nil
             selectedGitCommitDiffContext = nil
         }
@@ -1321,8 +1319,16 @@ package final class GitFeatureModel: ObservableObject {
                 if let cached = commitPathsByHash[commit.hash] {
                     paths = cached
                 } else {
-                    paths = Set(await service.files(in: commit, at: repositoryRoot).map(\.path))
+                    let outcome = await commitFilesLoader.loadQueryFiles(
+                        for: commit,
+                        at: repositoryRoot
+                    )
                     guard gitLogFilterGeneration == generation else { return }
+                    guard case .ready(let files) = outcome else {
+                        isFilteringGitLog = false
+                        return
+                    }
+                    paths = Set(files.map(\.path))
                     commitPathsByHash[commit.hash] = paths
                 }
                 if query.matchesPaths(paths) { pathMatched.append(commit) }
@@ -1349,142 +1355,82 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func previewGitCommitSelection(_ commit: GitCommit) {
+        selectedGitCommitFilesGeneration &+= 1
         selectedGitCommit = commit
-        if let gitRepositoryRoot,
-           let cachedFiles = cachedGitCommitFiles(for: commit, at: gitRepositoryRoot) {
+        guard let gitRepositoryRoot else {
+            selectedGitCommitFiles = []
+            selectedGitCommitFilesLoadState = .failed
+            selectedGitCommitFile = nil
+            selectedGitCommitDiffContext = nil
+            return
+        }
+        if let cachedFiles = commitFilesLoader.cachedFiles(for: commit, at: gitRepositoryRoot) {
             selectedGitCommitFiles = cachedFiles
+            selectedGitCommitFilesLoadState = .ready
         } else {
             selectedGitCommitFiles = []
+            selectedGitCommitFilesLoadState = .loading
         }
         selectedGitCommitFile = nil
         selectedGitCommitDiffContext = nil
     }
 
     package func loadGitCommitFiles(for commit: GitCommit) async {
-        guard let gitRepositoryRoot,
-              selectedGitCommit?.hash == commit.hash else { return }
-        if let cachedFiles = cachedGitCommitFiles(for: commit, at: gitRepositoryRoot) {
+        guard selectedGitCommit?.hash == commit.hash else { return }
+        guard let gitRepositoryRoot else {
+            selectedGitCommitFiles = []
+            selectedGitCommitFilesLoadState = .failed
+            return
+        }
+        let generation = selectedGitCommitFilesGeneration
+        if let cachedFiles = commitFilesLoader.cachedFiles(for: commit, at: gitRepositoryRoot) {
             selectedGitCommitFiles = cachedFiles
+            selectedGitCommitFilesLoadState = .ready
             scheduleGitCommitFilesPrefetch(around: commit, at: gitRepositoryRoot)
             return
         }
-        guard let files = await gitCommitFiles(for: commit, at: gitRepositoryRoot) else { return }
-        guard selectedGitCommit?.hash == commit.hash else { return }
-        selectedGitCommitFiles = files
-        scheduleGitCommitFilesPrefetch(around: commit, at: gitRepositoryRoot)
-    }
-
-    private func gitCommitFiles(
-        for commit: GitCommit,
-        at repositoryRoot: URL
-    ) async -> [GitCommitFile]? {
-        if let cachedFiles = cachedGitCommitFiles(for: commit, at: repositoryRoot) {
-            return cachedFiles
-        }
-
-        let key = GitCommitFilesCacheKey(
-            repositoryRoot: repositoryRoot.standardizedFileURL,
-            commitHash: commit.hash
+        selectedGitCommitFilesLoadState = .loading
+        let outcome = await commitFilesLoader.loadSelectedFiles(
+            for: commit,
+            at: gitRepositoryRoot
         )
-        let loadTask: Task<[GitCommitFile], Never>
-        if let activeLoad = commitFilesLoadsByCacheKey[key] {
-            loadTask = activeLoad
-        } else {
-            let service = service
-            loadTask = Task { await service.files(in: commit, at: repositoryRoot) }
-            commitFilesLoadsByCacheKey[key] = loadTask
+        guard selectedGitCommitFilesGeneration == generation,
+              selectedGitCommit?.hash == commit.hash,
+              self.gitRepositoryRoot?.standardizedFileURL
+                == gitRepositoryRoot.standardizedFileURL else {
+            return
         }
-
-        let files = await loadTask.value
-        commitFilesLoadsByCacheKey.removeValue(forKey: key)
-        guard gitRepositoryRoot?.standardizedFileURL == repositoryRoot.standardizedFileURL else {
-            return nil
+        switch outcome {
+        case .ready(let files):
+            selectedGitCommitFiles = files
+            selectedGitCommitFilesLoadState = .ready
+            scheduleGitCommitFilesPrefetch(around: commit, at: gitRepositoryRoot)
+        case .failed:
+            selectedGitCommitFiles = []
+            selectedGitCommitFilesLoadState = .failed
+        case .superseded:
+            break
         }
-        cacheGitCommitFiles(files, for: commit, at: repositoryRoot)
-        return files
     }
 
     private func scheduleGitCommitFilesPrefetch(
         around commit: GitCommit,
         at repositoryRoot: URL
     ) {
-        commitFilesPrefetchTask?.cancel()
         let candidates = GitCommitFilesPrefetchPlan.candidates(
             in: gitCommits,
             centeredAt: commit.hash,
             radius: Self.commitFilesPrefetchRadius
-        ).filter { candidate in
-            let key = GitCommitFilesCacheKey(
-                repositoryRoot: repositoryRoot.standardizedFileURL,
-                commitHash: candidate.hash
-            )
-            return commitFilesByCacheKey[key] == nil
-        }
-        guard !candidates.isEmpty else {
-            commitFilesPrefetchTask = nil
-            commitFilesPrefetchID = nil
-            return
-        }
-
-        let prefetchID = UUID()
-        commitFilesPrefetchID = prefetchID
-        commitFilesPrefetchTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            for candidate in candidates {
-                guard !Task.isCancelled else { break }
-                _ = await gitCommitFiles(for: candidate, at: repositoryRoot)
-            }
-            guard commitFilesPrefetchID == prefetchID else { return }
-            commitFilesPrefetchTask = nil
-            commitFilesPrefetchID = nil
-        }
-    }
-
-    private func cachedGitCommitFiles(
-        for commit: GitCommit,
-        at repositoryRoot: URL
-    ) -> [GitCommitFile]? {
-        let key = GitCommitFilesCacheKey(
-            repositoryRoot: repositoryRoot.standardizedFileURL,
-            commitHash: commit.hash
         )
-        guard let files = commitFilesByCacheKey[key] else { return nil }
-        touchGitCommitFilesCacheKey(key)
-        return files
-    }
-
-    private func cacheGitCommitFiles(
-        _ files: [GitCommitFile],
-        for commit: GitCommit,
-        at repositoryRoot: URL
-    ) {
-        let key = GitCommitFilesCacheKey(
-            repositoryRoot: repositoryRoot.standardizedFileURL,
-            commitHash: commit.hash
-        )
-        commitFilesByCacheKey[key] = files
-        touchGitCommitFilesCacheKey(key)
-        while commitFilesCacheRecency.count > Self.commitFilesCacheCapacity {
-            let evictedKey = commitFilesCacheRecency.removeFirst()
-            commitFilesByCacheKey.removeValue(forKey: evictedKey)
-        }
-    }
-
-    private func touchGitCommitFilesCacheKey(_ key: GitCommitFilesCacheKey) {
-        commitFilesCacheRecency.removeAll(where: { $0 == key })
-        commitFilesCacheRecency.append(key)
+        commitFilesLoader.replacePrefetchCandidates(candidates, at: repositoryRoot)
     }
 
     private func clearGitCommitFilesCache() {
-        commitFilesPrefetchTask?.cancel()
-        commitFilesPrefetchTask = nil
-        commitFilesPrefetchID = nil
-        for loadTask in commitFilesLoadsByCacheKey.values {
-            loadTask.cancel()
-        }
-        commitFilesLoadsByCacheKey = [:]
-        commitFilesByCacheKey = [:]
-        commitFilesCacheRecency = []
+        commitPathsByHash = [:]
+        selectedGitCommitFilesGeneration &+= 1
+        commitFilesLoader.reset()
+        selectedGitCommitFiles = []
+        selectedGitCommitFilesLoadState = selectedGitCommit == nil ? .idle : .loading
     }
 
     package func showGitCommitDiff(for file: GitCommitFile) async {
@@ -2269,11 +2215,6 @@ package final class GitFeatureModel: ObservableObject {
         let message = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
         return message.isEmpty ? "Git operation failed" : message
     }
-}
-
-private struct GitCommitFilesCacheKey: Hashable {
-    let repositoryRoot: URL
-    let commitHash: String
 }
 
 package enum GitCommitFilesPrefetchPlan {

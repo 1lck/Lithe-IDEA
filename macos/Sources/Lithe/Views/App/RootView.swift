@@ -307,7 +307,7 @@ protocol ProjectWindowSessionHandling: UnsavedDocumentHandling {
     func closeActiveProject()
     func requestCloseActiveWorkbenchItem() -> Bool
     func requestCloseActiveSession() -> Bool
-    func resetForProjectWindowClose()
+    func resetForProjectWindowClose() async
 }
 
 extension ProjectSessionManager: ProjectWindowSessionHandling {
@@ -324,6 +324,7 @@ extension ProjectSessionManager: ProjectWindowSessionHandling {
 final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
     private enum NativeWindowCloseIntent {
         case commandW
+        case projectCleanupCompleted
     }
 
     var projectSessions: any ProjectWindowSessionHandling
@@ -332,6 +333,7 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
     private var restoredWorkspaceFrame: NSRect?
     private var closeCommandMonitor: Any?
     private var pendingNativeWindowCloseIntent: NativeWindowCloseIntent?
+    private var nativeWindowCloseTask: Task<Void, Never>?
     private let confirmUnsavedDocuments: @MainActor (any UnsavedDocumentHandling) -> Bool
     private var isDetached = false
 
@@ -383,11 +385,16 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if case .projectCleanupCompleted? = pendingNativeWindowCloseIntent {
+            pendingNativeWindowCloseIntent = nil
+            return true
+        }
+        guard nativeWindowCloseTask == nil else { return false }
         if case .commandW? = pendingNativeWindowCloseIntent {
             pendingNativeWindowCloseIntent = nil
             guard confirmUnsavedDocuments(projectSessions) else { return false }
-            projectSessions.resetForProjectWindowClose()
-            return true
+            closeWindowAfterProjectCleanup(sender)
+            return false
         }
         if projectSessions.hasActiveProject || projectSessions.hasActiveStandaloneFile {
             return projectSessions.requestCloseActiveSession()
@@ -397,10 +404,27 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
 
     func performCloseCommand() {
         guard let window else { return }
+        guard nativeWindowCloseTask == nil else { return }
         guard !projectSessions.requestCloseActiveWorkbenchItem() else { return }
         pendingNativeWindowCloseIntent = .commandW
         defer { pendingNativeWindowCloseIntent = nil }
         window.performClose(nil)
+    }
+
+    private func closeWindowAfterProjectCleanup(_ sender: NSWindow) {
+        guard nativeWindowCloseTask == nil else { return }
+        let projectSessions = projectSessions
+        nativeWindowCloseTask = Task { @MainActor [weak self, weak sender] in
+            await projectSessions.resetForProjectWindowClose()
+            guard let self else { return }
+            defer { self.nativeWindowCloseTask = nil }
+            guard !self.isDetached,
+                  let sender,
+                  self.window === sender else { return }
+            self.pendingNativeWindowCloseIntent = .projectCleanupCompleted
+            defer { self.pendingNativeWindowCloseIntent = nil }
+            sender.performClose(nil)
+        }
     }
 
     private func startMonitoringCloseCommand() {

@@ -28,7 +28,15 @@ enum UnsavedDocumentsConfirmationContext {
 
 @MainActor
 final class LitheAppDelegate: NSObject, NSApplicationDelegate {
+    private enum TerminationCleanupState {
+        case idle
+        case cleaning
+        case approved
+    }
+
     private var pendingFileURLs: [URL] = []
+    private var terminationCleanupTask: Task<Void, Never>?
+    private var terminationCleanupState: TerminationCleanupState = .idle
     weak var projectSessions: ProjectSessionManager? {
         didSet {
             guard let projectSessions else { return }
@@ -57,10 +65,38 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let projectSessions else { return .terminateNow }
+
+        // AppKit may ask more than once while a previous asynchronous reply is
+        // pending. Do not show another confirmation dialog or start a second
+        // module shutdown graph in that interval. Once the cleanup reply has
+        // been approved, allow AppKit's follow-up request to finish normally.
+        switch terminationCleanupState {
+        case .cleaning:
+            return .terminateLater
+        case .approved:
+            return .terminateNow
+        case .idle:
+            break
+        }
         return Self.confirmUnsavedDocuments(
             for: projectSessions,
             context: .applicationTermination
-        ) ? .terminateNow : .terminateCancel
+        ) ? beginTerminationCleanup(for: projectSessions, sender: sender) : .terminateCancel
+    }
+
+    private func beginTerminationCleanup(
+        for projectSessions: ProjectSessionManager,
+        sender: NSApplication
+    ) -> NSApplication.TerminateReply {
+        terminationCleanupState = .cleaning
+        terminationCleanupTask = Task { @MainActor [weak self, projectSessions, sender] in
+            await projectSessions.stopAllSessions()
+            guard let self, self.terminationCleanupState == .cleaning else { return }
+            self.terminationCleanupTask = nil
+            self.terminationCleanupState = .approved
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -68,7 +104,6 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
             forEventClass: AEEventClass(kCoreEventClass),
             andEventID: AEEventID(kAEOpenDocuments)
         )
-        projectSessions?.stopAllSessions()
         recordCleanPluginShutdown?()
     }
 

@@ -1072,12 +1072,38 @@ struct GitLogView: View {
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
-            if model.selectedGitCommitFiles.isEmpty {
-                Text(model.selectedGitCommit == nil ? "Select a commit" : "No changed files")
+            switch model.selectedGitCommitFilesLoadState {
+            case .idle:
+                Text("Select a commit")
                     .font(LitheTheme.uiFont)
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
+            case .loading:
+                VStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Loading changed files…")
+                }
+                .font(LitheTheme.uiFont)
+                .foregroundStyle(LitheTheme.secondaryText)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .failed:
+                VStack(spacing: 8) {
+                    Text("Could not load changed files")
+                    if let commit = model.selectedGitCommit {
+                        Button("Retry") {
+                            scheduleGitCommitFileLoad(for: commit)
+                        }
+                    }
+                }
+                .font(LitheTheme.uiFont)
+                .foregroundStyle(LitheTheme.secondaryText)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .ready where model.selectedGitCommitFiles.isEmpty:
+                Text("No changed files")
+                    .font(LitheTheme.uiFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .ready:
                 GeometryReader { geometry in
                     ScrollView(.vertical) {
                         LazyVStack(alignment: .leading, spacing: 0) {

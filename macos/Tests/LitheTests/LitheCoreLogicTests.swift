@@ -2,9 +2,11 @@ import AppKit
 import Combine
 import CoreServices
 import Foundation
+import LitheApplicationKernel
 @testable import LitheDatabaseModule
 @testable import LitheGitModule
 import LitheLocalHistoryModule
+import LitheModuleAPI
 import LitheSearchModule
 import Testing
 import LitheTerminalModule
@@ -106,7 +108,7 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
-    func commandWUsesNativeWindowCloseAfterWorkbenchContentIsGone() {
+    func commandWUsesNativeWindowCloseAfterWorkbenchContentIsGone() async {
         let sessions = TestProjectWindowSessions(hasActiveProject: true)
         let coordinator = LitheWindowCoordinator(projectSessions: sessions)
         let window = CloseCommandTestWindow()
@@ -116,9 +118,39 @@ struct LitheCoreLogicTests {
 
         #expect(sessions.closeActiveWorkbenchItemCallCount == 1)
         #expect(window.performCloseCallCount == 1)
+        #expect(!window.delegateAllowedClose)
+        #expect(await window.waitUntilNativeCloseAllowed())
+        #expect(window.performCloseCallCount == 2)
         #expect(window.delegateAllowedClose)
         #expect(sessions.resetForProjectWindowCloseCallCount == 1)
         #expect(sessions.closeActiveProjectCallCount == 0)
+    }
+
+    @Test
+    @MainActor
+    func commandWWaitsForProjectCleanupBeforeAllowingNativeClose() async {
+        let cleanupStarted = TestGate()
+        let releaseCleanup = TestGate()
+        let sessions = TestProjectWindowSessions(hasActiveProject: true)
+        sessions.projectWindowCleanupStarted = cleanupStarted
+        sessions.projectWindowCleanupRelease = releaseCleanup
+        let coordinator = LitheWindowCoordinator(projectSessions: sessions)
+        let window = CloseCommandTestWindow()
+        coordinator.attach(to: window, layout: .workspace)
+        defer { releaseCleanup.open() }
+
+        coordinator.performCloseCommand()
+
+        #expect(await cleanupStarted.waitUntilOpen())
+        #expect(window.performCloseCallCount == 1)
+        #expect(!window.delegateAllowedClose)
+
+        releaseCleanup.open()
+
+        #expect(await window.waitUntilNativeCloseAllowed())
+        #expect(window.performCloseCallCount == 2)
+        #expect(window.delegateAllowedClose)
+        #expect(sessions.resetForProjectWindowCloseCallCount == 1)
     }
 
     @Test
@@ -179,7 +211,7 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
-    func closingAProjectWindowReplacesAllSessionsWithAnEmptyActiveSession() {
+    func closingAProjectWindowReplacesAllSessionsWithAnEmptyActiveSession() async {
         let store = MutableKeyValueStore()
         let settings = AppSettings(store: store)
         var createdModels: [AppModel] = []
@@ -208,7 +240,7 @@ struct LitheCoreLogicTests {
             sourceSessionID: manager.activeSessionID
         )
 
-        manager.resetForProjectWindowClose()
+        await manager.resetForProjectWindowClose()
 
         #expect(manager.sessions.count == 1)
         #expect(!oldIDs.contains(manager.activeSessionID))
@@ -216,6 +248,45 @@ struct LitheCoreLogicTests {
         #expect(manager.activeModel.standaloneFileURL == nil)
         #expect(manager.pendingProjectOpen == nil)
         #expect(manager.activeModel === createdModels.last)
+    }
+
+    @Test
+    @MainActor
+    func projectWindowResetWaitsForModuleShutdownBeforeReplacingSessions() async throws {
+        let shutdownStarted = TestGate()
+        let releaseShutdown = TestGate()
+        let store = MutableKeyValueStore()
+        let settings = AppSettings(store: store)
+        let manager = ProjectSessionManager(
+            settings: settings,
+            modelFactory: {
+                AppModel(
+                    settings: settings,
+                    services: MacServiceContainer(store: store, settings: settings).services
+                )
+            },
+            newWindowOpener: { _ in }
+        )
+        let previousModel = manager.activeModel
+        let runtime = previousModel.services.moduleRuntime
+        try runtime.register(ModuleFactory(manifest: projectWindowShutdownTestManifest) {
+            ProjectWindowShutdownTestModule(
+                shutdownStarted: shutdownStarted,
+                releaseShutdown: releaseShutdown
+            )
+        })
+        _ = try await runtime.activate(projectWindowShutdownTestManifest.id)
+        defer { releaseShutdown.open() }
+
+        let resetTask = Task { await manager.resetForProjectWindowClose() }
+
+        #expect(await shutdownStarted.waitUntilOpen())
+        #expect(manager.activeModel === previousModel)
+
+        releaseShutdown.open()
+        await resetTask.value
+
+        #expect(manager.activeModel !== previousModel)
     }
 
     @Test
@@ -2823,6 +2894,37 @@ struct LitheCoreLogicTests {
     }
 }
 
+private let projectWindowShutdownTestManifest = ModuleManifest(
+    id: ModuleID("dev.lithe.tests.project-window-shutdown"),
+    displayName: "Project Window Shutdown Test Module",
+    scope: .application,
+    defaultState: .enabled,
+    activationPolicy: .onDemand
+)
+
+@MainActor
+private final class ProjectWindowShutdownTestModule: LitheModule {
+    let manifest = projectWindowShutdownTestManifest
+    private let shutdownStarted: TestGate
+    private let releaseShutdown: TestGate
+
+    init(shutdownStarted: TestGate, releaseShutdown: TestGate) {
+        self.shutdownStarted = shutdownStarted
+        self.releaseShutdown = releaseShutdown
+    }
+
+    func activate(context: ModuleContext) async throws {}
+    func prepareForSleep() async throws {}
+    func sleep() async {}
+
+    func shutdown() async {
+        shutdownStarted.open()
+        _ = await releaseShutdown.waitUntilOpen()
+    }
+
+    func exportedCapabilities() -> [ModuleCapabilityID: AnyObject] { [:] }
+}
+
 @MainActor
 private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
     var hasActiveProject: Bool
@@ -2831,6 +2933,8 @@ private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
     var hasUnsavedDocuments = false
     var unsavedDocumentNames: [String] = []
     var saveAllDocumentsResult = true
+    var projectWindowCleanupStarted: TestGate?
+    var projectWindowCleanupRelease: TestGate?
     private(set) var closeActiveProjectCallCount = 0
     private(set) var closeActiveWorkbenchItemCallCount = 0
     private(set) var requestCloseActiveSessionCallCount = 0
@@ -2861,8 +2965,12 @@ private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
         return saveAllDocumentsResult
     }
 
-    func resetForProjectWindowClose() {
+    func resetForProjectWindowClose() async {
         resetForProjectWindowCloseCallCount += 1
+        projectWindowCleanupStarted?.open()
+        if let projectWindowCleanupRelease {
+            _ = await projectWindowCleanupRelease.waitUntilOpen()
+        }
     }
 }
 
@@ -2870,10 +2978,18 @@ private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
 private final class CloseCommandTestWindow: NSWindow {
     private(set) var performCloseCallCount = 0
     private(set) var delegateAllowedClose = false
+    private let nativeCloseAllowed = TestGate()
 
     override func performClose(_ sender: Any?) {
         performCloseCallCount += 1
         delegateAllowedClose = delegate?.windowShouldClose?(self) ?? true
+        if delegateAllowedClose {
+            nativeCloseAllowed.open()
+        }
+    }
+
+    func waitUntilNativeCloseAllowed() async -> Bool {
+        await nativeCloseAllowed.waitUntilOpen()
     }
 }
 

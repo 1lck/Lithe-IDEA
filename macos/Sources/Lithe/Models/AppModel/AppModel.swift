@@ -142,6 +142,9 @@ final class AppModel: ObservableObject, Identifiable {
     @Published var gitLogSearchQuery = ""
     private var shortcutDetector: (any ShortcutDetector)?
     private var sidebarRefreshTask: Task<Void, Never>?
+    // Keep the runtime shutdown operation alive and coalesce close paths that
+    // can race (for example, project close followed by window teardown).
+    private var moduleRuntimeShutdownTask: Task<Void, Never>?
     private var shortcutSettingsObservation: AnyCancellable?
     private var shortcutRecordingObservation: AnyCancellable?
     private var workbenchBackgroundFeatureObservation: AnyCancellable?
@@ -717,12 +720,8 @@ final class AppModel: ObservableObject, Identifiable {
         }
     }
 
-    func shutdownProjectSession() {
+    func shutdownProjectSession() async {
         shortcutDetector?.stop()
-        let moduleRuntime = services.moduleRuntime
-        Task {
-            await moduleRuntime.shutdownAll()
-        }
         languageToolingSessionsIfActive?.stopAll()
         languageTestServiceIfActive?.stop()
         stopTerminalSessions()
@@ -731,6 +730,25 @@ final class AppModel: ObservableObject, Identifiable {
             settings.removeFileVisibilityRulesObserver(fileVisibilityRulesObserverID)
             self.fileVisibilityRulesObserverID = nil
         }
+        await shutdownModuleRuntime()
+    }
+
+    /// Shuts down this session's module graph once, even when multiple
+    /// lifecycle paths request cleanup at the same time.
+    private func shutdownModuleRuntime() async {
+        if let moduleRuntimeShutdownTask {
+            await moduleRuntimeShutdownTask.value
+            return
+        }
+
+        let moduleRuntime = services.moduleRuntime
+        let shutdownTask = Task { @MainActor in
+            await moduleRuntime.shutdownAll()
+        }
+        moduleRuntimeShutdownTask = shutdownTask
+        await shutdownTask.value
+        moduleRuntimeShutdownTask = nil
+        clearModuleBindings(for: .database)
     }
 
     private func reloadJavaRuntimeServices() {
@@ -914,10 +932,7 @@ final class AppModel: ObservableObject, Identifiable {
         let normalizedURL = url.standardizedFileURL
         Task { [weak self] in
             guard let self else { return }
-            await self.services.moduleRuntime.shutdownAll()
-            await MainActor.run {
-                self.clearModuleBindings(for: .database)
-            }
+            await self.shutdownModuleRuntime()
         }
         if let previousWorkspaceURL = workspaceURL {
             workspaceFeature.persistWorkspaceSession(for: previousWorkspaceURL)
@@ -1002,10 +1017,7 @@ final class AppModel: ObservableObject, Identifiable {
         cancelJavaLanguageServerPreparation()
         Task { [weak self] in
             guard let self else { return }
-            await self.services.moduleRuntime.shutdownAll()
-            await MainActor.run {
-                self.clearModuleBindings(for: .database)
-            }
+            await self.shutdownModuleRuntime()
         }
         if let workspaceURL {
             workspaceFeature.persistWorkspaceSession(for: workspaceURL)
@@ -1605,15 +1617,6 @@ final class AppModel: ObservableObject, Identifiable {
         await gitFeature.selectGitCommit(commit)
     }
 
-    func previewGitCommitSelection(_ commit: GitCommit) {
-        gitFeatureIfActive?.previewGitCommitSelection(commit)
-    }
-
-    func loadGitCommitFiles(for commit: GitCommit) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.loadGitCommitFiles(for: commit)
-    }
-
     func applyGitLogFilter(_ query: String) async {
         await applyGitLogFilter(GitLogQuery.parse(query))
     }
@@ -1781,26 +1784,4 @@ final class AppModel: ObservableObject, Identifiable {
         await gitFeature.pushBranch(reference)
     }
 
-    func loadExternalVersion(of document: EditorDocument) {
-        documentFeature.loadExternalVersion(of: document)
-    }
-
-    func keepEditorVersion(of document: EditorDocument) {
-        documentFeature.keepEditorVersion(of: document)
-    }
-
-    func relativePath(for url: URL) -> String {
-        guard let workspaceURL else { return url.lastPathComponent }
-        return workspaceRelativePath(for: url, root: workspaceURL) ?? url.lastPathComponent
-    }
-
-    func recordSave(_ document: EditorDocument, previousText: String) {
-        let snapshot = LocalHistoryDocumentSnapshot(id: document.id, url: document.url, text: document.text)
-        withHistoryModule { $0.recordSave(snapshot, previousText: previousText) }
-    }
-
-    private func recordDiscardedEditorText(_ document: EditorDocument) {
-        let snapshot = LocalHistoryDocumentSnapshot(id: document.id, url: document.url, text: document.text)
-        withHistoryModule { $0.recordDiscardedEditorText(snapshot) }
-    }
 }

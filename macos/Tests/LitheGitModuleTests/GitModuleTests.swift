@@ -514,6 +514,50 @@ struct GitModuleTests {
     }
 
     @Test
+    func resetSupersedesInFlightReadAndRetriesSameCommitInNewGeneration() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let commit = GitCommit(
+            hash: "1111111111111111",
+            shortHash: "1111111",
+            parentHashes: [],
+            authorName: "Ada Lovelace",
+            authorEmail: "ada@example.com",
+            date: "2026-08-28T16:00:00+08:00",
+            subject: "Reset during commit file read",
+            decorations: ""
+        )
+        let files = [GitCommitFile(status: "M", path: "README.md")]
+        let readGate = GitCommitFilesReadGate()
+        let filesRecorder = GitFilesCallRecorder()
+        let service = GitService(operations: TestGitOperations(
+            filesValue: files,
+            filesRecorder: filesRecorder,
+            filesReadGate: readGate
+        ))
+        let loader = GitCommitFilesLoader(service: service)
+
+        let firstRequest = loader.requestSelectedFiles(for: commit, at: root)
+        defer {
+            firstRequest.cancel()
+            readGate.releaseFirstRead()
+        }
+
+        try #require(await readGate.waitUntilFirstReadStarts())
+        loader.reset()
+        let secondRequest = loader.requestSelectedFiles(for: commit, at: root)
+        defer { secondRequest.cancel() }
+
+        let firstOutcome = try #require(await waitForGitCommitFilesOutcome(firstRequest))
+        #expect(firstOutcome == .superseded)
+
+        readGate.releaseFirstRead()
+        let secondOutcome = try #require(await waitForGitCommitFilesOutcome(secondRequest))
+        #expect(secondOutcome == .ready(files))
+        #expect(filesRecorder.callCount == 2)
+        #expect(!readGate.didTimeout)
+    }
+
+    @Test
     func commitFilesPrefetchPrioritizesTheNextOlderAndNewerCommits() {
         let commits = (0..<6).map { index in
             let hash = String(index)
@@ -901,6 +945,111 @@ private final class GitFilesCallRecorder: @unchecked Sendable {
     }
 }
 
+/// Blocks only the first synchronous commit-file read so reset ordering can be
+/// asserted without relying on task scheduling or wall-clock delays.
+private final class GitCommitFilesReadGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private let firstReadRelease = DispatchSemaphore(value: 0)
+    private let firstReadStarted = GitAsyncTestSignal()
+    private var hasBlockedFirstRead = false
+    private var released = false
+    private var didTimeoutValue = false
+
+    var didTimeout: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return didTimeoutValue
+    }
+
+    func blockFirstRead() {
+        lock.lock()
+        let shouldBlock = !hasBlockedFirstRead
+        hasBlockedFirstRead = true
+        lock.unlock()
+
+        guard shouldBlock else { return }
+        firstReadStarted.signal()
+
+        // GitService invokes this synchronous port on its detached read worker;
+        // the finite deadline prevents a failed test from pinning that worker.
+        let result = firstReadRelease.wait(timeout: .now() + 5)
+        if result == .timedOut {
+            lock.lock()
+            didTimeoutValue = true
+            lock.unlock()
+        }
+    }
+
+    func waitUntilFirstReadStarts(timeout: Duration = .seconds(2)) async -> Bool {
+        await firstReadStarted.waitUntilSignaled(timeout: timeout)
+    }
+
+    func releaseFirstRead() {
+        lock.lock()
+        guard !released else {
+            lock.unlock()
+            return
+        }
+        released = true
+        lock.unlock()
+        firstReadRelease.signal()
+    }
+}
+
+private final class GitAsyncTestSignal: @unchecked Sendable {
+    private let stream: AsyncStream<Void>
+    private let continuation: AsyncStream<Void>.Continuation
+
+    init() {
+        (stream, continuation) = AsyncStream.makeStream()
+    }
+
+    func signal() {
+        continuation.yield()
+        continuation.finish()
+    }
+
+    func waitUntilSignaled(timeout: Duration) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask { [stream] in
+                for await _ in stream { return true }
+                return false
+            }
+            group.addTask {
+                // test-stability: allow(swift-real-sleep) reason: this task is the bounded failure deadline for an event-driven test signal.
+                try? await Task.sleep(for: timeout)
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
+    }
+}
+
+private func waitForGitCommitFilesOutcome(
+    _ task: Task<GitCommitFilesLoadOutcome, Never>,
+    timeout: Duration = .seconds(2)
+) async -> GitCommitFilesLoadOutcome? {
+    await withTaskGroup(of: GitCommitFilesLoadOutcome?.self) { group in
+        group.addTask {
+            await task.value
+        }
+        group.addTask {
+            // test-stability: allow(swift-real-sleep) reason: this task is the bounded failure deadline for a loader outcome.
+            try? await Task.sleep(for: timeout)
+            task.cancel()
+            return nil
+        }
+        let result = await group.next() ?? nil
+        if result == nil {
+            task.cancel()
+        }
+        group.cancelAll()
+        return result
+    }
+}
+
 private struct TestGitOperations: GitOperations {
     private let snapshotValue: GitSnapshot?
     private let comparisonValue: GitBranchComparison?
@@ -910,6 +1059,7 @@ private struct TestGitOperations: GitOperations {
     private let stageResult: GitProcessResult?
     private let runGate: TestGitRunGate?
     private let filesRecorder: GitFilesCallRecorder?
+    private let filesReadGate: GitCommitFilesReadGate?
 
     init(
         snapshotValue: GitSnapshot? = nil,
@@ -919,7 +1069,8 @@ private struct TestGitOperations: GitOperations {
         comparisonDiffDocumentValue: DiffDocument? = nil,
         stageResult: GitProcessResult? = nil,
         runGate: TestGitRunGate? = nil,
-        filesRecorder: GitFilesCallRecorder? = nil
+        filesRecorder: GitFilesCallRecorder? = nil,
+        filesReadGate: GitCommitFilesReadGate? = nil
     ) {
         self.snapshotValue = snapshotValue
         self.comparisonValue = comparisonValue
@@ -929,6 +1080,7 @@ private struct TestGitOperations: GitOperations {
         self.stageResult = stageResult
         self.runGate = runGate
         self.filesRecorder = filesRecorder
+        self.filesReadGate = filesReadGate
     }
 
     func run(arguments: [String], workingDirectory: String, input: String?) -> GitProcessResult {
@@ -954,6 +1106,7 @@ private struct TestGitOperations: GitOperations {
     func history(at rootURL: URL, reference: GitReference?, limit: Int) -> GitHistorySnapshot? { nil }
     func files(in commit: GitCommit, at rootURL: URL) -> [GitCommitFile]? {
         filesRecorder?.recordCall()
+        filesReadGate?.blockFirstRead()
         return filesValue
     }
     func commit(at rootURL: URL, hash: String) -> GitCommit? { nil }

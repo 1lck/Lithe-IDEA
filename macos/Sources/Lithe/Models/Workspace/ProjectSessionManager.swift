@@ -24,6 +24,10 @@ final class ProjectSessionManager: ObservableObject {
     private let modelFactory: () -> AppModel
     private let newWindowOpener: (URL) -> Void
     private var modelObservations: [UUID: AnyCancellable] = [:]
+    // A closed model can disappear from `sessions` before its asynchronous
+    // module teardown finishes. Keep the task here so the manager remains the
+    // owner of that cleanup until it has completed.
+    private var sessionShutdownTasks: [UUID: Task<Void, Never>] = [:]
 
     init(
         settings: AppSettings,
@@ -164,16 +168,17 @@ final class ProjectSessionManager: ObservableObject {
         return true
     }
 
-    func resetForProjectWindowClose() {
+    func resetForProjectWindowClose() async {
         let previousSessions = sessions
-        let replacement = modelFactory()
 
         pendingProjectOpen = nil
         modelObservations.removeAll()
         for model in previousSessions {
-            model.shutdownProjectSession()
+            await scheduleSessionShutdown(for: model).value
         }
+        await waitForPendingSessionShutdowns()
 
+        let replacement = modelFactory()
         configure(replacement)
         sessions = [replacement]
         activeSessionID = replacement.id
@@ -196,10 +201,11 @@ final class ProjectSessionManager: ObservableObject {
         return savedAll
     }
 
-    func stopAllSessions() {
+    func stopAllSessions() async {
         for model in sessions {
-            model.shutdownProjectSession()
+            await scheduleSessionShutdown(for: model).value
         }
+        await waitForPendingSessionShutdowns()
     }
 
     func resumeGitObservationAfterActivation() async {
@@ -249,7 +255,7 @@ final class ProjectSessionManager: ObservableObject {
               let removedIndex = sessions.firstIndex(where: { $0.id == model.id }) else { return }
 
         let wasActive = model.id == activeSessionID
-        model.shutdownProjectSession()
+        _ = scheduleSessionShutdown(for: model)
         modelObservations[model.id] = nil
         sessions.remove(at: removedIndex)
 
@@ -271,6 +277,29 @@ final class ProjectSessionManager: ObservableObject {
     private func refreshRecentProjects() {
         for model in sessions {
             model.refreshRecentProjects()
+        }
+    }
+
+    private func scheduleSessionShutdown(for model: AppModel) -> Task<Void, Never> {
+        if let existingTask = sessionShutdownTasks[model.id] {
+            return existingTask
+        }
+
+        let modelID = model.id
+        let task = Task { @MainActor [weak self, model] in
+            defer { self?.sessionShutdownTasks[modelID] = nil }
+            await model.shutdownProjectSession()
+        }
+        sessionShutdownTasks[modelID] = task
+        return task
+    }
+
+    private func waitForPendingSessionShutdowns() async {
+        while !sessionShutdownTasks.isEmpty {
+            let pendingTasks = Array(sessionShutdownTasks.values)
+            for task in pendingTasks {
+                await task.value
+            }
         }
     }
 }
