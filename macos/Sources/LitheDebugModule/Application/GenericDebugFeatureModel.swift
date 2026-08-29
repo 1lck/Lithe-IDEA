@@ -96,6 +96,11 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     @Published public private(set) var selectedFrameID: Int?
     @Published public private(set) var areBreakpointsMuted = false
     @Published public private(set) var capabilities: DebugAdapterCapabilities = .unknown
+    @Published public private(set) var stoppedFrame: DebugStackFrame?
+
+    /// Delivers the selected stopped frame to the host editor for source
+    /// navigation. The Debug module does not own editor presentation.
+    public var onStoppedLocation: ((URL, Int, Int) -> Void)?
 
     private let sessions: DebugAdapterSessionManager
     private var requestedBreakpointsByFile: [URL: [Int: DebugSourceBreakpoint]] = [:]
@@ -155,6 +160,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         capabilities = .unknown
         selectedThreadID = nil
         selectedFrameID = nil
+        stoppedFrame = nil
         do {
             if requestedBreakpointsByFile[fileURL.standardizedFileURL] != nil {
                 try sessions.setBreakpoints(
@@ -192,6 +198,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         stoppedReason = nil
         selectedThreadID = nil
         selectedFrameID = nil
+        stoppedFrame = nil
         threads = []
         stackFrames = []
         scopes = []
@@ -549,7 +556,10 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             case .success(let frames):
                 self?.stackFrames = frames
                 self?.selectedFrameID = frames.first?.id
-                if let frame = frames.first { self?.selectFrame(frame) }
+                if let frame = frames.first {
+                    self?.selectFrame(frame)
+                    self?.publishStoppedLocation(frame)
+                }
             case .failure(let error): self?.record(error)
             }
         }
@@ -764,12 +774,16 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                 session.requestStackTrace(threadID: threadID) { [weak self] result in
                     if case .success(let frames) = result {
                         self?.stackFrames = frames
-                        if let frame = frames.first { self?.selectFrame(frame) }
+                        if let frame = frames.first {
+                            self?.selectFrame(frame)
+                            self?.publishStoppedLocation(frame)
+                        }
                     }
                 }
             }
         case .continued:
             stoppedReason = nil
+            stoppedFrame = nil
             activeSession?.cancelPendingOperations()
             resetVariableTree()
             invalidateWatchResults()
@@ -797,6 +811,12 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                 breakpoints[index].message = resolved.message
             }
         }
+    }
+
+    private func publishStoppedLocation(_ frame: DebugStackFrame) {
+        stoppedFrame = frame
+        guard let sourceURL = frame.sourceURL else { return }
+        onStoppedLocation?(sourceURL, frame.line, frame.column)
     }
 
     private func reconcileBreakpoints() {

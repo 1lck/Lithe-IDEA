@@ -601,6 +601,7 @@ struct CodeEditorView: NSViewRepresentable {
         private var appliedBlameVisible = false
         private var appliedBlameLines: [GitBlameLine] = []
         private var appliedDebugBreakpointLines = Set<Int>()
+        private var appliedCurrentExecutionLine: Int?
         private var appliedGitMarkers: [GitLineChangeMarker]?
         private var appliedDiagnostics: [EditorDiagnostic] = []
         private var markdownImagePasteMonitor: Any?
@@ -1222,12 +1223,19 @@ struct CodeEditorView: NSViewRepresentable {
                 $0.fileURL.standardizedFileURL == url
             }.map(\.line)
             let debugBreakpointLines = Set(genericBreakpointLines)
+            let currentExecutionLine: Int? = {
+                guard let frame = model.genericDebugFeatureIfActive?.stoppedFrame,
+                      frame.sourceURL?.standardizedFileURL == url else { return nil }
+                return frame.line
+            }()
             if appliedBlameVisible != isBlameVisible
                 || appliedBlameLines != blameLines
-                || appliedDebugBreakpointLines != debugBreakpointLines {
+                || appliedDebugBreakpointLines != debugBreakpointLines
+                || appliedCurrentExecutionLine != currentExecutionLine {
                 appliedBlameVisible = isBlameVisible
                 appliedBlameLines = blameLines
                 appliedDebugBreakpointLines = debugBreakpointLines
+                appliedCurrentExecutionLine = currentExecutionLine
                 container?.gutterWidthConstraint?.constant = isBlameVisible
                     ? EditorLayoutMetrics.blameMetadataWidth + standardGutterWidth
                     : standardGutterWidth
@@ -1237,6 +1245,7 @@ struct CodeEditorView: NSViewRepresentable {
                 gutter?.updateDebugBreakpointLines(debugBreakpointLines) { [weak model] line in
                     model?.toggleDebugBreakpoint(fileURL: url, line: line)
                 }
+                gutter?.updateCurrentExecutionLine(currentExecutionLine)
             }
         }
 
@@ -3104,6 +3113,7 @@ final class LineNumberGutterView: NSView {
     private var implementationMarkers: [JavaImplementationMarker] = []
     private var onSelectImplementation: ((JavaImplementationMarker) -> Void)?
     private var debugBreakpointLines: Set<Int> = []
+    private var currentExecutionLine: Int?
     private var onToggleDebugBreakpoint: ((Int) -> Void)?
     private var scrollRefreshScheduled = false
     private var hoveredFoldID: String?
@@ -3265,6 +3275,11 @@ final class LineNumberGutterView: NSView {
     ) {
         debugBreakpointLines = Set(lines.map { max(0, $0 - 1) })
         onToggleDebugBreakpoint = onToggle
+        needsDisplay = true
+    }
+
+    func updateCurrentExecutionLine(_ line: Int?) {
+        currentExecutionLine = line.map { max(0, $0 - 1) }
         needsDisplay = true
     }
 
@@ -3475,6 +3490,9 @@ final class LineNumberGutterView: NSView {
                 palette.currentLine.setFill()
                 NSRect(x: 0, y: y, width: bounds.width, height: lineRect.height).fill()
             }
+            if currentExecutionLine == lineNumber - 1 {
+                drawCurrentExecutionLine(y: y, height: lineRect.height)
+            }
             if isBlameVisible,
                let blame = blameByLine[lineNumber - 1],
                showsBlameMetadata(line: lineNumber - 1, firstVisibleLine: firstLine) {
@@ -3663,6 +3681,19 @@ final class LineNumberGutterView: NSView {
                 height: markerSize
             )
         ).fill()
+    }
+
+    private func drawCurrentExecutionLine(y: CGFloat, height: CGFloat) {
+        let markerSize: CGFloat = 10
+        let centerY = y + height / 2
+        let left = editorGutterOriginX + gutterLayout.breakpointRange.lowerBound + 2
+        let path = NSBezierPath()
+        path.move(to: NSPoint(x: left, y: centerY))
+        path.line(to: NSPoint(x: left + markerSize, y: centerY - markerSize / 2))
+        path.line(to: NSPoint(x: left + markerSize, y: centerY + markerSize / 2))
+        path.close()
+        NSColor(calibratedRed: 0.98, green: 0.72, blue: 0.18, alpha: 1).setFill()
+        path.fill()
     }
 
     private func drawGitLineChange(

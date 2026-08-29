@@ -58,6 +58,9 @@ extension AppModel {
             guard let capability = value as? LitheDebugModule.DebugModuleCapability,
                   let genericFeature = capability.genericFeature as? GenericDebugFeatureModel else { return nil }
             cacheModuleCapability(capability, id: .debugWorkspace, moduleID: .debug)
+            genericFeature.onStoppedLocation = { [weak self] url, line, column in
+                self?.openSourceLocation(url: url, line: line, column: column)
+            }
             observeModuleFeature(.debug, observation: genericFeature.objectWillChange.sink { [weak self] _ in
                 self?.scheduleObjectWillChangeRelay()
             })
