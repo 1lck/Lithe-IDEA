@@ -444,6 +444,88 @@ struct DebugModuleTests {
     }
 
     @Test
+    func projectBreakpointsPersistWithRelativePathsAndRestoreDeterministically() throws {
+        let descriptor = DebugProviderDescriptor(
+            id: "java",
+            displayName: "Java",
+            fileExtensions: ["java"]
+        )
+        let persistence = RecordingBreakpointPersistence()
+        let root = URL(fileURLWithPath: "/tmp/persisted-java-breakpoints", isDirectory: true)
+        let main = root.appendingPathComponent("src/Main.java")
+        let service = root.appendingPathComponent("src/Service.java")
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in nil }
+        let feature = GenericDebugFeatureModel(
+            sessions: manager,
+            breakpointPersistence: persistence
+        )
+
+        feature.openWorkspace(at: root)
+        feature.toggleBreakpoint(fileURL: service, line: 21)
+        feature.toggleBreakpoint(fileURL: main, line: 8)
+        feature.updateBreakpoint(
+            fileURL: main,
+            line: 8,
+            enabled: false,
+            condition: "ready",
+            hitCondition: "3",
+            logMessage: "ready = {ready}"
+        )
+        feature.toggleBreakpointMute()
+
+        let saved = try #require(persistence.snapshots[root.standardizedFileURL])
+        #expect(saved.areBreakpointsMuted)
+        #expect(saved.breakpoints.map(\.relativePath) == ["src/Main.java", "src/Service.java"])
+        #expect(saved.breakpoints.first == PersistedDebugBreakpoint(
+            relativePath: "src/Main.java",
+            line: 8,
+            enabled: false,
+            condition: "ready",
+            hitCondition: "3",
+            logMessage: "ready = {ready}"
+        ))
+
+        let restored = GenericDebugFeatureModel(
+            sessions: DebugAdapterSessionManager(providers: [descriptor]) { _, _ in nil },
+            breakpointPersistence: persistence
+        )
+        restored.openWorkspace(at: root)
+
+        #expect(restored.areBreakpointsMuted)
+        #expect(restored.breakpoints.map(\.fileURL) == [main, service])
+        #expect(restored.breakpoints.map(\.line) == [8, 21])
+        #expect(restored.breakpoints.first?.enabled == false)
+        #expect(restored.breakpoints.first?.verified == false)
+    }
+
+    @Test
+    func projectBreakpointRestoreRejectsPathsOutsideTheWorkspace() {
+        let root = URL(fileURLWithPath: "/tmp/safe-java-breakpoints", isDirectory: true)
+        let persistence = RecordingBreakpointPersistence()
+        persistence.snapshots[root.standardizedFileURL] = DebugBreakpointSnapshot(breakpoints: [
+            PersistedDebugBreakpoint(relativePath: "../Outside.java", line: 4),
+            PersistedDebugBreakpoint(relativePath: "/tmp/Absolute.java", line: 5),
+            PersistedDebugBreakpoint(relativePath: "src/Main.java", line: 6)
+        ])
+        let manager = DebugAdapterSessionManager(
+            providers: [DebugProviderDescriptor(
+                id: "java",
+                displayName: "Java",
+                fileExtensions: ["java"]
+            )]
+        ) { _, _ in nil }
+        let feature = GenericDebugFeatureModel(
+            sessions: manager,
+            breakpointPersistence: persistence
+        )
+
+        feature.openWorkspace(at: root)
+
+        #expect(feature.breakpoints.map(\.fileURL) == [root.appendingPathComponent("src/Main.java")])
+        #expect(feature.breakpoints.map(\.line) == [6])
+    }
+
+    @Test
     func protocolSessionInitializesAndStopsThroughInjectedTransport() throws {
         let transport = RecordingTransport()
         let session = DebugAdapterProtocolSession(
@@ -795,6 +877,18 @@ private final class RecordingTransport: DebugAdapterTransport, DebugAdapterChild
                 with: data.subdata(in: separator.upperBound..<data.endIndex)
             ) as? [String: Any]
         }
+    }
+}
+
+private final class RecordingBreakpointPersistence: DebugBreakpointPersisting, @unchecked Sendable {
+    var snapshots: [URL: DebugBreakpointSnapshot] = [:]
+
+    func loadBreakpoints(for workspaceURL: URL) throws -> DebugBreakpointSnapshot? {
+        snapshots[workspaceURL.standardizedFileURL]
+    }
+
+    func saveBreakpoints(_ snapshot: DebugBreakpointSnapshot, for workspaceURL: URL) throws {
+        snapshots[workspaceURL.standardizedFileURL] = snapshot
     }
 }
 

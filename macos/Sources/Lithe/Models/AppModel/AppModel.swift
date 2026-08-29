@@ -965,6 +965,8 @@ final class AppModel: ObservableObject, Identifiable {
         recentProjects = recentProjectsStore.record(normalizedURL, in: recentProjects)
 
         Task {
+            await restoreDebugBreakpoints(for: normalizedURL)
+            guard workspaceURL == normalizedURL else { return }
             _ = await workspaceFeature.rebuild(
                 at: normalizedURL,
                 rules: visibilityRules,

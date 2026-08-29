@@ -10,9 +10,15 @@ final class DebugFeatureGraph: NSObject, DebugServiceGraph {
     private var activityObservers: Set<AnyCancellable> = []
     private var adapterLease: ModuleLease?
 
-    init(adapterSessions: DebugAdapterSessionManager) {
+    init(
+        adapterSessions: DebugAdapterSessionManager,
+        breakpointPersistence: (any DebugBreakpointPersisting)? = nil
+    ) {
         self.adapterSessions = adapterSessions
-        genericFeature = GenericDebugFeatureModel(sessions: adapterSessions)
+        genericFeature = GenericDebugFeatureModel(
+            sessions: adapterSessions,
+            breakpointPersistence: breakpointPersistence
+        )
     }
 
     var isActive: Bool { !adapterSessions.activeAdapterIDs.isEmpty }

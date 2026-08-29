@@ -73,6 +73,7 @@ final class MacServiceContainer {
             preferences: store
         )
         self.runConfigurationStore = runConfigurationStore
+        let debugBreakpointStore = MacDebugBreakpointStore(store: store)
         let fileOperations = MacWorkspaceFileOperations()
         let processRunner = MacProcessRunner()
         let secureStore = MacLocalSecretStore()
@@ -408,7 +409,10 @@ final class MacServiceContainer {
                             )
                         }
                     )
-                    let graph = DebugFeatureGraph(adapterSessions: adapterSessions)
+                    let graph = DebugFeatureGraph(
+                        adapterSessions: adapterSessions,
+                        breakpointPersistence: debugBreakpointStore
+                    )
                     return graph
                 })
             })
@@ -493,6 +497,7 @@ final class MacServiceContainer {
             pluginCatalog: pluginCatalog,
             languageProviderCatalogSource: languageProviderCatalogSource,
             languageProviderCatalogSnapshot: languageProviderCatalogSnapshot,
+            debugBreakpointPersistence: debugBreakpointStore,
             workspaceOperations: workspaceOperations,
             documentLifecycleDecider: RustDocumentLifecycleDecider(core: rustCore),
             javaMavenOperations: javaMavenOperations,

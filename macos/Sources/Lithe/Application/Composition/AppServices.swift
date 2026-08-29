@@ -1,6 +1,7 @@
 import Foundation
 import LitheApplicationKernel
 import LitheCoreContracts
+import LitheDebugModule
 
 /// Platform-neutral service graph consumed by application orchestration.
 /// Platform composition roots construct this graph with their own adapters.
@@ -19,6 +20,7 @@ final class AppServices {
     /// Metadata-only provider catalog; providers are activated on demand.
     let languageProviderCatalog: LanguageProviderCatalog
     let debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver
+    let debugBreakpointPersistence: (any DebugBreakpointPersisting)?
     let workspaceOperations: any WorkspaceOperations
     let documentLifecycleDecider: any DocumentLifecycleDeciding
     let javaMavenOperations: any JavaMavenOperations
@@ -52,6 +54,7 @@ final class AppServices {
         languageProviderCatalogSource: any LanguageProviderCatalogSource,
         languageProviderCatalogSnapshot: LanguageProviderCatalogSnapshot? = nil,
         debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver? = nil,
+        debugBreakpointPersistence: (any DebugBreakpointPersisting)? = nil,
         workspaceOperations: any WorkspaceOperations,
         documentLifecycleDecider: any DocumentLifecycleDeciding,
         javaMavenOperations: any JavaMavenOperations,
@@ -88,6 +91,7 @@ final class AppServices {
         self.languageProviderCatalog = resolvedCatalog
         self.debugLaunchConfigurationResolver = debugLaunchConfigurationResolver
             ?? DebugLaunchConfigurationResolver(fileStorage: fileStorage)
+        self.debugBreakpointPersistence = debugBreakpointPersistence
         self.workspaceOperations = workspaceOperations
         self.documentLifecycleDecider = documentLifecycleDecider
         self.javaMavenOperations = javaMavenOperations

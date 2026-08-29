@@ -106,13 +106,19 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     public var onStoppedLocation: ((URL, Int, Int) -> Void)?
 
     private let sessions: DebugAdapterSessionManager
+    private let breakpointPersistence: (any DebugBreakpointPersisting)?
     private var requestedBreakpointsByFile: [URL: [Int: DebugSourceBreakpoint]] = [:]
+    private var workspaceURL: URL?
     private var activeFileURL: URL?
     private let maximumOutputCharacters = 400_000
     private var watchGeneration = 0
 
-    public init(sessions: DebugAdapterSessionManager) {
+    public init(
+        sessions: DebugAdapterSessionManager,
+        breakpointPersistence: (any DebugBreakpointPersisting)? = nil
+    ) {
         self.sessions = sessions
+        self.breakpointPersistence = breakpointPersistence
         sessions.onStateChange = { [weak self] providerID, state in
             guard self?.providerID == providerID else { return }
             self?.state = state
@@ -226,6 +232,39 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         watches = []
         requestedBreakpointsByFile = [:]
         areBreakpointsMuted = false
+        workspaceURL = nil
+    }
+
+    public func openWorkspace(at workspaceURL: URL) {
+        let root = workspaceURL.standardizedFileURL
+        guard self.workspaceURL != root else { return }
+        self.workspaceURL = root
+        requestedBreakpointsByFile = [:]
+        breakpoints = []
+        areBreakpointsMuted = false
+        guard let breakpointPersistence else { return }
+        do {
+            guard let snapshot = try breakpointPersistence.loadBreakpoints(for: root),
+                  snapshot.version == DebugBreakpointSnapshot.currentVersion else { return }
+            areBreakpointsMuted = snapshot.areBreakpointsMuted
+            for persisted in snapshot.breakpoints {
+                guard let fileURL = restoredFileURL(for: persisted.relativePath, root: root),
+                      persisted.line > 0 else { continue }
+                var values = requestedBreakpointsByFile[fileURL] ?? [:]
+                values[persisted.line] = DebugSourceBreakpoint(
+                    line: persisted.line,
+                    column: persisted.column,
+                    enabled: persisted.enabled,
+                    condition: normalizedOptionalText(persisted.condition),
+                    hitCondition: normalizedOptionalText(persisted.hitCondition),
+                    logMessage: normalizedOptionalText(persisted.logMessage)
+                )
+                requestedBreakpointsByFile[fileURL] = values
+            }
+            reconcileBreakpoints()
+        } catch {
+            record(error)
+        }
     }
 
     public func toggleBreakpoint(fileURL: URL, line: Int) {
@@ -239,6 +278,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         }
         requestedBreakpointsByFile[normalizedURL] = values.isEmpty ? nil : values
         reconcileBreakpoints()
+        persistBreakpoints()
         synchronizeBreakpoints(for: normalizedURL)
     }
 
@@ -262,6 +302,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         )
         requestedBreakpointsByFile[normalizedURL] = values
         reconcileBreakpoints()
+        persistBreakpoints()
         synchronizeBreakpoints(for: normalizedURL)
     }
 
@@ -282,6 +323,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         values[breakpoint.line] = nil
         requestedBreakpointsByFile[fileURL] = values.isEmpty ? nil : values
         reconcileBreakpoints()
+        persistBreakpoints()
         synchronizeBreakpoints(for: fileURL)
     }
 
@@ -289,11 +331,13 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         let fileURLs = requestedBreakpointsByFile.keys.sorted { $0.path < $1.path }
         requestedBreakpointsByFile = [:]
         reconcileBreakpoints()
+        persistBreakpoints()
         for fileURL in fileURLs { synchronizeBreakpoints(for: fileURL) }
     }
 
     public func toggleBreakpointMute() {
         areBreakpointsMuted.toggle()
+        persistBreakpoints()
         for fileURL in requestedBreakpointsByFile.keys.sorted(by: { $0.path < $1.path }) {
             synchronizeBreakpoints(for: fileURL)
         }
@@ -849,6 +893,63 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                 if $0.fileURL.path == $1.fileURL.path { return $0.line < $1.line }
                 return $0.fileURL.path < $1.fileURL.path
             }
+    }
+
+    private func persistBreakpoints() {
+        guard let breakpointPersistence, let workspaceURL else { return }
+        let values = breakpoints.compactMap { breakpoint -> PersistedDebugBreakpoint? in
+            guard let relativePath = workspaceRelativePath(
+                for: breakpoint.fileURL,
+                root: workspaceURL
+            ) else { return nil }
+            return PersistedDebugBreakpoint(
+                relativePath: relativePath,
+                line: breakpoint.line,
+                column: breakpoint.column,
+                enabled: breakpoint.enabled,
+                condition: breakpoint.condition,
+                hitCondition: breakpoint.hitCondition,
+                logMessage: breakpoint.logMessage
+            )
+        }.sorted {
+            ($0.relativePath, $0.line, $0.column ?? 0)
+                < ($1.relativePath, $1.line, $1.column ?? 0)
+        }
+        do {
+            try breakpointPersistence.saveBreakpoints(
+                DebugBreakpointSnapshot(
+                    areBreakpointsMuted: areBreakpointsMuted,
+                    breakpoints: values
+                ),
+                for: workspaceURL
+            )
+        } catch {
+            record(error)
+        }
+    }
+
+    private func workspaceRelativePath(for fileURL: URL, root: URL) -> String? {
+        let rootPath = root.standardizedFileURL.path
+        let filePath = fileURL.standardizedFileURL.path
+        guard filePath.hasPrefix(rootPath + "/") else { return nil }
+        let value = String(filePath.dropFirst(rootPath.count + 1))
+        guard !value.isEmpty else { return nil }
+        return value.replacingOccurrences(of: "\\", with: "/")
+    }
+
+    private func restoredFileURL(for relativePath: String, root: URL) -> URL? {
+        guard !relativePath.isEmpty,
+              !relativePath.hasPrefix("/"),
+              !relativePath.contains("\\") else { return nil }
+        let components = relativePath.split(separator: "/", omittingEmptySubsequences: false)
+        guard components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
+            return nil
+        }
+        let value = components.reduce(root) { partial, component in
+            partial.appendingPathComponent(String(component), isDirectory: false)
+        }.standardizedFileURL
+        guard value.path.hasPrefix(root.path + "/") else { return nil }
+        return value
     }
 
     private func effectiveBreakpoints(for fileURL: URL) -> [DebugSourceBreakpoint] {

@@ -51,6 +51,7 @@ extension AppModel {
 
     func activateDebugModule() async -> DebugFeatureAccess? {
         if let genericFeature = genericDebugFeatureIfActive {
+            if let workspaceURL { genericFeature.openWorkspace(at: workspaceURL) }
             return DebugFeatureAccess(genericFeature: genericFeature)
         }
         do {
@@ -61,6 +62,7 @@ extension AppModel {
             genericFeature.onStoppedLocation = { [weak self] url, line, column in
                 self?.openSourceLocation(url: url, line: line, column: column)
             }
+            if let workspaceURL { genericFeature.openWorkspace(at: workspaceURL) }
             observeModuleFeature(.debug, observation: genericFeature.objectWillChange.sink { [weak self] _ in
                 self?.scheduleObjectWillChangeRelay()
             })
@@ -68,6 +70,20 @@ extension AppModel {
         } catch {
             showNotification(error.localizedDescription)
             return nil
+        }
+    }
+
+    func restoreDebugBreakpoints(for workspaceURL: URL) async {
+        guard self.workspaceURL == workspaceURL,
+              let persistence = services.debugBreakpointPersistence else { return }
+        do {
+            guard let snapshot = try persistence.loadBreakpoints(for: workspaceURL),
+                  snapshot.version == DebugBreakpointSnapshot.currentVersion,
+                  !snapshot.breakpoints.isEmpty,
+                  self.workspaceURL == workspaceURL else { return }
+            _ = await activateDebugModule()
+        } catch {
+            showNotification(error.localizedDescription)
         }
     }
 }
