@@ -109,7 +109,12 @@ final class AppModel: ObservableObject, Identifiable {
         workspaceFeature.isPerformingProjectItemOperation
     }
     @Published var notificationMessage: String?
+    @Published var activeNotifications: [WorkbenchNotification] = []
     @Published var notifications: [WorkbenchNotification] = []
+    var notificationDismissalTasks: [UUID: Task<Void, Never>] = [:]
+    var notificationDismissalDeadlines: [UUID: ContinuousClock.Instant] = [:]
+    var notificationRemainingDurations: [UUID: Duration] = [:]
+    var areNotificationsHovered = false
     @Published var detectedAIConfigurations: [AIConfigurationSnapshot] = []
     @Published var commitMessage = ""
     @Published var amendCommit = false

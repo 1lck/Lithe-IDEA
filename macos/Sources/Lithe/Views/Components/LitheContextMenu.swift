@@ -80,11 +80,7 @@ private struct LitheContextMenuContent: View {
         .frame(width: width)
         .background {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(LitheTheme.sidebar)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .stroke(LitheTheme.panelBorder, lineWidth: 1)
+                .fill(LitheTheme.contextMenuBackground)
         }
     }
 }
@@ -107,9 +103,7 @@ private struct LitheContextMenuRow: View {
                 }
                 .frame(width: 16, height: 16)
                 .foregroundStyle(
-                    item.role == .destructive
-                        ? LitheTheme.error
-                        : (isHovering ? LitheTheme.toolWindowSelectedText : LitheTheme.secondaryText)
+                    isHovering ? LitheTheme.toolWindowSelectedText : LitheTheme.secondaryText
                 )
 
                 Text(LocalizedStringKey(item.title))
@@ -183,6 +177,7 @@ private final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         )
         panel.contentViewController = NSHostingController(rootView: content)
         panel.appearance = appearance
+        panel.animationBehavior = .none
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = true

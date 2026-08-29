@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// Shared title-bar chrome for bottom tool windows. Individual windows provide
-/// their own controls while the title, spacing, border and minimize affordance
-/// remain visually consistent.
+/// their own controls while the title, spacing, and minimize affordance remain
+/// visually consistent.
 struct LitheToolWindowHeader<Actions: View>: View {
     let title: String
     let systemImage: String?
@@ -64,9 +64,6 @@ struct LitheToolWindowHeader<Actions: View>: View {
         .padding(.trailing, 7)
         .frame(height: LitheTheme.Metrics.toolWindowHeaderHeight)
         .litheWorkbenchSurface(LitheTheme.toolHeader)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
-        }
     }
 }
 

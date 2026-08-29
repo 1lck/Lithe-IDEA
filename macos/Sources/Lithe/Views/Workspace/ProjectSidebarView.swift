@@ -10,7 +10,6 @@ struct ProjectSidebarView: View {
     var body: some View {
         VStack(spacing: 0) {
             sidebarHeader
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
             if model.isLoadingWorkspace {
                 VStack(spacing: 10) {
@@ -53,6 +52,7 @@ struct ProjectSidebarView: View {
                             )
                         }
                         .scrollContentBackground(.hidden)
+                        .litheScrollViewChrome(usesCompactScrollers: true)
                         .task(
                             id: ProjectTreeTaskID(
                                 rootPath: root.url.standardizedFileURL.path,
@@ -85,28 +85,6 @@ struct ProjectSidebarView: View {
                             }
                             if let request = revealRequest {
                                 model.consumeProjectTreeRevealRequest(id: request.id)
-                            }
-                        }
-                        .contextMenu {
-                            Button("New File…") {
-                                model.requestCreateFile(in: root.url)
-                            }
-                            Button("New Directory…") {
-                                model.requestCreateDirectory(in: root.url)
-                            }
-                            Divider()
-                            Button("Show Project in Finder") {
-                                model.revealProjectItemInFinder(root.url)
-                            }
-                            Button("Show Project Local History…") {
-                                model.showProjectLocalHistory()
-                            }
-                            Button("Copy Project Path") {
-                                model.copyProjectItemPath(root.url, relative: false)
-                            }
-                            Divider()
-                            Button("Refresh") {
-                                Task { await model.refreshWorkspace() }
                             }
                         }
                     }
@@ -271,6 +249,9 @@ private final class ProjectTreeActions: @unchecked Sendable {
     nonisolated func showLocalHistory(_ url: URL) {
         Task { @MainActor in self.model.showLocalHistory(for: url) }
     }
+    nonisolated func showProjectLocalHistory() {
+        Task { @MainActor in self.model.showProjectLocalHistory() }
+    }
     func javaIconKind(_ url: URL) async -> LitheIconKind? {
         await model.javaIconKind(for: url)
     }
@@ -399,7 +380,7 @@ private struct FileNodeRow: View {
         .buttonStyle(LitheTreeRowButtonStyle())
         .lithePointer()
         .padding(.horizontal, LitheTheme.Metrics.projectTreeContentHorizontalInset)
-        .contextMenu { directoryContextMenu }
+        .litheContextMenu { directoryContextMenuItems }
     }
 
     private var fileRow: some View {
@@ -440,106 +421,124 @@ private struct FileNodeRow: View {
         .buttonStyle(LitheTreeRowButtonStyle())
         .lithePointer()
         .padding(.horizontal, LitheTheme.Metrics.projectTreeContentHorizontalInset)
-        .contextMenu { fileContextMenu }
+        .litheContextMenu { fileContextMenuItems }
         .task(id: node.url.standardizedFileURL.path) {
             guard node.url.pathExtension.lowercased() == "java" else { return }
             resolvedJavaIconKind = await actions.javaIconKind(node.url)
         }
     }
 
-    @ViewBuilder
-    private var directoryContextMenu: some View {
+    private var directoryContextMenuItems: [LitheContextMenuItem] {
+        var items: [LitheContextMenuItem] = []
+
         if gitStatus.kind(for: node.url, isDirectory: true) != nil {
-            Button("Show Git Diff") {
-                actions.showGitDirectoryDiff(node.url)
+            items += [
+                .action("Show Git Diff", systemImage: "arrow.triangle.branch") {
+                    actions.showGitDirectoryDiff(node.url)
+                },
+                .separator
+            ]
+        }
+
+        items += [
+            .action("New File…", systemImage: "doc.badge.plus") {
+                actions.requestCreateFile(node.url)
+            },
+            .action("New Directory…", systemImage: "folder.badge.plus") {
+                actions.requestCreateDirectory(node.url)
+            },
+            .separator
+        ]
+
+        if depth == 0 {
+            items += [
+                .action("Show Project in Finder", systemImage: "folder") {
+                    actions.revealInFinder(node.url)
+                },
+                .action("Show Project Local History…", systemImage: "clock.arrow.circlepath") {
+                    actions.showProjectLocalHistory()
+                },
+                .action("Copy Project Path", systemImage: "doc.on.doc") {
+                    actions.copyPath(node.url, relative: false)
+                },
+                .action("Copy Relative Path", systemImage: "link") {
+                    actions.copyPath(node.url, relative: true)
+                }
+            ]
+        } else {
+            items += [
+                .action("Show in Finder", systemImage: "folder") {
+                    actions.revealInFinder(node.url)
+                },
+                .action("Copy Path", systemImage: "doc.on.doc") {
+                    actions.copyPath(node.url, relative: false)
+                },
+                .action("Copy Relative Path", systemImage: "link") {
+                    actions.copyPath(node.url, relative: true)
+                },
+                .separator,
+                .action("Duplicate", systemImage: "plus.square.on.square") {
+                    actions.duplicate(node.url)
+                },
+                .action("Rename…", systemImage: "pencil") {
+                    actions.requestRename(node.url)
+                },
+                .action("Move to Trash", systemImage: "trash", role: .destructive) {
+                    actions.requestDelete(node.url, true)
+                }
+            ]
+        }
+
+        items += [
+            .separator,
+            .action("Refresh", systemImage: "arrow.clockwise") {
+                actions.refreshWorkspace()
             }
-            Divider()
-        }
-
-        Button("New File…") {
-            actions.requestCreateFile(node.url)
-        }
-        Button("New Directory…") {
-            actions.requestCreateDirectory(node.url)
-        }
-
-        Divider()
-
-        Button("Show in Finder") {
-            actions.revealInFinder(node.url)
-        }
-        Button("Copy Path") {
-            actions.copyPath(node.url, relative: false)
-        }
-        Button("Copy Relative Path") {
-            actions.copyPath(node.url, relative: true)
-        }
-
-        if depth > 0 {
-            Divider()
-
-            Button("Duplicate") {
-                actions.duplicate(node.url)
-            }
-            Button("Rename…") {
-                actions.requestRename(node.url)
-            }
-            Button("Move to Trash", role: .destructive) {
-                actions.requestDelete(node.url, true)
-            }
-        }
-
-        Divider()
-
-        Button("Refresh") {
-            actions.refreshWorkspace()
-        }
+        ]
+        return items
     }
 
-    @ViewBuilder
-    private var fileContextMenu: some View {
-        Group {
-            Button("Open") {
+    private var fileContextMenuItems: [LitheContextMenuItem] {
+        var items: [LitheContextMenuItem] = [
+            .action("Open", systemImage: "arrow.up.right.square") {
                 actions.openFile(node.url)
             }
+        ]
 
-            if let change = gitStatus.change(for: node.url) {
-                Button("Show Git Diff") {
+        if let change = gitStatus.change(for: node.url) {
+            items += [
+                .action("Show Git Diff", systemImage: "arrow.triangle.branch") {
                     actions.selectChange(change)
                 }
-            }
+            ]
         }
 
-        Divider()
-
-        Group {
-            Button("Duplicate") {
+        items += [
+            .separator,
+            .action("Duplicate", systemImage: "plus.square.on.square") {
                 actions.duplicate(node.url)
-            }
-            Button("Rename…") {
+            },
+            .action("Rename…", systemImage: "pencil") {
                 actions.requestRename(node.url)
-            }
-            Button("Local History…") {
+            },
+            .action("Local History…", systemImage: "clock.arrow.circlepath") {
                 actions.showLocalHistory(node.url)
-            }
-            Button("Move to Trash", role: .destructive) {
+            },
+            .action("Move to Trash", systemImage: "trash", role: .destructive) {
                 actions.requestDelete(node.url, false)
-            }
-        }
-
-        Divider()
-
-        Group {
-            Button("Show in Finder") {
+            },
+            .separator,
+            .action("Show in Finder", systemImage: "folder") {
                 actions.revealInFinder(node.url)
-            }
-            Button("Copy Path") {
+            },
+            .action("Copy Path", systemImage: "doc.on.doc") {
                 actions.copyPath(node.url, relative: false)
-            }
-            Button("Copy Relative Path") {
+            },
+            .action("Copy Relative Path", systemImage: "link") {
                 actions.copyPath(node.url, relative: true)
             }
-        }
+        ]
+        return items
     }
 
     private var gitStatusColor: Color? {

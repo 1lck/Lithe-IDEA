@@ -944,14 +944,12 @@ struct EditorAreaView: View {
     private var editorWorkspace: some View {
         VStack(spacing: 0) {
             editorTabs
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
             if model.activeEditorTerminalSession == nil,
                let splitDocumentID,
                let splitDocument = model.openDocuments.first(where: { $0.id == splitDocumentID }) {
                 HStack(spacing: 0) {
                     editorPane(model.activeDocument)
-                    Rectangle().fill(LitheTheme.divider).frame(width: 1)
                     editorPane(splitDocument, showsHeader: true)
                 }
             } else {
@@ -987,7 +985,6 @@ struct EditorAreaView: View {
                 .padding(.horizontal, 10)
                 .frame(height: 30)
                 .background(LitheTheme.toolHeader)
-                Rectangle().fill(LitheTheme.divider).frame(height: 1)
             }
 
             if let document {
@@ -1123,9 +1120,6 @@ struct EditorAreaView: View {
                     HStack(spacing: 0) {
                         editorWithFindBar(document, markdownScrollPosition: scrollPosition)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        Rectangle()
-                            .fill(LitheTheme.divider)
-                            .frame(width: 1)
                         MarkdownPreviewView(
                             document: document,
                             scrollPosition: scrollPosition
