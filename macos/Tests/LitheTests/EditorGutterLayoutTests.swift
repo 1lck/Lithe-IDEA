@@ -4,6 +4,34 @@ import Testing
 
 @Suite("Editor gutter layout")
 struct EditorGutterLayoutTests {
+    @Test
+    func editorBreakpointLinesConvertToOneBasedProductLines() {
+        #expect(EditorDebugBreakpointLocation.productLine(forEditorLine: 0) == 1)
+        #expect(EditorDebugBreakpointLocation.productLine(forEditorLine: 7) == 8)
+    }
+
+    @MainActor
+    @Test
+    func breakpointContextMenuOffersEditingAndDispatchesTheEditorLine() throws {
+        let gutter = LineNumberGutterView(frame: NSRect(x: 0, y: 0, width: 80, height: 200))
+        var editedLine: Int?
+        gutter.updateDebugBreakpointLines(
+            [7: EditorDebugBreakpointState(enabled: true, verified: false)],
+            onToggle: { _ in },
+            onEdit: { editedLine = $0 }
+        )
+
+        let menu = try #require(gutter.debugBreakpointContextMenu(forLine: 6))
+        #expect(menu.items.map(\.title) == [
+            "Edit Breakpoint…",
+            "Disable Breakpoint",
+            "Remove Breakpoint"
+        ])
+
+        gutter.editDebugBreakpointFromMenu()
+        #expect(editedLine == 6)
+    }
+
     @MainActor
     @Test
     func foldingLinesChangesTheOverlayTargetGeometry() throws {

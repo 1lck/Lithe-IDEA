@@ -110,6 +110,10 @@ struct EditorDebugBreakpointState: Equatable {
     let verified: Bool
 }
 
+enum EditorDebugBreakpointLocation {
+    static func productLine(forEditorLine line: Int) -> Int { line + 1 }
+}
+
 struct EditorLanguageFeatureTransition: Equatable {
     let refreshImplementationMarkers: Bool
     let clearImplementationMarkers: Bool
@@ -1283,19 +1287,34 @@ struct CodeEditorView: NSViewRepresentable {
                 gutter?.updateDebugBreakpointLines(
                     debugBreakpointStates,
                     onToggle: { [weak model] line in
-                        model?.toggleDebugBreakpoint(fileURL: url, line: line)
+                        model?.toggleDebugBreakpoint(
+                            fileURL: url,
+                            line: EditorDebugBreakpointLocation.productLine(forEditorLine: line)
+                        )
+                    },
+                    onEdit: { [weak model] line in
+                        model?.editDebugBreakpoint(
+                            fileURL: url,
+                            line: EditorDebugBreakpointLocation.productLine(forEditorLine: line)
+                        )
                     },
                     onRemove: { [weak model] line in
+                        let productLine = EditorDebugBreakpointLocation.productLine(
+                            forEditorLine: line
+                        )
                         guard let feature = model?.genericDebugFeatureIfActive,
                               let breakpoint = feature.breakpoints.first(where: {
-                                  $0.fileURL.standardizedFileURL == url && $0.line == line
+                                  $0.fileURL.standardizedFileURL == url && $0.line == productLine
                               }) else { return }
                         feature.removeBreakpoint(breakpoint)
                     },
                     onSetEnabled: { [weak model] line, enabled in
+                        let productLine = EditorDebugBreakpointLocation.productLine(
+                            forEditorLine: line
+                        )
                         guard let feature = model?.genericDebugFeatureIfActive,
                               let breakpoint = feature.breakpoints.first(where: {
-                                  $0.fileURL.standardizedFileURL == url && $0.line == line
+                                  $0.fileURL.standardizedFileURL == url && $0.line == productLine
                               }) else { return }
                         feature.setBreakpointEnabled(breakpoint, enabled: enabled)
                     },
@@ -1303,7 +1322,11 @@ struct CodeEditorView: NSViewRepresentable {
                         model?.genericDebugFeatureIfActive?.toggleBreakpointMute()
                     },
                     onRunToCursor: { [weak model] line in
-                        model?.runToCursor(fileURL: url, line: line + 1, column: 1)
+                        model?.runToCursor(
+                            fileURL: url,
+                            line: EditorDebugBreakpointLocation.productLine(forEditorLine: line),
+                            column: 1
+                        )
                     },
                     isRunToCursorEnabled: isRunToCursorEnabled,
                     areBreakpointsMuted: areBreakpointsMuted
@@ -3181,6 +3204,7 @@ final class LineNumberGutterView: NSView {
     private var debugBreakpointMessagesByLine: [Int: String] = [:]
     private var currentExecutionLine: Int?
     private var onToggleDebugBreakpoint: ((Int) -> Void)?
+    private var onEditDebugBreakpoint: ((Int) -> Void)?
     private var onRemoveDebugBreakpoint: ((Int) -> Void)?
     private var onSetDebugBreakpointEnabled: ((Int, Bool) -> Void)?
     private var onToggleAllDebugBreakpoints: (() -> Void)?
@@ -3346,6 +3370,7 @@ final class LineNumberGutterView: NSView {
     func updateDebugBreakpointLines(
         _ states: [Int: EditorDebugBreakpointState],
         onToggle: @escaping (Int) -> Void,
+        onEdit: ((Int) -> Void)? = nil,
         onRemove: ((Int) -> Void)? = nil,
         onSetEnabled: ((Int, Bool) -> Void)? = nil,
         onToggleAll: (() -> Void)? = nil,
@@ -3358,6 +3383,7 @@ final class LineNumberGutterView: NSView {
             uniqueKeysWithValues: states.map { (max(0, $0.key - 1), $0.value) }
         )
         onToggleDebugBreakpoint = onToggle
+        onEditDebugBreakpoint = onEdit
         onRemoveDebugBreakpoint = onRemove
         onSetDebugBreakpointEnabled = onSetEnabled
         onToggleAllDebugBreakpoints = onToggleAll
@@ -4029,20 +4055,8 @@ final class LineNumberGutterView: NSView {
         let localX = point.x - editorGutterOriginX
         if gutterLayout.breakpointRange.contains(localX),
            let line = editorLine(at: point),
-           let state = debugBreakpointStatesByLine[line] {
-            contextDebugBreakpointLine = line
-            let menu = NSMenu(title: "Breakpoint")
-            let toggleTitle = state.enabled ? "Disable Breakpoint" : "Enable Breakpoint"
-            menu.addItem(withTitle: toggleTitle, action: #selector(toggleDebugBreakpointFromMenu), keyEquivalent: "")
-            menu.items.last?.target = self
-            menu.addItem(withTitle: "Remove Breakpoint", action: #selector(removeDebugBreakpointFromMenu), keyEquivalent: "")
-            menu.items.last?.target = self
-            if onToggleAllDebugBreakpoints != nil {
-                menu.addItem(.separator())
-                menu.addItem(withTitle: areBreakpointsMuted ? "Unmute All Breakpoints" : "Mute All Breakpoints", action: #selector(toggleAllDebugBreakpointsFromMenu), keyEquivalent: "")
-                menu.items.last?.target = self
-            }
-            return menu
+           debugBreakpointStatesByLine[line] != nil {
+            return debugBreakpointContextMenu(forLine: line)
         }
         if gutterLayout.lineNumberRange.contains(localX),
            let line = editorLine(at: point),
@@ -4082,6 +4096,48 @@ final class LineNumberGutterView: NSView {
             menu.items.last?.target = self
         }
         return menu
+    }
+
+    func debugBreakpointContextMenu(forLine line: Int) -> NSMenu? {
+        guard let state = debugBreakpointStatesByLine[line] else { return nil }
+        contextDebugBreakpointLine = line
+        let menu = NSMenu(title: "Breakpoint")
+        if onEditDebugBreakpoint != nil {
+            menu.addItem(
+                withTitle: "Edit Breakpoint…",
+                action: #selector(editDebugBreakpointFromMenu),
+                keyEquivalent: ""
+            )
+            menu.items.last?.target = self
+        }
+        let toggleTitle = state.enabled ? "Disable Breakpoint" : "Enable Breakpoint"
+        menu.addItem(
+            withTitle: toggleTitle,
+            action: #selector(toggleDebugBreakpointFromMenu),
+            keyEquivalent: ""
+        )
+        menu.items.last?.target = self
+        menu.addItem(
+            withTitle: "Remove Breakpoint",
+            action: #selector(removeDebugBreakpointFromMenu),
+            keyEquivalent: ""
+        )
+        menu.items.last?.target = self
+        if onToggleAllDebugBreakpoints != nil {
+            menu.addItem(.separator())
+            menu.addItem(
+                withTitle: areBreakpointsMuted
+                    ? "Unmute All Breakpoints" : "Mute All Breakpoints",
+                action: #selector(toggleAllDebugBreakpointsFromMenu),
+                keyEquivalent: ""
+            )
+            menu.items.last?.target = self
+        }
+        return menu
+    }
+
+    @objc func editDebugBreakpointFromMenu() {
+        if let line = contextDebugBreakpointLine { onEditDebugBreakpoint?(line) }
     }
 
     @objc private func toggleDebugBreakpointFromMenu() {

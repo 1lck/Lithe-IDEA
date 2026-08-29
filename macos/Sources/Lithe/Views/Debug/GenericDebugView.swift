@@ -909,7 +909,7 @@ struct GenericDebugView: View {
     }
 }
 
-private struct BreakpointEditorValue {
+struct BreakpointEditorValue {
     let enabled: Bool
     let condition: String?
     let hitCondition: String?
@@ -1070,7 +1070,7 @@ private struct ExceptionBreakpointEditorView: View {
     }
 }
 
-private struct BreakpointEditorView: View {
+struct BreakpointEditorView: View {
     @Environment(\.dismiss) private var dismiss
     let breakpoint: GenericDebugBreakpoint
     let onSave: (BreakpointEditorValue) -> Void

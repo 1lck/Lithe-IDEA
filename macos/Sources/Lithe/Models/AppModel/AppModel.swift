@@ -122,6 +122,7 @@ final class AppModel: ObservableObject, Identifiable {
     @Published var isMavenVisible = false
     @Published var isSpringVisible = false
     @Published var isDebugVisible = false
+    @Published var pendingDebugBreakpointEditor: GenericDebugBreakpoint?
     @Published var isDiscourseCommunityVisible = false
     @Published var isImplementationChooserVisible = false
     var languageProviderCatalog: LanguageProviderCatalog { languageToolingFeature.catalog }
@@ -932,6 +933,7 @@ final class AppModel: ObservableObject, Identifiable {
         mavenFeatureIfActive?.reset()
         runFeatureIfActive?.reset()
         genericDebugFeatureIfActive?.reset()
+        pendingDebugBreakpointEditor = nil
         clearLanguageNavigationProjection()
         javaFeature.stop()
         springFeature.reset()
@@ -1043,6 +1045,7 @@ final class AppModel: ObservableObject, Identifiable {
         mavenFeatureIfActive?.reset()
         runFeatureIfActive?.reset()
         genericDebugFeatureIfActive?.reset()
+        pendingDebugBreakpointEditor = nil
         javaFeature.stop()
         springFeature.reset()
         editorChrome.reset()

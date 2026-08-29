@@ -88,6 +88,17 @@ struct WorkbenchView: View {
                 }
             }
         }
+        .sheet(item: $model.pendingDebugBreakpointEditor) { breakpoint in
+            BreakpointEditorView(breakpoint: breakpoint) { value in
+                model.updateDebugBreakpoint(
+                    breakpoint,
+                    enabled: value.enabled,
+                    condition: value.condition,
+                    hitCondition: value.hitCondition,
+                    logMessage: value.logMessage
+                )
+            }
+        }
         .onAppear {
             updateWorkbenchBackgroundImage(model.workbenchBackgroundFeature.imageData)
         }

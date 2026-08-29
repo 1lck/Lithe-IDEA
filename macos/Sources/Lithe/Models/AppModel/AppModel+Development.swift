@@ -503,6 +503,44 @@ extension AppModel {
         }
     }
 
+    func editDebugBreakpoint(fileURL: URL, line: Int) {
+        let normalizedURL = fileURL.standardizedFileURL
+        pendingDebugBreakpointEditor = genericDebugFeatureIfActive?.breakpoints
+            .filter {
+                $0.fileURL.standardizedFileURL == normalizedURL && $0.line == line
+            }
+            .min { ($0.column ?? 0) < ($1.column ?? 0) }
+    }
+
+    func updateDebugBreakpoint(
+        _ breakpoint: GenericDebugBreakpoint,
+        enabled: Bool,
+        condition: String?,
+        hitCondition: String?,
+        logMessage: String?
+    ) {
+        pendingDebugBreakpointEditor = nil
+        guard let expectedWorkspaceURL = workspaceURL,
+              workspaceRelativePath(
+                  for: breakpoint.fileURL,
+                  root: expectedWorkspaceURL
+              ) != nil else { return }
+        Task { [weak self] in
+            guard let self,
+                  self.workspaceURL == expectedWorkspaceURL,
+                  let feature = await activateDebugModule()?.genericFeature,
+                  self.workspaceURL == expectedWorkspaceURL else { return }
+            feature.updateBreakpoint(
+                fileURL: breakpoint.fileURL,
+                line: breakpoint.line,
+                enabled: enabled,
+                condition: condition,
+                hitCondition: hitCondition,
+                logMessage: logMessage
+            )
+        }
+    }
+
     func runToCursor(fileURL: URL, line: Int, column: Int) {
         guard let feature = genericDebugFeatureIfActive,
               feature.state == .paused,
