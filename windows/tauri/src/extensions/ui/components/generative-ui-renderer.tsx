@@ -1,5 +1,4 @@
 import type { GenerativeUIAction, GenerativeUIComponent } from "../types/generative-ui";
-import { ProGate } from "./pro-gate";
 import { Button } from "@/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/ui/card";
 import { Item, ItemTitle } from "@/ui/item";
@@ -119,9 +118,5 @@ function RenderComponent({ component }: { component: GenerativeUIComponent }) {
 }
 
 export function GenerativeUIRenderer({ component }: GenerativeUIRendererProps) {
-  return (
-    <ProGate>
-      <RenderComponent component={component} />
-    </ProGate>
-  );
+  return <RenderComponent component={component} />;
 }

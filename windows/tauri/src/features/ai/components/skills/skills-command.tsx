@@ -1,8 +1,5 @@
 import {
   CloudArrowDownIcon as CloudArrowDown,
-  CloudCheckIcon as CloudCheck,
-  CloudSlashIcon as CloudSlash,
-  CloudWarningIcon as CloudWarning,
   MagnifyingGlassIcon as Search,
   PencilSimpleIcon as PencilSimple,
   PlusIcon as Plus,
@@ -25,7 +22,6 @@ import {
 } from "@/features/ai/lib/skill-library";
 import { fuzzyScore } from "@/features/global-search/utils/fuzzy-search";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
-import { useSettingsSyncStore } from "@/features/settings/stores/settings-sync.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import type { AIChatSkill, MarketplaceSkill } from "@/features/ai/types/skills.types";
 import { Button } from "@/ui/button";
@@ -40,7 +36,6 @@ import Command, {
   CommandItemRow,
   CommandList,
 } from "@/ui/command";
-import { useUIState } from "@/features/window/stores/ui-state.store";
 import Input from "@/ui/input";
 import { ScrollArea } from "@/ui/scroll-area";
 import Textarea from "@/ui/textarea";
@@ -58,19 +53,6 @@ type SkillsView = "list" | "browse" | "editor";
 
 function createSkillId() {
   return `skill-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-}
-
-function getSyncLabel(enabled: boolean, status: string, t: (key: string) => string) {
-  if (!enabled) return t("ai.notSynced");
-  if (status === "syncing") return t("ai.syncing");
-  if (status === "error") return t("ai.syncPaused");
-  return t("ai.synced");
-}
-
-function getSyncIcon(enabled: boolean, status: string) {
-  if (!enabled) return CloudSlash;
-  if (status === "error") return CloudWarning;
-  return CloudCheck;
 }
 
 export function SkillsCommand({
@@ -96,9 +78,6 @@ export function SkillsCommand({
 
   const skills = useSettingsStore((state) => state.settings.aiSkills);
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
-  const syncEnabled = useSettingsSyncStore((state) => state.enabled);
-  const syncStatus = useSettingsSyncStore((state) => state.status);
-  const openSettingsDialog = useUIState((state) => state.openSettingsDialog);
 
   const filteredSkills = useMemo(() => {
     const normalizedQuery = deferredQuery.trim();
@@ -178,11 +157,6 @@ export function SkillsCommand({
     resetEditor();
     onClose();
   }, [onClose, resetEditor]);
-
-  const openAccountSyncSettings = useCallback(() => {
-    handleClose();
-    openSettingsDialog("account");
-  }, [handleClose, openSettingsDialog]);
 
   const handleInstallMarketplaceSkill = useCallback(
     async (skill: MarketplaceSkill) => {
@@ -342,7 +316,6 @@ export function SkillsCommand({
   }, [filteredMarketplaceSkills.length, filteredSkills.length, selectedIndex, view]);
 
   const canSave = title.trim().length > 0;
-  const SyncIcon = getSyncIcon(syncEnabled, syncStatus);
   const isComposerAttached = Boolean(anchorRef);
 
   const panelContent =
@@ -511,12 +484,6 @@ export function SkillsCommand({
           )}
         </CommandList>
 
-        <CommandFooter>
-          <CommandFooterAction type="button" onClick={openAccountSyncSettings}>
-            <SyncIcon />
-            <span className="truncate">{getSyncLabel(syncEnabled, syncStatus, t)}</span>
-          </CommandFooterAction>
-        </CommandFooter>
       </>
     ) : (
       <>

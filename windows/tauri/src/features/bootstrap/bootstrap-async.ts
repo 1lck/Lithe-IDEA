@@ -39,13 +39,6 @@ const asyncBootstrapSteps = [
       await initializeExtensionStore();
     },
   },
-  {
-    name: "telemetry",
-    run: async () => {
-      const { initializeTelemetry } = await import("@/features/telemetry/services/telemetry");
-      await initializeTelemetry();
-    },
-  },
 ] as const;
 
 export async function runAsyncBootstrapSteps(): Promise<void> {

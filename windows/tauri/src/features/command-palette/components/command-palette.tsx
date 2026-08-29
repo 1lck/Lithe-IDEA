@@ -41,7 +41,6 @@ import Keybinding from "@/features/keymaps/components/keybinding";
 import { matchesSearchQuery } from "@/utils/search-match";
 import { createAdvancedActions } from "../constants/advanced-actions";
 import { createFileActions } from "../constants/file-actions";
-import { createGenerateActions } from "../constants/generate-actions";
 import { createGitActions } from "../constants/git-actions";
 import { createMarkdownActions } from "../constants/markdown-actions";
 import { createNavigationActions } from "../constants/navigation-actions";
@@ -142,7 +141,6 @@ const CommandPaletteContent = ({ commandPaletteInitialView }: CommandPaletteCont
   const showGitHubPullRequests = useSettingsStore((state) => state.settings.showGitHubPullRequests);
   const showMinimap = useSettingsStore((state) => state.settings.showMinimap);
   const syncSystemTheme = useSettingsStore((state) => state.settings.syncSystemTheme);
-  const telemetry = useSettingsStore((state) => state.settings.telemetry);
   const theme = useSettingsStore((state) => state.settings.theme);
   const vimMode = useSettingsStore((state) => state.settings.vimMode);
   const vimRelativeLineNumbers = useSettingsStore((state) => state.settings.vimRelativeLineNumbers);
@@ -194,7 +192,6 @@ const CommandPaletteContent = ({ commandPaletteInitialView }: CommandPaletteCont
       showGitHubPullRequests,
       showMinimap,
       syncSystemTheme,
-      telemetry,
       theme,
       vimMode,
       vimRelativeLineNumbers,
@@ -222,7 +219,6 @@ const CommandPaletteContent = ({ commandPaletteInitialView }: CommandPaletteCont
       showGitHubPullRequests,
       showMinimap,
       syncSystemTheme,
-      telemetry,
       theme,
       vimMode,
       vimRelativeLineNumbers,
@@ -302,9 +298,6 @@ const CommandPaletteContent = ({ commandPaletteInitialView }: CommandPaletteCont
       openMarkdownDocument: () => {
         openContent({ type: "markdownDocument", documentId: crypto.randomUUID() });
       },
-      onClose,
-    }),
-    ...createGenerateActions({
       onClose,
     }),
     ...createWindowActions({

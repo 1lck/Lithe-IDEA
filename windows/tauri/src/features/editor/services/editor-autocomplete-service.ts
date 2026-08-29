@@ -1,7 +1,4 @@
 import { providerFetch } from "@/features/ai/services/providers/provider-fetch";
-import { getApiBase } from "@/utils/api-base";
-
-const API_BASE = getApiBase();
 
 export interface AutocompleteModel {
   id: string;
@@ -55,26 +52,16 @@ function parseModelListFromUnknown(payload: unknown): AutocompleteModel[] {
 }
 
 export async function fetchAutocompleteModels(): Promise<AutocompleteModel[]> {
-  const response = await providerFetch(`${API_BASE}/api/ai/autocomplete/models`, {
+  const response = await providerFetch("https://openrouter.ai/api/v1/models", {
     method: "GET",
   });
 
-  if (response.ok) {
-    const body = await response.json();
-    return parseModelListFromUnknown(body);
-  }
-
-  const openRouterResponse = await providerFetch("https://openrouter.ai/api/v1/models", {
-    method: "GET",
-  });
-
-  if (!openRouterResponse.ok) {
+  if (!response.ok) {
     throw new AutocompleteError(
-      `Failed to fetch fallback models (${openRouterResponse.status})`,
-      openRouterResponse.status,
+      `Failed to fetch autocomplete models (${response.status})`,
+      response.status,
     );
   }
 
-  const openRouterBody = await openRouterResponse.json();
-  return parseModelListFromUnknown(openRouterBody);
+  return parseModelListFromUnknown(await response.json());
 }

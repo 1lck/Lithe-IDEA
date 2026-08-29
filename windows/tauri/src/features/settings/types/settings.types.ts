@@ -5,7 +5,6 @@ import type { AIChatSkill } from "@/features/ai/types/skills.types";
 import type {
   FooterLeadingItemId,
   FooterTrailingItemId,
-  HeaderTrailingItemId,
   SidebarActivityItemId,
 } from "@/features/layout/config/item-order";
 
@@ -24,15 +23,12 @@ export type TabCloseButtonVisibility = "active" | "hover" | "always";
 export type WindowChromeDensity = "focused" | "comfortable";
 export type FileTreeSortOrder = "folders-first" | "name";
 export type SettingsSection =
-  | "account"
   | "general"
   | "editor"
   | "git"
   | "appearance"
   | "ai"
   | "keyboard"
-  | "collaboration"
-  | "enterprise"
   | "advanced"
   | "terminal"
   | "file-explorer";
@@ -97,7 +93,6 @@ export interface Settings {
   nativeMenuBar: boolean;
   compactMenuBar: boolean;
   windowTransparency: boolean;
-  headerTrailingItemsOrder: HeaderTrailingItemId[];
   sidebarActivityItemsOrder: Array<SidebarActivityItemId | string>;
   hiddenSidebarActivityItems: string[];
   footerLeadingItemsOrder: FooterLeadingItemId[];
@@ -159,10 +154,6 @@ export interface Settings {
   customEditorCommand: string;
   // Features
   coreFeatures: CoreFeaturesState;
-  // Advanced
-  enterpriseManagedMode: boolean;
-  enterpriseRequireExtensionAllowlist: boolean;
-  enterpriseAllowedExtensionIds: string[];
   // Other
   lastSettingsTab: SettingsSection;
   extensionsActiveTab:
@@ -207,6 +198,4 @@ export interface Settings {
   gitSidebarTabOrder: Array<"changes" | "history">;
   githubSidebarSectionOrder: Array<"pull-requests" | "issues" | "actions">;
   enableInlineGitBlame: boolean;
-  // Telemetry
-  telemetry: boolean;
 }

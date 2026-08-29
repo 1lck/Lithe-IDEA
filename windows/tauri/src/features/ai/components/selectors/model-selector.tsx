@@ -1,6 +1,5 @@
-import { LockIcon as Lock, WarningCircleIcon as WarningCircle } from "@/ui/icons";
+import { WarningCircleIcon as WarningCircle } from "@/ui/icons";
 import { useAIModelOptions } from "@/features/ai/hooks/use-ai-model-options";
-import { ProBadge } from "@/extensions/ui/components/pro-badge";
 import { Alert, AlertDescription } from "@/ui/alert";
 import { useTranslation } from "@/i18n/locale-provider";
 import Select from "@/ui/select";
@@ -33,24 +32,18 @@ export function ModelSelector({
 }: ModelSelectorProps) {
   const { t } = useTranslation();
   const isComposer = appearance === "composer";
-  const { availableModels, currentModelName, hasHostedAi, isCustomProvider, modelFetchError } =
+  const { availableModels, currentModelName, isCustomProvider, modelFetchError } =
     useAIModelOptions(providerId, modelId, onChange);
 
   return (
     <Select
       value={modelId}
       onChange={onChange}
-      options={availableModels.map((model) => {
-        const locked = Boolean(model.proOnly && !hasHostedAi);
-        return {
-          value: model.id,
-          label: model.name,
-          keywords: [model.id],
-          disabled: locked,
-          icon: locked ? <Lock className="text-subtle-foreground" /> : undefined,
-          accessory: model.proOnly ? <ProBadge /> : undefined,
-        };
-      })}
+      options={availableModels.map((model) => ({
+        value: model.id,
+        label: model.name,
+        keywords: [model.id],
+      }))}
       placeholder={currentModelName}
       aria-label={t("ai.selectAiModel")}
       searchable
