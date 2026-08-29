@@ -5,6 +5,74 @@ import Testing
 @Suite("Editor gutter layout")
 struct EditorGutterLayoutTests {
     @Test
+    func inlineDebugValuesMatchWholeIdentifiersInSourceOrder() {
+        let values = EditorInlineDebugValueProjection.values(
+            forLine: 0,
+            in: "int total = count + counter;" as NSString,
+            variables: [
+                EditorInlineDebugValue(name: "counter", value: "9"),
+                EditorInlineDebugValue(name: "count", value: "4"),
+                EditorInlineDebugValue(name: "total", value: "13")
+            ]
+        )
+
+        #expect(values.map(\.name) == ["total", "count", "counter"])
+        #expect(values.map(\.value) == ["13", "4", "9"])
+        #expect(EditorInlineDebugValueProjection.values(
+            forLine: 0,
+            in: "counter" as NSString,
+            variables: [EditorInlineDebugValue(name: "count", value: "4")]
+        ).isEmpty)
+    }
+
+    @Test
+    func inlineDebugValuesAreBoundedAndSingleLine() {
+        let longValue = String(repeating: "x", count: 100) + "\nnext"
+        let values = EditorInlineDebugValueProjection.values(
+            forLine: 0,
+            in: "a + b + c + d + e" as NSString,
+            variables: ["e", "d", "c", "b", "a"].map {
+                EditorInlineDebugValue(name: $0, value: $0 == "a" ? longValue : $0)
+            }
+        )
+
+        #expect(values.map(\.name) == ["a", "b", "c", "d"])
+        #expect(values[0].value.count == EditorInlineDebugValueProjection.maximumValueCharacters)
+        #expect(values[0].value.last == "…")
+        #expect(!values[0].value.contains("\n"))
+    }
+
+    @MainActor
+    @Test
+    func inlineDebugValueOverlayUsesOnlyRemainingEditorWidth() throws {
+        let textView = CodeTextView(frame: NSRect(x: 0, y: 0, width: 480, height: 120))
+        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.string = "int count = 4;\nreturn count;"
+        let layoutManager = try #require(textView.layoutManager)
+        let textContainer = try #require(textView.textContainer)
+        layoutManager.delegate = textView
+        layoutManager.ensureLayout(for: textContainer)
+        let overlay = DebugInlineValueOverlayController(textView: textView)
+
+        overlay.update(
+            line: 1,
+            values: [EditorInlineDebugValue(name: "count", value: "4")]
+        )
+
+        let frame = try #require(overlay.renderedFrame)
+        #expect(overlay.renderedText == "count = 4")
+        #expect(frame.minX > textView.textContainerOrigin.x)
+        #expect(frame.maxX <= textView.bounds.maxX - 12)
+
+        textView.frame.size.width = 40
+        overlay.update(
+            line: 1,
+            values: [EditorInlineDebugValue(name: "count", value: "4")]
+        )
+        #expect(overlay.renderedText == nil)
+    }
+
+    @Test
     func debugHoverResolvesOnlyJavaIdentifierTokens() throws {
         let source = "userService.login(userName)" as NSString
 

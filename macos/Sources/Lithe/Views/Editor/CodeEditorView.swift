@@ -110,6 +110,102 @@ struct EditorDebugBreakpointState: Equatable {
     let verified: Bool
 }
 
+struct EditorInlineDebugValue: Equatable {
+    let name: String
+    let value: String
+}
+
+enum EditorInlineDebugValueProjection {
+    static let maximumVisibleValues = 4
+    static let maximumValueCharacters = 80
+
+    static func values(
+        forLine line: Int,
+        in source: NSString,
+        variables: [EditorInlineDebugValue]
+    ) -> [EditorInlineDebugValue] {
+        guard let lineRange = lineRange(for: line, in: source) else { return [] }
+        let lineSource = source.substring(with: lineRange) as NSString
+        let candidates = Dictionary(
+            variables.map { ($0.name, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var matched: [(location: Int, value: EditorInlineDebugValue)] = []
+        for (name, variable) in candidates {
+            guard isIdentifier(name) else { continue }
+            var searchLocation = 0
+            while searchLocation < lineSource.length {
+                let range = lineSource.range(
+                    of: name,
+                    options: [],
+                    range: NSRange(
+                        location: searchLocation,
+                        length: lineSource.length - searchLocation
+                    )
+                )
+                guard range.location != NSNotFound else { break }
+                if hasIdentifierBoundaries(range: range, in: lineSource) {
+                    matched.append((range.location, normalized(variable)))
+                    break
+                }
+                searchLocation = NSMaxRange(range)
+            }
+        }
+        return matched
+            .sorted { ($0.location, $0.value.name) < ($1.location, $1.value.name) }
+            .prefix(maximumVisibleValues)
+            .map(\.value)
+    }
+
+    private static func normalized(_ value: EditorInlineDebugValue) -> EditorInlineDebugValue {
+        let singleLine = value.value
+            .replacingOccurrences(of: "\r", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+        guard singleLine.count > maximumValueCharacters else {
+            return EditorInlineDebugValue(name: value.name, value: singleLine)
+        }
+        return EditorInlineDebugValue(
+            name: value.name,
+            value: String(singleLine.prefix(maximumValueCharacters - 1)) + "…"
+        )
+    }
+
+    private static func isIdentifier(_ value: String) -> Bool {
+        guard let first = value.unicodeScalars.first,
+              CharacterSet.letters.union(CharacterSet(charactersIn: "_$")).contains(first)
+        else { return false }
+        let characters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_$"))
+        return value.unicodeScalars.dropFirst().allSatisfy(characters.contains)
+    }
+
+    private static func hasIdentifierBoundaries(range: NSRange, in source: NSString) -> Bool {
+        let characters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_$"))
+        func isIdentifierCharacter(at location: Int) -> Bool {
+            guard location >= 0,
+                  location < source.length,
+                  let scalar = UnicodeScalar(source.character(at: location)) else { return false }
+            return characters.contains(scalar)
+        }
+        return !isIdentifierCharacter(at: range.location - 1)
+            && !isIdentifierCharacter(at: NSMaxRange(range))
+    }
+
+    private static func lineRange(for line: Int, in source: NSString) -> NSRange? {
+        guard line >= 0, source.length > 0 else { return nil }
+        var location = 0
+        var currentLine = 0
+        while currentLine < line, location < source.length {
+            let range = source.lineRange(for: NSRange(location: location, length: 0))
+            let next = NSMaxRange(range)
+            guard next > location else { return nil }
+            location = next
+            currentLine += 1
+        }
+        guard currentLine == line, location < source.length else { return nil }
+        return source.lineRange(for: NSRange(location: location, length: 0))
+    }
+}
+
 enum EditorDebugBreakpointLocation {
     static func productLine(forEditorLine line: Int) -> Int { line + 1 }
 }
@@ -498,6 +594,9 @@ struct CodeEditorView: NSViewRepresentable {
         }
         context.coordinator.attachMarkdownImagePasteMonitor(to: scrollView)
         context.coordinator.codeVisionOverlay = CodeVisionOverlayController(textView: textView)
+        context.coordinator.debugInlineValueOverlay = DebugInlineValueOverlayController(
+            textView: textView
+        )
         context.coordinator.isDarkAppearance = palette.isDark
         context.coordinator.colorTheme = settings.colorTheme
         context.coordinator.highlight()
@@ -612,6 +711,7 @@ struct CodeEditorView: NSViewRepresentable {
         weak var gutter: LineNumberGutterView?
         weak var container: EditorContainerView?
         var codeVisionOverlay: CodeVisionOverlayController?
+        var debugInlineValueOverlay: DebugInlineValueOverlayController?
         var isApplyingEditorChange = false
         var isDarkAppearance = true
         var colorTheme: AppColorTheme = .lithe
@@ -638,6 +738,8 @@ struct CodeEditorView: NSViewRepresentable {
         private var appliedLanguageFeatures: LanguageServerFeatureSet?
         private var appliedReadOnly: Bool?
         private var appliedCodeVisionHints: [JavaCodeVisionHint]?
+        private var appliedInlineDebugLine: Int?
+        private var appliedInlineDebugValues: [EditorInlineDebugValue] = []
         private var editorOverlayLayoutRevision = 0
         private var appliedEditorOverlayLayoutRevision = -1
         private var editorOverlayRelayoutTask: Task<Void, Never>?
@@ -1261,6 +1363,34 @@ struct CodeEditorView: NSViewRepresentable {
                         )
                     },
                     onAuthor: { [weak model] in model?.showBlame(for: url) }
+                )
+            }
+            let inlineDebugLine: Int?
+            let inlineDebugValues: [EditorInlineDebugValue]
+            if let feature = model.genericDebugFeatureIfActive,
+               feature.state == .paused,
+               feature.selectedFrame?.sourceURL?.standardizedFileURL == url,
+               let frame = feature.selectedFrame {
+                inlineDebugLine = max(0, frame.line - 1)
+                inlineDebugValues = EditorInlineDebugValueProjection.values(
+                    forLine: inlineDebugLine ?? 0,
+                    in: (textView?.string ?? "") as NSString,
+                    variables: feature.variables.map {
+                        EditorInlineDebugValue(name: $0.name, value: $0.value)
+                    }
+                )
+            } else {
+                inlineDebugLine = nil
+                inlineDebugValues = []
+            }
+            if appliedInlineDebugLine != inlineDebugLine
+                || appliedInlineDebugValues != inlineDebugValues
+                || overlayLayoutChanged {
+                appliedInlineDebugLine = inlineDebugLine
+                appliedInlineDebugValues = inlineDebugValues
+                debugInlineValueOverlay?.update(
+                    line: inlineDebugLine,
+                    values: inlineDebugValues
                 )
             }
             appliedEditorOverlayLayoutRevision = editorOverlayLayoutRevision
@@ -4532,6 +4662,103 @@ final class CodeVisionOverlayController {
         button.sizeToFit()
         return ceil(button.frame.width)
     }
+}
+
+@MainActor
+final class DebugInlineValueOverlayController {
+    private weak var textView: NSTextView?
+    private var label: NSTextField?
+    private(set) var renderedText: String?
+    private(set) var renderedFrame: NSRect?
+
+    init(textView: NSTextView) {
+        self.textView = textView
+    }
+
+    func update(line: Int?, values: [EditorInlineDebugValue]) {
+        label?.removeFromSuperview()
+        label = nil
+        renderedText = nil
+        renderedFrame = nil
+        guard let line,
+              !values.isEmpty,
+              let textView,
+              let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else { return }
+        layoutManager.ensureLayout(for: textContainer)
+        let source = textView.string as NSString
+        let lineStart = characterOffset(forLine: line, in: source)
+        guard lineStart < source.length else { return }
+        let lineRange = source.lineRange(for: NSRange(location: lineStart, length: 0))
+        var contentEnd = NSMaxRange(lineRange)
+        while contentEnd > lineRange.location {
+            let character = source.character(at: contentEnd - 1)
+            guard character == 10 || character == 13 else { break }
+            contentEnd -= 1
+        }
+        guard contentEnd > lineRange.location else { return }
+        let lastCharacter = max(lineRange.location, contentEnd - 1)
+        let lastGlyph = layoutManager.glyphIndexForCharacter(at: lastCharacter)
+        var visualLineGlyphRange = NSRange()
+        let lineRect = layoutManager.lineFragmentRect(
+            forGlyphAt: lastGlyph,
+            effectiveRange: &visualLineGlyphRange
+        )
+        let contentGlyphRange = layoutManager.glyphRange(
+            forCharacterRange: NSRange(
+                location: lineRange.location,
+                length: contentEnd - lineRange.location
+            ),
+            actualCharacterRange: nil
+        )
+        let visibleContentRange = NSIntersectionRange(contentGlyphRange, visualLineGlyphRange)
+        guard visibleContentRange.length > 0 else { return }
+        let contentRect = layoutManager.boundingRect(
+            forGlyphRange: visibleContentRange,
+            in: textContainer
+        )
+        let text = values.map { "\($0.name) = \($0.value)" }.joined(separator: "   ")
+        let label = DebugInlineValueLabel(labelWithString: text)
+        label.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        label.textColor = NSColor.secondaryLabelColor.withAlphaComponent(0.82)
+        label.lineBreakMode = .byTruncatingTail
+        label.maximumNumberOfLines = 1
+        label.toolTip = text
+        label.sizeToFit()
+        let originX = textView.textContainerOrigin.x + contentRect.maxX + 12
+        let availableWidth = max(0, textView.bounds.width - originX - 12)
+        guard availableWidth >= 24 else { return }
+        let height = max(16, label.fittingSize.height)
+        label.frame = NSRect(
+            x: originX,
+            y: textView.textContainerOrigin.y + lineRect.midY - height / 2,
+            width: min(label.fittingSize.width, availableWidth),
+            height: height
+        )
+        label.isSelectable = false
+        label.isEditable = false
+        textView.addSubview(label)
+        self.label = label
+        renderedText = text
+        renderedFrame = label.frame
+    }
+
+    private func characterOffset(forLine line: Int, in source: NSString) -> Int {
+        if let codeTextView = textView as? CodeTextView {
+            return codeTextView.characterOffset(forLine: line, in: source)
+        }
+        var currentLine = 0
+        var location = 0
+        while currentLine < line, location < source.length {
+            location = NSMaxRange(source.lineRange(for: NSRange(location: location, length: 0)))
+            currentLine += 1
+        }
+        return location
+    }
+}
+
+private final class DebugInlineValueLabel: NSTextField {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 @MainActor
