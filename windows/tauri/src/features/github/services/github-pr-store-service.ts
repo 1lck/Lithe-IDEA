@@ -1,6 +1,5 @@
 import { invoke } from "@/platform/tauri-core";
 import type { PullRequest, PullRequestDetails, PullRequestFile } from "../types/github.types";
-import type { GitHubTokenSyncStatus } from "./github-token-service";
 
 export const PR_LIST_CACHE_TTL_MS = 5 * 60_000;
 export const PR_DETAILS_CACHE_TTL_MS = 120_000;
@@ -16,12 +15,6 @@ export function getPRDetailsCacheKey(repoPath: string, prNumber: number): string
 
 export function isFresh(timestamp: number, ttlMs: number): boolean {
   return Date.now() - timestamp < ttlMs;
-}
-
-export function getGitHubAccountStatus(syncStatus: GitHubTokenSyncStatus) {
-  if (syncStatus === "synced") return "connected" as const;
-  if (syncStatus === "notSignedIn") return "notSignedIn" as const;
-  return "notConnected" as const;
 }
 
 export function getGitHubErrorMessage(error: unknown): string {

@@ -6,7 +6,6 @@ export type SidebarView =
   | "extensions"
   | "outline"
   | "databases"
-  | "collaboration"
   | "notifications"
   | (string & {});
 
@@ -27,7 +26,6 @@ export type SidebarPaneLevel = "primary" | "edge";
 const EDGE_SIDEBAR_VIEWS = new Set<SidebarView>([
   "outline",
   "databases",
-  "collaboration",
   "notifications",
 ]);
 

@@ -2,56 +2,6 @@ import type { SettingSearchRecord } from "../types/search.types";
 import { IS_LINUX, IS_MAC, IS_WINDOWS } from "@/utils/platform";
 
 export const settingsSearchIndex: SettingSearchRecord[] = [
-  // Enterprise Settings
-  {
-    id: "enterprise-managed-mode",
-    tab: "enterprise",
-    section: "Enterprise Controls",
-    label: "Managed Mode",
-    description: "Enforce enterprise policy controls in the desktop app",
-    keywords: ["enterprise", "managed", "policy", "organization", "admin"],
-  },
-  {
-    id: "enterprise-extension-allowlist-toggle",
-    tab: "enterprise",
-    section: "Enterprise Controls",
-    label: "Require Extension Allowlist",
-    description: "Only approved extension IDs can be installed or updated",
-    keywords: ["enterprise", "extensions", "allowlist", "policy", "security"],
-  },
-  {
-    id: "enterprise-allow-byok",
-    tab: "enterprise",
-    section: "Enterprise Controls",
-    label: "Allow BYOK Autocomplete",
-    description: "Allow user-provided OpenRouter keys for autocomplete",
-    keywords: ["enterprise", "byok", "openrouter", "autocomplete", "api", "key"],
-  },
-  {
-    id: "enterprise-ai-completion",
-    tab: "enterprise",
-    section: "Enterprise Controls",
-    label: "Enable AI Autocomplete",
-    description: "Enable inline AI completion for enterprise users",
-    keywords: ["enterprise", "ai", "autocomplete", "completion"],
-  },
-  {
-    id: "enterprise-ai-chat",
-    tab: "enterprise",
-    section: "Enterprise Controls",
-    label: "Enable Agent",
-    description: "Enable Agent panel for enterprise users",
-    keywords: ["enterprise", "ai", "agent", "chat", "panel"],
-  },
-  {
-    id: "enterprise-extension-allowlist-entries",
-    tab: "enterprise",
-    section: "Extension Allowlist",
-    label: "Extension Allowlist",
-    description: "Approved extension IDs for enterprise-managed environments",
-    keywords: ["enterprise", "extensions", "ids", "allowlist", "approved"],
-  },
-
   // Editor Settings
   {
     id: "editor-auto-save",
@@ -1127,14 +1077,5 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     label: "Reset Settings",
     description: "Reset all settings to defaults",
     keywords: ["reset", "settings", "defaults", "restore"],
-  },
-  {
-    id: "advanced-telemetry",
-    tab: "advanced",
-    section: "Telemetry",
-    label: "Anonymous Usage Telemetry",
-    description:
-      "Send anonymous operational metadata for updates, heartbeats, extensions, and crashes",
-    keywords: ["telemetry", "analytics", "tracking", "privacy", "crash", "updates", "extensions"],
   },
 ];

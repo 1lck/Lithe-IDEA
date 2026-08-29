@@ -3,7 +3,6 @@ import { check, type Update } from "@tauri-apps/plugin-updater";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { prepareProjectTransitionWithUnsavedBuffers } from "@/features/file-system/controllers/workspace-project-transition";
-import { recordUpdateCheckTelemetry } from "@/features/telemetry/services/telemetry";
 import {
   clearUpdatePreferencesForNewVersion,
   notifyUpdateDismissed,
@@ -76,7 +75,6 @@ export const useUpdater = (checkOnMount = true) => {
 
       const update = await check();
       updateRef.current = update;
-      const currentVersion = update?.currentVersion ?? "";
 
       if (update?.available) {
         const updateInfo = toUpdateInfo(update);
@@ -92,11 +90,6 @@ export const useUpdater = (checkOnMount = true) => {
             checking: false,
             updateInfo: null,
           }));
-          void recordUpdateCheckTelemetry({
-            status: "available",
-            availableVersion: update.version,
-            currentVersion,
-          });
           return "suppressed" as const;
         }
 
@@ -107,11 +100,6 @@ export const useUpdater = (checkOnMount = true) => {
           checking: false,
           updateInfo,
         }));
-        void recordUpdateCheckTelemetry({
-          status: "available",
-          availableVersion: update.version,
-          currentVersion,
-        });
         return "available" as const;
       }
 
@@ -122,27 +110,15 @@ export const useUpdater = (checkOnMount = true) => {
         checking: false,
         updateInfo: null,
       }));
-      void recordUpdateCheckTelemetry({
-        status: "up_to_date",
-        availableVersion: null,
-        currentVersion,
-      });
       return "up-to-date" as const;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to check for updates";
-      const failedCurrentVersion = updateInfoRef.current?.currentVersion ?? "";
       updateInfoRef.current = null;
       setState((prev) => ({
         ...prev,
         checking: false,
         error: message,
       }));
-      void recordUpdateCheckTelemetry({
-        status: "failed",
-        availableVersion: null,
-        currentVersion: failedCurrentVersion,
-        error: message,
-      });
       return "failed" as const;
     }
   }, []);
