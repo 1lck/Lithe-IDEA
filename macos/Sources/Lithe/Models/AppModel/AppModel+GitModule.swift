@@ -41,4 +41,13 @@ extension AppModel {
             return nil
         }
     }
+
+    func previewGitCommitSelection(_ commit: GitCommit) {
+        gitFeatureIfActive?.previewGitCommitSelection(commit)
+    }
+
+    func loadGitCommitFiles(for commit: GitCommit) async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.loadGitCommitFiles(for: commit)
+    }
 }

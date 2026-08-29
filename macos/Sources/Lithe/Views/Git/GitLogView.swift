@@ -31,6 +31,7 @@ struct GitLogView: View {
     @State private var gitLogPathFilter = ""
     @State private var gitLogPathDraft = ""
     @State private var showsGitLogPathPopover = false
+    @State private var gitCommitFileLoadTask: Task<Void, Never>?
     @State private var graphLayout = GitGraphLayout(
         rows: [],
         laneCount: 0,
@@ -53,6 +54,7 @@ struct GitLogView: View {
         static let rowHeight: CGFloat = 38
         static let treeRowHeight: CGFloat = 28
         static let toolbarHeight: CGFloat = 38
+        static let commitFileLoadDelay = Duration.milliseconds(120)
         static let darkConsoleText = Color(red: 0.76, green: 0.77, blue: 0.79)
         static let darkConsoleMetadata = Color(red: 0.69, green: 0.70, blue: 0.72)
     }
@@ -180,13 +182,12 @@ struct GitLogView: View {
             selectedGitToolTab = .console
         }
         .onAppear {
-            // Re-arm the selected commit load after the panel cancels work while hidden.
             if let commit = model.selectedGitCommit {
                 scheduleGitCommitFileLoad(for: commit)
             }
         }
         .onDisappear {
-            model.gitFeatureIfActive?.cancelGitCommitFilesRequests()
+            gitCommitFileLoadTask?.cancel()
         }
         .sheet(item: $branchDialogRequest) { request in
             GitBranchNameDialog(request: request) { name, checkout in
@@ -1076,12 +1077,38 @@ struct GitLogView: View {
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
-            if model.selectedGitCommitFiles.isEmpty {
-                Text(model.selectedGitCommit == nil ? "Select a commit" : "No changed files")
+            switch model.selectedGitCommitFilesLoadState {
+            case .idle:
+                Text("Select a commit")
                     .font(LitheTheme.uiFont)
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
+            case .loading:
+                VStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Loading changed files…")
+                }
+                .font(LitheTheme.uiFont)
+                .foregroundStyle(LitheTheme.secondaryText)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .failed:
+                VStack(spacing: 8) {
+                    Text("Could not load changed files")
+                    if let commit = model.selectedGitCommit {
+                        Button("Retry") {
+                            scheduleGitCommitFileLoad(for: commit)
+                        }
+                    }
+                }
+                .font(LitheTheme.uiFont)
+                .foregroundStyle(LitheTheme.secondaryText)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .ready where model.selectedGitCommitFiles.isEmpty:
+                Text("No changed files")
+                    .font(LitheTheme.uiFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .ready:
                 GeometryReader { geometry in
                     ScrollView(.vertical) {
                         LazyVStack(alignment: .leading, spacing: 0) {
@@ -1154,7 +1181,15 @@ struct GitLogView: View {
     }
 
     private func scheduleGitCommitFileLoad(for commit: GitCommit) {
-        model.gitFeatureIfActive?.scheduleGitCommitFilesLoad(for: commit)
+        gitCommitFileLoadTask?.cancel()
+        gitCommitFileLoadTask = Task { [model] in
+            do {
+                try await Task.sleep(for: GitVisual.commitFileLoadDelay)
+            } catch {
+                return
+            }
+            await model.loadGitCommitFiles(for: commit)
+        }
     }
 
     private var checkoutReference: GitReference? {
