@@ -90,7 +90,7 @@ struct TerminalView: View {
                         model.moveTerminalToEditor(session.id)
                     }
                     Button("Close Terminal") {
-                        model.closeTerminalSession(session)
+                        model.requestCloseTerminalSession(session)
                     }
                 } else {
                     Button("No Terminal Sessions") {}
@@ -163,7 +163,7 @@ struct TerminalView: View {
             }
 
             Button {
-                model.closeTerminalSession(session)
+                model.requestCloseTerminalSession(session)
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .semibold))
@@ -205,7 +205,7 @@ struct TerminalView: View {
             }
             Divider()
             Button("Close") {
-                model.closeTerminalSession(session)
+                model.requestCloseTerminalSession(session)
             }
         }
         .lithePointer()

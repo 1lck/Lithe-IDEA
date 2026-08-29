@@ -1213,5 +1213,8 @@
 "Notifications" = "通知";
 "Clear All" = "全部清除";
 "No notifications" = "暂无通知";
+"Close Running Terminal?" = "关闭正在运行的终端？";
+"Close Terminal" = "关闭终端";
+"Closing this terminal will stop its shell and any running command." = "关闭此终端将停止其 Shell 和所有正在运行的命令。";
 "Log: %@" = "日志：%@";
 "Console" = "控制台";

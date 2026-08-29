@@ -158,8 +158,38 @@ extension AppModel {
         isTerminalVisible = true
     }
 
-    func closeTerminalSession(_ session: TerminalSession) {
+    func requestCloseTerminalSession(_ session: TerminalSession) {
         guard terminalSessions.contains(where: { $0.id == session.id }) else { return }
+        guard session.isRunning else {
+            closeTerminalSession(session)
+            return
+        }
+        pendingTerminalCloseSessionID = session.id
+    }
+
+    var pendingTerminalCloseSession: TerminalSession? {
+        guard let pendingTerminalCloseSessionID else { return nil }
+        return terminalSessions.first { $0.id == pendingTerminalCloseSessionID }
+    }
+
+    func confirmTerminalClose() {
+        guard let session = pendingTerminalCloseSession else {
+            pendingTerminalCloseSessionID = nil
+            return
+        }
+        pendingTerminalCloseSessionID = nil
+        closeTerminalSession(session)
+    }
+
+    func cancelTerminalClose() {
+        pendingTerminalCloseSessionID = nil
+    }
+
+    private func closeTerminalSession(_ session: TerminalSession) {
+        guard terminalSessions.contains(where: { $0.id == session.id }) else { return }
+        if pendingTerminalCloseSessionID == session.id {
+            pendingTerminalCloseSessionID = nil
+        }
         editorTabOrderFeature.remove(.terminal(session.id))
         terminalPlacementFeature.removeSession(session.id)
         terminalFeature?.closeSession(session)
@@ -172,6 +202,7 @@ extension AppModel {
     func restartActiveTerminal() { terminalFeature?.restartActiveSession() }
     func restartActiveTerminal(using shellPath: String) { terminalFeature?.restartActiveSession(using: shellPath) }
     func stopTerminalSessions() {
+        pendingTerminalCloseSessionID = nil
         editorTabOrderFeature.removeAllTerminals()
         terminalPlacementFeature.reset()
         terminalFeature?.stopAllSessions()
