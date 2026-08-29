@@ -871,6 +871,14 @@
 "Stop the current run" = "停止当前运行";
 "Stop Debug" = "停止调试";
 "Stop the current debug session" = "停止当前调试会话";
+"Debug: Resume" = "调试：继续";
+"Resume the paused debug session" = "继续已暂停的调试会话";
+"Debug: Step Over" = "调试：步过";
+"Execute the next source line" = "执行下一行源代码";
+"Debug: Step Into" = "调试：步入";
+"Enter the next function call" = "进入下一个函数调用";
+"Debug: Step Out" = "调试：步出";
+"Return from the current function" = "从当前函数返回";
 "Open Project" = "打开项目";
 "Where would you like to open the project ‘%@’?" = "你想在哪里打开项目“%@”？";
 "Don't ask again" = "不再询问";

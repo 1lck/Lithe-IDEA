@@ -345,6 +345,8 @@ extension AppModel {
             supportsLanguageServerFeature(.references)
         case "go-to-implementation":
             supportsLanguageServerFeature(.implementation)
+        case "debug-resume", "debug-step-over", "debug-step-into", "debug-step-out":
+            genericDebugFeatureIfActive?.state == .paused
         case "close-project", "search-everywhere", "search-in-project",
              "replace-in-project", "project-local-history", "run", "debug",
              "stop-run", "stop-debug", "toggle-terminal", "toggle-problems",

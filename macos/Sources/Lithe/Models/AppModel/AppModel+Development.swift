@@ -450,6 +450,26 @@ extension AppModel {
         genericDebugFeatureIfActive?.stop()
     }
 
+    func resumeDebugging() {
+        guard let feature = genericDebugFeatureIfActive, feature.state == .paused else { return }
+        feature.execute(.continueExecution)
+    }
+
+    func stepOverDebugging() {
+        guard let feature = genericDebugFeatureIfActive, feature.state == .paused else { return }
+        feature.execute(.next)
+    }
+
+    func stepIntoDebugging() {
+        guard let feature = genericDebugFeatureIfActive, feature.state == .paused else { return }
+        feature.execute(.stepIn)
+    }
+
+    func stepOutDebugging() {
+        guard let feature = genericDebugFeatureIfActive, feature.state == .paused else { return }
+        feature.execute(.stepOut)
+    }
+
     func toggleDebugBreakpointAtCaret() {
         guard let document = activeDocument,
               let caret = editorCaret,
