@@ -7,9 +7,14 @@ const emitGitChanged = spyOn(gitEvents, "emitGitChanged");
 
 mock.module("@/platform/tauri-core", () => ({ invoke }));
 
-const { getConflictMarkerPaths, getOperationState, mergeBranch, rebaseOntoBranch } = await import(
-  "./git-integration-api"
-);
+const {
+  checkoutAndRebase,
+  getConflictMarkerPaths,
+  getOperationState,
+  mergeBranch,
+  pullRemoteReference,
+  rebaseOntoBranch,
+} = await import("./git-integration-api");
 
 const operationState = (
   kind: GitOperationState["kind"],
@@ -28,6 +33,35 @@ beforeEach(() => {
 });
 
 describe("Git integration state", () => {
+  test("preserves complete remote references for composite operations", async () => {
+    invoke.mockImplementation(async (command: string) => {
+      if (command === "git_discover_repo") return "C:/repo";
+      return null;
+    });
+    const reference = {
+      fullName: "refs/remotes/origin/feature/demo",
+      shortName: "origin/feature/demo",
+      kind: "remote" as const,
+      isCurrent: false,
+    };
+
+    await expect(checkoutAndRebase("C:/repo", reference)).resolves.toEqual({ status: "clean" });
+    await expect(pullRemoteReference("C:/repo", reference, "merge")).resolves.toEqual({
+      status: "clean",
+    });
+    expect(invoke).toHaveBeenCalledWith("git_checkout_and_rebase", {
+      repoPath: "C:/repo",
+      reference: reference.fullName,
+      referenceKind: "remote",
+    });
+    expect(invoke).toHaveBeenCalledWith("git_pull", {
+      repoPath: "C:/repo",
+      reference: reference.fullName,
+      referenceKind: "remote",
+      mode: "merge",
+    });
+  });
+
   test("reports a stopped rebase even when no conflicted paths remain", async () => {
     invoke.mockImplementation(async (command: string) => {
       if (command === "git_discover_repo") return "C:/repo";
