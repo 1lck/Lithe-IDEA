@@ -354,7 +354,7 @@ struct LitheApp: App {
                     .disabled(!model.isFindBarVisible || model.findMatchCount == 0)
 
                     Button("Go to Line…") {
-                        model.showGoToLineBar()
+                        model.showGoToLine()
                     }
                     .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "go-to-line"))
                     .disabled(model.activeDocument == nil)

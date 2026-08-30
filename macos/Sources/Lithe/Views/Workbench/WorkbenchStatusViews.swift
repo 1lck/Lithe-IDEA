@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// 状态栏的行:列指示：视觉保持纯文本现状，点击打开 Go to Line 输入条
-/// （无活动文档时为无操作）。
+/// Status bar line:column indicator. Visually unchanged from the plain text
+/// label; clicking opens the Go to Line dialog (a no-op without an active
+/// document).
 struct EditorCaretPositionLabel: View {
     @ObservedObject var chrome: EditorChromeModel
     let onShowGoToLine: () -> Void

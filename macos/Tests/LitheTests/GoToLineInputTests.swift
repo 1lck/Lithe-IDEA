@@ -5,7 +5,7 @@ import Testing
 struct GoToLineInputTests {
     @Test
     func parsesLineOnlyInputAsZeroBasedLineWithZeroColumn() {
-        // “120”表示第 120 行行首，内部转换为 0-based
+        // "120" means 1-based line 120, line start; converted to 0-based here.
         #expect(GoToLineInput.parse("120") == GoToLineInput(line: 119, column: 0))
         #expect(GoToLineInput.parse("1") == GoToLineInput(line: 0, column: 0))
     }
@@ -34,7 +34,7 @@ struct GoToLineInputTests {
 
     @Test
     func rejectsZeroAndNegativeNumbers() {
-        // 1-based 输入里 0 与负数都是非法值
+        // In 1-based input, zero and negatives are invalid values.
         #expect(GoToLineInput.parse("0") == nil)
         #expect(GoToLineInput.parse("-1") == nil)
         #expect(GoToLineInput.parse("0:5") == nil)
@@ -57,7 +57,8 @@ struct GoToLineInputTests {
 
     @Test
     func clampsOutOfRangeColumnToLineEnd() {
-        // 列按 UTF-16 单元计数，与编辑器 caret 的 utf16Column 口径一致
+        // Columns are counted in UTF-16 units, matching the editor caret's
+        // utf16Column convention.
         let content = "first\nsecond line\nthird"
         #expect(GoToLineInput.clamped(line: 1, column: 99, in: content) == GoToLineInput(line: 1, column: 11))
     }
@@ -70,20 +71,21 @@ struct GoToLineInputTests {
 
     @Test
     func clampsAnyInputInEmptyDocumentToOrigin() {
-        // 空文档（0 行）时输入任何行号都只定位到文档开头
+        // An empty document (0 lines) only ever addresses the document start.
         #expect(GoToLineInput.clamped(line: 4, column: 9, in: "") == GoToLineInput(line: 0, column: 0))
     }
 
     @Test
     func clampsToTrailingEmptyLineAfterFinalNewline() {
-        // “a\n”在编辑器里存在可定位的第 2 行（末尾空行）
+        // "a\n" has an addressable second line (the trailing empty line).
         #expect(GoToLineInput.clamped(line: 9, column: 3, in: "a\n") == GoToLineInput(line: 1, column: 0))
         #expect(GoToLineInput.clamped(line: 9, column: 3, in: "a\nb") == GoToLineInput(line: 1, column: 1))
     }
 
     @Test
     func clampsColumnUsingUTF16LengthOfEmojiLine() {
-        // emoji 占 2 个 UTF-16 单元，列收敛按 UTF-16 长度而非字符数
+        // An emoji spans two UTF-16 units, so convergence counts UTF-16
+        // length rather than character count.
         let content = "a\u{1F600}b"
         #expect(GoToLineInput.clamped(line: 0, column: 3, in: content) == GoToLineInput(line: 0, column: 3))
         #expect(GoToLineInput.clamped(line: 0, column: 4, in: content) == GoToLineInput(line: 0, column: 4))

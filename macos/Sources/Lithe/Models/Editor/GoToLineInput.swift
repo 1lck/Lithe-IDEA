@@ -1,14 +1,16 @@
 import Foundation
 
-/// “Go to Line”输入的解析与文档范围收敛。输入是 1-based 的“120”或
-/// “120:35”文本，解析结果为内部 0-based 行列；1-based → 0-based 的换算
-/// 只发生在这里，状态栏显示时再 +1，避免多处偏移。
+/// Parsing and document-range convergence for the Go to Line input. The
+/// input is 1-based text — "120" or "120:35" — and the parsed result is the
+/// internal 0-based line and column. The 1-based → 0-based conversion happens
+/// only here; the status bar adds 1 back for display, avoiding split offsets.
 struct GoToLineInput: Equatable {
     let line: Int
     let column: Int
 
-    /// 解析“120”、“120:35”或两侧带空格的等价输入；空串、非数字、多冒号、
-    /// 0 与负数都视为非法，返回 `nil` 表示本次跳转应为无操作。
+    /// Parses "120", "120:35", or whitespace-padded equivalents. Empty input,
+    /// non-numeric text, multiple colons, zero, and negative values are all
+    /// invalid and yield `nil`, making the jump a no-op.
     static func parse(_ text: String) -> GoToLineInput? {
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return nil }
@@ -20,9 +22,13 @@ struct GoToLineInput: Equatable {
         return GoToLineInput(line: line - 1, column: column - 1)
     }
 
-    /// 将 0-based 行列收敛到文档内容范围内：行超出收敛到最后一行，列超出
-    /// 收敛到行尾，负值收敛到 0；空文档只定位到文档开头。跳转前必须用
-    /// 当前文档文本重新收敛，不做陈旧行数缓存。
+    /// Converges 0-based line and column into the given document content:
+    /// an out-of-range line collapses to the last line, an out-of-range
+    /// column to the end of that line (counted in UTF-16 units to match
+    /// `EditorCaret.utf16Column`), negatives to the origin. An empty document
+    /// only ever addresses the document start. Callers must re-converge with
+    /// the live document text right before jumping; line counts are never
+    /// cached.
     static func clamped(line: Int, column: Int, in content: String) -> GoToLineInput {
         let lines = content.split(separator: "\n", omittingEmptySubsequences: false)
         let clampedLine = min(max(line, 0), lines.count - 1)
