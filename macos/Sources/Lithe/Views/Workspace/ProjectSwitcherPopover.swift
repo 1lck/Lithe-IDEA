@@ -1,5 +1,12 @@
 import SwiftUI
 
+enum ProjectSwitcherLayoutMetrics {
+    static let width: CGFloat = 390
+    static let maximumHeight: CGFloat = 520
+    static let leadingOverlap: CGFloat = 10
+    static let anchorOffsetFromLeading = (width / 2) - leadingOverlap
+}
+
 struct ProjectSwitcherPopover: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var projectSessions: ProjectSessionManager
@@ -54,10 +61,8 @@ struct ProjectSwitcherPopover: View {
             }
             .padding(8)
         }
-        // Let the popover follow the content height instead of reserving a
-        // large empty panel when only a few projects are available.
-        .frame(width: 390)
-        .frame(maxHeight: 520)
+        .frame(width: ProjectSwitcherLayoutMetrics.width)
+        .frame(maxHeight: ProjectSwitcherLayoutMetrics.maximumHeight)
         .background(LitheTheme.popupBackground)
     }
 

@@ -466,27 +466,32 @@ struct WorkbenchView: View {
             .buttonStyle(.plain)
             .lithePointer()
             .accessibilityIdentifier("project-switcher-\(model.id.uuidString)")
-            .popover(isPresented: $isProjectSwitcherPresented, arrowEdge: .bottom) {
-                ProjectSwitcherPopover(
-                    isPresented: $isProjectSwitcherPresented,
-                    onNewProject: {
-                        isProjectSwitcherPresented = false
-                        model.chooseProject(title: "New Project", prompt: "Choose Folder")
-                    },
-                    onOpenProject: {
-                        isProjectSwitcherPresented = false
-                        model.chooseProject()
-                    },
-                    onCloneRepository: {
-                        isProjectSwitcherPresented = false
-                        model.showCloneRepository()
-                    },
-                    onOpenRecentProject: { project in
-                        isProjectSwitcherPresented = false
-                        model.openProject(project.url)
+            .overlay(alignment: .bottomLeading) {
+                Color.clear
+                    .frame(width: 1, height: 1)
+                    .offset(x: ProjectSwitcherLayoutMetrics.anchorOffsetFromLeading)
+                    .popover(isPresented: $isProjectSwitcherPresented, arrowEdge: .bottom) {
+                        ProjectSwitcherPopover(
+                            isPresented: $isProjectSwitcherPresented,
+                            onNewProject: {
+                                isProjectSwitcherPresented = false
+                                model.chooseProject(title: "New Project", prompt: "Choose Folder")
+                            },
+                            onOpenProject: {
+                                isProjectSwitcherPresented = false
+                                model.chooseProject()
+                            },
+                            onCloneRepository: {
+                                isProjectSwitcherPresented = false
+                                model.showCloneRepository()
+                            },
+                            onOpenRecentProject: { project in
+                                isProjectSwitcherPresented = false
+                                model.openProject(project.url)
+                            }
+                        )
+                        .environmentObject(model)
                     }
-                )
-                .environmentObject(model)
             }
 
             Spacer(minLength: 22)
