@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "junit replaces the result port",
+      "payload": {
+        "name": "UserServiceTest",
+        "framework": "junit",
+        "workingDirectory": "/workspace/service",
+        "mainClass": "org.eclipse.jdt.internal.junit.runner.RemoteTestRunner",
+        "projectName": "service",
+        "classPaths": ["/workspace/service/classes", "/workspace/service/classes", ""],
+        "modulePaths": [],
+        "vmArguments": ["--enable-preview"],
+        "programArguments": ["-version", "3", "-port", "-1"],
+        "resultPort": 43127,
+        "testngRunnerPath": null,
+        "testngTestNames": []
+      },
+      "expected": {
+        "name": "UserServiceTest",
+        "request": "launch",
+        "arguments": {
+          "mainClass": "org.eclipse.jdt.internal.junit.runner.RemoteTestRunner",
+          "cwd": "/workspace/service",
+          "console": "internalConsole",
+          "projectName": "service",
+          "classPaths": ["/workspace/service/classes"],
+          "args": "-version 3 -port 43127",
+          "vmArgs": "--enable-preview"
+        },
+        "steppingFilters": null
+      }
+    },
+    {
+      "name": "testng appends the packaged runner",
+      "payload": {
+        "name": "UserServiceTest",
+        "framework": "testng",
+        "workingDirectory": "/workspace/service",
+        "mainClass": "com.microsoft.java.test.runner.Launcher",
+        "projectName": "service",
+        "classPaths": ["/workspace/service/classes"],
+        "modulePaths": ["/workspace/service/modules"],
+        "vmArguments": [],
+        "programArguments": [],
+        "resultPort": 43128,
+        "testngRunnerPath": "/lithe/java-test-runner.jar",
+        "testngTestNames": [
+          "example.UserServiceTest#logsIn",
+          "example.UserServiceTest#logsIn"
+        ]
+      },
+      "expected": {
+        "name": "UserServiceTest",
+        "request": "launch",
+        "arguments": {
+          "mainClass": "com.microsoft.java.test.runner.Launcher",
+          "cwd": "/workspace/service",
+          "console": "internalConsole",
+          "projectName": "service",
+          "classPaths": ["/workspace/service/classes", "/lithe/java-test-runner.jar"],
+          "modulePaths": ["/workspace/service/modules"],
+          "args": "43128 testng example.UserServiceTest#logsIn"
+        },
+        "steppingFilters": null
+      }
+    }
+  ]
+}

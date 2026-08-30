@@ -11,6 +11,7 @@ struct MacJDTLSLaunchResourceResolver {
     private static let equinoxLauncherPrefix = "org.eclipse.equinox.launcher_"
     private static let javaDebugBundlePrefix = "com.microsoft.java.debug.plugin-"
     private static let javaTestBundlePrefix = "com.microsoft.java.test.plugin-"
+    private static let javaTestRunnerName = "com.microsoft.java.test.runner-jar-with-dependencies.jar"
 
     private let bundledJdtlsRootURL: URL?
     private let fileManager: FileManager
@@ -47,12 +48,16 @@ struct MacJDTLSLaunchResourceResolver {
             let javaTestBundleURLs = try javaTestExtensionBundles(
                 in: rootURL.appendingPathComponent("java-test/extensions", isDirectory: true)
             )
+            let javaTestRunnerURL = rootURL
+                .appendingPathComponent("java-test/runner", isDirectory: true)
+                .appendingPathComponent(Self.javaTestRunnerName)
             guard let launcherURL = try firstEquinoxLauncher(in: pluginsURL),
                   let configurationURL,
                   let javaDebugURL,
                   javaTestBundleURLs.contains(where: {
                       $0.lastPathComponent.hasPrefix(Self.javaTestBundlePrefix)
                   }),
+                  fileManager.fileExists(atPath: javaTestRunnerURL.path),
                   fileManager.fileExists(atPath: lombokURL.path) else {
                 continue
             }
@@ -61,7 +66,8 @@ struct MacJDTLSLaunchResourceResolver {
                 configurationDirectoryURL: configurationURL,
                 lombokAgentURL: lombokURL,
                 javaDebugBundleURL: javaDebugURL,
-                javaExtensionBundleURLs: javaTestBundleURLs
+                javaExtensionBundleURLs: javaTestBundleURLs,
+                javaTestRunnerURL: javaTestRunnerURL
             )
         }
         throw ResolutionError.incompleteInstallation
@@ -164,7 +170,7 @@ struct MacJDTLSLaunchResourceResolver {
 
         var errorDescription: String? {
             "Expected an Equinox launcher JAR, a macOS configuration directory, "
-                + "lombok/lombok.jar, and the Java Debug and Java Test extension bundles "
+                + "lombok/lombok.jar, Java Debug and Java Test extension bundles, and the TestNG runner "
                 + "in the selected JDTLS installation."
         }
     }

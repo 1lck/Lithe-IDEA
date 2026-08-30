@@ -5,6 +5,15 @@ import LitheExecutionModule
 import LitheModuleAPI
 
 @MainActor
+final class JavaTestWorkflowState {
+    var resultServer: (any JavaTestResultServing)?
+    var debugLaunchTask: Task<Void, Never>?
+    var debugLaunchOperationID: UUID?
+    var discoveryTask: Task<Void, Never>?
+    var discoveryOperationID: UUID?
+}
+
+@MainActor
 extension AppModel {
     func toggleSpringEndpoints() {
         isSpringVisible.toggle()
@@ -383,8 +392,10 @@ extension AppModel {
 
     func toggleTests() {
         isTestsVisible.toggle()
-        guard isTestsVisible else { return }
-        Task { [weak self] in _ = await self?.activateExecutionModule() }
+        guard isTestsVisible else {
+            cancelLanguageTestDiscovery()
+            return
+        }
         isGitLogVisible = false
         isTerminalVisible = false
         isReferencesVisible = false
@@ -393,28 +404,86 @@ extension AppModel {
         isRunVisible = false
         isDebugVisible = false
         guard let workspaceURL else { return }
-        Task { [weak self] in
-            guard let self,
-                  let execution = await activateExecutionModule(),
-                  await activateLanguageTestExtensionsIfNeeded(
-                      for: projectFiles,
-                      testService: execution.tests
-                  ) else { return }
-            execution.tests.discover(workspaceURL: workspaceURL, files: projectFiles)
-        }
+        startLanguageTestDiscovery(workspaceURL: workspaceURL)
     }
 
     func refreshTests() {
         guard let workspaceURL else { return }
-        Task { [weak self] in
-            guard let self,
-                  let execution = await activateExecutionModule(),
+        startLanguageTestDiscovery(workspaceURL: workspaceURL)
+    }
+
+    private func startLanguageTestDiscovery(workspaceURL: URL) {
+        cancelLanguageTestDiscovery()
+        let operationID = UUID()
+        javaTestWorkflowState.discoveryOperationID = operationID
+        javaTestWorkflowState.discoveryTask = Task { [weak self] in
+            guard let self else { return }
+            defer { finishLanguageTestDiscovery(operationID) }
+            guard let execution = await activateExecutionModule(),
                   await activateLanguageTestExtensionsIfNeeded(
                       for: projectFiles,
                       testService: execution.tests
-                  ) else { return }
+                  ),
+                  isCurrentLanguageTestDiscovery(operationID) else { return }
             execution.tests.discover(workspaceURL: workspaceURL, files: projectFiles)
+
+            let baseItems = execution.tests.itemsByProviderID["java"] ?? []
+            let javaFiles = baseItems.filter { $0.kind == .file && $0.fileURL != nil }
+            guard !javaFiles.isEmpty else { return }
+            do {
+                let sessions = try await languageSessionsForWorkspaceMaintenance()
+                var projected = baseItems.filter { $0.kind == .workspace }
+                var completedFileCount = 0
+                for fileItem in javaFiles {
+                    try Task.checkCancellation()
+                    guard isCurrentLanguageTestDiscovery(operationID),
+                          let fileURL = fileItem.fileURL else { return }
+                    do {
+                        let details = try await sessions.discoverJavaTestItems(
+                            fileURL: fileURL,
+                            rootURL: workspaceURL
+                        )
+                        completedFileCount += 1
+                        if !details.isEmpty {
+                            projected.append(fileItem)
+                            projected.append(contentsOf: details)
+                        }
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        // Preserve the cheap file-level fallback when semantic
+                        // discovery fails for only one source file.
+                        projected.append(fileItem)
+                    }
+                }
+                guard isCurrentLanguageTestDiscovery(operationID) else { return }
+                if projected.allSatisfy({ $0.kind == .workspace }), completedFileCount > 0 {
+                    projected = []
+                }
+                execution.tests.replaceDiscoveredItems(projected, providerID: "java")
+            } catch is CancellationError {
+                return
+            } catch {
+                guard isCurrentLanguageTestDiscovery(operationID) else { return }
+                showNotification(error.localizedDescription)
+            }
         }
+    }
+
+    func cancelLanguageTestDiscovery() {
+        javaTestWorkflowState.discoveryOperationID = nil
+        javaTestWorkflowState.discoveryTask?.cancel()
+        javaTestWorkflowState.discoveryTask = nil
+    }
+
+    private func isCurrentLanguageTestDiscovery(_ operationID: UUID) -> Bool {
+        javaTestWorkflowState.discoveryOperationID == operationID && !Task.isCancelled
+    }
+
+    private func finishLanguageTestDiscovery(_ operationID: UUID) {
+        guard javaTestWorkflowState.discoveryOperationID == operationID else { return }
+        javaTestWorkflowState.discoveryOperationID = nil
+        javaTestWorkflowState.discoveryTask = nil
     }
 
     func runTest(providerID: String, scope: LanguageTestScope) {
@@ -442,6 +511,89 @@ extension AppModel {
                 workspaceURL: workspaceURL,
                 projectFiles: projectFiles
             )
+        }
+    }
+
+    func debugTest(providerID: String, scope: LanguageTestScope) {
+        guard providerID == "java", let workspaceURL else {
+            showNotification("Java test debugging is currently available for Java projects only")
+            return
+        }
+        let fileURL: URL
+        let testIdentifier: String?
+        switch scope {
+        case .workspace:
+            showNotification("Select a Java test file or test case to debug")
+            return
+        case .file(let url):
+            fileURL = url.standardizedFileURL
+            testIdentifier = nil
+        case .testCase(let identifier, let url):
+            guard let url else {
+                showNotification("The selected Java test has no source file")
+                return
+            }
+            fileURL = url.standardizedFileURL
+            testIdentifier = identifier
+        }
+        cancelJavaTestDebugLaunch()
+        let operationID = UUID()
+        javaTestWorkflowState.debugLaunchOperationID = operationID
+        javaTestWorkflowState.debugLaunchTask = Task { [weak self] in
+            guard let self else { return }
+            defer { finishJavaTestDebugLaunch(operationID) }
+            guard let runFeature = await activateExecutionModule()?.runFeature,
+                  let genericDebugFeature = await activateDebugModule()?.genericFeature,
+                  isCurrentJavaTestDebugLaunch(operationID) else { return }
+            if let selectedConfiguration = runFeature.selectedConfiguration {
+                runFeature.select(selectedConfiguration)
+            }
+            if let document = openDocuments.first(where: {
+                $0.url.standardizedFileURL == fileURL
+            }),
+               document.isDirty {
+                do {
+                    let previousText = document.savedText
+                    try saveDocument(document)
+                    recordSave(document, previousText: previousText)
+                } catch {
+                    showNotification("Could not save \(document.url.lastPathComponent)")
+                    return
+                }
+            }
+            do {
+                let sessions = try await languageSessionsForWorkspaceMaintenance()
+                let prepared = try await services.javaTestDebugLaunchService.prepare(
+                    fileURL: fileURL,
+                    testIdentifier: testIdentifier,
+                    rootURL: workspaceURL,
+                    targetResolver: sessions
+                )
+                guard isCurrentJavaTestDebugLaunch(operationID) else {
+                    prepared.stop()
+                    return
+                }
+                stopJavaTestResultServer()
+                javaTestWorkflowState.resultServer = prepared.resultServer
+                guard genericDebugFeature.start(
+                    fileURL: prepared.target.fileURL,
+                    rootURL: workspaceURL,
+                    configuration: prepared.configuration
+                ) else {
+                    let message = genericDebugFeature.errorMessage
+                        ?? "Could not debug the Java test"
+                    stopJavaTestResultServer()
+                    showNotification(message)
+                    return
+                }
+                showDebugToolWindow()
+            } catch is CancellationError {
+                finishJavaTestDebugLaunch(operationID, stopResultServer: true)
+            } catch {
+                guard isCurrentJavaTestDebugLaunch(operationID) else { return }
+                finishJavaTestDebugLaunch(operationID, stopResultServer: true)
+                showNotification(error.localizedDescription)
+            }
         }
     }
 
@@ -490,7 +642,51 @@ extension AppModel {
     }
 
     func stopDebugging() {
+        cancelJavaTestDebugLaunch()
         genericDebugFeatureIfActive?.stop()
+    }
+
+    func cancelJavaTestDebugLaunch() {
+        javaTestWorkflowState.debugLaunchOperationID = nil
+        javaTestWorkflowState.debugLaunchTask?.cancel()
+        javaTestWorkflowState.debugLaunchTask = nil
+        stopJavaTestResultServer()
+    }
+
+    func stopJavaTestResultServer() {
+        javaTestWorkflowState.resultServer?.stop()
+        javaTestWorkflowState.resultServer = nil
+    }
+
+    func cancelJavaTestWorkflows() {
+        cancelLanguageTestDiscovery()
+        cancelJavaTestDebugLaunch()
+    }
+
+    func cancelJavaWorkspaceWorkflows() {
+        cancelJavaLanguageServerPreparation()
+        cancelJavaTestWorkflows()
+    }
+
+    func handleDebugSessionStateChange(_ state: DebugAdapterState) {
+        guard state == .terminated || state == .failed else { return }
+        stopJavaTestResultServer()
+    }
+
+    private func isCurrentJavaTestDebugLaunch(_ operationID: UUID) -> Bool {
+        javaTestWorkflowState.debugLaunchOperationID == operationID && !Task.isCancelled
+    }
+
+    private func finishJavaTestDebugLaunch(
+        _ operationID: UUID,
+        stopResultServer: Bool = false
+    ) {
+        guard javaTestWorkflowState.debugLaunchOperationID == operationID else { return }
+        javaTestWorkflowState.debugLaunchOperationID = nil
+        javaTestWorkflowState.debugLaunchTask = nil
+        if stopResultServer {
+            stopJavaTestResultServer()
+        }
     }
 
     func resumeDebugging() {

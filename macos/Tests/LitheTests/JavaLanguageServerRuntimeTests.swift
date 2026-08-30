@@ -96,7 +96,7 @@ struct JavaLanguageServerRuntimeTests {
         defer { try? fileManager.removeItem(at: root) }
         for directory in [
             "bin", "plugins", "config_mac", "config_mac_arm", "lombok", "java-debug",
-            "java-test/extensions"
+            "java-test/extensions", "java-test/runner"
         ] {
             try fileManager.createDirectory(
                 at: root.appendingPathComponent(directory, isDirectory: true),
@@ -114,7 +114,10 @@ struct JavaLanguageServerRuntimeTests {
             root.appendingPathComponent("lombok/lombok.jar"),
             root.appendingPathComponent("java-debug/com.microsoft.java.debug.plugin-0.53.1.jar"),
             root.appendingPathComponent("java-test/extensions/org.opentest4j_1.2.0.jar"),
-            root.appendingPathComponent("java-test/extensions/com.microsoft.java.test.plugin-0.42.0.jar")
+            root.appendingPathComponent("java-test/extensions/com.microsoft.java.test.plugin-0.42.0.jar"),
+            root.appendingPathComponent(
+                "java-test/runner/com.microsoft.java.test.runner-jar-with-dependencies.jar"
+            )
         ] {
             try Data().write(to: file)
         }
@@ -140,6 +143,10 @@ struct JavaLanguageServerRuntimeTests {
             "com.microsoft.java.test.plugin-0.42.0.jar",
             "org.opentest4j_1.2.0.jar"
         ])
+        #expect(
+            resources.javaTestRunnerURL?.lastPathComponent
+                == "com.microsoft.java.test.runner-jar-with-dependencies.jar"
+        )
     }
 
     @Test
@@ -168,7 +175,9 @@ struct JavaLanguageServerRuntimeTests {
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("lithe-jdtls-architecture-\(UUID().uuidString)", isDirectory: true)
         defer { try? fileManager.removeItem(at: root) }
-        for directory in ["bin", "plugins", "lombok", "java-debug", "java-test/extensions"] {
+        for directory in [
+            "bin", "plugins", "lombok", "java-debug", "java-test/extensions", "java-test/runner"
+        ] {
             try fileManager.createDirectory(
                 at: root.appendingPathComponent(directory, isDirectory: true),
                 withIntermediateDirectories: true
@@ -191,7 +200,10 @@ struct JavaLanguageServerRuntimeTests {
             root.appendingPathComponent("plugins/org.eclipse.equinox.launcher_1.0.0.jar"),
             root.appendingPathComponent("lombok/lombok.jar"),
             root.appendingPathComponent("java-debug/com.microsoft.java.debug.plugin-0.53.1.jar"),
-            root.appendingPathComponent("java-test/extensions/com.microsoft.java.test.plugin-0.42.0.jar")
+            root.appendingPathComponent("java-test/extensions/com.microsoft.java.test.plugin-0.42.0.jar"),
+            root.appendingPathComponent(
+                "java-test/runner/com.microsoft.java.test.runner-jar-with-dependencies.jar"
+            )
         ] {
             try Data().write(to: file)
         }

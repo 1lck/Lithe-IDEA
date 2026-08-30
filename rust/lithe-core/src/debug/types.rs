@@ -34,7 +34,7 @@ pub struct SessionRequest {
     pub session_id: String,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// DAP request used to begin a debuggee session.
 pub enum DebugRequestKind {
@@ -51,7 +51,7 @@ impl DebugRequestKind {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// Provider-specific launch arguments wrapped in a language-neutral contract.
 pub struct DebugLaunchConfiguration {

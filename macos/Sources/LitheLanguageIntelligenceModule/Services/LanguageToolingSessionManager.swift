@@ -29,7 +29,9 @@ package enum LanguageToolingSessionError: LocalizedError, Equatable, Sendable {
 /// UI-facing façade that routes language features across active LSP sessions
 /// and lightweight local providers without exposing either implementation.
 @MainActor
-package final class LanguageToolingSessionManager: ObservableObject {
+package final class LanguageToolingSessionManager: ObservableObject,
+    JavaTestDebugLaunchTargetResolving
+{
     @Published package private(set) var diagnostics: [URL: [LanguageServerDiagnostic]] = [:]
     @Published package private(set) var languageServerFeatures: [String: LanguageServerFeatureSet] = [:]
     @Published package private(set) var languageServerLogs: [LanguageServerLogEntry] = []
@@ -360,6 +362,145 @@ package final class LanguageToolingSessionManager: ObservableObject {
         )
     }
 
+    /// Resolves one Java source file or discovered test item through the Java
+    /// Test extension and returns the metadata required by shared Debug Core.
+    package func resolveJavaTestDebugLaunchTarget(
+        fileURL: URL,
+        testIdentifier: String? = nil,
+        rootURL: URL
+    ) async throws -> JavaTestDebugLaunchTarget {
+        let normalizedFile = fileURL.standardizedFileURL
+        let normalizedRoot = rootURL.standardizedFileURL
+        let discovered = try await resolvedJavaTestItems(
+            fileURL: normalizedFile,
+            rootURL: normalizedRoot
+        )
+        let selected: [ResolvedJavaTestItem]
+        if let testIdentifier, !testIdentifier.isEmpty {
+            selected = Self.flattenJavaTestItems(discovered).filter {
+                $0.matches(identifier: testIdentifier)
+            }
+        } else {
+            selected = discovered.filter { $0.level == 5 }
+        }
+        guard !selected.isEmpty else {
+            let target = testIdentifier ?? normalizedFile.lastPathComponent
+            throw LanguageToolingSessionError.toolingUnavailable(
+                "No Java test was found for \(target)."
+            )
+        }
+        guard Set(selected.map(\.projectName)).count == 1,
+              Set(selected.map(\.kind)).count == 1,
+              Set(selected.map(\.level)).count == 1,
+              let projectName = selected.first?.projectName,
+              let kind = selected.first?.kind,
+              let level = selected.first?.level else {
+            throw LanguageToolingSessionError.toolingUnavailable(
+                "Debug one Java test framework and project at a time."
+            )
+        }
+        let framework: JavaTestDebugFramework
+        switch kind {
+        case 0, 1: framework = .junit
+        case 2: framework = .testng
+        default:
+            throw LanguageToolingSessionError.toolingUnavailable(
+                "The selected Java test framework is not supported."
+            )
+        }
+        let launchTestNames: [String]
+        if framework == .junit, level == 6 {
+            launchTestNames = selected.compactMap(\.jdtHandler)
+        } else {
+            launchTestNames = selected.map(\.fullName)
+        }
+        guard launchTestNames.count == selected.count else {
+            throw LanguageToolingSessionError.toolingUnavailable(
+                "The Java language service returned incomplete test identifiers."
+            )
+        }
+        let launchRequest = ToolingJSONValue.object([
+            "projectName": .string(projectName),
+            "testLevel": .integer(level),
+            "testKind": .integer(kind),
+            "testNames": .array(launchTestNames.map(ToolingJSONValue.string)),
+        ])
+        let requestData = try JSONSerialization.data(
+            withJSONObject: launchRequest.foundationObject,
+            options: [.sortedKeys]
+        )
+        guard let requestJSON = String(data: requestData, encoding: .utf8) else {
+            throw LanguageToolingSessionError.toolingUnavailable(
+                "Could not encode the Java test launch request."
+            )
+        }
+        let launchValue = try await executeJavaTestCommand(
+            "vscode.java.test.junit.argument",
+            arguments: [.string(requestJSON)],
+            rootURL: normalizedRoot
+        )
+        let launch = try Self.javaTestLaunchArguments(launchValue)
+        let testNGTestNames = framework == .testng
+            ? selected.flatMap(Self.javaTestNGMethodNames)
+            : []
+        let testNGRunnerPath: String?
+        let mainClass: String
+        if framework == .testng {
+            guard let runnerURL = languageServers["java"]?.javaTestRunnerURL else {
+                throw LanguageToolingSessionError.toolingUnavailable(
+                    "The packaged Java TestNG runner is unavailable. Reinstall Lithe."
+                )
+            }
+            guard !testNGTestNames.isEmpty else {
+                throw LanguageToolingSessionError.toolingUnavailable(
+                    "No TestNG test method was found in \(normalizedFile.lastPathComponent)."
+                )
+            }
+            testNGRunnerPath = runnerURL.standardizedFileURL.path
+            mainClass = "com.microsoft.java.test.runner.Launcher"
+        } else {
+            guard let resolvedMainClass = launch.mainClass else {
+                throw LanguageToolingSessionError.toolingUnavailable(
+                    "The Java language service returned no JUnit runner main class."
+                )
+            }
+            testNGRunnerPath = nil
+            mainClass = resolvedMainClass
+        }
+        return JavaTestDebugLaunchTarget(
+            fileURL: normalizedFile,
+            name: selected.count == 1 ? selected[0].label : normalizedFile.lastPathComponent,
+            framework: framework,
+            workingDirectory: launch.workingDirectory,
+            mainClass: mainClass,
+            projectName: launch.projectName,
+            classPaths: launch.classPaths,
+            modulePaths: launch.modulePaths,
+            vmArguments: launch.vmArguments,
+            programArguments: launch.programArguments,
+            testNGRunnerPath: testNGRunnerPath,
+            testNGTestNames: testNGTestNames
+        )
+    }
+
+    /// Discovers the Java test classes and methods in one source file for the
+    /// native Tests tree. This reuses the same identifiers accepted by Debug.
+    package func discoverJavaTestItems(
+        fileURL: URL,
+        rootURL: URL
+    ) async throws -> [LanguageTestItem] {
+        let normalizedFile = fileURL.standardizedFileURL
+        let discovered = try await resolvedJavaTestItems(
+            fileURL: normalizedFile,
+            rootURL: rootURL.standardizedFileURL
+        )
+        return Self.projectJavaTestItems(
+            discovered,
+            fileURL: normalizedFile,
+            depth: 1
+        )
+    }
+
     private func executeJavaCommand(
         _ commandID: String,
         arguments: [ToolingJSONValue],
@@ -383,6 +524,33 @@ package final class LanguageToolingSessionManager: ObservableObject {
                 continuation.resume(throwing: error)
             }
         }
+    }
+
+    private func executeJavaTestCommand(
+        _ commandID: String,
+        arguments: [ToolingJSONValue],
+        rootURL: URL
+    ) async throws -> ToolingJSONValue {
+        try await executeJavaCommand(commandID, arguments: arguments, rootURL: rootURL)
+    }
+
+    private func resolvedJavaTestItems(
+        fileURL: URL,
+        rootURL: URL
+    ) async throws -> [ResolvedJavaTestItem] {
+        _ = try startLanguageServer(providerID: "java", rootURL: rootURL)
+        try await waitUntilLanguageServerReady(providerID: "java", rootURL: rootURL)
+        let discoveredValue = try await executeJavaTestCommand(
+            "vscode.java.test.findTestTypesAndMethods",
+            arguments: [.string(fileURL.absoluteString)],
+            rootURL: rootURL
+        )
+        guard case .array(let values) = discoveredValue else {
+            throw LanguageToolingSessionError.toolingUnavailable(
+                "The Java language service returned invalid test metadata."
+            )
+        }
+        return values.compactMap(Self.javaTestItem)
     }
 
     private static func javaDebugLaunchTarget(
@@ -415,6 +583,136 @@ package final class LanguageToolingSessionManager: ObservableObject {
             guard case .string(let value) = value, !value.isEmpty else { return nil }
             return value
         }
+    }
+
+    private static func javaTestItem(_ value: ToolingJSONValue) -> ResolvedJavaTestItem? {
+        guard case .object(let object) = value,
+              case .string(let id)? = object["id"],
+              case .string(let label)? = object["label"],
+              case .string(let fullName)? = object["fullName"],
+              case .string(let projectName)? = object["projectName"],
+              let kind = integerValue(object["testKind"]),
+              let level = integerValue(object["testLevel"]) else { return nil }
+        let jdtHandler: String?
+        if case .string(let value)? = object["jdtHandler"], !value.isEmpty {
+            jdtHandler = value
+        } else {
+            jdtHandler = nil
+        }
+        let children: [ResolvedJavaTestItem]
+        if case .array(let values)? = object["children"] {
+            children = values.compactMap(javaTestItem)
+        } else {
+            children = []
+        }
+        let sortText: String?
+        if case .string(let value)? = object["sortText"], !value.isEmpty {
+            sortText = value
+        } else {
+            sortText = nil
+        }
+        return ResolvedJavaTestItem(
+            id: id,
+            label: label,
+            fullName: fullName,
+            projectName: projectName,
+            kind: kind,
+            level: level,
+            jdtHandler: jdtHandler,
+            sortText: sortText,
+            children: children
+        )
+    }
+
+    private static func integerValue(_ value: ToolingJSONValue?) -> Int? {
+        switch value {
+        case .integer(let value): value
+        case .string(let value): Int(value)
+        default: nil
+        }
+    }
+
+    private static func flattenJavaTestItems(
+        _ items: [ResolvedJavaTestItem]
+    ) -> [ResolvedJavaTestItem] {
+        items.flatMap { [$0] + flattenJavaTestItems($0.children) }
+    }
+
+    private static func projectJavaTestItems(
+        _ items: [ResolvedJavaTestItem],
+        fileURL: URL,
+        depth: Int
+    ) -> [LanguageTestItem] {
+        sortedJavaTestItems(items).flatMap { item in
+            [LanguageTestItem(
+                id: item.id,
+                providerID: "java",
+                label: item.label,
+                kind: .testCase,
+                fileURL: fileURL,
+                testIdentifier: item.fullName,
+                depth: depth
+            )] + projectJavaTestItems(
+                item.children,
+                fileURL: fileURL,
+                depth: depth + 1
+            )
+        }
+    }
+
+    private static func sortedJavaTestItems(
+        _ items: [ResolvedJavaTestItem]
+    ) -> [ResolvedJavaTestItem] {
+        items.sorted {
+            ($0.sortText ?? $0.label, $0.label, $0.id)
+                < ($1.sortText ?? $1.label, $1.label, $1.id)
+        }
+    }
+
+    private static func javaTestNGMethodNames(_ item: ResolvedJavaTestItem) -> [String] {
+        if item.level == 6 { return [item.fullName] }
+        return item.children.flatMap(javaTestNGMethodNames)
+    }
+
+    private static func javaTestLaunchArguments(
+        _ value: ToolingJSONValue
+    ) throws -> ResolvedJavaTestLaunchArguments {
+        guard case .object(let response) = value else {
+            throw LanguageToolingSessionError.toolingUnavailable(
+                "The Java language service returned invalid test launch arguments."
+            )
+        }
+        if case .string(let message)? = response["errorMessage"], !message.isEmpty {
+            throw LanguageToolingSessionError.toolingUnavailable(message)
+        }
+        guard case .object(let body)? = response["body"],
+              case .string(let workingDirectory)? = body["workingDirectory"],
+              !workingDirectory.isEmpty else {
+            throw LanguageToolingSessionError.toolingUnavailable(
+                "The Java language service returned incomplete test launch arguments."
+            )
+        }
+        let mainClass: String?
+        if case .string(let value)? = body["mainClass"], !value.isEmpty {
+            mainClass = value
+        } else {
+            mainClass = nil
+        }
+        let projectName: String?
+        if case .string(let value)? = body["projectName"], !value.isEmpty {
+            projectName = value
+        } else {
+            projectName = nil
+        }
+        return ResolvedJavaTestLaunchArguments(
+            workingDirectory: workingDirectory,
+            mainClass: mainClass,
+            projectName: projectName,
+            classPaths: stringValues(body["classpath"] ?? .array([])),
+            modulePaths: stringValues(body["modulepath"] ?? .array([])),
+            vmArguments: stringValues(body["vmArguments"] ?? .array([])),
+            programArguments: stringValues(body["programArguments"] ?? .array([]))
+        )
     }
 
     package func notifyWorkspaceFilesChanged(
@@ -1421,6 +1719,35 @@ package final class LanguageToolingSessionManager: ObservableObject {
     private struct ResolvedJavaDebugLaunchTarget {
         let target: JavaDebugLaunchTarget
         let filePath: String?
+    }
+
+    private struct ResolvedJavaTestItem {
+        let id: String
+        let label: String
+        let fullName: String
+        let projectName: String
+        let kind: Int
+        let level: Int
+        let jdtHandler: String?
+        let sortText: String?
+        let children: [ResolvedJavaTestItem]
+
+        func matches(identifier: String) -> Bool {
+            id == identifier
+                || label == identifier
+                || fullName == identifier
+                || jdtHandler == identifier
+        }
+    }
+
+    private struct ResolvedJavaTestLaunchArguments {
+        let workingDirectory: String
+        let mainClass: String?
+        let projectName: String?
+        let classPaths: [String]
+        let modulePaths: [String]
+        let vmArguments: [String]
+        let programArguments: [String]
     }
 
     private func replaceDiagnostics(

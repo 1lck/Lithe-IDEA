@@ -66,6 +66,11 @@ extension AppModel {
             observeModuleFeature(.debug, observation: genericFeature.objectWillChange.sink { [weak self] _ in
                 self?.scheduleObjectWillChangeRelay()
             })
+            observeModuleFeature(.debug, observation: genericFeature.$state
+                .removeDuplicates()
+                .sink { [weak self] state in
+                    self?.handleDebugSessionStateChange(state)
+                })
             return DebugFeatureAccess(genericFeature: genericFeature)
         } catch {
             showNotification(error.localizedDescription)

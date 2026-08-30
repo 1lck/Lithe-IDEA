@@ -152,6 +152,24 @@ when a TestNG session starts. Packaged JDT LS therefore has no runtime dependenc
 on shell wrappers, PowerShell, or the user's `PATH`. Legacy wrappers are an
 external-plan compatibility fallback and are not the packaged execution path.
 
+Java test discovery remains a language-service workflow rather than a UI or
+Debug Core parser. When the Tests tool window is opened or refreshed, the
+language facade asks the Java Test extension for each candidate source file's
+class and method tree, then projects stable fully qualified identifiers into
+the native list. Closing the tool window, changing workspace, or reloading the
+Java runtime cancels the owning discovery operation; late results cannot replace
+the current workspace's tree. Discovery does not create a Debug session, result
+socket, adapter connection, or target JVM.
+
+Starting one JUnit or TestNG file, class, or method creates a short-lived native
+loopback result listener on demand. JDT LS owns project/test metadata, Rust Core
+owns deterministic DAP launch argument projection, and the Debug module owns the
+adapter session. Repeated launch, stop, project close, runtime reload, and launch
+failure all cancel the active operation and release the listener. The selected
+Run configuration remains the source of project-scoped Java runtime selection;
+JDT LS remains authoritative for the test runner classpath, working directory,
+and test-specific VM and program arguments.
+
 Platforms observe JDT LS version and non-recursive build-file metadata, while
 Rust Core alone validates and reduces those observations to the opaque workspace
 fingerprint. macOS and Windows adapters must not duplicate its ordering,

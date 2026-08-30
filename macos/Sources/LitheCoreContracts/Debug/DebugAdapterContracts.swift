@@ -120,6 +120,66 @@ public struct JavaDebugLaunchTarget: Equatable, Sendable {
     }
 }
 
+/// Java test runner family reported by the JDT LS Java Test extension.
+public enum JavaTestDebugFramework: String, Codable, Equatable, Sendable {
+    case junit
+    case testng
+}
+
+/// JDT LS-owned metadata required to launch one Java test selection through DAP.
+public struct JavaTestDebugLaunchTarget: Equatable, Sendable {
+    public let fileURL: URL
+    public let name: String
+    public let framework: JavaTestDebugFramework
+    public let workingDirectory: String
+    public let mainClass: String
+    public let projectName: String?
+    public let classPaths: [String]
+    public let modulePaths: [String]
+    public let vmArguments: [String]
+    public let programArguments: [String]
+    public let testNGRunnerPath: String?
+    public let testNGTestNames: [String]
+
+    public init(
+        fileURL: URL,
+        name: String,
+        framework: JavaTestDebugFramework,
+        workingDirectory: String,
+        mainClass: String,
+        projectName: String?,
+        classPaths: [String],
+        modulePaths: [String],
+        vmArguments: [String],
+        programArguments: [String],
+        testNGRunnerPath: String? = nil,
+        testNGTestNames: [String] = []
+    ) {
+        self.fileURL = fileURL.standardizedFileURL
+        self.name = name
+        self.framework = framework
+        self.workingDirectory = workingDirectory
+        self.mainClass = mainClass
+        self.projectName = projectName
+        self.classPaths = classPaths
+        self.modulePaths = modulePaths
+        self.vmArguments = vmArguments
+        self.programArguments = programArguments
+        self.testNGRunnerPath = testNGRunnerPath
+        self.testNGTestNames = testNGTestNames
+    }
+}
+
+/// Resolves a Java test selection through the active language-service project model.
+@MainActor
+public protocol JavaTestDebugLaunchTargetResolving: AnyObject {
+    func resolveJavaTestDebugLaunchTarget(
+        fileURL: URL,
+        testIdentifier: String?,
+        rootURL: URL
+    ) async throws -> JavaTestDebugLaunchTarget
+}
+
 public struct DebugSourceBreakpoint: Codable, Hashable, Sendable {
     public let line: Int
     public let column: Int?

@@ -87,6 +87,8 @@ pub enum CoreCommand {
     DebugCreateSession,
     /// Queues a launch or attach request for a debug session (`debug.launch`).
     DebugLaunch,
+    /// Creates a Java test launch configuration from JDT LS metadata (`debug.javaTestLaunch`).
+    DebugJavaTestLaunch,
     /// Returns or normalizes portable stepping filters (`debug.steppingFilters`).
     DebugSteppingFilters,
     /// Replaces breakpoints for one source file (`debug.setBreakpoints`).
@@ -261,6 +263,7 @@ impl CoreCommand {
             "markdown.render" => Some(Self::MarkdownRender),
             "debug.createSession" => Some(Self::DebugCreateSession),
             "debug.launch" => Some(Self::DebugLaunch),
+            "debug.javaTestLaunch" => Some(Self::DebugJavaTestLaunch),
             "debug.steppingFilters" => Some(Self::DebugSteppingFilters),
             "debug.setBreakpoints" => Some(Self::DebugSetBreakpoints),
             "debug.setExceptionBreakpoints" => Some(Self::DebugSetExceptionBreakpoints),
@@ -382,6 +385,7 @@ mod tests {
         for command in [
             "debug.createSession",
             "debug.launch",
+            "debug.javaTestLaunch",
             "debug.steppingFilters",
             "debug.setBreakpoints",
             "debug.setExceptionBreakpoints",

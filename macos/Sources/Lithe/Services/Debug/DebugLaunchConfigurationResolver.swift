@@ -33,21 +33,40 @@ enum DebugLaunchConfigurationResolutionError: LocalizedError, Equatable {
 struct DebugLaunchConfigurationResolver {
     private let fileExists: (URL) -> Bool
     private let executableSuffix: String
+    private let javaTestLaunchResolver: (any JavaTestDebugLaunchResolving)?
 
     init(
         fileStorage: any FileStorage,
-        executableSuffix: String = ""
+        executableSuffix: String = "",
+        javaTestLaunchResolver: (any JavaTestDebugLaunchResolving)? = nil
     ) {
         self.fileExists = { fileStorage.fileExists(at: $0) }
         self.executableSuffix = executableSuffix
+        self.javaTestLaunchResolver = javaTestLaunchResolver
     }
 
     init(
         executableSuffix: String = "",
-        fileExists: @escaping (URL) -> Bool
+        fileExists: @escaping (URL) -> Bool,
+        javaTestLaunchResolver: (any JavaTestDebugLaunchResolving)? = nil
     ) {
         self.fileExists = fileExists
         self.executableSuffix = executableSuffix
+        self.javaTestLaunchResolver = javaTestLaunchResolver
+    }
+
+    @MainActor
+    func resolveJavaTest(
+        target: JavaTestDebugLaunchTarget,
+        resultPort: UInt16
+    ) throws -> DebugLaunchConfiguration {
+        guard let javaTestLaunchResolver else {
+            throw DebugLaunchConfigurationResolutionError.javaLaunchTargetUnavailable
+        }
+        return try javaTestLaunchResolver.resolveJavaTestDebugLaunch(
+            target: target,
+            resultPort: resultPort
+        )
     }
 
     func resolve(

@@ -373,6 +373,47 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func javaTestDebugLaunchUsesTheSharedRustConfiguration() throws {
+        let core = RustCoreBridge()
+        guard core.isAvailable else { return }
+        let target = JavaTestDebugLaunchTarget(
+            fileURL: URL(fileURLWithPath: "/workspace/UserServiceTest.java"),
+            name: "UserServiceTest",
+            framework: .testng,
+            workingDirectory: "/workspace",
+            mainClass: "com.microsoft.java.test.runner.Launcher",
+            projectName: "service",
+            classPaths: ["/workspace/classes"],
+            modulePaths: [],
+            vmArguments: [],
+            programArguments: [],
+            testNGRunnerPath: "/lithe/java-test-runner.jar",
+            testNGTestNames: ["example.UserServiceTest#logsIn"]
+        )
+        let resolver = DebugLaunchConfigurationResolver(
+            fileExists: { _ in true },
+            javaTestLaunchResolver: core
+        )
+
+        let configuration = try resolver.resolveJavaTest(target: target, resultPort: 43_128)
+
+        #expect(configuration.name == "UserServiceTest")
+        #expect(configuration.request == .launch)
+        #expect(
+            configuration.arguments["mainClass"]
+                == .string("com.microsoft.java.test.runner.Launcher")
+        )
+        #expect(configuration.arguments["classPaths"] == .array([
+            .string("/workspace/classes"),
+            .string("/lithe/java-test-runner.jar"),
+        ]))
+        #expect(
+            configuration.arguments["args"]
+                == .string("43128 testng example.UserServiceTest#logsIn")
+        )
+    }
+
+    @Test
     func javaAttachUsesTheSharedDAPSessionWithValidatedEndpointArguments() throws {
         let resolver = DebugLaunchConfigurationResolver(fileExists: { _ in true })
 
@@ -518,6 +559,34 @@ struct RunConfigurationIntegrationTests {
         let javaPlan = try javaProvider.testPlan(scope: .file(files[0]), workspaceURL: root)
         #expect(javaPlan.launchPlan.toolchainID == "project-maven")
         #expect(javaPlan.launchPlan.arguments == ["-Dtest=UserServiceTest", "test"])
+
+        let gradleMethodPlan = try javaProvider.testPlan(
+            scope: .testCase(
+                identifier: "example.UserServiceTest#logsIn()",
+                fileURL: files[0]
+            ),
+            context: LanguageTestContext(
+                workspaceURL: root,
+                projectFiles: [root.appendingPathComponent("build.gradle.kts"), files[0]]
+            )
+        )
+        #expect(gradleMethodPlan.launchPlan.arguments == [
+            "test", "--tests", "example.UserServiceTest.logsIn",
+        ])
+
+        let mavenMethodPlan = try javaProvider.testPlan(
+            scope: .testCase(
+                identifier: "example.UserServiceTest#logsIn()",
+                fileURL: files[0]
+            ),
+            context: LanguageTestContext(
+                workspaceURL: root,
+                projectFiles: [root.appendingPathComponent("pom.xml"), files[0]]
+            )
+        )
+        #expect(mavenMethodPlan.launchPlan.arguments == [
+            "-Dtest=example.UserServiceTest#logsIn", "test",
+        ])
 
         let gradlePlan = try javaProvider.testPlan(
             scope: .workspace,
@@ -1368,7 +1437,11 @@ struct RunConfigurationIntegrationTests {
                     fileURLWithPath:
                         "/jdtls/java-test/extensions/com.microsoft.java.test.plugin-0.42.0.jar"
                 )
-            ]
+            ],
+            javaTestRunnerURL: URL(
+                fileURLWithPath:
+                    "/jdtls/java-test/runner/com.microsoft.java.test.runner-jar-with-dependencies.jar"
+            )
         )
         let runtime = StdioLanguageProviderRuntime(
             descriptor: descriptor,
@@ -1391,6 +1464,7 @@ struct RunConfigurationIntegrationTests {
         let start = try #require(core.startCalls.last)
         #expect(start.runtimeExecutableURL?.path == "/jdk/bin/java")
         #expect(start.jdtlsLaunchResources == resources)
+        #expect(session.javaTestRunnerURL == resources.javaTestRunnerURL)
         session.stop()
     }
 

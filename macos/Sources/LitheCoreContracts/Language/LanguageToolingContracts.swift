@@ -526,6 +526,8 @@ package struct LanguageServerCodeAction: Identifiable, Equatable, Sendable {
 @MainActor
 package protocol LanguageServerSession: AnyObject {
     var isRunning: Bool { get }
+    /// Packaged Java Test runner, if this JDT LS session was launched with one.
+    var javaTestRunnerURL: URL? { get }
     var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)? { get set }
     var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)? { get set }
     var onStateChange: ((LanguageServerSessionState) -> Void)? { get set }
@@ -611,6 +613,7 @@ package protocol LanguageServerSession: AnyObject {
 }
 
 package extension LanguageServerSession {
+    var javaTestRunnerURL: URL? { nil }
     var features: LanguageServerFeatureSet { [] }
     var onFeaturesChange: ((LanguageServerFeatureSet) -> Void)? {
         get { nil }

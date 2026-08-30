@@ -150,6 +150,7 @@ final class AppModel: ObservableObject, Identifiable {
     private var requestProjectOpen: ((URL) -> Void)?
     private var didCloseProject: (() -> Void)?
     private var securityScopedWorkspaceURL: URL?
+    let javaTestWorkflowState = JavaTestWorkflowState()
     let services: AppServices
     let platformUI: any PlatformUI
     let settings: AppSettings
@@ -720,6 +721,7 @@ final class AppModel: ObservableObject, Identifiable {
         Task { [weak self] in
             await self?.services.moduleRuntime.shutdownAll()
         }
+        cancelJavaTestWorkflows()
         languageToolingSessionsIfActive?.stopAll()
         languageTestServiceIfActive?.stop()
         stopTerminalSessions()
@@ -731,6 +733,7 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     private func reloadJavaRuntimeServices() {
+        cancelJavaTestWorkflows()
         genericDebugFeatureIfActive?.stop()
         mavenFeatureIfActive?.stop()
         languageToolingSessionsIfActive?.stopLanguageServer(providerID: "java")
@@ -923,7 +926,7 @@ final class AppModel: ObservableObject, Identifiable {
         // every provider session before replacing the catalog or clearing the
         // document projection so no old-root documents, diagnostics, or
         // responses can survive into the next workspace.
-        cancelJavaLanguageServerPreparation()
+        cancelJavaWorkspaceWorkflows()
         languageToolingSessionsIfActive?.stopAll()
         reloadLanguageProviderCatalog(for: normalizedURL)
         stopTerminalSessions()
@@ -1039,6 +1042,7 @@ final class AppModel: ObservableObject, Identifiable {
         isTestsVisible = false
         isDebugVisible = false
         stopTerminalSessions()
+        cancelJavaWorkspaceWorkflows()
         languageToolingSessionsIfActive?.stopAll()
         languageTestServiceIfActive?.reset()
         runtimeFeature.closeProject()

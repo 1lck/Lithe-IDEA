@@ -45,6 +45,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     package var onFeaturesChange: ((LanguageServerFeatureSet) -> Void)?
     package private(set) var serverInfo: LanguageServerInfo?
     package var onServerInfoChange: ((LanguageServerInfo?) -> Void)?
+    package var javaTestRunnerURL: URL? { jdtlsLaunchResources?.javaTestRunnerURL }
 
     package init(
         providerID: String,

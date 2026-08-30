@@ -515,6 +515,25 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::DebugJavaTestLaunch => {
+            match serde_json::from_value::<crate::debug::JavaTestLaunchRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Java test debug launch request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::debug::java_test_launch)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Java test debug launch configuration should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::DebugSteppingFilters => {
             match serde_json::from_value::<crate::debug::DebugSteppingFiltersRequest>(
                 parsed.payload,

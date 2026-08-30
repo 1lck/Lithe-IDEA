@@ -83,6 +83,7 @@ stable error code and a user-facing message:
 | `maven.diagnostics` | Parse stable Maven compiler diagnostics from build output |
 | `debug.createSession` | Create a transport-neutral DAP session and return its initialize frame |
 | `debug.launch` | Queue a launch or attach request, including during initialization |
+| `debug.javaTestLaunch` | Normalize JUnit or TestNG launch metadata into Java DAP arguments |
 | `debug.steppingFilters` | Return adapter defaults or normalize portable stepping filters |
 | `debug.setBreakpoints` | Replace and deterministically order one source's DAP breakpoints |
 | `debug.setExceptionBreakpoints` | Replace and deterministically order one session's exception filters |
@@ -378,6 +379,17 @@ consecutive messages are buffered and reduced in Rust.
 `debug.launch` accepts an `operationId` and a language-neutral configuration
 containing `name`, request kind (`launch` or `attach`), provider arguments, and
 optional portable `steppingFilters`.
+`debug.javaTestLaunch` accepts JDT LS-owned working directory, main class,
+project, classpath, module path, VM arguments, program arguments, Java test
+framework, and a platform-owned loopback result port. JUnit placeholder ports
+are replaced deterministically. TestNG appends the packaged runner once and
+uses its selected method names. Core serializes JDT's VM and program argument
+arrays into the string fields required by Java Debug Server's DAP launch model.
+JDT LS remains responsible for resolving file,
+class, and method selections to this metadata; Core does not parse Java source
+or infer a test framework in this command. The command creates no process,
+socket, timer, or persistent session; compatibility cases live in
+`shared/fixtures/debug/java-test-launch-v1.json`.
 Launch submitted during initialization is retained until the initialize
 response. For Java, Core projects those filters into the adapter's `stepFilters`
 launch object unless the provider arguments already contain an explicit value.

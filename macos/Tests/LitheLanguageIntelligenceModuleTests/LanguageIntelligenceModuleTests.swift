@@ -207,10 +207,10 @@ struct LanguageIntelligenceModuleTests {
         let task = Task { try await manager.startJavaDebugServer(rootURL: root) }
         defer { task.cancel() }
 
-        await session.waitUntilStarted()
+        try await session.waitUntilStarted()
         #expect(session.executedCommands.isEmpty)
         session.publish(.ready)
-        let command = await session.waitForExecuteCommand()
+        let command = try await session.waitForExecuteCommand()
         #expect(command.command == "vscode.java.startDebugSession")
         #expect(command.arguments.isEmpty)
         session.completeExecuteReturningValue(.success(.integer(5005)))
@@ -238,9 +238,9 @@ struct LanguageIntelligenceModuleTests {
         }
         defer { task.cancel() }
 
-        await session.waitUntilStarted()
+        try await session.waitUntilStarted()
         session.publish(.ready)
-        let command = await session.waitForExecuteCommand()
+        let command = try await session.waitForExecuteCommand()
         #expect(command.command == "vscode.java.resolveMainClass")
         #expect(command.arguments.isEmpty)
         session.completeExecuteReturningValue(.success(.array([
@@ -256,7 +256,7 @@ struct LanguageIntelligenceModuleTests {
             ]),
         ])))
 
-        let classpathCommand = await session.waitForExecuteCommand(number: 2)
+        let classpathCommand = try await session.waitForExecuteCommand(number: 2)
         #expect(classpathCommand.command == "vscode.java.resolveClasspath")
         #expect(classpathCommand.arguments == [
             .string("service/example.Main"),
@@ -273,6 +273,277 @@ struct LanguageIntelligenceModuleTests {
             projectName: "service",
             modulePaths: ["/workspace/modules"],
             classPaths: ["/workspace/classes"]
+        ))
+    }
+
+    @Test
+    func javaTestDiscoveryProjectsSortedClassesAndMethodsForTheTestsTree() async throws {
+        let root = URL(fileURLWithPath: "/workspace/java-tests", isDirectory: true)
+        let source = root.appendingPathComponent(
+            "service/src/test/java/example/UserServiceTest.java"
+        )
+        let descriptor = try #require(
+            LanguageProviderCatalog.compatibilityFallback.provider(for: source)
+        )
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(
+            catalog: .compatibilityFallback,
+            runtimes: [WorkspaceStateLanguageProviderRuntime(
+                descriptor: descriptor,
+                session: session
+            )]
+        )
+        let task = Task {
+            try await manager.discoverJavaTestItems(fileURL: source, rootURL: root)
+        }
+        defer { task.cancel() }
+
+        try await session.waitUntilStarted()
+        session.publish(.ready)
+        let discovery = try await session.waitForExecuteCommand()
+        #expect(discovery.command == "vscode.java.test.findTestTypesAndMethods")
+        #expect(discovery.arguments == [.string(source.standardizedFileURL.absoluteString)])
+        session.completeExecuteReturningValue(.success(.array([
+            .object([
+                "id": .string("service@example.UserServiceTest"),
+                "label": .string("UserServiceTest"),
+                "fullName": .string("example.UserServiceTest"),
+                "projectName": .string("service"),
+                "testKind": .integer(0),
+                "testLevel": .integer(5),
+                "jdtHandler": .string("class-handler"),
+                "sortText": .string("002"),
+                "children": .array([
+                    .object([
+                        "id": .string("service@example.UserServiceTest#logsOut"),
+                        "label": .string("logsOut()"),
+                        "fullName": .string("example.UserServiceTest#logsOut"),
+                        "projectName": .string("service"),
+                        "testKind": .integer(0),
+                        "testLevel": .integer(6),
+                        "jdtHandler": .string("logout-handler"),
+                        "sortText": .string("002"),
+                        "children": .array([]),
+                    ]),
+                    .object([
+                        "id": .string("service@example.UserServiceTest#logsIn"),
+                        "label": .string("logsIn()"),
+                        "fullName": .string("example.UserServiceTest#logsIn"),
+                        "projectName": .string("service"),
+                        "testKind": .integer(0),
+                        "testLevel": .integer(6),
+                        "jdtHandler": .string("login-handler"),
+                        "sortText": .string("001"),
+                        "children": .array([]),
+                    ]),
+                ]),
+            ]),
+            .object([
+                "id": .string("service@example.AccountTest"),
+                "label": .string("AccountTest"),
+                "fullName": .string("example.AccountTest"),
+                "projectName": .string("service"),
+                "testKind": .integer(0),
+                "testLevel": .integer(5),
+                "jdtHandler": .string("account-handler"),
+                "sortText": .string("001"),
+                "children": .array([]),
+            ]),
+        ])))
+
+        let items = try await task.value
+        #expect(items.map(\.label) == [
+            "AccountTest", "UserServiceTest", "logsIn()", "logsOut()",
+        ])
+        #expect(items.map(\.depth) == [1, 1, 2, 2])
+        #expect(items.map(\.kind) == [.testCase, .testCase, .testCase, .testCase])
+        #expect(items.map(\.fileURL) == Array(repeating: source.standardizedFileURL, count: 4))
+        #expect(items.map(\.testIdentifier) == [
+            "example.AccountTest",
+            "example.UserServiceTest",
+            "example.UserServiceTest#logsIn",
+            "example.UserServiceTest#logsOut",
+        ])
+    }
+
+    @Test
+    func junitDebugTargetUsesJavaTestDiscoveryAndLaunchArguments() async throws {
+        let root = URL(fileURLWithPath: "/workspace/java-tests", isDirectory: true)
+        let source = root.appendingPathComponent(
+            "service/src/test/java/example/UserServiceTest.java"
+        )
+        let descriptor = try #require(
+            LanguageProviderCatalog.compatibilityFallback.provider(for: source)
+        )
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(
+            catalog: .compatibilityFallback,
+            runtimes: [WorkspaceStateLanguageProviderRuntime(
+                descriptor: descriptor,
+                session: session
+            )]
+        )
+        let task = Task {
+            try await manager.resolveJavaTestDebugLaunchTarget(
+                fileURL: source,
+                rootURL: root
+            )
+        }
+        defer { task.cancel() }
+
+        try await session.waitUntilStarted()
+        session.publish(.ready)
+        let discovery = try await session.waitForExecuteCommand()
+        #expect(discovery.command == "vscode.java.test.findTestTypesAndMethods")
+        #expect(discovery.arguments == [.string(source.standardizedFileURL.absoluteString)])
+        session.completeExecuteReturningValue(.success(.array([
+            .object([
+                "id": .string("service@example.UserServiceTest"),
+                "label": .string("UserServiceTest"),
+                "fullName": .string("example.UserServiceTest"),
+                "projectName": .string("service"),
+                "testKind": .integer(0),
+                "testLevel": .integer(5),
+                "jdtHandler": .string("=service/src<example{UserServiceTest.java[UserServiceTest"),
+                "children": .array([
+                    .object([
+                        "id": .string("service@example.UserServiceTest#logsIn"),
+                        "label": .string("logsIn()"),
+                        "fullName": .string("example.UserServiceTest#logsIn"),
+                        "projectName": .string("service"),
+                        "testKind": .integer(0),
+                        "testLevel": .integer(6),
+                        "jdtHandler": .string("=service/src<example{UserServiceTest.java[UserServiceTest~logsIn"),
+                        "children": .array([]),
+                    ]),
+                ]),
+            ]),
+        ])))
+
+        let launchCommand = try await session.waitForExecuteCommand(number: 2)
+        #expect(launchCommand.command == "vscode.java.test.junit.argument")
+        let launchRequest = try javaTestLaunchRequest(from: launchCommand)
+        #expect(launchRequest["projectName"] as? String == "service")
+        #expect(launchRequest["testLevel"] as? Int == 5)
+        #expect(launchRequest["testKind"] as? Int == 0)
+        #expect(launchRequest["testNames"] as? [String] == ["example.UserServiceTest"])
+        session.completeExecuteReturningValue(.success(.object([
+            "body": .object([
+                "workingDirectory": .string("/workspace/java-tests/service"),
+                "mainClass": .string("org.eclipse.jdt.internal.junit.runner.RemoteTestRunner"),
+                "projectName": .string("service"),
+                "classpath": .array([.string("/workspace/java-tests/service/classes")]),
+                "modulepath": .array([]),
+                "vmArguments": .array([.string("--enable-preview")]),
+                "programArguments": .array([
+                    .string("-version"), .string("3"), .string("-port"), .string("-1"),
+                ]),
+            ]),
+            "status": .integer(0),
+            "errorMessage": .null,
+        ])))
+
+        #expect(try await task.value == JavaTestDebugLaunchTarget(
+            fileURL: source,
+            name: "UserServiceTest",
+            framework: .junit,
+            workingDirectory: "/workspace/java-tests/service",
+            mainClass: "org.eclipse.jdt.internal.junit.runner.RemoteTestRunner",
+            projectName: "service",
+            classPaths: ["/workspace/java-tests/service/classes"],
+            modulePaths: [],
+            vmArguments: ["--enable-preview"],
+            programArguments: ["-version", "3", "-port", "-1"]
+        ))
+    }
+
+    @Test
+    func testngDebugTargetRetainsThePackagedRunnerAndSelectedMethod() async throws {
+        let root = URL(fileURLWithPath: "/workspace/java-tests", isDirectory: true)
+        let source = root.appendingPathComponent(
+            "service/src/test/java/example/UserServiceTest.java"
+        )
+        let descriptor = try #require(
+            LanguageProviderCatalog.compatibilityFallback.provider(for: source)
+        )
+        let session = WorkspaceStateLanguageServerSession()
+        session.javaTestRunnerURL = URL(fileURLWithPath: "/lithe/java-test-runner.jar")
+        let manager = LanguageToolingSessionManager(
+            catalog: .compatibilityFallback,
+            runtimes: [WorkspaceStateLanguageProviderRuntime(
+                descriptor: descriptor,
+                session: session
+            )]
+        )
+        let methodID = "service@example.UserServiceTest#logsIn"
+        let task = Task {
+            try await manager.resolveJavaTestDebugLaunchTarget(
+                fileURL: source,
+                testIdentifier: methodID,
+                rootURL: root
+            )
+        }
+        defer { task.cancel() }
+
+        try await session.waitUntilStarted()
+        session.publish(.ready)
+        _ = try await session.waitForExecuteCommand()
+        session.completeExecuteReturningValue(.success(.array([
+            .object([
+                "id": .string("service@example.UserServiceTest"),
+                "label": .string("UserServiceTest"),
+                "fullName": .string("example.UserServiceTest"),
+                "projectName": .string("service"),
+                "testKind": .integer(2),
+                "testLevel": .integer(5),
+                "jdtHandler": .string("class-handler"),
+                "children": .array([
+                    .object([
+                        "id": .string(methodID),
+                        "label": .string("logsIn()"),
+                        "fullName": .string("example.UserServiceTest#logsIn"),
+                        "projectName": .string("service"),
+                        "testKind": .integer(2),
+                        "testLevel": .integer(6),
+                        "jdtHandler": .string("method-handler"),
+                        "children": .array([]),
+                    ]),
+                ]),
+            ]),
+        ])))
+
+        let launchCommand = try await session.waitForExecuteCommand(number: 2)
+        #expect(launchCommand.command == "vscode.java.test.junit.argument")
+        let launchRequest = try javaTestLaunchRequest(from: launchCommand)
+        #expect(launchRequest["testLevel"] as? Int == 6)
+        #expect(launchRequest["testKind"] as? Int == 2)
+        #expect(launchRequest["testNames"] as? [String] == ["example.UserServiceTest#logsIn"])
+        session.completeExecuteReturningValue(.success(.object([
+            "body": .object([
+                "workingDirectory": .string("/workspace/java-tests/service"),
+                "projectName": .string("service"),
+                "classpath": .array([.string("/workspace/java-tests/service/classes")]),
+                "modulepath": .array([]),
+                "vmArguments": .array([]),
+                "programArguments": .array([]),
+            ]),
+            "status": .integer(0),
+            "errorMessage": .null,
+        ])))
+
+        #expect(try await task.value == JavaTestDebugLaunchTarget(
+            fileURL: source,
+            name: "logsIn()",
+            framework: .testng,
+            workingDirectory: "/workspace/java-tests/service",
+            mainClass: "com.microsoft.java.test.runner.Launcher",
+            projectName: "service",
+            classPaths: ["/workspace/java-tests/service/classes"],
+            modulePaths: [],
+            vmArguments: [],
+            programArguments: [],
+            testNGRunnerPath: "/lithe/java-test-runner.jar",
+            testNGTestNames: ["example.UserServiceTest#logsIn"]
         ))
     }
 
@@ -294,7 +565,7 @@ struct LanguageIntelligenceModuleTests {
         )
         let task = Task { try await manager.startJavaDebugServer(rootURL: root) }
 
-        await session.waitUntilStarted()
+        try await session.waitUntilStarted()
         task.cancel()
 
         await #expect(throws: CancellationError.self) {
@@ -585,6 +856,7 @@ private final class WorkspaceStateLanguageProviderRuntime: LanguageProviderRunti
 @MainActor
 private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
     var isRunning = false
+    var javaTestRunnerURL: URL?
     var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)?
     var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)?
     var onStateChange: ((LanguageServerSessionState) -> Void)?
@@ -596,38 +868,98 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
     private(set) var stopCallCount = 0
     var startError: Error?
     private(set) var executedCommands: [LanguageServerCommand] = []
-    private var startWaiters: [CheckedContinuation<Void, Never>] = []
-    private var executeWaiters: [(
+    private var startWaiters: [UUID: CheckedContinuation<Void, Error>] = [:]
+    private var startTimeoutTasks: [UUID: Task<Void, Never>] = [:]
+    private var executeWaiters: [UUID: (
         number: Int,
-        continuation: CheckedContinuation<LanguageServerCommand, Never>
-    )] = []
+        continuation: CheckedContinuation<LanguageServerCommand, Error>
+    )] = [:]
+    private var executeTimeoutTasks: [UUID: Task<Void, Never>] = [:]
     private var executeValueCompletion: ((Result<ToolingJSONValue, Error>) -> Void)?
 
     func start(rootURL _: URL, workspaceFingerprint: String?) throws {
         if let startError { throw startError }
         startedFingerprint = workspaceFingerprint
         isRunning = true
-        let waiters = startWaiters
-        startWaiters = []
-        waiters.forEach { $0.resume() }
+        let waiterIDs = Array(startWaiters.keys)
+        waiterIDs.forEach { finishStartWaiter($0, result: .success(())) }
     }
 
     func publish(_ state: LanguageServerSessionState) {
         onStateChange?(state)
     }
 
-    func waitUntilStarted() async {
+    func waitUntilStarted(timeout: Duration = .seconds(2)) async throws {
         if isRunning { return }
-        await withCheckedContinuation { continuation in
-            startWaiters.append(continuation)
+        let waiterID = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                guard !isRunning else {
+                    continuation.resume()
+                    return
+                }
+                startWaiters[waiterID] = continuation
+                let timeoutTask = Task { @MainActor [weak self] in
+                    // test-stability: allow(swift-real-sleep) reason: this watchdog bounds a failed continuation wait while successful synchronization remains event-driven.
+                    try? await Task.sleep(for: timeout)
+                    guard !Task.isCancelled else { return }
+                    self?.finishStartWaiter(
+                        waiterID,
+                        result: .failure(WorkspaceStateSessionError.timedOut)
+                    )
+                }
+                if startWaiters[waiterID] == nil {
+                    timeoutTask.cancel()
+                } else {
+                    startTimeoutTasks[waiterID] = timeoutTask
+                }
+                if Task.isCancelled {
+                    finishStartWaiter(waiterID, result: .failure(CancellationError()))
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.finishStartWaiter(waiterID, result: .failure(CancellationError()))
+            }
         }
     }
 
-    func waitForExecuteCommand(number: Int = 1) async -> LanguageServerCommand {
+    func waitForExecuteCommand(
+        number: Int = 1,
+        timeout: Duration = .seconds(2)
+    ) async throws -> LanguageServerCommand {
         precondition(number > 0)
         if executedCommands.count >= number { return executedCommands[number - 1] }
-        return await withCheckedContinuation { continuation in
-            executeWaiters.append((number, continuation))
+        let waiterID = UUID()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                guard executedCommands.count < number else {
+                    continuation.resume(returning: executedCommands[number - 1])
+                    return
+                }
+                executeWaiters[waiterID] = (number, continuation)
+                let timeoutTask = Task { @MainActor [weak self] in
+                    // test-stability: allow(swift-real-sleep) reason: this watchdog bounds a failed continuation wait while successful synchronization remains event-driven.
+                    try? await Task.sleep(for: timeout)
+                    guard !Task.isCancelled else { return }
+                    self?.finishExecuteWaiter(
+                        waiterID,
+                        result: .failure(WorkspaceStateSessionError.timedOut)
+                    )
+                }
+                if executeWaiters[waiterID] == nil {
+                    timeoutTask.cancel()
+                } else {
+                    executeTimeoutTasks[waiterID] = timeoutTask
+                }
+                if Task.isCancelled {
+                    finishExecuteWaiter(waiterID, result: .failure(CancellationError()))
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.finishExecuteWaiter(waiterID, result: .failure(CancellationError()))
+            }
         }
     }
 
@@ -721,10 +1053,15 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
     ) throws {
         executedCommands.append(command)
         executeValueCompletion = completion
-        let readyWaiters = executeWaiters.filter { $0.number <= executedCommands.count }
-        executeWaiters.removeAll { $0.number <= executedCommands.count }
-        readyWaiters.forEach {
-            $0.continuation.resume(returning: executedCommands[$0.number - 1])
+        let readyWaiterIDs = executeWaiters.compactMap { waiterID, waiter in
+            waiter.number <= executedCommands.count ? waiterID : nil
+        }
+        readyWaiterIDs.forEach { waiterID in
+            guard let waiter = executeWaiters[waiterID] else { return }
+            finishExecuteWaiter(
+                waiterID,
+                result: .success(executedCommands[waiter.number - 1])
+            )
         }
     }
 
@@ -738,7 +1075,45 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
     func stop() {
         stopCallCount += 1
         isRunning = false
+        Array(startWaiters.keys).forEach {
+            finishStartWaiter($0, result: .failure(CancellationError()))
+        }
+        Array(executeWaiters.keys).forEach {
+            finishExecuteWaiter($0, result: .failure(CancellationError()))
+        }
+        let completion = executeValueCompletion
+        executeValueCompletion = nil
+        completion?(.failure(CancellationError()))
     }
+
+    private func finishStartWaiter(_ waiterID: UUID, result: Result<Void, Error>) {
+        let continuation = startWaiters.removeValue(forKey: waiterID)
+        let timeoutTask = startTimeoutTasks.removeValue(forKey: waiterID)
+        timeoutTask?.cancel()
+        continuation?.resume(with: result)
+    }
+
+    private func finishExecuteWaiter(
+        _ waiterID: UUID,
+        result: Result<LanguageServerCommand, Error>
+    ) {
+        let waiter = executeWaiters.removeValue(forKey: waiterID)
+        let timeoutTask = executeTimeoutTasks.removeValue(forKey: waiterID)
+        timeoutTask?.cancel()
+        waiter?.continuation.resume(with: result)
+    }
+}
+
+private func javaTestLaunchRequest(
+    from command: LanguageServerCommand
+) throws -> [String: Any] {
+    guard command.arguments.count == 1,
+          case .string(let value) = command.arguments[0],
+          let data = value.data(using: .utf8),
+          let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        throw WorkspaceStateSessionError.unexpectedOperation
+    }
+    return object
 }
 
 private enum WorkspaceStateSessionError: LocalizedError {

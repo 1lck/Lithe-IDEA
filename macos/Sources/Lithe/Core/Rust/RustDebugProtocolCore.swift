@@ -1,6 +1,18 @@
 import Foundation
 import LitheCoreContracts
 
+extension RustCoreBridge: JavaTestDebugLaunchResolving {
+    func resolveJavaTestDebugLaunch(
+        target: JavaTestDebugLaunchTarget,
+        resultPort: UInt16
+    ) throws -> DebugLaunchConfiguration {
+        try executeResult(
+            command: "debug.javaTestLaunch",
+            payload: JavaTestDebugLaunchPayload(target: target, resultPort: resultPort)
+        ).get()
+    }
+}
+
 extension RustCoreBridge: DebugProtocolCore {
     func resolveDebugSteppingFilters(
         adapterID: String,
@@ -234,6 +246,43 @@ extension RustCoreBridge: DebugProtocolCore {
             payload: DebugSessionPayload(sessionID: sessionID)
         )
         _ = result
+    }
+}
+
+private struct JavaTestDebugLaunchPayload: Encodable {
+    let name: String
+    let framework: JavaTestDebugFramework
+    let workingDirectory: String
+    let mainClass: String
+    let projectName: String?
+    let classPaths: [String]
+    let modulePaths: [String]
+    let vmArguments: [String]
+    let programArguments: [String]
+    let resultPort: UInt16
+    let testNGRunnerPath: String?
+    let testNGTestNames: [String]
+
+    init(target: JavaTestDebugLaunchTarget, resultPort: UInt16) {
+        name = target.name
+        framework = target.framework
+        workingDirectory = target.workingDirectory
+        mainClass = target.mainClass
+        projectName = target.projectName
+        classPaths = target.classPaths
+        modulePaths = target.modulePaths
+        vmArguments = target.vmArguments
+        programArguments = target.programArguments
+        self.resultPort = resultPort
+        testNGRunnerPath = target.testNGRunnerPath
+        testNGTestNames = target.testNGTestNames
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name, framework, workingDirectory, mainClass, projectName
+        case classPaths, modulePaths, vmArguments, programArguments, resultPort
+        case testNGRunnerPath = "testngRunnerPath"
+        case testNGTestNames = "testngTestNames"
     }
 }
 

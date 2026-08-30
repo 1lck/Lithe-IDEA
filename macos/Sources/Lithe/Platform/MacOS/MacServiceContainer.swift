@@ -500,6 +500,11 @@ final class MacServiceContainer {
             pluginCatalog: pluginCatalog,
             languageProviderCatalogSource: languageProviderCatalogSource,
             languageProviderCatalogSnapshot: languageProviderCatalogSnapshot,
+            debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver(
+                fileStorage: fileStorage,
+                javaTestLaunchResolver: rustCore
+            ),
+            javaTestResultServerFactory: { MacJavaTestResultServer() },
             debugBreakpointPersistence: debugBreakpointStore,
             workspaceOperations: workspaceOperations,
             documentLifecycleDecider: RustDocumentLifecycleDecider(core: rustCore),

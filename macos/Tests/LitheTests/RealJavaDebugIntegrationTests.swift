@@ -5,7 +5,7 @@ import LitheLanguageIntelligenceModule
 import Testing
 @testable import Lithe
 
-@Suite("Real Java Debug integration")
+@Suite("Real Java Debug integration", .serialized)
 @MainActor
 struct RealJavaDebugIntegrationTests {
     @Test
@@ -222,6 +222,195 @@ struct RealJavaDebugIntegrationTests {
         #expect(body.contains("Grace Hopper"))
     }
 
+    @Test
+    func junitMethodHitsBreakpointAndResumes() async throws {
+        try await Self.runJavaTestDebug(.junit)
+    }
+
+    @Test
+    func testngMethodHitsBreakpointAndResumes() async throws {
+        try await Self.runJavaTestDebug(.testng)
+    }
+
+    private static func runJavaTestDebug(_ scenario: RealJavaTestDebugScenario) async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["LITHE_RUN_JAVA_TEST_DEBUG_INTEGRATION"] == "1" else { return }
+
+        let repositoryRoot = Self.repositoryRoot
+        let jdtlsRoot = URL(
+            fileURLWithPath: environment["LITHE_JDTLS_ROOT"]
+                ?? repositoryRoot.appendingPathComponent(".artifacts/jdtls").path,
+            isDirectory: true
+        )
+        let javaURL = URL(
+            fileURLWithPath: environment["LITHE_JAVA_PATH"]
+                ?? repositoryRoot.appendingPathComponent(".artifacts/jdk-arm64/bin/java").path
+        )
+        let jdtlsURL = jdtlsRoot.appendingPathComponent("bin/jdtls")
+        let fileManager = FileManager.default
+        #expect(fileManager.isExecutableFile(atPath: javaURL.path))
+        #expect(fileManager.isExecutableFile(atPath: jdtlsURL.path))
+        guard fileManager.isExecutableFile(atPath: javaURL.path),
+              fileManager.isExecutableFile(atPath: jdtlsURL.path) else { return }
+
+        let rootURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "lithe-real-java-test-debug-\(scenario.rawValue)-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let cacheURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "\(rootURL.lastPathComponent)-jdtls-cache",
+            isDirectory: true
+        )
+        let fixtureURL = repositoryRoot.appendingPathComponent(
+            "shared/fixtures/projects/lithe-spring-boot-git-graph",
+            isDirectory: true
+        )
+        try fileManager.copyItem(at: fixtureURL, to: rootURL)
+        defer {
+            try? fileManager.removeItem(at: rootURL)
+            try? fileManager.removeItem(at: cacheURL)
+        }
+        try scenario.prepareProject(at: rootURL, fileManager: fileManager)
+        let testURL = rootURL.appendingPathComponent(
+            "src/test/java/com/example/demo/user/UserServiceTest.java"
+        )
+        let testSource = try String(contentsOf: testURL, encoding: .utf8)
+        let breakpointLine = try #require(line(
+            containing: scenario.breakpointNeedle,
+            in: testSource
+        ))
+
+        let core = RustCoreBridge()
+        #expect(core.isAvailable)
+        guard core.isAvailable else { return }
+        let resources: JDTLSLaunchResources
+        switch MacJDTLSLaunchResourceResolver(
+            bundledJdtlsRootURL: jdtlsRoot
+        ).resolve(for: jdtlsURL) {
+        case .direct(let value):
+            resources = value
+        case .wrapperFallback:
+            Issue.record("The real Java test Debug test requires direct JDT LS resources.")
+            return
+        case .unavailable(let message):
+            Issue.record("JDT LS resources are unavailable: \(message)")
+            return
+        }
+
+        let descriptor = try #require(LanguageProviderCatalog.standard.provider(for: testURL))
+        let launch = try #require(descriptor.languageServerLaunch)
+        let languageSession = LanguageServerRuntimeSession(
+            providerID: descriptor.id,
+            executableURL: jdtlsURL,
+            arguments: launch.arguments,
+            environment: environment,
+            initializationOptions: launch.initializationOptions,
+            runtimeExecutableURL: javaURL,
+            jdtlsLaunchResources: resources,
+            cacheDirectoryURL: cacheURL,
+            initializeTimeout: 120,
+            requestTimeout: 120,
+            shutdownTimeout: 5,
+            core: core
+        )
+        let languageRuntime = RealJavaDebugLanguageRuntime(
+            descriptor: descriptor,
+            session: languageSession
+        )
+        let languageManager = LanguageToolingSessionManager(
+            catalog: LanguageProviderCatalog(descriptors: [descriptor]),
+            runtimes: [languageRuntime],
+            builtinCore: core
+        )
+        let protocolTrace = RealJavaDebugProtocolTrace()
+        let debugManager = DebugAdapterSessionManager(
+            providers: [DebugProviderDescriptor(
+                id: "java",
+                displayName: "Java",
+                fileExtensions: ["java"]
+            )]
+        ) { _, _ in
+            CoreDebugAdapterProtocolSession(
+                adapterID: "java",
+                transport: RealJavaDebugRecordingTransport(
+                    wrapping: MacJavaDebugAdapterTransport(
+                        portResolver: { rootURL in
+                            try await languageManager.startJavaDebugServer(rootURL: rootURL)
+                        }
+                    ),
+                    trace: protocolTrace
+                ),
+                core: core,
+                deadlineScheduler: MacDebugOperationDeadlineScheduler()
+            )
+        }
+        let feature = GenericDebugFeatureModel(sessions: debugManager)
+        let launchService = JavaTestDebugLaunchService(
+            configurationResolver: DebugLaunchConfigurationResolver(
+                fileExists: { fileManager.fileExists(atPath: $0.path) },
+                javaTestLaunchResolver: core
+            ),
+            resultServerFactory: { MacJavaTestResultServer() }
+        )
+        defer {
+            feature.stop()
+            languageManager.stopAll()
+        }
+
+        let prepared: PreparedJavaTestDebugLaunch
+        do {
+            prepared = try await launchService.prepare(
+                fileURL: testURL,
+                testIdentifier: scenario.testIdentifier,
+                rootURL: rootURL,
+                targetResolver: languageManager
+            )
+        } catch {
+            throw RealJavaDebugIntegrationError.languageToolingFailed(
+                message: String(describing: error),
+                logs: languageServerLogSummary(languageManager.languageServerLogs)
+            )
+        }
+        defer { prepared.stop() }
+
+        #expect(prepared.target.framework == scenario.framework)
+        feature.toggleBreakpoint(fileURL: testURL, line: breakpointLine)
+        #expect(feature.start(
+            fileURL: testURL,
+            rootURL: rootURL,
+            configuration: prepared.configuration
+        ))
+
+        guard await waitUntil(timeout: .seconds(120), condition: {
+            feature.state == .paused
+        }) else {
+            throw RealJavaDebugIntegrationError.debuggerDidNotPause(
+                debugSnapshot(feature, protocolTrace: protocolTrace)
+            )
+        }
+        #expect(
+            feature.breakpoints.first?.verified == true,
+            "The Java test breakpoint was not verified.\n\(debugSnapshot(feature, protocolTrace: protocolTrace))"
+        )
+        guard await waitUntil(timeout: .seconds(30), condition: {
+            feature.selectedFrame?.sourceURL?.standardizedFileURL
+                == testURL.standardizedFileURL
+                && feature.selectedFrame?.line == breakpointLine
+        }) else {
+            throw RealJavaDebugIntegrationError.stoppedFrameUnavailable(
+                debugSnapshot(feature, protocolTrace: protocolTrace)
+            )
+        }
+        #expect(await waitUntil(timeout: .seconds(30)) {
+            feature.variables.contains { $0.name == scenario.expectedVariable }
+        }, "The stopped Java test frame did not expose \(scenario.expectedVariable).")
+
+        feature.execute(.continueExecution)
+        #expect(await waitUntil(timeout: .seconds(60)) {
+            feature.state == .terminated
+        }, "Java test Debug did not terminate.\n\(debugSnapshot(feature, protocolTrace: protocolTrace))")
+    }
+
     private static var repositoryRoot: URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -320,6 +509,112 @@ struct RealJavaDebugIntegrationTests {
     }
 }
 
+private enum RealJavaTestDebugScenario: String {
+    case junit
+    case testng
+
+    var framework: JavaTestDebugFramework {
+        switch self {
+        case .junit: .junit
+        case .testng: .testng
+        }
+    }
+
+    var testIdentifier: String {
+        switch self {
+        case .junit: "com.example.demo.user.UserServiceTest#addsNumbers()"
+        case .testng: "com.example.demo.user.UserServiceTest#multipliesNumbers()"
+        }
+    }
+
+    var breakpointNeedle: String {
+        switch self {
+        case .junit: "int total = left + right;"
+        case .testng: "int product = left * right;"
+        }
+    }
+
+    var expectedVariable: String {
+        switch self {
+        case .junit: "left"
+        case .testng: "left"
+        }
+    }
+
+    func prepareProject(at rootURL: URL, fileManager: FileManager) throws {
+        let testDirectory = rootURL.appendingPathComponent(
+            "src/test/java/com/example/demo/user",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(
+            at: testDirectory,
+            withIntermediateDirectories: true
+        )
+        let sourceURL = testDirectory.appendingPathComponent("UserServiceTest.java")
+        try source.write(to: sourceURL, atomically: true, encoding: .utf8)
+        guard self == .testng else { return }
+
+        let pomURL = rootURL.appendingPathComponent("pom.xml")
+        var pom = try String(contentsOf: pomURL, encoding: .utf8)
+        guard let insertion = pom.range(of: "</dependencies>") else {
+            throw RealJavaDebugIntegrationError.invalidFixture("Missing Maven dependencies section")
+        }
+        pom.insert(contentsOf: testNGDependency, at: insertion.lowerBound)
+        try pom.write(to: pomURL, atomically: true, encoding: .utf8)
+    }
+
+    private var source: String {
+        switch self {
+        case .junit:
+            """
+            package com.example.demo.user;
+
+            import static org.junit.jupiter.api.Assertions.assertEquals;
+
+            import org.junit.jupiter.api.Test;
+
+            class UserServiceTest {
+                @Test
+                void addsNumbers() {
+                    int left = 20;
+                    int right = 22;
+                    int total = left + right;
+                    assertEquals(42, total);
+                }
+            }
+            """
+        case .testng:
+            """
+            package com.example.demo.user;
+
+            import org.testng.Assert;
+            import org.testng.annotations.Test;
+
+            public class UserServiceTest {
+                @Test
+                public void multipliesNumbers() {
+                    int left = 6;
+                    int right = 7;
+                    int product = left * right;
+                    Assert.assertEquals(product, 42);
+                }
+            }
+            """
+        }
+    }
+
+    private var testNGDependency: String {
+        """
+                <dependency>
+                    <groupId>org.testng</groupId>
+                    <artifactId>testng</artifactId>
+                    <version>7.10.2</version>
+                    <scope>test</scope>
+                </dependency>
+        """
+    }
+}
+
 @MainActor
 private final class RealJavaDebugProtocolTrace {
     private(set) var entries: [String] = []
@@ -394,4 +689,5 @@ private enum RealJavaDebugIntegrationError: Error {
     case languageToolingFailed(message: String, logs: String)
     case debuggerDidNotPause(String)
     case stoppedFrameUnavailable(String)
+    case invalidFixture(String)
 }

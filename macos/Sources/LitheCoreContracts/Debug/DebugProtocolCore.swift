@@ -249,6 +249,15 @@ public protocol DebugSteppingFilterResolving: Sendable {
     ) throws -> DebugSteppingFilters
 }
 
+/// Focused shared-Core boundary for deterministic Java test launch arguments.
+@MainActor
+public protocol JavaTestDebugLaunchResolving: Sendable {
+    func resolveJavaTestDebugLaunch(
+        target: JavaTestDebugLaunchTarget,
+        resultPort: UInt16
+    ) throws -> DebugLaunchConfiguration
+}
+
 /// Transport-neutral Debug Core boundary. Native products own processes and
 /// sockets; this contract owns DAP framing, state, sequencing, and normalized data.
 @MainActor
