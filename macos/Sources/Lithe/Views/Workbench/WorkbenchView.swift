@@ -396,6 +396,42 @@ struct WorkbenchView: View {
     private var topBar: some View {
         HStack(spacing: 9) {
             Button {
+                isProjectSwitcherPresented.toggle()
+            } label: {
+                HStack(spacing: 8) {
+                    LitheLogo(size: 24)
+
+                    Text(model.projectName)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(LitheTheme.primaryText)
+                        .lineLimit(1)
+
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+                .padding(.horizontal, 8)
+                .frame(height: 32)
+                .litheRowHover(
+                    isActive: isProjectSwitcherPresented,
+                    cornerRadius: 6,
+                    activeBackground: LitheTheme.subtleSelection
+                )
+            }
+            .buttonStyle(.plain)
+            .lithePointer()
+            .accessibilityIdentifier("project-switcher-\(model.id.uuidString)")
+            .anchorPreference(
+                key: ProjectSwitcherButtonBoundsPreferenceKey.self,
+                value: .bounds
+            ) { $0 }
+
+            Rectangle()
+                .fill(LitheTheme.divider)
+                .frame(width: 1, height: 20)
+                .padding(.horizontal, 5)
+
+            Button {
                 isBranchSwitcherPresented.toggle()
                 if isBranchSwitcherPresented {
                     Task { await model.refreshGitHistory() }
@@ -455,42 +491,6 @@ struct WorkbenchView: View {
                 )
                 .environmentObject(model)
             }
-
-            Rectangle()
-                .fill(LitheTheme.divider)
-                .frame(width: 1, height: 20)
-                .padding(.horizontal, 5)
-
-            Button {
-                isProjectSwitcherPresented.toggle()
-            } label: {
-                HStack(spacing: 8) {
-                    LitheLogo(size: 24)
-
-                    Text(model.projectName)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(LitheTheme.primaryText)
-                        .lineLimit(1)
-
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                }
-                .padding(.horizontal, 8)
-                .frame(height: 32)
-                .litheRowHover(
-                    isActive: isProjectSwitcherPresented,
-                    cornerRadius: 6,
-                    activeBackground: LitheTheme.subtleSelection
-                )
-            }
-            .buttonStyle(.plain)
-            .lithePointer()
-            .accessibilityIdentifier("project-switcher-\(model.id.uuidString)")
-            .anchorPreference(
-                key: ProjectSwitcherButtonBoundsPreferenceKey.self,
-                value: .bounds
-            ) { $0 }
 
             Spacer(minLength: 22)
 
