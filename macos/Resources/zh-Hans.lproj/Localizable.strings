@@ -249,6 +249,7 @@
 "Navigate" = "导航";
 "Search Everywhere…" = "全局搜索…";
 "Find in File…" = "在文件中查找…";
+"Replace in File…" = "在文件中替换…";
 "Find Next" = "查找下一个";
 "Find Previous" = "查找上一个";
 "Go to Usage" = "跳转到调用位置";
@@ -901,6 +902,8 @@
 "Search text across the workspace" = "搜索整个工作区的文本";
 "Find in File" = "在文件中查找";
 "Search within the active editor" = "在当前编辑器中搜索";
+"Replace in File" = "在文件中替换";
+"Replace within the active editor" = "在当前编辑器中替换";
 "Navigate to a call site of the selected Java symbol" = "导航到所选 Java 符号的调用位置";
 "Find references to the selected Java symbol" = "查找所选 Java 符号的引用";
 "Open history for the active file" = "打开当前文件的历史记录";
