@@ -541,11 +541,14 @@ struct CodeEditorView: NSViewRepresentable {
         if let codeTextView = textView as? CodeTextView {
             let findVisible = chrome.isFindBarVisible
             let findQuery = chrome.findBarQuery
+            let findOptions = chrome.findOptions
             if context.coordinator.lastFindVisible != findVisible
-                || context.coordinator.lastFindQuery != findQuery {
+                || context.coordinator.lastFindQuery != findQuery
+                || context.coordinator.lastFindOptions != findOptions {
                 context.coordinator.lastFindVisible = findVisible
                 context.coordinator.lastFindQuery = findQuery
-                codeTextView.syncFindState(isVisible: findVisible, query: findQuery)
+                context.coordinator.lastFindOptions = findOptions
+                codeTextView.syncFindState(isVisible: findVisible, query: findQuery, options: findOptions)
             }
         }
         context.coordinator.applySynchronizedMarkdownScrollIfNeeded(to: container.scrollView)
@@ -573,6 +576,7 @@ struct CodeEditorView: NSViewRepresentable {
         var implementationMarkers: [JavaImplementationMarker] = []
         var lastFindVisible = false
         var lastFindQuery = ""
+        var lastFindOptions = FindInFileOptions()
         private var pendingHighlightRange: NSRange?
         private var pendingReplacedRange: NSRange?
         private var pendingReplacement: String?
@@ -1106,7 +1110,7 @@ struct CodeEditorView: NSViewRepresentable {
                 try? await Task.sleep(for: .milliseconds(80))
                 guard !Task.isCancelled, let self, let textView = self.textView as? CodeTextView else { return }
                 if let model = self.model, model.isFindBarVisible, !model.findBarQuery.isEmpty {
-                    textView.updateFindMatches(query: model.findBarQuery)
+                    textView.updateFindMatches(query: model.findBarQuery, options: model.findOptions)
                 } else {
                     textView.updateEditorDecorations()
                 }
@@ -1498,6 +1502,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     private var findMatchRanges: [NSRange] = []
     private var currentFindMatchIndex = 0
     private var lastReportedFindState: (index: Int, count: Int)?
+    private var findMatcher = FindInFileMatcher(query: "", options: .default)
     private var lastCaretBackgroundRanges: [NSRange] = []
     private var completionItemsByID: [String: LanguageServerCompletionItem] = [:]
     private var languageHoverPopover: NSPopover?
@@ -1699,6 +1704,10 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
             clearFindHighlights()
             return
         }
+        let matcher = query == findMatcher.query
+            ? findMatcher
+            : FindInFileMatcher(query: query, options: findMatcher.options)
+        findMatcher = matcher
         let source = string as NSString
         let delta = insertedLength - replacedRange.length
         let replacedEnd = NSMaxRange(replacedRange)
@@ -1709,34 +1718,26 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
             }
             return nil
         }
+        // 重算窗口 = 编辑所在行向两侧各扩一个字符：行边界处全词匹配的
+        // 边界字符可能落在相邻行，只有窗口覆盖该字符才能正确移除并重算。
         let safeLocation = min(replacedRange.location, max(0, source.length - 1))
         let lineRange = source.length == 0
             ? NSRange(location: 0, length: 0)
             : source.lineRange(for: NSRange(location: safeLocation, length: 0))
-        let searchEnd = min(source.length, max(NSMaxRange(lineRange), replacedRange.location + insertedLength))
+        let windowLocation = max(0, lineRange.location - 1)
+        let windowEnd = min(source.length, NSMaxRange(lineRange) + 1)
         let searchRange = NSRange(
-            location: lineRange.location,
-            length: max(0, searchEnd - lineRange.location)
+            location: windowLocation,
+            length: max(0, windowEnd - windowLocation)
         )
         findMatchRanges.removeAll { range in
             NSIntersectionRange(range, searchRange).length > 0
                 || (range.location >= searchRange.location && range.location < NSMaxRange(searchRange))
         }
-        if searchRange.length > 0, !query.isEmpty {
-            var cursor = searchRange
-            while cursor.length > 0 {
-                let found = source.range(
-                    of: query,
-                    options: [.caseInsensitive, .diacriticInsensitive],
-                    range: cursor
-                )
-                if found.location == NSNotFound { break }
-                findMatchRanges.append(found)
-                let nextLocation = NSMaxRange(found)
-                cursor = NSRange(location: nextLocation, length: NSMaxRange(searchRange) - nextLocation)
-            }
-            findMatchRanges.sort { $0.location < $1.location }
+        for found in matcher.matchRanges(in: source, range: searchRange) {
+            findMatchRanges.append(found)
         }
+        findMatchRanges.sort { $0.location < $1.location }
         currentFindMatchIndex = min(currentFindMatchIndex, max(0, findMatchRanges.count - 1))
         applyFindHighlights()
         reportFindState(
@@ -1881,25 +1882,13 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
     // MARK: - Find in file
 
-    /// 重新计算匹配范围并刷新高亮，用于 Find Bar 查询变化。
+    /// 重新计算匹配范围并刷新高亮，用于 Find Bar 查询或选项变化。
     /// 通过 updateEditorDecorations 统一重画，避免旧查询高亮残留。
-    func updateFindMatches(query: String) {
+    func updateFindMatches(query: String, options: FindInFileOptions) {
+        let matcher = FindInFileMatcher(query: query, options: options)
+        findMatcher = matcher
         let source = string as NSString
-        var newRanges: [NSRange] = []
-        if !query.isEmpty {
-            var searchRange = NSRange(location: 0, length: source.length)
-            while searchRange.length > 0 {
-                let found = source.range(
-                    of: query,
-                    options: [.caseInsensitive, .diacriticInsensitive],
-                    range: searchRange
-                )
-                if found.location == NSNotFound { break }
-                newRanges.append(found)
-                let nextLocation = NSMaxRange(found)
-                searchRange = NSRange(location: nextLocation, length: source.length - nextLocation)
-            }
-        }
+        let newRanges = matcher.matchRanges(in: source)
         let needsRefresh = !findMatchRanges.isEmpty || !newRanges.isEmpty
         let previousIndex = currentFindMatchIndex
         let previousRanges = findMatchRanges
@@ -1930,6 +1919,80 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         reportFindState(index: currentFindMatchIndex, count: total)
     }
 
+    /// 替换当前匹配并自动跳到下一处：通过 insertText 进入标准输入管线，
+    /// 撤销、委托回调与装饰刷新同手工编辑一致。
+    func replaceNextFindMatch(replacement: String) {
+        guard isEditable,
+              !findMatchRanges.isEmpty,
+              currentFindMatchIndex < findMatchRanges.count else { return }
+        let matchRange = findMatchRanges[currentFindMatchIndex]
+        let expanded = findMatcher.replacement(
+            for: string as NSString,
+            matchRange: matchRange,
+            template: replacement
+        )
+        let replacedRange = NSRange(location: matchRange.location, length: (expanded as NSString).length)
+        insertText(expanded, replacementRange: matchRange)
+        // 跳过替换文本自身新产生的匹配，避免与替换结果死循环
+        selectFindMatch(after: replacedRange)
+    }
+
+    /// 一次性替换全部匹配：shouldChangeText + NSTextStorage 批量替换 +
+    /// didChangeText 一步完成，形成单个撤销步骤；之后整篇重算匹配。
+    func replaceAllFindMatches(replacement: String) {
+        guard isEditable, !findMatchRanges.isEmpty else { return }
+        let source = string as NSString
+        let fullRange = NSRange(location: 0, length: source.length)
+        let rebuilt = rebuiltTextByReplacingMatches(with: replacement, in: source)
+        guard shouldChangeText(in: fullRange, replacementString: rebuilt) else { return }
+        textStorage?.replaceCharacters(in: fullRange, with: rebuilt)
+        didChangeText()
+        let length = (string as NSString).length
+        setSelectedRange(NSRange(location: min(selectedRange().location, length), length: 0))
+        updateFindMatches(query: findMatcher.query, options: findMatcher.options)
+    }
+
+    private func rebuiltTextByReplacingMatches(with template: String, in source: NSString) -> String {
+        let rebuilt = NSMutableString()
+        var cursor = 0
+        for range in findMatchRanges {
+            guard range.location >= cursor else { continue }
+            rebuilt.append(source.substring(with: NSRange(location: cursor, length: range.location - cursor)))
+            rebuilt.append(findMatcher.replacement(for: source, matchRange: range, template: template))
+            cursor = NSMaxRange(range)
+        }
+        if cursor < source.length {
+            rebuilt.append(source.substring(with: NSRange(location: cursor, length: source.length - cursor)))
+        }
+        return rebuilt as String
+    }
+
+    /// 选中替换区之后的第一个匹配；没有更靠后的匹配时从文档开头回绕，
+    /// 两种情况都跳过与替换区重叠的匹配。
+    private func selectFindMatch(after replacedRange: NSRange) {
+        if let next = findMatchRanges.firstIndex(where: { $0.location >= NSMaxRange(replacedRange) }) {
+            selectFindMatch(at: next)
+            return
+        }
+        if let wrapped = findMatchRanges.firstIndex(where: { !Self.overlapsFindRange($0, replacedRange) }) {
+            selectFindMatch(at: wrapped)
+        }
+    }
+
+    private static func overlapsFindRange(_ range: NSRange, _ other: NSRange) -> Bool {
+        NSIntersectionRange(range, other).length > 0
+            || (range.location >= other.location && range.location < NSMaxRange(other))
+    }
+
+    private func selectFindMatch(at index: Int) {
+        currentFindMatchIndex = index
+        applyFindHighlights()
+        let range = findMatchRanges[index]
+        scrollRangeToVisible(range)
+        setSelectedRange(range)
+        reportFindState(index: index, count: findMatchRanges.count)
+    }
+
     /// Publishes only meaningful find-state transitions so SwiftUI updates do
     /// not create a feedback loop through `updateNSView`.
     private func reportFindState(index: Int, count: Int) {
@@ -1950,9 +2013,9 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     }
 
     /// 文档或查询变化时同步 Find Bar 状态；Find Bar 关闭时仅清理已有高亮。
-    func syncFindState(isVisible: Bool, query: String) {
+    func syncFindState(isVisible: Bool, query: String, options: FindInFileOptions) {
         if isVisible {
-            updateFindMatches(query: query)
+            updateFindMatches(query: query, options: options)
         } else if !findMatchRanges.isEmpty {
             clearFindHighlights()
         }
@@ -3015,6 +3078,18 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
             name: .litheFindDismiss,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleFindReplaceNext(_:)),
+            name: .litheFindReplaceNext,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleFindReplaceAll(_:)),
+            name: .litheFindReplaceAll,
+            object: nil
+        )
     }
 
     required init?(coder: NSCoder) {
@@ -3030,7 +3105,24 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
     @objc private func handleFindQueryChanged(_ notification: Notification) {
         let query = notification.userInfo?[FindNotificationKeys.query] as? String ?? ""
-        updateFindMatches(query: query)
+        let options = FindInFileOptions(
+            matchCase: notification.userInfo?[FindNotificationKeys.matchCase] as? Bool ?? false,
+            wholeWords: notification.userInfo?[FindNotificationKeys.wholeWords] as? Bool ?? false,
+            regularExpression: notification.userInfo?[FindNotificationKeys.regularExpression] as? Bool ?? false
+        )
+        updateFindMatches(query: query, options: options)
+    }
+
+    @objc private func handleFindReplaceNext(_ notification: Notification) {
+        replaceNextFindMatch(
+            replacement: notification.userInfo?[FindNotificationKeys.replacement] as? String ?? ""
+        )
+    }
+
+    @objc private func handleFindReplaceAll(_ notification: Notification) {
+        replaceAllFindMatches(
+            replacement: notification.userInfo?[FindNotificationKeys.replacement] as? String ?? ""
+        )
     }
 
     @objc private func handleFindNavigate(_ notification: Notification) {

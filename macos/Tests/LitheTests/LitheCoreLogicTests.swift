@@ -2264,8 +2264,8 @@ struct LitheCoreLogicTests {
             updates.append((index, count))
         }
 
-        textView.syncFindState(isVisible: true, query: "")
-        textView.syncFindState(isVisible: true, query: "")
+        textView.syncFindState(isVisible: true, query: "", options: .default)
+        textView.syncFindState(isVisible: true, query: "", options: .default)
 
         #expect(updates.count == 1)
         #expect(updates.first?.index == -1)
@@ -2317,7 +2317,7 @@ struct LitheCoreLogicTests {
         let textView = CodeTextView(frame: .zero)
         textView.string = "alpha beta alpha"
         textView.rebuildLineIndex()
-        textView.updateFindMatches(query: "alpha")
+        textView.updateFindMatches(query: "alpha", options: .default)
         #expect(textView.currentFindMatchCountForTesting == 2)
 
         textView.string = "Xalpha beta alpha"
@@ -2336,9 +2336,9 @@ struct LitheCoreLogicTests {
             reportedStates.append("\(index):\(count)")
         }
 
-        textView.syncFindState(isVisible: true, query: "")
-        textView.syncFindState(isVisible: true, query: "alpha")
-        textView.syncFindState(isVisible: true, query: "alpha")
+        textView.syncFindState(isVisible: true, query: "", options: .default)
+        textView.syncFindState(isVisible: true, query: "alpha", options: .default)
+        textView.syncFindState(isVisible: true, query: "alpha", options: .default)
 
         #expect(reportedStates == ["-1:0", "0:2"])
     }
