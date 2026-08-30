@@ -466,11 +466,17 @@ struct WorkbenchView: View {
             .buttonStyle(.plain)
             .lithePointer()
             .accessibilityIdentifier("project-switcher-\(model.id.uuidString)")
-            .overlay(alignment: .bottomLeading) {
+            .background(alignment: .bottomLeading) {
                 Color.clear
-                    .frame(width: 1, height: 1)
-                    .offset(x: ProjectSwitcherLayoutMetrics.anchorOffsetFromLeading)
-                    .popover(isPresented: $isProjectSwitcherPresented, arrowEdge: .bottom) {
+                    .frame(
+                        width: ProjectSwitcherLayoutMetrics.anchorOffsetFromLeading,
+                        height: 1
+                    )
+                    .popover(
+                        isPresented: $isProjectSwitcherPresented,
+                        attachmentAnchor: .point(.bottomTrailing),
+                        arrowEdge: .bottom
+                    ) {
                         ProjectSwitcherPopover(
                             isPresented: $isProjectSwitcherPresented,
                             onNewProject: {
