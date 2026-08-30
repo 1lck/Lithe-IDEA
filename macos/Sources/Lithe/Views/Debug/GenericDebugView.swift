@@ -13,10 +13,14 @@ struct GenericDebugView: View {
     @State private var isJavaAttachPresented = false
     @State private var isJavaSteppingSettingsPresented = false
     @State private var selectedContent: DebugContent = .debugger
+    @State private var consoleExpression = ""
+    @FocusState private var isConsoleInputFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
             header
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            debugToolbar
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             if feature.isSessionActive || !feature.output.isEmpty || feature.errorMessage != nil {
                 VStack(spacing: 0) {
@@ -61,10 +65,18 @@ struct GenericDebugView: View {
             switch state {
             case .paused:
                 selectedContent = .debugger
+                if isConsoleInputFocused {
+                    isConsoleInputFocused = false
+                }
             case .failed:
                 selectedContent = .console
             default:
                 break
+            }
+        }
+        .onChange(of: selectedContent) { content in
+            if content == .console && feature.state == .paused {
+                isConsoleInputFocused = true
             }
         }
     }
@@ -77,7 +89,7 @@ struct GenericDebugView: View {
         case .breakpoints:
             DebugBreakpointManagerView(feature: feature)
         case .console:
-            output
+            debugConsole
         }
     }
 
@@ -149,6 +161,13 @@ struct GenericDebugView: View {
             .litheIconButton()
             .help("View breakpoints (⌘⇧F8)")
             .accessibilityLabel("View breakpoints")
+            Button { feature.toggleBreakpointMute() } label: {
+                Image(systemName: feature.areBreakpointsMuted ? "eye.slash" : "eye")
+            }
+            .litheIconButton()
+            .disabled(feature.breakpoints.isEmpty)
+            .help(feature.areBreakpointsMuted ? "Enable breakpoints" : "Mute breakpoints")
+            .accessibilityLabel(feature.areBreakpointsMuted ? "Enable breakpoints" : "Mute breakpoints")
             if feature.javaSteppingFilters != nil {
                 Button { isJavaSteppingSettingsPresented = true } label: {
                     Image(systemName: "line.3.horizontal.decrease.circle")
@@ -163,97 +182,163 @@ struct GenericDebugView: View {
             .litheIconButton()
             .disabled(feature.isSessionActive)
             .help("Connect to running JVM")
-            controlButton(
-                feature.state == .running ? "pause.fill" : "play.fill",
-                help: feature.state == .running ? "Pause" : "Continue",
-                disabled: !feature.canControl
-            ) {
-                feature.execute(feature.state == .running ? .pause : .continueExecution)
-            }
-            controlButton("arrow.right.to.line", help: "Step over", disabled: feature.state != .paused) {
-                feature.execute(.next)
-            }
-            controlButton("arrow.down.to.line", help: "Step into", disabled: feature.state != .paused) {
-                feature.execute(.stepIn)
-            }
-            if feature.capabilities.supportsStepInTargetsRequest {
-                Button {
-                    feature.requestSmartStepInto { result in
-                        guard case .success(let targets) = result else { return }
-                        if targets.count == 1, let target = targets.first {
-                            feature.smartStepInto(target)
-                        } else {
-                            smartStepTargets = targets
-                            isSmartStepPickerPresented = true
-                        }
-                    }
-                } label: {
-                    Image(systemName: "arrow.down.right.and.arrow.up.left")
-                }
-                .litheIconButton()
-                .disabled(feature.state != .paused || feature.selectedFrameID == nil)
-                .help("Smart step into")
-                .popover(isPresented: $isSmartStepPickerPresented, arrowEdge: .bottom) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Choose Step Target")
-                            .font(.system(size: 11, weight: .semibold))
-                            .padding(.horizontal, 8)
-                            .padding(.top, 6)
-                        if smartStepTargets.isEmpty {
-                            Text("No callable target at this location")
-                                .font(LitheTheme.smallFont)
-                                .foregroundStyle(LitheTheme.secondaryText)
-                                .padding(8)
-                        } else {
-                            ForEach(smartStepTargets) { target in
-                                Button(target.label) {
-                                    feature.smartStepInto(target)
-                                    isSmartStepPickerPresented = false
-                                }
-                                .buttonStyle(.plain)
-                                .font(.system(size: 11, design: .monospaced))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                            }
-                        }
-                    }
-                    .frame(minWidth: 230)
-                    .padding(.vertical, 4)
-                }
-            }
-            controlButton("arrow.up.to.line", help: "Step out", disabled: feature.state != .paused) {
-                feature.execute(.stepOut)
-            }
-            if feature.capabilities.supportsStepBack {
-                controlButton("arrow.uturn.backward", help: "Step back", disabled: !feature.canStepBack) {
-                    feature.execute(.stepBack)
-                }
-            }
-            if feature.capabilities.supportsRestartRequest {
-                controlButton("arrow.clockwise", help: "Restart", disabled: !feature.canRestart) {
-                    feature.execute(.restart)
-                }
-            }
-            Button {
-                if feature.isSessionActive {
-                    if feature.canTerminate {
-                        feature.execute(.terminate)
-                    } else {
-                        model.stopDebugging()
-                    }
-                } else {
-                    model.startDebugging()
-                }
-            } label: {
-                Image(systemName: feature.isSessionActive ? "stop.fill" : "play.fill")
-            }
-            .litheIconButton()
-            .foregroundStyle(feature.isSessionActive ? LitheTheme.warning : LitheTheme.success)
-            .help(feature.isSessionActive ? "Stop debugging" : "Start debugging")
             controlButton("trash", help: "Clear output", disabled: false) {
                 feature.clearOutput()
             }
         }
+    }
+
+    private var debugToolbar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 3) {
+                toolbarGroup {
+                    Button {
+                        if feature.isSessionActive {
+                            if feature.canTerminate {
+                                feature.execute(.terminate)
+                            } else {
+                                model.stopDebugging()
+                            }
+                        } else {
+                            model.startDebugging()
+                        }
+                    } label: {
+                        Image(systemName: feature.isSessionActive ? "stop.fill" : "play.fill")
+                    }
+                    .litheIconButton()
+                    .foregroundStyle(feature.isSessionActive ? LitheTheme.warning : LitheTheme.success)
+                    .help(feature.isSessionActive ? "Stop debugging" : "Start debugging")
+
+                    controlButton(
+                        feature.state == .running ? "pause.fill" : "play.fill",
+                        help: feature.state == .running ? "Pause" : "Resume",
+                        disabled: !feature.canControl
+                    ) {
+                        feature.execute(feature.state == .running ? .pause : .continueExecution)
+                    }
+                }
+
+                toolbarDivider
+
+                toolbarGroup {
+                    controlButton("arrow.right.to.line", help: "Step over", disabled: feature.state != .paused) {
+                        feature.execute(.next)
+                    }
+                    controlButton("arrow.down.to.line", help: "Step into", disabled: feature.state != .paused) {
+                        feature.execute(.stepIn)
+                    }
+                    if feature.capabilities.supportsStepInTargetsRequest {
+                        smartStepButton
+                    }
+                    controlButton("arrow.up.to.line", help: "Step out", disabled: feature.state != .paused) {
+                        feature.execute(.stepOut)
+                    }
+                    if feature.capabilities.supportsStepBack {
+                        controlButton("arrow.uturn.backward", help: "Step back", disabled: !feature.canStepBack) {
+                            feature.execute(.stepBack)
+                        }
+                    }
+                }
+
+                if feature.capabilities.supportsRestartRequest {
+                    toolbarDivider
+                    controlButton("arrow.clockwise", help: "Rerun", disabled: !feature.canRestart) {
+                        feature.execute(.restart)
+                    }
+                }
+
+                Spacer(minLength: 8)
+
+                if let frame = feature.selectedFrame {
+                    HStack(spacing: 5) {
+                        Image(systemName: feature.state == .paused ? "pause.circle.fill" : "circle")
+                            .foregroundStyle(feature.state == .paused ? LitheTheme.warning : LitheTheme.secondaryText)
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(feature.state == .paused ? "Paused" : feature.state.title)
+                                .font(.system(size: 10, weight: .semibold))
+                            if let sourceURL = frame.sourceURL {
+                                Text("\(sourceURL.lastPathComponent):\(frame.line)")
+                                    .font(.system(size: 9.5, design: .monospaced))
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                    .foregroundStyle(LitheTheme.primaryText)
+                    .padding(.horizontal, 7)
+                    .help(frame.name)
+                } else {
+                    Text(feature.state.title)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .padding(.horizontal, 7)
+                }
+            }
+            .padding(.horizontal, 8)
+            .frame(minHeight: 34)
+        }
+        .litheWorkbenchSurface(LitheTheme.toolHeader)
+    }
+
+    @ViewBuilder
+    private var smartStepButton: some View {
+        Button {
+            feature.requestSmartStepInto { result in
+                guard case .success(let targets) = result else { return }
+                if targets.count == 1, let target = targets.first {
+                    feature.smartStepInto(target)
+                } else {
+                    smartStepTargets = targets
+                    isSmartStepPickerPresented = true
+                }
+            }
+        } label: {
+            Image(systemName: "arrow.down.right.and.arrow.up.left")
+        }
+        .litheIconButton()
+        .disabled(feature.state != .paused || feature.selectedFrameID == nil)
+        .help("Smart step into")
+        .popover(isPresented: $isSmartStepPickerPresented, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Choose Step Target")
+                    .font(.system(size: 11, weight: .semibold))
+                    .padding(.horizontal, 8)
+                    .padding(.top, 6)
+                if smartStepTargets.isEmpty {
+                    Text("No callable target at this location")
+                        .font(LitheTheme.smallFont)
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .padding(8)
+                } else {
+                    ForEach(smartStepTargets) { target in
+                        Button(target.label) {
+                            feature.smartStepInto(target)
+                            isSmartStepPickerPresented = false
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11, design: .monospaced))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+            .frame(minWidth: 230)
+            .padding(.vertical, 4)
+        }
+    }
+
+    private func toolbarGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: 1, content: content)
+            .padding(2)
+            .background(LitheTheme.inputBackground.opacity(0.6))
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+    }
+
+    private var toolbarDivider: some View {
+        Rectangle()
+            .fill(LitheTheme.divider)
+            .frame(width: 1, height: 20)
+            .padding(.horizontal, 4)
     }
 
     private func controlButton(
@@ -630,35 +715,70 @@ struct GenericDebugView: View {
         evaluateExpression = ""
     }
 
-    private var output: some View {
+    private var debugConsole: some View {
         GeometryReader { geometry in
-            ScrollView([.vertical, .horizontal]) {
-                VStack(alignment: .leading, spacing: 8) {
-                    if let stoppedReason = feature.stoppedReason {
-                        Label(stoppedReason, systemImage: "pause.circle.fill")
-                            .font(.system(size: 11.5, weight: .medium))
-                            .foregroundStyle(LitheTheme.warning)
+            VStack(spacing: 0) {
+                ScrollView([.vertical, .horizontal]) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        if let stoppedReason = feature.stoppedReason {
+                            Label(stoppedReason, systemImage: "pause.circle.fill")
+                                .font(.system(size: 11.5, weight: .medium))
+                                .foregroundStyle(LitheTheme.warning)
+                        }
+                        if let errorMessage = feature.errorMessage {
+                            Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                                .font(.system(size: 11.5))
+                                .foregroundStyle(LitheTheme.error)
+                        }
+                        Text(feature.output.isEmpty ? "Waiting for Debug Adapter output…" : feature.output)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(LitheTheme.primaryText)
+                            .textSelection(.enabled)
                     }
-                    if let errorMessage = feature.errorMessage {
-                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                            .font(.system(size: 11.5))
-                            .foregroundStyle(LitheTheme.error)
-                    }
-                    Text(feature.output.isEmpty ? "Waiting for Debug Adapter output…" : feature.output)
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(LitheTheme.primaryText)
-                        .textSelection(.enabled)
+                    .frame(
+                        minWidth: max(0, geometry.size.width - 24),
+                        minHeight: max(0, geometry.size.height - 62),
+                        alignment: .topLeading
+                    )
+                    .padding(12)
                 }
-                .frame(
-                    minWidth: max(0, geometry.size.width - 24),
-                    minHeight: max(0, geometry.size.height - 24),
-                    alignment: .topLeading
-                )
-                .padding(12)
+                Rectangle().fill(LitheTheme.divider).frame(height: 1)
+                consoleInputRow
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .litheWorkbenchSurface(LitheTheme.editor)
+    }
+
+    private var consoleInputRow: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "chevron.right")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(LitheTheme.accent)
+            TextField("Evaluate expression while paused", text: $consoleExpression)
+                .textFieldStyle(.plain)
+                .font(.system(size: 11.5, design: .monospaced))
+                .focused($isConsoleInputFocused)
+                .disabled(feature.state != .paused)
+                .onSubmit { evaluateConsoleExpression() }
+            Button { evaluateConsoleExpression() } label: {
+                Image(systemName: "arrow.right.circle.fill")
+            }
+            .litheIconButton()
+            .disabled(feature.state != .paused || consoleExpression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .help("Evaluate expression")
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 34)
+        .litheWorkbenchSurface(LitheTheme.toolHeader)
+    }
+
+    private func evaluateConsoleExpression() {
+        guard feature.state == .paused else { return }
+        let expression = consoleExpression.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !expression.isEmpty else { return }
+        feature.evaluate(expression)
+        consoleExpression = ""
     }
 
     private var emptyState: some View {

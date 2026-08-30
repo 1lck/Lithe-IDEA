@@ -883,6 +883,17 @@
 "Manage all project breakpoints" = "管理项目中的所有断点";
 "View breakpoints (⌘⇧F8)" = "查看断点（⌘⇧F8）";
 "View breakpoints" = "查看断点";
+"Mute breakpoints" = "暂停断点";
+"Enable breakpoints" = "启用断点";
+"Resume" = "恢复执行";
+"Rerun" = "重新运行";
+"Stop debugging" = "停止调试";
+"Choose Step Target" = "选择步进目标";
+"No callable target at this location" = "当前位置没有可调用目标";
+"Evaluate expression while paused" = "暂停时计算表达式";
+"Connect to running JVM" = "连接到正在运行的 JVM";
+"Smart step into" = "智能步入";
+"Clear output" = "清除输出";
 "Loading breakpoints…" = "正在加载断点…";
 "Manage project breakpoints without starting a debug session" = "无需启动调试会话即可管理项目断点";
 "Line Breakpoints" = "行断点";
