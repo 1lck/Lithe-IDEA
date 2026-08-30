@@ -2219,6 +2219,13 @@ struct GitPullStrategyDialog: View {
                 .foregroundStyle(LitheTheme.primaryText)
                 .padding(.bottom, 24)
 
+            Text("Updating \(request.upstream) (\(request.behind) incoming, \(request.ahead) local)")
+                .font(.system(size: 11.5))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.bottom, 14)
+
             VStack(alignment: .leading, spacing: 16) {
                 strategyRow(
                     .merge,
@@ -2230,21 +2237,20 @@ struct GitPullStrategyDialog: View {
                 )
             }
 
+            if request.hasLocalChanges {
+                Label(
+                    "Rebase requires a clean working tree. Commit or stash local changes before choosing Rebase.",
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .font(.system(size: 11))
+                .foregroundStyle(LitheTheme.warning)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 14)
+            }
+
             Spacer(minLength: 22)
 
             HStack(spacing: 10) {
-                Button {
-                    // Keep the same lightweight help affordance as IDEA's dialog.
-                } label: {
-                    Image(systemName: "questionmark")
-                        .font(.system(size: 16, weight: .medium))
-                        .frame(width: 28, height: 28)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .lithePointer()
-                .help("Choose how incoming changes are applied")
-
                 Spacer(minLength: 16)
 
                 Button("Cancel") {
@@ -2264,7 +2270,8 @@ struct GitPullStrategyDialog: View {
             }
         }
         .padding(20)
-        .frame(width: 560, height: 248)
+        .frame(width: 560)
+        .frame(minHeight: 248)
         .background(LitheTheme.raised)
     }
 
@@ -2380,18 +2387,6 @@ struct GitPushDialog: View {
                 .frame(height: 1)
 
             HStack(spacing: 12) {
-                Button {
-                    // Reserved for the same contextual help affordance as IDEA.
-                } label: {
-                    Image(systemName: "questionmark")
-                        .font(.system(size: 16, weight: .medium))
-                        .frame(width: 28, height: 28)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .lithePointer()
-                .help("Review the branch that will be pushed")
-
                 Spacer(minLength: 16)
 
                 Button("Cancel") {
@@ -2422,10 +2417,10 @@ struct GitPushDialogPresentation {
 
     init(reference: GitReference) {
         if let upstream = reference.upstreamShortName {
-            destination = upstream
+            destination = "Tracking \(upstream)"
             actionTitle = "Push"
         } else {
-            destination = "Publish \(reference.shortName) to default remote"
+            destination = "Publish \(reference.shortName) (Core selects default remote)"
             actionTitle = "Publish Branch"
         }
     }

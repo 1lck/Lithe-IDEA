@@ -15,7 +15,7 @@ struct GitPushDialogPresentationTests {
 
         let presentation = GitPushDialogPresentation(reference: reference)
 
-        #expect(presentation.destination == "Publish feature/recent to default remote")
+        #expect(presentation.destination == "Publish feature/recent (Core selects default remote)")
         #expect(presentation.actionTitle == "Publish Branch")
     }
 
@@ -31,7 +31,7 @@ struct GitPushDialogPresentationTests {
 
         let presentation = GitPushDialogPresentation(reference: reference)
 
-        #expect(presentation.destination == "upstream/stable")
+        #expect(presentation.destination == "Tracking upstream/stable")
         #expect(presentation.actionTitle == "Push")
     }
 }
