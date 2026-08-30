@@ -161,6 +161,7 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
             let reference = take_reference(&mut payload)?;
             payload.insert("reference".into(), json!(reference));
             payload.insert("pathspecs".into(), json!(["."]));
+            payload.insert("untracked".into(), json!(true));
             "git.diff"
         }
         "git_stash_diff" => {

@@ -784,6 +784,7 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
         ));
     }
 
+    let include_untracked_with_reference = request.reference.is_some() && request.untracked;
     let mut arguments = if let Some(commit) = request.commit {
         validate_revision(&commit)?;
         vec![
@@ -822,13 +823,52 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
         arguments.push("--ignore-all-space".to_string());
     }
     arguments.push("--".to_string());
-    if request.untracked {
+    if request.untracked && !include_untracked_with_reference {
         arguments.push(null_device().to_string());
     }
     arguments.extend(request.pathspecs);
 
     let root = validate_root(&request.root)?;
-    let output = capture_git_with_options(&root, &arguments, None, true)?;
+    let mut output = capture_git_with_options(&root, &arguments, None, true)?;
+    if include_untracked_with_reference {
+        let status = readonly_command(GitCommandRequest {
+            root: root.clone(),
+            arguments: vec![
+                "status".into(),
+                "--porcelain".into(),
+                "--untracked-files=all".into(),
+            ],
+            input: None,
+        })?;
+        if status.exit_code != 0 {
+            return Err(
+                CoreError::new(ErrorCode::ProcessFailed, "Git status failed")
+                    .with_details(status.output),
+            );
+        }
+        for line in status.output.lines().filter(|line| line.starts_with("?? ")) {
+            let path = line[3..].trim();
+            if path.is_empty() || !is_safe_pathspec(path) {
+                continue;
+            }
+            let untracked = capture_git_with_options(
+                &root,
+                &[
+                    "diff".into(),
+                    "--no-ext-diff".into(),
+                    "--binary".into(),
+                    "--no-index".into(),
+                    "--".into(),
+                    null_device().into(),
+                    path.into(),
+                ],
+                None,
+                true,
+            )?;
+            output.stdout.extend(untracked.stdout);
+            output.stderr.extend(untracked.stderr);
+        }
+    }
     Ok(structured_diff_from_output(output))
 }
 
