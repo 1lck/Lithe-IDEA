@@ -84,6 +84,7 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
         do {
             try transport.start(rootURL: rootURL.standardizedFileURL)
         } catch {
+            reportFailure(error, context: "Debug Adapter failed to start")
             state = .failed
             throw error
         }
@@ -114,7 +115,8 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
                     self.pendingLaunch = nil
                     self.performLaunch(pendingLaunch)
                 }
-            case .failure:
+            case .failure(let error):
+                self.reportFailure(error, context: "Debug Adapter initialization failed")
                 self.state = .failed
             }
         }
@@ -145,7 +147,8 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
             switch result {
             case .success:
                 if self.state == .launching { self.state = .running }
-            case .failure:
+            case .failure(let error):
+                self.reportFailure(error, context: "Debug launch failed")
                 self.state = .failed
             }
         }
@@ -875,7 +878,7 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
             child.setBreakpoints(breakpoints, in: source)
         }
         child.onStateChange = { [weak self, weak child] childState in
-            guard let self else { return }
+            guard let self, let child else { return }
             switch childState {
             case .paused:
                 self.activeChildSession = child
@@ -884,9 +887,10 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
                 self.activeChildSession = child
                 self.state = .running
             case .failed:
+                self.removeFinishedChild(child)
                 self.state = .failed
             case .terminated:
-                if self.activeChildSession === child { self.activeChildSession = nil }
+                self.removeFinishedChild(child)
                 self.state = .terminated
             default:
                 break
@@ -930,6 +934,20 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
         case _ as NSNull: .null
         default: nil
         }
+    }
+
+    private func removeFinishedChild(_ child: DebugAdapterProtocolSession) {
+        childSessions.removeAll { $0 === child }
+        if activeChildSession === child {
+            activeChildSession = nil
+        }
+    }
+
+    private func reportFailure(_ error: Error, context: String) {
+        onEvent?(.output(
+            category: "stderr",
+            output: "\(context): \(error.localizedDescription)\n"
+        ))
     }
 
     private func failPendingRequests(_ error: Error) {

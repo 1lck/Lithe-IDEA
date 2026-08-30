@@ -1943,6 +1943,88 @@ struct DebugModuleTests {
     }
 
     @Test
+    func protocolSessionRemovesFinishedChildTransport() throws {
+        let parent = RecordingTransport()
+        let session = DebugAdapterProtocolSession(adapterID: "test-adapter", transport: parent)
+        let root = URL(fileURLWithPath: "/tmp/debug-child-cleanup", isDirectory: true)
+
+        try session.start(rootURL: root)
+        let initialize = try #require(parent.request(named: "initialize"))
+        parent.emitJSON([
+            "seq": 2,
+            "type": "response",
+            "request_seq": initialize["seq"] as! Int,
+            "success": true,
+            "command": "initialize",
+            "body": [:]
+        ])
+        parent.emitJSON([
+            "seq": 3,
+            "type": "request",
+            "command": "startDebugging",
+            "arguments": [
+                "configuration": [
+                    "name": "Child",
+                    "request": "launch",
+                    "program": root.appendingPathComponent("main.js").path
+                ]
+            ]
+        ])
+
+        let child = try #require(parent.children.first)
+        child.terminate(0)
+        #expect(!child.isRunning)
+
+        session.stop()
+
+        // A terminated child is removed immediately, so parent shutdown does
+        // not retain or stop the same transport a second time.
+        #expect(child.stopCalls == 0)
+    }
+
+    @Test
+    func protocolSessionReportsLaunchFailureInDebugOutput() throws {
+        let transport = RecordingTransport()
+        let session = DebugAdapterProtocolSession(
+            adapterID: "test-adapter",
+            transport: transport
+        )
+        var events: [DebugAdapterEvent] = []
+        session.onEvent = { events.append($0) }
+
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/debug-launch-failure"))
+        let initialize = try #require(transport.request(named: "initialize"))
+        transport.emitJSON([
+            "seq": 2,
+            "type": "response",
+            "request_seq": initialize["seq"] as! Int,
+            "success": true,
+            "command": "initialize",
+            "body": [:]
+        ])
+        try session.launch(DebugLaunchConfiguration(
+            name: "Broken Main",
+            request: .launch,
+            arguments: ["program": .string("/tmp/missing-main")]
+        ))
+        let launch = try #require(transport.request(named: "launch"))
+        transport.emitJSON([
+            "seq": 3,
+            "type": "response",
+            "request_seq": launch["seq"] as! Int,
+            "success": false,
+            "command": "launch",
+            "message": "main class was not found"
+        ])
+
+        #expect(session.state == .failed)
+        #expect(events.contains(.output(
+            category: "stderr",
+            output: "Debug launch failed: launch failed: main class was not found\n"
+        )))
+    }
+
+    @Test
     func disabledDebugDoesNotConstructGraph() async throws {
         let recorder = Recorder()
         let runtime = ModuleRuntime()
@@ -2114,6 +2196,11 @@ private final class RecordingTransport: DebugAdapterTransport, DebugAdapterChild
     func stop() {
         stopCalls += 1
         isRunning = false
+    }
+
+    func terminate(_ exitCode: Int) {
+        isRunning = false
+        onTermination?(exitCode)
     }
 
     func makeChildTransport() -> (any DebugAdapterTransport)? {
