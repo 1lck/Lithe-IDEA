@@ -215,26 +215,14 @@ struct WorkbenchView: View {
         } message: {
             Text(model.pendingDiscardHunk?.change.path ?? "This action cannot be undone by Lithe.")
         }
-        .confirmationDialog(
-            "Push '\(pendingTopBarPushReference?.shortName ?? "")'?",
-            isPresented: Binding(
-                get: { pendingTopBarPushReference != nil },
-                set: { if !$0 { pendingTopBarPushReference = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button("Push") {
-                guard let reference = pendingTopBarPushReference else { return }
-                pendingTopBarPushReference = nil
-                Task { await model.pushBranch(reference) }
-            }
-            .lithePointer()
-            Button("Cancel", role: .cancel) {
-                pendingTopBarPushReference = nil
-            }
-            .lithePointer()
-        } message: {
-            Text("This sends the current branch to its configured remote.")
+        .sheet(item: $pendingTopBarPushReference) { reference in
+            GitPushDialog(
+                projectName: model.projectName,
+                reference: reference,
+                onPush: {
+                    Task { await model.pushBranch(reference) }
+                }
+            )
         }
         .overlay(alignment: .bottom) {
             if let message = model.notificationMessage {
@@ -387,60 +375,6 @@ struct WorkbenchView: View {
     private var topBar: some View {
         HStack(spacing: 9) {
             Button {
-                isProjectSwitcherPresented.toggle()
-            } label: {
-                HStack(spacing: 8) {
-                    LitheLogo(size: 24)
-
-                    Text(model.projectName)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(LitheTheme.primaryText)
-                        .lineLimit(1)
-
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                }
-                .padding(.horizontal, 8)
-                .frame(height: 32)
-                .litheRowHover(
-                    isActive: isProjectSwitcherPresented,
-                    cornerRadius: 6,
-                    activeBackground: LitheTheme.subtleSelection
-                )
-            }
-            .buttonStyle(.plain)
-            .lithePointer()
-            .accessibilityIdentifier("project-switcher-\(model.id.uuidString)")
-            .popover(isPresented: $isProjectSwitcherPresented, arrowEdge: .bottom) {
-                ProjectSwitcherPopover(
-                    isPresented: $isProjectSwitcherPresented,
-                    onNewProject: {
-                        isProjectSwitcherPresented = false
-                        model.chooseProject(title: "New Project", prompt: "Choose Folder")
-                    },
-                    onOpenProject: {
-                        isProjectSwitcherPresented = false
-                        model.chooseProject()
-                    },
-                    onCloneRepository: {
-                        isProjectSwitcherPresented = false
-                        model.showCloneRepository()
-                    },
-                    onOpenRecentProject: { project in
-                        isProjectSwitcherPresented = false
-                        model.openProject(project.url)
-                    }
-                )
-                .environmentObject(model)
-            }
-
-            Rectangle()
-                .fill(LitheTheme.divider)
-                .frame(width: 1, height: 20)
-                .padding(.horizontal, 5)
-
-            Button {
                 isBranchSwitcherPresented.toggle()
                 if isBranchSwitcherPresented {
                     Task { await model.refreshGitHistory() }
@@ -496,6 +430,60 @@ struct WorkbenchView: View {
                             model.selectedSidebar = .changes
                             Task { await model.toggleGitLog() }
                         }
+                    }
+                )
+                .environmentObject(model)
+            }
+
+            Rectangle()
+                .fill(LitheTheme.divider)
+                .frame(width: 1, height: 20)
+                .padding(.horizontal, 5)
+
+            Button {
+                isProjectSwitcherPresented.toggle()
+            } label: {
+                HStack(spacing: 8) {
+                    LitheLogo(size: 24)
+
+                    Text(model.projectName)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(LitheTheme.primaryText)
+                        .lineLimit(1)
+
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+                .padding(.horizontal, 8)
+                .frame(height: 32)
+                .litheRowHover(
+                    isActive: isProjectSwitcherPresented,
+                    cornerRadius: 6,
+                    activeBackground: LitheTheme.subtleSelection
+                )
+            }
+            .buttonStyle(.plain)
+            .lithePointer()
+            .accessibilityIdentifier("project-switcher-\(model.id.uuidString)")
+            .popover(isPresented: $isProjectSwitcherPresented, arrowEdge: .bottom) {
+                ProjectSwitcherPopover(
+                    isPresented: $isProjectSwitcherPresented,
+                    onNewProject: {
+                        isProjectSwitcherPresented = false
+                        model.chooseProject(title: "New Project", prompt: "Choose Folder")
+                    },
+                    onOpenProject: {
+                        isProjectSwitcherPresented = false
+                        model.chooseProject()
+                    },
+                    onCloneRepository: {
+                        isProjectSwitcherPresented = false
+                        model.showCloneRepository()
+                    },
+                    onOpenRecentProject: { project in
+                        isProjectSwitcherPresented = false
+                        model.openProject(project.url)
                     }
                 )
                 .environmentObject(model)

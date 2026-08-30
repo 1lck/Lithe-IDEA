@@ -2177,72 +2177,221 @@ struct GitPullStrategyDialog: View {
     let request: GitPullStrategyRequest
     let onResolve: (GitPullStrategy) -> Void
 
+    @State private var selectedStrategy: GitPullStrategy = .merge
+    @State private var doNotShowAgain = false
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Branches have diverged")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(LitheTheme.primaryText)
-                Text("Your branch and '\(request.upstream)' each have commits the other does not, so the changes cannot be fast-forwarded.")
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Update Project")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(LitheTheme.primaryText)
+                .padding(.bottom, 24)
 
-            HStack(spacing: 18) {
-                counter(value: request.ahead, caption: "local commit(s)")
-                counter(value: request.behind, caption: "upstream commit(s)")
-                Spacer(minLength: 0)
-            }
-
-            Text("Merge joins both histories with a merge commit. Rebase replays your commits on top of the upstream, keeping history linear but rewriting your commit hashes.")
-                .font(.system(size: 11.5))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if request.hasLocalChanges {
-                Label(
-                    "You have uncommitted changes. Rebase will refuse to start until they are committed or stashed.",
-                    systemImage: "exclamationmark.triangle.fill"
+            VStack(alignment: .leading, spacing: 16) {
+                strategyRow(
+                    .merge,
+                    title: "Integrate incoming changes into current branch (M)"
                 )
-                .font(.system(size: 11))
-                .foregroundStyle(LitheTheme.warning)
-                .fixedSize(horizontal: false, vertical: true)
+                strategyRow(
+                    .rebase,
+                    title: "Rebase current branch onto incoming changes (R)"
+                )
             }
 
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
+            Spacer(minLength: 22)
+
+            HStack(spacing: 10) {
+                Button {
+                    // Keep the same lightweight help affordance as IDEA's dialog.
+                } label: {
+                    Image(systemName: "questionmark")
+                        .font(.system(size: 16, weight: .medium))
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .lithePointer()
+                .help("Choose how incoming changes are applied")
+
+                Toggle("Don't show", isOn: $doNotShowAgain)
+                    .toggleStyle(.checkbox)
+                    .font(.system(size: 12.5))
                     .lithePointer()
-                Button("Rebase") { resolve(.rebase) }
-                    .lithePointer()
-                Button("Merge") { resolve(.merge) }
-                    .buttonStyle(.borderedProminent)
-                    .lithePointer()
-                    .tint(LitheTheme.accent)
-                    .keyboardShortcut(.defaultAction)
+
+                Spacer(minLength: 16)
+
+                Button("Cancel") {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+                .lithePointer()
+
+                Button("OK") {
+                    onResolve(selectedStrategy)
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(LitheTheme.accent)
+                .keyboardShortcut(.defaultAction)
+                .lithePointer()
             }
         }
         .padding(20)
-        .frame(width: 460)
+        .frame(width: 560, height: 248)
         .background(LitheTheme.raised)
     }
 
-    private func counter(value: Int, caption: LocalizedStringKey) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text("\(value)")
-                .font(.system(size: 17, weight: .semibold, design: .rounded))
-                .foregroundStyle(LitheTheme.primaryText)
-            Text(caption)
-                .font(.system(size: 10.5))
-                .foregroundStyle(LitheTheme.secondaryText)
+    private func strategyRow(_ strategy: GitPullStrategy, title: LocalizedStringKey) -> some View {
+        Button {
+            selectedStrategy = strategy
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: selectedStrategy == strategy ? "largecircle.fill.circle" : "circle")
+                    .font(.system(size: 22))
+                    .foregroundStyle(selectedStrategy == strategy ? LitheTheme.accent : LitheTheme.secondaryText)
+                Text(title)
+                    .font(.system(size: 15))
+                    .foregroundStyle(LitheTheme.primaryText)
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .lithePointer()
     }
+}
 
-    private func resolve(_ strategy: GitPullStrategy) {
-        onResolve(strategy)
-        dismiss()
+/// A compact IDEA-style push review. The branch row is deliberately separate
+/// from the action so the user can verify the destination before pushing.
+struct GitPushDialog: View {
+    @Environment(\.dismiss) private var dismiss
+    let projectName: String
+    let reference: GitReference
+    let onPush: () -> Void
+
+    @State private var pushTags = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Push to \(projectName)")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(LitheTheme.primaryText)
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+
+            Rectangle()
+                .fill(LitheTheme.divider)
+                .frame(height: 1)
+
+            HStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(LitheTheme.primaryText)
+                        Text(reference.shortName)
+                            .font(.system(size: 13))
+                            .foregroundStyle(LitheTheme.primaryText)
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                        Text(reference.upstreamShortName ?? "No configured remote")
+                            .font(.system(size: 13))
+                            .foregroundStyle(reference.upstreamShortName == nil ? LitheTheme.secondaryText : LitheTheme.accent)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .padding(.horizontal, 20)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(height: 38)
+                    .background(LitheTheme.selection.opacity(0.72))
+
+                    Spacer(minLength: 0)
+                }
+                .frame(width: 360)
+                .frame(maxHeight: .infinity, alignment: .topLeading)
+                .background(LitheTheme.sidebar)
+
+                Rectangle()
+                    .fill(LitheTheme.divider)
+                    .frame(width: 1)
+
+                VStack(spacing: 0) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "arrow.left.arrow.right")
+                        Image(systemName: "eye")
+                        Image(systemName: "pencil")
+                        Rectangle()
+                            .fill(LitheTheme.divider)
+                            .frame(width: 1, height: 20)
+                        Image(systemName: "doc.text")
+                        Spacer()
+                    }
+                    .font(.system(size: 13))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .padding(.horizontal, 18)
+                    .frame(height: 48)
+
+                    Rectangle()
+                        .fill(LitheTheme.divider)
+                        .frame(height: 1)
+
+                    Spacer(minLength: 0)
+                    Text("No commit selected")
+                        .font(.system(size: 13))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+
+            Rectangle()
+                .fill(LitheTheme.divider)
+                .frame(height: 1)
+
+            HStack(spacing: 12) {
+                Button {
+                    // Reserved for the same contextual help affordance as IDEA.
+                } label: {
+                    Image(systemName: "questionmark")
+                        .font(.system(size: 16, weight: .medium))
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .lithePointer()
+                .help("Review the branch that will be pushed")
+
+                Toggle("Push tags", isOn: $pushTags)
+                    .toggleStyle(.checkbox)
+                    .font(.system(size: 12.5))
+                    .lithePointer()
+
+                Spacer(minLength: 16)
+
+                Button("Cancel") {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+                .lithePointer()
+
+                Button("Push") {
+                    onPush()
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(LitheTheme.accent)
+                .keyboardShortcut(.defaultAction)
+                .lithePointer()
+                .disabled(reference.upstreamShortName == nil)
+            }
+            .padding(16)
+        }
+        .frame(width: 720, height: 430)
+        .background(LitheTheme.raised)
     }
 }
 

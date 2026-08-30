@@ -2,6 +2,16 @@ import SwiftUI
 import LitheGitModule
 
 struct BranchSwitcherPopover: View {
+    private enum Metrics {
+        static let popupWidth: CGFloat = 375
+        static let searchBarHeight: CGFloat = 56
+        static let actionRowHeight: CGFloat = 30
+        static let branchRowHeight: CGFloat = 30
+        static let branchGroupHeaderHeight: CGFloat = 24
+        static let minimumBranchListHeight: CGFloat = 160
+        static let maximumBranchListHeight: CGFloat = 240
+    }
+
     @EnvironmentObject private var model: AppModel
     @Binding var isPresented: Bool
     let onCommit: () -> Void
@@ -14,50 +24,76 @@ struct BranchSwitcherPopover: View {
     @FocusState private var searchFocused: Bool
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
             searchBar
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             actions
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             branchList
         }
-        .frame(width: 500, height: 570)
+        .frame(width: Metrics.popupWidth, alignment: .leading)
         .lithePopupChrome(cornerRadius: LitheTheme.Metrics.popupCornerRadius)
         .onAppear { searchFocused = true }
     }
 
     private var searchBar: some View {
         HStack(spacing: 8) {
-            LitheSystemIcon(systemImage: "magnifyingglass")
-                .font(.system(size: 13))
-                .foregroundStyle(LitheTheme.secondaryText)
-            TextField("Search for branches and actions", text: $searchQuery)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13))
-                .focused($searchFocused)
-            if !searchQuery.isEmpty {
-                Button {
-                    searchQuery = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
+            HStack(spacing: 8) {
+                LitheSystemIcon(systemImage: "magnifyingglass")
+                    .font(.system(size: 13))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                TextField("Search for branches and actions", text: $searchQuery)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13))
+                    .focused($searchFocused)
+                if !searchQuery.isEmpty {
+                    Button {
+                        searchQuery = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 12))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                    }
+                    .buttonStyle(.plain)
+                    .lithePointer()
+                    .help("Clear search")
                 }
-                .litheIconButton()
-                .help("Clear search")
             }
+            .padding(.horizontal, 10)
+            .frame(height: 30)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(LitheTheme.popupBackground)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(LitheTheme.panelBorder, lineWidth: 1)
+                    }
+            )
+
+            Button(action: onManageBranches) {
+                LitheSystemIcon(systemImage: "arrow.up.left.and.arrow.down.right")
+            }
+            .litheIconButton()
+            .help("Open Git branches")
+
             Button(action: onManageBranches) {
                 LitheSystemIcon(systemImage: "gearshape")
             }
             .litheIconButton()
-            .help("Open Git branches")
+            .help("Git branch options")
         }
-        .padding(.horizontal, 14)
-        .frame(height: 48)
+        .padding(.leading, 13)
+        .padding(.trailing, 13)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: Metrics.searchBarHeight)
         .background(LitheTheme.toolHeader)
     }
 
     private var actions: some View {
         VStack(spacing: 1) {
-            if actionMatches("Fetch") {
+            // Keep the default command palette focused like IDEA. Fetch remains
+            // discoverable through the search field without taking a permanent row.
+            if !normalizedQuery.isEmpty && actionMatches("Fetch") {
                 actionRow("Fetch", icon: "arrow.down.to.line", shortcut: nil) {
                     isPresented = false
                     Task { await model.fetchGit() }
@@ -102,8 +138,9 @@ struct BranchSwitcherPopover: View {
                 actionRow("Checkout Tag or Revision…", icon: "number", shortcut: nil, action: onCheckoutRevision)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 9)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var branchList: some View {
@@ -120,7 +157,7 @@ struct BranchSwitcherPopover: View {
             }
             .foregroundStyle(LitheTheme.primaryText)
             .padding(.horizontal, 14)
-            .frame(height: 34)
+            .frame(height: Metrics.branchGroupHeaderHeight)
 
             if filteredReferences.isEmpty {
                 Text(model.isLoadingGitHistory ? "Loading branches…" : "No matching branches")
@@ -129,20 +166,31 @@ struct BranchSwitcherPopover: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 2) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        if searchQuery.isEmpty {
+                            ForEach(recentReferences) { reference in
+                                branchRow(reference, indented: false)
+                            }
+
+                            if !recentReferences.isEmpty && !branchGroups.isEmpty {
+                                Rectangle()
+                                    .fill(LitheTheme.divider)
+                                    .frame(height: 1)
+                                    .padding(.vertical, 6)
+                            }
+                        }
+
                         ForEach(branchGroups) { group in
                             if !group.title.isEmpty {
                                 HStack(spacing: 7) {
                                     Image(systemName: "chevron.down")
                                         .font(.system(size: 8, weight: .bold))
-                                    Image(systemName: group.kind == .local ? "folder" : group.kind == .remote ? "network" : "tag")
-                                        .font(.system(size: 11.5))
                                     Text(LocalizedStringKey(group.title))
                                         .font(.system(size: 12, weight: .medium))
                                 }
                                 .foregroundStyle(LitheTheme.secondaryText)
                                 .padding(.horizontal, 14)
-                                .frame(height: 28)
+                                .frame(height: Metrics.branchGroupHeaderHeight)
                             }
 
                             ForEach(group.references) { reference in
@@ -153,8 +201,10 @@ struct BranchSwitcherPopover: View {
                     .padding(.horizontal, 8)
                     .padding(.bottom, 8)
                 }
+                .frame(minHeight: Metrics.minimumBranchListHeight, maxHeight: Metrics.maximumBranchListHeight)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(LitheTheme.sidebar)
     }
 
@@ -182,7 +232,11 @@ struct BranchSwitcherPopover: View {
             }
             .padding(.horizontal, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 34)
+            .frame(height: Metrics.actionRowHeight)
+            .litheRowHover(
+                cornerRadius: 6,
+                hoverBackground: LitheTheme.subtleSelection
+            )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -203,16 +257,14 @@ struct BranchSwitcherPopover: View {
                     .font(.system(size: 12.5, weight: reference.isCurrent ? .semibold : .regular))
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
+                    .truncationMode(.middle)
                 Spacer(minLength: 10)
                 if let upstream = reference.upstreamShortName {
                     Text(upstream)
                         .font(.system(size: 11.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .lineLimit(1)
-                } else {
-                    Text(reference.kind == .remote ? "Remote" : reference.kind == .tag ? "Tag" : "")
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(LitheTheme.secondaryText)
+                        .truncationMode(.middle)
                 }
                 if !reference.isCurrent {
                     Image(systemName: "chevron.right")
@@ -223,7 +275,7 @@ struct BranchSwitcherPopover: View {
             .padding(.leading, indented ? 28 : 10)
             .padding(.trailing, 9)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 34)
+            .frame(height: Metrics.branchRowHeight)
             .background(reference.isCurrent ? LitheTheme.selection : .clear)
             .clipShape(RoundedRectangle(cornerRadius: 5))
             .contentShape(Rectangle())
@@ -231,6 +283,11 @@ struct BranchSwitcherPopover: View {
         .buttonStyle(.plain)
         .lithePointer()
         .disabled(reference.isCurrent || model.isPerformingBranchOperation)
+    }
+
+    private var recentReferences: [GitReference] {
+        guard normalizedQuery.isEmpty else { return [] }
+        return Array(model.gitReferences.prefix(3))
     }
 
     private var filteredReferences: [GitReference] {
@@ -248,8 +305,7 @@ struct BranchSwitcherPopover: View {
             case .remote: return "Remote"
             case .tag: return "Tags"
             case .local:
-                let components = reference.shortName.split(separator: "/")
-                return components.count > 1 ? String(components.dropLast().joined(separator: "/")) : ""
+                return "Local"
             }
         }
 
