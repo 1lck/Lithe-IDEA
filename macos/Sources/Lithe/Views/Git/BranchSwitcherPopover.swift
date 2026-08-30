@@ -33,7 +33,14 @@ struct BranchSwitcherPopover: View {
             branchList
         }
         .frame(width: Metrics.popupWidth, alignment: .leading)
-        .lithePopupChrome(cornerRadius: LitheTheme.Metrics.popupCornerRadius)
+        .litheRoundedControlBackground(
+            LitheTheme.popupBackground,
+            cornerRadius: LitheTheme.Metrics.popupCornerRadius
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: LitheTheme.Metrics.popupCornerRadius)
+                .stroke(LitheTheme.panelBorder, lineWidth: 1)
+        }
         .onAppear { searchFocused = true }
     }
 
