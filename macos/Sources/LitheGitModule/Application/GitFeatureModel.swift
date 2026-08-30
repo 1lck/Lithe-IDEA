@@ -42,6 +42,7 @@ package final class GitFeatureModel: ObservableObject {
     @Published package private(set) var gitBlameLines: [URL: [GitBlameLine]] = [:]
     @Published package private(set) var gitLineChangeMarkers: [URL: [GitLineChangeMarker]] = [:]
     @Published package private(set) var gitReferences: [GitReference] = []
+    @Published package private(set) var recentGitReferences: [GitReference] = []
     @Published package private(set) var gitCommits: [GitCommit] = []
     @Published package private(set) var gitLogMatchedCommitHashes: Set<String>?
     @Published package private(set) var isFilteringGitLog = false
@@ -191,6 +192,7 @@ package final class GitFeatureModel: ObservableObject {
         loadingLineChangeURLs = []
         lineChangeHunks = [:]
         gitReferences = []
+        recentGitReferences = []
         gitCommits = []
         gitIdentity = nil
         gitLogMatchedCommitHashes = nil
@@ -1250,6 +1252,7 @@ package final class GitFeatureModel: ObservableObject {
             limit: gitHistoryLimit
         )
         gitReferences = snapshot.references
+        recentGitReferences = snapshot.recentReferences
         gitCommits = snapshot.commits
         gitIdentity = snapshot.identity
         canLoadMoreGitHistory = snapshot.hasMore

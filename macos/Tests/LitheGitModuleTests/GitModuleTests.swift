@@ -318,6 +318,45 @@ struct GitModuleTests {
     }
 
     @Test
+    func gitHistoryPublishesRecentReferencesInCoreOrder() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let main = GitReference(
+            fullName: "refs/heads/main",
+            shortName: "main",
+            kind: .local,
+            isCurrent: true,
+            upstreamShortName: "origin/main"
+        )
+        let featureBranch = GitReference(
+            fullName: "refs/heads/feature/recent",
+            shortName: "feature/recent",
+            kind: .local,
+            isCurrent: false,
+            upstreamShortName: nil
+        )
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            historyValue: GitHistorySnapshot(
+                references: [featureBranch, main],
+                recentReferences: [main, featureBranch],
+                commits: [],
+                hasMore: false
+            )
+        ))
+        let feature = GitFeatureModel(service: service)
+        feature.configure(
+            workspaceURLProvider: { root },
+            isGitLogVisibleProvider: { true },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+
+        await feature.refreshGit()
+
+        #expect(feature.recentGitReferences.map(\.shortName) == ["main", "feature/recent"])
+    }
+
+    @Test
     func remoteReferenceActionsPreserveIdentityAndPullStrategy() async {
         let root = URL(fileURLWithPath: "/workspace")
         let reference = GitReference(

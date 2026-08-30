@@ -415,7 +415,7 @@ struct BranchSwitcherPopover: View {
 
     private var recentReferences: [GitReference] {
         guard normalizedQuery.isEmpty else { return [] }
-        return Array(model.gitReferences.prefix(2))
+        return model.recentGitReferences
     }
 
     private var recentReferenceRows: [BranchPopupRow] {
