@@ -438,7 +438,8 @@ struct GenericDebugView: View {
                         rowButton(selected: feature.selectedThreadID == thread.id) {
                             feature.selectThread(thread)
                         } label: {
-                            Image(systemName: "circle")
+                            Image(systemName: threadIcon(thread))
+                                .foregroundStyle(threadColor(thread))
                             Text(thread.name).lineLimit(1)
                         }
                         .contextMenu {
@@ -997,6 +998,21 @@ struct GenericDebugView: View {
         guard variable.isExpandable else { return "circle.fill" }
         if feature.isVariableLoading(variable) { return "hourglass" }
         return feature.isVariableExpanded(variable) ? "chevron.down" : "chevron.right"
+    }
+
+    private func threadIcon(_ thread: DebugThread) -> String {
+        if feature.stoppedThreadIDs.contains(thread.id) {
+            return feature.selectedThreadID == thread.id
+                ? "pause.circle.fill"
+                : "pause.circle"
+        }
+        return "play.circle"
+    }
+
+    private func threadColor(_ thread: DebugThread) -> Color {
+        feature.stoppedThreadIDs.contains(thread.id)
+            ? LitheTheme.warning
+            : LitheTheme.secondaryText
     }
 
     private func variableLoadMoreRow(

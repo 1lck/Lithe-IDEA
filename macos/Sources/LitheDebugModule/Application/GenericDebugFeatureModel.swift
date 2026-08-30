@@ -225,6 +225,10 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     @Published public private(set) var functionBreakpoints: [GenericDebugFunctionBreakpoint] = []
     @Published public private(set) var dataBreakpoints: [GenericDebugDataBreakpoint] = []
     @Published public private(set) var threads: [DebugThread] = []
+    /// Thread IDs reported stopped by the adapter while the debuggee is paused.
+    /// A missing set means the adapter stopped all threads or did not provide a
+    /// thread ID, so the UI should show the session-level paused state instead.
+    @Published public private(set) var stoppedThreadIDs: Set<Int> = []
     @Published public private(set) var stackFrames: [DebugStackFrame] = []
     @Published public private(set) var scopes: [DebugScope] = []
     @Published public private(set) var selectedScopeID: Int?
@@ -508,6 +512,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         stoppedReason = nil
         exceptionInfo = nil
         threads = []
+        stoppedThreadIDs = []
         stackFrames = []
         scopes = []
         selectedScopeID = nil
@@ -606,6 +611,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         stoppedFrame = nil
         selectedFrame = nil
         threads = []
+        stoppedThreadIDs = []
         stackFrames = []
         areFilteredStackFramesExpanded = false
         scopes = []
@@ -635,6 +641,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         stoppedFrame = nil
         selectedFrame = nil
         threads = []
+        stoppedThreadIDs = []
         stackFrames = []
         areFilteredStackFramesExpanded = false
         scopes = []
@@ -1453,6 +1460,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         stoppedFrame = nil
         selectedFrame = nil
         threads = []
+        stoppedThreadIDs = []
         stackFrames = []
         areFilteredStackFramesExpanded = false
         scopes = []
@@ -1630,6 +1638,11 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             append(text)
         case .stopped(let reason, let threadID, let description):
             let generation = beginInspectionTransition()
+            if let threadID {
+                stoppedThreadIDs.insert(threadID)
+            } else {
+                stoppedThreadIDs = Set(threads.map(\.id))
+            }
             stoppedReason = description ?? reason
             exceptionInfo = nil
             selectedThreadID = threadID
@@ -1649,7 +1662,12 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                 generation: generation,
                 shouldLoadExceptionInfo: reason == "exception" && threadID == nil
             )
-        case .continued:
+        case .continued(let threadID):
+            if let threadID {
+                stoppedThreadIDs.remove(threadID)
+            } else {
+                stoppedThreadIDs = []
+            }
             invalidateInspectionRequests()
             stoppedReason = nil
             exceptionInfo = nil
@@ -1658,6 +1676,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             stoppedFrame = nil
             selectedFrame = nil
             threads = []
+            stoppedThreadIDs = []
             stackFrames = []
             areFilteredStackFramesExpanded = false
             scopes = []
@@ -1672,6 +1691,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             stoppedFrame = nil
             selectedFrame = nil
             threads = []
+            stoppedThreadIDs = []
             stackFrames = []
             areFilteredStackFramesExpanded = false
             scopes = []

@@ -900,6 +900,7 @@ struct DebugModuleTests {
         transport.emitData(Data("variables-response".utf8))
 
         #expect(feature.selectedThreadID == 13)
+        #expect(feature.stoppedThreadIDs == [13])
         #expect(feature.threads.map(\.id) == [2, 13])
         #expect(feature.selectedFrame?.id == 70)
         #expect(feature.selectedFrame?.isFiltered == false)
@@ -927,6 +928,14 @@ struct DebugModuleTests {
         ]])
         transport.emitData(Data("late-exception-response".utf8))
         #expect(feature.exceptionInfo?.exceptionID == "java.lang.IllegalStateException")
+
+        core.enqueueReceive(sessionID: "java-stopped-context", state: "running", events: [[
+            "sequence": 7,
+            "type": "continued",
+            "threadId": 13
+        ]])
+        transport.emitData(Data("continued-event".utf8))
+        #expect(feature.stoppedThreadIDs.isEmpty)
     }
 
     @Test
