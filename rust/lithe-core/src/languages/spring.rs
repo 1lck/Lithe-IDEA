@@ -1584,7 +1584,8 @@ fn find_mapping_annotation(text: &str) -> Option<(SpringMappingAnnotation, &str)
 /// a neighboring decoy.
 ///
 /// A later annotation's `(` is not this annotation's argument list. After the
-/// name, only whitespace may appear before `(`.
+/// name, only whitespace may appear before `(`. Parentheses inside quoted
+/// strings, including escaped quotes, do not change the argument-list depth.
 fn isolate_annotation_at(text: &str, start: usize) -> &str {
     let rest = &text[start..];
     let name_end = rest
@@ -1607,8 +1608,25 @@ fn isolate_annotation_at(text: &str, start: usize) -> &str {
     }
     let open_index = name_end + whitespace_len;
     let mut depth = 0isize;
+    let mut in_string = None;
+    let mut escaped = false;
     for (index, character) in rest[open_index..].char_indices() {
+        if let Some(quote) = in_string {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            if character == '\\' {
+                escaped = true;
+                continue;
+            }
+            if character == quote {
+                in_string = None;
+            }
+            continue;
+        }
         match character {
+            '"' | '\'' => in_string = Some(character),
             '(' => depth += 1,
             ')' => {
                 depth -= 1;
@@ -1808,6 +1826,36 @@ mod tests {
             bean_names(r#"@BeanFactory("decoy") @Bean"#),
             Vec::<String>::new()
         );
+    }
+
+    /// A `(` inside a string is not the annotation argument list. Counting it
+    /// would swallow the real closer and pull a later neighbor into the aliases.
+    #[test]
+    fn isolate_annotation_at_ignores_parentheses_inside_strings() {
+        assert_eq!(
+            isolate_annotation_at(r#"@Bean("foo(") @Bean("bar")"#, 0),
+            r#"@Bean("foo(")"#
+        );
+        assert_eq!(
+            isolate_annotation_at(r#"@Bean('foo(') @Service("s")"#, 0),
+            r#"@Bean('foo(')"#
+        );
+        assert_eq!(
+            isolate_annotation_at(r#"@Bean("foo\")") @Bean("bar")"#, 0),
+            r#"@Bean("foo\")")"#
+        );
+        assert_eq!(
+            bean_names(r#"@Bean("foo(") @Bean("bar")"#),
+            vec!["foo(".to_string()]
+        );
+        assert_eq!(
+            component_name(r#"@Service("s(") @Component("c")"#).as_deref(),
+            Some("s(")
+        );
+        let mapping_with_paren = mapping(r#"@GetMapping("/foo(") @PostMapping("/bar")"#)
+            .expect("GetMapping with a parenthesis in its route should still isolate");
+        assert_eq!(mapping_with_paren.0, SpringMappingAnnotation::GetMapping);
+        assert_eq!(mapping_with_paren.2, vec!["/foo(".to_string()]);
     }
 
     /// A wide capture can start at the first closing quote and swallow

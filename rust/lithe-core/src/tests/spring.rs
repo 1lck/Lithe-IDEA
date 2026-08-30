@@ -361,6 +361,8 @@ fn spring_index_isolates_bean_and_component_names_from_neighbor_annotations() {
 public class ClockConfig {
   @BeanFactory("decoy") @Bean("real")
   public Clock clock() { return null; }
+  @Bean("foo(") @Bean("bar")
+  public Clock parenClock() { return null; }
   @BeanFactory("decoyOnly")
   public Clock decoyClock() { return null; }
   @Bean
@@ -394,6 +396,7 @@ public class ClockConfig {
         .map(|value| value["name"].as_str().unwrap())
         .collect::<Vec<_>>();
     assert!(names.contains(&"real"), "{response}");
+    assert!(names.contains(&"foo("), "{response}");
     assert!(names.contains(&"unnamedClock"), "{response}");
     assert!(names.contains(&"clockConfig"), "{response}");
     assert!(names.contains(&"s"), "{response}");
@@ -401,6 +404,7 @@ public class ClockConfig {
     assert!(!names.contains(&"decoy"), "{response}");
     assert!(!names.contains(&"decoyOnly"), "{response}");
     assert!(!names.contains(&"decoyClock"), "{response}");
+    assert!(!names.contains(&"bar"), "{response}");
     assert!(!names.contains(&") @Component("), "{response}");
 
     let demo = beans
@@ -418,6 +422,11 @@ public class ClockConfig {
         .find(|value| value["name"] == "real" && value["kind"] == "beanMethod")
         .unwrap_or_else(|| panic!("missing named Clock bean: {response}"));
     assert_eq!(clock["typeName"], "Clock");
+    let paren = beans
+        .iter()
+        .find(|value| value["name"] == "foo(" && value["kind"] == "beanMethod")
+        .unwrap_or_else(|| panic!("missing parenthesis Clock bean: {response}"));
+    assert_eq!(paren["typeName"], "Clock");
 
     fs::remove_dir_all(root).expect("Spring fixture should be removable");
 }
