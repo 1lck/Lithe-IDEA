@@ -8,6 +8,9 @@ struct EditorNavigationLocation: Hashable, Sendable {
     let isReadOnly: Bool
     let displayPath: String?
     let virtualProviderID: String?
+    /// 消费该位置时整行选中目标行（Go to Line 行为）；符号与查找导航
+    /// 保持零长度光标。
+    let selectsWholeLine: Bool
 
     init(
         url: URL,
@@ -15,7 +18,8 @@ struct EditorNavigationLocation: Hashable, Sendable {
         utf16Column: Int,
         isReadOnly: Bool = false,
         displayPath: String? = nil,
-        virtualProviderID: String? = nil
+        virtualProviderID: String? = nil,
+        selectsWholeLine: Bool = false
     ) {
         self.url = url.isFileURL ? url.standardizedFileURL : url
         self.line = max(0, line)
@@ -23,6 +27,7 @@ struct EditorNavigationLocation: Hashable, Sendable {
         self.isReadOnly = isReadOnly
         self.displayPath = displayPath
         self.virtualProviderID = virtualProviderID
+        self.selectsWholeLine = selectsWholeLine
     }
 }
 

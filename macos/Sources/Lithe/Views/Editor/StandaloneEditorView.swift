@@ -52,6 +52,9 @@ struct StandaloneEditorView: View {
                                 .padding(.horizontal, 12)
                         }
                     }
+                    .overlay(alignment: .topTrailing) {
+                        GoToLineBarOverlay()
+                    }
             } else {
                 failureView(.readFailed)
             }

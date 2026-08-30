@@ -395,6 +395,7 @@ struct CodeEditorView: NSViewRepresentable {
         textView.onGoToImplementation = { [weak model] in model?.goToImplementation() }
         textView.onFindUsages = { [weak model] in model?.findReferences() }
         textView.onFindRequested = { [weak model] in model?.showFindBar() }
+        textView.onGoToLineRequested = { [weak model] in model?.showGoToLineBar() }
         textView.onFindNextRequested = { [weak model] in model?.navigateFind(offset: 1) }
         textView.onFindPreviousRequested = { [weak model] in model?.navigateFind(offset: -1) }
         textView.onFindStateChange = { [weak coordinator = context.coordinator] index, count in
@@ -1326,7 +1327,16 @@ struct CodeEditorView: NSViewRepresentable {
             }
             let lineRange = text.lineRange(for: NSRange(location: min(lineStart, text.length), length: 0))
             let location = min(NSMaxRange(lineRange), lineStart + target.utf16Column)
-            textView.setSelectedRange(NSRange(location: location, length: 0))
+            if target.selectsWholeLine {
+                // Go to Line 的落点反馈：整行选中目标行，行尾换行符不计入选区
+                var selectionLength = NSMaxRange(lineRange) - lineStart
+                if selectionLength > 0, text.character(at: NSMaxRange(lineRange) - 1) == 10 {
+                    selectionLength -= 1
+                }
+                textView.setSelectedRange(NSRange(location: lineStart, length: selectionLength))
+            } else {
+                textView.setSelectedRange(NSRange(location: location, length: 0))
+            }
             textView.scrollRangeToVisible(NSRange(location: location, length: 0))
             textView.window?.makeFirstResponder(textView)
             scheduleCaretUpdate()
@@ -1488,6 +1498,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     var onGoToImplementation: (() -> Void)?
     var onFindUsages: (() -> Void)?
     var onFindRequested: (() -> Void)?
+    var onGoToLineRequested: (() -> Void)?
     var onFindNextRequested: (() -> Void)?
     var onFindPreviousRequested: (() -> Void)?
     var onFindStateChange: ((Int, Int) -> Void)?
@@ -2461,6 +2472,8 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     }
 
     override func mouseDown(with event: NSEvent) {
+        // 点击编辑器任意位置都收起跳转条；点击本身仍交给编辑器处理
+        NotificationCenter.default.post(name: .litheGoToLineDismiss, object: nil)
         let point = convert(event.locationInWindow, from: nil)
         if let region = foldSummaryRegion(at: point) {
             onToggleFold?(region)
@@ -2853,6 +2866,14 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         }
 
         let menu = super.menu(for: event) ?? NSMenu()
+        let goToLineItem = NSMenuItem(
+            title: "Go to Line…",
+            action: #selector(goToLineFromMenu),
+            keyEquivalent: ""
+        )
+        goToLineItem.target = self
+        menu.insertItem(goToLineItem, at: 0)
+        menu.insertItem(.separator(), at: 1)
         let languageItems = languageContextMenuItems()
         guard !languageItems.isEmpty else { return menu }
         menu.insertItem(.separator(), at: 0)
@@ -2881,6 +2902,10 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
     @objc private func goToDefinitionFromMenu() {
         onGoToDefinition?()
+    }
+
+    @objc private func goToLineFromMenu() {
+        onGoToLineRequested?()
     }
 
     @objc private func showQuickDocumentationFromMenu() {
@@ -3890,6 +3915,8 @@ final class LineNumberGutterView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        // 行号栏也属于编辑器区域，点击时同样收起跳转条
+        NotificationCenter.default.post(name: .litheGoToLineDismiss, object: nil)
         guard let textView,
               let scrollView,
               let layoutManager = textView.layoutManager,

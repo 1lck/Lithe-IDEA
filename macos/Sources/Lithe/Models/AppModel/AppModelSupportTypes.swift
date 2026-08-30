@@ -95,6 +95,7 @@ extension Notification.Name {
     static let litheFindDismiss = Notification.Name("litheFindDismiss")
     static let litheFindReplaceNext = Notification.Name("litheFindReplaceNext")
     static let litheFindReplaceAll = Notification.Name("litheFindReplaceAll")
+    static let litheGoToLineDismiss = Notification.Name("litheGoToLineDismiss")
 }
 
 struct ProjectTreeRevealRequest: Equatable {

@@ -759,7 +759,8 @@ extension AppModel {
         line: Int,
         utf16Column: Int,
         isReadOnly: Bool = false,
-        displayPath: String? = nil
+        displayPath: String? = nil,
+        selectsWholeLine: Bool = false
     ) {
         navigate(
             to: EditorNavigationLocation(
@@ -768,7 +769,8 @@ extension AppModel {
                 utf16Column: utf16Column,
                 isReadOnly: isReadOnly,
                 displayPath: displayPath,
-                virtualProviderID: nil
+                virtualProviderID: nil,
+                selectsWholeLine: selectsWholeLine
             ),
             recordsHistory: true
         )
@@ -789,7 +791,8 @@ extension AppModel {
                 editorNavigationTarget = EditorNavigationTarget(
                     url: location.url,
                     line: location.line,
-                    utf16Column: location.utf16Column
+                    utf16Column: location.utf16Column,
+                    selectsWholeLine: location.selectsWholeLine
                 )
                 return
             }
@@ -831,7 +834,8 @@ extension AppModel {
                         self.editorNavigationTarget = EditorNavigationTarget(
                             url: location.url,
                             line: location.line,
-                            utf16Column: location.utf16Column
+                            utf16Column: location.utf16Column,
+                            selectsWholeLine: location.selectsWholeLine
                         )
                     case .failure(let error):
                         onFailure?()
@@ -858,7 +862,8 @@ extension AppModel {
         editorNavigationTarget = EditorNavigationTarget(
             url: location.url.standardizedFileURL,
             line: location.line,
-            utf16Column: location.utf16Column
+            utf16Column: location.utf16Column,
+            selectsWholeLine: location.selectsWholeLine
         )
     }
 
