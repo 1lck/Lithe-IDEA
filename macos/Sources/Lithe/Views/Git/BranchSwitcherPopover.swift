@@ -27,9 +27,9 @@ struct BranchSwitcherPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             searchBar
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            popupDivider
             actions
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            popupDivider
             branchList
         }
         .frame(width: Metrics.popupWidth, alignment: .leading)
@@ -128,7 +128,7 @@ struct BranchSwitcherPopover: View {
             }
 
             if searchQuery.isEmpty || actionMatches("New Branch") || actionMatches("Checkout Tag or Revision") {
-                Rectangle().fill(LitheTheme.divider).frame(height: 1).padding(.vertical, 5)
+                popupDivider.padding(.vertical, 5)
             }
 
             if actionMatches("New Branch") {
@@ -179,10 +179,7 @@ struct BranchSwitcherPopover: View {
                                 }
 
                                 if !recentReferences.isEmpty && !filteredReferences.isEmpty {
-                                    Rectangle()
-                                        .fill(LitheTheme.divider)
-                                        .frame(height: 1)
-                                        .padding(.vertical, 6)
+                                    popupDivider.padding(.vertical, 6)
                                 }
 
                                 groupedBranchRows
@@ -529,6 +526,12 @@ struct BranchSwitcherPopover: View {
                     .fill(color)
                     .frame(height: LitheTheme.Metrics.popupCornerRadius)
             }
+    }
+
+    private var popupDivider: some View {
+        Rectangle()
+            .fill(LitheTheme.divider.opacity(0.55))
+            .frame(height: 1)
     }
 
     private func bottomRoundedSectionBackground(_ color: Color) -> some View {
