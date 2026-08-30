@@ -1648,6 +1648,16 @@ package final class GitFeatureModel: ObservableObject {
     ) async {
         guard let gitRepositoryRoot, reference.kind == .remote else { return }
         isPerformingBranchOperation = true
+        let preflight = await service.integrationPreflight(
+            for: .reference(reference),
+            operation: strategy == .rebase ? .rebase : .merge,
+            at: gitRepositoryRoot
+        )
+        if let preflight, !preflight.isClear {
+            isPerformingBranchOperation = false
+            notify?("本地有未提交改动，请先保存后再拉取远程分支")
+            return
+        }
         let result = await withGitOperation {
             await service.pullRemoteReference(reference, strategy: strategy, at: gitRepositoryRoot)
         }
