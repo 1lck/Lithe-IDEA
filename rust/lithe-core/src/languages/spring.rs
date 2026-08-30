@@ -1186,6 +1186,7 @@ macro_rules! spring_annotations {
             #[cfg(test)]
             pub(crate) const ALL: &'static [Self] = &[$(Self::$variant),+];
 
+            #[cfg(test)]
             pub(crate) fn name(self) -> &'static str {
                 match self {
                     $(Self::$variant => $name),+
@@ -1278,9 +1279,10 @@ spring_mapping_annotations! {
 }
 
 impl SpringAnnotation {
-    /// Annotations that declare a Spring component on a type declaration. The
-    /// order also drives the alternation in [`component_name`], so changing it
-    /// changes which annotation wins on a type carrying several of them.
+    /// Annotations that declare a Spring component on a type declaration.
+    /// Detection and naming share this closed set so they cannot drift; when
+    /// several are present, the leftmost source match wins rather than this
+    /// array's declaration order.
     const COMPONENTS: [Self; 6] = [
         Self::Component,
         Self::Service,
@@ -1304,24 +1306,31 @@ fn has_component_annotation(context: &str) -> bool {
         .any(|annotation| annotation.is_present(context))
 }
 
+/// Returns the explicit name of the earliest component annotation in source
+/// order. The value is read only from that annotation's own argument list so a
+/// later neighbor such as `@Component("c")` cannot pollute `@Service("s")`.
+/// An empty string such as `@Component("")` is not a name; callers then use
+/// the default type name.
 fn component_name(context: &str) -> Option<String> {
-    // Built from COMPONENTS so the recognized set cannot diverge from the one
-    // has_component_annotation uses.
-    static ANNOTATION: LazyLock<Regex> = LazyLock::new(|| {
-        let alternation = SpringAnnotation::COMPONENTS
-            .iter()
-            .map(|annotation| regex::escape(annotation.name()))
-            .collect::<Vec<_>>()
-            .join("|");
-        Regex::new(&format!(
-            r#"@({alternation})\s*\([^\)]*[\"']([^\"']+)[\"']"#
-        ))
-        .expect("escaped annotation names produce a valid pattern")
-    });
-    ANNOTATION
-        .captures(context)
-        .and_then(|capture| capture.get(2))
-        .map(|value| value.as_str().to_string())
+    let start = earliest_component_annotation_start(context)?;
+    quoted_values(isolate_annotation_at(context, start))
+        .into_iter()
+        .find(|value| !value.is_empty())
+}
+
+/// Locates every exact component annotation with the cached boundary patterns
+/// and keeps the leftmost source start. Array order in [`SpringAnnotation::COMPONENTS`]
+/// is not a priority.
+fn earliest_component_annotation_start(context: &str) -> Option<usize> {
+    SpringAnnotation::COMPONENTS
+        .iter()
+        .filter_map(|annotation| {
+            annotation
+                .pattern()
+                .find(context)
+                .map(|found| found.start())
+        })
+        .min()
 }
 
 fn qualifier_names(context: &str) -> Vec<String> {
@@ -1335,13 +1344,16 @@ fn qualifier_names(context: &str) -> Vec<String> {
         .collect()
 }
 
+/// Returns declared `@Bean` aliases from the exact `@Bean` annotation only.
+/// A prefix decoy such as `@BeanFactory("decoy")` cannot supply the name.
 fn bean_names(context: &str) -> Vec<String> {
-    let Some(start) = context.find("@Bean") else {
+    let Some(found) = SpringAnnotation::Bean.pattern().find(context) else {
         return Vec::new();
     };
-    let remaining = &context[start..];
-    let end = remaining.find(')').unwrap_or(remaining.len());
-    quoted_values(&remaining[..end])
+    quoted_values(isolate_annotation_at(context, found.start()))
+        .into_iter()
+        .filter(|value| !value.is_empty())
+        .collect()
 }
 
 fn quoted_values(value: &str) -> Vec<String> {
@@ -1573,11 +1585,12 @@ fn find_mapping_annotation(text: &str) -> Option<(SpringMappingAnnotation, &str)
 }
 
 /// Slices one annotation starting at `start` (`@Name` followed by an optional
-/// argument list) so route extraction cannot read string literals from a
-/// neighboring decoy.
+/// argument list) so name or route extraction cannot read string literals from
+/// a neighboring decoy.
 ///
 /// A later annotation's `(` is not this annotation's argument list. After the
-/// name, only whitespace may appear before `(`.
+/// name, only whitespace may appear before `(`. Parentheses inside quoted
+/// strings, including escaped quotes, do not change the argument-list depth.
 fn isolate_annotation_at(text: &str, start: usize) -> &str {
     let rest = &text[start..];
     let name_end = rest
@@ -1600,8 +1613,25 @@ fn isolate_annotation_at(text: &str, start: usize) -> &str {
     }
     let open_index = name_end + whitespace_len;
     let mut depth = 0isize;
+    let mut in_string = None;
+    let mut escaped = false;
     for (index, character) in rest[open_index..].char_indices() {
+        if let Some(quote) = in_string {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            if character == '\\' {
+                escaped = true;
+                continue;
+            }
+            if character == quote {
+                in_string = None;
+            }
+            continue;
+        }
         match character {
+            '"' | '\'' => in_string = Some(character),
             '(' => depth += 1,
             ')' => {
                 depth -= 1;
@@ -1784,6 +1814,91 @@ mod tests {
 
         assert!(!has_component_annotation("@Bean\npublic Clock clock()"));
         assert_eq!(component_name("@Qualifier(\"custom\")"), None);
+    }
+
+    /// `@BeanFactory` shares a prefix with `@Bean`, so a naive `@Bean` search
+    /// would take the decoy name. Naming must reuse the cached boundary match.
+    #[test]
+    fn bean_names_uses_the_exact_bean_annotation_not_a_prefix() {
+        assert_eq!(
+            bean_names(r#"@BeanFactory("decoy") @Bean("real")"#),
+            vec!["real".to_string()]
+        );
+        assert_eq!(bean_names(r#"@BeanFactory("decoy")"#), Vec::<String>::new());
+        assert_eq!(bean_names(r#"@Bean("real")"#), vec!["real".to_string()]);
+        assert_eq!(bean_names("@Bean"), Vec::<String>::new());
+        assert_eq!(
+            bean_names(r#"@BeanFactory("decoy") @Bean"#),
+            Vec::<String>::new()
+        );
+    }
+
+    /// A `(` inside a string is not the annotation argument list. Counting it
+    /// would swallow the real closer and pull a later neighbor into the aliases.
+    #[test]
+    fn isolate_annotation_at_ignores_parentheses_inside_strings() {
+        assert_eq!(
+            isolate_annotation_at(r#"@Bean("foo(") @Bean("bar")"#, 0),
+            r#"@Bean("foo(")"#
+        );
+        assert_eq!(
+            isolate_annotation_at(r#"@Bean('foo(') @Service("s")"#, 0),
+            r#"@Bean('foo(')"#
+        );
+        assert_eq!(
+            isolate_annotation_at(r#"@Bean("foo\")") @Bean("bar")"#, 0),
+            r#"@Bean("foo\")")"#
+        );
+        assert_eq!(
+            bean_names(r#"@Bean("foo(") @Bean("bar")"#),
+            vec!["foo(".to_string()]
+        );
+        assert_eq!(
+            component_name(r#"@Service("s(") @Component("c")"#).as_deref(),
+            Some("s(")
+        );
+        let mapping_with_paren = mapping(r#"@GetMapping("/foo(") @PostMapping("/bar")"#)
+            .expect("GetMapping with a parenthesis in its route should still isolate");
+        assert_eq!(mapping_with_paren.0, SpringMappingAnnotation::GetMapping);
+        assert_eq!(mapping_with_paren.2, vec!["/foo(".to_string()]);
+    }
+
+    /// A wide capture can start at the first closing quote and swallow
+    /// `) @Component(`. Isolation plus source-position selection must keep
+    /// the first annotation's own value, independent of COMPONENTS order.
+    #[test]
+    fn component_name_selects_the_earliest_annotation_and_isolates_its_value() {
+        assert_eq!(
+            component_name(r#"@Service("s") @Component("c")"#).as_deref(),
+            Some("s")
+        );
+        assert_eq!(
+            component_name(r#"@Component("c") @Service("s")"#).as_deref(),
+            Some("c")
+        );
+        assert_ne!(
+            component_name(r#"@Service("s") @Component("c")"#).as_deref(),
+            Some(") @Component(")
+        );
+        assert_eq!(component_name("@Service @Component"), None);
+        assert_eq!(component_name(r#"@Service @Component("c")"#), None);
+        assert_eq!(component_name("@Service"), None);
+        assert_eq!(component_name("@ServiceLocator(\"x\")"), None);
+    }
+
+    /// `quoted_values` accepts empty captures. An empty annotation value is not
+    /// an explicit bean name, so naming must return None and let bean_index use
+    /// the default type or method name.
+    #[test]
+    fn empty_annotation_values_are_not_explicit_bean_names() {
+        assert_eq!(component_name(r#"@Component("")"#), None);
+        assert_eq!(component_name(r#"@Service('')"#), None);
+        assert_eq!(
+            component_name(r#"@Component("") @Service("s")"#),
+            None,
+            "an empty leftmost name must not take a later neighbor"
+        );
+        assert_eq!(bean_names(r#"@Bean("")"#), Vec::<String>::new());
     }
 
     /// Record components and constructor parameters share one pattern, so a
