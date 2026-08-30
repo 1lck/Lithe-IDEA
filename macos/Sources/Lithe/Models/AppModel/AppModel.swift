@@ -87,16 +87,6 @@ final class AppModel: ObservableObject, Identifiable {
     }
     /// 递增令牌：搜索侧栏观察它来把焦点移回输入框。
     @Published var searchSidebarFocusRequest = 0
-    var isFindBarVisible: Bool {
-        get { editorChrome.isFindBarVisible }
-        set { editorChrome.setFindBarVisible(newValue) }
-    }
-    var findBarQuery: String {
-        get { editorChrome.findBarQuery }
-        set { editorChrome.setFindBarQuery(newValue) }
-    }
-    var findMatchCount: Int { editorChrome.findMatchCount }
-    var currentFindMatchIndex: Int { editorChrome.currentFindMatchIndex }
     var projectItemEditRequest: ProjectItemEditRequest? {
         get { workspaceFeature.projectItemEditRequest }
         set { workspaceFeature.projectItemEditRequest = newValue }
@@ -1424,45 +1414,6 @@ final class AppModel: ObservableObject, Identifiable {
         }
     }
 
-    func showFindBar() {
-        guard activeDocument != nil else { return }
-        editorChrome.setFindBarVisible(true)
-    }
-
-    func hideFindBar() {
-        editorChrome.resetFindBar()
-        NotificationCenter.default.post(name: .litheFindDismiss, object: nil)
-    }
-
-    func toggleFindBar() {
-        if isFindBarVisible {
-            hideFindBar()
-        } else {
-            showFindBar()
-        }
-    }
-
-    func setFindBarQuery(_ query: String) {
-        editorChrome.setFindBarQuery(query)
-        NotificationCenter.default.post(
-            name: .litheFindQueryChanged,
-            object: nil,
-            userInfo: [FindNotificationKeys.query: query]
-        )
-    }
-
-    func navigateFind(offset: Int) {
-        NotificationCenter.default.post(
-            name: .litheFindNavigate,
-            object: nil,
-            userInfo: [FindNotificationKeys.direction: offset]
-        )
-    }
-
-    func updateFindState(currentIndex: Int, count: Int) {
-        editorChrome.updateFindState(currentIndex: currentIndex, count: count)
-    }
-
     func commitStagedChanges() async {
         guard let gitFeature = await activateGitModule() else { return }
         if await gitFeature.commitStagedChanges(message: commitMessage, amend: amendCommit) {
@@ -1737,6 +1688,16 @@ final class AppModel: ObservableObject, Identifiable {
     func rebaseCurrentBranch(onto reference: GitReference) async {
         guard let gitFeature = await activateGitModule() else { return }
         await gitFeature.rebaseCurrentBranch(onto: reference)
+    }
+
+    func checkoutAndRebase(_ reference: GitReference) async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.checkoutAndRebase(reference)
+    }
+
+    func pullRemoteReference(_ reference: GitReference, strategy: GitPullStrategy) async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.pullRemoteReference(reference, strategy: strategy)
     }
 
     func updateCurrentBranch(_ reference: GitReference) async {

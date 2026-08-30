@@ -11,6 +11,9 @@ final class EditorChromeModel: ObservableObject {
     @Published private(set) var isFindBarVisible = false
     @Published private(set) var isGoToLineVisible = false
     @Published private(set) var findBarQuery = ""
+    @Published private(set) var findOptions = FindInFileOptions()
+    @Published private(set) var isReplaceVisible = false
+    @Published private(set) var findReplaceText = ""
     private(set) var findMatchCount = 0
     private(set) var currentFindMatchIndex = 0
 
@@ -47,6 +50,21 @@ final class EditorChromeModel: ObservableObject {
         findBarQuery = query
     }
 
+    func setFindOptions(_ options: FindInFileOptions) {
+        guard findOptions != options else { return }
+        findOptions = options
+    }
+
+    func setReplaceVisible(_ isVisible: Bool) {
+        guard isReplaceVisible != isVisible else { return }
+        isReplaceVisible = isVisible
+    }
+
+    func setFindReplaceText(_ text: String) {
+        guard findReplaceText != text else { return }
+        findReplaceText = text
+    }
+
     func updateFindState(currentIndex: Int, count: Int) {
         guard currentFindMatchIndex != currentIndex || findMatchCount != count else { return }
         objectWillChange.send()
@@ -54,9 +72,11 @@ final class EditorChromeModel: ObservableObject {
         findMatchCount = count
     }
 
+    /// 查找选项与替换文本在当前工作区会话内保留，关闭查找栏不重置。
     func resetFindBar() {
         setFindBarVisible(false)
         setFindBarQuery("")
+        setReplaceVisible(false)
         updateFindState(currentIndex: 0, count: 0)
     }
 

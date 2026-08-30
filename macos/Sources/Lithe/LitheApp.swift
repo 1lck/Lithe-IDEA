@@ -399,6 +399,12 @@ struct LitheApp: App {
                     .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "find-in-file"))
                     .disabled(model.activeDocument == nil)
 
+                    Button("Replace in File…") {
+                        model.showReplaceBar()
+                    }
+                    .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "replace-in-file"))
+                    .disabled(model.activeDocument == nil)
+
                     Button("Find Next") {
                         model.navigateFind(offset: 1)
                     }

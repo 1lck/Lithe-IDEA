@@ -2465,8 +2465,8 @@ struct LitheCoreLogicTests {
             updates.append((index, count))
         }
 
-        textView.syncFindState(isVisible: true, query: "")
-        textView.syncFindState(isVisible: true, query: "")
+        textView.syncFindState(isVisible: true, query: "", options: .default)
+        textView.syncFindState(isVisible: true, query: "", options: .default)
 
         #expect(updates.count == 1)
         #expect(updates.first?.index == -1)
@@ -2518,7 +2518,7 @@ struct LitheCoreLogicTests {
         let textView = CodeTextView(frame: .zero)
         textView.string = "alpha beta alpha"
         textView.rebuildLineIndex()
-        textView.updateFindMatches(query: "alpha")
+        textView.updateFindMatches(query: "alpha", options: .default)
         #expect(textView.currentFindMatchCountForTesting == 2)
 
         textView.string = "Xalpha beta alpha"
@@ -2537,11 +2537,75 @@ struct LitheCoreLogicTests {
             reportedStates.append("\(index):\(count)")
         }
 
-        textView.syncFindState(isVisible: true, query: "")
-        textView.syncFindState(isVisible: true, query: "alpha")
-        textView.syncFindState(isVisible: true, query: "alpha")
+        textView.syncFindState(isVisible: true, query: "", options: .default)
+        textView.syncFindState(isVisible: true, query: "alpha", options: .default)
+        textView.syncFindState(isVisible: true, query: "alpha", options: .default)
 
         #expect(reportedStates == ["-1:0", "0:2"])
+    }
+
+    @Test
+    @MainActor
+    func codeEditorKeepsCrossLineRegexMatchesAcrossEdits() {
+        // 正则可能产生跨行匹配：在匹配所在行附近编辑无关内容后，
+        // 整篇重算必须找回该匹配（行窗口增量曾把它移除且无法在窗口内复原）。
+        let textView = CodeTextView(frame: .zero)
+        textView.string = "alpha\nbeta gamma"
+        textView.rebuildLineIndex()
+        let options = FindInFileOptions(regularExpression: true)
+        textView.updateFindMatches(query: "a\\nb", options: options)
+        #expect(textView.currentFindMatchCountForTesting == 1)
+        #expect(textView.findMatchLocationsForTesting == [4])
+
+        textView.string = "alpha\nbeXta gamma"
+        textView.applyFindEdit(
+            replacedRange: NSRange(location: 8, length: 0),
+            insertedLength: 1,
+            query: "a\\nb"
+        )
+        #expect(textView.currentFindMatchCountForTesting == 1)
+        #expect(textView.findMatchLocationsForTesting == [4])
+    }
+
+    @Test
+    @MainActor
+    func replaceNotificationsOnlyApplyToTheBoundDocument() {
+        let textView = CodeTextView(frame: .zero)
+        let documentID = UUID()
+        textView.documentID = documentID
+        textView.string = "foo bar"
+        textView.updateFindMatches(query: "foo", options: .default)
+
+        // 文档不匹配的替换通知必须被忽略，防止分栏时误伤其他编辑器
+        NotificationCenter.default.post(
+            name: .litheFindReplaceNext,
+            object: nil,
+            userInfo: [
+                FindNotificationKeys.documentID: UUID(),
+                FindNotificationKeys.replacement: "baz"
+            ]
+        )
+        #expect(textView.string == "foo bar")
+
+        NotificationCenter.default.post(
+            name: .litheFindReplaceNext,
+            object: nil,
+            userInfo: [
+                FindNotificationKeys.documentID: documentID,
+                FindNotificationKeys.replacement: "baz"
+            ]
+        )
+        #expect(textView.string == "baz bar")
+
+        NotificationCenter.default.post(
+            name: .litheFindReplaceAll,
+            object: nil,
+            userInfo: [
+                FindNotificationKeys.documentID: UUID(),
+                FindNotificationKeys.replacement: "qux"
+            ]
+        )
+        #expect(textView.string == "baz bar")
     }
 
     @Test
