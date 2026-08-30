@@ -158,6 +158,24 @@ export const pullRemoteReference = async (
   strategy: Extract<PullStrategy, "merge" | "rebase">,
 ): Promise<IntegrationOutcome> => {
   const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
+  let preflight: IntegrationPreflightResult | null = null;
+  try {
+    preflight = await tauriInvoke<IntegrationPreflightResult>("git_integration_preflight", {
+      repoPath: resolvedRepoPath,
+      operation: strategy,
+      reference: reference.fullName,
+      referenceKind: reference.kind,
+    });
+  } catch {
+    // Git remains the final authority if a read-only preflight is unavailable.
+  }
+  if (preflight && preflight.blockingPaths.length > 0) {
+    return {
+      status: "blocked",
+      blockingPaths: preflight.blockingPaths,
+      blocksEntirely: preflight.blocksEntirely,
+    };
+  }
   try {
     await tauriInvoke("git_pull", {
       repoPath: resolvedRepoPath,
