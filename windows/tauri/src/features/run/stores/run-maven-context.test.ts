@@ -71,12 +71,16 @@ describe("Maven-backed Run context", () => {
       workingDirectory: "D:/work/reactor",
       environment: {},
     }));
+    const saveWorkspaceBeforeLaunch = mock(async () => {
+      events.push("files-saved");
+    });
     const startRunProcess = mock(async () => undefined);
     const stopRunProcess = mock(async () => undefined);
     const dependencies: RunStoreDependencies = {
       createLaunchPlan,
       mavenLaunchContextForWorkspace,
       resolveRunLaunch,
+      saveWorkspaceBeforeLaunch,
       startRunProcess,
       stopRunProcess,
     };
@@ -92,13 +96,15 @@ describe("Maven-backed Run context", () => {
     try {
       await Promise.resolve();
       await Promise.resolve();
-      expect(events).toEqual(["context-started"]);
+      await Promise.resolve();
+      expect(events).toEqual(["files-saved", "context-started"]);
       expect(createLaunchPlan).not.toHaveBeenCalled();
     } finally {
       pendingContext.resolve(mavenContext);
       await run;
     }
 
+    expect(saveWorkspaceBeforeLaunch).toHaveBeenCalledWith("workspace");
     expect(mavenLaunchContextForWorkspace).toHaveBeenCalledWith("D:/work", [], "workspace");
     expect(createLaunchPlan).toHaveBeenCalledWith("D:/work", "spring", undefined, mavenContext);
     expect(resolveRunLaunch).toHaveBeenCalledWith(
@@ -107,5 +113,48 @@ describe("Maven-backed Run context", () => {
         mavenJavaHomePath: "C:/Java/jdk-21",
       }),
     );
+  });
+
+  test("does not create a launch plan when workspace files cannot be saved", async () => {
+    const createLaunchPlan = mock(async () => ({
+      executable: { toolchain: "project-maven" as const },
+      arguments: ["-B", "spring-boot:run"],
+      workingDirectory: "reactor",
+    }));
+    const startRunProcess = mock(async () => undefined);
+    const dependencies: RunStoreDependencies = {
+      createLaunchPlan,
+      mavenLaunchContextForWorkspace: mock(async () => mavenContext),
+      resolveRunLaunch: mock(async () => ({
+        executable: "D:/Tools/apache-maven/bin/mvn.cmd",
+        workingDirectory: "D:/work/reactor",
+        environment: {},
+      })),
+      saveWorkspaceBeforeLaunch: mock(async () => {
+        throw new Error("Unable to start because modified files could not be saved: App.java.");
+      }),
+      startRunProcess,
+      stopRunProcess: mock(async () => undefined),
+    };
+    const store = createRunStore("workspace", dependencies);
+    store.setState({
+      root: "D:/work",
+      configurations: [configuration],
+      diagnostics: [],
+      effectiveRuntimeExecutablePaths: {},
+    });
+
+    await store.getState().actions.runConfiguration(configuration.id);
+
+    expect(createLaunchPlan).not.toHaveBeenCalled();
+    expect(startRunProcess).not.toHaveBeenCalled();
+    expect(store.getState().sessions).toEqual([
+      expect.objectContaining({
+        id: configuration.id,
+        isRunning: false,
+        exitCode: 1,
+        output: expect.stringContaining("App.java"),
+      }),
+    ]);
   });
 });
