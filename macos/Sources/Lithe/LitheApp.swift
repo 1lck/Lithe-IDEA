@@ -674,7 +674,10 @@ private func settingsWindowTitle(for language: AppLanguage) -> String {
     )
 }
 
-private extension AppThemePreference {
+extension AppThemePreference {
+    /// NSAppearance applied to app windows for the selected theme; `nil`
+    /// means follow the system appearance. Shared by every presenting
+    /// window, including the Go to Line dialog.
     var windowAppearance: NSAppearance? {
         switch self {
         case .system: nil
