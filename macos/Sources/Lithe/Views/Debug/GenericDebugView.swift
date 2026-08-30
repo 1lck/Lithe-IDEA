@@ -6,10 +6,6 @@ struct GenericDebugView: View {
     @EnvironmentObject private var model: AppModel
     @ObservedObject var feature: GenericDebugFeatureModel
     @State private var evaluateExpression = ""
-    @State private var editingBreakpoint: GenericDebugBreakpoint?
-    @State private var editingExceptionBreakpoint: GenericDebugExceptionBreakpoint?
-    @State private var functionBreakpointEditor: FunctionBreakpointEditorContext?
-    @State private var editingDataBreakpoint: GenericDebugDataBreakpoint?
     @State private var editingVariable: DebugVariable?
     @State private var watchEditor: WatchEditorContext?
     @State private var smartStepTargets: [DebugStepInTarget] = []
@@ -33,57 +29,6 @@ struct GenericDebugView: View {
             }
         }
         .litheWorkbenchSurface(LitheTheme.editor)
-        .sheet(item: $editingBreakpoint) { breakpoint in
-            BreakpointEditorView(breakpoint: breakpoint) {
-                feature.updateBreakpoint(
-                    fileURL: breakpoint.fileURL,
-                    line: breakpoint.line,
-                    enabled: $0.enabled,
-                    condition: $0.condition,
-                    hitCondition: $0.hitCondition,
-                    logMessage: $0.logMessage
-                )
-            }
-        }
-        .sheet(item: $editingExceptionBreakpoint) { breakpoint in
-            ExceptionBreakpointEditorView(breakpoint: breakpoint) {
-                feature.updateExceptionBreakpoint(
-                    breakpoint,
-                    enabled: $0.enabled,
-                    condition: $0.condition
-                )
-            }
-        }
-        .sheet(item: $functionBreakpointEditor) { context in
-            FunctionBreakpointEditorView(breakpoint: context.breakpoint) { value in
-                if let breakpoint = context.breakpoint {
-                    feature.updateFunctionBreakpoint(
-                        breakpoint,
-                        name: value.name,
-                        enabled: value.enabled,
-                        condition: value.condition,
-                        hitCondition: value.hitCondition
-                    )
-                } else {
-                    feature.addFunctionBreakpoint(
-                        name: value.name,
-                        condition: value.condition,
-                        hitCondition: value.hitCondition
-                    )
-                }
-            }
-        }
-        .sheet(item: $editingDataBreakpoint) { breakpoint in
-            DataBreakpointEditorView(breakpoint: breakpoint) { value in
-                feature.updateDataBreakpoint(
-                    breakpoint,
-                    enabled: value.enabled,
-                    accessType: value.accessType,
-                    condition: value.condition,
-                    hitCondition: value.hitCondition
-                )
-            }
-        }
         .sheet(item: $editingVariable) { variable in
             VariableValueEditorView(variable: variable) {
                 feature.setVariable(variable, value: $0)
@@ -130,7 +75,7 @@ struct GenericDebugView: View {
         case .debugger:
             inspector
         case .breakpoints:
-            breakpointInspector
+            DebugBreakpointManagerView(feature: feature)
         case .console:
             output
         }
@@ -198,6 +143,12 @@ struct GenericDebugView: View {
                     .lineLimit(1)
             }
             Spacer()
+            Button { model.showDebugBreakpointManager() } label: {
+                Image(systemName: "list.bullet.rectangle")
+            }
+            .litheIconButton()
+            .help("View breakpoints (⌘⇧F8)")
+            .accessibilityLabel("View breakpoints")
             if feature.javaSteppingFilters != nil {
                 Button { isJavaSteppingSettingsPresented = true } label: {
                     Image(systemName: "line.3.horizontal.decrease.circle")
@@ -547,287 +498,6 @@ struct GenericDebugView: View {
         .litheWorkbenchSurface(LitheTheme.sidebar)
     }
 
-    private var breakpointInspector: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                Group {
-                    breakpointSectionHeader
-                    if feature.breakpoints.isEmpty {
-                        placeholder("Click the editor gutter to add a breakpoint")
-                    } else {
-                        ForEach(feature.breakpoints) { breakpoint in
-                            HStack(spacing: 7) {
-                                Button {
-                                    feature.setBreakpointEnabled(
-                                        breakpoint,
-                                        enabled: !breakpoint.enabled
-                                    )
-                                } label: {
-                                    Image(systemName: breakpointSymbol(breakpoint))
-                                        .font(.system(size: 9))
-                                        .foregroundStyle(breakpointColor(breakpoint))
-                                }
-                                .buttonStyle(.plain)
-                                .help(breakpoint.enabled ? "Disable breakpoint" : "Enable breakpoint")
-                                Button {
-                                    model.openSourceLocation(
-                                        url: breakpoint.fileURL,
-                                        line: breakpoint.line,
-                                        column: breakpoint.column ?? 1
-                                    )
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(breakpoint.title)
-                                            .font(.system(size: 11, design: .monospaced))
-                                            .lineLimit(1)
-                                        if let detail = breakpointDetail(breakpoint) {
-                                            Text(detail)
-                                                .font(.system(size: 9.5, design: .monospaced))
-                                                .foregroundStyle(LitheTheme.secondaryText)
-                                                .lineLimit(1)
-                                        }
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                                .buttonStyle(.plain)
-                                Menu {
-                                    Button("Edit…") { editingBreakpoint = breakpoint }
-                                    Button(breakpoint.enabled ? "Disable" : "Enable") {
-                                        feature.setBreakpointEnabled(
-                                            breakpoint,
-                                            enabled: !breakpoint.enabled
-                                        )
-                                    }
-                                    Divider()
-                                    Button("Remove", role: .destructive) {
-                                        feature.removeBreakpoint(breakpoint)
-                                    }
-                                } label: {
-                                    Image(systemName: "ellipsis")
-                                }
-                                .menuStyle(.borderlessButton)
-                                .fixedSize()
-                            }
-                            .help(breakpoint.message ?? breakpoint.title)
-                            .padding(.horizontal, 10)
-                            .frame(minHeight: 31)
-                            .opacity(breakpoint.enabled && !feature.areBreakpointsMuted ? 1 : 0.55)
-                            .contextMenu {
-                                Button("Edit…") { editingBreakpoint = breakpoint }
-                                Button(breakpoint.enabled ? "Disable" : "Enable") {
-                                    feature.setBreakpointEnabled(
-                                        breakpoint,
-                                        enabled: !breakpoint.enabled
-                                    )
-                                }
-                                Divider()
-                                Button("Remove", role: .destructive) {
-                                    feature.removeBreakpoint(breakpoint)
-                                }
-                            }
-                        }
-                    }
-                    if !feature.exceptionBreakpoints.isEmpty {
-                        divider
-                        sectionHeader("Exception Breakpoints", count: feature.exceptionBreakpoints.count)
-                        ForEach(feature.exceptionBreakpoints) { breakpoint in
-                            HStack(spacing: 7) {
-                                Button {
-                                    feature.updateExceptionBreakpoint(
-                                        breakpoint,
-                                        enabled: !breakpoint.enabled,
-                                        condition: breakpoint.condition
-                                    )
-                                } label: {
-                                    Image(systemName: breakpoint.enabled ? "bolt.circle.fill" : "bolt.circle")
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(
-                                            breakpoint.enabled ? LitheTheme.error : LitheTheme.secondaryText
-                                        )
-                                }
-                                .buttonStyle(.plain)
-                                .help(breakpoint.enabled ? "Disable exception breakpoint" : "Enable exception breakpoint")
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(breakpoint.label)
-                                        .font(.system(size: 11))
-                                        .lineLimit(1)
-                                    if let condition = breakpoint.condition {
-                                        Text("If: \(condition)")
-                                            .font(.system(size: 9.5, design: .monospaced))
-                                            .foregroundStyle(LitheTheme.secondaryText)
-                                            .lineLimit(1)
-                                    }
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                if breakpoint.supportsCondition {
-                                    Button {
-                                        editingExceptionBreakpoint = breakpoint
-                                    } label: {
-                                        Image(systemName: "ellipsis")
-                                    }
-                                    .buttonStyle(.plain)
-                                    .help("Edit exception breakpoint")
-                                }
-                            }
-                            .help(breakpoint.description ?? breakpoint.label)
-                            .padding(.horizontal, 10)
-                            .frame(minHeight: 31)
-                            .opacity(breakpoint.enabled ? 1 : 0.55)
-                            .contextMenu {
-                                Button(breakpoint.enabled ? "Disable" : "Enable") {
-                                    feature.updateExceptionBreakpoint(
-                                        breakpoint,
-                                        enabled: !breakpoint.enabled,
-                                        condition: breakpoint.condition
-                                    )
-                                }
-                                if breakpoint.supportsCondition {
-                                    Button("Edit Condition…") {
-                                        editingExceptionBreakpoint = breakpoint
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if feature.capabilities.supportsFunctionBreakpoints
-                        || !feature.functionBreakpoints.isEmpty {
-                        divider
-                        functionBreakpointSectionHeader
-                        if feature.functionBreakpoints.isEmpty {
-                            placeholder("Add a class or method name")
-                        } else {
-                            ForEach(feature.functionBreakpoints) { breakpoint in
-                                HStack(spacing: 7) {
-                                    Button {
-                                        feature.setFunctionBreakpointEnabled(
-                                            breakpoint,
-                                            enabled: !breakpoint.enabled
-                                        )
-                                    } label: {
-                                        Image(systemName: "function")
-                                            .font(.system(size: 10, weight: .semibold))
-                                            .foregroundStyle(
-                                                breakpoint.enabled
-                                                    ? (breakpoint.verified ? LitheTheme.error : LitheTheme.warning)
-                                                    : LitheTheme.secondaryText
-                                            )
-                                    }
-                                    .buttonStyle(.plain)
-                                    .help(breakpoint.enabled ? "Disable method breakpoint" : "Enable method breakpoint")
-                                    Button {
-                                        functionBreakpointEditor = FunctionBreakpointEditorContext(
-                                            breakpoint: breakpoint
-                                        )
-                                    } label: {
-                                        VStack(alignment: .leading, spacing: 1) {
-                                            Text(breakpoint.name)
-                                                .font(.system(size: 11, design: .monospaced))
-                                                .lineLimit(1)
-                                            if let detail = functionBreakpointDetail(breakpoint) {
-                                                Text(detail)
-                                                    .font(.system(size: 9.5, design: .monospaced))
-                                                    .foregroundStyle(LitheTheme.secondaryText)
-                                                    .lineLimit(1)
-                                            }
-                                        }
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                    }
-                                    .buttonStyle(.plain)
-                                    Menu {
-                                        Button("Edit…") {
-                                            functionBreakpointEditor = FunctionBreakpointEditorContext(
-                                                breakpoint: breakpoint
-                                            )
-                                        }
-                                        Button(breakpoint.enabled ? "Disable" : "Enable") {
-                                            feature.setFunctionBreakpointEnabled(
-                                                breakpoint,
-                                                enabled: !breakpoint.enabled
-                                            )
-                                        }
-                                        Divider()
-                                        Button("Remove", role: .destructive) {
-                                            feature.removeFunctionBreakpoint(breakpoint)
-                                        }
-                                    } label: {
-                                        Image(systemName: "ellipsis")
-                                    }
-                                    .menuStyle(.borderlessButton)
-                                    .fixedSize()
-                                }
-                                .padding(.horizontal, 10)
-                                .frame(minHeight: 31)
-                                .opacity(breakpoint.enabled ? 1 : 0.55)
-                            }
-                        }
-                    }
-                    if feature.capabilities.supportsDataBreakpoints
-                        || !feature.dataBreakpoints.isEmpty {
-                        divider
-                        sectionHeader("Field Breakpoints", count: feature.dataBreakpoints.count)
-                        if feature.dataBreakpoints.isEmpty {
-                            placeholder("Right-click a field while paused to add a breakpoint")
-                        } else {
-                            ForEach(feature.dataBreakpoints) { breakpoint in
-                                HStack(spacing: 7) {
-                                    Button {
-                                        feature.setDataBreakpointEnabled(
-                                            breakpoint,
-                                            enabled: !breakpoint.enabled
-                                        )
-                                    } label: {
-                                        Image(systemName: "eye.circle.fill")
-                                            .font(.system(size: 10))
-                                            .foregroundStyle(
-                                                breakpoint.enabled
-                                                    ? (breakpoint.verified ? LitheTheme.error : LitheTheme.warning)
-                                                    : LitheTheme.secondaryText
-                                            )
-                                    }
-                                    .buttonStyle(.plain)
-                                    Button { editingDataBreakpoint = breakpoint } label: {
-                                        VStack(alignment: .leading, spacing: 1) {
-                                            Text(breakpoint.label)
-                                                .font(.system(size: 11, design: .monospaced))
-                                                .lineLimit(1)
-                                            Text(dataBreakpointDetail(breakpoint))
-                                                .font(.system(size: 9.5, design: .monospaced))
-                                                .foregroundStyle(LitheTheme.secondaryText)
-                                                .lineLimit(1)
-                                        }
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                    }
-                                    .buttonStyle(.plain)
-                                    Menu {
-                                        Button("Edit…") { editingDataBreakpoint = breakpoint }
-                                        Button(breakpoint.enabled ? "Disable" : "Enable") {
-                                            feature.setDataBreakpointEnabled(
-                                                breakpoint,
-                                                enabled: !breakpoint.enabled
-                                            )
-                                        }
-                                        Divider()
-                                        Button("Remove", role: .destructive) {
-                                            feature.removeDataBreakpoint(breakpoint)
-                                        }
-                                    } label: { Image(systemName: "ellipsis") }
-                                        .menuStyle(.borderlessButton)
-                                        .fixedSize()
-                                }
-                                .padding(.horizontal, 10)
-                                .frame(minHeight: 31)
-                                .opacity(breakpoint.enabled ? 1 : 0.55)
-                            }
-                        }
-                    }
-                }
-
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .litheWorkbenchSurface(LitheTheme.sidebar)
-    }
-
     private func exceptionInspector(_ info: DebugExceptionInfo) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 7) {
@@ -1008,6 +678,10 @@ struct GenericDebugView: View {
             Button("Connect to Running JVM") { isJavaAttachPresented = true }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+            Button("View Breakpoints") { model.showDebugBreakpointManager() }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(model.workspaceURL == nil)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -1032,62 +706,6 @@ struct GenericDebugView: View {
         .padding(.horizontal, 10)
         .frame(height: 27)
         .litheWorkbenchSurface(LitheTheme.toolHeader)
-    }
-
-    private var breakpointSectionHeader: some View {
-        HStack {
-            Text("Breakpoints")
-                .font(.system(size: 10.5, weight: .semibold))
-                .foregroundStyle(LitheTheme.secondaryText)
-            Spacer()
-            Text(String(feature.breakpoints.count))
-                .font(.system(size: 9.5, design: .monospaced))
-                .foregroundStyle(LitheTheme.secondaryText)
-            Menu {
-                Button(feature.areBreakpointsMuted ? "Unmute All" : "Mute All") {
-                    feature.toggleBreakpointMute()
-                }
-                Button("Remove All", role: .destructive) {
-                    feature.removeAllBreakpoints()
-                }
-                .disabled(feature.breakpoints.isEmpty)
-            } label: {
-                Image(systemName: feature.areBreakpointsMuted ? "speaker.slash.fill" : "ellipsis")
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .help("Breakpoint actions")
-        }
-        .padding(.horizontal, 10)
-        .frame(height: 27)
-        .litheWorkbenchSurface(LitheTheme.toolHeader)
-    }
-
-    private var functionBreakpointSectionHeader: some View {
-        HStack {
-            Text("Method Breakpoints")
-                .font(.system(size: 10.5, weight: .semibold))
-                .foregroundStyle(LitheTheme.secondaryText)
-            Spacer()
-            Text(String(feature.functionBreakpoints.count))
-                .font(.system(size: 9.5, design: .monospaced))
-                .foregroundStyle(LitheTheme.secondaryText)
-            Button {
-                functionBreakpointEditor = FunctionBreakpointEditorContext(breakpoint: nil)
-            } label: {
-                Image(systemName: "plus")
-            }
-            .buttonStyle(.plain)
-            .help("Add method breakpoint")
-        }
-        .padding(.horizontal, 10)
-        .frame(height: 27)
-        .litheWorkbenchSurface(LitheTheme.toolHeader)
-    }
-
-    private func breakpointSymbol(_ breakpoint: GenericDebugBreakpoint) -> String {
-        if breakpoint.isLogpoint { return breakpoint.enabled ? "diamond.fill" : "diamond" }
-        return breakpoint.enabled ? "circle.fill" : "circle"
     }
 
     private func variableSymbol(_ variable: DebugVariable) -> String {
@@ -1133,37 +751,6 @@ struct GenericDebugView: View {
         .accessibilityLabel(isLoading ? "Loading debugger variables" : "Load more debugger variables")
     }
 
-    private func breakpointColor(_ breakpoint: GenericDebugBreakpoint) -> Color {
-        guard breakpoint.enabled, !feature.areBreakpointsMuted else {
-            return LitheTheme.secondaryText
-        }
-        if breakpoint.isLogpoint { return LitheTheme.accent }
-        return breakpoint.verified ? LitheTheme.error : LitheTheme.warning
-    }
-
-    private func breakpointDetail(_ breakpoint: GenericDebugBreakpoint) -> String? {
-        if let logMessage = breakpoint.logMessage { return "Log: \(logMessage)" }
-        if let condition = breakpoint.condition { return "If: \(condition)" }
-        if let hitCondition = breakpoint.hitCondition { return "Hit: \(hitCondition)" }
-        return breakpoint.message
-    }
-
-    private func functionBreakpointDetail(
-        _ breakpoint: GenericDebugFunctionBreakpoint
-    ) -> String? {
-        if let condition = breakpoint.condition { return "If: \(condition)" }
-        if let hitCondition = breakpoint.hitCondition { return "Hit: \(hitCondition)" }
-        return breakpoint.message
-    }
-
-    private func dataBreakpointDetail(_ breakpoint: GenericDebugDataBreakpoint) -> String {
-        var parts = [breakpoint.accessType ?? "access"]
-        if let condition = breakpoint.condition { parts.append("if \(condition)") }
-        if let hitCondition = breakpoint.hitCondition { parts.append("hit \(hitCondition)") }
-        if let message = breakpoint.message { parts.append(message) }
-        return parts.joined(separator: " · ")
-    }
-
     private func placeholder(_ text: String) -> some View {
         Text(text)
             .font(LitheTheme.smallFont)
@@ -1193,6 +780,528 @@ struct GenericDebugView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+struct DebugBreakpointManagerDialog: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var feature: GenericDebugFeatureModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 9) {
+                LitheIDEAIcon(
+                    resourcePath: "toolwindows/toolWindowDebugger.svg",
+                    size: 18,
+                    fallbackSystemImage: "circle.fill"
+                )
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Breakpoints")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text("Manage project breakpoints without starting a debug session")
+                        .font(LitheTheme.smallFont)
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+                Spacer(minLength: 16)
+                Button(
+                    feature.areBreakpointsMuted
+                        ? "Unmute Line Breakpoints"
+                        : "Mute Line Breakpoints"
+                ) {
+                    feature.toggleBreakpointMute()
+                }
+                .disabled(feature.breakpoints.isEmpty)
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 52)
+            .litheWorkbenchSurface(LitheTheme.toolHeader)
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            DebugBreakpointManagerView(feature: feature, onNavigate: { dismiss() })
+        }
+        .frame(minWidth: 720, idealWidth: 820, minHeight: 500, idealHeight: 580)
+        .litheWorkbenchSurface(LitheTheme.sidebar)
+    }
+}
+
+struct DebugBreakpointManagerView: View {
+    @EnvironmentObject private var model: AppModel
+    @ObservedObject var feature: GenericDebugFeatureModel
+    let onNavigate: (() -> Void)?
+
+    @State private var editingBreakpoint: GenericDebugBreakpoint?
+    @State private var editingExceptionBreakpoint: GenericDebugExceptionBreakpoint?
+    @State private var functionBreakpointEditor: FunctionBreakpointEditorContext?
+    @State private var editingDataBreakpoint: GenericDebugDataBreakpoint?
+
+    init(
+        feature: GenericDebugFeatureModel,
+        onNavigate: (() -> Void)? = nil
+    ) {
+        self.feature = feature
+        self.onNavigate = onNavigate
+    }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                sourceBreakpointHeader
+                if feature.breakpoints.isEmpty {
+                    placeholder("Click the editor gutter to add a breakpoint")
+                } else {
+                    ForEach(feature.breakpoints) { breakpoint in
+                        sourceBreakpointRow(breakpoint)
+                    }
+                }
+
+                if !feature.exceptionBreakpoints.isEmpty {
+                    divider
+                    sectionHeader("Exception Breakpoints", count: feature.exceptionBreakpoints.count)
+                    ForEach(feature.exceptionBreakpoints) { breakpoint in
+                        exceptionBreakpointRow(breakpoint)
+                    }
+                }
+
+                if feature.capabilities.supportsFunctionBreakpoints
+                    || !feature.functionBreakpoints.isEmpty {
+                    divider
+                    functionBreakpointHeader
+                    if feature.functionBreakpoints.isEmpty {
+                        placeholder("Add a class or method name")
+                    } else {
+                        ForEach(feature.functionBreakpoints) { breakpoint in
+                            functionBreakpointRow(breakpoint)
+                        }
+                    }
+                }
+
+                if feature.capabilities.supportsDataBreakpoints
+                    || !feature.dataBreakpoints.isEmpty {
+                    divider
+                    sectionHeader("Field Breakpoints", count: feature.dataBreakpoints.count)
+                    if feature.dataBreakpoints.isEmpty {
+                        placeholder("Right-click a field while paused to add a breakpoint")
+                    } else {
+                        ForEach(feature.dataBreakpoints) { breakpoint in
+                            dataBreakpointRow(breakpoint)
+                        }
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .litheWorkbenchSurface(LitheTheme.sidebar)
+        .sheet(item: $editingBreakpoint) { breakpoint in
+            BreakpointEditorView(breakpoint: breakpoint) {
+                feature.updateBreakpoint(
+                    fileURL: breakpoint.fileURL,
+                    line: breakpoint.line,
+                    enabled: $0.enabled,
+                    condition: $0.condition,
+                    hitCondition: $0.hitCondition,
+                    logMessage: $0.logMessage
+                )
+            }
+        }
+        .sheet(item: $editingExceptionBreakpoint) { breakpoint in
+            ExceptionBreakpointEditorView(breakpoint: breakpoint) {
+                feature.updateExceptionBreakpoint(
+                    breakpoint,
+                    enabled: $0.enabled,
+                    condition: $0.condition
+                )
+            }
+        }
+        .sheet(item: $functionBreakpointEditor) { context in
+            FunctionBreakpointEditorView(breakpoint: context.breakpoint) { value in
+                if let breakpoint = context.breakpoint {
+                    feature.updateFunctionBreakpoint(
+                        breakpoint,
+                        name: value.name,
+                        enabled: value.enabled,
+                        condition: value.condition,
+                        hitCondition: value.hitCondition
+                    )
+                } else {
+                    feature.addFunctionBreakpoint(
+                        name: value.name,
+                        condition: value.condition,
+                        hitCondition: value.hitCondition
+                    )
+                }
+            }
+        }
+        .sheet(item: $editingDataBreakpoint) { breakpoint in
+            DataBreakpointEditorView(breakpoint: breakpoint) { value in
+                feature.updateDataBreakpoint(
+                    breakpoint,
+                    enabled: value.enabled,
+                    accessType: value.accessType,
+                    condition: value.condition,
+                    hitCondition: value.hitCondition
+                )
+            }
+        }
+    }
+
+    private var sourceBreakpointHeader: some View {
+        HStack {
+            Text("Line Breakpoints")
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(LitheTheme.secondaryText)
+            Spacer()
+            Text(String(feature.breakpoints.count))
+                .font(.system(size: 9.5, design: .monospaced))
+                .foregroundStyle(LitheTheme.secondaryText)
+            Menu {
+                Button(
+                    feature.areBreakpointsMuted
+                        ? "Unmute Line Breakpoints"
+                        : "Mute Line Breakpoints"
+                ) {
+                    feature.toggleBreakpointMute()
+                }
+                Button("Remove All", role: .destructive) {
+                    feature.removeAllBreakpoints()
+                }
+                .disabled(feature.breakpoints.isEmpty)
+            } label: {
+                Image(systemName: feature.areBreakpointsMuted ? "speaker.slash.fill" : "ellipsis")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Breakpoint actions")
+            .accessibilityLabel("Line breakpoint actions")
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 29)
+        .litheWorkbenchSurface(LitheTheme.toolHeader)
+    }
+
+    private var functionBreakpointHeader: some View {
+        HStack {
+            Text("Method Breakpoints")
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(LitheTheme.secondaryText)
+            Spacer()
+            Text(String(feature.functionBreakpoints.count))
+                .font(.system(size: 9.5, design: .monospaced))
+                .foregroundStyle(LitheTheme.secondaryText)
+            Button {
+                functionBreakpointEditor = FunctionBreakpointEditorContext(breakpoint: nil)
+            } label: {
+                Image(systemName: "plus")
+            }
+            .buttonStyle(.plain)
+            .help("Add method breakpoint")
+            .accessibilityLabel("Add method breakpoint")
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 29)
+        .litheWorkbenchSurface(LitheTheme.toolHeader)
+    }
+
+    private func sourceBreakpointRow(_ breakpoint: GenericDebugBreakpoint) -> some View {
+        HStack(spacing: 7) {
+            Button {
+                feature.setBreakpointEnabled(breakpoint, enabled: !breakpoint.enabled)
+            } label: {
+                Image(systemName: breakpointSymbol(breakpoint))
+                    .font(.system(size: 9))
+                    .foregroundStyle(breakpointColor(breakpoint))
+            }
+            .buttonStyle(.plain)
+            .help(breakpoint.enabled ? "Disable breakpoint" : "Enable breakpoint")
+            .accessibilityLabel(breakpoint.enabled ? "Disable breakpoint" : "Enable breakpoint")
+            Button {
+                model.openSourceLocation(
+                    url: breakpoint.fileURL,
+                    line: breakpoint.line,
+                    column: breakpoint.column ?? 1
+                )
+                onNavigate?()
+            } label: {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(breakpoint.title)
+                        .font(.system(size: 11, design: .monospaced))
+                        .lineLimit(1)
+                    if let detail = breakpointDetail(breakpoint) {
+                        Text(detail)
+                            .font(.system(size: 9.5, design: .monospaced))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                            .lineLimit(1)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open \(breakpoint.title)")
+            Menu {
+                Button("Edit…") { editingBreakpoint = breakpoint }
+                Button(breakpoint.enabled ? "Disable" : "Enable") {
+                    feature.setBreakpointEnabled(breakpoint, enabled: !breakpoint.enabled)
+                }
+                Divider()
+                Button("Remove", role: .destructive) {
+                    feature.removeBreakpoint(breakpoint)
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .accessibilityLabel("Actions for \(breakpoint.title)")
+        }
+        .help(breakpoint.message ?? breakpoint.title)
+        .padding(.horizontal, 10)
+        .frame(minHeight: 33)
+        .opacity(breakpoint.enabled && !feature.areBreakpointsMuted ? 1 : 0.55)
+        .contextMenu {
+            Button("Edit…") { editingBreakpoint = breakpoint }
+            Button(breakpoint.enabled ? "Disable" : "Enable") {
+                feature.setBreakpointEnabled(breakpoint, enabled: !breakpoint.enabled)
+            }
+            Divider()
+            Button("Remove", role: .destructive) { feature.removeBreakpoint(breakpoint) }
+        }
+    }
+
+    private func exceptionBreakpointRow(
+        _ breakpoint: GenericDebugExceptionBreakpoint
+    ) -> some View {
+        HStack(spacing: 7) {
+            Button {
+                feature.updateExceptionBreakpoint(
+                    breakpoint,
+                    enabled: !breakpoint.enabled,
+                    condition: breakpoint.condition
+                )
+            } label: {
+                Image(systemName: breakpoint.enabled ? "bolt.circle.fill" : "bolt.circle")
+                    .font(.system(size: 10))
+                    .foregroundStyle(breakpoint.enabled ? LitheTheme.error : LitheTheme.secondaryText)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(
+                breakpoint.enabled
+                    ? "Disable \(breakpoint.label) exception breakpoint"
+                    : "Enable \(breakpoint.label) exception breakpoint"
+            )
+            VStack(alignment: .leading, spacing: 1) {
+                Text(breakpoint.label).font(.system(size: 11)).lineLimit(1)
+                if let condition = breakpoint.condition {
+                    Text("If: \(condition)")
+                        .font(.system(size: 9.5, design: .monospaced))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if breakpoint.supportsCondition {
+                Button { editingExceptionBreakpoint = breakpoint } label: {
+                    Image(systemName: "ellipsis")
+                }
+                .buttonStyle(.plain)
+                .help("Edit exception breakpoint")
+                .accessibilityLabel("Edit \(breakpoint.label) exception breakpoint")
+            }
+        }
+        .help(breakpoint.description ?? breakpoint.label)
+        .padding(.horizontal, 10)
+        .frame(minHeight: 33)
+        .opacity(breakpoint.enabled ? 1 : 0.55)
+    }
+
+    private func functionBreakpointRow(
+        _ breakpoint: GenericDebugFunctionBreakpoint
+    ) -> some View {
+        HStack(spacing: 7) {
+            Button {
+                feature.setFunctionBreakpointEnabled(breakpoint, enabled: !breakpoint.enabled)
+            } label: {
+                Image(systemName: "function")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(
+                        breakpoint.enabled
+                            ? (breakpoint.verified ? LitheTheme.error : LitheTheme.warning)
+                            : LitheTheme.secondaryText
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(
+                breakpoint.enabled
+                    ? "Disable \(breakpoint.name) method breakpoint"
+                    : "Enable \(breakpoint.name) method breakpoint"
+            )
+            Button {
+                functionBreakpointEditor = FunctionBreakpointEditorContext(breakpoint: breakpoint)
+            } label: {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(breakpoint.name)
+                        .font(.system(size: 11, design: .monospaced))
+                        .lineLimit(1)
+                    if let detail = functionBreakpointDetail(breakpoint) {
+                        Text(detail)
+                            .font(.system(size: 9.5, design: .monospaced))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                            .lineLimit(1)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Edit \(breakpoint.name) method breakpoint")
+            Menu {
+                Button("Edit…") {
+                    functionBreakpointEditor = FunctionBreakpointEditorContext(breakpoint: breakpoint)
+                }
+                Button(breakpoint.enabled ? "Disable" : "Enable") {
+                    feature.setFunctionBreakpointEnabled(breakpoint, enabled: !breakpoint.enabled)
+                }
+                Divider()
+                Button("Remove", role: .destructive) {
+                    feature.removeFunctionBreakpoint(breakpoint)
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .accessibilityLabel("Actions for \(breakpoint.name) method breakpoint")
+        }
+        .padding(.horizontal, 10)
+        .frame(minHeight: 33)
+        .opacity(breakpoint.enabled ? 1 : 0.55)
+    }
+
+    private func dataBreakpointRow(_ breakpoint: GenericDebugDataBreakpoint) -> some View {
+        HStack(spacing: 7) {
+            Button {
+                feature.setDataBreakpointEnabled(breakpoint, enabled: !breakpoint.enabled)
+            } label: {
+                Image(systemName: "eye.circle.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(
+                        breakpoint.enabled
+                            ? (breakpoint.verified ? LitheTheme.error : LitheTheme.warning)
+                            : LitheTheme.secondaryText
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(
+                breakpoint.enabled
+                    ? "Disable \(breakpoint.label) field breakpoint"
+                    : "Enable \(breakpoint.label) field breakpoint"
+            )
+            Button { editingDataBreakpoint = breakpoint } label: {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(breakpoint.label)
+                        .font(.system(size: 11, design: .monospaced))
+                        .lineLimit(1)
+                    Text(dataBreakpointDetail(breakpoint))
+                        .font(.system(size: 9.5, design: .monospaced))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Edit \(breakpoint.label) field breakpoint")
+            Menu {
+                Button("Edit…") { editingDataBreakpoint = breakpoint }
+                Button(breakpoint.enabled ? "Disable" : "Enable") {
+                    feature.setDataBreakpointEnabled(breakpoint, enabled: !breakpoint.enabled)
+                }
+                Divider()
+                Button("Remove", role: .destructive) { feature.removeDataBreakpoint(breakpoint) }
+            } label: {
+                Image(systemName: "ellipsis")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .accessibilityLabel("Actions for \(breakpoint.label) field breakpoint")
+        }
+        .padding(.horizontal, 10)
+        .frame(minHeight: 33)
+        .opacity(breakpoint.enabled ? 1 : 0.55)
+    }
+
+    private func sectionHeader(_ title: String, count: Int) -> some View {
+        HStack {
+            Text(LocalizedStringKey(title))
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(LitheTheme.secondaryText)
+            Spacer()
+            Text(String(count))
+                .font(.system(size: 9.5, design: .monospaced))
+                .foregroundStyle(LitheTheme.secondaryText)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 29)
+        .litheWorkbenchSurface(LitheTheme.toolHeader)
+    }
+
+    private func breakpointSymbol(_ breakpoint: GenericDebugBreakpoint) -> String {
+        if breakpoint.isLogpoint { return breakpoint.enabled ? "diamond.fill" : "diamond" }
+        return breakpoint.enabled ? "circle.fill" : "circle"
+    }
+
+    private func breakpointColor(_ breakpoint: GenericDebugBreakpoint) -> Color {
+        guard breakpoint.enabled, !feature.areBreakpointsMuted else {
+            return LitheTheme.secondaryText
+        }
+        if breakpoint.isLogpoint { return LitheTheme.accent }
+        return breakpoint.verified ? LitheTheme.error : LitheTheme.warning
+    }
+
+    private func breakpointDetail(_ breakpoint: GenericDebugBreakpoint) -> String? {
+        if let logMessage = breakpoint.logMessage {
+            return String(format: String(localized: "Log: %@"), logMessage)
+        }
+        if let condition = breakpoint.condition {
+            return String(format: String(localized: "If: %@"), condition)
+        }
+        if let hitCondition = breakpoint.hitCondition {
+            return String(format: String(localized: "Hit: %@"), hitCondition)
+        }
+        return breakpoint.message
+            ?? String(localized: breakpoint.verified ? "Verified" : "Pending verification")
+    }
+
+    private func functionBreakpointDetail(
+        _ breakpoint: GenericDebugFunctionBreakpoint
+    ) -> String? {
+        if let condition = breakpoint.condition {
+            return String(format: String(localized: "If: %@"), condition)
+        }
+        if let hitCondition = breakpoint.hitCondition {
+            return String(format: String(localized: "Hit: %@"), hitCondition)
+        }
+        return breakpoint.message
+            ?? String(localized: breakpoint.verified ? "Verified" : "Pending verification")
+    }
+
+    private func dataBreakpointDetail(_ breakpoint: GenericDebugDataBreakpoint) -> String {
+        var parts = [breakpoint.accessType ?? "access"]
+        if let condition = breakpoint.condition { parts.append("if \(condition)") }
+        if let hitCondition = breakpoint.hitCondition { parts.append("hit \(hitCondition)") }
+        if let message = breakpoint.message { parts.append(message) }
+        if breakpoint.message == nil {
+            parts.append(breakpoint.verified ? "verified" : "pending verification")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private func placeholder(_ text: LocalizedStringKey) -> some View {
+        Text(text)
+            .font(LitheTheme.smallFont)
+            .foregroundStyle(LitheTheme.secondaryText)
+            .padding(10)
+    }
+
+    private var divider: some View {
+        Rectangle().fill(LitheTheme.divider).frame(height: 1)
     }
 }
 

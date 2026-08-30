@@ -1,5 +1,6 @@
 import Foundation
 import LitheCoreContracts
+import LitheDebugModule
 
 /// Product-level availability switches for integrations that require external
 /// credentials or services. Keeping these switches in one place lets the UI
@@ -27,6 +28,16 @@ struct WorkbenchNotification: Identifiable, Equatable {
         self.message = message
         self.createdAt = createdAt
         self.isRead = isRead
+    }
+}
+
+struct DebugBreakpointPresentationState {
+    var isManagerPresented = false
+    var pendingEditor: GenericDebugBreakpoint?
+
+    mutating func reset() {
+        isManagerPresented = false
+        pendingEditor = nil
     }
 }
 

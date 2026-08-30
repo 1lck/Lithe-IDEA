@@ -327,6 +327,16 @@ extension AppModel {
         isRunVisible = false
     }
 
+    func showDebugBreakpointManager() {
+        guard let requestedWorkspaceURL = workspaceURL else { return }
+        Task { [weak self] in
+            guard let self,
+                  await activateDebugModule() != nil,
+                  workspaceURL == requestedWorkspaceURL else { return }
+            debugBreakpointPresentation.isManagerPresented = true
+        }
+    }
+
     func startDebugging() {
         Task { [weak self] in await self?.startDebuggingAfterActivation() }
     }
@@ -765,7 +775,7 @@ extension AppModel {
 
     func editDebugBreakpoint(fileURL: URL, line: Int) {
         let normalizedURL = fileURL.standardizedFileURL
-        pendingDebugBreakpointEditor = genericDebugFeatureIfActive?.breakpoints
+        debugBreakpointPresentation.pendingEditor = genericDebugFeatureIfActive?.breakpoints
             .filter {
                 $0.fileURL.standardizedFileURL == normalizedURL && $0.line == line
             }
@@ -779,7 +789,7 @@ extension AppModel {
         hitCondition: String?,
         logMessage: String?
     ) {
-        pendingDebugBreakpointEditor = nil
+        debugBreakpointPresentation.pendingEditor = nil
         guard let expectedWorkspaceURL = workspaceURL,
               workspaceRelativePath(
                   for: breakpoint.fileURL,

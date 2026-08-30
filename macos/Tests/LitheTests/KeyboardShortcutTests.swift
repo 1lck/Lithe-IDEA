@@ -8,7 +8,7 @@ struct KeyboardShortcutTests {
     @Test
     func catalogHasStableUniqueCommandsAndConflictFreeDefaults() {
         let commands = LitheCommandCatalog.commands
-        #expect(commands.count == 35)
+        #expect(commands.count == 36)
         #expect(Set(commands.map(\.id)).count == commands.count)
 
         let owners = commands.flatMap { command in
@@ -19,6 +19,15 @@ struct KeyboardShortcutTests {
                 $0.binding == owner.binding && $0.commandID != owner.commandID
             })
         }
+    }
+
+    @Test
+    func viewBreakpointsUsesTheIDEADefaultShortcut() throws {
+        let command = try #require(LitheCommandCatalog.command(id: "view-breakpoints"))
+
+        #expect(command.defaultBindings == [
+            .keyPress(key: "f8", modifiers: [.shift, .command])
+        ])
     }
 
     @Test
@@ -49,6 +58,7 @@ struct KeyboardShortcutTests {
         #expect(actionIDs.contains("go-to-implementation"))
         #expect(actionIDs.contains("rebuild-java-index"))
         #expect(actionIDs.contains("spring-endpoints"))
+        #expect(actionIDs.contains("view-breakpoints"))
     }
 
     @Test

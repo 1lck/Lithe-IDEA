@@ -25,6 +25,7 @@ enum LitheCommandCatalog {
         command("debug-step-over", "Debug: Step Over", "Execute the next source line", .run, "f8"),
         command("debug-step-into", "Debug: Step Into", "Enter the next function call", .run, "f7"),
         command("debug-step-out", "Debug: Step Out", "Return from the current function", .run, "f8", [.shift]),
+        command("view-breakpoints", "View Breakpoints", "Manage all project breakpoints", .run, "f8", [.shift, .command]),
 
         LitheCommandDefinition(
             id: "search-everywhere",

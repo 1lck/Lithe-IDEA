@@ -88,7 +88,7 @@ struct WorkbenchView: View {
                 }
             }
         }
-        .sheet(item: $model.pendingDebugBreakpointEditor) { breakpoint in
+        .sheet(item: $model.debugBreakpointPresentation.pendingEditor) { breakpoint in
             BreakpointEditorView(breakpoint: breakpoint) { value in
                 model.updateDebugBreakpoint(
                     breakpoint,
@@ -97,6 +97,14 @@ struct WorkbenchView: View {
                     hitCondition: value.hitCondition,
                     logMessage: value.logMessage
                 )
+            }
+        }
+        .sheet(isPresented: $model.debugBreakpointPresentation.isManagerPresented) {
+            if let feature = model.genericDebugFeatureIfActive {
+                DebugBreakpointManagerDialog(feature: feature)
+            } else {
+                ProgressView("Loading breakpoints…")
+                    .frame(minWidth: 640, minHeight: 420)
             }
         }
         .onAppear {
