@@ -373,8 +373,12 @@ final class ProjectRuntimeService: ObservableObject {
             let resolved = configured.hasPrefix("/")
                 ? URL(fileURLWithPath: configured)
                 : rootURL.appendingPathComponent(configured)
+            let standardized = resolved.standardizedFileURL
+            if runtimeLocator.isExecutable(at: standardized) {
+                return standardized
+            }
             return runtimeLocator.mavenExecutable(
-                forHomePath: resolved.standardizedFileURL.path
+                forHomePath: standardized.path
             )
         }
         let wrapper = rootURL.appendingPathComponent("mvnw")

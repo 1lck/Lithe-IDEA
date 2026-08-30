@@ -313,6 +313,42 @@ struct ExecutionModuleTests {
         #expect(!process.isRunning)
     }
 
+    @Test
+    func mavenServiceClearsReloadWhenConfigurationFingerprintReturnsToBaseline() async throws {
+        let workspace = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let project = MavenProject(
+            rootURL: workspace,
+            pomURL: workspace.appendingPathComponent("pom.xml"),
+            groupID: "dev.lithe",
+            artifactID: "demo",
+            version: "1.0",
+            packaging: "jar",
+            modules: [],
+            profiles: [],
+            hasWrapper: false
+        )
+        let process = MavenRecordingProcess()
+        let service = MavenService(
+            runtimeService: MavenRecordingRuntime(),
+            process: process,
+            mavenOperations: FingerprintingMavenOperations(project: project)
+        )
+
+        await service.loadProject(at: workspace, files: [project.pomURL])
+        #expect(!service.isReloadRequired)
+
+        service.setSkipTests(true)
+        service.run(phase: .validate, module: nil)
+        _ = try #require(await process.nextStart(timeout: .seconds(1)))
+        #expect(service.isReloadRequired)
+
+        service.stop()
+        service.setSkipTests(false)
+        service.run(phase: .validate, module: nil)
+        _ = try #require(await process.nextStart(timeout: .seconds(1)))
+        #expect(!service.isReloadRequired)
+    }
+
     private func factory(recorder: Recorder) -> ModuleFactory {
         ModuleFactory(manifest: ExecutionModule.moduleManifest, contributions: ExecutionModule.moduleContributions) {
             recorder.factoryCalls += 1
@@ -463,6 +499,35 @@ private final class RecordingMavenOperations: MavenProjectOperations, @unchecked
         recordedGoals = goals
         lock.unlock()
         return plan
+    }
+
+    func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue] { [] }
+}
+
+private final class FingerprintingMavenOperations: MavenProjectOperations, @unchecked Sendable {
+    private let project: MavenProject
+
+    init(project: MavenProject) {
+        self.project = project
+    }
+
+    func scanMavenProject(at rootURL: URL, files: [URL]) throws -> MavenProject? {
+        project
+    }
+
+    func mavenLaunchPlan(
+        at rootURL: URL,
+        context: MavenLaunchContext,
+        module: String?,
+        goals: [String]
+    ) throws -> MavenLaunchPlan {
+        MavenLaunchPlan(
+            version: 1,
+            toolchain: "project-maven",
+            arguments: goals,
+            workingDirectory: context.reactorPath,
+            configurationFingerprint: context.skipTests ? "sha256:skip-tests" : "sha256:run-tests"
+        )
     }
 
     func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue] { [] }

@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "lifecyclePhases": [
+    "clean",
+    "validate",
+    "compile",
+    "test",
+    "package",
+    "verify",
+    "install",
+    "site",
+    "deploy"
+  ],
+  "storageIdentityCases": [
+    {
+      "name": "macOS preserves workspace path case",
+      "platform": "macos",
+      "workspacePath": "/Users/Example/Projects/Lithe",
+      "reactorPath": "services/api",
+      "expectedIdentity": "/Users/Example/Projects/Lithe\u0000services/api"
+    },
+    {
+      "name": "Windows folds workspace case and normalizes reactor separators",
+      "platform": "windows",
+      "workspacePath": "C:\\Users\\Example\\Projects\\Lithe",
+      "reactorPath": "services\\api",
+      "expectedIdentity": "c:\\users\\example\\projects\\lithe\u0000services/api"
+    }
+  ]
+}

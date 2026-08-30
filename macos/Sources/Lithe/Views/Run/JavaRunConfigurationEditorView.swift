@@ -40,8 +40,9 @@ struct RunConfigurationEditorView: View {
                     if effectiveCapabilities.contains(.environment) {
                         environmentSection
                     }
-                    if effectiveCapabilities.contains(.mavenProfiles) && !feature.mavenProfiles.isEmpty {
-                        profilesSection
+                    if effectiveCapabilities.contains(.mavenSkipTests)
+                        || (effectiveCapabilities.contains(.mavenProfiles) && !feature.mavenProfiles.isEmpty) {
+                        mavenOptionsSection
                     }
                 }
                 .padding(18)
@@ -270,23 +271,36 @@ struct RunConfigurationEditorView: View {
         }
     }
 
-    private var profilesSection: some View {
-        section(title: "Active Maven Profiles") {
-            ForEach(feature.mavenProfiles) { profile in
-                Toggle(isOn: profileBinding(for: profile)) {
-                    HStack(spacing: 0) {
-                        Text(profile.id)
-                            .lineLimit(1)
-                        Spacer(minLength: 0)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+    private var mavenOptionsSection: some View {
+        section(title: "Maven") {
+            if effectiveCapabilities.contains(.mavenSkipTests) {
+                Picker("Tests", selection: Binding(
+                    get: { options.mavenSkipTests },
+                    set: { options.mavenSkipTests = $0 }
+                )) {
+                    Text("Project default").tag(Bool?.none)
+                    Text("Run tests").tag(Bool?.some(false))
+                    Text("Skip tests").tag(Bool?.some(true))
                 }
-                .toggleStyle(.checkbox)
-                .lithePointer()
-                .font(.system(size: 12))
-                .foregroundStyle(LitheTheme.primaryText)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .pickerStyle(.segmented)
+            }
+            if effectiveCapabilities.contains(.mavenProfiles) {
+                ForEach(feature.mavenProfiles) { profile in
+                    Toggle(isOn: profileBinding(for: profile)) {
+                        HStack(spacing: 0) {
+                            Text(profile.id)
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .toggleStyle(.checkbox)
+                    .lithePointer()
+                    .font(.system(size: 12))
+                    .foregroundStyle(LitheTheme.primaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
     }

@@ -432,6 +432,7 @@ struct RustCoreBridge: Sendable {
                 let jvmArguments: [String]?
                 let programArguments: [String]?
                 let profiles: [String]?
+                let skipTests: Bool?
             }
             struct Java: Codable, Sendable {
                 let homePath: String?
@@ -1629,6 +1630,7 @@ struct RustCoreBridge: Sendable {
         let arguments: String
         let environment: [String: String]
         let mavenProfiles: [String]
+        let mavenSkipTests: Bool?
         let javaHomePath: String
         let mavenExecutablePath: String
         let mavenJavaHomePath: String
@@ -2413,6 +2415,7 @@ struct RustCoreBridge: Sendable {
                 arguments: options.arguments,
                 environment: options.environment,
                 mavenProfiles: options.activeProfiles.sorted(),
+                mavenSkipTests: options.mavenSkipTests,
                 javaHomePath: options.javaHomePath,
                 mavenExecutablePath: options.mavenExecutablePath,
                 mavenJavaHomePath: options.mavenJavaHomePath,
@@ -2439,6 +2442,7 @@ struct RustCoreBridge: Sendable {
                 arguments: options.arguments,
                 environment: options.environment,
                 mavenProfiles: options.activeProfiles.sorted(),
+                mavenSkipTests: options.mavenSkipTests,
                 javaHomePath: options.javaHomePath,
                 mavenExecutablePath: options.mavenExecutablePath,
                 mavenJavaHomePath: options.mavenJavaHomePath,

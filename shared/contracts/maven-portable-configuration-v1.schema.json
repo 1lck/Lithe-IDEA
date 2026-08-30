@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://lithe.dev/contracts/maven-project-context-v1.schema.json",
-  "title": "Lithe Maven Project Context v1",
+  "$id": "https://lithe.dev/contracts/maven-portable-configuration-v1.schema.json",
+  "title": "Lithe Maven Portable Configuration v1",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "selectedProfiles", "customProfiles", "skipTests"],

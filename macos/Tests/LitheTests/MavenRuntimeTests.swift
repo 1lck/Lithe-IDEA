@@ -6,6 +6,25 @@ import Testing
 @Suite("Maven and runtime integration")
 struct MavenRuntimeTests {
     @Test
+    func mavenLifecyclePhasesMatchTheSharedPlatformContract() throws {
+        let fixture = try Self.platformContractFixture()
+        #expect(MavenLifecyclePhase.allCases.map(\.rawValue) == fixture.lifecyclePhases)
+    }
+
+    @Test
+    func macMavenStorageIdentityMatchesTheSharedPlatformContract() throws {
+        let fixture = try Self.platformContractFixture()
+        let macCases = fixture.storageIdentityCases.filter { $0.platform == "macos" }
+        #expect(macCases.count == 1)
+        for item in macCases {
+            #expect(MacMavenConfigurationStore.storageIdentity(
+                workspacePath: item.workspacePath,
+                reactorPath: item.reactorPath
+            ) == item.expectedIdentity)
+        }
+    }
+
+    @Test
     func mavenScanPayloadDecodesRustCamelCaseIdentifiers() throws {
         let json = #"""
         {
@@ -242,6 +261,33 @@ struct MavenRuntimeTests {
 
         #expect(!service.isDiscovering)
     }
+
+    private static func platformContractFixture() throws -> MavenPlatformContractFixture {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let url = repositoryRoot.appendingPathComponent(
+            "shared/fixtures/maven/platform-contract-v1.json"
+        )
+        return try JSONDecoder().decode(
+            MavenPlatformContractFixture.self,
+            from: Data(contentsOf: url)
+        )
+    }
+}
+
+private struct MavenPlatformContractFixture: Decodable {
+    struct StorageIdentityCase: Decodable {
+        let platform: String
+        let workspacePath: String
+        let reactorPath: String
+        let expectedIdentity: String
+    }
+
+    let lifecyclePhases: [String]
+    let storageIdentityCases: [StorageIdentityCase]
 }
 
 private struct MavenTestFileStorage: FileStorage {
@@ -322,7 +368,7 @@ private struct MavenOverrideRuntimeLocator: RuntimeLocator {
     func validJavaHome(path: String) -> URL? { nil }
     func javaRuntime(at homeURL: URL) -> JavaRuntimeCandidate? { nil }
     func isExecutable(at url: URL) -> Bool {
-        resolutions[url.standardizedFileURL.path] != nil
+        resolutions[url.standardizedFileURL.path]?.standardizedFileURL == url.standardizedFileURL
     }
     func systemMavenExecutable() -> URL? { nil }
     func mavenExecutable(forHomePath path: String) -> URL? {

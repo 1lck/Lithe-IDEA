@@ -2284,6 +2284,7 @@ impl RuntimeSession {
         }
         let now = Instant::now();
         let deadline = now + state.request_timeout;
+        let project_count = requests.len();
         let mut messages = Vec::with_capacity(requests.len());
         for params in requests {
             let response =
@@ -2309,7 +2310,7 @@ impl RuntimeSession {
             &mut state,
             "info",
             "Applying Maven profiles to Java projects",
-            Some(format!("projectCount={}", messages.len())),
+            Some(format!("projectCount={project_count}")),
         );
         Ok((messages, true))
     }

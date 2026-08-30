@@ -52,6 +52,7 @@ package struct RunConfigurationCapabilities: OptionSet, Hashable, Sendable {
     package static let javaVMArguments = Self(rawValue: 1 << 4)
     package static let mavenProfiles = Self(rawValue: 1 << 5)
     package static let jdwpDebug = Self(rawValue: 1 << 6)
+    package static let mavenSkipTests = Self(rawValue: 1 << 7)
 
     package static let process: Self = [.workingDirectory, .arguments, .environment]
 }
@@ -148,7 +149,10 @@ package enum RunConfigurationKind: Hashable, Identifiable, Sendable {
         case .currentFile, .javaMain:
             return [.workingDirectory, .arguments, .environment, .javaRuntime, .javaVMArguments, .jdwpDebug]
         case .mavenModule, .mavenFramework:
-            return [.workingDirectory, .arguments, .environment, .javaRuntime, .javaVMArguments, .mavenProfiles, .jdwpDebug]
+            return [
+                .workingDirectory, .arguments, .environment, .javaRuntime,
+                .javaVMArguments, .mavenProfiles, .mavenSkipTests, .jdwpDebug
+            ]
         case .process:
             return .process
         }

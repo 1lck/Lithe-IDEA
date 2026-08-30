@@ -548,7 +548,10 @@ optional Maven/JDK paths used only for the configuration fingerprint. The
 response contains the `project-maven` toolchain reference, an argument array,
 the workspace-relative reactor working directory, and a deterministic SHA-256
 configuration fingerprint. Profiles are sorted and de-duplicated. Module plans
-use `-pl <module> -am`; settings use `-s`; skipped tests use `-DskipTests`.
+from `maven.launchPlan` use `-pl <module> -am`; Run and Debug plans use
+`-pl <module>` without `-am`. Settings use `-s`; skipped tests use
+`-DskipTests`. Explicit Run `cwd`, Profiles, and `extensions.maven.skipTests`
+values override the project context, including `skipTests: false`.
 The core never reads `settings.xml` and never copies its path into a portable
 project document. Maven itself continues to read `.mvn/maven.config`; the plan
 does not expand or duplicate that file's arguments. Fixtures are in
@@ -611,7 +614,11 @@ per-configuration toolchain path overrides the corresponding project default.
 document transformations. They validate scope, paths, supported types, stable
 IDs, main classes, modules, and argument parsing, then return UTF-8 JSON in the
 `document` field. The platform adapter selects the target project or local
-file and performs the atomic write. These commands never write files.
+file and performs the atomic write. These commands never write files. An empty
+`workingDirectory` removes the layer's `cwd` override. Optional
+`mavenSkipTests` writes `extensions.maven.skipTests`; omission removes the
+override so the project Maven context is inherited, while explicit `false`
+continues to run tests even when the project default skips them.
 For project-scoped option updates, selected toolchain paths must resolve inside
 `root` and are persisted with `/`-separated project-relative paths. Local-scoped
 updates may carry host absolute paths. `runConfig.updateOptions` and
@@ -654,9 +661,11 @@ shell scripts.
 `localDocument`. Maven-backed Run and Debug callers may also supply the same
 versioned `mavenContext` accepted by `maven.launchPlan`. Explicit profiles in
 the resolved Run Configuration replace the context profiles; otherwise the
-project profiles are inherited. Core applies the shared settings, module,
-`-am`, Skip Tests, and reactor-working-directory rules to the generated
-framework or Java-main arguments. It returns a toolchain
+project profiles are inherited. Explicit `extensions.maven.skipTests` and
+`cwd` values also replace the context values. Core applies the shared settings,
+module, Skip Tests, and reactor-working-directory rules to the generated
+framework or Java-main arguments without adding tool-window-only `-am`. It
+returns a toolchain
 reference, argument array, project-relative working directory, and structured
 environment references. It does not return a shell command or platform
 executable path. All project paths use `/`, reject absolute paths and `..`

@@ -121,6 +121,11 @@ pub struct UpdateOptionsRequest {
     pub environment: BTreeMap<String, String>,
     #[serde(default)]
     pub maven_profiles: Vec<String>,
+    /// Per-configuration Maven test policy. `None` inherits the project context;
+    /// `Some(false)` must remain distinct so a test configuration can override
+    /// a project-wide Skip Tests default.
+    #[serde(default)]
+    pub maven_skip_tests: Option<bool>,
     #[serde(default)]
     pub java_home_path: String,
     #[serde(default)]
@@ -1120,15 +1125,15 @@ fn update_configuration_options(
         normalize_scoped_toolchain_path(&root, &request.scope, &request.maven_executable_path)?;
     let maven_java_home_path =
         normalize_scoped_toolchain_path(&root, &request.scope, &request.maven_java_home_path)?;
-    let working_directory = normalize_project_directory(
-        &root,
-        if request.working_directory.trim().is_empty() {
-            "."
-        } else {
-            request.working_directory.trim()
-        },
-        false,
-    )?;
+    let working_directory = if request.working_directory.trim().is_empty() {
+        None
+    } else {
+        Some(normalize_project_directory(
+            &root,
+            request.working_directory.trim(),
+            false,
+        )?)
+    };
     let mut document = if request.scope == "local" {
         local_layer_document(&root, request.local_document)?
     } else {
@@ -1141,9 +1146,11 @@ fn update_configuration_options(
         .ok_or_else(|| CoreError::new(ErrorCode::ParseFailed, "configurations must be an array"))?;
     let mut patch = json!({
         "id": request.configuration_id,
-        "cwd": working_directory,
         "env": request.environment
     });
+    if let Some(working_directory) = working_directory.as_ref() {
+        patch["cwd"] = json!(working_directory);
+    }
     let mut java_extension = serde_json::Map::new();
     if !java_home_path.is_empty() {
         java_extension.insert("homePath".to_string(), json!(java_home_path));
@@ -1158,14 +1165,25 @@ fn update_configuration_options(
         java_extension.insert("mavenJavaHomePath".to_string(), json!(maven_java_home_path));
     }
     if uses_maven_capability {
-        let mut extensions = serde_json::Map::from_iter([(
-            "maven".to_string(),
-            json!({
-                "jvmArguments": split_arguments(&request.jvm_arguments),
-                "programArguments": split_arguments(&request.arguments),
-                "profiles": request.maven_profiles.into_iter().collect::<BTreeSet<_>>()
-            }),
-        )]);
+        let mut maven_extension = serde_json::Map::from_iter([
+            (
+                "jvmArguments".to_string(),
+                json!(split_arguments(&request.jvm_arguments)),
+            ),
+            (
+                "programArguments".to_string(),
+                json!(split_arguments(&request.arguments)),
+            ),
+            (
+                "profiles".to_string(),
+                json!(request.maven_profiles.into_iter().collect::<BTreeSet<_>>()),
+            ),
+        ]);
+        if let Some(skip_tests) = request.maven_skip_tests {
+            maven_extension.insert("skipTests".to_string(), json!(skip_tests));
+        }
+        let mut extensions =
+            serde_json::Map::from_iter([("maven".to_string(), Value::Object(maven_extension))]);
         if !java_extension.is_empty() {
             extensions.insert("java".to_string(), Value::Object(java_extension));
         }
@@ -1186,6 +1204,12 @@ fn update_configuration_options(
             )
         })?;
         remove_java_toolchain_overrides(target)?;
+        if working_directory.is_none() {
+            target.remove("cwd");
+        }
+        if uses_maven_capability && request.maven_skip_tests.is_none() {
+            remove_maven_skip_tests_override(target);
+        }
         for (key, value) in patch.as_object_mut().expect("patch is an object") {
             if key == "extensions" {
                 merge_extensions(target, value)?;
@@ -1235,6 +1259,18 @@ fn remove_java_toolchain_overrides(
         configuration.remove("extensions");
     }
     Ok(())
+}
+
+fn remove_maven_skip_tests_override(configuration: &mut serde_json::Map<String, Value>) {
+    let Some(maven) = configuration
+        .get_mut("extensions")
+        .and_then(Value::as_object_mut)
+        .and_then(|extensions| extensions.get_mut("maven"))
+        .and_then(Value::as_object_mut)
+    else {
+        return;
+    };
+    maven.remove("skipTests");
 }
 
 /// Creates a user configuration while preserving stable IDs in existing layers.
@@ -1323,7 +1359,6 @@ pub fn create_user_configuration(
         "execution": if framework_goal(configuration_kind).is_some() { "service" } else { "task" },
         "confidence": "native",
         "toolchains": {"java": "project-jdk", "maven": "project-maven"},
-        "cwd": ".",
         "debug": {"adapter": "jdwp"},
         "extensions": {"maven": maven}
     });
@@ -1343,10 +1378,16 @@ pub fn create_user_configuration(
 /// Resolves one configuration into the exact executable, arguments, and environment.
 pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError> {
     let workspace_root = existing_root(&request.root)?;
+    let has_explicit_cwd_override = configuration_override_has_key(
+        &workspace_root,
+        request.local_document.as_ref(),
+        &request.configuration_id,
+        "cwd",
+    )?;
     let resolved = resolve(ResolveRequest {
         root: request.root.clone(),
         toolchain_candidates: Vec::new(),
-        local_document: request.local_document,
+        local_document: request.local_document.clone(),
     })?;
     let config = resolved["configurations"]
         .as_array()
@@ -1526,6 +1567,7 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
         .as_str()
         .unwrap_or("project-jdk");
     let mut working_directory = config["cwd"].as_str().unwrap_or(".").to_string();
+    let has_explicit_working_directory = working_directory != "." || has_explicit_cwd_override;
     if executable_kind == "maven" {
         if let Some(mut context) = request.maven_context {
             if let Some(profiles) = maven["profiles"]
@@ -1538,6 +1580,9 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
                     .map(str::to_string)
                     .collect();
             }
+            if let Some(skip_tests) = maven.get("skipTests").and_then(Value::as_bool) {
+                context.skip_tests = skip_tests;
+            }
             let module = maven["module"].as_str().map(str::to_string);
             let trailing_arguments = arguments
                 .into_iter()
@@ -1548,13 +1593,16 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
                 context,
                 module,
                 trailing_arguments,
+                false,
             )?;
             arguments = shared_plan
                 .arguments
                 .into_iter()
                 .map(Value::String)
                 .collect();
-            working_directory = shared_plan.working_directory;
+            if !has_explicit_working_directory {
+                working_directory = shared_plan.working_directory;
+            }
         }
     }
     Ok(json!({
@@ -1565,6 +1613,33 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
             "JAVA_HOME": { "toolchain": java_toolchain, "property": "home" }
         }
     }))
+}
+
+/// Returns whether a user-owned layer explicitly sets one configuration key.
+///
+/// Generated `cwd: "."` is the schema default and may inherit the selected
+/// reactor. A project or local `cwd: "."`, however, is an intentional override
+/// and must keep the workspace root.
+fn configuration_override_has_key(
+    root: &Path,
+    provided_local: Option<&Value>,
+    configuration_id: &str,
+    key: &str,
+) -> Result<bool, CoreError> {
+    let team = read_document_value(root, "run/configurations.json")?
+        .unwrap_or_else(|| json!({"version": VERSION, "configurations": []}));
+    let local = local_layer_document(root, provided_local.cloned())?;
+    for document in [&team, &local] {
+        validate_version_value(document)?;
+        if document["configurations"]
+            .as_array()
+            .and_then(|items| items.iter().find(|item| item["id"] == configuration_id))
+            .is_some_and(|item| item.get(key).is_some())
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Providers the launch layer assembles a JVM command line for, rather than

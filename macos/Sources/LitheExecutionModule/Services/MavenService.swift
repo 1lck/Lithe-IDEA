@@ -65,6 +65,7 @@ package final class MavenService: ObservableObject {
     private var activeOperationID: String?
     private var configurationRevision = 0
     private var configurationFingerprint: String?
+    private var fingerprintRevision = 0
     private let maximumOutputCharacters = 500_000
 
     package init(
@@ -138,6 +139,20 @@ package final class MavenService: ObservableObject {
             reactorPath = result.reactorPath
             project = result.project
             applyStoredConfiguration(result.stored, project: result.project)
+            if let context = launchContext {
+                let fingerprint = await Task.detached(priority: .utility) {
+                    try? mavenOperations.mavenLaunchPlan(
+                        at: rootURL,
+                        context: context,
+                        module: nil,
+                        goals: [MavenLifecyclePhase.validate.rawValue]
+                    ).configurationFingerprint
+                }.value
+                guard !Task.isCancelled, projectLoadID == loadID else { return }
+                configurationFingerprint = fingerprint
+            } else {
+                configurationFingerprint = nil
+            }
             projectState = .ready
             configurationSaveError = nil
             isReloadRequired = false
@@ -211,6 +226,7 @@ package final class MavenService: ObservableObject {
 
     package func acknowledgeReload() {
         isReloadRequired = false
+        refreshConfigurationFingerprint(establishBaseline: true)
     }
 
     package func stop() {
@@ -250,6 +266,7 @@ package final class MavenService: ObservableObject {
         mavenExecutablePath = nil
         javaHomePath = nil
         configurationFingerprint = nil
+        fingerprintRevision += 1
         configurationSaveError = nil
         isReloadRequired = false
     }
@@ -324,7 +341,7 @@ package final class MavenService: ObservableObject {
         }
         runningTitle = title
         taskState = .running
-        configurationFingerprint = plan.configurationFingerprint
+        recordConfigurationFingerprint(plan.configurationFingerprint)
         append(
             "$ " + executable.lastPathComponent + " "
                 + redactedMavenArgumentsForDisplay(plan.arguments).joined(separator: " ") + "\n\n"
@@ -414,9 +431,43 @@ package final class MavenService: ObservableObject {
     }
 
     private func configurationDidChange() {
-        isReloadRequired = true
+        isReloadRequired = configurationFingerprint != nil
         configurationSaveError = nil
         persistConfiguration()
+        refreshConfigurationFingerprint()
+    }
+
+    private func refreshConfigurationFingerprint(establishBaseline: Bool = false) {
+        guard let workspaceURL, let context = launchContext else { return }
+        fingerprintRevision += 1
+        let revision = fingerprintRevision
+        let operations = mavenOperations
+        Task { [weak self] in
+            let fingerprint = await Task.detached(priority: .utility) {
+                try? operations.mavenLaunchPlan(
+                    at: workspaceURL,
+                    context: context,
+                    module: nil,
+                    goals: [MavenLifecyclePhase.validate.rawValue]
+                ).configurationFingerprint
+            }.value
+            guard let self, self.fingerprintRevision == revision, let fingerprint else { return }
+            if establishBaseline || self.configurationFingerprint == nil {
+                self.configurationFingerprint = fingerprint
+                self.isReloadRequired = false
+            } else {
+                self.isReloadRequired = self.configurationFingerprint != fingerprint
+            }
+        }
+    }
+
+    private func recordConfigurationFingerprint(_ fingerprint: String) {
+        if let configurationFingerprint {
+            isReloadRequired = configurationFingerprint != fingerprint
+        } else {
+            configurationFingerprint = fingerprint
+            isReloadRequired = false
+        }
     }
 
     private func persistConfiguration() {

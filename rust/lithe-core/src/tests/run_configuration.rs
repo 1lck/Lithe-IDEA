@@ -240,7 +240,7 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
     assert_eq!(plan["ok"], true, "{plan}");
     assert_eq!(plan["data"]["workingDirectory"], "projects/demo");
     assert_eq!(
-        &plan["data"]["arguments"].as_array().unwrap()[..12],
+        &plan["data"]["arguments"].as_array().unwrap()[..11],
         [
             "-B",
             "-ntp",
@@ -250,20 +250,29 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
             "/local/settings.xml",
             "-pl",
             "service",
-            "-am",
             "-DskipTests",
             "-Dspring-boot.run.main-class=com.example.App",
             "spring-boot:run"
         ]
     );
+    assert!(!plan["data"]["arguments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|argument| argument == "-am"));
 
+    fs::create_dir_all(root.join("custom-run/service")).unwrap();
     fs::write(
         root.join(".lithe/run/configurations.json"),
         serde_json::json!({
             "version": 2,
             "configurations": [{
                 "id": service["id"],
-                "extensions": {"maven": {"profiles": ["release"]}}
+                "cwd": "custom-run",
+                "extensions": {"maven": {
+                    "profiles": ["release"],
+                    "skipTests": false
+                }}
             }]
         })
         .to_string(),
@@ -280,7 +289,7 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
                     "version": 1,
                     "reactorPath": "projects/demo",
                     "profiles": ["dev", "qa"],
-                    "skipTests": false
+                    "skipTests": true
                 }
             }
         })
@@ -288,10 +297,16 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
     ))
     .unwrap();
     assert_eq!(overridden_plan["ok"], true, "{overridden_plan}");
+    assert_eq!(overridden_plan["data"]["workingDirectory"], "custom-run");
     assert_eq!(
         &overridden_plan["data"]["arguments"].as_array().unwrap()[..4],
         ["-B", "-ntp", "-P", "release"]
     );
+    assert!(!overridden_plan["data"]["arguments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|argument| argument == "-am" || argument == "-DskipTests"));
 
     let java_plan: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
@@ -1269,7 +1284,8 @@ fn run_configuration_mutations_are_shared_and_validated() {
                 "workingDirectory": ".",
                 "jvmArguments": "\"-Dlabel=hello world\" -Xmx2g",
                 "programArguments": "--dev",
-                "mavenProfiles": ["dev"]
+                "mavenProfiles": ["dev"],
+                "mavenSkipTests": false
             }
         })
         .to_string(),
@@ -1282,9 +1298,40 @@ fn run_configuration_mutations_are_shared_and_validated() {
         updated_document["configurations"][0]["extensions"]["maven"]["jvmArguments"],
         serde_json::json!(["-Dlabel=hello world", "-Xmx2g"])
     );
+    assert_eq!(
+        updated_document["configurations"][0]["extensions"]["maven"]["skipTests"],
+        false
+    );
     fs::write(
         root.join(".lithe/run/configurations.json"),
         updated["data"]["document"].as_str().unwrap(),
+    )
+    .unwrap();
+
+    let inherited: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "clear-inherited-options",
+            "command": "runConfig.updateOptions",
+            "payload": {
+                "root": root,
+                "scope": "project",
+                "configurationId": "current-file",
+                "jvmArguments": "-Xmx2g",
+                "programArguments": "--dev",
+                "mavenProfiles": ["dev"]
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(inherited["ok"], true, "{inherited}");
+    let inherited_document: Value =
+        serde_json::from_str(inherited["data"]["document"].as_str().unwrap()).unwrap();
+    assert!(inherited_document["configurations"][0]["cwd"].is_null());
+    assert!(inherited_document["configurations"][0]["extensions"]["maven"]["skipTests"].is_null());
+    fs::write(
+        root.join(".lithe/run/configurations.json"),
+        inherited["data"]["document"].as_str().unwrap(),
     )
     .unwrap();
 

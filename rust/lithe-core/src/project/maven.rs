@@ -87,7 +87,13 @@ struct ValidatedMavenContext {
 /// Produces a deterministic Maven plan without resolving a native executable.
 pub fn launch_plan(request: MavenLaunchPlanRequest) -> Result<MavenLaunchPlanResponse, CoreError> {
     let arguments = normalized_tool_window_arguments(request.goals)?;
-    launch_plan_with_arguments(request.root, request.context, request.module, arguments)
+    launch_plan_with_arguments(
+        request.root,
+        request.context,
+        request.module,
+        arguments,
+        true,
+    )
 }
 
 /// Applies a validated Maven context to Core-owned run/debug arguments.
@@ -100,6 +106,7 @@ pub(crate) fn launch_plan_with_arguments(
     context: MavenLaunchContextRequest,
     module: Option<String>,
     trailing_arguments: Vec<String>,
+    also_make: bool,
 ) -> Result<MavenLaunchPlanResponse, CoreError> {
     let validated = validated_maven_context(&root, context)?;
 
@@ -125,6 +132,7 @@ pub(crate) fn launch_plan_with_arguments(
         &validated.profiles,
         validated.settings_path.as_deref(),
         module.as_deref(),
+        also_make,
         validated.skip_tests,
         &trailing_arguments,
     );
@@ -223,6 +231,7 @@ pub(crate) fn maven_arguments(
     profiles: &[String],
     settings_path: Option<&str>,
     module: Option<&str>,
+    also_make: bool,
     skip_tests: bool,
     goals: &[String],
 ) -> Vec<String> {
@@ -234,7 +243,10 @@ pub(crate) fn maven_arguments(
         arguments.extend(["-s".to_string(), settings_path.to_string()]);
     }
     if let Some(module) = module.filter(|value| *value != ".") {
-        arguments.extend(["-pl".to_string(), module.to_string(), "-am".to_string()]);
+        arguments.extend(["-pl".to_string(), module.to_string()]);
+        if also_make {
+            arguments.push("-am".to_string());
+        }
     }
     if skip_tests {
         arguments.push("-DskipTests".to_string());

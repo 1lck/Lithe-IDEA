@@ -51,7 +51,10 @@ struct MacMavenConfigurationStore: MavenConfigurationStoring, Sendable {
     }
 
     private func localConfigurationURL(workspaceURL: URL, reactorPath: String) -> URL {
-        let identity = workspaceURL.standardizedFileURL.path + "\0" + reactorPath
+        let identity = Self.storageIdentity(
+            workspacePath: workspaceURL.standardizedFileURL.path,
+            reactorPath: reactorPath
+        )
         let digest = SHA256.hash(data: Data(identity.utf8))
             .map { String(format: "%02x", $0) }
             .joined()
@@ -59,6 +62,10 @@ struct MacMavenConfigurationStore: MavenConfigurationStoring, Sendable {
             .appendingPathComponent("Lithe", isDirectory: true)
             .appendingPathComponent("Maven", isDirectory: true)
             .appendingPathComponent(digest + ".json")
+    }
+
+    static func storageIdentity(workspacePath: String, reactorPath: String) -> String {
+        workspacePath + "\0" + reactorPath
     }
 
     private func decodeIfPresent<Value: Decodable>(

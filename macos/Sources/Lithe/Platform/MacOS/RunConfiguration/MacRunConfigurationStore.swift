@@ -100,6 +100,7 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
                     vmArguments: (maven?.jvmArguments ?? []).joined(separator: " "),
                     programArguments: (maven?.programArguments ?? value.args ?? []).joined(separator: " "),
                     activeProfiles: Set(maven?.profiles ?? []),
+                    mavenSkipTests: maven?.skipTests,
                     mavenExecutablePath: java?.mavenExecutablePath ?? "",
                     mavenJavaHomePath: java?.mavenJavaHomePath ?? "",
                     environment: value.env ?? [:]
