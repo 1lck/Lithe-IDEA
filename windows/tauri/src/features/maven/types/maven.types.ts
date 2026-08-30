@@ -1,5 +1,5 @@
 export type MavenProjectStatus = "idle" | "loading" | "ready" | "failed";
-export type MavenTaskStatus = "idle" | "running" | "stopping" | "failed";
+export type MavenTaskStatus = "idle" | "running" | "stopping" | "failed" | "cancelled";
 
 export interface MavenProfile {
   id: string;

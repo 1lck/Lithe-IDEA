@@ -95,8 +95,9 @@ export function saveRunConfigurationEditorChanges(
 }
 
 function scopedRunOptions(root: string, scope: RunSaveScope, options: RunOptions) {
-  const workingDirectory =
-    scope === "project"
+  const workingDirectory = !options.workingDirectoryPath.trim()
+    ? ""
+    : scope === "project"
       ? projectScopedPath(root, options.workingDirectoryPath)
       : options.workingDirectoryPath;
   const scopedToolchainPath = (value: string) => {
@@ -120,6 +121,7 @@ function scopedRunOptions(root: string, scope: RunSaveScope, options: RunOptions
     arguments: options.programArguments,
     environment: options.environment,
     mavenProfiles: [],
+    mavenSkipTests: options.mavenSkipTests ?? null,
     javaHomePath,
     mavenExecutablePath,
     mavenJavaHomePath,

@@ -353,6 +353,33 @@ export function RunConfigurationEditor({
                   onSelect={(value) => setDraft((current) => ({ ...current, mavenJavaHomePath: value }))}
                   onPick={() => pickDirectory("mavenJavaHomePath")}
                 />
+                <Field>
+                  <FieldLabel htmlFor="run-maven-tests">{t("run.mavenTests")}</FieldLabel>
+                  <NativeSelect
+                    id="run-maven-tests"
+                    value={
+                      draft.mavenSkipTests == null
+                        ? "inherit"
+                        : draft.mavenSkipTests
+                          ? "skip"
+                          : "run"
+                    }
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        mavenSkipTests:
+                          event.target.value === "inherit" ? null : event.target.value === "skip",
+                      }))
+                    }
+                  >
+                    <NativeSelectOption value="inherit">
+                      {t("run.mavenTestsProjectDefault")}
+                    </NativeSelectOption>
+                    <NativeSelectOption value="run">{t("run.mavenTestsRun")}</NativeSelectOption>
+                    <NativeSelectOption value="skip">{t("run.mavenTestsSkip")}</NativeSelectOption>
+                  </NativeSelect>
+                  <FieldDescription>{t("run.mavenTestsHint")}</FieldDescription>
+                </Field>
               </>
             ) : null}
             <Field>

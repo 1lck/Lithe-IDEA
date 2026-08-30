@@ -57,6 +57,7 @@ describe("saveRunConfigurationEditorChanges", () => {
         javaHomePath: "D:\\fixture\\project\\toolchains\\jdk",
         mavenExecutablePath: "D:/fixture/project/toolchains/maven/bin/mvn.cmd",
         mavenJavaHomePath: "D:/fixture/project/toolchains/maven-jdk",
+        mavenSkipTests: false,
         workingDirectoryPath: "D:/fixture/project/app",
         vmArguments: "-Xmx2g",
         programArguments: "--dev",
@@ -77,6 +78,7 @@ describe("saveRunConfigurationEditorChanges", () => {
           arguments: "--dev",
           environment: { APP_ENV: "dev" },
           mavenProfiles: [],
+          mavenSkipTests: false,
           javaHomePath: "toolchains/jdk",
           mavenExecutablePath: "toolchains/maven/bin/mvn.cmd",
           mavenJavaHomePath: "toolchains/maven-jdk",
@@ -109,6 +111,34 @@ describe("saveRunConfigurationEditorChanges", () => {
           javaHomePath: "C:/Program Files/Java/jdk-21",
           mavenExecutablePath: "D:/Tools/apache-maven",
           mavenJavaHomePath: "C:/Program Files/Java/jdk-17",
+        }),
+      }),
+    );
+  });
+
+  test("uses empty working directory and null test override to inherit project defaults", async () => {
+    await saveRunConfigurationEditorChanges(
+      "D:/fixture/project",
+      "spring",
+      "project",
+      {
+        javaHomePath: "",
+        mavenExecutablePath: "",
+        mavenJavaHomePath: "",
+        mavenSkipTests: null,
+        workingDirectoryPath: "",
+        vmArguments: "",
+        programArguments: "",
+        environment: {},
+      },
+      emptyToolchain,
+    );
+
+    expect(executeCore).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          workingDirectory: "",
+          mavenSkipTests: null,
         }),
       }),
     );
