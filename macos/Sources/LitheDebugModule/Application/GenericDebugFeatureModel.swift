@@ -119,6 +119,12 @@ private struct GenericDebugVariablePageItemFingerprint: Hashable, Sendable {
     let variablesReference: Int
 }
 
+private struct GenericDebugStartRequest: Equatable, Sendable {
+    let fileURL: URL
+    let rootURL: URL
+    let configuration: DebugLaunchConfiguration
+}
+
 @MainActor
 public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatureTarget {
     @Published public private(set) var providerID: String?
@@ -171,6 +177,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     private var requestedBreakpointsByFile: [URL: [Int: DebugSourceBreakpoint]] = [:]
     private var workspaceURL: URL?
     private var activeFileURL: URL?
+    private var lastStartRequest: GenericDebugStartRequest?
     private let maximumOutputCharacters = 400_000
     private let variablePageSize = 100
     private var watchGeneration = 0
@@ -213,6 +220,9 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     }
     public var canStepBack: Bool {
         state == .paused && capabilities.supportsStepBack
+    }
+    public var canRetry: Bool {
+        lastStartRequest != nil && (state == .failed || state == .terminated)
     }
     public var visibleVariableRows: [GenericDebugVariableRow] {
         var rows: [GenericDebugVariableRow] = []
@@ -261,7 +271,13 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         configuration: DebugLaunchConfiguration
     ) -> Bool {
         stop()
-        activeFileURL = fileURL.standardizedFileURL
+        let request = GenericDebugStartRequest(
+            fileURL: fileURL.standardizedFileURL,
+            rootURL: rootURL.standardizedFileURL,
+            configuration: configuration
+        )
+        lastStartRequest = request
+        activeFileURL = request.fileURL
         providerID = sessionsProviderID(for: fileURL)
         targetTitle = configuration.name
         output = ""
@@ -279,26 +295,26 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         stoppedFrame = nil
         selectedFrame = nil
         do {
-            if requestedBreakpointsByFile[fileURL.standardizedFileURL] != nil {
+            if requestedBreakpointsByFile[request.fileURL] != nil {
                 try sessions.setBreakpoints(
-                    effectiveBreakpoints(for: fileURL.standardizedFileURL),
-                    in: fileURL
+                    effectiveBreakpoints(for: request.fileURL),
+                    in: request.fileURL
                 )
             }
             if !dataBreakpoints.isEmpty {
-                try sessions.setDataBreakpoints(coreDataBreakpoints, for: fileURL)
+                try sessions.setDataBreakpoints(coreDataBreakpoints, for: request.fileURL)
             }
             let effectiveConfiguration: DebugLaunchConfiguration
             if providerID == "java", let javaSteppingFilters {
-                effectiveConfiguration = configuration.applying(
+                effectiveConfiguration = request.configuration.applying(
                     steppingFilters: javaSteppingFilters
                 )
             } else {
-                effectiveConfiguration = configuration
+                effectiveConfiguration = request.configuration
             }
             let session = try sessions.launch(
-                for: fileURL,
-                rootURL: rootURL,
+                for: request.fileURL,
+                rootURL: request.rootURL,
                 configuration: effectiveConfiguration
             )
             state = session.state
@@ -309,6 +325,16 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             append(error.localizedDescription + "\n")
             return false
         }
+    }
+
+    @discardableResult
+    public func retry() -> Bool {
+        guard let request = lastStartRequest else { return false }
+        return start(
+            fileURL: request.fileURL,
+            rootURL: request.rootURL,
+            configuration: request.configuration
+        )
     }
 
     public func stop() {
@@ -351,6 +377,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         requestedBreakpointsByFile = [:]
         areBreakpointsMuted = false
         workspaceURL = nil
+        lastStartRequest = nil
     }
 
     public func openWorkspace(at workspaceURL: URL) {

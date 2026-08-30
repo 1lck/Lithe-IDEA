@@ -8,6 +8,37 @@ import Testing
 @MainActor
 struct DebugModuleTests {
     @Test
+    func staleSessionCallbacksCannotOverwriteAReplacementSession() throws {
+        let descriptor = DebugProviderDescriptor(
+            id: "java",
+            displayName: "Java",
+            fileExtensions: ["java"]
+        )
+        var createdSessions: [DeferredInspectionDebugSession] = []
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
+            let session = DeferredInspectionDebugSession()
+            createdSessions.append(session)
+            return session
+        }
+        let root = URL(fileURLWithPath: "/tmp/java-debug-reconnect", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.java")
+
+        _ = try manager.activate(for: source, rootURL: root)
+        let first = try #require(createdSessions.first)
+        manager.stop(providerID: "java")
+
+        _ = try manager.activate(for: source, rootURL: root)
+        let second = try #require(createdSessions.dropFirst().first)
+        second.emit(.output(category: "stdout", output: "current\n"))
+        first.emit(.output(category: "stderr", output: "stale\n"))
+        first.fail()
+
+        #expect(manager.lastEvents["java"] == .output(category: "stdout", output: "current\n"))
+        #expect(manager.states["java"] == .ready)
+        manager.stopAll()
+    }
+
+    @Test
     func coreProtocolSessionProjectsRustUpdatesThroughInjectedTransport() throws {
         let transport = RecordingTransport()
         let core = RecordingDebugProtocolCore()
@@ -675,6 +706,35 @@ struct DebugModuleTests {
 
         #expect(feature.javaSteppingFilters == core.defaultSteppingFilters)
         #expect(core.lastLaunchConfiguration?.steppingFilters == core.defaultSteppingFilters)
+    }
+
+    @Test
+    func failedSessionCanRetryUsingTheLastLaunchRequest() throws {
+        let session = DeferredInspectionDebugSession()
+        let descriptor = DebugProviderDescriptor(
+            id: "java",
+            displayName: "Java",
+            fileExtensions: ["java"]
+        )
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        let root = URL(fileURLWithPath: "/tmp/java-debug-retry", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.java")
+        let configuration = DebugLaunchConfiguration(
+            name: "Retry Main",
+            request: .launch,
+            arguments: ["mainClass": .string("example.Main")]
+        )
+
+        #expect(feature.start(fileURL: source, rootURL: root, configuration: configuration))
+        session.fail()
+        #expect(feature.state == .failed)
+        #expect(feature.canRetry)
+        #expect(feature.retry())
+        #expect(session.startCount == 2)
+        #expect(session.launchConfigurations == [configuration, configuration])
+
+        feature.stop()
     }
 
     @Test
@@ -2218,6 +2278,8 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
     let capabilities: DebugAdapterCapabilities
     private(set) var isRunning = false
     private(set) var state: DebugAdapterState = .idle
+    private(set) var startCount = 0
+    private(set) var launchConfigurations: [DebugLaunchConfiguration] = []
     private(set) var breakpointUpdates: [[DebugSourceBreakpoint]] = []
     var onStateChange: ((DebugAdapterState) -> Void)?
     var onEvent: ((DebugAdapterEvent) -> Void)?
@@ -2262,6 +2324,7 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
     }
 
     func start(rootURL _: URL) throws {
+        startCount += 1
         isRunning = true
         state = .ready
     }
@@ -2271,9 +2334,16 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
         state = .idle
     }
 
-    func launch(_: DebugLaunchConfiguration) throws {
+    func launch(_ configuration: DebugLaunchConfiguration) throws {
+        launchConfigurations.append(configuration)
         state = .paused
         onStateChange?(.paused)
+    }
+
+    func fail() {
+        isRunning = false
+        state = .failed
+        onStateChange?(.failed)
     }
 
     func setBreakpoints(_ breakpoints: [DebugSourceBreakpoint], in _: URL) {

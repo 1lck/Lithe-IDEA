@@ -894,6 +894,10 @@
 "Connect to running JVM" = "连接到正在运行的 JVM";
 "Smart step into" = "智能步入";
 "Clear output" = "清除输出";
+"Send input to debuggee" = "向调试进程发送输入";
+"Send program input" = "发送程序输入";
+"No running debug process accepts standard input" = "没有正在运行且接受标准输入的调试进程";
+"Retry debugging" = "重试调试";
 "Loading breakpoints…" = "正在加载断点…";
 "Manage project breakpoints without starting a debug session" = "无需启动调试会话即可管理项目断点";
 "Line Breakpoints" = "行断点";

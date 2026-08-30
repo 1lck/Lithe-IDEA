@@ -14,6 +14,7 @@ struct GenericDebugView: View {
     @State private var isJavaSteppingSettingsPresented = false
     @State private var selectedContent: DebugContent = .debugger
     @State private var consoleExpression = ""
+    @State private var programInput = ""
     @FocusState private var isConsoleInputFocused: Bool
 
     var body: some View {
@@ -199,15 +200,21 @@ struct GenericDebugView: View {
                             } else {
                                 model.stopDebugging()
                             }
+                        } else if feature.canRetry {
+                            _ = feature.retry()
                         } else {
                             model.startDebugging()
                         }
                     } label: {
-                        Image(systemName: feature.isSessionActive ? "stop.fill" : "play.fill")
+                        Image(systemName: feature.isSessionActive ? "stop.fill" : feature.canRetry ? "arrow.clockwise" : "play.fill")
                     }
                     .litheIconButton()
                     .foregroundStyle(feature.isSessionActive ? LitheTheme.warning : LitheTheme.success)
-                    .help(feature.isSessionActive ? "Stop debugging" : "Start debugging")
+                    .help(
+                        feature.isSessionActive
+                            ? "Stop debugging"
+                            : feature.canRetry ? "Retry debugging" : "Start debugging"
+                    )
 
                     controlButton(
                         feature.state == .running ? "pause.fill" : "play.fill",
@@ -737,13 +744,14 @@ struct GenericDebugView: View {
                     }
                     .frame(
                         minWidth: max(0, geometry.size.width - 24),
-                        minHeight: max(0, geometry.size.height - 62),
+                        minHeight: max(0, geometry.size.height - 97),
                         alignment: .topLeading
                     )
                     .padding(12)
                 }
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
                 consoleInputRow
+                programInputRow
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -779,6 +787,34 @@ struct GenericDebugView: View {
         guard !expression.isEmpty else { return }
         feature.evaluate(expression)
         consoleExpression = ""
+    }
+
+    private var programInputRow: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "arrow.down.to.line")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(LitheTheme.warning)
+            TextField("Send input to debuggee", text: $programInput)
+                .textFieldStyle(.plain)
+                .font(.system(size: 11.5, design: .monospaced))
+                .disabled(!model.isDebugStandardInputAvailable)
+                .onSubmit { sendProgramInput() }
+            Button { sendProgramInput() } label: {
+                Image(systemName: "paperplane.fill")
+            }
+            .litheIconButton()
+            .disabled(!model.isDebugStandardInputAvailable || programInput.isEmpty)
+            .help("Send program input")
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 34)
+        .litheWorkbenchSurface(LitheTheme.toolHeader)
+    }
+
+    private func sendProgramInput() {
+        guard !programInput.isEmpty,
+              model.sendDebugStandardInput(programInput) else { return }
+        programInput = ""
     }
 
     private var emptyState: some View {

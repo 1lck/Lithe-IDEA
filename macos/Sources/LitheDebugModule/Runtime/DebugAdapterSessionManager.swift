@@ -29,6 +29,7 @@ public final class DebugAdapterSessionManager: ObservableObject {
     ) -> (any DebugAdapterSession)?
     private var sessions: [String: any DebugAdapterSession] = [:]
     private var roots: [String: URL] = [:]
+    private var activationTokens: [String: UUID] = [:]
     private var requestedBreakpoints: [String: [URL: [DebugSourceBreakpoint]]] = [:]
     private var requestedExceptionBreakpoints: [String: [DebugExceptionBreakpoint]] = [:]
     private var requestedFunctionBreakpoints: [String: [DebugFunctionBreakpoint]] = [:]
@@ -67,13 +68,27 @@ public final class DebugAdapterSessionManager: ObservableObject {
             active.stop()
             sessions[descriptor.id] = nil
             roots[descriptor.id] = nil
+            activationTokens[descriptor.id] = nil
         }
 
         guard let session = makeSession(descriptor, normalizedRoot) else {
             throw DebugProviderError.adapterUnavailable(descriptor.displayName)
         }
-        configureCallbacks(session, providerID: descriptor.id)
-        try session.start(rootURL: normalizedRoot)
+        let activationToken = UUID()
+        activationTokens[descriptor.id] = activationToken
+        configureCallbacks(
+            session,
+            providerID: descriptor.id,
+            activationToken: activationToken
+        )
+        do {
+            try session.start(rootURL: normalizedRoot)
+        } catch {
+            if activationTokens[descriptor.id] == activationToken {
+                activationTokens[descriptor.id] = nil
+            }
+            throw error
+        }
         sessions[descriptor.id] = session
         roots[descriptor.id] = normalizedRoot
         states[descriptor.id] = session.state
@@ -167,6 +182,7 @@ public final class DebugAdapterSessionManager: ObservableObject {
     }
 
     public func stop(providerID: String) {
+        activationTokens[providerID] = nil
         sessions.removeValue(forKey: providerID)?.stop()
         roots[providerID] = nil
         states[providerID] = .idle
@@ -176,6 +192,7 @@ public final class DebugAdapterSessionManager: ObservableObject {
         for session in sessions.values { session.stop() }
         sessions.removeAll()
         roots.removeAll()
+        activationTokens.removeAll()
         states.removeAll()
         lastEvents.removeAll()
         verifiedBreakpoints.removeAll()
@@ -187,16 +204,19 @@ public final class DebugAdapterSessionManager: ObservableObject {
 
     private func configureCallbacks(
         _ session: any DebugAdapterSession,
-        providerID: String
+        providerID: String,
+        activationToken: UUID
     ) {
         configureRunInTerminalHandler(session)
         guard let controlling = session as? any DebugAdapterControllingSession else { return }
         controlling.onStateChange = { [weak self] state in
+            guard self?.activationTokens[providerID] == activationToken else { return }
             self?.states[providerID] = state
             self?.onStateChange?(providerID, state)
         }
         controlling.onEvent = { [weak self] event in
-            guard let self else { return }
+            guard let self,
+                  self.activationTokens[providerID] == activationToken else { return }
             lastEvents[providerID] = event
             onEvent?(providerID, event)
             if case .breakpoint(let breakpoint) = event {

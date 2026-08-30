@@ -154,6 +154,7 @@ extension AppModel {
         configureTerminalSession(created.session)
         terminalPlacementFeature.registerSession(created.session.id)
         debugTerminalSessionIDs.insert(created.session.id)
+        activeDebugTerminalSessionID = created.session.id
         isTerminalVisible = true
         isTestsVisible = false
         isGitLogVisible = false
@@ -171,6 +172,42 @@ extension AppModel {
             terminalSessions.first(where: { $0.id == sessionID })?.stop()
         }
         debugTerminalSessionIDs.removeAll()
+        activeDebugTerminalSessionID = nil
+    }
+
+    var isDebugStandardInputAvailable: Bool {
+        guard let terminalFeature else { return false }
+        let candidateIDs = [activeDebugTerminalSessionID]
+            .compactMap { $0 }
+            + debugTerminalSessionIDs.sorted(by: { $0.uuidString < $1.uuidString })
+        return candidateIDs.contains { sessionID in
+            guard let session = terminalFeature.terminalSessions.first(where: { $0.id == sessionID }) else {
+                return false
+            }
+            return session.isRunning && session.isReady
+        }
+    }
+
+    @discardableResult
+    func sendDebugStandardInput(_ input: String) -> Bool {
+        guard !input.isEmpty, let terminalFeature else {
+            showNotification("No running debug process accepts standard input")
+            return false
+        }
+        let candidateIDs = [activeDebugTerminalSessionID]
+            .compactMap { $0 }
+            + debugTerminalSessionIDs.sorted(by: { $0.uuidString < $1.uuidString })
+        guard let sessionID = candidateIDs.first(where: { sessionID in
+            guard let session = terminalFeature.terminalSessions.first(where: { $0.id == sessionID }) else {
+                return false
+            }
+            return session.isRunning && session.isReady
+        }) else {
+            showNotification("No running debug process accepts standard input")
+            return false
+        }
+        let payload = input.hasSuffix("\n") ? input : input + "\n"
+        return terminalFeature.sendInput(payload, to: sessionID)
     }
 
     private func openTerminalLink(_ link: String, params: [String: String], sessionID: UUID) {
@@ -260,6 +297,9 @@ extension AppModel {
     func closeTerminalSession(_ session: TerminalSession) {
         guard terminalSessions.contains(where: { $0.id == session.id }) else { return }
         debugTerminalSessionIDs.remove(session.id)
+        if activeDebugTerminalSessionID == session.id {
+            activeDebugTerminalSessionID = nil
+        }
         editorTabOrderFeature.remove(.terminal(session.id))
         terminalPlacementFeature.removeSession(session.id)
         terminalFeature?.closeSession(session)
@@ -273,6 +313,7 @@ extension AppModel {
     func restartActiveTerminal(using shellPath: String) { terminalFeature?.restartActiveSession(using: shellPath) }
     func stopTerminalSessions() {
         debugTerminalSessionIDs.removeAll()
+        activeDebugTerminalSessionID = nil
         editorTabOrderFeature.removeAllTerminals()
         terminalPlacementFeature.reset()
         terminalFeature?.stopAllSessions()

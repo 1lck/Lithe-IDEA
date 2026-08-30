@@ -53,6 +53,26 @@ struct TerminalModuleTests {
     }
 
     @Test
+    func managedProcessForwardsInputToItsOwnPTY() throws {
+        let transport = TestTransport()
+        let feature = TerminalFeatureModel(terminalFactory: { transport })
+        let launch = TerminalProcessLaunch(
+            title: "Debug Main",
+            executablePath: "/opt/jdk/bin/java",
+            arguments: ["example.Main"],
+            workingDirectory: "/workspace"
+        )
+        let created = try feature.createProcessSession(launch)
+
+        #expect(feature.sendInput("username\n", to: created.session.id))
+        #expect(transport.sentInputs == ["username\n"])
+
+        created.session.stop()
+        #expect(!feature.sendInput("late\n", to: created.session.id))
+        feature.stopAllSessions()
+    }
+
+    @Test
     func linkResolverKeepsExternalURLsAndResolvesLocations() {
         let workspace = URL(fileURLWithPath: "/tmp/lithe-terminal-module-test")
         let expected = workspace.appendingPathComponent("Sources/App.swift").standardizedFileURL
@@ -82,6 +102,7 @@ private final class TestTransport: TerminalTransport {
     var stopCount = 0
     var processLaunches: [TerminalProcessLaunch] = []
     var processEnvironments: [[String: String]] = []
+    var sentInputs: [String] = []
     func defaultShellPath() -> String { "/bin/zsh" }
     func defaultEnvironment() -> [String: String] { ["REMOVE_ME": "old"] }
     func start(workingDirectory: String, shellPath: String, environment: [String: String]) throws { isRunning = true }
@@ -94,7 +115,9 @@ private final class TestTransport: TerminalTransport {
         isRunning = true
         return 1234
     }
-    func send(_ input: Data) throws {}
+    func send(_ input: Data) throws {
+        sentInputs.append(String(decoding: input, as: UTF8.self))
+    }
     func interrupt() throws {}
     func focus() {}
     func clear() {}

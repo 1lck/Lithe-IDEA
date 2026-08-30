@@ -164,6 +164,7 @@ final class AppModel: ObservableObject, Identifiable {
     let editorTabOrderFeature = EditorTabOrderFeatureModel()
     let terminalPlacementFeature: TerminalPlacementFeatureModel
     var debugTerminalSessionIDs: Set<UUID> = []
+    var activeDebugTerminalSessionID: UUID?
     private struct CachedModuleCapability {
         let moduleID: ModuleID
         let value: AnyObject
