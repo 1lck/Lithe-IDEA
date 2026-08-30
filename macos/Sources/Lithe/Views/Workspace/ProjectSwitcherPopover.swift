@@ -61,7 +61,6 @@ struct ProjectSwitcherPopover: View {
         }
         .frame(width: ProjectSwitcherLayoutMetrics.width)
         .frame(maxHeight: ProjectSwitcherLayoutMetrics.maximumHeight)
-        .background(LitheTheme.popupBackground)
     }
 
     private var divider: some View {
