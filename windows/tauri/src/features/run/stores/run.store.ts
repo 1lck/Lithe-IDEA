@@ -1,7 +1,7 @@
 import { createStore } from "zustand/vanilla";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
-import { currentMavenLaunchContext } from "@/features/maven/stores/maven.store";
+import { mavenLaunchContextForWorkspace } from "@/features/maven/stores/maven.store";
 import {
   createLaunchPlan,
   generateRunConfiguration,
@@ -47,6 +47,7 @@ import {
   recoveryActionForError,
   recoveryPathFromMessage,
   selectedToolchainCandidates,
+  configurationUsesMaven,
 } from "../utils/run-configuration";
 import { editorSaveFailureMessage, runEditorSaveWorkflow } from "../services/run-editor-save";
 import { createOutputStamper, trimRunOutput, type OutputStamper } from "../utils/output-timestamper";
@@ -99,6 +100,22 @@ interface RunState {
     finishProcess: (sessionId: string, exitCode: number) => void;
   };
 }
+
+export interface RunStoreDependencies {
+  createLaunchPlan: typeof createLaunchPlan;
+  mavenLaunchContextForWorkspace: typeof mavenLaunchContextForWorkspace;
+  resolveRunLaunch: typeof resolveRunLaunch;
+  startRunProcess: typeof startRunProcess;
+  stopRunProcess: typeof stopRunProcess;
+}
+
+const defaultRunStoreDependencies: RunStoreDependencies = {
+  createLaunchPlan,
+  mavenLaunchContextForWorkspace,
+  resolveRunLaunch,
+  startRunProcess,
+  stopRunProcess,
+};
 
 interface ResolvedRunProject {
   configurations: RunConfiguration[];
@@ -259,7 +276,10 @@ function readyRunState(
   };
 }
 
-export const createRunStore = (workspaceId = workspaceRuntimeRegistry.getActiveWorkspaceId()) =>
+export const createRunStore = (
+  workspaceId = workspaceRuntimeRegistry.getActiveWorkspaceId(),
+  dependencies: RunStoreDependencies = defaultRunStoreDependencies,
+) =>
   createStore<RunState>()((set, get) => ({
     root: null,
     status: "missing",
@@ -404,11 +424,18 @@ export const createRunStore = (workspaceId = workspaceRuntimeRegistry.getActiveW
           configuration.execution === "service" ? configuration.id : PRIMARY_SESSION_ID;
         bindRunSessionWorkspace(sessionId, workspaceId);
         resetOutputStamper(sessionId);
-        await stopRunProcess(sessionId).catch(() => undefined);
+        await dependencies.stopRunProcess(sessionId).catch(() => undefined);
         try {
-          const mavenContext = currentMavenLaunchContext(root, workspaceId);
-          const plan = await createLaunchPlan(root, configuration.id, currentFile, mavenContext);
-          const resolved = await resolveRunLaunch({
+          const mavenContext = configurationUsesMaven(configuration)
+            ? await dependencies.mavenLaunchContextForWorkspace(root, [], workspaceId)
+            : null;
+          const plan = await dependencies.createLaunchPlan(
+            root,
+            configuration.id,
+            currentFile,
+            mavenContext,
+          );
+          const resolved = await dependencies.resolveRunLaunch({
             root,
             executable: plan.executable,
             workingDirectory: plan.workingDirectory,
@@ -444,7 +471,7 @@ export const createRunStore = (workspaceId = workspaceRuntimeRegistry.getActiveW
               ],
             }));
           }
-          await startRunProcess({
+          await dependencies.startRunProcess({
             sessionId,
             executable: resolved.executable,
             arguments: plan.arguments,
