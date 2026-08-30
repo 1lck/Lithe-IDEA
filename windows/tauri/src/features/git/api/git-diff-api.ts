@@ -367,10 +367,9 @@ export const getReferenceWorkingTreeDiff = async (
       }),
     );
   } catch (error) {
-    if (!isNotGitRepositoryError(error)) {
-      console.error("Failed to compare reference with working tree:", error);
-    }
-    return null;
+    if (isNotGitRepositoryError(error)) return null;
+    console.error("Failed to compare reference with working tree:", error);
+    throw error;
   }
 };
 

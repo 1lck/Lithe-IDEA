@@ -405,6 +405,11 @@ export function useGitDiffActions({
             diffs,
           }),
         );
+      } catch (error) {
+        await showAlertDialog(
+          t("git.diff.getWorkingTreeDiffFailed", { error: String(error) }),
+          t("git.diff.title"),
+        );
       } finally {
         setIsLoadingBranchDiff(false);
       }
