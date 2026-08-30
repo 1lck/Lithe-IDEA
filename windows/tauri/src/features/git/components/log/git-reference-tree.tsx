@@ -9,6 +9,13 @@ import {
 import { useMemo } from "react";
 import { cn } from "@/utils/cn";
 import { useTranslation } from "@/i18n/locale-provider";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/ui/context-menu";
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
 import type { GitReference, GitReferenceKind } from "../../types/git.types";
 import { buildGitReferenceTree, type GitReferenceTreeNode } from "../../utils/git-reference-tree";
@@ -18,6 +25,28 @@ const SECTION_KEYS: Array<{ kind: GitReferenceKind; titleKey: string }> = [
   { kind: "remote", titleKey: "git.log.remote" },
   { kind: "tag", titleKey: "git.log.tags" },
 ];
+
+export type GitReferenceAction =
+  | "checkout"
+  | "createBranch"
+  | "checkoutAndRebase"
+  | "compareWithCurrent"
+  | "showWorkingTreeDiff"
+  | "rebaseCurrent"
+  | "mergeCurrent"
+  | "pullRebase"
+  | "pullMerge";
+
+export function getGitReferenceActions(reference: GitReference): GitReferenceAction[] {
+  const actions: GitReferenceAction[] = ["createBranch", "showWorkingTreeDiff"];
+  if (!reference.isCurrent) actions.unshift("checkout");
+  if (!reference.isCurrent) actions.push("compareWithCurrent");
+  if (reference.kind !== "tag" && !reference.isCurrent) {
+    actions.push("checkoutAndRebase", "rebaseCurrent", "mergeCurrent");
+  }
+  if (reference.kind === "remote") actions.push("pullRebase", "pullMerge");
+  return actions;
+}
 
 function ReferenceIcon({ kind }: { kind: GitReferenceKind }) {
   if (kind === "tag") return <TagIcon className="size-3.5 text-amber-400" />;
@@ -33,6 +62,8 @@ function ReferenceNode({
   collapsedGroups,
   onToggleGroup,
   onSelect,
+  onAction,
+  isOperating,
 }: {
   node: GitReferenceTreeNode;
   kind: GitReferenceKind;
@@ -41,15 +72,16 @@ function ReferenceNode({
   collapsedGroups: Set<string>;
   onToggleGroup: (id: string) => void;
   onSelect: (reference: GitReference) => void;
+  onAction: (reference: GitReference, action: GitReferenceAction) => void;
+  isOperating: boolean;
 }) {
   const { t } = useTranslation();
   const isGroup = node.children.length > 0;
   const isCollapsed = collapsedGroups.has(node.id);
   const left = 10 + depth * 14;
 
-  return (
-    <>
-      <div
+  const row = (
+    <div
         className={cn(
           "flex h-6 w-full min-w-0 items-center gap-1.5 rounded px-1.5 text-left hover:bg-accent/80",
           node.reference?.fullName === selectedFullName && "bg-accent text-accent-foreground",
@@ -84,7 +116,66 @@ function ReferenceNode({
           )}
           <span className="truncate">{node.name}</span>
         </button>
-      </div>
+    </div>
+  );
+  const reference = node.reference;
+  const actions = reference ? new Set(getGitReferenceActions(reference)) : null;
+
+  return (
+    <>
+      {reference ? (
+        <ContextMenu>
+          <ContextMenuTrigger onContextMenu={() => onSelect(reference)}>
+            {row}
+          </ContextMenuTrigger>
+          <ContextMenuContent>
+            {actions?.has("checkout") ? (
+              <ContextMenuItem disabled={isOperating} onClick={() => onAction(reference, "checkout")}>
+                {t("git.log.action.checkout")}
+              </ContextMenuItem>
+            ) : null}
+            <ContextMenuItem disabled={isOperating} onClick={() => onAction(reference, "createBranch")}>
+              {t("git.log.action.createBranch")}
+            </ContextMenuItem>
+            {actions?.has("checkoutAndRebase") ? (
+              <ContextMenuItem disabled={isOperating} onClick={() => onAction(reference, "checkoutAndRebase")}>
+                {t("git.log.action.checkoutAndRebase")}
+              </ContextMenuItem>
+            ) : null}
+            <ContextMenuSeparator />
+            {actions?.has("compareWithCurrent") ? (
+              <ContextMenuItem disabled={isOperating} onClick={() => onAction(reference, "compareWithCurrent")}>
+                {t("git.log.action.compareWithCurrent")}
+              </ContextMenuItem>
+            ) : null}
+            <ContextMenuItem disabled={isOperating} onClick={() => onAction(reference, "showWorkingTreeDiff")}>
+              {t("git.log.action.showWorkingTreeDiff")}
+            </ContextMenuItem>
+            {actions?.has("rebaseCurrent") ? (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem disabled={isOperating} onClick={() => onAction(reference, "rebaseCurrent")}>
+                  {t("git.log.action.rebaseCurrent")}
+                </ContextMenuItem>
+                <ContextMenuItem disabled={isOperating} onClick={() => onAction(reference, "mergeCurrent")}>
+                  {t("git.log.action.mergeCurrent")}
+                </ContextMenuItem>
+              </>
+            ) : null}
+            {reference.kind === "remote" ? (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem disabled={isOperating} onClick={() => onAction(reference, "pullRebase")}>
+                  {t("git.log.action.pullRebase")}
+                </ContextMenuItem>
+                <ContextMenuItem disabled={isOperating} onClick={() => onAction(reference, "pullMerge")}>
+                  {t("git.log.action.pullMerge")}
+                </ContextMenuItem>
+              </>
+            ) : null}
+          </ContextMenuContent>
+        </ContextMenu>
+      ) : row}
       {!isCollapsed &&
         node.children.map((child) => (
           <ReferenceNode
@@ -96,6 +187,8 @@ function ReferenceNode({
             collapsedGroups={collapsedGroups}
             onToggleGroup={onToggleGroup}
             onSelect={onSelect}
+            onAction={onAction}
+            isOperating={isOperating}
           />
         ))}
     </>
@@ -106,10 +199,14 @@ export function GitReferenceTree({
   references,
   selectedReference,
   onSelect,
+  onAction,
+  isOperating = false,
 }: {
   references: GitReference[];
   selectedReference: GitReference | null;
   onSelect: (reference: GitReference | null) => void;
+  onAction: (reference: GitReference, action: GitReferenceAction) => void;
+  isOperating?: boolean;
 }) {
   const { t } = useTranslation();
   const collapsedSectionIds = useGitLogPreferencesStore.use.collapsedReferenceSections();
@@ -179,6 +276,8 @@ export function GitReferenceTree({
                       collapsedGroups={collapsedGroups}
                       onToggleGroup={toggleReferenceGroup}
                       onSelect={onSelect}
+                      onAction={onAction}
+                      isOperating={isOperating}
                     />
                   ))
                 ) : (

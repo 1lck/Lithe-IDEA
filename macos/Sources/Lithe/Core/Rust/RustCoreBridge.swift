@@ -296,6 +296,28 @@ struct RustCoreBridge: Sendable {
         let issues: [Issue]
     }
 
+    struct MavenLaunchPlanPayload: Decodable, Sendable {
+        struct Executable: Decodable, Sendable {
+            let toolchain: String
+        }
+
+        let version: Int
+        let executable: Executable
+        let arguments: [String]
+        let workingDirectory: String
+        let configurationFingerprint: String
+
+        func makeModel() -> MavenLaunchPlan {
+            MavenLaunchPlan(
+                version: version,
+                toolchain: executable.toolchain,
+                arguments: arguments,
+                workingDirectory: workingDirectory,
+                configurationFingerprint: configurationFingerprint
+            )
+        }
+    }
+
     struct JavaRunConfigurationsPayload: Decodable, Sendable {
         struct MainClass: Decodable, Sendable {
             let path: String
@@ -410,6 +432,7 @@ struct RustCoreBridge: Sendable {
                 let jvmArguments: [String]?
                 let programArguments: [String]?
                 let profiles: [String]?
+                let skipTests: Bool?
             }
             struct Java: Codable, Sendable {
                 let homePath: String?
@@ -1178,6 +1201,13 @@ struct RustCoreBridge: Sendable {
         let paths: [String]
     }
 
+    private struct MavenLaunchPlanRequest: Encodable {
+        let root: String
+        let context: MavenLaunchContext
+        let module: String?
+        let goals: [String]
+    }
+
     private struct MarkdownRenderRequest: Encodable {
         let source: String
     }
@@ -1416,6 +1446,7 @@ struct RustCoreBridge: Sendable {
         let jdtlsLaunchResources: LspJdtlsLaunchResourcesRequest?
         let cacheDirectory: String?
         let workspaceFingerprint: String?
+        let mavenContext: MavenLaunchContext?
         let initializeTimeoutMilliseconds: Int
         let requestTimeoutMilliseconds: Int
         let shutdownTimeoutMilliseconds: Int
@@ -1599,6 +1630,7 @@ struct RustCoreBridge: Sendable {
         let arguments: String
         let environment: [String: String]
         let mavenProfiles: [String]
+        let mavenSkipTests: Bool?
         let javaHomePath: String
         let mavenExecutablePath: String
         let mavenJavaHomePath: String
@@ -1618,6 +1650,7 @@ struct RustCoreBridge: Sendable {
         let currentFile: String?
         let classPath: String?
         let debugPort: Int?
+        let mavenContext: MavenLaunchContext?
     }
 
     private struct JavaStructureRequest: Encodable {
@@ -2250,11 +2283,36 @@ struct RustCoreBridge: Sendable {
     }
 
     func scanMaven(at rootURL: URL, paths: [String] = []) -> MavenScanPayload? {
-        execute(
+        try? scanMavenResult(at: rootURL, paths: paths).get()
+    }
+
+    func scanMavenResult(
+        at rootURL: URL,
+        paths: [String] = []
+    ) -> Result<MavenScanPayload?, CoreCallError> {
+        let result: Result<Envelope<MavenScanPayload>, CoreCallError> = decodeEnvelope(
             command: "maven.scan",
             payload: MavenScanRequest(
                 root: rootURL.standardizedFileURL.path,
                 paths: paths
+            )
+        )
+        return result.map(\.data)
+    }
+
+    func mavenLaunchPlan(
+        at rootURL: URL,
+        context: MavenLaunchContext,
+        module: String?,
+        goals: [String]
+    ) -> Result<MavenLaunchPlanPayload, CoreCallError> {
+        executeResult(
+            command: "maven.launchPlan",
+            payload: MavenLaunchPlanRequest(
+                root: rootURL.standardizedFileURL.path,
+                context: context,
+                module: module,
+                goals: goals
             )
         )
     }
@@ -2324,7 +2382,8 @@ struct RustCoreBridge: Sendable {
         configurationID: String,
         currentFile: String? = nil,
         classPath: String? = nil,
-        debugPort: Int? = nil
+        debugPort: Int? = nil,
+        mavenContext: MavenLaunchContext? = nil
     ) -> Result<LaunchPlanPayload, CoreCallError> {
         executeResult(
             command: "runConfig.createLaunchPlan",
@@ -2333,7 +2392,8 @@ struct RustCoreBridge: Sendable {
                 configurationId: configurationID,
                 currentFile: currentFile,
                 classPath: classPath,
-                debugPort: debugPort
+                debugPort: debugPort,
+                mavenContext: mavenContext
             )
         )
     }
@@ -2355,6 +2415,7 @@ struct RustCoreBridge: Sendable {
                 arguments: options.arguments,
                 environment: options.environment,
                 mavenProfiles: options.activeProfiles.sorted(),
+                mavenSkipTests: options.mavenSkipTests,
                 javaHomePath: options.javaHomePath,
                 mavenExecutablePath: options.mavenExecutablePath,
                 mavenJavaHomePath: options.mavenJavaHomePath,
@@ -2381,6 +2442,7 @@ struct RustCoreBridge: Sendable {
                 arguments: options.arguments,
                 environment: options.environment,
                 mavenProfiles: options.activeProfiles.sorted(),
+                mavenSkipTests: options.mavenSkipTests,
                 javaHomePath: options.javaHomePath,
                 mavenExecutablePath: options.mavenExecutablePath,
                 mavenJavaHomePath: options.mavenJavaHomePath,
@@ -2952,6 +3014,7 @@ struct RustCoreBridge: Sendable {
         jdtlsLaunchResources: JDTLSLaunchResources? = nil,
         cacheDirectoryURL: URL? = nil,
         workspaceFingerprint: String? = nil,
+        mavenContext: MavenLaunchContext? = nil,
         initializeTimeout: TimeInterval = 30,
         requestTimeout: TimeInterval = 30,
         shutdownTimeout: TimeInterval = 2
@@ -2976,6 +3039,7 @@ struct RustCoreBridge: Sendable {
                 },
                 cacheDirectory: cacheDirectoryURL?.standardizedFileURL.path,
                 workspaceFingerprint: workspaceFingerprint,
+                mavenContext: mavenContext,
                 initializeTimeoutMilliseconds: Self.milliseconds(initializeTimeout),
                 requestTimeoutMilliseconds: Self.milliseconds(requestTimeout),
                 shutdownTimeoutMilliseconds: Self.milliseconds(shutdownTimeout)

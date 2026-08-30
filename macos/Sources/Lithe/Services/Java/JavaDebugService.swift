@@ -127,12 +127,20 @@ final class JavaDebugService: ObservableObject {
         configuration: RunConfiguration,
         project: MavenProject,
         projectURL: URL,
-        options: RunOptions
+        options: RunOptions,
+        mavenContext: MavenLaunchContext? = nil
     ) {
         stop()
         guard configuration.kind.isMavenBacked else {
             fail("Select a Spring Boot or Maven Module configuration before starting Debug.")
             return
+        }
+        var options = options
+        if options.mavenExecutablePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            options.mavenExecutablePath = mavenContext?.mavenExecutablePath ?? ""
+        }
+        if options.mavenJavaHomePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            options.mavenJavaHomePath = mavenContext?.javaHomePath ?? ""
         }
         let debugPort = Self.nextPort()
         let plan: SharedLaunchPlan
@@ -142,7 +150,8 @@ final class JavaDebugService: ObservableObject {
                 configurationID: configuration.id,
                 currentFile: nil,
                 classPath: nil,
-                debugPort: debugPort
+                debugPort: debugPort,
+                mavenContext: mavenContext
             )
             guard plan.toolchainID == "project-maven" else {
                 throw RunConfigurationOperationFailure(message: "The selected configuration does not use Maven.")
@@ -176,7 +185,10 @@ final class JavaDebugService: ObservableObject {
             fail("No Maven executable was found. Edit this service configuration.")
             return
         }
-        append("$ " + executable.lastPathComponent + " " + plan.arguments.joined(separator: " ") + "\n\n")
+        append(
+            "$ " + executable.lastPathComponent + " "
+                + redactedMavenArgumentsForDisplay(plan.arguments).joined(separator: " ") + "\n\n"
+        )
         startDebuggee(
             executable: executable,
             arguments: plan.arguments,

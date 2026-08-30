@@ -22,7 +22,7 @@ struct GitLogView: View {
     @State private var pendingCommitOperation: GitCommitOperationRequest?
     @State private var pendingBranchOperation: GitBranchOperationRequest?
     @State private var comparisonSourceReference: GitReference?
-    @State private var showCommitDecorations = true
+    @State private var showCommitDecorations = false
     @State private var selectedGitToolTab = GitToolTab.log
     @State private var gitConsoleAutoScrolls = true
     @State private var gitConsoleWrapsLines = false
@@ -31,12 +31,14 @@ struct GitLogView: View {
     @State private var gitLogPathFilter = ""
     @State private var gitLogPathDraft = ""
     @State private var showsGitLogPathPopover = false
+    @State private var gitCommitFileLoadTask: Task<Void, Never>?
     @State private var graphLayout = GitGraphLayout(
         rows: [],
         laneCount: 0,
         hasMissingParents: false
     )
     @FocusState private var gitLogSearchFocused: Bool
+    @FocusState private var gitLogCommitListFocused: Bool
 
     /// IntelliJ's Git tool window uses the macOS system UI font throughout;
     /// only hashes and timestamps use a monospaced face. Keeping these values
@@ -52,6 +54,7 @@ struct GitLogView: View {
         static let rowHeight: CGFloat = 38
         static let treeRowHeight: CGFloat = 28
         static let toolbarHeight: CGFloat = 38
+        static let commitFileLoadDelay = Duration.milliseconds(120)
         static let darkConsoleText = Color(red: 0.76, green: 0.77, blue: 0.79)
         static let darkConsoleMetadata = Color(red: 0.69, green: 0.70, blue: 0.72)
     }
@@ -178,6 +181,14 @@ struct GitLogView: View {
             guard model.gitConsoleEntries.last?.succeeded == false else { return }
             selectedGitToolTab = .console
         }
+        .onAppear {
+            if let commit = model.selectedGitCommit {
+                scheduleGitCommitFileLoad(for: commit)
+            }
+        }
+        .onDisappear {
+            gitCommitFileLoadTask?.cancel()
+        }
         .sheet(item: $branchDialogRequest) { request in
             GitBranchNameDialog(request: request) { name, checkout in
                 Task {
@@ -268,6 +279,12 @@ struct GitLogView: View {
                             await model.mergeBranch(operation.reference)
                         case .rebase:
                             await model.rebaseCurrentBranch(onto: operation.reference)
+                        case .checkoutAndRebase:
+                            await model.checkoutAndRebase(operation.reference)
+                        case .pullRebase:
+                            await model.pullRemoteReference(operation.reference, strategy: .rebase)
+                        case .pullMerge:
+                            await model.pullRemoteReference(operation.reference, strategy: .merge)
                         }
                     }
                 }
@@ -341,9 +358,17 @@ struct GitLogView: View {
             .help("Git tool window actions")
 
             Spacer(minLength: 12)
+
+            Button {
+                model.isGitLogVisible = false
+            } label: {
+                Image(systemName: "minus")
+            }
+            .litheIconButton()
+            .help("Hide Git tool window")
         }
         .padding(.leading, 12)
-        .padding(.trailing, 42)
+        .padding(.trailing, 7)
         .frame(height: 32)
         .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.toolHeader)
         .overlay(alignment: .bottom) {
@@ -805,6 +830,12 @@ struct GitLogView: View {
                 Task { await model.showComparisonWithWorkingTree(for: reference) }
             }
 
+            if let currentReference, currentReference.id != reference.id {
+                Button("Compare with Current Branch") {
+                    Task { await model.showComparison(from: reference, to: currentReference) }
+                }
+            }
+
             if let source = comparisonSourceReference, source.id != reference.id {
                 Button("Compare '\(source.shortName)' with '\(reference.shortName)'") {
                     comparisonSourceReference = nil
@@ -816,15 +847,61 @@ struct GitLogView: View {
                 }
             }
 
-            if reference.kind == .local {
+            if !reference.isCurrent {
                 Divider()
 
-                if !reference.isCurrent {
-                    Button("Checkout") {
-                        Task { await model.checkoutReference(reference) }
+                Button("Checkout") {
+                    Task { await model.checkoutReference(reference) }
+                }
+                .disabled(model.isPerformingBranchOperation)
+
+                if reference.kind != .tag {
+                    Button("Checkout and Rebase onto Current Branch") {
+                        pendingBranchOperation = GitBranchOperationRequest(
+                            kind: .checkoutAndRebase,
+                            reference: reference
+                        )
+                    }
+                    .disabled(model.isPerformingBranchOperation)
+
+                    Button("Merge into Current Branch") {
+                        pendingBranchOperation = GitBranchOperationRequest(
+                            kind: .merge,
+                            reference: reference
+                        )
+                    }
+                    .disabled(model.isPerformingBranchOperation)
+                    Button("Rebase Current Branch onto…") {
+                        pendingBranchOperation = GitBranchOperationRequest(
+                            kind: .rebase,
+                            reference: reference
+                        )
                     }
                     .disabled(model.isPerformingBranchOperation)
                 }
+            }
+
+            if reference.kind == .remote {
+                Divider()
+
+                Button("Pull with Rebase") {
+                    pendingBranchOperation = GitBranchOperationRequest(
+                        kind: .pullRebase,
+                        reference: reference
+                    )
+                }
+                .disabled(model.isPerformingBranchOperation)
+                Button("Pull with Merge") {
+                    pendingBranchOperation = GitBranchOperationRequest(
+                        kind: .pullMerge,
+                        reference: reference
+                    )
+                }
+                .disabled(model.isPerformingBranchOperation)
+            }
+
+            if reference.kind == .local {
+                Divider()
 
                 Button("Update") {
                     Task { await model.updateCurrentBranch(reference) }
@@ -837,18 +914,6 @@ struct GitLogView: View {
                 .disabled(model.isPerformingBranchOperation)
 
                 if !reference.isCurrent {
-                    Button("Merge into Current Branch") {
-                        pendingBranchOperation = GitBranchOperationRequest(
-                            kind: .merge,
-                            reference: reference
-                        )
-                    }
-                    Button("Rebase Current Branch onto…") {
-                        pendingBranchOperation = GitBranchOperationRequest(
-                            kind: .rebase,
-                            reference: reference
-                        )
-                    }
                     Button("Delete Branch", role: .destructive) {
                         pendingBranchOperation = GitBranchOperationRequest(
                             kind: .delete,
@@ -972,11 +1037,22 @@ struct GitLogView: View {
                         }
                     }
                     .litheScrollViewChrome(hideHorizontal: true)
+                    .focusable()
+                    .focused($gitLogCommitListFocused)
+                    .gitLogFocusEffectHidden()
+                    .onMoveCommand { direction in
+                        switch direction {
+                        case .up:
+                            moveGitLogCommitSelection(by: -1)
+                        case .down:
+                            moveGitLogCommitSelection(by: 1)
+                        default:
+                            break
+                        }
+                    }
                     .onChange(of: model.selectedGitCommit?.hash) { _ in
                         guard let hash = model.selectedGitCommit?.hash else { return }
-                        withAnimation(.easeOut(duration: 0.16)) {
-                            proxy.scrollTo(hash, anchor: .center)
-                        }
+                        proxy.scrollTo(hash)
                     }
                 }
             }
@@ -1047,12 +1123,38 @@ struct GitLogView: View {
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
-            if model.selectedGitCommitFiles.isEmpty {
-                Text(model.selectedGitCommit == nil ? "Select a commit" : "No changed files")
+            switch model.selectedGitCommitFilesLoadState {
+            case .idle:
+                Text("Select a commit")
                     .font(LitheTheme.uiFont)
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
+            case .loading:
+                VStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Loading changed files…")
+                }
+                .font(LitheTheme.uiFont)
+                .foregroundStyle(LitheTheme.secondaryText)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .failed:
+                VStack(spacing: 8) {
+                    Text("Could not load changed files")
+                    if let commit = model.selectedGitCommit {
+                        Button("Retry") {
+                            scheduleGitCommitFileLoad(for: commit)
+                        }
+                    }
+                }
+                .font(LitheTheme.uiFont)
+                .foregroundStyle(LitheTheme.secondaryText)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .ready where model.selectedGitCommitFiles.isEmpty:
+                Text("No changed files")
+                    .font(LitheTheme.uiFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .ready:
                 GeometryReader { geometry in
                     ScrollView(.vertical) {
                         LazyVStack(alignment: .leading, spacing: 0) {
@@ -1097,6 +1199,7 @@ struct GitLogView: View {
                     Spacer(minLength: 0)
                 }
                 .padding(11)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .textSelection(.enabled)
             } else {
                 Text("Commit details")
@@ -1109,8 +1212,30 @@ struct GitLogView: View {
     }
 
     private var filteredCommits: [GitCommit] {
-        guard let hashes = model.gitLogMatchedCommitHashes else { return model.gitCommits }
+        guard let hashes = visibleCommitHashes else { return model.gitCommits }
         return model.gitCommits.filter { hashes.contains($0.hash) }
+    }
+
+    private func moveGitLogCommitSelection(by offset: Int) {
+        guard let commit = GitLogCommitSelection.adjacentCommit(
+            in: filteredCommits,
+            selectedHash: model.selectedGitCommit?.hash,
+            offset: offset
+        ) else { return }
+        model.previewGitCommitSelection(commit)
+        scheduleGitCommitFileLoad(for: commit)
+    }
+
+    private func scheduleGitCommitFileLoad(for commit: GitCommit) {
+        gitCommitFileLoadTask?.cancel()
+        gitCommitFileLoadTask = Task { [model] in
+            do {
+                try await Task.sleep(for: GitVisual.commitFileLoadDelay)
+            } catch {
+                return
+            }
+            await model.loadGitCommitFiles(for: commit)
+        }
     }
 
     private var checkoutReference: GitReference? {
@@ -1143,7 +1268,9 @@ struct GitLogView: View {
         let pendingOperation = $pendingCommitOperation
         return GitGraphRowActions(
             onSelect: { [model] commit in
-                Task { await model.selectGitCommit(commit) }
+                gitLogCommitListFocused = true
+                model.previewGitCommitSelection(commit)
+                scheduleGitCommitFileLoad(for: commit)
             },
             onCherryPick: { commit in
                 pendingOperation.wrappedValue = GitCommitOperationRequest(kind: .cherryPick, commit: commit)
@@ -1595,6 +1722,34 @@ private enum GitLogAuthorSelection: Hashable {
     }
 }
 
+enum GitLogCommitSelection {
+    static func adjacentCommit(
+        in commits: [GitCommit],
+        selectedHash: String?,
+        offset: Int
+    ) -> GitCommit? {
+        guard !commits.isEmpty, offset == -1 || offset == 1 else { return nil }
+        guard let selectedHash,
+              let selectedIndex = commits.firstIndex(where: { $0.hash == selectedHash }) else {
+            return offset < 0 ? commits.last : commits.first
+        }
+        let targetIndex = selectedIndex + offset
+        guard commits.indices.contains(targetIndex) else { return nil }
+        return commits[targetIndex]
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func gitLogFocusEffectHidden() -> some View {
+        if #available(macOS 14.0, *) {
+            focusEffectDisabled()
+        } else {
+            self
+        }
+    }
+}
+
 private struct GitLogFilterTaskIdentity: Hashable {
     let searchQuery: String
     let author: GitLogAuthorSelection?
@@ -1790,12 +1945,18 @@ private enum GitBranchOperationKind {
     case delete
     case merge
     case rebase
+    case checkoutAndRebase
+    case pullRebase
+    case pullMerge
 
     var title: String {
         switch self {
         case .delete: "Delete branch?"
         case .merge: "Merge branch?"
         case .rebase: "Rebase branch?"
+        case .checkoutAndRebase: "Checkout and rebase branch?"
+        case .pullRebase: "Pull remote branch with rebase?"
+        case .pullMerge: "Pull remote branch with merge?"
         }
     }
 
@@ -1804,6 +1965,9 @@ private enum GitBranchOperationKind {
         case .delete: "Delete"
         case .merge: "Merge"
         case .rebase: "Rebase"
+        case .checkoutAndRebase: "Checkout and Rebase"
+        case .pullRebase: "Pull with Rebase"
+        case .pullMerge: "Pull with Merge"
         }
     }
 
@@ -1815,6 +1979,12 @@ private enum GitBranchOperationKind {
             return "Merge \(reference.shortName) into the current branch. Conflicts may require terminal resolution."
         case .rebase:
             return "Replay the current branch onto \(reference.shortName). Conflicts may require terminal resolution."
+        case .checkoutAndRebase:
+            return "Checkout \(reference.shortName), then replay it onto the branch that is current now."
+        case .pullRebase:
+            return "Pull \(reference.shortName) into the current branch and replay local commits."
+        case .pullMerge:
+            return "Pull \(reference.shortName) into the current branch with a merge."
         }
     }
 }
