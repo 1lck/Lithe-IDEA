@@ -33,6 +33,8 @@ public struct DebugCoreEvent: Decodable, Equatable, Sendable {
     public let exitCode: Int?
     public let breakpoint: DebugCoreBreakpoint?
     public let capabilities: DebugCoreCapabilities?
+    public let requestID: String?
+    public let request: DebugRunInTerminalRequest?
     public let operationID: String?
     public let result: DebugCoreOperationResult?
     public let command: String?
@@ -51,6 +53,8 @@ public struct DebugCoreEvent: Decodable, Equatable, Sendable {
         case exitCode
         case breakpoint
         case capabilities
+        case requestID = "requestId"
+        case request
         case operationID = "operationId"
         case result
         case command
@@ -275,7 +279,8 @@ public protocol DebugProtocolCore: DebugSteppingFilterResolving, Sendable {
     func createDebugSession(
         sessionID: String,
         adapterID: String,
-        rootPath: String
+        rootPath: String,
+        supportsRunInTerminalRequest: Bool
     ) throws -> DebugCoreUpdate
     func launchDebugSession(
         sessionID: String,
@@ -342,6 +347,11 @@ public protocol DebugProtocolCore: DebugSteppingFilterResolving, Sendable {
         column: Int?
     ) throws -> DebugCoreUpdate
     func receiveDebugData(sessionID: String, data: Data) throws -> DebugCoreUpdate
+    func completeDebugRunInTerminalRequest(
+        sessionID: String,
+        requestID: String,
+        result: Result<DebugRunInTerminalResponse, Error>
+    ) throws -> DebugCoreUpdate
     func disconnectDebugSession(sessionID: String) throws -> DebugCoreUpdate
     func destroyDebugSession(sessionID: String)
 }

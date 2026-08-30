@@ -26,6 +26,8 @@ struct DebugSession {
     did_configure_exception_breakpoints: bool,
     function_breakpoints: Vec<FunctionBreakpoint>,
     data_breakpoints: Vec<DataBreakpoint>,
+    supports_run_in_terminal_request: bool,
+    pending_run_in_terminal_requests: BTreeMap<String, i64>,
     did_receive_initialized: bool,
     supports_configuration_done: bool,
     capabilities: DebugCapabilities,
@@ -101,6 +103,8 @@ pub(crate) fn create_session(
         did_configure_exception_breakpoints: false,
         function_breakpoints: Vec::new(),
         data_breakpoints: Vec::new(),
+        supports_run_in_terminal_request: request.supports_run_in_terminal_request,
+        pending_run_in_terminal_requests: BTreeMap::new(),
         did_receive_initialized: false,
         supports_configuration_done: false,
         capabilities: DebugCapabilities::default(),
@@ -122,7 +126,7 @@ pub(crate) fn create_session(
             "pathFormat": "path",
             "supportsVariableType": true,
             "supportsVariablePaging": true,
-            "supportsRunInTerminalRequest": false,
+            "supportsRunInTerminalRequest": session.supports_run_in_terminal_request,
             "supportsMemoryReferences": false,
             "supportsProgressReporting": false,
             "supportsInvalidatedEvent": true
@@ -671,6 +675,56 @@ pub(crate) fn receive(request: ReceiveRequest) -> Result<DebugSessionUpdate, Cor
     })
 }
 
+/// Completes one adapter-originated terminal launch and emits its DAP response.
+pub(crate) fn run_in_terminal_response(
+    request: DebugRunInTerminalResponseRequest,
+) -> Result<DebugSessionUpdate, CoreError> {
+    validate_identifier(&request.request_id, "requestId")?;
+    with_session(&request.session_id, |session| {
+        let Some(&request_sequence) = session
+            .pending_run_in_terminal_requests
+            .get(&request.request_id)
+        else {
+            // Native terminal creation is asynchronous. A response that races
+            // session shutdown, timeout, or a previous completion must not be
+            // applied to a later adapter request.
+            return Ok(session.take_update());
+        };
+
+        if request.success {
+            validate_dap_process_id(request.process_id, "processId")?;
+            validate_dap_process_id(request.shell_process_id, "shellProcessId")?;
+        }
+        session
+            .pending_run_in_terminal_requests
+            .remove(&request.request_id);
+
+        if request.success {
+            let mut body = Map::new();
+            insert_option(&mut body, "processId", request.process_id);
+            insert_option(&mut body, "shellProcessId", request.shell_process_id);
+            session.send_response_with_body(
+                request_sequence,
+                "runInTerminal",
+                true,
+                None,
+                Some(Value::Object(body)),
+            )?;
+        } else {
+            let message = normalize_optional_text(request.message)
+                .unwrap_or_else(|| "Lithe could not start the debuggee terminal.".to_string());
+            session.send_response_with_body(
+                request_sequence,
+                "runInTerminal",
+                false,
+                Some(&message),
+                None,
+            )?;
+        }
+        Ok(session.take_update())
+    })
+}
+
 /// Begins a graceful DAP disconnect while the host keeps transport ownership.
 pub(crate) fn disconnect(request: SessionRequest) -> Result<DebugSessionUpdate, CoreError> {
     with_session(&request.session_id, |session| {
@@ -680,6 +734,9 @@ pub(crate) fn disconnect(request: SessionRequest) -> Result<DebugSessionUpdate, 
         ) {
             return Ok(session.take_update());
         }
+        session.fail_pending_run_in_terminal_requests(
+            "The debug session stopped before the terminal could start.",
+        )?;
         // An attach session does not own the remote JVM, so disconnect must
         // never terminate it. A launch session owns the local debuggee.
         let terminate_debuggee = session.debug_request_kind == Some(DebugRequestKind::Launch);
@@ -899,6 +956,17 @@ impl DebugSession {
         success: bool,
         message: Option<&str>,
     ) -> Result<(), CoreError> {
+        self.send_response_with_body(request_sequence, command, success, message, None)
+    }
+
+    fn send_response_with_body(
+        &mut self,
+        request_sequence: i64,
+        command: &str,
+        success: bool,
+        message: Option<&str>,
+        body: Option<Value>,
+    ) -> Result<(), CoreError> {
         let sequence = self.next_request_sequence;
         self.next_request_sequence += 1;
         let mut response = json!({
@@ -910,6 +978,9 @@ impl DebugSession {
         });
         if let Some(message) = message {
             response["message"] = Value::String(message.to_string());
+        }
+        if let Some(body) = body {
+            response["body"] = body;
         }
         self.outbound_frames.push(frame_message(&response)?);
         Ok(())
@@ -1167,12 +1238,52 @@ impl DebugSession {
     fn handle_server_request(&mut self, message: &Value) -> Result<(), CoreError> {
         let request_sequence = required_i64(message, "seq")?;
         let command = required_str(message, "command")?;
+        if command == "runInTerminal" && self.supports_run_in_terminal_request {
+            let arguments = message.get("arguments").unwrap_or(&Value::Null);
+            match parse_run_in_terminal_request(arguments) {
+                Ok(request) => {
+                    let request_id = format!("runInTerminal-{request_sequence}");
+                    if self
+                        .pending_run_in_terminal_requests
+                        .contains_key(&request_id)
+                    {
+                        // One DAP sequence can have only one response. Keep the
+                        // original native launch pending instead of replacing
+                        // it or starting a second process for a malformed retry.
+                        return Ok(());
+                    }
+                    self.pending_run_in_terminal_requests
+                        .insert(request_id.clone(), request_sequence);
+                    self.emit(DebugEventBody::RunInTerminalRequested {
+                        request_id,
+                        request,
+                    });
+                    return Ok(());
+                }
+                Err(error) => {
+                    return self.send_response(
+                        request_sequence,
+                        command,
+                        false,
+                        Some(&error.message),
+                    );
+                }
+            }
+        }
         self.send_response(
             request_sequence,
             command,
             false,
             Some("This debug adapter request is not supported by Lithe."),
         )
+    }
+
+    fn fail_pending_run_in_terminal_requests(&mut self, message: &str) -> Result<(), CoreError> {
+        let pending = std::mem::take(&mut self.pending_run_in_terminal_requests);
+        for (_, request_sequence) in pending {
+            self.send_response(request_sequence, "runInTerminal", false, Some(message))?;
+        }
+        Ok(())
     }
 
     fn emit_breakpoint_results(
@@ -1854,6 +1965,132 @@ fn sessions_lock(
         .map_err(|_| CoreError::new(ErrorCode::Unknown, "Debug session state is unavailable."))
 }
 
+fn parse_run_in_terminal_request(value: &Value) -> Result<DebugRunInTerminalRequest, CoreError> {
+    const MAX_ARGUMENT_COUNT: usize = 4_096;
+    const MAX_ENVIRONMENT_COUNT: usize = 4_096;
+
+    let object = value
+        .as_object()
+        .ok_or_else(|| invalid_request("Debug runInTerminal arguments must be a JSON object."))?;
+    let kind = match object.get("kind") {
+        None => DebugRunInTerminalKind::Integrated,
+        Some(Value::String(value)) if value == "integrated" => DebugRunInTerminalKind::Integrated,
+        Some(Value::String(value)) if value == "external" => DebugRunInTerminalKind::External,
+        _ => {
+            return Err(invalid_request(
+                "Debug runInTerminal kind must be integrated or external.",
+            ))
+        }
+    };
+    let title = match object.get("title") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(value)) => normalize_optional_text(Some(value.clone())),
+        _ => {
+            return Err(invalid_request(
+                "Debug runInTerminal title must be a string.",
+            ))
+        }
+    };
+    let cwd = object
+        .get("cwd")
+        .and_then(Value::as_str)
+        .ok_or_else(|| invalid_request("Debug runInTerminal cwd must be a string."))?
+        .to_string();
+    if cwd.contains('\0') {
+        return Err(invalid_request(
+            "Debug runInTerminal cwd contains an invalid null byte.",
+        ));
+    }
+    let argument_values = object
+        .get("args")
+        .and_then(Value::as_array)
+        .ok_or_else(|| invalid_request("Debug runInTerminal args must be an array."))?;
+    if argument_values.is_empty() || argument_values.len() > MAX_ARGUMENT_COUNT {
+        return Err(invalid_request(
+            "Debug runInTerminal args must contain between 1 and 4096 items.",
+        ));
+    }
+    let mut args = Vec::with_capacity(argument_values.len());
+    for value in argument_values {
+        let argument = value.as_str().ok_or_else(|| {
+            invalid_request("Debug runInTerminal args must contain only strings.")
+        })?;
+        if argument.contains('\0') {
+            return Err(invalid_request(
+                "Debug runInTerminal args contain an invalid null byte.",
+            ));
+        }
+        args.push(argument.to_string());
+    }
+    if args[0].trim().is_empty() {
+        return Err(invalid_request(
+            "Debug runInTerminal args must begin with an executable.",
+        ));
+    }
+
+    let mut environment = Vec::new();
+    if let Some(value) = object.get("env") {
+        let values = value
+            .as_object()
+            .ok_or_else(|| invalid_request("Debug runInTerminal env must be a JSON object."))?;
+        if values.len() > MAX_ENVIRONMENT_COUNT {
+            return Err(invalid_request(
+                "Debug runInTerminal env cannot exceed 4096 entries.",
+            ));
+        }
+        let mut names: Vec<&String> = values.keys().collect();
+        names.sort();
+        for name in names {
+            if name.is_empty() || name.contains(['=', '\0']) {
+                return Err(invalid_request(
+                    "Debug runInTerminal env contains an invalid variable name.",
+                ));
+            }
+            let value = match &values[name] {
+                Value::Null => None,
+                Value::String(value) if !value.contains('\0') => Some(value.clone()),
+                _ => {
+                    return Err(invalid_request(
+                        "Debug runInTerminal env values must be strings or null.",
+                    ))
+                }
+            };
+            environment.push(DebugRunInTerminalEnvironmentVariable {
+                name: name.clone(),
+                value,
+            });
+        }
+    }
+    let args_can_be_interpreted_by_shell = match object.get("argsCanBeInterpretedByShell") {
+        None => false,
+        Some(Value::Bool(value)) => *value,
+        _ => {
+            return Err(invalid_request(
+                "Debug runInTerminal argsCanBeInterpretedByShell must be a boolean.",
+            ))
+        }
+    };
+
+    Ok(DebugRunInTerminalRequest {
+        kind,
+        title,
+        cwd,
+        args,
+        environment,
+        args_can_be_interpreted_by_shell,
+    })
+}
+
+fn validate_dap_process_id(value: Option<i64>, field: &str) -> Result<(), CoreError> {
+    if value.is_some_and(|value| !(1..=i32::MAX as i64).contains(&value)) {
+        return Err(invalid_request(&format!(
+            "Debug runInTerminal {field} must be between 1 and {}.",
+            i32::MAX
+        )));
+    }
+    Ok(())
+}
+
 fn validate_identifier(value: &str, field: &str) -> Result<(), CoreError> {
     if value.trim().is_empty() || value.contains('\0') || value.len() > 512 {
         return Err(invalid_request(&format!("Debug {field} was invalid.")));
@@ -2051,6 +2288,7 @@ mod tests {
                 session_id: session_id.clone(),
                 adapter_id: "java".to_string(),
                 root_path: "/workspace".to_string(),
+                supports_run_in_terminal_request: false,
             })
             .unwrap();
 
@@ -2228,6 +2466,7 @@ mod tests {
             session_id: session_id.to_string(),
             adapter_id: "java".to_string(),
             root_path: "/workspace".to_string(),
+            supports_run_in_terminal_request: false,
         })
         .unwrap();
         launch(LaunchRequest {
@@ -2362,6 +2601,7 @@ mod tests {
             session_id: session_id.to_string(),
             adapter_id: "java".to_string(),
             root_path: "/workspace".to_string(),
+            supports_run_in_terminal_request: false,
         })
         .unwrap();
         assert_eq!(created.state, DebugSessionState::Initializing);
@@ -2637,6 +2877,7 @@ mod tests {
             session_id: session_id.to_string(),
             adapter_id: "java".to_string(),
             root_path: "/workspace".to_string(),
+            supports_run_in_terminal_request: false,
         })
         .unwrap();
         set_data_breakpoints(SetDataBreakpointsRequest {
@@ -2757,6 +2998,7 @@ mod tests {
             session_id: session_id.to_string(),
             adapter_id: "java".to_string(),
             root_path: "/workspace".to_string(),
+            supports_run_in_terminal_request: false,
         })
         .unwrap();
         launch(LaunchRequest {
@@ -2842,6 +3084,7 @@ mod tests {
             session_id: session_id.to_string(),
             adapter_id: "java".to_string(),
             root_path: "/workspace".to_string(),
+            supports_run_in_terminal_request: false,
         })
         .unwrap();
         launch(LaunchRequest {
@@ -2962,6 +3205,7 @@ mod tests {
             session_id: session_id.to_string(),
             adapter_id: "java".to_string(),
             root_path: "/workspace".to_string(),
+            supports_run_in_terminal_request: false,
         })
         .unwrap();
         launch(LaunchRequest {
@@ -3058,6 +3302,7 @@ mod tests {
             session_id: session_id.to_string(),
             adapter_id: "java".to_string(),
             root_path: "/workspace".to_string(),
+            supports_run_in_terminal_request: false,
         })
         .unwrap();
         launch(LaunchRequest {
@@ -3228,6 +3473,7 @@ mod tests {
             session_id: session_id.to_string(),
             adapter_id: "java".to_string(),
             root_path: "/workspace".to_string(),
+            supports_run_in_terminal_request: false,
         })
         .unwrap();
         launch(LaunchRequest {
@@ -3330,6 +3576,7 @@ mod tests {
             session_id: session_id.to_string(),
             adapter_id: "java".to_string(),
             root_path: "/workspace".to_string(),
+            supports_run_in_terminal_request: false,
         })
         .unwrap();
         launch(LaunchRequest {
@@ -3419,6 +3666,7 @@ mod tests {
             session_id: session_id.to_string(),
             adapter_id: "java".to_string(),
             root_path: "/workspace".to_string(),
+            supports_run_in_terminal_request: false,
         })
         .unwrap();
         launch(LaunchRequest {
@@ -3471,12 +3719,131 @@ mod tests {
     }
 
     #[test]
+    fn run_in_terminal_request_is_normalized_completed_and_stale_safe() {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/fixtures/debug/run-in-terminal-v1.json"
+        )))
+        .unwrap();
+        let session_id = "debug-run-in-terminal";
+        let created = create_session(CreateSessionRequest {
+            session_id: session_id.to_string(),
+            adapter_id: "java".to_string(),
+            root_path: "/workspace".to_string(),
+            supports_run_in_terminal_request: true,
+        })
+        .unwrap();
+        assert_eq!(
+            decode_frame(&created.outbound_frames[0])["arguments"]["supportsRunInTerminalRequest"],
+            true
+        );
+
+        let requested = receive_messages(session_id, vec![fixture["adapterRequest"].clone()]);
+        assert!(requested.outbound_frames.is_empty());
+        let request_id = requested
+            .events
+            .iter()
+            .find_map(|event| match &event.body {
+                DebugEventBody::RunInTerminalRequested {
+                    request_id,
+                    request,
+                } => {
+                    assert_eq!(
+                        serde_json::to_value(request).unwrap(),
+                        fixture["expectedRequest"]
+                    );
+                    Some(request_id.clone())
+                }
+                _ => None,
+            })
+            .unwrap();
+
+        let duplicate = receive_messages(session_id, vec![fixture["adapterRequest"].clone()]);
+        assert!(duplicate.outbound_frames.is_empty());
+        assert!(duplicate.events.is_empty());
+
+        let invalid = run_in_terminal_response(DebugRunInTerminalResponseRequest {
+            session_id: session_id.to_string(),
+            request_id: request_id.clone(),
+            success: true,
+            process_id: Some(0),
+            shell_process_id: None,
+            message: None,
+        })
+        .unwrap_err();
+        assert!(matches!(invalid.code, ErrorCode::InvalidRequest));
+
+        let success = run_in_terminal_response(DebugRunInTerminalResponseRequest {
+            session_id: session_id.to_string(),
+            request_id: request_id.clone(),
+            success: true,
+            process_id: fixture["successResponse"]["processId"].as_i64(),
+            shell_process_id: fixture["successResponse"]["shellProcessId"].as_i64(),
+            message: None,
+        })
+        .unwrap();
+        let response = decode_frame(&success.outbound_frames[0]);
+        assert_eq!(response["request_seq"], fixture["adapterRequest"]["seq"]);
+        assert_eq!(response["success"], true);
+        assert_eq!(response["body"], fixture["expectedSuccessBody"]);
+
+        let stale = run_in_terminal_response(DebugRunInTerminalResponseRequest {
+            session_id: session_id.to_string(),
+            request_id,
+            success: false,
+            process_id: None,
+            shell_process_id: None,
+            message: Some(fixture["failureMessage"].as_str().unwrap().to_string()),
+        })
+        .unwrap();
+        assert!(stale.outbound_frames.is_empty());
+        destroy_session(SessionRequest {
+            session_id: session_id.to_string(),
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn malformed_run_in_terminal_request_gets_an_explicit_failure_response() {
+        let session_id = "debug-run-in-terminal-invalid";
+        create_session(CreateSessionRequest {
+            session_id: session_id.to_string(),
+            adapter_id: "java".to_string(),
+            root_path: "/workspace".to_string(),
+            supports_run_in_terminal_request: true,
+        })
+        .unwrap();
+
+        let update = receive_messages(
+            session_id,
+            vec![request_message(
+                45,
+                "runInTerminal",
+                json!({"cwd": "/workspace", "args": []}),
+            )],
+        );
+
+        let response = decode_frame(&update.outbound_frames[0]);
+        assert_eq!(response["request_seq"], 45);
+        assert_eq!(response["success"], false);
+        assert!(response["message"]
+            .as_str()
+            .unwrap()
+            .contains("between 1 and 4096"));
+        destroy_session(SessionRequest {
+            session_id: session_id.to_string(),
+        })
+        .unwrap();
+    }
+
+    #[test]
     fn unknown_server_request_gets_an_explicit_failure_response() {
         let session_id = "debug-server-request";
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
             adapter_id: "java".to_string(),
             root_path: "/workspace".to_string(),
+            supports_run_in_terminal_request: false,
         })
         .unwrap();
 

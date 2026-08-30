@@ -238,6 +238,90 @@ struct DebugModuleTests {
     }
 
     @Test
+    func coreProtocolSessionLaunchesRunInTerminalAndReturnsProcessID() throws {
+        let transport = RecordingTransport()
+        let core = RecordingDebugProtocolCore()
+        let session = CoreDebugAdapterProtocolSession(
+            adapterID: "java",
+            transport: transport,
+            core: core,
+            sessionID: "java-run-in-terminal",
+            deadlineScheduler: RecordingDebugDeadlineScheduler()
+        )
+        var receivedRequest: DebugRunInTerminalRequest?
+        session.onRunInTerminalRequest = { request, completion in
+            receivedRequest = request
+            completion(.success(DebugRunInTerminalResponse(processID: 4242)))
+        }
+
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/java-run-in-terminal"))
+        defer { session.stop() }
+        #expect(core.lastSupportsRunInTerminalRequest == true)
+        core.enqueueReceive(sessionID: "java-run-in-terminal", state: "launching", events: [[
+            "sequence": 2,
+            "type": "runInTerminalRequested",
+            "requestId": "runInTerminal-44",
+            "request": [
+                "kind": "integrated",
+                "title": "Debug Main",
+                "cwd": "/tmp/java-run-in-terminal",
+                "args": ["/opt/jdk/bin/java", "example.Main"],
+                "environment": [["name": "JAVA_HOME", "value": "/opt/jdk"]],
+                "argsCanBeInterpretedByShell": false
+            ]
+        ]])
+
+        transport.emitData(Data("run-in-terminal-request".utf8))
+
+        #expect(receivedRequest?.args == ["/opt/jdk/bin/java", "example.Main"])
+        #expect(core.runInTerminalCompletions == [RecordingRunInTerminalCompletion(
+            requestID: "runInTerminal-44",
+            response: DebugRunInTerminalResponse(processID: 4242),
+            errorDescription: nil
+        )])
+        #expect(transport.sentData.contains(Data("run-in-terminal-response".utf8)))
+    }
+
+    @Test
+    func stoppingCoreProtocolSessionFailsPendingTerminalRequestAndIgnoresLateCompletion() throws {
+        let transport = RecordingTransport()
+        let core = RecordingDebugProtocolCore()
+        let session = CoreDebugAdapterProtocolSession(
+            adapterID: "java",
+            transport: transport,
+            core: core,
+            sessionID: "java-run-in-terminal-stop",
+            deadlineScheduler: RecordingDebugDeadlineScheduler()
+        )
+        var pendingCompletion: DebugRunInTerminalCompletion?
+        session.onRunInTerminalRequest = { _, completion in
+            pendingCompletion = completion
+        }
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/java-run-in-terminal-stop"))
+        core.enqueueReceive(sessionID: "java-run-in-terminal-stop", state: "launching", events: [[
+            "sequence": 2,
+            "type": "runInTerminalRequested",
+            "requestId": "runInTerminal-45",
+            "request": [
+                "kind": "integrated",
+                "cwd": "/tmp/java-run-in-terminal-stop",
+                "args": ["/opt/jdk/bin/java"],
+                "environment": [],
+                "argsCanBeInterpretedByShell": false
+            ]
+        ]])
+        transport.emitData(Data("run-in-terminal-request".utf8))
+
+        session.stop()
+        #expect(core.runInTerminalCompletions.count == 1)
+        #expect(core.runInTerminalCompletions[0].requestID == "runInTerminal-45")
+        #expect(core.runInTerminalCompletions[0].errorDescription != nil)
+
+        pendingCompletion?(.success(DebugRunInTerminalResponse(processID: 4242)))
+        #expect(core.runInTerminalCompletions.count == 1)
+    }
+
+    @Test
     func coreProtocolSessionForwardsVariablePagingAndChildCounts() throws {
         let transport = RecordingTransport()
         let core = RecordingDebugProtocolCore()
@@ -2289,6 +2373,8 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
     private(set) var lastExecutionThreadID: Int?
     private(set) var inspectionRequests: [RecordingDebugInspectionRequest] = []
     private(set) var lastLaunchConfiguration: DebugLaunchConfiguration?
+    private(set) var lastSupportsRunInTerminalRequest: Bool?
+    private(set) var runInTerminalCompletions: [RecordingRunInTerminalCompletion] = []
     let defaultSteppingFilters = DebugSteppingFilters(
         classNameFilters: ["$JDK", "org.junit.*"],
         skipSynthetics: true,
@@ -2307,9 +2393,11 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
     func createDebugSession(
         sessionID: String,
         adapterID _: String,
-        rootPath _: String
+        rootPath _: String,
+        supportsRunInTerminalRequest: Bool
     ) throws -> DebugCoreUpdate {
-        update(
+        lastSupportsRunInTerminalRequest = supportsRunInTerminalRequest
+        return update(
             sessionID: sessionID,
             state: "initializing",
             frames: [Data("initialize-frame".utf8)]
@@ -2444,6 +2532,32 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
         receiveUpdates.removeFirst()
     }
 
+    func completeDebugRunInTerminalRequest(
+        sessionID: String,
+        requestID: String,
+        result: Result<DebugRunInTerminalResponse, Error>
+    ) throws -> DebugCoreUpdate {
+        switch result {
+        case .success(let response):
+            runInTerminalCompletions.append(RecordingRunInTerminalCompletion(
+                requestID: requestID,
+                response: response,
+                errorDescription: nil
+            ))
+        case .failure(let error):
+            runInTerminalCompletions.append(RecordingRunInTerminalCompletion(
+                requestID: requestID,
+                response: nil,
+                errorDescription: error.localizedDescription
+            ))
+        }
+        return update(
+            sessionID: sessionID,
+            state: "launching",
+            frames: [Data("run-in-terminal-response".utf8)]
+        )
+    }
+
     func disconnectDebugSession(sessionID: String) throws -> DebugCoreUpdate {
         update(sessionID: sessionID, state: "terminating")
     }
@@ -2479,6 +2593,12 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
         let data = try! JSONSerialization.data(withJSONObject: object)
         return try! JSONDecoder().decode(DebugCoreUpdate.self, from: data)
     }
+}
+
+private struct RecordingRunInTerminalCompletion: Equatable {
+    let requestID: String
+    let response: DebugRunInTerminalResponse?
+    let errorDescription: String?
 }
 
 @MainActor

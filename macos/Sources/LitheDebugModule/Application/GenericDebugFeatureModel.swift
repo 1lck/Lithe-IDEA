@@ -156,6 +156,12 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     /// Delivers the selected stopped frame to the host editor for source
     /// navigation. The Debug module does not own editor presentation.
     public var onStoppedLocation: ((URL, Int, Int) -> Void)?
+    /// Lets the host activate its native Terminal module without coupling
+    /// Debug to a platform process or presentation implementation.
+    public var onRunInTerminalRequest: DebugRunInTerminalRequestHandler? {
+        get { sessions.onRunInTerminalRequest }
+        set { sessions.onRunInTerminalRequest = newValue }
+    }
 
     private let sessions: DebugAdapterSessionManager
     private let breakpointPersistence: (any DebugBreakpointPersisting)?

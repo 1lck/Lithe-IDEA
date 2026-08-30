@@ -84,6 +84,7 @@ struct TerminalView: View {
                         session.restart()
                         session.focus()
                     }
+                    .disabled(session.isManagedProcess)
                     Button("Clear", action: session.clear)
                     Divider()
                     Button("Move to Editor") {

@@ -96,6 +96,7 @@ stable error code and a user-facing message:
 | `debug.execute` | Submit continue, pause, next, step-in, or step-out control |
 | `debug.inspect` | Request normalized threads, frames, scopes, variables, or evaluation |
 | `debug.receive` | Reduce base64-encoded bytes received from a platform-owned DAP transport |
+| `debug.runInTerminalResponse` | Complete one adapter-requested native terminal launch |
 | `debug.disconnect` | Begin the DAP disconnect handshake without closing the native transport |
 | `debug.destroySession` | Remove a session after the platform closes its native transport |
 | `lsp.applyTextEdits` | Apply LSP UTF-16 text edits with range validation |
@@ -368,7 +369,8 @@ scope, variable, evaluation, output, stop, continue, and termination events.
 Platforms own adapter discovery, JDT LS activation, sockets or process pipes,
 native process termination, persistence, and UI rendering.
 
-`debug.createSession` accepts `{ sessionId, adapterId, rootPath }`. It does not
+`debug.createSession` accepts `{ sessionId, adapterId, rootPath,
+supportsRunInTerminalRequest }`. It does not
 open a socket or launch a process. It returns a session update in
 `initializing` state with an ordered `outboundFrames` array. Each frame is a
 complete Content-Length-framed byte sequence encoded as base64. Every Debug
@@ -376,6 +378,18 @@ command returns the same update shape: `{ sessionId, state, outboundFrames,
 events }`. The platform writes frames in array order and feeds received chunks
 back through `debug.receive` as `{ sessionId, dataBase64 }`; partial and
 consecutive messages are buffered and reduced in Rust.
+
+When `supportsRunInTerminalRequest` is true, the initialize frame advertises
+the native host's terminal capability. An adapter `runInTerminal` reverse
+request becomes a deterministic `runInTerminalRequested` event containing a
+Core-generated `requestId`, terminal kind, title, working directory, ordered
+argument vector, sorted environment changes, and shell-interpretation flag.
+The platform launches the process through its PTY/ConPTY adapter and calls
+`debug.runInTerminalResponse` with `{ sessionId, requestId, success, processId?,
+shellProcessId?, message? }`. Core validates process identifiers, emits the DAP
+response, ignores duplicate or expired completions, and fails pending terminal
+requests when the session disconnects. The shared compatibility cases are in
+`shared/fixtures/debug/run-in-terminal-v1.json`.
 
 `debug.launch` accepts an `operationId` and a language-neutral configuration
 containing `name`, request kind (`launch` or `attach`), provider arguments, and

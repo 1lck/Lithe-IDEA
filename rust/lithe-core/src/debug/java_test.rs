@@ -66,7 +66,7 @@ pub fn java_test_launch(
     arguments.insert("cwd".to_string(), Value::String(working_directory));
     arguments.insert(
         "console".to_string(),
-        Value::String("internalConsole".to_string()),
+        Value::String("integratedTerminal".to_string()),
     );
     if let Some(project_name) = optional_non_empty(request.project_name) {
         arguments.insert("projectName".to_string(), Value::String(project_name));

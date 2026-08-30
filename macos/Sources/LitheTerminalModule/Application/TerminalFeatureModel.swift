@@ -41,6 +41,17 @@ public final class TerminalFeatureModel: ObservableObject {
     }
 
     @discardableResult
+    public func createProcessSession(
+        _ launch: TerminalProcessLaunch
+    ) throws -> (session: TerminalSession, processID: Int32) {
+        let session = TerminalSession(transport: terminalFactory())
+        let processID = try session.startProcess(launch)
+        terminalSessions.append(session)
+        activeTerminalSessionID = session.id
+        return (session, processID)
+    }
+
+    @discardableResult
     public func selectSession(_ session: TerminalSession) -> Bool {
         guard terminalSessions.contains(where: { $0.id == session.id }) else { return false }
         activeTerminalSessionID = session.id

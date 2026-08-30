@@ -5,11 +5,16 @@ import LitheCoreContracts
 /// callback correlation and UI model conversion; framing and state reduction
 /// stay behind `DebugProtocolCore`, while native I/O stays in the transport.
 @MainActor
-public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSession {
+public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSession,
+    DebugAdapterRunInTerminalSession {
     private typealias OperationHandler = (Result<DebugCoreOperationResult, Error>) -> Void
 
     private struct PendingOperation {
         let handler: OperationHandler
+        let deadline: any DebugOperationDeadline
+    }
+
+    private struct PendingRunInTerminalRequest {
         let deadline: any DebugOperationDeadline
     }
 
@@ -20,6 +25,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
     private let deadlineScheduler: any DebugOperationDeadlineScheduling
     private let operationTimeoutMilliseconds: Int
     private var operationHandlers: [String: PendingOperation] = [:]
+    private var pendingRunInTerminalRequests: [String: PendingRunInTerminalRequest] = [:]
     private var ownsCoreSession = false
     private var isStopping = false
 
@@ -28,6 +34,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
     }
     public var onStateChange: ((DebugAdapterState) -> Void)?
     public var onEvent: ((DebugAdapterEvent) -> Void)?
+    public var onRunInTerminalRequest: DebugRunInTerminalRequestHandler?
     public var isRunning: Bool { transport.isRunning }
     public private(set) var capabilities: DebugAdapterCapabilities = .unknown
 
@@ -57,13 +64,15 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         guard state == .idle || state == .terminated || state == .failed else { return }
         isStopping = false
         operationHandlers = [:]
+        discardPendingRunInTerminalRequests()
         capabilities = .unknown
         try transport.start(rootURL: rootURL.standardizedFileURL)
         do {
             let update = try core.createDebugSession(
                 sessionID: sessionID,
                 adapterID: adapterID,
-                rootPath: rootURL.standardizedFileURL.path
+                rootPath: rootURL.standardizedFileURL.path,
+                supportsRunInTerminalRequest: onRunInTerminalRequest != nil
             )
             ownsCoreSession = true
             try apply(update)
@@ -78,6 +87,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
     public func stop() {
         guard state != .idle || transport.isRunning || ownsCoreSession else { return }
         isStopping = true
+        failPendingRunInTerminalRequests(DebugAdapterProtocolError.stopped)
         if ownsCoreSession, transport.isRunning,
            let update = try? core.disconnectDebugSession(sessionID: sessionID) {
             try? apply(update)
@@ -565,6 +575,10 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
                 functionName: breakpoint.functionName,
                 dataID: breakpoint.dataID
             )))
+        case "runInTerminalRequested":
+            guard let requestID = event.requestID,
+                  let request = event.request else { return }
+            beginRunInTerminalRequest(requestID: requestID, request: request)
         case "operationCompleted":
             guard let operationID = event.operationID,
                   let result = event.result else { return }
@@ -592,6 +606,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
 
     private func transportTerminated(exitCode: Int) {
         guard !isStopping else { return }
+        discardPendingRunInTerminalRequests()
         releaseCoreSession()
         failPendingOperations(DebugAdapterProtocolError.stopped)
         state = exitCode == 0 ? .terminated : .failed
@@ -600,6 +615,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
 
     private func failSession() {
         transport.stop()
+        discardPendingRunInTerminalRequests()
         releaseCoreSession()
         failPendingOperations(DebugAdapterProtocolError.stopped)
         state = .failed
@@ -609,6 +625,64 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         guard ownsCoreSession else { return }
         ownsCoreSession = false
         core.destroyDebugSession(sessionID: sessionID)
+    }
+
+    private func beginRunInTerminalRequest(
+        requestID: String,
+        request: DebugRunInTerminalRequest
+    ) {
+        let deadline = deadlineScheduler.schedule(
+            afterMilliseconds: operationTimeoutMilliseconds
+        ) { [weak self] in
+            self?.completeRunInTerminalRequest(
+                requestID,
+                result: .failure(DebugAdapterProtocolError.timedOut("runInTerminal"))
+            )
+        }
+        pendingRunInTerminalRequests[requestID] = PendingRunInTerminalRequest(
+            deadline: deadline
+        )
+        guard let handler = onRunInTerminalRequest else {
+            completeRunInTerminalRequest(
+                requestID,
+                result: .failure(DebugAdapterCapabilityError.unsupported("run in terminal"))
+            )
+            return
+        }
+        handler(request) { [weak self] result in
+            self?.completeRunInTerminalRequest(requestID, result: result)
+        }
+    }
+
+    private func completeRunInTerminalRequest(
+        _ requestID: String,
+        result: Result<DebugRunInTerminalResponse, Error>
+    ) {
+        guard let pending = pendingRunInTerminalRequests.removeValue(forKey: requestID),
+              ownsCoreSession else { return }
+        pending.deadline.cancel()
+        do {
+            try apply(core.completeDebugRunInTerminalRequest(
+                sessionID: sessionID,
+                requestID: requestID,
+                result: result
+            ))
+        } catch {
+            onEvent?(.output(category: "stderr", output: error.localizedDescription + "\n"))
+            if !isStopping { failSession() }
+        }
+    }
+
+    private func failPendingRunInTerminalRequests(_ error: Error) {
+        for requestID in pendingRunInTerminalRequests.keys.sorted() {
+            completeRunInTerminalRequest(requestID, result: .failure(error))
+        }
+    }
+
+    private func discardPendingRunInTerminalRequests() {
+        let pending = pendingRunInTerminalRequests.values
+        pendingRunInTerminalRequests = [:]
+        pending.forEach { $0.deadline.cancel() }
     }
 
     private static func makeCapabilities(

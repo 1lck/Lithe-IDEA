@@ -51,6 +51,7 @@ extension AppModel {
 
     func activateDebugModule() async -> DebugFeatureAccess? {
         if let genericFeature = genericDebugFeatureIfActive {
+            configureDebugRunInTerminalHandler(genericFeature)
             if let workspaceURL { genericFeature.openWorkspace(at: workspaceURL) }
             return DebugFeatureAccess(genericFeature: genericFeature)
         }
@@ -58,6 +59,7 @@ extension AppModel {
             let value = try await services.moduleRuntime.activateCapability(.debugWorkspace)
             guard let capability = value as? LitheDebugModule.DebugModuleCapability,
                   let genericFeature = capability.genericFeature as? GenericDebugFeatureModel else { return nil }
+            configureDebugRunInTerminalHandler(genericFeature)
             cacheModuleCapability(capability, id: .debugWorkspace, moduleID: .debug)
             genericFeature.onStoppedLocation = { [weak self] url, line, column in
                 self?.openSourceLocation(url: url, line: line, column: column)
@@ -75,6 +77,16 @@ extension AppModel {
         } catch {
             showNotification(error.localizedDescription)
             return nil
+        }
+    }
+
+    private func configureDebugRunInTerminalHandler(_ feature: GenericDebugFeatureModel) {
+        feature.onRunInTerminalRequest = { [weak self] request, completion in
+            guard let self else {
+                completion(.failure(DebugAdapterCapabilityError.unsupported("run in terminal")))
+                return
+            }
+            handleDebugRunInTerminalRequest(request, completion: completion)
         }
     }
 

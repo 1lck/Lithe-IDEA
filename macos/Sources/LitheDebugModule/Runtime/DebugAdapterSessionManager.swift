@@ -14,6 +14,13 @@ public final class DebugAdapterSessionManager: ObservableObject {
 
     public var onStateChange: ((String, DebugAdapterState) -> Void)?
     public var onEvent: ((String, DebugAdapterEvent) -> Void)?
+    public var onRunInTerminalRequest: DebugRunInTerminalRequestHandler? {
+        didSet {
+            for session in sessions.values {
+                configureRunInTerminalHandler(session)
+            }
+        }
+    }
 
     private let providers: [DebugProviderDescriptor]
     private let makeSession: @MainActor (
@@ -182,6 +189,7 @@ public final class DebugAdapterSessionManager: ObservableObject {
         _ session: any DebugAdapterSession,
         providerID: String
     ) {
+        configureRunInTerminalHandler(session)
         guard let controlling = session as? any DebugAdapterControllingSession else { return }
         controlling.onStateChange = { [weak self] state in
             self?.states[providerID] = state
@@ -204,5 +212,10 @@ public final class DebugAdapterSessionManager: ObservableObject {
                 }
             }
         }
+    }
+
+    private func configureRunInTerminalHandler(_ session: any DebugAdapterSession) {
+        guard let session = session as? any DebugAdapterRunInTerminalSession else { return }
+        session.onRunInTerminalRequest = onRunInTerminalRequest
     }
 }

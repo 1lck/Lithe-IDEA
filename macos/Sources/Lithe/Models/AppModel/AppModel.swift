@@ -8,7 +8,6 @@ import LitheLocalHistoryModule
 import LitheLanguageIntelligenceModule
 import LitheModuleAPI
 import LitheSearchModule
-import LitheTerminalModule
 import LitheWorkspaceModule
 import LitheCoreContracts
 
@@ -164,6 +163,7 @@ final class AppModel: ObservableObject, Identifiable {
     let discourseCommunityFeature: DiscourseCommunityFeatureModel
     let editorTabOrderFeature = EditorTabOrderFeatureModel()
     let terminalPlacementFeature: TerminalPlacementFeatureModel
+    var debugTerminalSessionIDs: Set<UUID> = []
     private struct CachedModuleCapability {
         let moduleID: ModuleID
         let value: AnyObject
@@ -181,28 +181,6 @@ final class AppModel: ObservableObject, Identifiable {
     }
     var searchCapability: LitheSearchModule.SearchModuleCapability? {
         cachedModuleCapability(.searchWorkspace)
-    }
-    var terminalCapability: LitheTerminalModule.TerminalModuleCapability? {
-        cachedModuleCapability(.terminalWorkspace)
-    }
-    var terminalFeature: TerminalFeatureModel? { terminalCapability?.feature }
-    var availableTerminalShells: [String] { terminalFeature?.availableShells ?? [] }
-
-    @MainActor
-    func activateTerminalModule() async -> Bool {
-        guard terminalCapability == nil else { return true }
-        do {
-            let value = try await services.moduleRuntime.activateCapability(.terminalWorkspace)
-            guard let capability = value as? LitheTerminalModule.TerminalModuleCapability else { return false }
-            let feature = capability.feature
-            cacheModuleCapability(capability, id: .terminalWorkspace, moduleID: .terminal)
-            observeModuleFeature(.terminal, observation: feature.objectWillChange.sink { [weak self] _ in
-                self?.scheduleObjectWillChangeRelay()
-            })
-            return true
-        } catch {
-            return false
-        }
     }
     var historyCapability: LitheLocalHistoryModule.HistoryModuleCapability? {
         cachedModuleCapability(.historyWorkspace)

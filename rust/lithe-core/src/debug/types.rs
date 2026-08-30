@@ -25,6 +25,9 @@ pub struct CreateSessionRequest {
     pub session_id: String,
     pub adapter_id: String,
     pub root_path: String,
+    /// Whether the native host can launch adapter-requested processes in a terminal.
+    #[serde(default)]
+    pub supports_run_in_terminal_request: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -433,6 +436,52 @@ pub struct ReceiveRequest {
     pub data_base64: String,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Terminal surface requested by a Debug Adapter Protocol reverse request.
+pub enum DebugRunInTerminalKind {
+    Integrated,
+    External,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// One deterministic environment mutation requested for a debuggee process.
+pub struct DebugRunInTerminalEnvironmentVariable {
+    pub name: String,
+    /// A missing value removes the inherited variable from the child environment.
+    pub value: Option<String>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Normalized platform request for launching a debuggee inside a terminal.
+pub struct DebugRunInTerminalRequest {
+    pub kind: DebugRunInTerminalKind,
+    pub title: Option<String>,
+    pub cwd: String,
+    /// The executable is the first item; remaining items are passed without a shell.
+    pub args: Vec<String>,
+    pub environment: Vec<DebugRunInTerminalEnvironmentVariable>,
+    /// True only when the adapter intentionally supplied shell-language arguments.
+    pub args_can_be_interpreted_by_shell: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Completes one pending `runInTerminal` reverse request from the native host.
+pub struct DebugRunInTerminalResponseRequest {
+    pub session_id: String,
+    pub request_id: String,
+    pub success: bool,
+    #[serde(default)]
+    pub process_id: Option<i64>,
+    #[serde(default)]
+    pub shell_process_id: Option<i64>,
+    #[serde(default)]
+    pub message: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// Effects produced by one deterministic session reduction.
@@ -521,6 +570,10 @@ pub enum DebugEventBody {
     },
     Breakpoint {
         breakpoint: DebugBreakpoint,
+    },
+    RunInTerminalRequested {
+        request_id: String,
+        request: DebugRunInTerminalRequest,
     },
     OperationCompleted {
         operation_id: String,

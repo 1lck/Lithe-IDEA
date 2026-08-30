@@ -22,6 +22,37 @@ struct TerminalModuleTests {
     }
 
     @Test
+    func managedProcessLaunchPreservesArgumentsEnvironmentAndProcessID() throws {
+        let transport = TestTransport()
+        let feature = TerminalFeatureModel(terminalFactory: { transport })
+        let launch = TerminalProcessLaunch(
+            title: "Debug Main",
+            executablePath: "/opt/jdk/bin/java",
+            arguments: ["-cp", "/workspace/classes", "example.Main"],
+            workingDirectory: "/workspace",
+            environmentChanges: [
+                TerminalEnvironmentChange(name: "JAVA_HOME", value: "/opt/jdk"),
+                TerminalEnvironmentChange(name: "REMOVE_ME", value: nil)
+            ]
+        )
+
+        let created = try feature.createProcessSession(launch)
+
+        #expect(created.processID == 1234)
+        #expect(created.session.isManagedProcess)
+        #expect(created.session.displayTitle == "Debug Main")
+        #expect(transport.processLaunches == [launch])
+        #expect(transport.processEnvironments.first?["JAVA_HOME"] == "/opt/jdk")
+        #expect(transport.processEnvironments.first?["REMOVE_ME"] == nil)
+        #expect(transport.processEnvironments.first?["TERM_PROGRAM"] == "Lithe")
+        created.session.restart()
+        #expect(transport.processLaunches.count == 1)
+
+        feature.stopAllSessions()
+        #expect(transport.stopCount == 1)
+    }
+
+    @Test
     func linkResolverKeepsExternalURLsAndResolvesLocations() {
         let workspace = URL(fileURLWithPath: "/tmp/lithe-terminal-module-test")
         let expected = workspace.appendingPathComponent("Sources/App.swift").standardizedFileURL
@@ -42,15 +73,27 @@ struct TerminalModuleTests {
 private final class TestTransport: TerminalTransport {
     let nativeView: AnyObject = NSObject()
     var isRunning = false
+    var processID: Int32? { isRunning ? 1234 : nil }
     var shellName = "Shell"
     var onTermination: ((Int32?) -> Void)?
     var onTitle: ((String) -> Void)?
     var onDirectoryUpdate: ((String?) -> Void)?
     var onLink: ((String, [String: String]) -> Void)?
     var stopCount = 0
+    var processLaunches: [TerminalProcessLaunch] = []
+    var processEnvironments: [[String: String]] = []
     func defaultShellPath() -> String { "/bin/zsh" }
-    func defaultEnvironment() -> [String: String] { [:] }
+    func defaultEnvironment() -> [String: String] { ["REMOVE_ME": "old"] }
     func start(workingDirectory: String, shellPath: String, environment: [String: String]) throws { isRunning = true }
+    func startProcess(
+        _ launch: TerminalProcessLaunch,
+        environment: [String: String]
+    ) throws -> Int32 {
+        processLaunches.append(launch)
+        processEnvironments.append(environment)
+        isRunning = true
+        return 1234
+    }
     func send(_ input: Data) throws {}
     func interrupt() throws {}
     func focus() {}

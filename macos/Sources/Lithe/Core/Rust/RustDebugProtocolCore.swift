@@ -45,14 +45,16 @@ extension RustCoreBridge: DebugProtocolCore {
     func createDebugSession(
         sessionID: String,
         adapterID: String,
-        rootPath: String
+        rootPath: String,
+        supportsRunInTerminalRequest: Bool
     ) throws -> DebugCoreUpdate {
         try executeResult(
             command: "debug.createSession",
             payload: DebugCreateSessionPayload(
                 sessionID: sessionID,
                 adapterID: adapterID,
-                rootPath: rootPath
+                rootPath: rootPath,
+                supportsRunInTerminalRequest: supportsRunInTerminalRequest
             )
         ).get()
     }
@@ -251,6 +253,38 @@ extension RustCoreBridge: DebugProtocolCore {
         ).get()
     }
 
+    func completeDebugRunInTerminalRequest(
+        sessionID: String,
+        requestID: String,
+        result: Result<DebugRunInTerminalResponse, Error>
+    ) throws -> DebugCoreUpdate {
+        let payload: DebugRunInTerminalResponsePayload
+        switch result {
+        case .success(let response):
+            payload = DebugRunInTerminalResponsePayload(
+                sessionID: sessionID,
+                requestID: requestID,
+                success: true,
+                processID: response.processID,
+                shellProcessID: response.shellProcessID,
+                message: nil
+            )
+        case .failure(let error):
+            payload = DebugRunInTerminalResponsePayload(
+                sessionID: sessionID,
+                requestID: requestID,
+                success: false,
+                processID: nil,
+                shellProcessID: nil,
+                message: error.localizedDescription
+            )
+        }
+        return try executeResult(
+            command: "debug.runInTerminalResponse",
+            payload: payload
+        ).get()
+    }
+
     func disconnectDebugSession(sessionID: String) throws -> DebugCoreUpdate {
         try executeResult(
             command: "debug.disconnect",
@@ -318,11 +352,30 @@ private struct DebugCreateSessionPayload: Encodable {
     let sessionID: String
     let adapterID: String
     let rootPath: String
+    let supportsRunInTerminalRequest: Bool
 
     private enum CodingKeys: String, CodingKey {
         case sessionID = "sessionId"
         case adapterID = "adapterId"
-        case rootPath
+        case rootPath, supportsRunInTerminalRequest
+    }
+}
+
+private struct DebugRunInTerminalResponsePayload: Encodable {
+    let sessionID: String
+    let requestID: String
+    let success: Bool
+    let processID: Int?
+    let shellProcessID: Int?
+    let message: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionID = "sessionId"
+        case requestID = "requestId"
+        case success
+        case processID = "processId"
+        case shellProcessID = "shellProcessId"
+        case message
     }
 }
 

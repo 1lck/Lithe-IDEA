@@ -1,7 +1,33 @@
+import Combine
 import Foundation
+import LitheCoreContracts
 import LitheTerminalModule
 
 extension AppModel {
+    var terminalCapability: LitheTerminalModule.TerminalModuleCapability? {
+        cachedModuleCapability(.terminalWorkspace)
+    }
+
+    var terminalFeature: TerminalFeatureModel? { terminalCapability?.feature }
+    var availableTerminalShells: [String] { terminalFeature?.availableShells ?? [] }
+
+    @MainActor
+    func activateTerminalModule() async -> Bool {
+        guard terminalCapability == nil else { return true }
+        do {
+            let value = try await services.moduleRuntime.activateCapability(.terminalWorkspace)
+            guard let capability = value as? LitheTerminalModule.TerminalModuleCapability else { return false }
+            let feature = capability.feature
+            cacheModuleCapability(capability, id: .terminalWorkspace, moduleID: .terminal)
+            observeModuleFeature(.terminal, observation: feature.objectWillChange.sink { [weak self] _ in
+                self?.scheduleObjectWillChangeRelay()
+            })
+            return true
+        } catch {
+            return false
+        }
+    }
+
     func toggleTerminal() {
         isTerminalVisible.toggle()
         guard isTerminalVisible else { return }
@@ -72,6 +98,79 @@ extension AppModel {
         session.onLink = { [weak self] link, params in
             self?.openTerminalLink(link, params: params, sessionID: sessionID)
         }
+    }
+
+    func handleDebugRunInTerminalRequest(
+        _ request: DebugRunInTerminalRequest,
+        completion: @escaping DebugRunInTerminalCompletion
+    ) {
+        Task { @MainActor [weak self] in
+            guard let self else {
+                completion(.failure(DebugTerminalLaunchError.hostUnavailable))
+                return
+            }
+            do {
+                completion(.success(try await startDebugProcessInTerminal(request)))
+            } catch {
+                completion(.failure(error))
+            }
+        }
+    }
+
+    private func startDebugProcessInTerminal(
+        _ request: DebugRunInTerminalRequest
+    ) async throws -> DebugRunInTerminalResponse {
+        guard request.kind == .integrated else {
+            throw DebugTerminalLaunchError.externalTerminalUnsupported
+        }
+        guard !request.argsCanBeInterpretedByShell else {
+            throw DebugTerminalLaunchError.shellInterpretationUnsupported
+        }
+        guard let executablePath = request.args.first, !executablePath.isEmpty else {
+            throw DebugTerminalLaunchError.missingExecutable
+        }
+        guard let workspaceURL else {
+            throw DebugTerminalLaunchError.workspaceUnavailable
+        }
+        guard await activateTerminalModule(), let feature = terminalFeature else {
+            throw DebugTerminalLaunchError.terminalUnavailable
+        }
+        let workingDirectory = request.cwd.isEmpty
+            ? workspaceURL.standardizedFileURL.path
+            : request.cwd
+        guard workingDirectory.hasPrefix("/") else {
+            throw DebugTerminalLaunchError.invalidWorkingDirectory
+        }
+        let launch = TerminalProcessLaunch(
+            title: request.title,
+            executablePath: executablePath,
+            arguments: Array(request.args.dropFirst()),
+            workingDirectory: workingDirectory,
+            environmentChanges: request.environment.map {
+                TerminalEnvironmentChange(name: $0.name, value: $0.value)
+            }
+        )
+        let created = try feature.createProcessSession(launch)
+        configureTerminalSession(created.session)
+        terminalPlacementFeature.registerSession(created.session.id)
+        debugTerminalSessionIDs.insert(created.session.id)
+        isTerminalVisible = true
+        isTestsVisible = false
+        isGitLogVisible = false
+        isReferencesVisible = false
+        isProblemsVisible = false
+        isMavenVisible = false
+        isRunVisible = false
+        isDebugVisible = false
+        created.session.focus()
+        return DebugRunInTerminalResponse(processID: Int(created.processID))
+    }
+
+    func stopDebugTerminalProcesses() {
+        for sessionID in debugTerminalSessionIDs.sorted(by: { $0.uuidString < $1.uuidString }) {
+            terminalSessions.first(where: { $0.id == sessionID })?.stop()
+        }
+        debugTerminalSessionIDs.removeAll()
     }
 
     private func openTerminalLink(_ link: String, params: [String: String], sessionID: UUID) {
@@ -160,6 +259,7 @@ extension AppModel {
 
     func closeTerminalSession(_ session: TerminalSession) {
         guard terminalSessions.contains(where: { $0.id == session.id }) else { return }
+        debugTerminalSessionIDs.remove(session.id)
         editorTabOrderFeature.remove(.terminal(session.id))
         terminalPlacementFeature.removeSession(session.id)
         terminalFeature?.closeSession(session)
@@ -172,6 +272,7 @@ extension AppModel {
     func restartActiveTerminal() { terminalFeature?.restartActiveSession() }
     func restartActiveTerminal(using shellPath: String) { terminalFeature?.restartActiveSession(using: shellPath) }
     func stopTerminalSessions() {
+        debugTerminalSessionIDs.removeAll()
         editorTabOrderFeature.removeAllTerminals()
         terminalPlacementFeature.reset()
         terminalFeature?.stopAllSessions()
@@ -184,5 +285,34 @@ extension AppModel {
     private func sessions(orderedBy sessionIDs: [UUID]) -> [TerminalSession] {
         let sessionsByID = Dictionary(uniqueKeysWithValues: terminalSessions.map { ($0.id, $0) })
         return sessionIDs.compactMap { sessionsByID[$0] }
+    }
+}
+
+private enum DebugTerminalLaunchError: LocalizedError {
+    case hostUnavailable
+    case externalTerminalUnsupported
+    case shellInterpretationUnsupported
+    case missingExecutable
+    case workspaceUnavailable
+    case terminalUnavailable
+    case invalidWorkingDirectory
+
+    var errorDescription: String? {
+        switch self {
+        case .hostUnavailable:
+            "The application closed before the debug terminal could start."
+        case .externalTerminalUnsupported:
+            "This debug session requires an external terminal, which is not supported."
+        case .shellInterpretationUnsupported:
+            "This debug session requires shell-interpreted terminal arguments."
+        case .missingExecutable:
+            "The debug adapter did not provide a terminal executable."
+        case .workspaceUnavailable:
+            "Open a project before starting a debug terminal."
+        case .terminalUnavailable:
+            "The integrated terminal is unavailable."
+        case .invalidWorkingDirectory:
+            "The debug adapter provided an invalid terminal working directory."
+        }
     }
 }

@@ -2,6 +2,7 @@ import Foundation
 import LitheCoreContracts
 import LitheDebugModule
 import LitheLanguageIntelligenceModule
+import LitheTerminalModule
 import Testing
 @testable import Lithe
 
@@ -120,10 +121,13 @@ struct RealJavaDebugIntegrationTests {
             )
         }
         let feature = GenericDebugFeatureModel(sessions: debugManager)
+        let debugTerminals = RealJavaDebugTerminalOwner(workspaceURL: rootURL)
+        feature.onRunInTerminalRequest = debugTerminals.handle
         var requestTask: Task<(Data, URLResponse), Error>?
         defer {
             requestTask?.cancel()
             feature.stop()
+            debugTerminals.stop()
             languageManager.stopAll()
             try? fileManager.removeItem(at: rootURL)
             try? fileManager.removeItem(at: cacheURL)
@@ -151,7 +155,7 @@ struct RealJavaDebugIntegrationTests {
         var arguments: [String: ToolingJSONValue] = [
             "mainClass": .string(target.mainClass),
             "cwd": .string(rootURL.path),
-            "console": .string("internalConsole"),
+            "console": .string("integratedTerminal"),
             "args": .string("--server.port=0")
         ]
         if let projectName = target.projectName {
@@ -345,6 +349,8 @@ struct RealJavaDebugIntegrationTests {
             )
         }
         let feature = GenericDebugFeatureModel(sessions: debugManager)
+        let debugTerminals = RealJavaDebugTerminalOwner(workspaceURL: rootURL)
+        feature.onRunInTerminalRequest = debugTerminals.handle
         let launchService = JavaTestDebugLaunchService(
             configurationResolver: DebugLaunchConfigurationResolver(
                 fileExists: { fileManager.fileExists(atPath: $0.path) },
@@ -354,6 +360,7 @@ struct RealJavaDebugIntegrationTests {
         )
         defer {
             feature.stop()
+            debugTerminals.stop()
             languageManager.stopAll()
         }
 
@@ -613,6 +620,63 @@ private enum RealJavaTestDebugScenario: String {
                 </dependency>
         """
     }
+}
+
+@MainActor
+private final class RealJavaDebugTerminalOwner {
+    private let workspaceURL: URL
+    private let feature = TerminalFeatureModel(
+        terminalFactory: { MacTerminalTransport() }
+    )
+
+    init(workspaceURL: URL) {
+        self.workspaceURL = workspaceURL.standardizedFileURL
+    }
+
+    func handle(
+        _ request: DebugRunInTerminalRequest,
+        completion: @escaping DebugRunInTerminalCompletion
+    ) {
+        do {
+            guard request.kind == .integrated else {
+                throw RealJavaDebugTerminalError.externalTerminalUnsupported
+            }
+            guard !request.argsCanBeInterpretedByShell else {
+                throw RealJavaDebugTerminalError.shellInterpretationUnsupported
+            }
+            guard let executablePath = request.args.first, !executablePath.isEmpty else {
+                throw RealJavaDebugTerminalError.missingExecutable
+            }
+            let workingDirectory = request.cwd.isEmpty ? workspaceURL.path : request.cwd
+            guard workingDirectory.hasPrefix("/") else {
+                throw RealJavaDebugTerminalError.invalidWorkingDirectory
+            }
+            let launch = TerminalProcessLaunch(
+                title: request.title,
+                executablePath: executablePath,
+                arguments: Array(request.args.dropFirst()),
+                workingDirectory: workingDirectory,
+                environmentChanges: request.environment.map {
+                    TerminalEnvironmentChange(name: $0.name, value: $0.value)
+                }
+            )
+            let created = try feature.createProcessSession(launch)
+            completion(.success(DebugRunInTerminalResponse(processID: Int(created.processID))))
+        } catch {
+            completion(.failure(error))
+        }
+    }
+
+    func stop() {
+        feature.stopAllSessions()
+    }
+}
+
+private enum RealJavaDebugTerminalError: Error {
+    case externalTerminalUnsupported
+    case shellInterpretationUnsupported
+    case missingExecutable
+    case invalidWorkingDirectory
 }
 
 @MainActor

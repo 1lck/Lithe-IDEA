@@ -77,6 +77,73 @@ public struct DebugLaunchConfiguration: Codable, Equatable, Sendable {
     }
 }
 
+public enum DebugRunInTerminalKind: String, Codable, Equatable, Sendable {
+    case integrated, external
+}
+
+public struct DebugRunInTerminalEnvironmentVariable: Codable, Equatable, Sendable {
+    public let name: String
+    public let value: String?
+
+    public init(name: String, value: String?) {
+        self.name = name
+        self.value = value
+    }
+}
+
+/// A normalized DAP reverse request. `args.first` is the executable and the
+/// remaining values stay as an argument array unless shell interpretation was
+/// explicitly requested by the adapter.
+public struct DebugRunInTerminalRequest: Codable, Equatable, Sendable {
+    public let kind: DebugRunInTerminalKind
+    public let title: String?
+    public let cwd: String
+    public let args: [String]
+    public let environment: [DebugRunInTerminalEnvironmentVariable]
+    public let argsCanBeInterpretedByShell: Bool
+
+    public init(
+        kind: DebugRunInTerminalKind,
+        title: String?,
+        cwd: String,
+        args: [String],
+        environment: [DebugRunInTerminalEnvironmentVariable],
+        argsCanBeInterpretedByShell: Bool
+    ) {
+        self.kind = kind
+        self.title = title
+        self.cwd = cwd
+        self.args = args
+        self.environment = environment
+        self.argsCanBeInterpretedByShell = argsCanBeInterpretedByShell
+    }
+}
+
+public struct DebugRunInTerminalResponse: Equatable, Sendable {
+    public let processID: Int?
+    public let shellProcessID: Int?
+
+    public init(processID: Int?, shellProcessID: Int? = nil) {
+        self.processID = processID
+        self.shellProcessID = shellProcessID
+    }
+}
+
+public typealias DebugRunInTerminalCompletion = (
+    Result<DebugRunInTerminalResponse, Error>
+) -> Void
+public typealias DebugRunInTerminalRequestHandler = (
+    DebugRunInTerminalRequest,
+    @escaping DebugRunInTerminalCompletion
+) -> Void
+
+/// Optional reverse-request surface implemented only by sessions whose native
+/// host can create an integrated terminal before DAP initialization begins.
+@MainActor
+public protocol DebugAdapterRunInTerminalSession: AnyObject {
+    var onRunInTerminalRequest: DebugRunInTerminalRequestHandler? { get set }
+}
+
 public struct DebugSteppingFilters: Codable, Equatable, Sendable {
     public let classNameFilters: [String]
     public let skipSynthetics: Bool

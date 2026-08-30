@@ -23,7 +23,7 @@
         "arguments": {
           "mainClass": "org.eclipse.jdt.internal.junit.runner.RemoteTestRunner",
           "cwd": "/workspace/service",
-          "console": "internalConsole",
+          "console": "integratedTerminal",
           "projectName": "service",
           "classPaths": ["/workspace/service/classes"],
           "args": "-version 3 -port 43127",
@@ -57,7 +57,7 @@
         "arguments": {
           "mainClass": "com.microsoft.java.test.runner.Launcher",
           "cwd": "/workspace/service",
-          "console": "internalConsole",
+          "console": "integratedTerminal",
           "projectName": "service",
           "classPaths": ["/workspace/service/classes", "/lithe/java-test-runner.jar"],
           "modulePaths": ["/workspace/service/modules"],

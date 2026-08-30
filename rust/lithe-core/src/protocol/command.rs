@@ -113,6 +113,8 @@ pub enum CoreCommand {
     DebugInspect,
     /// Reduces bytes received from a platform-owned DAP transport (`debug.receive`).
     DebugReceive,
+    /// Completes one adapter-requested terminal launch (`debug.runInTerminalResponse`).
+    DebugRunInTerminalResponse,
     /// Begins the DAP disconnect handshake (`debug.disconnect`).
     DebugDisconnect,
     /// Removes all state for a debug session (`debug.destroySession`).
@@ -278,6 +280,7 @@ impl CoreCommand {
             "debug.execute" => Some(Self::DebugExecute),
             "debug.inspect" => Some(Self::DebugInspect),
             "debug.receive" => Some(Self::DebugReceive),
+            "debug.runInTerminalResponse" => Some(Self::DebugRunInTerminalResponse),
             "debug.disconnect" => Some(Self::DebugDisconnect),
             "debug.destroySession" => Some(Self::DebugDestroySession),
             "lsp.applyTextEdits" => Some(Self::LspApplyTextEdits),
@@ -401,6 +404,7 @@ mod tests {
             "debug.execute",
             "debug.inspect",
             "debug.receive",
+            "debug.runInTerminalResponse",
             "debug.disconnect",
             "debug.destroySession",
         ] {

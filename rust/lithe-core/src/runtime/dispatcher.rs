@@ -750,6 +750,27 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::DebugRunInTerminalResponse => {
+            match serde_json::from_value::<crate::debug::DebugRunInTerminalResponseRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid debug run-in-terminal response",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::debug::run_in_terminal_response)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Debug run-in-terminal response update should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::DebugDisconnect => {
             match serde_json::from_value::<crate::debug::SessionRequest>(parsed.payload)
                 .map_err(|error| {

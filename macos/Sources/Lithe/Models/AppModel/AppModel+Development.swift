@@ -654,6 +654,7 @@ extension AppModel {
     func stopDebugging() {
         cancelJavaTestDebugLaunch()
         genericDebugFeatureIfActive?.stop()
+        stopDebugTerminalProcesses()
     }
 
     func cancelJavaTestDebugLaunch() {
@@ -679,8 +680,13 @@ extension AppModel {
     }
 
     func handleDebugSessionStateChange(_ state: DebugAdapterState) {
+        if state == .paused {
+            showDebugToolWindow()
+            return
+        }
         guard state == .terminated || state == .failed else { return }
         stopJavaTestResultServer()
+        stopDebugTerminalProcesses()
     }
 
     private func isCurrentJavaTestDebugLaunch(_ operationID: UUID) -> Bool {

@@ -30,7 +30,7 @@ verification scripts are the executable source of boundary checks.
 | Runtime | Java/Maven requirements, normalized candidates, and effective toolchain references | JDK/Maven probing and executable paths |
 | Language tooling | provider catalog, local fallback results, complete LSP process/session runtime, capabilities, diagnostics, UTF-16 edits, and normalized feature results | executable/environment discovery and UI provider routing |
 | Java/Maven/Spring | deterministic Maven-root selection, project structure, modules and profiles; compiler diagnostic parsing; Java source structure, symbols, code vision, run-configuration detection, Spring configuration/bean/endpoint indexing, and JDTLS/Java Debug adapter policy | JDK/Maven discovery, local dependency-repository selection, Java/Maven child processes, and sockets |
-| Run/Debug | versioned configuration documents, three-layer resolution, diagnostics, platform-neutral launch plans, DAP framing/state, breakpoint relocation, stepping filters, threads, stacks, variables, and events | project and preference persistence, native edit reporting, adapter discovery, child processes, sockets, native termination, and UI |
+| Run/Debug | versioned configuration documents, three-layer resolution, diagnostics, platform-neutral launch plans, DAP framing/state, reverse terminal requests, breakpoint relocation, stepping filters, threads, stacks, variables, and events | project and preference persistence, native edit reporting, adapter discovery, PTY/ConPTY debuggee launch, child processes, sockets, native termination, and UI |
 | Terminal | input bytes, output bytes, lifecycle | PTY/ConPTY, shell and environment |
 | Workbench background | versioned source (`none`, bundled slot `01`–`10`, or `custom`) and opacity | UI, image rendering, bundled-resource packaging, local-image access permission and persistence |
 | Local History | revision metadata, text content, restore result | persistence location and file operations |
@@ -222,6 +222,14 @@ named children before indexed children, exposes an in-tree load-more action,
 and discards stale pages after the selected frame changes. A native client must
 also stop offering more pages when an adapter returns more children than were
 requested or repeats an already loaded page.
+
+Debugger terminal launch ownership is split at the native boundary. Rust Core
+advertises terminal support, validates and normalizes DAP `runInTerminal`
+reverse requests, correlates the platform response, and rejects stale or
+duplicate completions. The platform Terminal module owns PTY/ConPTY creation,
+direct executable-and-argument startup, environment application, process IDs,
+terminal presentation, and native termination. A Debug session is still lazy:
+neither a terminal nor a debuggee process exists until an adapter requests one.
 
 Debugger disconnect ownership is portable. A session started with `launch`
 owns its local debuggee and sends `terminateDebuggee: true` when stopping. A

@@ -178,7 +178,7 @@ struct DebugLaunchConfigurationResolver {
         var arguments: [String: ToolingJSONValue] = [
             "mainClass": .string(mainClass),
             "cwd": .string(workingDirectory),
-            "console": .string("internalConsole")
+            "console": .string("integratedTerminal")
         ]
         if let projectName = target.projectName {
             arguments["projectName"] = .string(projectName)
