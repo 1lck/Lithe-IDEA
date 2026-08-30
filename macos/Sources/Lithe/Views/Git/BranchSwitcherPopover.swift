@@ -6,7 +6,7 @@ struct BranchSwitcherPopover: View {
         static let popupWidth: CGFloat = 375
         static let searchBarHeight: CGFloat = 56
         static let actionRowHeight: CGFloat = 30
-        static let branchRowHeight: CGFloat = 30
+        static let branchRowHeight: CGFloat = 28
         static let branchGroupHeaderHeight: CGFloat = 24
         static let minimumBranchListHeight: CGFloat = 160
         static let maximumBranchListHeight: CGFloat = 240
@@ -21,6 +21,7 @@ struct BranchSwitcherPopover: View {
     let onManageBranches: () -> Void
 
     @State private var searchQuery = ""
+    @State private var expandedLocalGroups: Set<String> = []
     @FocusState private var searchFocused: Bool
 
     var body: some View {
@@ -171,32 +172,20 @@ struct BranchSwitcherPopover: View {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         if searchQuery.isEmpty {
                             ForEach(recentReferenceRows) { row in
-                                branchRow(row.reference, indented: false)
+                                branchRow(row.reference, indented: false, presentation: .recent)
                             }
 
-                            if !recentReferences.isEmpty && !branchGroups.isEmpty {
+                            if !recentReferences.isEmpty && !filteredReferences.isEmpty {
                                 Rectangle()
                                     .fill(LitheTheme.divider)
                                     .frame(height: 1)
                                     .padding(.vertical, 6)
                             }
-                        }
 
-                        ForEach(branchGroups) { group in
-                            if !group.title.isEmpty {
-                                HStack(spacing: 7) {
-                                    Image(systemName: "chevron.down")
-                                        .font(.system(size: 8, weight: .bold))
-                                    Text(LocalizedStringKey(group.title))
-                                        .font(.system(size: 12, weight: .medium))
-                                }
-                                .foregroundStyle(LitheTheme.secondaryText)
-                                .padding(.horizontal, 14)
-                                .frame(height: Metrics.branchGroupHeaderHeight)
-                            }
-
-                            ForEach(group.rows) { row in
-                                branchRow(row.reference, indented: !group.title.isEmpty)
+                            groupedBranchRows
+                        } else {
+                            ForEach(searchResultRows) { row in
+                                branchRow(row.reference, indented: false, presentation: .searchResult)
                             }
                         }
                     }
@@ -247,18 +236,98 @@ struct BranchSwitcherPopover: View {
         .lithePointer()
     }
 
-    private func branchRow(_ reference: GitReference, indented: Bool) -> some View {
-        Button {
+    @ViewBuilder
+    private var groupedBranchRows: some View {
+        if !localReferences.isEmpty {
+            branchSectionHeader("Local")
+
+            ForEach(localRootRows) { row in
+                branchRow(row.reference, indented: true, presentation: .grouped)
+            }
+
+            ForEach(localNamespaceGroups) { group in
+                localNamespaceRow(group)
+                if expandedLocalGroups.contains(group.id) {
+                    ForEach(group.rows) { row in
+                        branchRow(row.reference, indented: true, presentation: .namespaceChild)
+                    }
+                }
+            }
+        }
+
+        ForEach(nonLocalGroups) { group in
+            branchSectionHeader(group.title)
+            ForEach(group.rows) { row in
+                branchRow(row.reference, indented: true, presentation: .grouped)
+            }
+        }
+    }
+
+    private func branchSectionHeader(_ title: String) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: "chevron.down")
+                .font(.system(size: 8, weight: .bold))
+            Text(LocalizedStringKey(title))
+                .font(.system(size: 12, weight: .medium))
+        }
+        .foregroundStyle(LitheTheme.secondaryText)
+        .padding(.horizontal, 14)
+        .frame(height: Metrics.branchGroupHeaderHeight)
+    }
+
+    private func localNamespaceRow(_ group: BranchPopupGroup) -> some View {
+        return Button {
+            if expandedLocalGroups.contains(group.id) {
+                expandedLocalGroups.remove(group.id)
+            } else {
+                expandedLocalGroups.insert(group.id)
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: expandedLocalGroups.contains(group.id) ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 8, weight: .bold))
+                    .frame(width: 12)
+                Image(systemName: "folder")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .frame(width: 17)
+                Text(group.title)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(LitheTheme.primaryText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+            }
+            .padding(.leading, 8)
+            .padding(.trailing, 9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: Metrics.branchRowHeight)
+            .contentShape(Rectangle())
+            .litheRowHover(cornerRadius: 5, hoverBackground: LitheTheme.subtleSelection)
+        }
+        .buttonStyle(.plain)
+        .lithePointer()
+    }
+
+    private func branchRow(
+        _ reference: GitReference,
+        indented: Bool,
+        presentation: BranchRowPresentation
+    ) -> some View {
+        let highlightsCurrent = presentation == .recent && reference.isCurrent
+
+        return Button {
+            guard !reference.isCurrent else { return }
             isPresented = false
             Task { await model.checkoutReference(reference) }
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: referenceIcon(reference))
+                Image(systemName: referenceIcon(reference, marksCurrent: presentation == .recent))
                     .font(.system(size: 11.5))
-                    .foregroundStyle(reference.isCurrent ? LitheTheme.warning : LitheTheme.secondaryText)
+                    .foregroundStyle(highlightsCurrent ? LitheTheme.warning : LitheTheme.secondaryText)
                     .frame(width: 17)
-                Text(branchDisplayName(reference, insideGroup: indented))
-                    .font(.system(size: 12.5, weight: reference.isCurrent ? .semibold : .regular))
+                Text(branchDisplayName(reference, presentation: presentation))
+                    .font(.system(size: 12.5))
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -276,22 +345,22 @@ struct BranchSwitcherPopover: View {
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
             }
-            .padding(.leading, indented ? 28 : 10)
+            .padding(.leading, branchRowLeadingPadding(indented: indented, presentation: presentation))
             .padding(.trailing, 9)
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: Metrics.branchRowHeight)
-            .background(reference.isCurrent ? LitheTheme.selection : .clear)
+            .background(highlightsCurrent ? LitheTheme.subtleSelection : .clear)
             .clipShape(RoundedRectangle(cornerRadius: 5))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .lithePointer()
-        .disabled(reference.isCurrent || model.isPerformingBranchOperation)
+        .disabled(model.isPerformingBranchOperation)
     }
 
     private var recentReferences: [GitReference] {
         guard normalizedQuery.isEmpty else { return [] }
-        return Array(model.gitReferences.prefix(3))
+        return Array(model.gitReferences.prefix(2))
     }
 
     private var recentReferenceRows: [BranchPopupRow] {
@@ -312,32 +381,71 @@ struct BranchSwitcherPopover: View {
         }
     }
 
-    private var branchGroups: [BranchPopupGroup] {
-        let grouped = Dictionary(grouping: filteredReferences) { reference -> String in
-            switch reference.kind {
-            case .remote: return "Remote"
-            case .tag: return "Tags"
-            case .local:
-                return "Local"
-            }
+    private var searchResultRows: [BranchPopupRow] {
+        sortedReferences(filteredReferences).map { reference in
+            BranchPopupRow(id: "search:\(reference.id)", reference: reference)
         }
+    }
 
-        return grouped.map { title, references in
-            let kind = references.first?.kind ?? .local
+    private var localReferences: [GitReference] {
+        sortedReferences(filteredReferences.filter { $0.kind == .local })
+    }
+
+    private var localRootRows: [BranchPopupRow] {
+        localReferences
+            .filter { localNamespace(for: $0) == nil }
+            .map { reference in
+                BranchPopupRow(id: "local-root:\(reference.id)", reference: reference)
+            }
+    }
+
+    private var localNamespaceGroups: [BranchPopupGroup] {
+        let grouped = Dictionary(grouping: localReferences.compactMap { reference -> (String, GitReference)? in
+            guard let namespace = localNamespace(for: reference) else { return nil }
+            return (namespace, reference)
+        }) { $0.0 }
+
+        return grouped.map { namespace, entries in
             return BranchPopupGroup(
-                title: title,
-                kind: kind,
-                references: references.sorted { lhs, rhs in
-                    if lhs.isCurrent != rhs.isCurrent { return lhs.isCurrent }
-                    return lhs.shortName.localizedStandardCompare(rhs.shortName) == .orderedAscending
-                }
+                title: namespace,
+                kind: .local,
+                references: sortedReferences(entries.map { $0.1 })
             )
         }
-        .sorted { lhs, rhs in
-            if lhs.title.isEmpty != rhs.title.isEmpty { return lhs.title.isEmpty }
-            if lhs.kind != rhs.kind { return popupKindOrder(lhs.kind) < popupKindOrder(rhs.kind) }
-            return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
+        .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+    }
+
+    private var nonLocalGroups: [BranchPopupGroup] {
+        [GitReferenceKind.remote, .tag].compactMap { kind in
+            let references = sortedReferences(filteredReferences.filter { $0.kind == kind })
+            guard !references.isEmpty else { return nil }
+            return BranchPopupGroup(
+                title: kind == .remote ? "Remote" : "Tags",
+                kind: kind,
+                references: references
+            )
         }
+    }
+
+    private func sortedReferences(_ references: [GitReference]) -> [GitReference] {
+        references.sorted { lhs, rhs in
+            if lhs.isCurrent != rhs.isCurrent { return lhs.isCurrent }
+            return lhs.shortName.localizedStandardCompare(rhs.shortName) == .orderedAscending
+        }
+    }
+
+    private func localNamespace(for reference: GitReference) -> String? {
+        let components = reference.shortName.split(separator: "/")
+        guard components.count > 1 else { return nil }
+        return components.dropLast().joined(separator: "/")
+    }
+
+    private func branchRowLeadingPadding(
+        indented: Bool,
+        presentation: BranchRowPresentation
+    ) -> CGFloat {
+        if presentation == .namespaceChild { return 48 }
+        return indented ? 28 : 10
     }
 
     private var normalizedQuery: String {
@@ -368,8 +476,8 @@ struct BranchSwitcherPopover: View {
             }
     }
 
-    private func referenceIcon(_ reference: GitReference) -> String {
-        if reference.isCurrent { return "star.fill" }
+    private func referenceIcon(_ reference: GitReference, marksCurrent: Bool) -> String {
+        if marksCurrent, reference.isCurrent { return "star" }
         switch reference.kind {
         case .local: return "point.3.connected.trianglepath.dotted"
         case .remote: return "cloud"
@@ -377,18 +485,20 @@ struct BranchSwitcherPopover: View {
         }
     }
 
-    private func branchDisplayName(_ reference: GitReference, insideGroup: Bool) -> String {
-        guard insideGroup, reference.kind == .local else { return reference.shortName }
+    private func branchDisplayName(
+        _ reference: GitReference,
+        presentation: BranchRowPresentation
+    ) -> String {
+        guard presentation == .namespaceChild else { return reference.shortName }
         return reference.shortName.split(separator: "/").last.map(String.init) ?? reference.shortName
     }
+}
 
-    private func popupKindOrder(_ kind: GitReferenceKind) -> Int {
-        switch kind {
-        case .local: 0
-        case .remote: 1
-        case .tag: 2
-        }
-    }
+private enum BranchRowPresentation {
+    case recent
+    case grouped
+    case namespaceChild
+    case searchResult
 }
 
 private struct BranchPopupGroup: Identifiable {
