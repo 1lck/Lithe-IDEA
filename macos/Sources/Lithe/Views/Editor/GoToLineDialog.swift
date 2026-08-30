@@ -26,7 +26,10 @@ enum GoToLineDialog {
         let coordinator = DialogCoordinator()
         coordinator.onConfirm = { NSApp.stopModal(withCode: okResponse) }
         coordinator.onCancel = { NSApp.stopModal(withCode: cancelResponse) }
-        let panel = makePanel(coordinator: coordinator)
+        let panel = makePanel(
+            coordinator: coordinator,
+            appearance: model.settings.themePreference.windowAppearance
+        )
         configureContent(panel: panel, coordinator: coordinator, initialValue: initialValue(for: model))
         center(panel: panel)
         panel.makeKeyAndOrderFront(nil)
@@ -49,7 +52,7 @@ enum GoToLineDialog {
         return "\(max(caret?.line ?? 0, 0) + 1):\(max(caret?.utf16Column ?? 0, 0) + 1)"
     }
 
-    private static func makePanel(coordinator: DialogCoordinator) -> NSPanel {
+    private static func makePanel(coordinator: DialogCoordinator, appearance: NSAppearance?) -> NSPanel {
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 340, height: 96),
             styleMask: [.titled, .closable],
@@ -60,6 +63,10 @@ enum GoToLineDialog {
         panel.isReleasedWhenClosed = false
         panel.level = .floating
         panel.delegate = coordinator
+        // Follow the same theme preference as the workbench windows; without
+        // this the panel falls back to the system appearance and renders
+        // light inside a dark-themed editor.
+        panel.appearance = appearance
         return panel
     }
 
