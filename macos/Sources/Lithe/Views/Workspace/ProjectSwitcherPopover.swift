@@ -54,7 +54,10 @@ struct ProjectSwitcherPopover: View {
             }
             .padding(8)
         }
-        .frame(width: 390, height: 520)
+        // Let the popover follow the content height instead of reserving a
+        // large empty panel when only a few projects are available.
+        .frame(width: 390)
+        .frame(maxHeight: 520)
         .background(LitheTheme.popupBackground)
     }
 
@@ -62,7 +65,7 @@ struct ProjectSwitcherPopover: View {
         Rectangle()
             .fill(LitheTheme.divider)
             .frame(height: 1)
-            .padding(.vertical, 10)
+            .padding(.vertical, 8)
     }
 
     private func sectionTitle(_ title: String) -> some View {
@@ -86,7 +89,7 @@ struct ProjectSwitcherPopover: View {
             .foregroundStyle(LitheTheme.primaryText)
             .padding(.horizontal, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 32)
+            .frame(height: 30)
             .contentShape(Rectangle())
             .litheRowHover(cornerRadius: 5)
         }
@@ -173,7 +176,7 @@ struct ProjectSwitcherPopover: View {
             }
         }
         .padding(.horizontal, 10)
-        .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
         .contentShape(Rectangle())
     }
 
