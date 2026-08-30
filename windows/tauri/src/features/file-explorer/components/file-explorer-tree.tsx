@@ -17,6 +17,8 @@ import { useShallow } from "zustand/react/shallow";
 import { useEventListener } from "usehooks-ts";
 import { useFileClipboardStore } from "@/features/file-explorer/stores/file-explorer-clipboard.store";
 import { useFileTreeStore } from "@/features/file-explorer/stores/file-explorer-tree.store";
+import { pasteIntoExplorerDirectory } from "@/features/file-explorer/lib/paste-into-explorer-directory";
+import { JavaClipboardPasteError } from "@/features/file-explorer/lib/paste-java-class-from-clipboard";
 import {
   collectFileTreeSearchHits,
   filterFileTreeEntries,
@@ -50,6 +52,7 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import Dialog from "@/ui/dialog";
 import { EmptyState } from "@/ui/empty";
+import { toast } from "sonner";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -1161,8 +1164,33 @@ function FileExplorerTreeComponent({
             const sep = current.path.includes("\\") ? "\\" : "/";
             const targetDir = isDir ? current.path : current.path.split(sep).slice(0, -1).join(sep);
             if (targetDir) {
-              clipboardActions.paste(targetDir).then(() => {
-                onRefreshDirectory?.(targetDir, { force: true });
+              void pasteIntoExplorerDirectory({
+                targetDirectory: targetDir,
+                createFileInDirectory: onCreateNewFileInDirectory,
+                refreshDirectory: onRefreshDirectory,
+                onJavaClassCreated: (fileName) => {
+                  toast.success(t("files.created", { name: fileName }));
+                },
+                onJavaClassFailed: (error) => {
+                  if (error instanceof JavaClipboardPasteError) {
+                    if (error.code === "exists") {
+                      toast.error(t("files.javaClassAlreadyExists", { name: error.fileName ?? "" }));
+                      return;
+                    }
+                    if (error.code === "remote") {
+                      toast.error(t("files.javaPasteRemoteUnsupported"));
+                      return;
+                    }
+                    toast.error(t("files.createFailed", { name: error.fileName ?? "Java class" }));
+                    return;
+                  }
+                  toast.error(t("files.createFailed", { name: "Java class" }), {
+                    description: error instanceof Error ? error.message : undefined,
+                  });
+                },
+                onNothingToPaste: () => {
+                  toast.error(t("files.nothingToPaste"));
+                },
               });
             }
             return;

@@ -26,7 +26,6 @@ import { useToast } from "@/features/layout/contexts/toast-context";
 import { TypedConfirmAction } from "@/features/settings/components/typed-confirm-action";
 import { Spinner } from "@/ui/spinner";
 import { getDefaultSetting, useSettingsStore } from "@/features/settings/stores/settings.store";
-import { useAuthStore } from "@/features/window/stores/auth.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import Badge from "@/ui/badge";
 import { Button } from "@/ui/button";
@@ -86,12 +85,7 @@ export const AISettings = () => {
   );
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
   const openCommandPaletteView = useUIState((state) => state.openCommandPaletteView);
-  const subscription = useAuthStore((state) => state.subscription);
   const { showToast } = useToast();
-  const enterprisePolicy = subscription?.enterprise?.policy;
-  const managedPolicy = enterprisePolicy?.managedMode ? enterprisePolicy : null;
-  const aiCompletionAllowedByPolicy = managedPolicy ? managedPolicy.aiCompletionEnabled : true;
-  const byokAllowedByPolicy = managedPolicy ? managedPolicy.allowByok : true;
 
   const [sessionConfigOptions, setSessionConfigOptions] = useState<SessionConfigOption[]>([]);
   const [isClearingChats, setIsClearingChats] = useState(false);
@@ -813,9 +807,8 @@ export const AISettings = () => {
           canReset={settings.aiCompletion !== getDefaultSetting("aiCompletion")}
         >
           <Switch
-            checked={aiCompletionAllowedByPolicy ? settings.aiCompletion : false}
+            checked={settings.aiCompletion}
             onChange={(checked) => updateSetting("aiCompletion", checked)}
-            disabled={!aiCompletionAllowedByPolicy}
             size="sm"
           />
         </SettingRow>
@@ -890,14 +883,13 @@ export const AISettings = () => {
                   placeholder="qwen2.5-coder:7b"
                   size="md"
                   className={SETTINGS_CONTROL_WIDTHS.xwide}
-                  disabled={!aiCompletionAllowedByPolicy}
                 />
               ) : (
                 <div className="flex items-center gap-2">
                   <Button
                     variant="default"
                     onClick={loadAutocompleteModels}
-                    disabled={isLoadingAutocompleteModels || !aiCompletionAllowedByPolicy}
+                    disabled={isLoadingAutocompleteModels}
                     title={t("aiSettings.refreshModelList")}
                     size="icon-xs"
                   >
@@ -919,11 +911,7 @@ export const AISettings = () => {
                     searchable
                     searchableTrigger="input"
                     className={SETTINGS_CONTROL_WIDTHS.xwide}
-                    disabled={
-                      !aiCompletionAllowedByPolicy ||
-                      isLoadingAutocompleteModels ||
-                      !hasAutocompleteModels
-                    }
+                    disabled={isLoadingAutocompleteModels || !hasAutocompleteModels}
                     placeholder={
                       isLoadingAutocompleteModels
                         ? t("aiSettings.loadingModelsEllipsis")
@@ -963,7 +951,6 @@ export const AISettings = () => {
                     placeholder="http://localhost:11434/v1"
                     size="md"
                     className={SETTINGS_CONTROL_WIDTHS.xwide}
-                    disabled={!aiCompletionAllowedByPolicy}
                   />
                 </SettingRow>
                 <SettingRow
@@ -986,14 +973,13 @@ export const AISettings = () => {
                       }
                       size="md"
                       className={SETTINGS_CONTROL_WIDTHS.wide}
-                      disabled={!aiCompletionAllowedByPolicy || isSavingCustomAutocompleteApiKey}
+                      disabled={isSavingCustomAutocompleteApiKey}
                     />
                     <Button
                       variant="default"
                       onClick={handleSaveCustomAutocompleteApiKey}
                       disabled={
                         !customAutocompleteApiKeyInput.trim() ||
-                        !aiCompletionAllowedByPolicy ||
                         isSavingCustomAutocompleteApiKey
                       }
                       size="sm"
@@ -1004,7 +990,7 @@ export const AISettings = () => {
                       <Button
                         variant="default"
                         onClick={handleRemoveCustomAutocompleteApiKey}
-                        disabled={!aiCompletionAllowedByPolicy || isSavingCustomAutocompleteApiKey}
+                        disabled={isSavingCustomAutocompleteApiKey}
                         size="sm"
                       >
                         {t("ui.remove")}
@@ -1021,14 +1007,6 @@ export const AISettings = () => {
             )}
           </>
         )}
-        {managedPolicy ? (
-          <SettingRow
-            label={t("aiSettings.enterprisePolicy")}
-            description={`${aiCompletionAllowedByPolicy ? t("aiSettings.aiCompletionEnabled") : t("aiSettings.aiCompletionDisabled")} ${byokAllowedByPolicy ? t("aiSettings.byokAllowed") : t("aiSettings.byokBlocked")}`}
-          >
-            <Badge variant="default">{t("aiSettings.managed")}</Badge>
-          </SettingRow>
-        ) : null}
       </Section>
 
       <Section title={t("aiSettings.agentHistory")}>

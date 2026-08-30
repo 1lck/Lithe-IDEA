@@ -12,13 +12,13 @@ import {
 } from "@/features/ai/types/providers.types";
 import {
   buildProviderSystemPromptContext,
+  createCustomProvider,
   getProvider,
   shouldUseTauriFetchForProvider,
 } from "@/features/ai/services/providers/ai-provider-registry";
 import { isOllamaCloudUrl } from "@/features/ai/services/providers/ollama-provider";
 import { processStreamingResponse } from "@/utils/stream-utils";
 import { getProviderApiToken } from "@/features/ai/services/ai-token-service";
-import { canUseHostedProvider } from "@/features/ai/lib/provider-access";
 import { resolveChatCompletionTokenLimit } from "@/features/ai/lib/chat-completion-budget";
 import {
   getCustomProviderApiToken,
@@ -26,13 +26,9 @@ import {
   resolveCustomProviderModelId,
 } from "@/features/ai/lib/custom-provider-config";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
-import { getAuthToken } from "@/features/window/services/auth-api";
-import { useAuthStore } from "@/features/window/stores/auth.store";
-import { getApiBase } from "@/utils/api-base";
 import { AcpStreamHandler } from "./acp-stream-handler";
 import { buildContextPrompt, buildSystemPrompt } from "../utils/ai-context-builder";
 import { isTerminalAgent } from "../lib/terminal-agents";
-import { setCustomProviderBaseUrl } from "./providers/ai-provider-registry";
 import { CODEX_INTEGRATION_ID } from "../integrations/integration-registry";
 import { CodexIntegrationService } from "../integrations/codex/codex-integration-service";
 
@@ -84,6 +80,7 @@ function resolveProviderModelPair(providerId: string, modelId: string) {
     const customModelId = resolveCustomProviderModelId(
       useSettingsStore.getState().settings,
       modelId,
+      "chat",
     );
     if (customModelId.trim().length > 0) {
       return {
@@ -219,24 +216,18 @@ export const getChatCompletionStream = async (
 
     const settings = useSettingsStore.getState().settings;
     const customProviderBaseUrl =
-      providerId === "custom" ? resolveCustomProviderBaseUrl(settings) : "";
+      providerId === "custom" ? resolveCustomProviderBaseUrl(settings, "chat") : "";
     const apiKey =
       providerId === "custom"
-        ? await getCustomProviderApiToken()
+        ? await getCustomProviderApiToken("chat")
         : await getProviderApiToken(providerId);
-    const subscription = useAuthStore.getState().subscription;
-    const useHostedOpenRouter = !apiKey && canUseHostedProvider(providerId, subscription);
-    if (!apiKey && provider.requiresApiKey && !useHostedOpenRouter) {
+    if (!apiKey && provider.requiresApiKey) {
       throw new Error(`${provider.name} API key not found`);
     }
 
     if (providerId === "custom" && !customProviderBaseUrl) {
       throw new Error("Custom provider base URL is required. Add one in Settings -> Agent.");
     }
-    if (providerId === "custom") {
-      setCustomProviderBaseUrl(customProviderBaseUrl);
-    }
-
     // Ollama Cloud requires auth even though the provider config marks the
     // key as optional (since local Ollama doesn't need one).
     if (providerId === "ollama" && !apiKey) {
@@ -274,36 +265,11 @@ export const getChatCompletionStream = async (
       content: userMessage,
     });
 
-    if (useHostedOpenRouter) {
-      const token = await getAuthToken();
-      if (!token) {
-        throw new Error("Not authenticated");
-      }
-
-      const response = await tauriFetch(`${getApiBase()}/api/ai/chat`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          model: modelId,
-          messages,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        onError(errorText || `Hosted Lithe Agent request failed (${response.status})`);
-        return;
-      }
-
-      await processStreamingResponse(response, onChunk, onComplete, onError);
-      return;
-    }
-
     // Use provider abstraction
-    const providerImpl = getProvider(providerId);
+    const providerImpl =
+      providerId === "custom"
+        ? createCustomProvider(customProviderBaseUrl)
+        : getProvider(providerId);
     if (!providerImpl) {
       throw new Error(`Provider implementation not found: ${providerId}`);
     }

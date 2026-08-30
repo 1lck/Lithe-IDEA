@@ -223,7 +223,6 @@ interface AIProviderModelContribution {
   id: string;
   name: string;
   maxTokens: number;
-  proOnly?: boolean;
 }
 
 export interface AIProviderContribution {

@@ -18,6 +18,13 @@ const providers = new Map<string, AIProvider>();
 const extensionProviderIds = new Map<string, Set<string>>();
 const providerFetchModes = new Map<string, boolean>();
 const providerSystemPromptBuilders = new Map<string, (settings: Settings) => string>();
+const customProviderConfig: ProviderConfig = {
+  id: "custom",
+  name: "Custom",
+  apiUrl: "",
+  requiresApiKey: false,
+  maxTokens: 4096,
+};
 
 export interface AIProviderRuntimeContribution {
   extensionId: string;
@@ -100,14 +107,7 @@ function initializeProviders(): void {
   };
   providers.set("qwen", new OpenAICompatibleProvider(qwenConfig));
 
-  const customConfig: ProviderConfig = {
-    id: "custom",
-    name: "Custom",
-    apiUrl: "",
-    requiresApiKey: false,
-    maxTokens: 4096,
-  };
-  providers.set("custom", new OpenAICompatibleProvider(customConfig));
+  providers.set("custom", createCustomProvider(""));
 
   const ollamaConfig: ProviderConfig = {
     id: "ollama",
@@ -216,4 +216,10 @@ function getCustomProvider(): OpenAICompatibleProvider | undefined {
 
 export function setCustomProviderBaseUrl(baseUrl: string): void {
   getCustomProvider()?.setBaseUrl(baseUrl);
+}
+
+export function createCustomProvider(baseUrl: string): OpenAICompatibleProvider {
+  const provider = new OpenAICompatibleProvider(customProviderConfig);
+  provider.setBaseUrl(baseUrl);
+  return provider;
 }

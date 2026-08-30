@@ -1,12 +1,8 @@
 import { type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  canUseHostedProvider,
-  canUseProviderWithoutApiKey,
-} from "@/features/ai/lib/provider-access";
+import { canUseProviderWithoutApiKey } from "@/features/ai/lib/provider-access";
 import { useAIChatStore } from "@/features/ai/stores/ai-chat.store";
 import { getProviderById } from "@/features/ai/types/providers.types";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
-import { useAuthStore } from "@/features/window/stores/auth.store";
 import { useInlineEditToolbarStore } from "@/features/editor/stores/inline-edit-toolbar.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { toast } from "sonner";
@@ -140,8 +136,6 @@ export function useInlineEdit({
   const aiProviderId = useSettingsStore((state) => state.settings.aiProviderId);
   const aiModelId = useSettingsStore((state) => state.settings.aiModelId);
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  const subscription = useAuthStore((state) => state.subscription);
   const checkAllProviderApiKeys = useAIChatStore((state) => state.actions.checkAllProviderApiKeys);
 
   const getSelectionAnchorPosition = useCallback((): { line: number; column: number } | null => {
@@ -371,14 +365,9 @@ export function useInlineEdit({
       return;
     }
 
-    const enterprisePolicy = subscription?.enterprise?.policy;
-    const managedPolicy = enterprisePolicy?.managedMode ? enterprisePolicy : null;
-
     const hasStoredProviderKey =
       useAIChatStore.getState().providerApiKeys.get(aiProviderId) || false;
     const canUseProvider = canUseProviderWithoutApiKey({
-      providerId: aiProviderId,
-      subscription,
       hasStoredKey: hasStoredProviderKey,
       requiresApiKey: provider?.requiresApiKey ?? true,
     });
@@ -395,24 +384,6 @@ export function useInlineEdit({
       }
     }
 
-    const hasProviderKey = useAIChatStore.getState().providerApiKeys.get(aiProviderId) || false;
-    const useHosted = !hasProviderKey && canUseHostedProvider(aiProviderId, subscription);
-
-    if (useHosted && !isAuthenticated) {
-      toast.error(t("inlineEdit.signInRequired"));
-      return;
-    }
-
-    if (useHosted && managedPolicy && !managedPolicy.aiCompletionEnabled) {
-      toast.error(t("inlineEdit.disabledByPolicy"));
-      return;
-    }
-
-    if (!useHosted && managedPolicy && !managedPolicy.allowByok) {
-      toast.error(t("inlineEdit.byokDisabledByPolicy"));
-      return;
-    }
-
     const beforeSelection = documentContent.slice(Math.max(0, startOffset - 12000), startOffset);
     const afterSelection = documentContent.slice(endOffset, endOffset + 12000);
 
@@ -420,19 +391,17 @@ export function useInlineEdit({
     setIsInlineEditRunning(true);
 
     try {
-      const { editedText } = await requestInlineEdit(
-        {
-          provider: aiProviderId,
-          model: aiModelId,
-          beforeSelection,
-          selectedText,
-          afterSelection,
-          instruction: inlineEditInstruction.trim() || DEFAULT_INLINE_EDIT_INSTRUCTION,
-          filePath: buffer.path,
-          languageId: buffer.language,
-        },
-        { useHosted },
-      );
+      const { editedText } = await requestInlineEdit({
+        provider: aiProviderId,
+        customProviderScope: "chat",
+        model: aiModelId,
+        beforeSelection,
+        selectedText,
+        afterSelection,
+        instruction: inlineEditInstruction.trim() || DEFAULT_INLINE_EDIT_INSTRUCTION,
+        filePath: buffer.path,
+        languageId: buffer.language,
+      });
 
       if (!editedText.trim()) {
         toast.warning(t("inlineEdit.emptyResult"));
@@ -482,8 +451,6 @@ export function useInlineEdit({
   }, [
     buffer,
     resolveInlineEditRange,
-    isAuthenticated,
-    subscription,
     checkAllProviderApiKeys,
     aiProviderId,
     aiModelId,

@@ -1,4 +1,3 @@
-import { useAuthStore } from "@/features/window/stores/auth.store";
 import type { AvailableExtension } from "./extension-store-types";
 import { extensionRegistry } from "./extension-registry";
 import type { ExtensionManifest } from "../types/extension-manifest";
@@ -9,21 +8,6 @@ import {
 } from "../types/extension-contributions";
 
 const HIDDEN_MARKETPLACE_EXTENSION_IDS = new Set(["lithe.tsx"]);
-
-const normalizeExtensionId = (value: string) => value.trim().toLowerCase();
-
-export function isExtensionAllowedByEnterprisePolicy(extensionId: string): boolean {
-  const subscription = useAuthStore.getState().subscription;
-  const enterprise = subscription?.enterprise;
-  const policy = enterprise?.policy;
-
-  if (!enterprise?.has_access || !policy?.managedMode || !policy.requireExtensionAllowlist) {
-    return true;
-  }
-
-  const allowedIds = new Set((policy.allowedExtensionIds || []).map(normalizeExtensionId));
-  return allowedIds.has(normalizeExtensionId(extensionId));
-}
 
 export function mergeMarketplaceLanguageExtensions(
   extensions: ExtensionManifest[],

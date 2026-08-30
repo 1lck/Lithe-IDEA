@@ -80,7 +80,8 @@ async function uninstallLanguageArtifacts(languageIds: string[]) {
 }
 
 function withCdnCacheBuster(url: string): string {
-  if (!url.startsWith(`${getServiceUrls().extensionsCdnBaseUrl}/`)) {
+  const extensionsCdnBaseUrl = getServiceUrls().extensionsCdnBaseUrl;
+  if (!extensionsCdnBaseUrl || !url.startsWith(`${extensionsCdnBaseUrl}/`)) {
     return url;
   }
 

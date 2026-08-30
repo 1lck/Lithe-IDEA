@@ -229,6 +229,9 @@ extension AppModel {
         set { gitFeatureIfActive?.selectedGitCommit = newValue }
     }
     var selectedGitCommitFiles: [GitCommitFile] { gitFeatureIfActive?.selectedGitCommitFiles ?? [] }
+    var selectedGitCommitFilesLoadState: GitCommitFilesLoadState {
+        gitFeatureIfActive?.selectedGitCommitFilesLoadState ?? .idle
+    }
     var selectedGitCommitFile: GitCommitFile? {
         get { gitFeatureIfActive?.selectedGitCommitFile }
         set { gitFeatureIfActive?.selectedGitCommitFile = newValue }

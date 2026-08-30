@@ -1,5 +1,4 @@
 export type SettingsTab =
-  | "account"
   | "general"
   | "editor"
   | "git"
@@ -8,8 +7,6 @@ export type SettingsTab =
   | "keyboard"
   | "language"
   | "logs"
-  | "collaboration"
-  | "enterprise"
   | "advanced"
   | "terminal"
   | "file-explorer";

@@ -12,8 +12,6 @@ import { Spinner } from "@/ui/spinner";
 import { Avatar } from "@/ui/avatar";
 import { EmptyState } from "@/ui/empty";
 import { SidebarHeaderIconButton, SidebarHeader, SidebarSearchPopover } from "@/ui/sidebar";
-import { useAuthStore } from "@/features/window/stores/auth.store";
-import type { AuthUser } from "@/features/window/services/auth-api";
 import { formatRelativeDate } from "@/utils/date";
 import { matchesSearchQuery } from "@/utils/search-match";
 import { cn } from "@/utils/cn";
@@ -35,7 +33,6 @@ interface CommitItemProps {
   isSelected: boolean;
   syncState: "local" | "pushed";
   repoPath?: string;
-  account: AuthUser | null;
 }
 
 type HistorySearchScope = "all" | "message" | "author" | "hash";
@@ -63,13 +60,13 @@ function getCommitSearchFields(commit: GitCommit, scope: HistorySearchScope) {
 }
 
 const CommitItem = memo(
-  ({ commit, onViewCommitDiff, isSelected, syncState, repoPath, account }: CommitItemProps) => {
+  ({ commit, onViewCommitDiff, isSelected, syncState, repoPath }: CommitItemProps) => {
     const handleCommitClick = useCallback(() => {
       onViewCommitDiff(commit.hash);
     }, [commit.hash, onViewCommitDiff]);
 
     const shortHash = commit.hash.substring(0, 7);
-    const avatarUrl = getGitAuthorAvatarUrl(commit, account);
+    const avatarUrl = getGitAuthorAvatarUrl(commit);
 
     return (
       <div className="mb-0.5">
@@ -132,7 +129,6 @@ const GitCommitHistory = ({
   const hasMoreCommits = useGitStore((state) => state.hasMoreCommits);
   const isLoadingMoreCommits = useGitStore((state) => state.isLoadingMoreCommits);
   const actions = useGitStore((state) => state.actions);
-  const account = useAuthStore((state) => state.user);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const lastScrollTop = useRef(0);
   const scrollSetupTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -321,7 +317,6 @@ const GitCommitHistory = ({
                 isSelected={commit.hash === selectedCommitHash}
                 syncState={commitSyncStateByHash.get(commit.hash) ?? "pushed"}
                 repoPath={repoPath}
-                account={account}
               />
             ))}
 

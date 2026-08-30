@@ -7,7 +7,6 @@ import {
 import {
   FOOTER_LEADING_ITEM_IDS,
   FOOTER_TRAILING_ITEM_IDS,
-  HEADER_TRAILING_ITEM_IDS,
   SIDEBAR_ACTIVITY_ITEM_IDS,
 } from "@/features/layout/config/item-order";
 import type { Settings } from "@/features/settings/types/settings.types";
@@ -103,7 +102,6 @@ export const defaultSettings: Settings = {
   nativeMenuBar: false,
   compactMenuBar: true,
   windowTransparency: false,
-  headerTrailingItemsOrder: [...HEADER_TRAILING_ITEM_IDS],
   sidebarActivityItemsOrder: [...SIDEBAR_ACTIVITY_ITEM_IDS],
   hiddenSidebarActivityItems: [],
   footerLeadingItemsOrder: [...FOOTER_LEADING_ITEM_IDS],
@@ -167,15 +165,11 @@ export const defaultSettings: Settings = {
     docker: false,
     outline: true,
     aiChat: false,
-    teamCollaboration: false,
     breadcrumbs: true,
     persistentCommands: true,
     webViewer: false,
   },
   // Advanced
-  enterpriseManagedMode: false,
-  enterpriseRequireExtensionAllowlist: false,
-  enterpriseAllowedExtensionIds: [],
   // Other
   lastSettingsTab: "general",
   extensionsActiveTab: "all",
@@ -209,8 +203,6 @@ export const defaultSettings: Settings = {
   gitSidebarTabOrder: ["changes", "history"],
   githubSidebarSectionOrder: ["pull-requests", "issues", "actions"],
   enableInlineGitBlame: true,
-  // Telemetry
-  telemetry: false,
 };
 
 export const getDefaultSetting = <K extends keyof Settings>(key: K): Settings[K] =>
@@ -220,10 +212,8 @@ export function getDefaultSettingsSnapshot(): Settings {
   return {
     ...defaultSettings,
     coreFeatures: { ...defaultSettings.coreFeatures },
-    enterpriseAllowedExtensionIds: [...defaultSettings.enterpriseAllowedExtensionIds],
     hiddenFilePatterns: [...defaultSettings.hiddenFilePatterns],
     hiddenDirectoryPatterns: [...defaultSettings.hiddenDirectoryPatterns],
-    headerTrailingItemsOrder: [...defaultSettings.headerTrailingItemsOrder],
     sidebarActivityItemsOrder: [...defaultSettings.sidebarActivityItemsOrder],
     hiddenSidebarActivityItems: [...defaultSettings.hiddenSidebarActivityItems],
     collapsedActivityRailSections: [...defaultSettings.collapsedActivityRailSections],
