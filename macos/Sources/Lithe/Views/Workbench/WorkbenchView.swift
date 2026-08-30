@@ -435,7 +435,10 @@ struct WorkbenchView: View {
     private var topBar: some View {
         HStack(spacing: 9) {
             Button {
-                isProjectSwitcherPresented.toggle()
+                updateSwitcherPresentation(
+                    project: !isProjectSwitcherPresented,
+                    branch: false
+                )
             } label: {
                 HStack(spacing: 8) {
                     LitheLogo(size: 24)
@@ -471,8 +474,10 @@ struct WorkbenchView: View {
                 .padding(.horizontal, 5)
 
             Button {
-                isProjectSwitcherPresented = false
-                isBranchSwitcherPresented.toggle()
+                updateSwitcherPresentation(
+                    project: false,
+                    branch: !isBranchSwitcherPresented
+                )
                 if isBranchSwitcherPresented {
                     Task { await model.refreshGitHistory() }
                 }
@@ -540,7 +545,7 @@ struct WorkbenchView: View {
         return ZStack(alignment: .topLeading) {
             Color.clear
                 .contentShape(Rectangle())
-                .onTapGesture { isProjectSwitcherPresented = false }
+                .onTapGesture { updateSwitcherPresentation(project: false) }
 
             ZStack(alignment: .topLeading) {
                 WorkbenchPopoverArrow()
@@ -553,21 +558,21 @@ struct WorkbenchView: View {
                     .offset(x: placement.arrowCenterX - (chromeMetrics.arrowWidth / 2))
 
                 ProjectSwitcherPopover(
-                    isPresented: $isProjectSwitcherPresented,
+                    isPresented: instantProjectSwitcherPresentation,
                     onNewProject: {
-                        isProjectSwitcherPresented = false
+                        updateSwitcherPresentation(project: false)
                         model.chooseProject(title: "New Project", prompt: "Choose Folder")
                     },
                     onOpenProject: {
-                        isProjectSwitcherPresented = false
+                        updateSwitcherPresentation(project: false)
                         model.chooseProject()
                     },
                     onCloneRepository: {
-                        isProjectSwitcherPresented = false
+                        updateSwitcherPresentation(project: false)
                         model.showCloneRepository()
                     },
                     onOpenRecentProject: { project in
-                        isProjectSwitcherPresented = false
+                        updateSwitcherPresentation(project: false)
                         model.openProject(project.url)
                     }
                 )
@@ -577,7 +582,11 @@ struct WorkbenchView: View {
             }
             .offset(x: placement.popupX, y: buttonFrame.maxY)
         }
-        .onExitCommand { isProjectSwitcherPresented = false }
+        .transaction { transaction in
+            transaction.animation = nil
+            transaction.disablesAnimations = true
+        }
+        .onExitCommand { updateSwitcherPresentation(project: false) }
     }
 
     private func branchSwitcherOverlay(
@@ -595,7 +604,7 @@ struct WorkbenchView: View {
         return ZStack(alignment: .topLeading) {
             Color.clear
                 .contentShape(Rectangle())
-                .onTapGesture { isBranchSwitcherPresented = false }
+                .onTapGesture { updateSwitcherPresentation(branch: false) }
 
             ZStack(alignment: .topLeading) {
                 WorkbenchPopoverArrow()
@@ -608,25 +617,25 @@ struct WorkbenchView: View {
                     .offset(x: placement.arrowCenterX - (chromeMetrics.arrowWidth / 2))
 
                 BranchSwitcherPopover(
-                    isPresented: $isBranchSwitcherPresented,
+                    isPresented: instantBranchSwitcherPresentation,
                     onCommit: {
-                        isBranchSwitcherPresented = false
+                        updateSwitcherPresentation(branch: false)
                         model.selectedSidebar = .changes
                     },
                     onPush: { reference in
-                        isBranchSwitcherPresented = false
+                        updateSwitcherPresentation(branch: false)
                         pendingTopBarPushReference = reference
                     },
                     onNewBranch: { reference in
-                        isBranchSwitcherPresented = false
+                        updateSwitcherPresentation(branch: false)
                         newBranchReference = reference
                     },
                     onCheckoutRevision: {
-                        isBranchSwitcherPresented = false
+                        updateSwitcherPresentation(branch: false)
                         isCheckoutRevisionPresented = true
                     },
                     onManageBranches: {
-                        isBranchSwitcherPresented = false
+                        updateSwitcherPresentation(branch: false)
                         if !model.isGitLogVisible {
                             model.selectedSidebar = .changes
                             Task { await model.toggleGitLog() }
@@ -638,7 +647,11 @@ struct WorkbenchView: View {
             }
             .offset(x: placement.popupX, y: buttonFrame.maxY)
         }
-        .onExitCommand { isBranchSwitcherPresented = false }
+        .transaction { transaction in
+            transaction.animation = nil
+            transaction.disablesAnimations = true
+        }
+        .onExitCommand { updateSwitcherPresentation(branch: false) }
     }
 
     private func workbenchPopoverPlacement(
@@ -658,6 +671,36 @@ struct WorkbenchView: View {
             popupWidth - metrics.arrowWidth
         )
         return (popupX, arrowCenterX)
+    }
+
+    private var instantProjectSwitcherPresentation: Binding<Bool> {
+        Binding(
+            get: { isProjectSwitcherPresented },
+            set: { updateSwitcherPresentation(project: $0) }
+        )
+    }
+
+    private var instantBranchSwitcherPresentation: Binding<Bool> {
+        Binding(
+            get: { isBranchSwitcherPresented },
+            set: { updateSwitcherPresentation(branch: $0) }
+        )
+    }
+
+    private func updateSwitcherPresentation(
+        project: Bool? = nil,
+        branch: Bool? = nil
+    ) {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            if let project {
+                isProjectSwitcherPresented = project
+            }
+            if let branch {
+                isBranchSwitcherPresented = branch
+            }
+        }
     }
 
     private var backgroundPickerButton: some View {
