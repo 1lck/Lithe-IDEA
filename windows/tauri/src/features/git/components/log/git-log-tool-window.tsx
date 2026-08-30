@@ -10,6 +10,7 @@ import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useGitLogController } from "../../hooks/use-git-log-controller";
 import { useGitDiffActions } from "../../hooks/use-git-diff-actions";
 import { checkoutReference, createBranch } from "../../api/git-branches-api";
+import { createStash, getStashes, popStash } from "../../api/git-stash-api";
 import {
   checkoutAndRebase,
   mergeBranch,
@@ -143,13 +144,33 @@ export function GitLogToolWindow() {
                     reference,
                     action === "pullRebase" ? "rebase" : "merge",
                   );
-        reportIntegration(
-          outcome,
-          t("git.log.actionSucceeded", {
-            action: t(`git.log.action.${action}`),
-            reference: reference.shortName,
-          }),
-        );
+        if (outcome.status === "blocked" && (action === "pullRebase" || action === "pullMerge")) {
+          const save = await showConfirmDialog(
+            t("git.log.operationBlocked", { paths: outcome.blockingPaths.join(", ") }),
+            { title: t("git.stashChanges") },
+          );
+          if (save) {
+            const before = await getStashes(repoPath);
+            if (!await createStash(repoPath, "Lithe auto-stash before pull", true)) {
+              toast.error(t("git.stashFailed"));
+            } else {
+              const retry = await pullRemoteReference(repoPath, reference, action === "pullRebase" ? "rebase" : "merge");
+              reportIntegration(
+                retry,
+                t("git.log.actionSucceeded", {
+                  action: t(`git.log.action.${action}`),
+                  reference: reference.shortName,
+                }),
+              );
+              if (retry.status === "clean") {
+                const after = await getStashes(repoPath);
+                if (after.length > before.length) await popStash(repoPath, after[0].index);
+              }
+            }
+          }
+        } else {
+          reportIntegration(outcome, t("git.log.actionSucceeded", { action: t(`git.log.action.${action}`), reference: reference.shortName }));
+        }
       }
       await refresh();
     } finally {
