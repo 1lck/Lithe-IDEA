@@ -87,6 +87,9 @@ extension AppModel {
                 self.activeDebugTerminalSessionIDsByDebugSession[$0]
             }
         }
+        feature.onSessionStopped = { [weak self] debugSessionID in
+            self?.stopDebugTerminalProcesses(for: debugSessionID)
+        }
         feature.onSessionRunInTerminalRequest = { [weak self] debugSessionID, request, completion in
             guard let self else {
                 completion(.failure(DebugAdapterCapabilityError.unsupported("run in terminal")))

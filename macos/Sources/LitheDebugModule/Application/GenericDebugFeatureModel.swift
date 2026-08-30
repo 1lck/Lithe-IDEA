@@ -267,6 +267,9 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
 
     /// Notifies the host when the visible debugger session changes.
     public var onSessionSelectionChanged: ((DebugSessionID?) -> Void)?
+    /// Notifies the host after a debugger session has been stopped and its
+    /// adapter resources have been released.
+    public var onSessionStopped: ((DebugSessionID) -> Void)?
 
     private let sessions: DebugAdapterSessionManager
     private let breakpointPersistence: (any DebugBreakpointPersisting)?
@@ -475,6 +478,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         sessions.stop(sessionID: sessionID)
         sessionSnapshots[sessionID] = nil
         sessionSummaries = sessions.sessionSummaries
+        onSessionStopped?(sessionID)
     }
 
     private func startSession(
@@ -561,6 +565,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         if let activeSessionID {
             sessions.stop(sessionID: activeSessionID)
             sessionSnapshots[activeSessionID] = nil
+            onSessionStopped?(activeSessionID)
         }
         sessionSummaries = sessions.sessionSummaries
         if let replacement = sessionSummaries.last,
