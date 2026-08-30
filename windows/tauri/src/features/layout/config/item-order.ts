@@ -31,6 +31,35 @@ export type SidebarActivityItemId = (typeof SIDEBAR_ACTIVITY_ITEM_IDS)[number];
 export type FooterLeadingItemId = (typeof FOOTER_LEADING_ITEM_IDS)[number] | "debugger";
 export type FooterTrailingItemId = (typeof FOOTER_TRAILING_ITEM_IDS)[number];
 
+interface SidebarActivityVisibilityFeatures {
+  search: boolean;
+  git: boolean;
+  terminal: boolean;
+  diagnostics: boolean;
+}
+
+export function sidebarActivityVisibilityItemIds(
+  features: SidebarActivityVisibilityFeatures,
+): SidebarActivityItemId[] {
+  return SIDEBAR_ACTIVITY_ITEM_IDS.filter((id) => {
+    if (id === "search") return features.search;
+    if (id === "git" || id === "gitLog") return features.git;
+    if (id === "terminal") return features.terminal;
+    if (id === "diagnostics") return features.diagnostics;
+    return true;
+  });
+}
+
+export function setSidebarActivityItemVisibility(
+  hiddenItemIds: readonly string[],
+  itemId: SidebarActivityItemId,
+  visible: boolean,
+): string[] {
+  return visible
+    ? hiddenItemIds.filter((hiddenItemId) => hiddenItemId !== itemId)
+    : [...new Set([...hiddenItemIds, itemId])];
+}
+
 export function normalizeItemOrder<T extends string>(
   persistedOrder: readonly T[] | undefined,
   defaultOrder: readonly T[],

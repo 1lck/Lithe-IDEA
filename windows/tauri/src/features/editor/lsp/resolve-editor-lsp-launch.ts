@@ -3,6 +3,7 @@ import { isJavaSourcePath, JAVA_LANGUAGE_ID, JAVA_PROVIDER_ID } from "./built-in
 import { resolveJavaLspLaunch, type JdtlsLaunchResources } from "./java-lsp-host-api";
 import type { MavenLaunchContext } from "@/features/maven/types/maven.types";
 import { mavenLaunchContextForWorkspace } from "@/features/maven/stores/maven.store";
+import type { WorkspaceLaunchScope } from "@/features/workspace/types/workspace-launch-scope";
 import { getRelativePath } from "@/utils/path-helpers";
 
 export interface EditorLspLaunch {
@@ -21,14 +22,30 @@ export interface EditorLspLaunch {
   mavenContext?: MavenLaunchContext | null;
 }
 
+export interface EditorLspLaunchDependencies {
+  resolveJavaLspLaunch: typeof resolveJavaLspLaunch;
+  mavenLaunchContextForWorkspace: typeof mavenLaunchContextForWorkspace;
+}
+
+const defaultDependencies: EditorLspLaunchDependencies = {
+  resolveJavaLspLaunch,
+  mavenLaunchContextForWorkspace,
+};
+
 export async function resolveEditorLspLaunch(
   filePath: string,
-  workspacePath: string,
+  scope: WorkspaceLaunchScope,
+  dependencies: EditorLspLaunchDependencies = defaultDependencies,
 ): Promise<EditorLspLaunch | null> {
+  const workspacePath = scope.root;
   if (isJavaSourcePath(filePath)) {
     const [launch, mavenContext] = await Promise.all([
-      resolveJavaLspLaunch(workspacePath),
-      mavenLaunchContextForWorkspace(workspacePath, [getRelativePath(filePath, workspacePath)]),
+      dependencies.resolveJavaLspLaunch(workspacePath),
+      dependencies.mavenLaunchContextForWorkspace(
+        workspacePath,
+        [getRelativePath(filePath, workspacePath)],
+        scope.workspaceId,
+      ),
     ]);
     const environment: Record<string, string> = {};
     if (launch.environment.JAVA_HOME) {

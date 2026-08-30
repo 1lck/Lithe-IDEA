@@ -1,11 +1,18 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type {
   MavenDiagnostic,
   MavenLaunchPlan,
   MavenProject,
   MavenStoredConfiguration,
 } from "../types/maven.types";
-import { createMavenStore, mavenLaunchContext, type MavenStoreDependencies } from "./maven.store";
+import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
+import {
+  createMavenStore,
+  mavenLaunchContext,
+  mavenLaunchContextForWorkspace,
+  useMavenStore,
+  type MavenStoreDependencies,
+} from "./maven.store";
 
 type Deferred<T> = {
   promise: Promise<T>;
@@ -93,7 +100,51 @@ beforeEach(() => {
   stopMavenProcess.mockClear();
 });
 
+afterEach(() => workspaceRuntimeRegistry.resetForTests());
+
 describe("Maven workspace state", () => {
+  test("resolves workspace A without mutating active workspace B", async () => {
+    const workspaceA = useMavenStore.getStore("workspace-a");
+    const workspaceB = useMavenStore.getStore("workspace-b");
+    const loadWorkspaceB = mock(async () => undefined);
+    workspaceA.setState({
+      root: "D:/work-a",
+      projectStatus: "ready",
+      project: { ...project, artifactId: "project-a" },
+    });
+    workspaceB.setState((state) => ({
+      root: "D:/work-b",
+      projectStatus: "ready",
+      project: { ...project, artifactId: "project-b" },
+      activeSessionId: "session-b",
+      output: "B output",
+      actions: { ...state.actions, loadProject: loadWorkspaceB },
+    }));
+    workspaceRuntimeRegistry.activateWorkspace({ id: "workspace-b", name: "B" }, "ready");
+    const workspaceBBefore = {
+      root: workspaceB.getState().root,
+      project: workspaceB.getState().project,
+      activeSessionId: workspaceB.getState().activeSessionId,
+      output: workspaceB.getState().output,
+    };
+
+    const context = await mavenLaunchContextForWorkspace(
+      "D:/work-a",
+      ["src/Main.java"],
+      "workspace-a",
+    );
+
+    expect(context?.reactorPath).toBe("reactor");
+    expect(workspaceRuntimeRegistry.getActiveWorkspaceId()).toBe("workspace-b");
+    expect({
+      root: workspaceB.getState().root,
+      project: workspaceB.getState().project,
+      activeSessionId: workspaceB.getState().activeSessionId,
+      output: workspaceB.getState().output,
+    }).toEqual(workspaceBBefore);
+    expect(loadWorkspaceB).not.toHaveBeenCalled();
+  });
+
   test("restores portable selections and machine-local paths into one launch context", async () => {
     loadMavenConfiguration.mockResolvedValue({
       portable: {

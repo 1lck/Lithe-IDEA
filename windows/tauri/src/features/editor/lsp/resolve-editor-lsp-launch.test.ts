@@ -1,4 +1,8 @@
-import { expect, mock, test } from "bun:test";
+import { afterEach, expect, mock, test } from "bun:test";
+import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
+import { resolveEditorLspLaunch } from "./resolve-editor-lsp-launch";
+
+afterEach(() => workspaceRuntimeRegistry.resetForTests());
 
 const resolveJavaLspLaunch = mock(async () => ({
   providerId: "java",
@@ -20,17 +24,23 @@ const mavenLaunchContextForWorkspace = mock(async () => ({
   javaHomePath: "C:/Java/jdk-21",
 }));
 
-mock.module("./java-lsp-host-api", () => ({ resolveJavaLspLaunch }));
-mock.module("@/features/maven/stores/maven.store", () => ({
-  mavenLaunchContextForWorkspace,
-}));
+test("resolves workspace A Maven context while workspace B is active", async () => {
+  workspaceRuntimeRegistry.activateWorkspace({ id: "workspace-b", name: "B" }, "ready");
+  const launch = await resolveEditorLspLaunch(
+    "D:/work-a/src/App.java",
+    {
+      workspaceId: "workspace-a",
+      root: "D:/work-a",
+    },
+    { resolveJavaLspLaunch, mavenLaunchContextForWorkspace },
+  );
 
-const { resolveEditorLspLaunch } = await import("./resolve-editor-lsp-launch");
-
-test("forwards the current Maven context to the Java language server", async () => {
-  const launch = await resolveEditorLspLaunch("D:/work/src/App.java", "D:/work");
-
-  expect(mavenLaunchContextForWorkspace).toHaveBeenCalledWith("D:/work", ["src/App.java"]);
+  expect(workspaceRuntimeRegistry.getActiveWorkspaceId()).toBe("workspace-b");
+  expect(mavenLaunchContextForWorkspace).toHaveBeenCalledWith(
+    "D:/work-a",
+    ["src/App.java"],
+    "workspace-a",
+  );
   expect(launch?.mavenContext).toEqual(
     expect.objectContaining({
       profiles: ["dev"],

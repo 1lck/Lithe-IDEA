@@ -4,6 +4,8 @@ import {
   SIDEBAR_ACTIVITY_ITEM_IDS,
   SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS,
   normalizeItemOrder,
+  setSidebarActivityItemVisibility,
+  sidebarActivityVisibilityItemIds,
 } from "./item-order";
 
 describe("footer item order", () => {
@@ -23,6 +25,34 @@ describe("footer item order", () => {
 });
 
 describe("sidebar activity order", () => {
+  test("includes Maven in the default visibility order", () => {
+    expect(
+      sidebarActivityVisibilityItemIds({
+        search: true,
+        git: true,
+        terminal: true,
+        diagnostics: true,
+      }),
+    ).toEqual([
+      "files",
+      "git",
+      "search",
+      "maven",
+      "run",
+      "terminal",
+      "diagnostics",
+      "gitLog",
+      "settings",
+    ]);
+  });
+
+  test("hides and restores Maven independently", () => {
+    const hidden = setSidebarActivityItemVisibility([], "maven", false);
+
+    expect(hidden).toEqual(["maven"]);
+    expect(setSidebarActivityItemVisibility(hidden, "maven", true)).toEqual([]);
+  });
+
   test("does not expose an unavailable Database placeholder", () => {
     expect([...SIDEBAR_ACTIVITY_ITEM_IDS]).not.toContain("database");
   });

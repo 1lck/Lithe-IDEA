@@ -555,7 +555,10 @@ const initializeLocalWorkspaceInBackground = (
           }
 
           operation.succeeded({ representativeJavaPath: policy.representativeJavaPath });
-          await getJavaWorkspaceLanguageServerOwner().prewarm(path, javaFile);
+          await getJavaWorkspaceLanguageServerOwner().prewarm(
+            { workspaceId, root: path },
+            javaFile,
+          );
         } catch (error) {
           operation.failed(error);
         }
@@ -3078,7 +3081,10 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
             cancelJavaWorkspaceChanges(projectId);
             const { getJavaWorkspaceLanguageServerOwner } =
               await import("@/features/editor/lsp/java-workspace-language-server");
-            await getJavaWorkspaceLanguageServerOwner().stop(path);
+            await getJavaWorkspaceLanguageServerOwner().stop({
+              workspaceId: projectId,
+              root: path,
+            });
             const terminalSessions = useTerminalStore.getStore(projectId).getState().sessions;
             await Promise.all(
               [...terminalSessions.values()].map(async (session) => {
