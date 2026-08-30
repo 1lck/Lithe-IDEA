@@ -1309,11 +1309,13 @@ fn has_component_annotation(context: &str) -> bool {
 /// Returns the explicit name of the earliest component annotation in source
 /// order. The value is read only from that annotation's own argument list so a
 /// later neighbor such as `@Component("c")` cannot pollute `@Service("s")`.
+/// An empty string such as `@Component("")` is not a name; callers then use
+/// the default type name.
 fn component_name(context: &str) -> Option<String> {
     let start = earliest_component_annotation_start(context)?;
     quoted_values(isolate_annotation_at(context, start))
         .into_iter()
-        .next()
+        .find(|value| !value.is_empty())
 }
 
 /// Locates every exact component annotation with the cached boundary patterns
@@ -1349,6 +1351,9 @@ fn bean_names(context: &str) -> Vec<String> {
         return Vec::new();
     };
     quoted_values(isolate_annotation_at(context, found.start()))
+        .into_iter()
+        .filter(|value| !value.is_empty())
+        .collect()
 }
 
 fn quoted_values(value: &str) -> Vec<String> {
@@ -1879,6 +1884,21 @@ mod tests {
         assert_eq!(component_name(r#"@Service @Component("c")"#), None);
         assert_eq!(component_name("@Service"), None);
         assert_eq!(component_name("@ServiceLocator(\"x\")"), None);
+    }
+
+    /// `quoted_values` accepts empty captures. An empty annotation value is not
+    /// an explicit bean name, so naming must return None and let bean_index use
+    /// the default type or method name.
+    #[test]
+    fn empty_annotation_values_are_not_explicit_bean_names() {
+        assert_eq!(component_name(r#"@Component("")"#), None);
+        assert_eq!(component_name(r#"@Service('')"#), None);
+        assert_eq!(
+            component_name(r#"@Component("") @Service("s")"#),
+            None,
+            "an empty leftmost name must not take a later neighbor"
+        );
+        assert_eq!(bean_names(r#"@Bean("")"#), Vec::<String>::new());
     }
 
     /// Record components and constructor parameters share one pattern, so a

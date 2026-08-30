@@ -431,6 +431,56 @@ public class ClockConfig {
     fs::remove_dir_all(root).expect("Spring fixture should be removable");
 }
 
+/// An empty `@Component("")` value is not a bean name. Indexing must fall back
+/// to the default type name instead of recording an empty id.
+#[test]
+fn spring_index_falls_back_when_a_component_name_is_an_empty_string() {
+    let root = temporary_root("spring-empty-component-name");
+    let java = root.join("src/main/java/demo");
+    fs::create_dir_all(&java).expect("Java fixture directory should be creatable");
+    fs::write(
+        java.join("EmptyName.java"),
+        "package demo;\n@Component(\"\")\npublic class EmptyName {}\n",
+    )
+    .expect("empty component fixture should be writable");
+    fs::write(
+        java.join("Neighbor.java"),
+        "package demo;\n@Component(\"\") @Service(\"s\")\npublic class Neighbor {}\n",
+    )
+    .expect("empty-then-neighbor fixture should be writable");
+
+    let response = execute_spring(
+        &root,
+        &[
+            "src/main/java/demo/EmptyName.java",
+            "src/main/java/demo/Neighbor.java",
+        ],
+        serde_json::json!({}),
+    );
+    assert_eq!(response["ok"], true, "{response}");
+
+    let beans = response["data"]["beans"].as_array().unwrap();
+    let empty_name = beans
+        .iter()
+        .find(|value| value["typeName"] == "EmptyName")
+        .unwrap_or_else(|| panic!("missing EmptyName bean: {response}"));
+    assert_eq!(empty_name["name"], "emptyName");
+    assert!(
+        empty_name["id"].as_str().unwrap().ends_with(":emptyName"),
+        "{response}"
+    );
+    let neighbor = beans
+        .iter()
+        .find(|value| value["typeName"] == "Neighbor")
+        .unwrap_or_else(|| panic!("missing Neighbor bean: {response}"));
+    assert_eq!(neighbor["name"], "neighbor");
+    assert_ne!(empty_name["name"], "");
+    assert_ne!(neighbor["name"], "");
+    assert_ne!(neighbor["name"], "s");
+
+    fs::remove_dir_all(root).expect("Spring fixture should be removable");
+}
+
 /// Custom annotations that only share a Mapping prefix must not become
 /// endpoints or class-level base routes; exact Spring Mapping names still do.
 #[test]
