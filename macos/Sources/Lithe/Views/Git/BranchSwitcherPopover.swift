@@ -168,8 +168,8 @@ struct BranchSwitcherPopover: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         if searchQuery.isEmpty {
-                            ForEach(recentReferences) { reference in
-                                branchRow(reference, indented: false)
+                            ForEach(recentReferenceRows) { row in
+                                branchRow(row.reference, indented: false)
                             }
 
                             if !recentReferences.isEmpty && !branchGroups.isEmpty {
@@ -193,8 +193,8 @@ struct BranchSwitcherPopover: View {
                                 .frame(height: Metrics.branchGroupHeaderHeight)
                             }
 
-                            ForEach(group.references) { reference in
-                                branchRow(reference, indented: !group.title.isEmpty)
+                            ForEach(group.rows) { row in
+                                branchRow(row.reference, indented: !group.title.isEmpty)
                             }
                         }
                     }
@@ -290,6 +290,15 @@ struct BranchSwitcherPopover: View {
         return Array(model.gitReferences.prefix(3))
     }
 
+    private var recentReferenceRows: [BranchPopupRow] {
+        recentReferences.map { reference in
+            BranchPopupRow(
+                id: "recent:\(reference.id)",
+                reference: reference
+            )
+        }
+    }
+
     private var filteredReferences: [GitReference] {
         let query = normalizedQuery
         guard !query.isEmpty else { return model.gitReferences }
@@ -364,6 +373,20 @@ private struct BranchPopupGroup: Identifiable {
     let references: [GitReference]
 
     var id: String { "\(kind.rawValue):\(title)" }
+
+    var rows: [BranchPopupRow] {
+        references.map { reference in
+            BranchPopupRow(
+                id: "group:\(id):\(reference.id)",
+                reference: reference
+            )
+        }
+    }
+}
+
+private struct BranchPopupRow: Identifiable {
+    let id: String
+    let reference: GitReference
 }
 
 struct TopBarNewBranchDialog: View {
