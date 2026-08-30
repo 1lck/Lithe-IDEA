@@ -279,6 +279,12 @@ struct GitLogView: View {
                             await model.mergeBranch(operation.reference)
                         case .rebase:
                             await model.rebaseCurrentBranch(onto: operation.reference)
+                        case .checkoutAndRebase:
+                            await model.checkoutAndRebase(operation.reference)
+                        case .pullRebase:
+                            await model.pullRemoteReference(operation.reference, strategy: .rebase)
+                        case .pullMerge:
+                            await model.pullRemoteReference(operation.reference, strategy: .merge)
                         }
                     }
                 }
@@ -824,6 +830,12 @@ struct GitLogView: View {
                 Task { await model.showComparisonWithWorkingTree(for: reference) }
             }
 
+            if let currentReference, currentReference.id != reference.id {
+                Button("Compare with Current Branch") {
+                    Task { await model.showComparison(from: reference, to: currentReference) }
+                }
+            }
+
             if let source = comparisonSourceReference, source.id != reference.id {
                 Button("Compare '\(source.shortName)' with '\(reference.shortName)'") {
                     comparisonSourceReference = nil
@@ -835,15 +847,61 @@ struct GitLogView: View {
                 }
             }
 
-            if reference.kind == .local {
+            if !reference.isCurrent {
                 Divider()
 
-                if !reference.isCurrent {
-                    Button("Checkout") {
-                        Task { await model.checkoutReference(reference) }
+                Button("Checkout") {
+                    Task { await model.checkoutReference(reference) }
+                }
+                .disabled(model.isPerformingBranchOperation)
+
+                if reference.kind != .tag {
+                    Button("Checkout and Rebase onto Current Branch") {
+                        pendingBranchOperation = GitBranchOperationRequest(
+                            kind: .checkoutAndRebase,
+                            reference: reference
+                        )
+                    }
+                    .disabled(model.isPerformingBranchOperation)
+
+                    Button("Merge into Current Branch") {
+                        pendingBranchOperation = GitBranchOperationRequest(
+                            kind: .merge,
+                            reference: reference
+                        )
+                    }
+                    .disabled(model.isPerformingBranchOperation)
+                    Button("Rebase Current Branch onto…") {
+                        pendingBranchOperation = GitBranchOperationRequest(
+                            kind: .rebase,
+                            reference: reference
+                        )
                     }
                     .disabled(model.isPerformingBranchOperation)
                 }
+            }
+
+            if reference.kind == .remote {
+                Divider()
+
+                Button("Pull with Rebase") {
+                    pendingBranchOperation = GitBranchOperationRequest(
+                        kind: .pullRebase,
+                        reference: reference
+                    )
+                }
+                .disabled(model.isPerformingBranchOperation)
+                Button("Pull with Merge") {
+                    pendingBranchOperation = GitBranchOperationRequest(
+                        kind: .pullMerge,
+                        reference: reference
+                    )
+                }
+                .disabled(model.isPerformingBranchOperation)
+            }
+
+            if reference.kind == .local {
+                Divider()
 
                 Button("Update") {
                     Task { await model.updateCurrentBranch(reference) }
@@ -856,18 +914,6 @@ struct GitLogView: View {
                 .disabled(model.isPerformingBranchOperation)
 
                 if !reference.isCurrent {
-                    Button("Merge into Current Branch") {
-                        pendingBranchOperation = GitBranchOperationRequest(
-                            kind: .merge,
-                            reference: reference
-                        )
-                    }
-                    Button("Rebase Current Branch onto…") {
-                        pendingBranchOperation = GitBranchOperationRequest(
-                            kind: .rebase,
-                            reference: reference
-                        )
-                    }
                     Button("Delete Branch", role: .destructive) {
                         pendingBranchOperation = GitBranchOperationRequest(
                             kind: .delete,
@@ -1899,12 +1945,18 @@ private enum GitBranchOperationKind {
     case delete
     case merge
     case rebase
+    case checkoutAndRebase
+    case pullRebase
+    case pullMerge
 
     var title: String {
         switch self {
         case .delete: "Delete branch?"
         case .merge: "Merge branch?"
         case .rebase: "Rebase branch?"
+        case .checkoutAndRebase: "Checkout and rebase branch?"
+        case .pullRebase: "Pull remote branch with rebase?"
+        case .pullMerge: "Pull remote branch with merge?"
         }
     }
 
@@ -1913,6 +1965,9 @@ private enum GitBranchOperationKind {
         case .delete: "Delete"
         case .merge: "Merge"
         case .rebase: "Rebase"
+        case .checkoutAndRebase: "Checkout and Rebase"
+        case .pullRebase: "Pull with Rebase"
+        case .pullMerge: "Pull with Merge"
         }
     }
 
@@ -1924,6 +1979,12 @@ private enum GitBranchOperationKind {
             return "Merge \(reference.shortName) into the current branch. Conflicts may require terminal resolution."
         case .rebase:
             return "Replay the current branch onto \(reference.shortName). Conflicts may require terminal resolution."
+        case .checkoutAndRebase:
+            return "Checkout \(reference.shortName), then replay it onto the branch that is current now."
+        case .pullRebase:
+            return "Pull \(reference.shortName) into the current branch and replay local commits."
+        case .pullMerge:
+            return "Pull \(reference.shortName) into the current branch with a merge."
         }
     }
 }

@@ -1,5 +1,7 @@
 //! Deterministic Git inspection and mutation behind the shared command contract.
 
+mod mutations;
+
 use crate::protocol::{CoreError, ErrorCode};
 use crate::protocol::{
     GitBlameLineResponse, GitBlameResponse, GitChange, GitCheckoutPreflightResponse,
@@ -552,6 +554,7 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
             }
             arguments = vec!["rebase".into(), reference];
         }
+        "checkoutAndRebase" => return mutations::checkout_and_rebase(&root, request),
         "fetch" => arguments = vec!["fetch".into(), "--all".into(), "--prune".into()],
         // Strategy comes from the caller because only the user can decide whether a
         // divergent history should be merged or replayed. Absent a choice we stay on
@@ -568,6 +571,17 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
                     ))
                 }
             };
+            if let Some(reference) = request.reference.as_deref() {
+                if request.reference_kind.as_deref() != Some("remote") {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Explicit pull requires a remote Git reference",
+                    ));
+                }
+                let reference = validated_reference(Some(reference))?;
+                let (remote, branch) = mutations::remote_branch_components(&root, &reference)?;
+                arguments.extend(["--".into(), remote, branch]);
+            }
         }
         "push" => return push(&root, request.reference.as_deref()),
         "checkout" => return checkout(&root, request),
@@ -626,7 +640,7 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
     execute_git(&root, &arguments, None)
 }
 
-fn execute_git(
+pub(super) fn execute_git(
     root: &str,
     arguments: &[String],
     input: Option<String>,
@@ -634,7 +648,7 @@ fn execute_git(
     execute_git_with_options(root, arguments, input, false)
 }
 
-fn execute_git_readonly(
+pub(super) fn execute_git_readonly(
     root: &str,
     arguments: &[String],
     input: Option<String>,
@@ -772,6 +786,7 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
         ));
     }
 
+    let include_untracked_with_reference = request.reference.is_some() && request.untracked;
     let mut arguments = if let Some(commit) = request.commit {
         validate_revision(&commit)?;
         vec![
@@ -810,13 +825,52 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
         arguments.push("--ignore-all-space".to_string());
     }
     arguments.push("--".to_string());
-    if request.untracked {
+    if request.untracked && !include_untracked_with_reference {
         arguments.push(null_device().to_string());
     }
     arguments.extend(request.pathspecs);
 
     let root = validate_root(&request.root)?;
-    let output = capture_git_with_options(&root, &arguments, None, true)?;
+    let mut output = capture_git_with_options(&root, &arguments, None, true)?;
+    if include_untracked_with_reference {
+        let status = readonly_command(GitCommandRequest {
+            root: root.clone(),
+            arguments: vec![
+                "status".into(),
+                "--porcelain".into(),
+                "--untracked-files=all".into(),
+            ],
+            input: None,
+        })?;
+        if status.exit_code != 0 {
+            return Err(
+                CoreError::new(ErrorCode::ProcessFailed, "Git status failed")
+                    .with_details(status.output),
+            );
+        }
+        for line in status.output.lines().filter(|line| line.starts_with("?? ")) {
+            let path = line[3..].trim();
+            if path.is_empty() || !is_safe_pathspec(path) {
+                continue;
+            }
+            let untracked = capture_git_with_options(
+                &root,
+                &[
+                    "diff".into(),
+                    "--no-ext-diff".into(),
+                    "--binary".into(),
+                    "--no-index".into(),
+                    "--".into(),
+                    null_device().into(),
+                    path.into(),
+                ],
+                None,
+                true,
+            )?;
+            output.stdout.extend(untracked.stdout);
+            output.stderr.extend(untracked.stderr);
+        }
+    }
     Ok(structured_diff_from_output(output))
 }
 
@@ -1748,7 +1802,7 @@ fn validated_revision(value: Option<&str>) -> Result<String, CoreError> {
     Ok(value)
 }
 
-fn validated_reference(value: Option<&str>) -> Result<String, CoreError> {
+pub(super) fn validated_reference(value: Option<&str>) -> Result<String, CoreError> {
     let value = required_text(value, "reference")?;
     if value.starts_with('-') || value.chars().any(char::is_whitespace) {
         return Err(CoreError::new(
@@ -1805,7 +1859,7 @@ fn local_branch_name(reference: &str) -> Result<String, CoreError> {
     Ok(branch.to_string())
 }
 
-fn current_branch(root: &str) -> Result<String, CoreError> {
+pub(super) fn current_branch(root: &str) -> Result<String, CoreError> {
     let response = execute_git(root, &["branch".into(), "--show-current".into()], None)?;
     if response.exit_code != 0 {
         return Err(CoreError::new(
@@ -2105,12 +2159,29 @@ fn publish_branch(root: &str, name: Option<&str>) -> Result<GitCommandResponse, 
 /// - `force`: `--discard-changes`, throwing the local edits away.
 /// - `auto_stash`: stash, switch, then restore the stash ("smart checkout").
 fn checkout(root: &str, request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> {
+    if request.reference_kind.as_deref() == Some("local") {
+        if let Some(reference) = request
+            .reference
+            .as_deref()
+            .filter(|value| !value.starts_with('-') && !value.chars().any(char::is_whitespace))
+        {
+            if is_current_reference(root, reference)? {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "The current branch is already checked out",
+                ));
+            }
+        }
+    }
     if request.auto_stash {
         return checkout_with_auto_stash(root, request);
     }
     switch_reference(root, &request)
 }
 
+/// Checks out a local or remote branch, then rebases it onto the branch that
+/// was current before the switch. A dirty tree is rejected before checkout so
+/// the composite operation cannot leave the repository half-switched.
 /// Stash, switch, restore. A failed switch leaves the stash untouched so the caller can
 /// recover it, and a conflicting restore is reported as a failure rather than silently
 /// leaving the entry behind.
@@ -2162,7 +2233,7 @@ fn checkout_with_auto_stash(
     Ok(restored)
 }
 
-fn switch_reference(
+pub(super) fn switch_reference(
     root: &str,
     request: &GitWriteRequest,
 ) -> Result<GitCommandResponse, CoreError> {
@@ -2185,13 +2256,8 @@ fn switch_reference(
             execute_git(root, &base, None)
         }
         Some("remote") => {
-            let remote_path = reference.strip_prefix("refs/remotes/").ok_or_else(|| {
-                CoreError::new(ErrorCode::InvalidRequest, "Invalid remote branch name")
-            })?;
-            let (_, local_name) = remote_path.split_once('/').ok_or_else(|| {
-                CoreError::new(ErrorCode::InvalidRequest, "Invalid remote branch name")
-            })?;
-            if !is_safe_pathspec(local_name) {
+            let (_, local_name) = mutations::remote_branch_components(root, &reference)?;
+            if !is_safe_pathspec(&local_name) {
                 return Err(CoreError::new(
                     ErrorCode::InvalidRequest,
                     "Invalid remote branch name",
@@ -2326,7 +2392,7 @@ fn parse_stash(line: &str) -> Option<GitStashResponse> {
     })
 }
 
-fn is_safe_pathspec(path: &str) -> bool {
+pub(super) fn is_safe_pathspec(path: &str) -> bool {
     let normalized = path.replace('\\', "/");
     !normalized.is_empty()
         && !normalized.starts_with('/')

@@ -157,6 +157,13 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
             payload.insert("pathspecs".into(), json!(["."]));
             "git.diff"
         }
+        "git_reference_worktree_diff" => {
+            let reference = take_reference(&mut payload)?;
+            payload.insert("reference".into(), json!(reference));
+            payload.insert("pathspecs".into(), json!(["."]));
+            payload.insert("untracked".into(), json!(true));
+            "git.diff"
+        }
         "git_stash_diff" => {
             let index = payload
                 .remove("stashIndex")
@@ -168,6 +175,16 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
         }
         "git_create_branch" => {
             move_field(&mut payload, "branchName", "name");
+            if !payload.contains_key("reference") {
+                if let Some(from_branch) = payload.remove("fromBranch") {
+                    let branch = from_branch
+                        .as_str()
+                        .filter(|value| !value.trim().is_empty())
+                        .map(local_branch_reference)
+                        .unwrap_or_else(|| "HEAD".to_string());
+                    payload.insert("reference".into(), json!(branch));
+                }
+            }
             payload.insert("operation".into(), json!("createBranch"));
             payload.entry("reference").or_insert_with(|| json!("HEAD"));
             "git.write"
@@ -179,20 +196,33 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
             "git.write"
         }
         "git_checkout" => {
-            let branch = take_text(&mut payload, "branchName")?;
-            payload.insert("reference".into(), json!(local_branch_reference(&branch)));
+            let reference = take_reference(&mut payload)?;
+            let reference_kind = reference_kind(&reference);
+            payload.insert("reference".into(), json!(reference));
             payload.insert("operation".into(), json!("checkout"));
-            payload.insert("referenceKind".into(), json!("local"));
+            payload
+                .entry("referenceKind")
+                .or_insert_with(|| json!(reference_kind));
+            "git.write"
+        }
+        "git_checkout_and_rebase" => {
+            let reference = take_reference(&mut payload)?;
+            let reference_kind = reference_kind(&reference);
+            payload.insert("reference".into(), json!(reference));
+            payload.insert("operation".into(), json!("checkoutAndRebase"));
+            payload
+                .entry("referenceKind")
+                .or_insert_with(|| json!(reference_kind));
             "git.write"
         }
         "git_checkout_preflight" => {
-            let branch = take_text(&mut payload, "branchName")?;
-            payload.insert("reference".into(), json!(local_branch_reference(&branch)));
+            let reference = take_reference(&mut payload)?;
+            payload.insert("reference".into(), json!(reference));
             "git.checkoutPreflight"
         }
         "git_merge" | "git_rebase" => {
-            let branch = take_text(&mut payload, "branchName")?;
-            payload.insert("reference".into(), json!(local_branch_reference(&branch)));
+            let reference = take_reference(&mut payload)?;
+            payload.insert("reference".into(), json!(reference));
             payload.insert(
                 "operation".into(),
                 json!(if command == "git_merge" {
@@ -204,8 +234,8 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
             "git.write"
         }
         "git_integration_preflight" => {
-            let branch = take_text(&mut payload, "branchName")?;
-            payload.insert("reference".into(), json!(local_branch_reference(&branch)));
+            let reference = take_reference(&mut payload)?;
+            payload.insert("reference".into(), json!(reference));
             "git.integrationPreflight"
         }
         "git_operation_state" => "git.operationState",
@@ -490,6 +520,27 @@ fn local_branch_reference(branch: &str) -> String {
     }
 }
 
+fn take_reference(payload: &mut Map<String, Value>) -> Result<String, String> {
+    if let Some(reference) = payload.remove("reference") {
+        return reference
+            .as_str()
+            .map(str::to_string)
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| "Windows platform command requires reference".to_string());
+    }
+    take_text(payload, "branchName").map(|branch| local_branch_reference(&branch))
+}
+
+fn reference_kind(reference: &str) -> &'static str {
+    if reference.starts_with("refs/remotes/") {
+        "remote"
+    } else if reference.starts_with("refs/tags/") {
+        "tag"
+    } else {
+        "local"
+    }
+}
+
 fn paths_from_file(payload: &mut Map<String, Value>) {
     if let Some(path) = payload.remove("filePath") {
         payload.insert("paths".into(), Value::Array(vec![path]));
@@ -585,6 +636,68 @@ mod tests {
     }
 
     #[test]
+    fn preserves_complete_references_for_git_log_actions() {
+        let (checkout_command, checkout_payload) = translate(
+            "git_checkout",
+            json!({
+                "repoPath": "C:/work",
+                "reference": "refs/remotes/origin/feature/demo",
+                "referenceKind": "remote"
+            }),
+        )
+        .unwrap();
+        assert_eq!(checkout_command, "git.write");
+        assert_eq!(
+            checkout_payload,
+            json!({
+                "root": "C:/work",
+                "operation": "checkout",
+                "reference": "refs/remotes/origin/feature/demo",
+                "referenceKind": "remote"
+            })
+        );
+
+        let (rebase_command, rebase_payload) = translate(
+            "git_checkout_and_rebase",
+            json!({
+                "repoPath": "C:/work",
+                "reference": "refs/remotes/origin/feature/demo",
+                "referenceKind": "remote"
+            }),
+        )
+        .unwrap();
+        assert_eq!(rebase_command, "git.write");
+        assert_eq!(
+            rebase_payload,
+            json!({
+                "root": "C:/work",
+                "operation": "checkoutAndRebase",
+                "reference": "refs/remotes/origin/feature/demo",
+                "referenceKind": "remote"
+            })
+        );
+
+        let (diff_command, diff_payload) = translate(
+            "git_reference_worktree_diff",
+            json!({
+                "repoPath": "C:/work",
+                "reference": "refs/remotes/origin/feature/demo"
+            }),
+        )
+        .unwrap();
+        assert_eq!(diff_command, "git.diff");
+        assert_eq!(
+            diff_payload,
+            json!({
+                "root": "C:/work",
+                "reference": "refs/remotes/origin/feature/demo",
+                "pathspecs": ["."],
+                "untracked": true
+            })
+        );
+    }
+
+    #[test]
     fn translates_checkout_preflight_reference() {
         let (command, payload) = translate(
             "git_checkout_preflight",
@@ -629,6 +742,20 @@ mod tests {
                 "operation": "rebase",
                 "reference": "refs/heads/main"
             })
+        );
+
+        let (_, remote_merge_payload) = translate(
+            "git_merge",
+            json!({
+                "repoPath": "C:/work",
+                "reference": "refs/remotes/origin/feature/demo",
+                "referenceKind": "remote"
+            }),
+        )
+        .unwrap();
+        assert_eq!(
+            remote_merge_payload["reference"],
+            "refs/remotes/origin/feature/demo"
         );
     }
 
