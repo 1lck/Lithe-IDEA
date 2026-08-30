@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import LitheGitModule
+import LitheDebugModule
 
 struct CodeEditorPalette {
     private static let propertyRGB: (red: CGFloat, green: CGFloat, blue: CGFloat) = (79, 148, 250)
@@ -1466,6 +1467,14 @@ struct CodeEditorView: NSViewRepresentable {
                     onToggle: { [weak model] line in
                         model?.toggleDebugBreakpoint(
                             fileURL: url,
+                            line: EditorDebugBreakpointLocation.productLine(forEditorLine: line)
+                        )
+                    },
+                    canAdd: { [weak textView, fileExtension] line in
+                        guard fileExtension.lowercased() == "java",
+                              let textView else { return false }
+                        return DebugBreakpointLocationValidator.isExecutableJavaLine(
+                            source: textView.string,
                             line: EditorDebugBreakpointLocation.productLine(forEditorLine: line)
                         )
                     },
@@ -3502,6 +3511,7 @@ final class LineNumberGutterView: NSView {
     private var onSetDebugBreakpointEnabled: ((Int, Bool) -> Void)?
     private var onToggleAllDebugBreakpoints: (() -> Void)?
     private var onRunToCursor: ((Int) -> Void)?
+    private var canAddDebugBreakpoint: ((Int) -> Bool)?
     private var isRunToCursorEnabled = false
     private var areBreakpointsMuted = false
     private var contextGutterLine: Int?
@@ -3511,6 +3521,7 @@ final class LineNumberGutterView: NSView {
     private var foldIndicatorOpacities: [String: CGFloat] = [:]
     private var foldIndicatorAnimationTimer: Timer?
     private var trackingArea: NSTrackingArea?
+    private var hoveredDebugBreakpointLine: Int?
     private var palette = CodeEditorPalette.dark
     private var gitLineChangeMarkersByLine: [Int: GitLineChangeMarker] = [:]
     private var onShowGitLineChange: ((GitLineChangeMarker) -> Void)?
@@ -3663,6 +3674,7 @@ final class LineNumberGutterView: NSView {
     func updateDebugBreakpointLines(
         _ states: [Int: EditorDebugBreakpointState],
         onToggle: @escaping (Int) -> Void,
+        canAdd: ((Int) -> Bool)? = nil,
         onEdit: ((Int) -> Void)? = nil,
         onRemove: ((Int) -> Void)? = nil,
         onSetEnabled: ((Int, Bool) -> Void)? = nil,
@@ -3676,6 +3688,7 @@ final class LineNumberGutterView: NSView {
             uniqueKeysWithValues: states.map { (max(0, $0.key - 1), $0.value) }
         )
         onToggleDebugBreakpoint = onToggle
+        canAddDebugBreakpoint = canAdd
         onEditDebugBreakpoint = onEdit
         onRemoveDebugBreakpoint = onRemove
         onSetDebugBreakpointEnabled = onSetEnabled
@@ -3914,6 +3927,10 @@ final class LineNumberGutterView: NSView {
             }
             if !isBlameVisible, let state = debugBreakpointStatesByLine[lineNumber - 1] {
                 drawDebugBreakpoint(y: y, height: lineRect.height, state: state)
+            } else if !isBlameVisible,
+                      hoveredDebugBreakpointLine == lineNumber - 1,
+                      canAddDebugBreakpoint?(lineNumber - 1) == true {
+                drawDebugBreakpointHover(y: y, height: lineRect.height)
             } else {
                 let markers = implementationMarkers.filter { $0.line == lineNumber - 1 }
                 for marker in markers {
@@ -4088,7 +4105,7 @@ final class LineNumberGutterView: NSView {
         height: CGFloat,
         state: EditorDebugBreakpointState
     ) {
-        let markerSize: CGFloat = 9
+        let markerSize: CGFloat = 10
         let path = NSBezierPath(
             ovalIn: NSRect(
                 x: editorGutterOriginX + gutterLayout.breakpointRange.lowerBound
@@ -4106,6 +4123,19 @@ final class LineNumberGutterView: NSView {
         } else {
             path.stroke()
         }
+    }
+
+    private func drawDebugBreakpointHover(y: CGFloat, height: CGFloat) {
+        let markerSize: CGFloat = 10
+        let rect = NSRect(
+            x: editorGutterOriginX + gutterLayout.breakpointRange.lowerBound
+                + (EditorGutterLayout.width(of: gutterLayout.breakpointRange) - markerSize) / 2,
+            y: y + max(0, (height - markerSize) / 2),
+            width: markerSize,
+            height: markerSize
+        )
+        NSColor(calibratedRed: 0.92, green: 0.28, blue: 0.30, alpha: 0.55).setFill()
+        NSBezierPath(ovalIn: rect).fill()
     }
 
     private func drawCurrentExecutionLine(y: CGFloat, height: CGFloat) {
@@ -4183,8 +4213,9 @@ final class LineNumberGutterView: NSView {
         super.mouseMoved(with: event)
         let point = convert(event.locationInWindow, from: nil)
         updateFoldHover(at: point)
+        updateBreakpointHover(at: point)
         updateBreakpointToolTip(at: point)
-        if foldRegion(at: point) != nil {
+        if foldRegion(at: point) != nil || isBreakpointTarget(at: point) {
             NSCursor.pointingHand.set()
         }
     }
@@ -4195,31 +4226,64 @@ final class LineNumberGutterView: NSView {
             NSCursor.pointingHand.set()
             return
         }
+        if isBreakpointTarget(at: point) {
+            NSCursor.pointingHand.set()
+            return
+        }
         super.cursorUpdate(with: event)
     }
 
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         updateFoldHover(at: nil)
+        updateBreakpointHover(at: nil)
         toolTip = nil
+    }
+
+    private func updateBreakpointHover(at point: NSPoint?) {
+        let nextLine = point.flatMap { point -> Int? in
+            guard !isBlameVisible,
+                  isBreakpointTarget(at: point),
+                  let line = editorLine(at: point),
+                  canAddDebugBreakpoint?(line) == true else { return nil }
+            return line
+        }
+        guard hoveredDebugBreakpointLine != nextLine else { return }
+        hoveredDebugBreakpointLine = nextLine
+        needsDisplay = true
+    }
+
+    private func isBreakpointTarget(at point: NSPoint) -> Bool {
+        let localX = point.x - editorGutterOriginX
+        guard gutterLayout.breakpointRange.contains(localX),
+              let line = editorLine(at: point) else { return false }
+        if debugBreakpointStatesByLine[line] != nil { return true }
+        return canAddDebugBreakpoint?(line) == true
     }
 
     private func updateBreakpointToolTip(at point: NSPoint) {
         let localX = point.x - editorGutterOriginX
         guard gutterLayout.breakpointRange.contains(localX),
-              let line = editorLine(at: point),
-              let state = debugBreakpointStatesByLine[line] else {
+              let line = editorLine(at: point) else {
             toolTip = nil
             return
         }
-        let stateLabel: String
-        if !state.enabled {
-            stateLabel = "Breakpoint disabled"
-        } else {
-            stateLabel = state.verified ? "Breakpoint verified" : "Breakpoint not verified"
+        if let state = debugBreakpointStatesByLine[line] {
+            let stateLabel: String
+            if !state.enabled {
+                stateLabel = "Breakpoint disabled"
+            } else {
+                stateLabel = state.verified ? "Breakpoint verified" : "Breakpoint not verified"
+            }
+            let detail = debugBreakpointMessagesByLine[line].map { " — \($0)" } ?? ""
+            toolTip = "Line \(line + 1): \(stateLabel)\(detail)"
+            return
         }
-        let detail = debugBreakpointMessagesByLine[line].map { " — \($0)" } ?? ""
-        toolTip = "Line \(line + 1): \(stateLabel)\(detail)"
+        guard canAddDebugBreakpoint?(line) == true else {
+            toolTip = nil
+            return
+        }
+        toolTip = "Line \(line + 1): Click to set breakpoint"
     }
 
     private func updateFoldHover(at point: NSPoint?) {
@@ -4335,7 +4399,8 @@ final class LineNumberGutterView: NSView {
             guard let marker = markers.first(where: { $0.direction == preferredDirection })
                 ?? markers.first else { return }
             onSelectImplementation?(marker)
-        case .breakpoint where !isBlameVisible:
+        case .breakpoint where !isBlameVisible
+            && (debugBreakpointStatesByLine[line] != nil || canAddDebugBreakpoint?(line) == true):
             onToggleDebugBreakpoint?(line)
         case .lineNumber, .breakpoint, nil:
             textView.window?.makeFirstResponder(textView)
