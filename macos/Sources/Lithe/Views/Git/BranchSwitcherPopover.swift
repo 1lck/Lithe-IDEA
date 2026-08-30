@@ -2,7 +2,7 @@ import SwiftUI
 import LitheGitModule
 
 struct BranchSwitcherPopover: View {
-    private enum Metrics {
+    enum Metrics {
         static let popupWidth: CGFloat = 375
         static let searchBarHeight: CGFloat = 56
         static let actionRowHeight: CGFloat = 30

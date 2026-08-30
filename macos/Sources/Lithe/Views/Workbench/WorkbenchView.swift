@@ -24,7 +24,36 @@ private enum WorkbenchWorkspaceMetrics {
     static let paneCornerRadius: CGFloat = 10
 }
 
+private enum WorkbenchPopoverLayoutMetrics {
+    static let leadingOverlap: CGFloat = 10
+    static let viewportMargin: CGFloat = 8
+    static let arrowWidth: CGFloat = 22
+    static let arrowHeight: CGFloat = 12
+}
+
+private struct WorkbenchPopoverArrow: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.closeSubpath()
+        return path
+    }
+}
+
 private struct ProjectSwitcherButtonBoundsPreferenceKey: PreferenceKey {
+    static var defaultValue: Anchor<CGRect>?
+
+    static func reduce(
+        value: inout Anchor<CGRect>?,
+        nextValue: () -> Anchor<CGRect>?
+    ) {
+        value = nextValue() ?? value
+    }
+}
+
+private struct BranchSwitcherButtonBoundsPreferenceKey: PreferenceKey {
     static var defaultValue: Anchor<CGRect>?
 
     static func reduce(
@@ -245,6 +274,16 @@ struct WorkbenchView: View {
                 }
             }
         }
+        .overlayPreferenceValue(BranchSwitcherButtonBoundsPreferenceKey.self) { bounds in
+            GeometryReader { geometry in
+                if isBranchSwitcherPresented, let bounds {
+                    branchSwitcherOverlay(
+                        buttonFrame: geometry[bounds],
+                        viewportSize: geometry.size
+                    )
+                }
+            }
+        }
         .overlay(alignment: .bottom) {
             if let message = model.notificationMessage {
                 Text(LocalizedStringKey(message))
@@ -432,6 +471,7 @@ struct WorkbenchView: View {
                 .padding(.horizontal, 5)
 
             Button {
+                isProjectSwitcherPresented = false
                 isBranchSwitcherPresented.toggle()
                 if isBranchSwitcherPresented {
                     Task { await model.refreshGitHistory() }
@@ -462,7 +502,111 @@ struct WorkbenchView: View {
             }
             .buttonStyle(.plain)
             .lithePointer()
-            .popover(isPresented: $isBranchSwitcherPresented, arrowEdge: .bottom) {
+            .anchorPreference(
+                key: BranchSwitcherButtonBoundsPreferenceKey.self,
+                value: .bounds
+            ) { $0 }
+
+            Spacer(minLength: 22)
+
+            backgroundPickerButton
+
+        }
+        .padding(.leading, 76)
+        .padding(.trailing, 10)
+        .frame(height: LitheTheme.Metrics.toolbarHeight)
+        .background {
+            (model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.titlebar)
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) {
+                    (NSApplication.shared.keyWindow?.delegate as? LitheWindowCoordinator)?
+                        .toggleWorkspaceZoom()
+                }
+        }
+    }
+
+    private func projectSwitcherOverlay(
+        buttonFrame: CGRect,
+        viewportSize: CGSize
+    ) -> some View {
+        let popupMetrics = ProjectSwitcherLayoutMetrics.self
+        let chromeMetrics = WorkbenchPopoverLayoutMetrics.self
+        let placement = workbenchPopoverPlacement(
+            buttonFrame: buttonFrame,
+            viewportWidth: viewportSize.width,
+            popupWidth: popupMetrics.width
+        )
+
+        return ZStack(alignment: .topLeading) {
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture { isProjectSwitcherPresented = false }
+
+            ZStack(alignment: .topLeading) {
+                WorkbenchPopoverArrow()
+                    .fill(LitheTheme.popupBackground)
+                    .overlay {
+                        WorkbenchPopoverArrow()
+                            .stroke(LitheTheme.panelBorder, lineWidth: 1)
+                    }
+                    .frame(width: chromeMetrics.arrowWidth, height: chromeMetrics.arrowHeight)
+                    .offset(x: placement.arrowCenterX - (chromeMetrics.arrowWidth / 2))
+
+                ProjectSwitcherPopover(
+                    isPresented: $isProjectSwitcherPresented,
+                    onNewProject: {
+                        isProjectSwitcherPresented = false
+                        model.chooseProject(title: "New Project", prompt: "Choose Folder")
+                    },
+                    onOpenProject: {
+                        isProjectSwitcherPresented = false
+                        model.chooseProject()
+                    },
+                    onCloneRepository: {
+                        isProjectSwitcherPresented = false
+                        model.showCloneRepository()
+                    },
+                    onOpenRecentProject: { project in
+                        isProjectSwitcherPresented = false
+                        model.openProject(project.url)
+                    }
+                )
+                .environmentObject(model)
+                .lithePopupChrome()
+                .padding(.top, chromeMetrics.arrowHeight - 1)
+            }
+            .offset(x: placement.popupX, y: buttonFrame.maxY)
+        }
+        .onExitCommand { isProjectSwitcherPresented = false }
+    }
+
+    private func branchSwitcherOverlay(
+        buttonFrame: CGRect,
+        viewportSize: CGSize
+    ) -> some View {
+        let popupMetrics = BranchSwitcherPopover.Metrics.self
+        let chromeMetrics = WorkbenchPopoverLayoutMetrics.self
+        let placement = workbenchPopoverPlacement(
+            buttonFrame: buttonFrame,
+            viewportWidth: viewportSize.width,
+            popupWidth: popupMetrics.popupWidth
+        )
+
+        return ZStack(alignment: .topLeading) {
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture { isBranchSwitcherPresented = false }
+
+            ZStack(alignment: .topLeading) {
+                WorkbenchPopoverArrow()
+                    .fill(LitheTheme.popupBackground)
+                    .overlay {
+                        WorkbenchPopoverArrow()
+                            .stroke(LitheTheme.panelBorder, lineWidth: 1)
+                    }
+                    .frame(width: chromeMetrics.arrowWidth, height: chromeMetrics.arrowHeight)
+                    .offset(x: placement.arrowCenterX - (chromeMetrics.arrowWidth / 2))
+
                 BranchSwitcherPopover(
                     isPresented: $isBranchSwitcherPresented,
                     onCommit: {
@@ -490,83 +634,30 @@ struct WorkbenchView: View {
                     }
                 )
                 .environmentObject(model)
+                .padding(.top, chromeMetrics.arrowHeight - 1)
             }
-
-            Spacer(minLength: 22)
-
-            backgroundPickerButton
-
+            .offset(x: placement.popupX, y: buttonFrame.maxY)
         }
-        .padding(.leading, 76)
-        .padding(.trailing, 10)
-        .frame(height: LitheTheme.Metrics.toolbarHeight)
-        .background {
-            (model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.titlebar)
-                .contentShape(Rectangle())
-                .onTapGesture(count: 2) {
-                    (NSApplication.shared.keyWindow?.delegate as? LitheWindowCoordinator)?
-                        .toggleWorkspaceZoom()
-                }
-        }
+        .onExitCommand { isBranchSwitcherPresented = false }
     }
 
-    private func projectSwitcherOverlay(
+    private func workbenchPopoverPlacement(
         buttonFrame: CGRect,
-        viewportSize: CGSize
-    ) -> some View {
-        let metrics = ProjectSwitcherLayoutMetrics.self
+        viewportWidth: CGFloat,
+        popupWidth: CGFloat
+    ) -> (popupX: CGFloat, arrowCenterX: CGFloat) {
+        let metrics = WorkbenchPopoverLayoutMetrics.self
         let desiredX = buttonFrame.minX - metrics.leadingOverlap
         let maximumX = max(
             metrics.viewportMargin,
-            viewportSize.width - metrics.width - metrics.viewportMargin
+            viewportWidth - popupWidth - metrics.viewportMargin
         )
         let popupX = min(max(desiredX, metrics.viewportMargin), maximumX)
         let arrowCenterX = min(
             max(buttonFrame.midX - popupX, metrics.arrowWidth),
-            metrics.width - metrics.arrowWidth
+            popupWidth - metrics.arrowWidth
         )
-
-        return ZStack(alignment: .topLeading) {
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture { isProjectSwitcherPresented = false }
-
-            ZStack(alignment: .topLeading) {
-                ProjectSwitcherPopoverArrow()
-                    .fill(LitheTheme.popupBackground)
-                    .overlay {
-                        ProjectSwitcherPopoverArrow()
-                            .stroke(LitheTheme.panelBorder, lineWidth: 1)
-                    }
-                    .frame(width: metrics.arrowWidth, height: metrics.arrowHeight)
-                    .offset(x: arrowCenterX - (metrics.arrowWidth / 2))
-
-                ProjectSwitcherPopover(
-                    isPresented: $isProjectSwitcherPresented,
-                    onNewProject: {
-                        isProjectSwitcherPresented = false
-                        model.chooseProject(title: "New Project", prompt: "Choose Folder")
-                    },
-                    onOpenProject: {
-                        isProjectSwitcherPresented = false
-                        model.chooseProject()
-                    },
-                    onCloneRepository: {
-                        isProjectSwitcherPresented = false
-                        model.showCloneRepository()
-                    },
-                    onOpenRecentProject: { project in
-                        isProjectSwitcherPresented = false
-                        model.openProject(project.url)
-                    }
-                )
-                .environmentObject(model)
-                .lithePopupChrome()
-                .padding(.top, metrics.arrowHeight - 1)
-            }
-            .offset(x: popupX, y: buttonFrame.maxY)
-        }
-        .onExitCommand { isProjectSwitcherPresented = false }
+        return (popupX, arrowCenterX)
     }
 
     private var backgroundPickerButton: some View {

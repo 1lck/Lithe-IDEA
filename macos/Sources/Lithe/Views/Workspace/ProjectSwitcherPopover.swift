@@ -3,10 +3,6 @@ import SwiftUI
 enum ProjectSwitcherLayoutMetrics {
     static let width: CGFloat = 390
     static let maximumHeight: CGFloat = 520
-    static let leadingOverlap: CGFloat = 10
-    static let viewportMargin: CGFloat = 8
-    static let arrowWidth: CGFloat = 22
-    static let arrowHeight: CGFloat = 12
 }
 
 struct ProjectSwitcherPopover: View {
@@ -203,16 +199,5 @@ struct ProjectSwitcherPopover: View {
         ]
         let hash = value.utf8.reduce(0) { ($0 * 31 + Int($1)) & 0x7fffffff }
         return palette[hash % palette.count]
-    }
-}
-
-struct ProjectSwitcherPopoverArrow: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.midX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-        path.closeSubpath()
-        return path
     }
 }
