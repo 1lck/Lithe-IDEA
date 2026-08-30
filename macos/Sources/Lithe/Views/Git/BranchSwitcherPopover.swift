@@ -75,12 +75,14 @@ struct BranchSwitcherPopover: View {
                 LitheSystemIcon(systemImage: "arrow.up.left.and.arrow.down.right")
             }
             .litheIconButton()
+            .foregroundStyle(LitheTheme.secondaryText)
             .help("Open Git branches")
 
             Button(action: onManageBranches) {
                 LitheSystemIcon(systemImage: "gearshape")
             }
             .litheIconButton()
+            .foregroundStyle(LitheTheme.secondaryText)
             .help("Git branch options")
         }
         .padding(.leading, 13)
