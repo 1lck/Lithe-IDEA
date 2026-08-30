@@ -32,6 +32,8 @@ struct GitLogView: View {
     @State private var gitLogPathDraft = ""
     @State private var showsGitLogPathPopover = false
     @State private var gitCommitFileLoadTask: Task<Void, Never>?
+    @State private var showsGitLogBranchFilterPopover = false
+    @State private var showsGitLogAuthorFilterPopover = false
     @State private var graphLayout = GitGraphLayout(
         rows: [],
         laneCount: 0,
@@ -1327,33 +1329,34 @@ struct GitLogView: View {
     private var gitLogFilterBar: some View {
         HStack(spacing: 8) {
             HStack(spacing: 2) {
-                Menu {
-                    Button {
-                        Task { await model.selectGitReference(nil) }
-                    } label: {
-                        gitLogMenuItem("All Branches", selected: model.selectedGitReference == nil)
-                    }
-                    Divider()
-                    ForEach(model.gitReferences) { reference in
-                        Button {
-                            Task { await model.selectGitReference(reference) }
-                        } label: {
-                            gitLogMenuItem(
-                                reference.shortName,
-                                selected: model.selectedGitReference?.id == reference.id,
-                                systemImage: referenceIcon(reference)
-                            )
-                        }
-                    }
+                Button {
+                    showsGitLogBranchFilterPopover = true
                 } label: {
                     gitLogFilterLabel(
                         title: "Branch",
                         selection: model.selectedGitReference?.shortName
                     )
                 }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
+                .buttonStyle(.plain)
                 .lithePointer()
+                .popover(isPresented: $showsGitLogBranchFilterPopover, arrowEdge: .bottom) {
+                    GitLogBranchFilterPopover(
+                        menu: GitLogFilterList.branchMenu(references: model.gitReferences),
+                        querySections: { query in
+                            GitLogFilterList.branchSections(
+                                references: model.gitReferences,
+                                query: query
+                            )
+                        },
+                        isItemSelected: { item in
+                            item.matches(selected: model.selectedGitReference)
+                        },
+                        onSelect: { item in
+                            showsGitLogBranchFilterPopover = false
+                            Task { await model.selectGitReference(item.reference) }
+                        }
+                    )
+                }
 
                 if model.selectedGitReference != nil {
                     gitLogFilterClearButton(help: "Clear branch filter") {
@@ -1363,34 +1366,32 @@ struct GitLogView: View {
             }
 
             HStack(spacing: 2) {
-                Menu {
-                    Button {
-                        selectedGitLogAuthor = nil
-                    } label: {
-                        gitLogMenuItem("All Users", selected: selectedGitLogAuthor == nil)
-                    }
-                    Button {
-                        selectedGitLogAuthor = .currentUser
-                    } label: {
-                        gitLogMenuItem("Me", selected: selectedGitLogAuthor == .currentUser)
-                    }
-                    if !gitLogAuthorOptions.isEmpty { Divider() }
-                    ForEach(gitLogAuthorOptions) { author in
-                        Button {
-                            selectedGitLogAuthor = .author(name: author.name, email: author.email)
-                        } label: {
-                            gitLogMenuItem(
-                                author.name,
-                                selected: selectedGitLogAuthor == .author(name: author.name, email: author.email)
-                            )
-                        }
-                    }
+                Button {
+                    showsGitLogAuthorFilterPopover = true
                 } label: {
                     gitLogFilterLabel(title: "User", selection: selectedGitLogAuthor?.displayName)
                 }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
+                .buttonStyle(.plain)
                 .lithePointer()
+                .popover(isPresented: $showsGitLogAuthorFilterPopover, arrowEdge: .bottom) {
+                    GitLogFilterPopover(
+                        sectionsForQuery: { query in
+                            GitLogFilterList.authorSections(
+                                authors: gitLogAuthorOptions,
+                                query: query
+                            )
+                        },
+                        searchPlaceholder: "Search users",
+                        emptyText: "No matching users",
+                        isItemSelected: { item in
+                            item.matches(selected: selectedGitLogAuthor)
+                        },
+                        onSelect: { item in
+                            showsGitLogAuthorFilterPopover = false
+                            selectedGitLogAuthor = item.selection
+                        }
+                    )
+                }
 
                 if selectedGitLogAuthor != nil {
                     gitLogFilterClearButton(help: "Clear user filter") {
@@ -1699,29 +1700,6 @@ struct GitLogView: View {
     }
 }
 
-private enum GitLogAuthorSelection: Hashable {
-    case currentUser
-    case author(name: String, email: String)
-
-    var displayName: String {
-        switch self {
-        case .currentUser:
-            return "Me"
-        case .author(let name, _):
-            return name
-        }
-    }
-
-    var exactAuthor: GitIdentity? {
-        switch self {
-        case .currentUser:
-            return nil
-        case .author(let name, let email):
-            return GitIdentity(name: name, email: email)
-        }
-    }
-}
-
 enum GitLogCommitSelection {
     static func adjacentCommit(
         in commits: [GitCommit],
@@ -1756,12 +1734,6 @@ private struct GitLogFilterTaskIdentity: Hashable {
     let datePreset: GitLogDatePreset
     let path: String
     let commitHashes: [String]
-}
-
-private struct GitLogAuthorOption: Identifiable {
-    let id: String
-    let name: String
-    let email: String
 }
 
 enum GitLogDatePreset: String, CaseIterable, Identifiable, Hashable {
