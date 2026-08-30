@@ -83,12 +83,20 @@ typealias ProjectItemDeletionRequest = LitheCoreContracts.ProjectItemDeletionReq
 enum FindNotificationKeys {
     static let query = "query"
     static let direction = "direction"
+    static let matchCase = "matchCase"
+    static let wholeWords = "wholeWords"
+    static let regularExpression = "regularExpression"
+    static let replacement = "replacement"
+    /// 替换通知的目标文档标识；接收编辑器必须与之匹配才执行替换。
+    static let documentID = "documentID"
 }
 
 extension Notification.Name {
     static let litheFindQueryChanged = Notification.Name("litheFindQueryChanged")
     static let litheFindNavigate = Notification.Name("litheFindNavigate")
     static let litheFindDismiss = Notification.Name("litheFindDismiss")
+    static let litheFindReplaceNext = Notification.Name("litheFindReplaceNext")
+    static let litheFindReplaceAll = Notification.Name("litheFindReplaceAll")
 }
 
 struct ProjectTreeRevealRequest: Equatable {
