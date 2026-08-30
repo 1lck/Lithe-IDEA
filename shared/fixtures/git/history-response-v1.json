@@ -1,0 +1,49 @@
+{
+  "references": [
+    {
+      "fullName": "refs/heads/feature/recent",
+      "shortName": "feature/recent",
+      "kind": "local",
+      "isCurrent": true,
+      "upstreamShortName": null
+    },
+    {
+      "fullName": "refs/heads/main",
+      "shortName": "main",
+      "kind": "local",
+      "isCurrent": false,
+      "upstreamShortName": "origin/main"
+    }
+  ],
+  "recentReferences": [
+    {
+      "fullName": "refs/heads/feature/recent",
+      "shortName": "feature/recent",
+      "kind": "local",
+      "isCurrent": true,
+      "upstreamShortName": null
+    },
+    {
+      "fullName": "refs/heads/main",
+      "shortName": "main",
+      "kind": "local",
+      "isCurrent": false,
+      "upstreamShortName": "origin/main"
+    }
+  ],
+  "commits": [
+    {
+      "hash": "0123456789abcdef0123456789abcdef01234567",
+      "shortHash": "0123456",
+      "parentHashes": [],
+      "authorName": "Lithe Test",
+      "authorEmail": "test@example.invalid",
+      "date": "2026/08/30 12:00",
+      "subject": "Initial commit",
+      "decorations": "HEAD -> feature/recent"
+    }
+  ],
+  "hasMore": false,
+  "userName": "Lithe Test",
+  "userEmail": "test@example.invalid"
+}
