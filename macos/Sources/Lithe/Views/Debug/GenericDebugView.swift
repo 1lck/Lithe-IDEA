@@ -443,7 +443,11 @@ struct GenericDebugView: View {
                             Text(thread.name).lineLimit(1)
                         }
                         .contextMenu {
+                            Button("Copy Thread Name") {
+                                copyToPasteboard(thread.name)
+                            }
                             if feature.capabilities.supportsSingleThreadExecutionRequests {
+                                Divider()
                                 Button(feature.state == .paused ? "Resume Thread" : "Pause Thread") {
                                     feature.executeThread(
                                         feature.state == .paused ? .continueExecution : .pause,
@@ -487,7 +491,16 @@ struct GenericDebugView: View {
                                     )
                                 }
                             } label: {
-                                Image(systemName: frame.isFiltered ? "ellipsis" : "chevron.right")
+                                Image(systemName: frame.isFiltered
+                                    ? "ellipsis"
+                                    : feature.selectedFrameID == frame.id
+                                        ? "pause.fill"
+                                        : "chevron.right")
+                                    .foregroundStyle(
+                                        feature.selectedFrameID == frame.id
+                                            ? LitheTheme.warning
+                                            : LitheTheme.secondaryText
+                                    )
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(frame.name).lineLimit(1)
                                     if let sourceURL = frame.sourceURL {
@@ -498,6 +511,24 @@ struct GenericDebugView: View {
                                 }
                             }
                             .opacity(frame.isFiltered ? 0.58 : 1)
+                            .contextMenu {
+                                Button("Copy Method Name") {
+                                    copyToPasteboard(frame.name)
+                                }
+                                if let sourceURL = frame.sourceURL {
+                                    Divider()
+                                    Button("Copy Source Location") {
+                                        copyToPasteboard(
+                                            "\(sourceURL.path):\(frame.line):\(frame.column)"
+                                        )
+                                    }
+                                    Button("Copy Relative Location") {
+                                        copyToPasteboard(
+                                            "\(sourceURL.lastPathComponent):\(frame.line):\(frame.column)"
+                                        )
+                                    }
+                                }
+                            }
                         } else {
                             Button {
                                 feature.expandFilteredStackFrames()
