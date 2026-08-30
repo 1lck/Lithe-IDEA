@@ -413,6 +413,7 @@ final class MacServiceContainer {
                     let graph = DebugFeatureGraph(
                         adapterSessions: adapterSessions,
                         breakpointPersistence: debugBreakpointStore,
+                        breakpointRelocator: rustCore,
                         steppingFilterResolver: rustCore,
                         steppingFilterPersistence: debugSteppingFilterStore
                     )

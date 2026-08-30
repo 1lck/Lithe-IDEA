@@ -258,6 +258,16 @@ public protocol JavaTestDebugLaunchResolving: Sendable {
     ) throws -> DebugLaunchConfiguration
 }
 
+/// Focused shared-Core boundary for moving source breakpoints with editor text.
+@MainActor
+public protocol DebugBreakpointRelocating: Sendable {
+    func relocateDebugBreakpoints(
+        source: String,
+        edit: DebugSourceEdit,
+        breakpoints: [DebugSourceBreakpoint]
+    ) throws -> [DebugSourceBreakpoint]
+}
+
 /// Transport-neutral Debug Core boundary. Native products own processes and
 /// sockets; this contract owns DAP framing, state, sequencing, and normalized data.
 @MainActor

@@ -1440,6 +1440,107 @@ struct DebugModuleTests {
     }
 
     @Test
+    func sourceEditRelocatesPersistsAndResynchronizesBreakpoints() throws {
+        let descriptor = DebugProviderDescriptor(
+            id: "java",
+            displayName: "Java",
+            fileExtensions: ["java"]
+        )
+        let session = DeferredInspectionDebugSession()
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
+        let persistence = RecordingBreakpointPersistence()
+        let relocator = RecordingBreakpointRelocator(result: [
+            DebugSourceBreakpoint(line: 3, condition: "ready")
+        ])
+        let root = URL(fileURLWithPath: "/tmp/relocated-java-breakpoints", isDirectory: true)
+        let sourceURL = root.appendingPathComponent("src/Main.java")
+        let feature = GenericDebugFeatureModel(
+            sessions: manager,
+            breakpointPersistence: persistence,
+            breakpointRelocator: relocator
+        )
+        feature.openWorkspace(at: root)
+        feature.toggleBreakpoint(fileURL: sourceURL, line: 2)
+        feature.updateBreakpoint(
+            fileURL: sourceURL,
+            line: 2,
+            enabled: true,
+            condition: "ready",
+            hitCondition: nil,
+            logMessage: nil
+        )
+        #expect(feature.start(
+            fileURL: sourceURL,
+            rootURL: root,
+            configuration: DebugLaunchConfiguration(
+                name: "Main",
+                request: .launch,
+                arguments: ["mainClass": .string("example.Main")]
+            )
+        ))
+        defer { feature.stop() }
+
+        let source = "class Main {\n    void run() {}\n}\n"
+        feature.applySourceEdit(
+            fileURL: sourceURL,
+            source: source,
+            edit: DebugSourceEdit(
+                startUTF16Offset: 13,
+                endUTF16Offset: 13,
+                replacement: "\n"
+            )
+        )
+
+        #expect(relocator.requests == [RecordingBreakpointRelocationRequest(
+            source: source,
+            edit: DebugSourceEdit(
+                startUTF16Offset: 13,
+                endUTF16Offset: 13,
+                replacement: "\n"
+            ),
+            breakpoints: [DebugSourceBreakpoint(line: 2, condition: "ready")]
+        )])
+        #expect(feature.breakpoints.map(\.line) == [3])
+        #expect(session.breakpointUpdates.last == [
+            DebugSourceBreakpoint(line: 3, condition: "ready")
+        ])
+        #expect(persistence.snapshots[root.standardizedFileURL]?.breakpoints.map(\.line) == [3])
+    }
+
+    @Test
+    func inlineEditSkipsRelocationForLineOnlyBreakpoints() {
+        let descriptor = DebugProviderDescriptor(
+            id: "java",
+            displayName: "Java",
+            fileExtensions: ["java"]
+        )
+        let relocator = RecordingBreakpointRelocator(result: [])
+        let root = URL(fileURLWithPath: "/tmp/inline-java-breakpoint-edit", isDirectory: true)
+        let sourceURL = root.appendingPathComponent("src/Main.java")
+        let feature = GenericDebugFeatureModel(
+            sessions: DebugAdapterSessionManager(providers: [descriptor]) { _, _ in nil },
+            breakpointRelocator: relocator
+        )
+        feature.openWorkspace(at: root)
+        feature.toggleBreakpoint(fileURL: sourceURL, line: 2)
+        let source = "class Main {\n    void run() {}\n}\n"
+        let editOffset = (source as NSString).range(of: "run").location + 3
+
+        feature.applySourceEdit(
+            fileURL: sourceURL,
+            source: source,
+            edit: DebugSourceEdit(
+                startUTF16Offset: editOffset,
+                endUTF16Offset: editOffset,
+                replacement: "Now"
+            )
+        )
+
+        #expect(relocator.requests.isEmpty)
+        #expect(feature.breakpoints.map(\.line) == [2])
+    }
+
+    @Test
     func projectBreakpointRestoreRejectsPathsOutsideTheWorkspace() {
         let root = URL(fileURLWithPath: "/tmp/safe-java-breakpoints", isDirectory: true)
         let persistence = RecordingBreakpointPersistence()
@@ -1923,6 +2024,35 @@ private final class RecordingBreakpointPersistence: DebugBreakpointPersisting, @
     }
 }
 
+private struct RecordingBreakpointRelocationRequest: Equatable {
+    let source: String
+    let edit: DebugSourceEdit
+    let breakpoints: [DebugSourceBreakpoint]
+}
+
+@MainActor
+private final class RecordingBreakpointRelocator: DebugBreakpointRelocating {
+    let result: [DebugSourceBreakpoint]
+    private(set) var requests: [RecordingBreakpointRelocationRequest] = []
+
+    init(result: [DebugSourceBreakpoint]) {
+        self.result = result
+    }
+
+    func relocateDebugBreakpoints(
+        source: String,
+        edit: DebugSourceEdit,
+        breakpoints: [DebugSourceBreakpoint]
+    ) throws -> [DebugSourceBreakpoint] {
+        requests.append(RecordingBreakpointRelocationRequest(
+            source: source,
+            edit: edit,
+            breakpoints: breakpoints
+        ))
+        return result
+    }
+}
+
 private struct RecordingDebugSteppingFilterResolution: Equatable {
     let adapterID: String
     let filters: DebugSteppingFilters?
@@ -2004,6 +2134,7 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
     let capabilities: DebugAdapterCapabilities
     private(set) var isRunning = false
     private(set) var state: DebugAdapterState = .idle
+    private(set) var breakpointUpdates: [[DebugSourceBreakpoint]] = []
     var onStateChange: ((DebugAdapterState) -> Void)?
     var onEvent: ((DebugAdapterEvent) -> Void)?
 
@@ -2061,7 +2192,9 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
         onStateChange?(.paused)
     }
 
-    func setBreakpoints(_: [DebugSourceBreakpoint], in _: URL) {}
+    func setBreakpoints(_ breakpoints: [DebugSourceBreakpoint], in _: URL) {
+        breakpointUpdates.append(breakpoints)
+    }
     func execute(_: DebugExecutionCommand, threadID _: Int?) {}
     func requestThreads(_: @escaping (Result<[DebugThread], Error>) -> Void) {}
 

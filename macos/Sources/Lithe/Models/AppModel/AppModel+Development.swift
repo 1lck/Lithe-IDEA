@@ -742,6 +742,27 @@ extension AppModel {
         }
     }
 
+    func applyDebugSourceEdit(
+        fileURL: URL,
+        previousSource: String,
+        replacedRange: NSRange,
+        replacement: String
+    ) {
+        guard replacedRange.location != NSNotFound,
+              replacedRange.location >= 0,
+              replacedRange.length >= 0,
+              NSMaxRange(replacedRange) <= previousSource.utf16.count else { return }
+        genericDebugFeatureIfActive?.applySourceEdit(
+            fileURL: fileURL,
+            source: previousSource,
+            edit: DebugSourceEdit(
+                startUTF16Offset: replacedRange.location,
+                endUTF16Offset: NSMaxRange(replacedRange),
+                replacement: replacement
+            )
+        )
+    }
+
     func editDebugBreakpoint(fileURL: URL, line: Int) {
         let normalizedURL = fileURL.standardizedFileURL
         pendingDebugBreakpointEditor = genericDebugFeatureIfActive?.breakpoints

@@ -554,6 +554,24 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::DebugRelocateBreakpoints => {
+            match serde_json::from_value::<crate::debug::RelocateBreakpointsRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid debug relocate-breakpoints request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::debug::relocate_breakpoints)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Debug breakpoint relocation should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::DebugSetBreakpoints => {
             match serde_json::from_value::<crate::debug::SetBreakpointsRequest>(parsed.payload)
                 .map_err(|error| {

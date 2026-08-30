@@ -91,6 +91,8 @@ pub enum CoreCommand {
     DebugJavaTestLaunch,
     /// Returns or normalizes portable stepping filters (`debug.steppingFilters`).
     DebugSteppingFilters,
+    /// Moves source breakpoints across one UTF-16 editor mutation (`debug.relocateBreakpoints`).
+    DebugRelocateBreakpoints,
     /// Replaces breakpoints for one source file (`debug.setBreakpoints`).
     DebugSetBreakpoints,
     /// Replaces exception filters for one debug session (`debug.setExceptionBreakpoints`).
@@ -265,6 +267,7 @@ impl CoreCommand {
             "debug.launch" => Some(Self::DebugLaunch),
             "debug.javaTestLaunch" => Some(Self::DebugJavaTestLaunch),
             "debug.steppingFilters" => Some(Self::DebugSteppingFilters),
+            "debug.relocateBreakpoints" => Some(Self::DebugRelocateBreakpoints),
             "debug.setBreakpoints" => Some(Self::DebugSetBreakpoints),
             "debug.setExceptionBreakpoints" => Some(Self::DebugSetExceptionBreakpoints),
             "debug.setFunctionBreakpoints" => Some(Self::DebugSetFunctionBreakpoints),
@@ -387,6 +390,7 @@ mod tests {
             "debug.launch",
             "debug.javaTestLaunch",
             "debug.steppingFilters",
+            "debug.relocateBreakpoints",
             "debug.setBreakpoints",
             "debug.setExceptionBreakpoints",
             "debug.setFunctionBreakpoints",

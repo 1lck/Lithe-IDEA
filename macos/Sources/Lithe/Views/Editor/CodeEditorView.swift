@@ -1035,6 +1035,7 @@ struct CodeEditorView: NSViewRepresentable {
             guard let textView else { return }
             guard document?.isReadOnly != true else { return }
             let codeTextView = textView as? CodeTextView
+            let previousSource = document?.text
             if let replacedRange = pendingReplacedRange, let replacement = pendingReplacement {
                 codeTextView?.applyLineIndexEdit(replacedRange: replacedRange, replacement: replacement)
             } else {
@@ -1043,6 +1044,17 @@ struct CodeEditorView: NSViewRepresentable {
             gutter?.refreshLineNumberLayout()
             isApplyingEditorChange = true
             document?.applyLiveEditorText(textView.string)
+            if let document,
+               let previousSource,
+               let replacedRange = pendingReplacedRange,
+               let replacement = pendingReplacement {
+                model?.applyDebugSourceEdit(
+                    fileURL: document.url,
+                    previousSource: previousSource,
+                    replacedRange: replacedRange,
+                    replacement: replacement
+                )
+            }
             if let document {
                 scheduleDocumentChange(document)
             }

@@ -85,6 +85,7 @@ stable error code and a user-facing message:
 | `debug.launch` | Queue a launch or attach request, including during initialization |
 | `debug.javaTestLaunch` | Normalize JUnit or TestNG launch metadata into Java DAP arguments |
 | `debug.steppingFilters` | Return adapter defaults or normalize portable stepping filters |
+| `debug.relocateBreakpoints` | Move source breakpoints across one exact UTF-16 editor replacement |
 | `debug.setBreakpoints` | Replace and deterministically order one source's DAP breakpoints |
 | `debug.setExceptionBreakpoints` | Replace and deterministically order one session's exception filters |
 | `debug.setFunctionBreakpoints` | Replace and deterministically order one session's named function breakpoints |

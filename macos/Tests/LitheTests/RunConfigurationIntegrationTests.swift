@@ -414,6 +414,33 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func sourceBreakpointRelocationUsesTheSharedRustCore() throws {
+        let core = RustCoreBridge()
+        guard core.isAvailable else { return }
+        let source = "class Main {\n    void run() {}\n}\n"
+
+        let breakpoints = try core.relocateDebugBreakpoints(
+            source: source,
+            edit: DebugSourceEdit(
+                startUTF16Offset: 13,
+                endUTF16Offset: 13,
+                replacement: "\n"
+            ),
+            breakpoints: [DebugSourceBreakpoint(
+                line: 2,
+                condition: "ready",
+                hitCondition: "3"
+            )]
+        )
+
+        #expect(breakpoints == [DebugSourceBreakpoint(
+            line: 3,
+            condition: "ready",
+            hitCondition: "3"
+        )])
+    }
+
+    @Test
     func javaAttachUsesTheSharedDAPSessionWithValidatedEndpointArguments() throws {
         let resolver = DebugLaunchConfigurationResolver(fileExists: { _ in true })
 

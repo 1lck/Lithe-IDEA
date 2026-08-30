@@ -159,6 +159,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
 
     private let sessions: DebugAdapterSessionManager
     private let breakpointPersistence: (any DebugBreakpointPersisting)?
+    private let breakpointRelocator: (any DebugBreakpointRelocating)?
     private let steppingFilterResolver: (any DebugSteppingFilterResolving)?
     private let steppingFilterPersistence: (any DebugSteppingFilterPersisting)?
     private var requestedBreakpointsByFile: [URL: [Int: DebugSourceBreakpoint]] = [:]
@@ -173,11 +174,13 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     public init(
         sessions: DebugAdapterSessionManager,
         breakpointPersistence: (any DebugBreakpointPersisting)? = nil,
+        breakpointRelocator: (any DebugBreakpointRelocating)? = nil,
         steppingFilterResolver: (any DebugSteppingFilterResolving)? = nil,
         steppingFilterPersistence: (any DebugSteppingFilterPersisting)? = nil
     ) {
         self.sessions = sessions
         self.breakpointPersistence = breakpointPersistence
+        self.breakpointRelocator = breakpointRelocator
         self.steppingFilterResolver = steppingFilterResolver
         self.steppingFilterPersistence = steppingFilterPersistence
         sessions.onStateChange = { [weak self] providerID, state in
@@ -450,6 +453,63 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         for fileURL in requestedBreakpointsByFile.keys.sorted(by: { $0.path < $1.path }) {
             synchronizeBreakpoints(for: fileURL)
         }
+    }
+
+    public func applySourceEdit(
+        fileURL: URL,
+        source: String,
+        edit: DebugSourceEdit
+    ) {
+        let normalizedURL = fileURL.standardizedFileURL
+        guard let breakpointRelocator,
+              let values = requestedBreakpointsByFile[normalizedURL],
+              !values.isEmpty else { return }
+        let current = values.values.sorted {
+            ($0.line, $0.column ?? 0) < ($1.line, $1.column ?? 0)
+        }
+        guard sourceEditMayRelocateBreakpoints(source: source, edit: edit, breakpoints: current)
+        else { return }
+        do {
+            let relocated = try breakpointRelocator.relocateDebugBreakpoints(
+                source: source,
+                edit: edit,
+                breakpoints: current
+            )
+            guard relocated != current else { return }
+            requestedBreakpointsByFile[normalizedURL] = Dictionary(
+                uniqueKeysWithValues: relocated.map { ($0.line, $0) }
+            )
+            reconcileBreakpoints()
+            persistBreakpoints()
+            synchronizeBreakpoints(for: normalizedURL)
+        } catch {
+            record(error)
+        }
+    }
+
+    private func sourceEditMayRelocateBreakpoints(
+        source: String,
+        edit: DebugSourceEdit,
+        breakpoints: [DebugSourceBreakpoint]
+    ) -> Bool {
+        if breakpoints.contains(where: { $0.column != nil })
+            || edit.replacement.utf16.contains(10) {
+            return true
+        }
+        guard edit.startUTF16Offset >= 0,
+              edit.endUTF16Offset >= edit.startUTF16Offset else { return true }
+        guard edit.startUTF16Offset != edit.endUTF16Offset else { return false }
+        let sourceUTF16 = source.utf16
+        guard let start = sourceUTF16.index(
+            sourceUTF16.startIndex,
+            offsetBy: edit.startUTF16Offset,
+            limitedBy: sourceUTF16.endIndex
+        ), let end = sourceUTF16.index(
+            sourceUTF16.startIndex,
+            offsetBy: edit.endUTF16Offset,
+            limitedBy: sourceUTF16.endIndex
+        ) else { return true }
+        return sourceUTF16[start..<end].contains(10)
     }
 
     public func updateExceptionBreakpoint(

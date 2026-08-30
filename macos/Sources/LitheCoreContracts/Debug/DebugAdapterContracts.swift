@@ -180,6 +180,25 @@ public protocol JavaTestDebugLaunchTargetResolving: AnyObject {
     ) async throws -> JavaTestDebugLaunchTarget
 }
 
+/// One exact editor replacement using zero-based, document-relative UTF-16 offsets.
+public struct DebugSourceEdit: Codable, Equatable, Sendable {
+    public let startUTF16Offset: Int
+    public let endUTF16Offset: Int
+    public let replacement: String
+
+    public init(startUTF16Offset: Int, endUTF16Offset: Int, replacement: String) {
+        self.startUTF16Offset = startUTF16Offset
+        self.endUTF16Offset = endUTF16Offset
+        self.replacement = replacement
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case startUTF16Offset = "startUtf16Offset"
+        case endUTF16Offset = "endUtf16Offset"
+        case replacement
+    }
+}
+
 public struct DebugSourceBreakpoint: Codable, Hashable, Sendable {
     public let line: Int
     public let column: Int?

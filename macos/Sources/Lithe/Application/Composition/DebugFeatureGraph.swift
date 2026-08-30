@@ -14,6 +14,7 @@ final class DebugFeatureGraph: NSObject, DebugServiceGraph {
     init(
         adapterSessions: DebugAdapterSessionManager,
         breakpointPersistence: (any DebugBreakpointPersisting)? = nil,
+        breakpointRelocator: (any DebugBreakpointRelocating)? = nil,
         steppingFilterResolver: (any DebugSteppingFilterResolving)? = nil,
         steppingFilterPersistence: (any DebugSteppingFilterPersisting)? = nil
     ) {
@@ -21,6 +22,7 @@ final class DebugFeatureGraph: NSObject, DebugServiceGraph {
         genericFeature = GenericDebugFeatureModel(
             sessions: adapterSessions,
             breakpointPersistence: breakpointPersistence,
+            breakpointRelocator: breakpointRelocator,
             steppingFilterResolver: steppingFilterResolver,
             steppingFilterPersistence: steppingFilterPersistence
         )

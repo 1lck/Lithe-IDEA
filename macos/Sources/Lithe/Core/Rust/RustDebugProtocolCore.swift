@@ -13,6 +13,24 @@ extension RustCoreBridge: JavaTestDebugLaunchResolving {
     }
 }
 
+extension RustCoreBridge: DebugBreakpointRelocating {
+    func relocateDebugBreakpoints(
+        source: String,
+        edit: DebugSourceEdit,
+        breakpoints: [DebugSourceBreakpoint]
+    ) throws -> [DebugSourceBreakpoint] {
+        let result: DebugBreakpointRelocationResult = try executeResult(
+            command: "debug.relocateBreakpoints",
+            payload: DebugBreakpointRelocationPayload(
+                source: source,
+                edit: edit,
+                breakpoints: breakpoints
+            )
+        ).get()
+        return result.breakpoints
+    }
+}
+
 extension RustCoreBridge: DebugProtocolCore {
     func resolveDebugSteppingFilters(
         adapterID: String,
@@ -284,6 +302,16 @@ private struct JavaTestDebugLaunchPayload: Encodable {
         case testNGRunnerPath = "testngRunnerPath"
         case testNGTestNames = "testngTestNames"
     }
+}
+
+private struct DebugBreakpointRelocationPayload: Encodable {
+    let source: String
+    let edit: DebugSourceEdit
+    let breakpoints: [DebugSourceBreakpoint]
+}
+
+private struct DebugBreakpointRelocationResult: Decodable {
+    let breakpoints: [DebugSourceBreakpoint]
 }
 
 private struct DebugCreateSessionPayload: Encodable {

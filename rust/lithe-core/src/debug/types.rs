@@ -162,7 +162,7 @@ pub struct LaunchRequest {
     pub configuration: DebugLaunchConfiguration,
 }
 
-#[derive(Debug, Clone, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// One requested source breakpoint using one-based DAP coordinates.
 pub struct SourceBreakpoint {
