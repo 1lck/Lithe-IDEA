@@ -1151,6 +1151,9 @@ struct EditorAreaView: View {
             .overlay(alignment: .top) {
                 FindBarOverlay()
             }
+            .overlay(alignment: .topTrailing) {
+                GoToLineBarOverlay()
+            }
     }
 
     private func codeEditor(

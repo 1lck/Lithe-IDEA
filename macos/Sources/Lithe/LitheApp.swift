@@ -410,6 +410,12 @@ struct LitheApp: App {
                     }
                     .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "find-previous"))
                     .disabled(!model.isFindBarVisible || model.findMatchCount == 0)
+
+                    Button("Go to Line…") {
+                        model.showGoToLineBar()
+                    }
+                    .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "go-to-line"))
+                    .disabled(model.activeDocument == nil)
                 }
 
                 Divider()
