@@ -8,8 +8,7 @@ struct BranchSwitcherPopover: View {
         static let actionRowHeight: CGFloat = 30
         static let branchRowHeight: CGFloat = 28
         static let branchGroupHeaderHeight: CGFloat = 24
-        static let minimumBranchListHeight: CGFloat = 160
-        static let maximumBranchListHeight: CGFloat = 240
+        static let branchListHeight: CGFloat = 240
     }
 
     @EnvironmentObject private var model: AppModel
@@ -162,38 +161,40 @@ struct BranchSwitcherPopover: View {
             .padding(.horizontal, 14)
             .frame(height: Metrics.branchGroupHeaderHeight)
 
-            if filteredReferences.isEmpty {
-                Text(model.isLoadingGitHistory ? "Loading branches…" : "No matching branches")
-                    .font(LitheTheme.uiFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        if searchQuery.isEmpty {
-                            ForEach(recentReferenceRows) { row in
-                                branchRow(row.reference, indented: false, presentation: .recent)
-                            }
+            Group {
+                if filteredReferences.isEmpty {
+                    Text(model.isLoadingGitHistory ? "Loading branches…" : "No matching branches")
+                        .font(LitheTheme.uiFont)
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            if searchQuery.isEmpty {
+                                ForEach(recentReferenceRows) { row in
+                                    branchRow(row.reference, indented: false, presentation: .recent)
+                                }
 
-                            if !recentReferences.isEmpty && !filteredReferences.isEmpty {
-                                Rectangle()
-                                    .fill(LitheTheme.divider)
-                                    .frame(height: 1)
-                                    .padding(.vertical, 6)
-                            }
+                                if !recentReferences.isEmpty && !filteredReferences.isEmpty {
+                                    Rectangle()
+                                        .fill(LitheTheme.divider)
+                                        .frame(height: 1)
+                                        .padding(.vertical, 6)
+                                }
 
-                            groupedBranchRows
-                        } else {
-                            ForEach(searchResultRows) { row in
-                                branchRow(row.reference, indented: false, presentation: .searchResult)
+                                groupedBranchRows
+                            } else {
+                                ForEach(searchResultRows) { row in
+                                    branchRow(row.reference, indented: false, presentation: .searchResult)
+                                }
                             }
                         }
+                        .padding(.horizontal, 8)
+                        .padding(.bottom, 8)
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 8)
                 }
-                .frame(minHeight: Metrics.minimumBranchListHeight, maxHeight: Metrics.maximumBranchListHeight)
             }
+            .frame(height: Metrics.branchListHeight)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
