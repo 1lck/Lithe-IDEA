@@ -1,11 +1,21 @@
 import SwiftUI
 
+/// 状态栏的行:列指示：视觉保持纯文本现状，点击打开 Go to Line 输入条
+/// （无活动文档时为无操作）。
 struct EditorCaretPositionLabel: View {
     @ObservedObject var chrome: EditorChromeModel
+    let onShowGoToLine: () -> Void
 
     var body: some View {
-        Text(chrome.caret.map { "\($0.line + 1):\($0.utf16Column + 1)" } ?? "1:1")
-            .monospacedDigit()
+        Button {
+            onShowGoToLine()
+        } label: {
+            Text(chrome.caret.map { "\($0.line + 1):\($0.utf16Column + 1)" } ?? "1:1")
+                .monospacedDigit()
+        }
+        .buttonStyle(.plain)
+        .lithePointer()
+        .help("Go to Line…")
     }
 }
 

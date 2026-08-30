@@ -12,6 +12,8 @@ struct EditorNavigationTarget: Equatable, Identifiable {
     let url: URL
     let line: Int
     let utf16Column: Int
+    /// 整行选中目标行（Go to Line 行为）；符号与查找导航保持零长度光标。
+    var selectsWholeLine: Bool = false
 }
 
 struct LanguageNavigationLocation: Identifiable, Hashable, Sendable {

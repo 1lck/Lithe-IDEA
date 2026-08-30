@@ -118,4 +118,32 @@ struct EditorChromeModelTests {
         )
         #expect(chrome.findReplaceText == "bar")
     }
+
+    @Test
+    func goToLineBarAndFindBarAreMutuallyExclusive() {
+        // 查找栏与跳转条互斥：任一打开都会收起另一个
+        let chrome = EditorChromeModel()
+        chrome.setFindBarVisible(true)
+        chrome.setGoToLineVisible(true)
+        #expect(chrome.isGoToLineVisible)
+        #expect(!chrome.isFindBarVisible)
+
+        chrome.setFindBarVisible(true)
+        #expect(chrome.isFindBarVisible)
+        #expect(!chrome.isGoToLineVisible)
+
+        chrome.setGoToLineVisible(false)
+        #expect(!chrome.isGoToLineVisible)
+        #expect(chrome.isFindBarVisible)
+    }
+
+    @Test
+    func resetClosesGoToLineBar() {
+        let chrome = EditorChromeModel()
+        chrome.setGoToLineVisible(true)
+
+        chrome.reset()
+
+        #expect(!chrome.isGoToLineVisible)
+    }
 }
