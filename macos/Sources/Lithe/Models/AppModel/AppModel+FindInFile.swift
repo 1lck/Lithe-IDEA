@@ -93,18 +93,27 @@ extension AppModel {
     }
 
     func replaceNextFindMatch() {
+        guard let documentID = activeDocument?.id else { return }
+        // 携带目标文档标识：分栏时只有绑定同一文档的编辑器执行替换
         NotificationCenter.default.post(
             name: .litheFindReplaceNext,
             object: nil,
-            userInfo: [FindNotificationKeys.replacement: editorChrome.findReplaceText]
+            userInfo: [
+                FindNotificationKeys.documentID: documentID,
+                FindNotificationKeys.replacement: editorChrome.findReplaceText
+            ]
         )
     }
 
     func replaceAllFindMatches() {
+        guard let documentID = activeDocument?.id else { return }
         NotificationCenter.default.post(
             name: .litheFindReplaceAll,
             object: nil,
-            userInfo: [FindNotificationKeys.replacement: editorChrome.findReplaceText]
+            userInfo: [
+                FindNotificationKeys.documentID: documentID,
+                FindNotificationKeys.replacement: editorChrome.findReplaceText
+            ]
         )
     }
 

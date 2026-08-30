@@ -55,8 +55,8 @@ struct FindInFileMatcher {
         return literalMatchRanges(in: source, range: range)
     }
 
-    /// 展开替换模板：正则模式按 NSRegularExpression 语义（$1、${name}），
-    /// 字面量模式原样返回。匹配列表与当前文本不一致时按字面量处理。
+    /// 展开替换模板：正则模式按 NSRegularExpression 语义展开 $n 数字捕获组
+    /// （${name} 命名分组模板当前 SDK 不支持，原样返回），字面量模式原样返回。匹配列表与当前文本不一致时按字面量处理。
     func replacement(for source: NSString, matchRange: NSRange, template: String) -> String {
         guard let expression else { return template }
         let searchRange = NSRange(
@@ -67,7 +67,7 @@ struct FindInFileMatcher {
               match.range == matchRange else {
             return template
         }
-        // offset 仅锚定模板中的 \G；$n / ${name} 展开不受影响
+        // offset 仅锚定模板中的 \G；$n 数字分组展开不受影响
         return expression.replacementString(for: match, in: source as String, offset: 0, template: template)
     }
 

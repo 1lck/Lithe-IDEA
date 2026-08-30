@@ -539,6 +539,7 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.updateDiagnostics()
         context.coordinator.applyNavigationTargetIfNeeded()
         if let codeTextView = textView as? CodeTextView {
+            codeTextView.documentID = document.id
             let findVisible = chrome.isFindBarVisible
             let findQuery = chrome.findBarQuery
             let findOptions = chrome.findOptions
@@ -1503,6 +1504,8 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     private var currentFindMatchIndex = 0
     private var lastReportedFindState: (index: Int, count: Int)?
     private var findMatcher = FindInFileMatcher(query: "", options: .default)
+    /// 本视图绑定的文档标识；替换通知只在与之匹配时生效，防止分栏误伤。
+    var documentID: UUID?
     private var lastCaretBackgroundRanges: [NSRange] = []
     private var completionItemsByID: [String: LanguageServerCompletionItem] = [:]
     private var languageHoverPopover: NSPopover?
@@ -1708,6 +1711,12 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
             ? findMatcher
             : FindInFileMatcher(query: query, options: findMatcher.options)
         findMatcher = matcher
+        if matcher.options.regularExpression {
+            // 正则可能产生跨行匹配，编辑行附近的增量窗口覆盖不了，
+            // 直接整篇重算，避免无关位置编辑后丢失跨行匹配。
+            updateFindMatches(query: query, options: matcher.options)
+            return
+        }
         let source = string as NSString
         let delta = insertedLength - replacedRange.length
         let replacedEnd = NSMaxRange(replacedRange)
@@ -3114,15 +3123,24 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     }
 
     @objc private func handleFindReplaceNext(_ notification: Notification) {
+        guard isReplaceNotificationTarget(notification) else { return }
         replaceNextFindMatch(
             replacement: notification.userInfo?[FindNotificationKeys.replacement] as? String ?? ""
         )
     }
 
     @objc private func handleFindReplaceAll(_ notification: Notification) {
+        guard isReplaceNotificationTarget(notification) else { return }
         replaceAllFindMatches(
             replacement: notification.userInfo?[FindNotificationKeys.replacement] as? String ?? ""
         )
+    }
+
+    /// 替换通知只在绑定同一文档的编辑器上执行，避免分栏时误伤其他编辑器。
+    private func isReplaceNotificationTarget(_ notification: Notification) -> Bool {
+        guard let targetID = notification.userInfo?[FindNotificationKeys.documentID] as? UUID
+        else { return false }
+        return targetID == documentID
     }
 
     @objc private func handleFindNavigate(_ notification: Notification) {

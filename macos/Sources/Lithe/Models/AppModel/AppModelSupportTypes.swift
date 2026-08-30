@@ -87,6 +87,8 @@ enum FindNotificationKeys {
     static let wholeWords = "wholeWords"
     static let regularExpression = "regularExpression"
     static let replacement = "replacement"
+    /// 替换通知的目标文档标识；接收编辑器必须与之匹配才执行替换。
+    static let documentID = "documentID"
 }
 
 extension Notification.Name {
