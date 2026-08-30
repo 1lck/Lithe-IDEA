@@ -61,6 +61,178 @@ struct DebugModuleTests {
     }
 
     @Test
+    func independentSessionsShareBreakpointsButKeepStateAndCallbacksSeparate() throws {
+        let descriptor = DebugProviderDescriptor(
+            id: "java",
+            displayName: "Java",
+            fileExtensions: ["java"]
+        )
+        var createdSessions: [DeferredInspectionDebugSession] = []
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
+            let session = DeferredInspectionDebugSession()
+            createdSessions.append(session)
+            return session
+        }
+        var receivedEvents: [(DebugSessionID, String, DebugAdapterEvent)] = []
+        manager.onSessionEvent = { sessionID, providerID, event in
+            receivedEvents.append((sessionID, providerID, event))
+        }
+
+        let root = URL(fileURLWithPath: "/tmp/java-debug-multiple", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.java")
+        let first = try manager.activateNew(for: source, rootURL: root)
+        let second = try manager.activateNew(for: source, rootURL: root)
+        let firstSession = try #require(createdSessions.first)
+        let secondSession = try #require(createdSessions.dropFirst().first)
+
+        #expect(first.id != second.id)
+        #expect(manager.sessionSummaries.map(\.id) == [first.id, second.id])
+        #expect(manager.activeAdapterIDs == ["java"])
+        #expect(manager.session(providerID: "java") === secondSession)
+
+        try manager.setBreakpoints([
+            DebugSourceBreakpoint(line: 12, enabled: true)
+        ], in: source)
+        #expect(firstSession.breakpointUpdates.last?.first?.line == 12)
+        #expect(secondSession.breakpointUpdates.last?.first?.line == 12)
+
+        firstSession.emit(.output(category: "stdout", output: "old\n"))
+        secondSession.emit(.output(category: "stdout", output: "new\n"))
+        #expect(receivedEvents.map { $0.0 } == [first.id, second.id])
+        #expect(manager.lastEvents["java"] == .output(category: "stdout", output: "new\n"))
+
+        #expect(manager.select(sessionID: first.id))
+        firstSession.emit(.output(category: "stdout", output: "selected-first\n"))
+        #expect(manager.lastEvents["java"] == .output(category: "stdout", output: "selected-first\n"))
+
+        manager.stop(sessionID: second.id)
+        #expect(manager.session(providerID: "java") === firstSession)
+        #expect(manager.activeSessionIDs == [first.id])
+        #expect(manager.states["java"] == .ready)
+        #expect(manager.sessionSummaries.map(\.id) == [first.id])
+
+        manager.stop(sessionID: first.id)
+        #expect(manager.activeSessionIDs.isEmpty)
+        #expect(manager.activeAdapterIDs.isEmpty)
+        #expect(manager.states["java"] == .idle)
+    }
+
+    @Test
+    func featureSwitchesSessionsWithoutMixingTheirConsoleState() throws {
+        let descriptor = DebugProviderDescriptor(
+            id: "java",
+            displayName: "Java",
+            fileExtensions: ["java"]
+        )
+        var createdSessions: [DeferredInspectionDebugSession] = []
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
+            let session = DeferredInspectionDebugSession()
+            createdSessions.append(session)
+            return session
+        }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        let root = URL(fileURLWithPath: "/tmp/java-debug-feature-sessions", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.java")
+        let firstConfiguration = DebugLaunchConfiguration(
+            name: "First",
+            request: .launch,
+            arguments: ["mainClass": .string("example.First")]
+        )
+        let secondConfiguration = DebugLaunchConfiguration(
+            name: "Second",
+            request: .launch,
+            arguments: ["mainClass": .string("example.Second")]
+        )
+
+        #expect(feature.start(
+            fileURL: source,
+            rootURL: root,
+            configuration: firstConfiguration
+        ))
+        let first = try #require(createdSessions.first)
+        let firstID = try #require(feature.activeSessionID)
+        first.emit(.output(category: "stdout", output: "first\n"))
+
+        #expect(feature.startAdditional(
+            fileURL: source,
+            rootURL: root,
+            configuration: secondConfiguration
+        ))
+        let second = try #require(createdSessions.dropFirst().first)
+        let secondID = try #require(feature.activeSessionID)
+        #expect(firstID != secondID)
+        second.emit(.output(category: "stdout", output: "second\n"))
+        first.emit(.output(category: "stdout", output: "first-late\n"))
+        #expect(feature.output == "second\n")
+
+        #expect(feature.selectSession(firstID))
+        #expect(feature.output == "first\nfirst-late\n")
+        #expect(feature.targetTitle == "First")
+        #expect(feature.activeSessionID == firstID)
+
+        #expect(feature.selectSession(secondID))
+        #expect(feature.output == "second\n")
+        #expect(feature.targetTitle == "Second")
+        #expect(feature.activeSessionID == secondID)
+
+        feature.stopSession(firstID)
+        #expect(feature.sessionSummaries.map(\.id) == [secondID])
+        feature.stop()
+        #expect(feature.sessionSummaries.isEmpty)
+    }
+
+    @Test
+    func additionalSessionLaunchFailureRestoresTheOriginalActiveSession() throws {
+        let descriptor = DebugProviderDescriptor(
+            id: "java",
+            displayName: "Java",
+            fileExtensions: ["java"]
+        )
+        var createdSessions: [DeferredInspectionDebugSession] = []
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
+            let session = DeferredInspectionDebugSession()
+            if createdSessions.count == 1 {
+                session.failNextLaunch = true
+            }
+            createdSessions.append(session)
+            return session
+        }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        let root = URL(fileURLWithPath: "/tmp/java-debug-additional-failure", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.java")
+        let firstConfiguration = DebugLaunchConfiguration(
+            name: "First",
+            request: .launch,
+            arguments: ["mainClass": .string("example.First")]
+        )
+        let secondConfiguration = DebugLaunchConfiguration(
+            name: "Second",
+            request: .launch,
+            arguments: ["mainClass": .string("example.Second")]
+        )
+
+        #expect(feature.start(fileURL: source, rootURL: root, configuration: firstConfiguration))
+        let first = try #require(createdSessions.first)
+        let firstID = try #require(feature.activeSessionID)
+        first.emit(.output(category: "stdout", output: "first\n"))
+
+        #expect(!feature.startAdditional(
+            fileURL: source,
+            rootURL: root,
+            configuration: secondConfiguration
+        ))
+        #expect(createdSessions.count == 2)
+        #expect(feature.activeSessionID == firstID)
+        #expect(feature.targetTitle == "First")
+        #expect(feature.output == "first\n")
+        #expect(feature.state == .paused)
+        #expect(feature.errorMessage == nil)
+        #expect(manager.activeSessionIDs == [firstID])
+
+        feature.stop()
+    }
+
+    @Test
     func coreProtocolSessionProjectsRustUpdatesThroughInjectedTransport() throws {
         let transport = RecordingTransport()
         let core = RecordingDebugProtocolCore()
@@ -2353,6 +2525,10 @@ private enum DebugSteppingFilterPersistenceTestError: Error {
     case unreadable
 }
 
+private enum DeferredDebugSessionError: Error {
+    case launchFailed
+}
+
 private final class FailingDebugSteppingFilterPersistence:
     DebugSteppingFilterPersisting,
     @unchecked Sendable
@@ -2390,6 +2566,7 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
     private(set) var startCount = 0
     private(set) var launchConfigurations: [DebugLaunchConfiguration] = []
     private(set) var breakpointUpdates: [[DebugSourceBreakpoint]] = []
+    var failNextLaunch = false
     var onStateChange: ((DebugAdapterState) -> Void)?
     var onEvent: ((DebugAdapterEvent) -> Void)?
 
@@ -2445,6 +2622,10 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
 
     func launch(_ configuration: DebugLaunchConfiguration) throws {
         launchConfigurations.append(configuration)
+        if failNextLaunch {
+            failNextLaunch = false
+            throw DeferredDebugSessionError.launchFailed
+        }
         state = .paused
         onStateChange?(.paused)
     }

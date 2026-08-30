@@ -155,6 +155,9 @@ struct GenericDebugView: View {
                     .foregroundStyle(LitheTheme.secondaryText)
                     .lineLimit(1)
             }
+            if feature.sessionSummaries.count > 1 {
+                sessionPicker
+            }
             Spacer()
             Button { model.showDebugBreakpointManager() } label: {
                 Image(systemName: "list.bullet.rectangle")
@@ -187,6 +190,54 @@ struct GenericDebugView: View {
                 feature.clearOutput()
             }
         }
+    }
+
+    private var sessionPicker: some View {
+        Menu {
+            Section("Sessions") {
+                ForEach(feature.sessionSummaries) { summary in
+                    Button {
+                        _ = feature.selectSession(summary.id)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: summary.id == feature.activeSessionID
+                                ? "checkmark.circle.fill" : "circle")
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(sessionLabel(summary))
+                                Text(summary.state.title)
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                            }
+                        }
+                    }
+                }
+            }
+            if feature.sessionSummaries.count > 1 {
+                Divider()
+                Section("Close other sessions") {
+                    ForEach(feature.sessionSummaries.filter { $0.id != feature.activeSessionID }) { summary in
+                        Button("Stop \(sessionLabel(summary))", role: .destructive) {
+                            feature.stopSession(summary.id)
+                        }
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "square.stack.3d.up")
+        }
+        .litheIconButton()
+        .help("Debug sessions")
+        .accessibilityLabel("Debug sessions")
+    }
+
+    private func sessionLabel(_ summary: DebugSessionSummary) -> String {
+        let rootName = summary.rootURL.lastPathComponent.isEmpty
+            ? summary.rootURL.path
+            : summary.rootURL.lastPathComponent
+        if let targetTitle = summary.targetTitle, !targetTitle.isEmpty {
+            return "\(targetTitle) · \(rootName)"
+        }
+        return "\(summary.providerDisplayName) · \(rootName)"
     }
 
     private var debugToolbar: some View {

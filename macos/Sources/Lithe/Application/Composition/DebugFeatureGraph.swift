@@ -28,7 +28,9 @@ final class DebugFeatureGraph: NSObject, DebugServiceGraph {
         )
     }
 
-    var isActive: Bool { !adapterSessions.activeAdapterIDs.isEmpty }
+    var isActive: Bool {
+        adapterSessions.sessionSummaries.contains(where: \.isRunning)
+    }
     var genericFeatureTarget: any GenericDebugFeatureTarget { genericFeature }
     var hasActiveDebugWork: Bool { isActive }
     func activate(context: ModuleContext) {
@@ -39,7 +41,14 @@ final class DebugFeatureGraph: NSObject, DebugServiceGraph {
     }
 
     func configureModuleLeases(acquire: @escaping @MainActor (String) -> ModuleLease) {
-        genericFeature.$state.map { ![.idle, .terminated, .failed].contains($0) }
+        let activeFeature = genericFeature.$state.map {
+            ![.idle, .terminated, .failed].contains($0)
+        }
+        let activeSessions = adapterSessions.$sessionSummaries.map { summaries in
+            summaries.contains(where: \.isRunning)
+        }
+        Publishers.CombineLatest(activeFeature, activeSessions)
+            .map { $0 || $1 }
             .removeDuplicates().sink { [weak self] active in
                 guard let self else { return }
                 if active, adapterLease == nil { adapterLease = acquire("Debug adapter session is active") }

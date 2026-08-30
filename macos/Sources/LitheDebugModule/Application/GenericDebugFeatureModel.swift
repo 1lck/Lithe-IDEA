@@ -192,9 +192,28 @@ private struct GenericDebugOutputNormalizer {
     }
 }
 
+/// Cached presentation state for an inactive session. Inspection data is
+/// refreshed when the session becomes active so stale frame references are
+/// never reused across adapter sessions.
+private struct GenericDebugSessionSnapshot {
+    let providerID: String
+    let targetTitle: String?
+    var state: DebugAdapterState
+    var output: String
+    var errorMessage: String?
+    var stoppedReason: String?
+    var exceptionInfo: DebugExceptionInfo?
+    var capabilities: DebugAdapterCapabilities
+    var activeFileURL: URL?
+    var lastStartRequest: GenericDebugStartRequest?
+    var normalizer: GenericDebugOutputNormalizer
+}
+
 @MainActor
 public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatureTarget {
     @Published public private(set) var providerID: String?
+    @Published public private(set) var activeSessionID: DebugSessionID?
+    @Published public private(set) var sessionSummaries: [DebugSessionSummary] = []
     @Published public private(set) var targetTitle: String?
     @Published public private(set) var state: DebugAdapterState = .idle
     @Published public private(set) var output = ""
@@ -245,6 +264,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     private var workspaceURL: URL?
     private var activeFileURL: URL?
     private var lastStartRequest: GenericDebugStartRequest?
+    private var sessionSnapshots: [DebugSessionID: GenericDebugSessionSnapshot] = [:]
     private let maximumOutputCharacters = 400_000
     private let variablePageSize = 100
     private var watchGeneration = 0
@@ -264,13 +284,35 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         self.breakpointRelocator = breakpointRelocator
         self.steppingFilterResolver = steppingFilterResolver
         self.steppingFilterPersistence = steppingFilterPersistence
-        sessions.onStateChange = { [weak self] providerID, state in
-            guard self?.providerID == providerID else { return }
-            self?.state = state
+        sessionSummaries = sessions.sessionSummaries
+        sessions.onSessionStateChange = { [weak self] sessionID, providerID, state in
+            guard let self else { return }
+            self.sessionSummaries = self.sessions.sessionSummaries
+            if self.activeSessionID == sessionID {
+                self.providerID = providerID
+                self.state = state
+                self.saveActiveSessionSnapshot()
+            } else {
+                self.updateInactiveSessionState(
+                    sessionID,
+                    providerID: providerID,
+                    state: state
+                )
+            }
         }
-        sessions.onEvent = { [weak self] providerID, event in
-            guard self?.providerID == providerID else { return }
-            self?.consume(event)
+        sessions.onSessionEvent = { [weak self] sessionID, providerID, event in
+            guard let self else { return }
+            self.sessionSummaries = self.sessions.sessionSummaries
+            if self.activeSessionID == sessionID {
+                self.consume(event)
+                self.saveActiveSessionSnapshot()
+            } else {
+                self.consumeInactiveSessionEvent(
+                    sessionID,
+                    providerID: providerID,
+                    event: event
+                )
+            }
         }
         loadJavaSteppingFilters()
     }
@@ -339,6 +381,92 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         configuration: DebugLaunchConfiguration
     ) -> Bool {
         stop()
+        return startSession(
+            fileURL: fileURL,
+            rootURL: rootURL,
+            configuration: configuration
+        )
+    }
+
+    /// Starts another debug session while keeping existing sessions alive.
+    /// The new session becomes the active session shown by the Debug tool
+    /// window.
+    @discardableResult
+    public func startAdditional(
+        fileURL: URL,
+        rootURL: URL,
+        configuration: DebugLaunchConfiguration
+    ) -> Bool {
+        let previousSessionID = activeSessionID
+        let previousSnapshot = previousSessionID.flatMap { sessionSnapshots[$0] }
+        saveActiveSessionSnapshot()
+        let started = startSession(
+            fileURL: fileURL,
+            rootURL: rootURL,
+            configuration: configuration
+        )
+        guard !started,
+              let previousSessionID,
+              let previousSnapshot,
+              let previousSummary = sessions.sessionSummaries.first(where: { $0.id == previousSessionID })
+        else {
+            return started
+        }
+        _ = sessions.select(sessionID: previousSessionID)
+        activeSessionID = previousSessionID
+        providerID = previousSnapshot.providerID
+        sessionSnapshots[previousSessionID] = previousSnapshot
+        restoreSessionSnapshot(
+            previousSessionID,
+            summary: previousSummary
+        )
+        sessionSummaries = sessions.sessionSummaries
+        return false
+    }
+
+    /// Makes a registered session active without starting or stopping it.
+    /// Paused sessions refresh their inspection context after the switch.
+    @discardableResult
+    public func selectSession(_ sessionID: DebugSessionID) -> Bool {
+        guard sessionID != activeSessionID,
+              let summary = sessions.sessionSummaries.first(where: { $0.id == sessionID })
+        else { return false }
+        saveActiveSessionSnapshot()
+        invalidateInspectionRequests()
+        guard sessions.select(sessionID: sessionID) else { return false }
+        activeSessionID = sessionID
+        providerID = summary.providerID
+        restoreSessionSnapshot(sessionID, summary: summary)
+        sessionSummaries = sessions.sessionSummaries
+        resetInspectionState()
+        if state == .paused {
+            let generation = inspectionGeneration
+            loadStoppedContext(
+                threadID: nil,
+                generation: generation,
+                shouldLoadExceptionInfo: false
+            )
+        }
+        return true
+    }
+
+    /// Stops one session. Inactive sessions do not disturb the currently
+    /// displayed debugger state.
+    public func stopSession(_ sessionID: DebugSessionID) {
+        if activeSessionID == sessionID {
+            stop()
+            return
+        }
+        sessions.stop(sessionID: sessionID)
+        sessionSnapshots[sessionID] = nil
+        sessionSummaries = sessions.sessionSummaries
+    }
+
+    private func startSession(
+        fileURL: URL,
+        rootURL: URL,
+        configuration: DebugLaunchConfiguration
+    ) -> Bool {
         let request = GenericDebugStartRequest(
             fileURL: fileURL.standardizedFileURL,
             rootURL: rootURL.standardizedFileURL,
@@ -381,12 +509,15 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             } else {
                 effectiveConfiguration = request.configuration
             }
-            let session = try sessions.launch(
+            let launched = try sessions.launchNew(
                 for: request.fileURL,
                 rootURL: request.rootURL,
                 configuration: effectiveConfiguration
             )
-            state = session.state
+            activeSessionID = launched.id
+            state = launched.session.state
+            sessionSummaries = sessions.sessionSummaries
+            saveActiveSessionSnapshot()
             return true
         } catch {
             state = .failed
@@ -412,9 +543,11 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             dataBreakpoints.removeAll { !$0.canPersist }
             try? sessions.setDataBreakpoints(coreDataBreakpoints, for: activeFileURL)
         }
-        if let providerID {
-            sessions.stop(providerID: providerID)
+        if let activeSessionID {
+            sessions.stop(sessionID: activeSessionID)
+            sessionSnapshots[activeSessionID] = nil
         }
+        activeSessionID = nil
         state = .idle
         stoppedReason = nil
         exceptionInfo = nil
@@ -431,10 +564,31 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         capabilities = .unknown
         activeFileURL = nil
         debuggeeOutputNormalizer.reset()
+        sessionSummaries = sessions.sessionSummaries
     }
 
     public func reset() {
-        stop()
+        invalidateInspectionRequests()
+        sessions.stopAll()
+        sessionSnapshots.removeAll()
+        activeSessionID = nil
+        sessionSummaries = []
+        state = .idle
+        stoppedReason = nil
+        exceptionInfo = nil
+        selectedThreadID = nil
+        selectedFrameID = nil
+        stoppedFrame = nil
+        selectedFrame = nil
+        threads = []
+        stackFrames = []
+        areFilteredStackFramesExpanded = false
+        scopes = []
+        resetVariableTree()
+        invalidateWatchResults()
+        capabilities = .unknown
+        activeFileURL = nil
+        debuggeeOutputNormalizer.reset()
         providerID = nil
         targetTitle = nil
         output = ""
@@ -791,8 +945,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     }
 
     public func execute(_ command: DebugExecutionCommand) {
-        guard let providerID,
-              let session = sessions.session(providerID: providerID) else { return }
+        guard let session = activeSession else { return }
         session.execute(command, threadID: selectedThreadID)
     }
 
@@ -1176,7 +1329,142 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         append(normalized)
     }
 
+    private func resetInspectionState() {
+        stoppedReason = state == .paused ? stoppedReason : nil
+        exceptionInfo = nil
+        selectedThreadID = nil
+        selectedFrameID = nil
+        stoppedFrame = nil
+        selectedFrame = nil
+        threads = []
+        stackFrames = []
+        areFilteredStackFramesExpanded = false
+        scopes = []
+        resetVariableTree()
+        invalidateWatchResults()
+    }
+
+    private func saveActiveSessionSnapshot() {
+        guard let activeSessionID, let providerID else { return }
+        sessionSnapshots[activeSessionID] = GenericDebugSessionSnapshot(
+            providerID: providerID,
+            targetTitle: targetTitle,
+            state: state,
+            output: output,
+            errorMessage: errorMessage,
+            stoppedReason: stoppedReason,
+            exceptionInfo: exceptionInfo,
+            capabilities: capabilities,
+            activeFileURL: activeFileURL,
+            lastStartRequest: lastStartRequest,
+            normalizer: debuggeeOutputNormalizer
+        )
+    }
+
+    private func restoreSessionSnapshot(
+        _ sessionID: DebugSessionID,
+        summary: DebugSessionSummary
+    ) {
+        guard let snapshot = sessionSnapshots[sessionID] else {
+            providerID = summary.providerID
+            targetTitle = summary.targetTitle
+            state = summary.state
+            output = ""
+            errorMessage = nil
+            stoppedReason = nil
+            exceptionInfo = nil
+            capabilities = .unknown
+            activeFileURL = nil
+            lastStartRequest = nil
+            debuggeeOutputNormalizer.reset()
+            return
+        }
+        providerID = snapshot.providerID
+        targetTitle = snapshot.targetTitle
+        state = snapshot.state
+        output = snapshot.output
+        errorMessage = snapshot.errorMessage
+        stoppedReason = snapshot.stoppedReason
+        exceptionInfo = snapshot.exceptionInfo
+        capabilities = snapshot.capabilities
+        activeFileURL = snapshot.activeFileURL
+        lastStartRequest = snapshot.lastStartRequest
+        debuggeeOutputNormalizer = snapshot.normalizer
+    }
+
+    private func updateInactiveSessionState(
+        _ sessionID: DebugSessionID,
+        providerID: String,
+        state: DebugAdapterState
+    ) {
+        var snapshot = sessionSnapshots[sessionID] ?? GenericDebugSessionSnapshot(
+            providerID: providerID,
+            targetTitle: nil,
+            state: state,
+            output: "",
+            errorMessage: nil,
+            stoppedReason: nil,
+            exceptionInfo: nil,
+            capabilities: .unknown,
+            activeFileURL: nil,
+            lastStartRequest: nil,
+            normalizer: GenericDebugOutputNormalizer()
+        )
+        snapshot.state = state
+        sessionSnapshots[sessionID] = snapshot
+    }
+
+    private func consumeInactiveSessionEvent(
+        _ sessionID: DebugSessionID,
+        providerID: String,
+        event: DebugAdapterEvent
+    ) {
+        var snapshot = sessionSnapshots[sessionID] ?? GenericDebugSessionSnapshot(
+            providerID: providerID,
+            targetTitle: nil,
+            state: sessions.sessionSummaries.first(where: { $0.id == sessionID })?.state ?? .idle,
+            output: "",
+            errorMessage: nil,
+            stoppedReason: nil,
+            exceptionInfo: nil,
+            capabilities: .unknown,
+            activeFileURL: nil,
+            lastStartRequest: nil,
+            normalizer: GenericDebugOutputNormalizer()
+        )
+        switch event {
+        case .initialized:
+            break
+        case .capabilities(let capabilities):
+            snapshot.capabilities = capabilities
+        case .output(_, let text):
+            let normalized = snapshot.normalizer.normalize(text)
+            append(normalized, to: &snapshot.output)
+        case .stopped(let reason, _, let description):
+            snapshot.state = .paused
+            snapshot.stoppedReason = description ?? reason
+            snapshot.exceptionInfo = nil
+        case .continued:
+            snapshot.state = .running
+            snapshot.stoppedReason = nil
+            snapshot.exceptionInfo = nil
+        case .terminated(let exitCode):
+            snapshot.state = .terminated
+            snapshot.stoppedReason = nil
+            snapshot.exceptionInfo = nil
+            if let exitCode {
+                append("Debug session exited with code \(exitCode).\n", to: &snapshot.output)
+            }
+        case .breakpoint:
+            break
+        }
+        sessionSnapshots[sessionID] = snapshot
+    }
+
     private var activeSession: (any DebugAdapterControllingSession)? {
+        if let activeSessionID {
+            return sessions.session(id: activeSessionID)
+        }
         guard let providerID else { return nil }
         return sessions.session(providerID: providerID)
     }
@@ -1856,6 +2144,14 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     }
 
     private func append(_ text: String) {
+        output += text
+        if output.count > maximumOutputCharacters {
+            output.removeFirst(output.count - maximumOutputCharacters)
+        }
+        saveActiveSessionSnapshot()
+    }
+
+    private func append(_ text: String, to output: inout String) {
         output += text
         if output.count > maximumOutputCharacters {
             output.removeFirst(output.count - maximumOutputCharacters)
