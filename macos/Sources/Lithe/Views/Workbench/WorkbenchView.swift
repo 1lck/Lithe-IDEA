@@ -24,6 +24,17 @@ private enum WorkbenchWorkspaceMetrics {
     static let paneCornerRadius: CGFloat = 10
 }
 
+private struct ProjectSwitcherButtonBoundsPreferenceKey: PreferenceKey {
+    static var defaultValue: Anchor<CGRect>?
+
+    static func reduce(
+        value: inout Anchor<CGRect>?,
+        nextValue: () -> Anchor<CGRect>?
+    ) {
+        value = nextValue() ?? value
+    }
+}
+
 struct WorkbenchView: View {
     private let moduleUIRegistry = WorkbenchModuleUIComposition.builtIn
     @EnvironmentObject private var model: AppModel
@@ -223,6 +234,16 @@ struct WorkbenchView: View {
                     Task { await model.pushBranch(reference) }
                 }
             )
+        }
+        .overlayPreferenceValue(ProjectSwitcherButtonBoundsPreferenceKey.self) { bounds in
+            GeometryReader { geometry in
+                if isProjectSwitcherPresented, let bounds {
+                    projectSwitcherOverlay(
+                        buttonFrame: geometry[bounds],
+                        viewportSize: geometry.size
+                    )
+                }
+            }
         }
         .overlay(alignment: .bottom) {
             if let message = model.notificationMessage {
@@ -466,39 +487,10 @@ struct WorkbenchView: View {
             .buttonStyle(.plain)
             .lithePointer()
             .accessibilityIdentifier("project-switcher-\(model.id.uuidString)")
-            .background(alignment: .bottomLeading) {
-                Color.clear
-                    .frame(
-                        width: ProjectSwitcherLayoutMetrics.anchorOffsetFromLeading,
-                        height: 1
-                    )
-                    .popover(
-                        isPresented: $isProjectSwitcherPresented,
-                        attachmentAnchor: .point(.bottomTrailing),
-                        arrowEdge: .bottom
-                    ) {
-                        ProjectSwitcherPopover(
-                            isPresented: $isProjectSwitcherPresented,
-                            onNewProject: {
-                                isProjectSwitcherPresented = false
-                                model.chooseProject(title: "New Project", prompt: "Choose Folder")
-                            },
-                            onOpenProject: {
-                                isProjectSwitcherPresented = false
-                                model.chooseProject()
-                            },
-                            onCloneRepository: {
-                                isProjectSwitcherPresented = false
-                                model.showCloneRepository()
-                            },
-                            onOpenRecentProject: { project in
-                                isProjectSwitcherPresented = false
-                                model.openProject(project.url)
-                            }
-                        )
-                        .environmentObject(model)
-                    }
-            }
+            .anchorPreference(
+                key: ProjectSwitcherButtonBoundsPreferenceKey.self,
+                value: .bounds
+            ) { $0 }
 
             Spacer(minLength: 22)
 
@@ -516,6 +508,65 @@ struct WorkbenchView: View {
                         .toggleWorkspaceZoom()
                 }
         }
+    }
+
+    private func projectSwitcherOverlay(
+        buttonFrame: CGRect,
+        viewportSize: CGSize
+    ) -> some View {
+        let metrics = ProjectSwitcherLayoutMetrics.self
+        let desiredX = buttonFrame.minX - metrics.leadingOverlap
+        let maximumX = max(
+            metrics.viewportMargin,
+            viewportSize.width - metrics.width - metrics.viewportMargin
+        )
+        let popupX = min(max(desiredX, metrics.viewportMargin), maximumX)
+        let arrowCenterX = min(
+            max(buttonFrame.midX - popupX, metrics.arrowWidth),
+            metrics.width - metrics.arrowWidth
+        )
+
+        return ZStack(alignment: .topLeading) {
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture { isProjectSwitcherPresented = false }
+
+            ZStack(alignment: .topLeading) {
+                ProjectSwitcherPopoverArrow()
+                    .fill(LitheTheme.popupBackground)
+                    .overlay {
+                        ProjectSwitcherPopoverArrow()
+                            .stroke(LitheTheme.panelBorder, lineWidth: 1)
+                    }
+                    .frame(width: metrics.arrowWidth, height: metrics.arrowHeight)
+                    .offset(x: arrowCenterX - (metrics.arrowWidth / 2))
+
+                ProjectSwitcherPopover(
+                    isPresented: $isProjectSwitcherPresented,
+                    onNewProject: {
+                        isProjectSwitcherPresented = false
+                        model.chooseProject(title: "New Project", prompt: "Choose Folder")
+                    },
+                    onOpenProject: {
+                        isProjectSwitcherPresented = false
+                        model.chooseProject()
+                    },
+                    onCloneRepository: {
+                        isProjectSwitcherPresented = false
+                        model.showCloneRepository()
+                    },
+                    onOpenRecentProject: { project in
+                        isProjectSwitcherPresented = false
+                        model.openProject(project.url)
+                    }
+                )
+                .environmentObject(model)
+                .lithePopupChrome()
+                .padding(.top, metrics.arrowHeight - 1)
+            }
+            .offset(x: popupX, y: buttonFrame.maxY)
+        }
+        .onExitCommand { isProjectSwitcherPresented = false }
     }
 
     private var backgroundPickerButton: some View {
