@@ -30,6 +30,14 @@ struct RustGitOperations: GitOperations, Sendable {
                     stashReference: $0.stashReference,
                     conflictedPaths: $0.conflictedPaths
                 )
+            },
+            tagDeletion: response.tagDeletion.map {
+                GitTagDeletion(
+                    name: $0.name,
+                    deletedTarget: $0.deletedTarget,
+                    kind: $0.kind,
+                    message: $0.message
+                )
             }
         )
     }
@@ -285,6 +293,25 @@ struct RustGitOperations: GitOperations, Sendable {
 
     func stageAll(at rootURL: URL) -> GitProcessResult? {
         write(at: rootURL, operation: "stageAll")
+    }
+
+    func createTag(
+        named name: String,
+        at revision: String,
+        message: String?,
+        rootURL: URL
+    ) -> GitProcessResult? {
+        write(
+            at: rootURL,
+            operation: "createTag",
+            revision: revision,
+            name: name,
+            message: message
+        )
+    }
+
+    func deleteTag(named name: String, rootURL: URL) -> GitProcessResult? {
+        write(at: rootURL, operation: "deleteTag", name: name)
     }
 
     func snapshot(at rootURL: URL) -> GitSnapshot? {

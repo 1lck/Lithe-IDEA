@@ -21,6 +21,27 @@ public struct GitProcessInvocation: Equatable, Sendable {
     public var output: String { standardOutput + standardError }
 }
 
+/// Everything a host needs to rebuild a deleted tag later: the record is kept
+/// in session state only, and restores replay `createTag` with these values.
+public struct GitTagDeletion: Equatable, Sendable {
+    public let name: String
+    /// The commit the deleted ref resolved to (peeled for annotated tags).
+    public let deletedTarget: String
+    /// `lightweight` or `annotated`, taken from the tag object type.
+    public let kind: String
+    /// Original annotation, if any; lightweight tags carry `nil`.
+    public let message: String?
+
+    public init(name: String, deletedTarget: String, kind: String, message: String?) {
+        self.name = name
+        self.deletedTarget = deletedTarget
+        self.kind = kind
+        self.message = message
+    }
+
+    public var isAnnotated: Bool { kind == "annotated" }
+}
+
 public struct GitProcessResult: Sendable {
     public let arguments: [String]
     public let output: String
@@ -30,6 +51,7 @@ public struct GitProcessResult: Sendable {
     public let invocations: [GitProcessInvocation]
     public let operationErrorMessage: String?
     public let stashRestoreConflict: GitStashRestoreConflict?
+    public let tagDeletion: GitTagDeletion?
     public init(
         arguments: [String] = [],
         output: String,
@@ -38,7 +60,8 @@ public struct GitProcessResult: Sendable {
         exitCode: Int32,
         invocations: [GitProcessInvocation] = [],
         operationErrorMessage: String? = nil,
-        stashRestoreConflict: GitStashRestoreConflict? = nil
+        stashRestoreConflict: GitStashRestoreConflict? = nil,
+        tagDeletion: GitTagDeletion? = nil
     ) {
         self.arguments = arguments
         self.output = output
@@ -48,6 +71,7 @@ public struct GitProcessResult: Sendable {
         self.invocations = invocations
         self.operationErrorMessage = operationErrorMessage
         self.stashRestoreConflict = stashRestoreConflict
+        self.tagDeletion = tagDeletion
     }
 }
 

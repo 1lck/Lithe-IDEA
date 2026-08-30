@@ -113,6 +113,10 @@ pub struct GitCommandResponse {
     /// output.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stash_restore: Option<GitStashRestoreResponse>,
+    /// Present when a tag deletion succeeded, carrying everything a host needs
+    /// to offer a restore without re-querying the repository.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tag_deletion: Option<GitTagDeletionResponse>,
 }
 
 /// Raw Git process streams kept separate for machine-readable consumers.
@@ -142,6 +146,7 @@ impl GitProcessOutput {
             invocations: vec![invocation],
             operation_error: None,
             stash_restore: None,
+            tag_deletion: None,
         }
     }
 }
@@ -208,6 +213,23 @@ fn record_git_invocation(response: &GitCommandResponse) {
 pub struct GitStashRestoreResponse {
     pub stash_reference: String,
     pub conflicted_paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Deletion record that lets a host rebuild the deleted tag later.
+///
+/// `deleted_target` is the commit the deleted ref resolved to (peeled for
+/// annotated tags), so a restore can re-point a new tag at the same commit.
+pub struct GitTagDeletionResponse {
+    /// Short name of the deleted tag, without the `refs/tags/` prefix.
+    pub name: String,
+    pub deleted_target: String,
+    /// `lightweight` or `annotated`, taken from the tag object type.
+    pub kind: String,
+    /// Annotation message; `None` for lightweight tags and empty annotations.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -578,6 +600,42 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
                 validated_revision(request.revision.as_deref())?,
             ];
         }
+        "createTag" => {
+            let name = validated_tag_name(request.name.as_deref())?;
+            let target = validated_revision(request.revision.as_deref())?;
+            // Existence and resolvability probes run before Git so a duplicate
+            // or unresolvable target fails with a stable message instead of
+            // leaving the caller to parse localized `git tag` stderr.
+            if tag_exists(&root, &name)? {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    format!("A tag named '{name}' already exists"),
+                ));
+            }
+            if !target_resolves(&root, &target)? {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    format!("Could not resolve tag target '{target}'"),
+                ));
+            }
+            let message = request
+                .message
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
+            arguments = match message {
+                Some(message) => vec![
+                    "tag".into(),
+                    "-a".into(),
+                    name,
+                    "-m".into(),
+                    message.to_string(),
+                    target,
+                ],
+                None => vec!["tag".into(), name, target],
+            };
+        }
+        "deleteTag" => return delete_tag(&root, request.name.as_deref()),
         "clone" => {
             let remote = required_text(request.remote.as_deref(), "clone source")?;
             let destination = required_text(request.destination.as_deref(), "clone destination")?;
@@ -1786,6 +1844,158 @@ fn validated_branch_name(root: &str, value: Option<&str>) -> Result<String, Core
     Ok(value)
 }
 
+/// Validates a tag name against the same refname rules `git check-ref-format`
+/// enforces, so an invalid name fails before any subprocess with a stable
+/// message instead of depending on localized `git tag` output.
+fn validated_tag_name(value: Option<&str>) -> Result<String, CoreError> {
+    let value = required_text(value, "tag name")?;
+    if is_invalid_tag_name(&value) {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Invalid Git tag name",
+        ));
+    }
+    Ok(value)
+}
+
+/// Refname rules from `git check-ref-format` plus command-line safety guards
+/// (no leading dash) shared by every Git mutation argument.
+fn is_invalid_tag_name(value: &str) -> bool {
+    if value.starts_with('-')
+        || value == "@"
+        || value.starts_with('/')
+        || value.ends_with('/')
+        || value.ends_with('.')
+        || value.contains("..")
+        || value.contains("@{")
+        || value.contains("//")
+    {
+        return true;
+    }
+    if value.chars().any(|character| {
+        character.is_control()
+            || matches!(character, ' ' | '~' | '^' | ':' | '?' | '*' | '[' | '\\')
+    }) {
+        return true;
+    }
+    value
+        .split('/')
+        .any(|component| component.starts_with('.') || component.ends_with(".lock"))
+}
+
+/// Reports whether `refs/tags/<name>` already resolves, using `--verify` so
+/// the probe matches the exact ref instead of any revision expression.
+fn tag_exists(root: &str, name: &str) -> Result<bool, CoreError> {
+    let probe = execute_git(
+        root,
+        &[
+            "rev-parse".into(),
+            "--verify".into(),
+            "--quiet".into(),
+            format!("refs/tags/{name}"),
+        ],
+        None,
+    )?;
+    Ok(probe.exit_code == 0)
+}
+
+/// Reports whether a tag target revision resolves to any object.
+fn target_resolves(root: &str, target: &str) -> Result<bool, CoreError> {
+    let probe = execute_git(
+        root,
+        &[
+            "rev-parse".into(),
+            "--verify".into(),
+            "--quiet".into(),
+            target.to_string(),
+        ],
+        None,
+    )?;
+    Ok(probe.exit_code == 0)
+}
+
+/// Deletes one tag and returns a structured deletion record so the host can
+/// offer a restore. The probes run before the deletion because `git tag -d`
+/// diagnostics are localized prose that cannot be mapped to stable errors.
+fn delete_tag(root: &str, value: Option<&str>) -> Result<GitCommandResponse, CoreError> {
+    let name = validated_tag_name(value)?;
+    let reference = format!("refs/tags/{name}");
+    let object_type = execute_git(
+        root,
+        &["cat-file".into(), "-t".into(), reference.clone()],
+        None,
+    )?;
+    if object_type.exit_code != 0 {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            format!("The tag '{name}' does not exist"),
+        ));
+    }
+    let is_annotated = object_type.stdout.trim() == "tag";
+    let mut message = None;
+    if is_annotated {
+        let tag_object = execute_git(
+            root,
+            &["cat-file".into(), "tag".into(), reference.clone()],
+            None,
+        )?;
+        if tag_object.exit_code == 0 {
+            message = annotation_message_from_tag_object(&tag_object.stdout);
+        }
+    }
+    // Peel the ref so an annotated tag restores against its commit rather
+    // than the old tag object.
+    let peeled = execute_git(
+        root,
+        &[
+            "rev-parse".into(),
+            "--verify".into(),
+            format!("{reference}^{{}}"),
+        ],
+        None,
+    )?;
+    if peeled.exit_code != 0 {
+        return Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            format!("Could not resolve tag target '{name}'"),
+        )
+        .with_details(peeled.output));
+    }
+    let mut result = execute_git(root, &["tag".into(), "-d".into(), name.clone()], None)?;
+    if result.exit_code == 0 {
+        result.tag_deletion = Some(GitTagDeletionResponse {
+            name,
+            deleted_target: peeled.stdout.trim().to_string(),
+            kind: if is_annotated {
+                "annotated"
+            } else {
+                "lightweight"
+            }
+            .to_string(),
+            message,
+        });
+    }
+    Ok(result)
+}
+
+/// Extracts the annotation message from a raw tag object, preserving the
+/// original line breaks. The signature block is dropped because it belongs to
+/// the previous tagger; a restored tag would be signed separately.
+fn annotation_message_from_tag_object(raw: &str) -> Option<String> {
+    let (_, message) = raw.split_once("\n\n")?;
+    let message = message
+        .lines()
+        .take_while(|line| !(line.starts_with("-----BEGIN ") && line.ends_with("SIGNATURE-----")))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let message = message.trim_end();
+    if message.is_empty() {
+        None
+    } else {
+        Some(message.to_string())
+    }
+}
+
 fn local_branch_name(reference: &str) -> Result<String, CoreError> {
     let branch = reference
         .strip_prefix("refs/heads/")
@@ -1854,6 +2064,7 @@ fn failed_git_result(error: CoreError) -> GitCommandResponse {
         invocations: Vec::new(),
         operation_error: Some(error),
         stash_restore: None,
+        tag_deletion: None,
     }
 }
 
@@ -3033,6 +3244,7 @@ mod tests {
             ],
             operation_error: None,
             stash_restore: None,
+            tag_deletion: None,
         };
 
         super::synchronize_final_invocation(&mut response);
@@ -3211,6 +3423,7 @@ mod tests {
             ],
             operation_error: None,
             stash_restore: None,
+            tag_deletion: None,
         };
 
         assert_eq!(
@@ -3255,6 +3468,7 @@ mod tests {
                 "Invalid Git reference",
             )),
             stash_restore: None,
+            tag_deletion: None,
         };
 
         assert_eq!(

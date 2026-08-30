@@ -218,10 +218,10 @@ response retains the invocation trace and includes the failure as
 `stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `cherryPick`, `revert`,
 `reset`, `createBranch`, `publishBranch`, `renameBranch`, `deleteBranch`, `merge`, `rebase`,
 `fetch`, `pull`, `push`, `checkout`, `checkoutRevision`, `clone`, `stashPush`,
-`stashApply`, `stashPop`, `stashDrop`, `operationContinue`, `operationAbort`, and
-`operationSkip`. Optional fields are `paths`, `reference`, `referenceKind`,
-`revision`, `name`, `message`, `remote`, `destination`, `mode`,
-`includeUntracked`, `checkout`, and `amend`.
+`stashApply`, `stashPop`, `stashDrop`, `operationContinue`, `operationAbort`,
+`operationSkip`, `createTag`, and `deleteTag`. Optional fields are `paths`,
+`reference`, `referenceKind`, `revision`, `name`, `message`, `remote`,
+`destination`, `mode`, `includeUntracked`, `checkout`, and `amend`.
 
 The core validates pathspecs, revisions, branch names, references, reset modes,
 stash references, and operation-specific required fields before invoking Git.
@@ -248,6 +248,24 @@ before any Git subprocess use the standard `invalid_request` error envelope.
 and checks out that branch at a detached HEAD when needed, then pushes it with
 an upstream. If the push fails, the local branch is intentionally retained so
 the user can fix credentials or connectivity and retry without losing commits.
+
+`createTag` uses `name` for the new tag, `revision` as its target commit or
+revision, and an optional `message`: a trimmed, non-empty `message` creates an
+annotated tag (`git tag -a`), otherwise a lightweight tag is created. Tag
+names must satisfy the `git check-ref-format` refname rules and must not
+begin with a dash. Before invoking Git, `createTag` probes the repository so
+a duplicate tag (`A tag named '<name>' already exists`) and an unresolvable
+target (`Could not resolve tag target '<rev>'`) fail with stable
+`invalid_request` messages instead of localized Git output. `deleteTag` uses
+`name` and removes `refs/tags/<name>`; a missing tag fails with
+`The tag '<name>' does not exist`. On success the response carries a
+structured `tagDeletion` record — `{ "name": string, "deletedTarget": string,
+"kind": "lightweight" | "annotated", "message": string? }` — where
+`deletedTarget` is the peeled commit the deleted ref resolved to and
+`message` is the original annotation with its line breaks preserved. Hosts
+can rebuild the tag by replaying `createTag` with `name`, `deletedTarget`,
+and `message`; the tagger identity and timestamp are intentionally not
+preserved.
 
 `operationContinue`, `operationAbort`, and `operationSkip` inspect Git metadata
 to select the active merge, rebase, cherry-pick, or revert instead of accepting

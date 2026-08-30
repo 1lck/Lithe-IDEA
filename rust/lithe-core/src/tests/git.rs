@@ -540,6 +540,212 @@ fn git_write_validates_and_executes_shared_mutations() {
 }
 
 #[test]
+fn git_write_creates_deletes_and_records_tags() {
+    let root = temporary_root("git-tags");
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q"]).status.success());
+    assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    fs::write(root.join("example.txt"), "initial\n").expect("file should be writable");
+    assert!(run(&["add", "example.txt"]).status.success());
+    assert!(run(&["commit", "-qm", "initial"]).status.success());
+    let head = String::from_utf8_lossy(&run(&["rev-parse", "HEAD"]).stdout)
+        .trim()
+        .to_string();
+
+    let request = |operation: &str, payload: Value| -> Value {
+        let request = serde_json::json!({
+            "id": operation,
+            "command": "git.write",
+            "payload": {
+                "root": root,
+                "operation": operation,
+                "paths": [],
+                "reference": null,
+                "referenceKind": null,
+                "revision": null,
+                "name": null,
+                "message": null,
+                "remote": null,
+                "destination": null,
+                "mode": null,
+                "includeUntracked": false,
+                "checkout": false,
+                "amend": false
+            }
+        });
+        let mut request = request;
+        if let Value::Object(overrides) = payload {
+            for (key, value) in overrides {
+                request["payload"][key.as_str()] = value;
+            }
+        }
+        serde_json::from_str(&execute_json(
+            &serde_json::to_string(&request).expect("write request should encode"),
+        ))
+        .expect("write response should be JSON")
+    };
+
+    // A lightweight tag points straight at the target commit and never
+    // carries the structured deletion record.
+    let lightweight = request(
+        "createTag",
+        serde_json::json!({"name": "v1.0", "revision": "HEAD"}),
+    );
+    assert_eq!(lightweight["ok"], true, "{lightweight:?}");
+    assert!(lightweight["data"].get("tagDeletion").is_none());
+    assert_eq!(
+        String::from_utf8_lossy(&run(&["rev-parse", "refs/tags/v1.0"]).stdout).trim(),
+        head
+    );
+
+    // An annotation creates a tag object whose message must round-trip with
+    // its original line breaks.
+    let annotated = request(
+        "createTag",
+        serde_json::json!({
+            "name": "v2.0",
+            "revision": "HEAD",
+            "message": "release\n\nsecond paragraph"
+        }),
+    );
+    assert_eq!(annotated["ok"], true, "{annotated:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&run(&["cat-file", "-t", "refs/tags/v2.0"]).stdout).trim(),
+        "tag"
+    );
+
+    // An empty name is a missing required field; the format matrix below
+    // mirrors `git check-ref-format` plus the command-line guards every Git
+    // mutation argument needs. Each rejection must happen before any
+    // subprocess so the error stays a plain invalid_request envelope.
+    let empty = request(
+        "createTag",
+        serde_json::json!({"name": "", "revision": "HEAD"}),
+    );
+    assert_eq!(empty["ok"], false, "{empty:?}");
+    assert_eq!(empty["error"]["code"], "invalid_request");
+    assert_eq!(empty["error"]["message"], "Missing or invalid Git tag name");
+    for name in [
+        "a..b", "-v1", "a b", "v~1", "a:b", "a?b", "a*b", "a[b", "a\\b", "@{x", "a//b", "a.lock",
+        ".hidden", "@", "head/",
+    ] {
+        let response = request(
+            "createTag",
+            serde_json::json!({"name": name, "revision": "HEAD"}),
+        );
+        assert_eq!(response["ok"], false, "name {name:?}: {response:?}");
+        assert_eq!(
+            response["error"]["code"], "invalid_request",
+            "name {name:?}"
+        );
+        assert_eq!(
+            response["error"]["message"], "Invalid Git tag name",
+            "name {name:?}"
+        );
+    }
+
+    // A duplicate name is a structured operation error so callers can show it
+    // in place instead of parsing Git's stderr.
+    let duplicate = request(
+        "createTag",
+        serde_json::json!({"name": "v1.0", "revision": "HEAD"}),
+    );
+    assert_eq!(duplicate["ok"], true, "{duplicate:?}");
+    assert_eq!(
+        duplicate["data"]["operationError"]["code"],
+        "invalid_request"
+    );
+    assert_eq!(
+        duplicate["data"]["operationError"]["message"],
+        "A tag named 'v1.0' already exists"
+    );
+
+    let unresolvable = request(
+        "createTag",
+        serde_json::json!({"name": "v3.0", "revision": "no-such-revision"}),
+    );
+    assert_eq!(unresolvable["ok"], true, "{unresolvable:?}");
+    assert_eq!(
+        unresolvable["data"]["operationError"]["code"],
+        "invalid_request"
+    );
+    assert_eq!(
+        unresolvable["data"]["operationError"]["message"],
+        "Could not resolve tag target 'no-such-revision'"
+    );
+
+    // Deleting a lightweight tag reports the commit it pointed at.
+    let delete_lightweight = request("deleteTag", serde_json::json!({"name": "v1.0"}));
+    assert_eq!(delete_lightweight["ok"], true, "{delete_lightweight:?}");
+    assert_eq!(delete_lightweight["data"]["exitCode"], 0);
+    assert_eq!(delete_lightweight["data"]["tagDeletion"]["name"], "v1.0");
+    assert_eq!(
+        delete_lightweight["data"]["tagDeletion"]["kind"],
+        "lightweight"
+    );
+    assert_eq!(
+        delete_lightweight["data"]["tagDeletion"]["deletedTarget"],
+        head
+    );
+    assert!(delete_lightweight["data"]["tagDeletion"]
+        .get("message")
+        .is_none());
+    assert!(
+        run(&["rev-parse", "--verify", "--quiet", "refs/tags/v1.0"])
+            .status
+            .code()
+            != Some(0)
+    );
+
+    // Deleting an annotated tag carries the peeled commit and the original
+    // annotation so a restore can rebuild the message byte for byte.
+    let delete_annotated = request("deleteTag", serde_json::json!({"name": "v2.0"}));
+    assert_eq!(delete_annotated["ok"], true, "{delete_annotated:?}");
+    let deletion = &delete_annotated["data"]["tagDeletion"];
+    assert_eq!(deletion["name"], "v2.0");
+    assert_eq!(deletion["kind"], "annotated");
+    assert_eq!(deletion["message"], "release\n\nsecond paragraph");
+    assert_eq!(deletion["deletedTarget"], head);
+
+    // Deleting a missing tag fails with the stable not-exist message.
+    let missing = request("deleteTag", serde_json::json!({"name": "v1.0"}));
+    assert_eq!(missing["ok"], true, "{missing:?}");
+    assert_eq!(missing["data"]["operationError"]["code"], "invalid_request");
+    assert_eq!(
+        missing["data"]["operationError"]["message"],
+        "The tag 'v1.0' does not exist"
+    );
+
+    // Restoring reuses createTag with the recorded target and message, so the
+    // rebuilt annotation must match the original message exactly.
+    let restore = request(
+        "createTag",
+        serde_json::json!({
+            "name": deletion["name"],
+            "revision": deletion["deletedTarget"],
+            "message": deletion["message"]
+        }),
+    );
+    assert_eq!(restore["ok"], true, "{restore:?}");
+    let restored_object = run(&["cat-file", "tag", "refs/tags/v2.0"]);
+    let restored_object = String::from_utf8_lossy(&restored_object.stdout);
+    assert!(restored_object.contains("\n\nrelease\n\nsecond paragraph"));
+
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
 fn detached_worktree_context_can_publish_a_pull_request_branch() {
     let repository = temporary_root("detached-pr-repository");
     let root = temporary_root("detached-pr-worktree");
