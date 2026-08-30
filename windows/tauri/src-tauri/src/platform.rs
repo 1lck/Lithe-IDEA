@@ -691,7 +691,8 @@ mod tests {
             json!({
                 "root": "C:/work",
                 "reference": "refs/remotes/origin/feature/demo",
-                "pathspecs": ["."]
+                "pathspecs": ["."],
+                "untracked": true
             })
         );
     }
