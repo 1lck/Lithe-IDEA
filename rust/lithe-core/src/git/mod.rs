@@ -648,7 +648,7 @@ pub(super) fn execute_git(
     execute_git_with_options(root, arguments, input, false)
 }
 
-fn execute_git_readonly(
+pub(super) fn execute_git_readonly(
     root: &str,
     arguments: &[String],
     input: Option<String>,

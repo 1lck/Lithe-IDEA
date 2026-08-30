@@ -1,6 +1,6 @@
 //! Shared Git mutation helpers kept outside the command facade.
 
-use super::{execute_git, is_safe_pathspec};
+use super::{capture_git_with_options, is_safe_pathspec};
 use crate::protocol::{CoreError, ErrorCode};
 
 pub(super) fn remote_branch_components(
@@ -10,15 +10,15 @@ pub(super) fn remote_branch_components(
     let remote_path = reference
         .strip_prefix("refs/remotes/")
         .ok_or_else(|| CoreError::new(ErrorCode::InvalidRequest, "Invalid remote branch name"))?;
-    let remotes = execute_git(root, &["remote".into()], None)?;
+    let remotes = capture_git_with_options(root, &["remote".into()], None, true)?;
+    let remote_output = String::from_utf8_lossy(&remotes.stdout).to_string();
     if remotes.exit_code != 0 {
         return Err(
             CoreError::new(ErrorCode::ProcessFailed, "Git remote lookup failed")
-                .with_details(remotes.output),
+                .with_details(String::from_utf8_lossy(&remotes.stderr).to_string()),
         );
     }
-    let mut matches = remotes
-        .output
+    let mut matches = remote_output
         .lines()
         .map(str::trim)
         .filter(|remote| !remote.is_empty() && remote_path.starts_with(&format!("{remote}/")))

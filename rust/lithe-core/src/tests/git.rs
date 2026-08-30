@@ -197,6 +197,7 @@ fn git_write_validates_and_executes_shared_mutations() {
         .status
         .success());
     assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    assert!(run(&["remote", "add", "origin", "."]).status.success());
     fs::write(root.join("example.txt"), "initial\n").expect("file should be writable");
 
     let request = |operation: &str, payload: Value| -> Value {
@@ -1810,6 +1811,18 @@ fn explicit_pull_resolves_nested_remote_and_branch_names_against_bare_remote() {
             "-q",
             seed.to_string_lossy().as_ref(),
             work.to_string_lossy().as_ref()
+        ]
+    )
+    .status
+    .success());
+    assert!(git(&work, &["remote", "remove", "origin"]).status.success());
+    assert!(git(
+        &work,
+        &[
+            "remote",
+            "add",
+            "company/origin",
+            source.to_string_lossy().as_ref()
         ]
     )
     .status
