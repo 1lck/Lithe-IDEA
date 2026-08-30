@@ -1654,9 +1654,58 @@ package final class GitFeatureModel: ObservableObject {
             at: gitRepositoryRoot
         )
         if let preflight, !preflight.isClear {
-            isPerformingBranchOperation = false
-            notify?("本地有未提交改动，请先保存后再拉取远程分支")
-            return
+            switch selectedSaveChangesPolicy {
+            case .stash:
+                let message = "Lithe auto-stash before pull"
+                let stashed = await recordingGitCommand {
+                    await service.stash(message: message, includeUntracked: true, at: gitRepositoryRoot)
+                }
+                guard stashed.succeeded else {
+                    isPerformingBranchOperation = false
+                    notify?(trimmedMessage(stashed))
+                    return
+                }
+                let result = await withGitOperation {
+                    await service.pullRemoteReference(reference, strategy: strategy, at: gitRepositoryRoot)
+                }
+                isPerformingBranchOperation = false
+                await refreshGit()
+                if gitOperationState?.hasConflicts == true {
+                    if let stash = gitStashes.first(where: { $0.message.contains(message) }) {
+                        deferredSavedChanges = GitDeferredSavedChanges(stashReference: stash.reference, operationTitle: "pull")
+                    }
+                    notify?("拉取产生冲突，改动已保留在暂存中")
+                    return
+                }
+                if let stash = gitStashes.first(where: { $0.message.contains(message) }) {
+                    let restored = await service.popStash(stash, at: gitRepositoryRoot)
+                    if !restored.succeeded { notify?("恢复本地改动失败：\(trimmedMessage(restored))") }
+                }
+                await reportBranchOperation(result, success: strategy == .rebase ? "从远程分支变基拉取完成" : "从远程分支合并拉取完成")
+                return
+            case .shelve:
+                let capture = await captureAndCleanShelf(message: "Lithe shelf before pull", at: gitRepositoryRoot)
+                guard case .saved(let shelf) = capture else {
+                    isPerformingBranchOperation = false
+                    if case .failed(let message) = capture { notify?(message) }
+                    return
+                }
+                let result = await withGitOperation {
+                    await service.pullRemoteReference(reference, strategy: strategy, at: gitRepositoryRoot)
+                }
+                isPerformingBranchOperation = false
+                await refreshGit()
+                if gitOperationState?.hasConflicts == true {
+                    deferredSavedChanges = GitDeferredSavedChanges(shelfID: shelf.id, operationTitle: "pull")
+                    notify?("拉取产生冲突，改动已保留在搁置中")
+                    return
+                }
+                if !await restoreShelf(shelf, at: gitRepositoryRoot) {
+                    notify?("恢复搁置改动失败")
+                }
+                await reportBranchOperation(result, success: strategy == .rebase ? "从远程分支变基拉取完成" : "从远程分支合并拉取完成")
+                return
+            }
         }
         let result = await withGitOperation {
             await service.pullRemoteReference(reference, strategy: strategy, at: gitRepositoryRoot)
