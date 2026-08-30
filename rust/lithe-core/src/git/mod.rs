@@ -1,5 +1,7 @@
 //! Deterministic Git inspection and mutation behind the shared command contract.
 
+mod mutations;
+
 use crate::protocol::{CoreError, ErrorCode};
 use crate::protocol::{
     GitBlameLineResponse, GitBlameResponse, GitChange, GitCheckoutPreflightResponse,
@@ -577,7 +579,7 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
                     ));
                 }
                 let reference = validated_reference(Some(reference))?;
-                let (remote, branch) = remote_branch_components(&root, &reference)?;
+                let (remote, branch) = mutations::remote_branch_components(&root, &reference)?;
                 arguments.extend(["--".into(), remote, branch]);
             }
         }
@@ -638,7 +640,7 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
     execute_git(&root, &arguments, None)
 }
 
-fn execute_git(
+pub(super) fn execute_git(
     root: &str,
     arguments: &[String],
     input: Option<String>,
@@ -2303,7 +2305,7 @@ fn switch_reference(
             execute_git(root, &base, None)
         }
         Some("remote") => {
-            let (_, local_name) = remote_branch_components(root, &reference)?;
+            let (_, local_name) = mutations::remote_branch_components(root, &reference)?;
             if !is_safe_pathspec(&local_name) {
                 return Err(CoreError::new(
                     ErrorCode::InvalidRequest,
@@ -2481,7 +2483,7 @@ fn parse_stash(line: &str) -> Option<GitStashResponse> {
     })
 }
 
-fn is_safe_pathspec(path: &str) -> bool {
+pub(super) fn is_safe_pathspec(path: &str) -> bool {
     let normalized = path.replace('\\', "/");
     !normalized.is_empty()
         && !normalized.starts_with('/')
