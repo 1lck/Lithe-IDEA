@@ -396,6 +396,9 @@ export default function MavenPane() {
             {runningTitle}
           </span>
         ) : null}
+        {taskStatus === "cancelled" ? (
+          <span className="text-warning ui-text-sm">{t("maven.cancelled")}</span>
+        ) : null}
         {!isRunning && lastExitCode != null ? (
           <span
             className={

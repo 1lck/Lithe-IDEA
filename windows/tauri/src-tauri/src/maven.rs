@@ -105,12 +105,19 @@ fn local_path(app: &AppHandle, root: &Path, reactor_path: &str) -> Result<PathBu
         .app_data_dir()
         .map_err(|error| error.to_string())?;
     let mut digest = Sha256::new();
-    digest.update(root.to_string_lossy().to_lowercase().as_bytes());
-    digest.update([0]);
-    digest.update(reactor_path.replace('\\', "/").as_bytes());
+    let identity = storage_identity(&root.to_string_lossy(), reactor_path);
+    digest.update(identity.as_bytes());
     Ok(app_data
         .join("maven")
         .join(format!("{:x}.json", digest.finalize())))
+}
+
+fn storage_identity(workspace_path: &str, reactor_path: &str) -> String {
+    format!(
+        "{}\0{}",
+        workspace_path.to_lowercase(),
+        reactor_path.replace('\\', "/")
+    )
 }
 
 fn existing_directory(path: &Path) -> Result<PathBuf, String> {
@@ -207,5 +214,37 @@ mod tests {
         assert!(validate_versions(Some(&portable), None)
             .unwrap_err()
             .contains("unsupported version"));
+    }
+
+    #[test]
+    fn windows_storage_identity_matches_shared_contract() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../shared/fixtures/maven/platform-contract-v1.json"
+        )))
+        .expect("Maven platform contract fixture");
+        let cases = fixture["storageIdentityCases"]
+            .as_array()
+            .expect("storage identity cases");
+        let windows_cases: Vec<_> = cases
+            .iter()
+            .filter(|item| item["platform"] == "windows")
+            .collect();
+
+        assert!(
+            !windows_cases.is_empty(),
+            "Windows fixture case is required"
+        );
+        for item in windows_cases {
+            assert_eq!(
+                storage_identity(
+                    item["workspacePath"].as_str().expect("workspace path"),
+                    item["reactorPath"].as_str().expect("reactor path"),
+                ),
+                item["expectedIdentity"]
+                    .as_str()
+                    .expect("expected identity")
+            );
+        }
     }
 }

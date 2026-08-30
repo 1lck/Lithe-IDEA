@@ -168,6 +168,11 @@ function trimOutput(output: string): string {
     : normalized;
 }
 
+function cancelledOutput(output: string): string {
+  const separator = output && !output.endsWith("\n") ? "\n" : "";
+  return trimOutput(`${output}${separator}Maven task cancelled.\n`);
+}
+
 export const createMavenStore = (
   workspaceId = workspaceRuntimeRegistry.getActiveWorkspaceId(),
   dependencies: MavenStoreDependencies = defaultMavenStoreDependencies,
@@ -455,11 +460,12 @@ export const createMavenStore = (
             await dependencies.stopMavenProcess(sessionId);
             if (get().activeSessionId === sessionId) {
               set({
-                taskStatus: "idle",
+                taskStatus: "cancelled",
                 taskError: null,
                 activeSessionId: null,
                 runningTitle: null,
                 lastExitCode: null,
+                output: cancelledOutput(get().output),
               });
             }
           } catch (error) {
@@ -477,7 +483,12 @@ export const createMavenStore = (
 
         clearOutput: () => {
           diagnosticsRevision += 1;
-          set({ output: "", issues: [], lastExitCode: null });
+          set((state) => ({
+            output: "",
+            issues: [],
+            lastExitCode: null,
+            taskStatus: state.taskStatus === "cancelled" ? "idle" : state.taskStatus,
+          }));
         },
 
         appendOutput: (sessionId, chunk) => {
@@ -491,6 +502,18 @@ export const createMavenStore = (
           const root = state.root;
           const output = state.output;
           const revision = ++diagnosticsRevision;
+          if (state.taskStatus === "stopping") {
+            set({
+              taskStatus: "cancelled",
+              taskError: null,
+              activeSessionId: null,
+              runningTitle: null,
+              lastExitCode: null,
+              output: cancelledOutput(output),
+            });
+            releaseMavenSessionWorkspace(sessionId);
+            return;
+          }
           set({
             taskStatus: exitCode === 0 ? "idle" : "failed",
             taskError: exitCode === 0 ? null : `Maven exited with code ${exitCode}.`,

@@ -49,11 +49,7 @@ import {
   selectedToolchainCandidates,
 } from "../utils/run-configuration";
 import { editorSaveFailureMessage, runEditorSaveWorkflow } from "../services/run-editor-save";
-import {
-  createOutputStamper,
-  trimRunOutput,
-  type OutputStamper,
-} from "../utils/output-timestamper";
+import { createOutputStamper, trimRunOutput, type OutputStamper } from "../utils/output-timestamper";
 
 const MAXIMUM_OUTPUT_CHARACTERS = 500_000;
 const sessionWorkspaces = new Map<string, string>();
@@ -167,6 +163,7 @@ function optionsFromConfiguration(configuration: RunConfiguration): RunOptions {
     javaHomePath: configuration.javaHomePath,
     mavenExecutablePath: configuration.mavenExecutablePath,
     mavenJavaHomePath: configuration.mavenJavaHomePath,
+    mavenSkipTests: configuration.mavenSkipTests,
     workingDirectoryPath: configuration.cwd,
     vmArguments: configuration.jvmArguments.join(" "),
     programArguments: configuration.programArguments.join(" "),
@@ -184,11 +181,14 @@ async function resolveConfigurations(root: string): Promise<ResolvedRunProject> 
       runtimeExecutablePaths: automaticRuntimePaths,
     }),
   );
-  const globalToolchain = mapCoreToolchain(preliminary.toolchain, preliminary.localToolchains);
+  const globalToolchain = mapCoreToolchain(
+    preliminary.toolchain,
+    preliminary.localToolchains,
+  );
   const hasSelectedToolchain = Boolean(
     globalToolchain.javaHomePath ||
-    globalToolchain.mavenExecutablePath ||
-    Object.values(globalToolchain.runtimeExecutablePaths).some(Boolean),
+      globalToolchain.mavenExecutablePath ||
+      Object.values(globalToolchain.runtimeExecutablePaths).some(Boolean),
   );
   const discovered = hasSelectedToolchain
     ? await discoverRunToolchains(root, globalToolchain)

@@ -254,8 +254,40 @@ describe("Maven workspace state", () => {
     await run;
 
     expect(startMavenProcess).not.toHaveBeenCalled();
-    expect(store.getState().taskStatus).toBe("idle");
+    expect(store.getState().taskStatus).toBe("cancelled");
     expect(store.getState().activeSessionId).toBeNull();
+    expect(store.getState().output).toBe("Maven task cancelled.\n");
+
+    store.getState().actions.clearOutput();
+
+    expect(store.getState().taskStatus).toBe("idle");
+    expect(store.getState().output).toBe("");
+  });
+
+  test("keeps cancellation when process exit arrives before stop completes", async () => {
+    const stopFinished = deferred<undefined>();
+    stopMavenProcess.mockImplementationOnce(() => stopFinished.promise);
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    await store.getState().actions.runGoals(["compile"], null, "compile");
+    const sessionId = store.getState().activeSessionId;
+    expect(sessionId).not.toBeNull();
+
+    const stop = store.getState().actions.stop();
+    try {
+      expect(store.getState().taskStatus).toBe("stopping");
+      store.getState().actions.finishProcess(sessionId!, 143);
+      expect(store.getState().taskStatus).toBe("cancelled");
+
+      stopFinished.resolve(undefined);
+      await stop;
+
+      expect(store.getState().output.match(/Maven task cancelled\./g)).toHaveLength(1);
+      expect(store.getState().lastExitCode).toBeNull();
+    } finally {
+      stopFinished.resolve(undefined);
+      await stop;
+    }
   });
 
   test("does not let diagnostics from a completed task replace a newer run", async () => {

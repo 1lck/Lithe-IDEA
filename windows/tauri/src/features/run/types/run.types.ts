@@ -30,6 +30,7 @@ export interface RunConfiguration {
   jvmArguments: string[];
   programArguments: string[];
   profiles: string[];
+  mavenSkipTests: boolean | null;
   javaHomePath: string;
   mavenExecutablePath: string;
   mavenJavaHomePath: string;
@@ -42,6 +43,7 @@ export interface RunOptions {
   javaHomePath: string;
   mavenExecutablePath: string;
   mavenJavaHomePath: string;
+  mavenSkipTests?: boolean | null;
   workingDirectoryPath: string;
   vmArguments: string;
   programArguments: string;
@@ -142,6 +144,7 @@ export interface CoreResolvedConfiguration {
       jvmArguments?: string[];
       programArguments?: string[];
       profiles?: string[];
+      skipTests?: boolean;
     };
     java?: {
       homePath?: string;
@@ -158,6 +161,7 @@ export const EMPTY_RUN_OPTIONS: RunOptions = {
   javaHomePath: "",
   mavenExecutablePath: "",
   mavenJavaHomePath: "",
+  mavenSkipTests: null,
   workingDirectoryPath: "",
   vmArguments: "",
   programArguments: "",
