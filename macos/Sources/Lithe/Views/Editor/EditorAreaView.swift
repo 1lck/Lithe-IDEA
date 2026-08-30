@@ -94,6 +94,7 @@ struct EditorAreaView: View {
             }
         }
         .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.editor)
+        .background(GoToLineDialogPresenter())
         .onChange(of: model.openDocuments.map(\.id)) { ids in
             if let splitDocumentID, !ids.contains(splitDocumentID) {
                 self.splitDocumentID = nil
@@ -1150,9 +1151,6 @@ struct EditorAreaView: View {
         codeEditor(document, markdownScrollPosition: markdownScrollPosition)
             .overlay(alignment: .top) {
                 FindBarOverlay()
-            }
-            .overlay(alignment: .topTrailing) {
-                GoToLineBarOverlay()
             }
     }
 
