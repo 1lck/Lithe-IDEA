@@ -3415,7 +3415,11 @@ struct RunConfigurationIntegrationTests {
         let document = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         let configurations = try #require(document["configurations"] as? [[String: Any]])
         #expect(configurations.count == 2)
-        #expect(configurations.first?["jvmArguments"] as? [String] == ["-Dlabel=hello world", "-Xmx2g"])
+        let mavenExtension = try #require(
+            configurations.first?["extensions"] as? [String: Any]
+        )
+        let mavenOptions = try #require(mavenExtension["maven"] as? [String: Any])
+        #expect(mavenOptions["jvmArguments"] as? [String] == ["-Dlabel=hello world", "-Xmx2g"])
     }
 
     @Test

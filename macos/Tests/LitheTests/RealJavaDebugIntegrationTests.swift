@@ -123,6 +123,9 @@ struct RealJavaDebugIntegrationTests {
         let feature = GenericDebugFeatureModel(sessions: debugManager)
         let debugTerminals = RealJavaDebugTerminalOwner(workspaceURL: rootURL)
         feature.onRunInTerminalRequest = debugTerminals.handle
+        let portAllocator = MacJavaTestResultServer()
+        let springPort = try await portAllocator.start()
+        portAllocator.stop()
         var requestTask: Task<(Data, URLResponse), Error>?
         defer {
             requestTask?.cancel()
@@ -156,7 +159,7 @@ struct RealJavaDebugIntegrationTests {
             "mainClass": .string(target.mainClass),
             "cwd": .string(rootURL.path),
             "console": .string("integratedTerminal"),
-            "args": .string("--server.port=0")
+            "args": .string("--server.port=\(springPort)")
         ]
         if let projectName = target.projectName {
             arguments["projectName"] = .string(projectName)
@@ -183,11 +186,14 @@ struct RealJavaDebugIntegrationTests {
         #expect(await Self.waitUntil(timeout: .seconds(120)) {
             feature.breakpoints.first?.verified == true
         }, "The Java breakpoint was not verified. Output:\n\(feature.output)")
-        let port = await Self.waitForSpringPort(feature: feature, timeout: .seconds(120))
-        let resolvedPort = try #require(port)
+        guard await Self.waitForSpringServer(port: springPort, timeout: .seconds(120)) else {
+            throw RealJavaDebugIntegrationError.springServerDidNotStart(
+                "expectedPort=\(springPort)\n" + Self.debugSnapshot(feature, protocolTrace: protocolTrace)
+            )
+        }
 
         var request = URLRequest(
-            url: URL(string: "http://127.0.0.1:\(resolvedPort)/api/users")!
+            url: URL(string: "http://127.0.0.1:\(springPort)/api/users")!
         )
         request.timeoutInterval = 60
         requestTask = Task { try await URLSession.shared.data(for: request) }
@@ -463,26 +469,27 @@ struct RealJavaDebugIntegrationTests {
         """
     }
 
-    private static func waitForSpringPort(
-        feature: GenericDebugFeatureModel,
+    private static func waitForSpringServer(
+        port: UInt16,
         timeout: Duration
-    ) async -> Int? {
-        var port: Int?
-        _ = await waitUntil(timeout: timeout) {
-            port = springPort(in: feature.output)
-            return port != nil
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        let url = URL(string: "http://127.0.0.1:\(port)/")!
+        while clock.now < deadline {
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 2
+            do {
+                _ = try await URLSession.shared.data(for: request)
+                return true
+            } catch {
+                // Spring Boot may still be starting while the debuggee is
+                // already attached and accepting debugger requests.
+            }
+            // test-stability: allow(swift-real-sleep) reason: The external Spring process exposes readiness only through its loopback listener.
+            try? await Task.sleep(for: .milliseconds(100))
         }
-        return port
-    }
-
-    private static func springPort(in output: String) -> Int? {
-        let expression = try? NSRegularExpression(
-            pattern: "Tomcat started on port ([0-9]+)"
-        )
-        let range = NSRange(output.startIndex..<output.endIndex, in: output)
-        guard let match = expression?.firstMatch(in: output, range: range),
-              let portRange = Range(match.range(at: 1), in: output) else { return nil }
-        return Int(output[portRange])
+        return false
     }
 
     private static func waitUntil(
@@ -751,6 +758,7 @@ private final class RealJavaDebugLanguageRuntime: LanguageProviderRuntime {
 private enum RealJavaDebugIntegrationError: Error {
     case timedOut
     case languageToolingFailed(message: String, logs: String)
+    case springServerDidNotStart(String)
     case debuggerDidNotPause(String)
     case stoppedFrameUnavailable(String)
     case invalidFixture(String)
