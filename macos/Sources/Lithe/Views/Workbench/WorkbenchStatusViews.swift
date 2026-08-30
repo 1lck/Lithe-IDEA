@@ -1,11 +1,22 @@
 import SwiftUI
 
+/// Status bar line:column indicator. Visually unchanged from the plain text
+/// label; clicking opens the Go to Line dialog (a no-op without an active
+/// document).
 struct EditorCaretPositionLabel: View {
     @ObservedObject var chrome: EditorChromeModel
+    let onShowGoToLine: () -> Void
 
     var body: some View {
-        Text(chrome.caret.map { "\($0.line + 1):\($0.utf16Column + 1)" } ?? "1:1")
-            .monospacedDigit()
+        Button {
+            onShowGoToLine()
+        } label: {
+            Text(chrome.caret.map { "\($0.line + 1):\($0.utf16Column + 1)" } ?? "1:1")
+                .monospacedDigit()
+        }
+        .buttonStyle(.plain)
+        .lithePointer()
+        .help("Go to Line…")
     }
 }
 

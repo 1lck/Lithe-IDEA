@@ -395,6 +395,7 @@ struct CodeEditorView: NSViewRepresentable {
         textView.onGoToImplementation = { [weak model] in model?.goToImplementation() }
         textView.onFindUsages = { [weak model] in model?.findReferences() }
         textView.onFindRequested = { [weak model] in model?.showFindBar() }
+        textView.onGoToLineRequested = { [weak model] in model?.showGoToLine() }
         textView.onFindNextRequested = { [weak model] in model?.navigateFind(offset: 1) }
         textView.onFindPreviousRequested = { [weak model] in model?.navigateFind(offset: -1) }
         textView.onFindStateChange = { [weak coordinator = context.coordinator] index, count in
@@ -1318,17 +1319,14 @@ struct CodeEditorView: NSViewRepresentable {
             appliedNavigationTargetID = target.id
 
             let text = textView.string as NSString
-            var lineStart = 0
-            var currentLine = 0
-            while currentLine < target.line, lineStart < text.length {
-                let range = text.lineRange(for: NSRange(location: lineStart, length: 0))
-                lineStart = NSMaxRange(range)
-                currentLine += 1
-            }
-            let lineRange = text.lineRange(for: NSRange(location: min(lineStart, text.length), length: 0))
-            let location = min(NSMaxRange(lineRange), lineStart + target.utf16Column)
-            textView.setSelectedRange(NSRange(location: location, length: 0))
-            textView.scrollRangeToVisible(NSRange(location: location, length: 0))
+            let selection = GoToLineSelection.targetRange(
+                line: target.line,
+                utf16Column: target.utf16Column,
+                selectsWholeLine: target.selectsWholeLine,
+                in: text
+            )
+            textView.setSelectedRange(selection)
+            textView.scrollRangeToVisible(selection)
             textView.window?.makeFirstResponder(textView)
             scheduleCaretUpdate()
         }
@@ -1489,6 +1487,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     var onGoToImplementation: (() -> Void)?
     var onFindUsages: (() -> Void)?
     var onFindRequested: (() -> Void)?
+    var onGoToLineRequested: (() -> Void)?
     var onFindNextRequested: (() -> Void)?
     var onFindPreviousRequested: (() -> Void)?
     var onFindStateChange: ((Int, Int) -> Void)?
@@ -2862,6 +2861,14 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         }
 
         let menu = super.menu(for: event) ?? NSMenu()
+        let goToLineItem = NSMenuItem(
+            title: NSLocalizedString("Go to Line…", comment: "Context menu item that opens the go-to-line dialog"),
+            action: #selector(goToLineFromMenu),
+            keyEquivalent: ""
+        )
+        goToLineItem.target = self
+        menu.insertItem(goToLineItem, at: 0)
+        menu.insertItem(.separator(), at: 1)
         let languageItems = languageContextMenuItems()
         guard !languageItems.isEmpty else { return menu }
         menu.insertItem(.separator(), at: 0)
@@ -2890,6 +2897,10 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
     @objc private func goToDefinitionFromMenu() {
         onGoToDefinition?()
+    }
+
+    @objc private func goToLineFromMenu() {
+        onGoToLineRequested?()
     }
 
     @objc private func showQuickDocumentationFromMenu() {

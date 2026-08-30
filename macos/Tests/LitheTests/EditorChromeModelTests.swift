@@ -118,4 +118,33 @@ struct EditorChromeModelTests {
         )
         #expect(chrome.findReplaceText == "bar")
     }
+
+    @Test
+    func goToLineDialogAndFindBarAreMutuallyExclusive() {
+        // The find bar and the go-to-line dialog are mutually exclusive:
+        // opening either dismisses the other.
+        let chrome = EditorChromeModel()
+        chrome.setFindBarVisible(true)
+        chrome.setGoToLineVisible(true)
+        #expect(chrome.isGoToLineVisible)
+        #expect(!chrome.isFindBarVisible)
+
+        chrome.setFindBarVisible(true)
+        #expect(chrome.isFindBarVisible)
+        #expect(!chrome.isGoToLineVisible)
+
+        chrome.setGoToLineVisible(false)
+        #expect(!chrome.isGoToLineVisible)
+        #expect(chrome.isFindBarVisible)
+    }
+
+    @Test
+    func resetClosesGoToLineBar() {
+        let chrome = EditorChromeModel()
+        chrome.setGoToLineVisible(true)
+
+        chrome.reset()
+
+        #expect(!chrome.isGoToLineVisible)
+    }
 }
