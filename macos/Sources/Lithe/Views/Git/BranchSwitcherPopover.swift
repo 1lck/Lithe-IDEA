@@ -86,7 +86,9 @@ struct BranchSwitcherPopover: View {
         .padding(.trailing, 13)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: Metrics.searchBarHeight)
-        .background(LitheTheme.toolHeader)
+        .background {
+            topRoundedSectionBackground(LitheTheme.toolHeader)
+        }
     }
 
     private var actions: some View {
@@ -205,7 +207,9 @@ struct BranchSwitcherPopover: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LitheTheme.sidebar)
+        .background {
+            bottomRoundedSectionBackground(LitheTheme.sidebar)
+        }
     }
 
     private func actionRow(
@@ -342,6 +346,26 @@ struct BranchSwitcherPopover: View {
 
     private func actionMatches(_ title: String) -> Bool {
         normalizedQuery.isEmpty || title.localizedCaseInsensitiveContains(normalizedQuery)
+    }
+
+    private func topRoundedSectionBackground(_ color: Color) -> some View {
+        RoundedRectangle(cornerRadius: LitheTheme.Metrics.popupCornerRadius)
+            .fill(color)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(color)
+                    .frame(height: LitheTheme.Metrics.popupCornerRadius)
+            }
+    }
+
+    private func bottomRoundedSectionBackground(_ color: Color) -> some View {
+        RoundedRectangle(cornerRadius: LitheTheme.Metrics.popupCornerRadius)
+            .fill(color)
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(color)
+                    .frame(height: LitheTheme.Metrics.popupCornerRadius)
+            }
     }
 
     private func referenceIcon(_ reference: GitReference) -> String {
