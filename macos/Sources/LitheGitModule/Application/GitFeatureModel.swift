@@ -1700,7 +1700,7 @@ package final class GitFeatureModel: ObservableObject {
                     notify?("拉取产生冲突，改动已保留在搁置中")
                     return
                 }
-                if !await restoreShelf(shelf, at: gitRepositoryRoot) {
+                if !(await restoreShelf(shelf, at: gitRepositoryRoot)) {
                     notify?("恢复搁置改动失败")
                 }
                 await reportBranchOperation(result, success: strategy == .rebase ? "从远程分支变基拉取完成" : "从远程分支合并拉取完成")
