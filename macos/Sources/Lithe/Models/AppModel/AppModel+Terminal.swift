@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import LitheDebugModule
 import LitheCoreContracts
 import LitheTerminalModule
 
@@ -102,6 +103,7 @@ extension AppModel {
 
     func handleDebugRunInTerminalRequest(
         _ request: DebugRunInTerminalRequest,
+        debugSessionID: DebugSessionID? = nil,
         completion: @escaping DebugRunInTerminalCompletion
     ) {
         Task { @MainActor [weak self] in
@@ -110,7 +112,10 @@ extension AppModel {
                 return
             }
             do {
-                completion(.success(try await startDebugProcessInTerminal(request)))
+                completion(.success(try await startDebugProcessInTerminal(
+                    request,
+                    debugSessionID: debugSessionID
+                )))
             } catch {
                 completion(.failure(error))
             }
@@ -118,7 +123,8 @@ extension AppModel {
     }
 
     private func startDebugProcessInTerminal(
-        _ request: DebugRunInTerminalRequest
+        _ request: DebugRunInTerminalRequest,
+        debugSessionID: DebugSessionID?
     ) async throws -> DebugRunInTerminalResponse {
         guard request.kind == .integrated else {
             throw DebugTerminalLaunchError.externalTerminalUnsupported
@@ -157,6 +163,10 @@ extension AppModel {
         terminalPlacementFeature.registerSession(created.session.id)
         debugTerminalSessionIDs.insert(created.session.id)
         activeDebugTerminalSessionID = created.session.id
+        if let debugSessionID {
+            debugTerminalSessionIDsByDebugSession[debugSessionID, default: []].insert(created.session.id)
+            activeDebugTerminalSessionIDsByDebugSession[debugSessionID] = created.session.id
+        }
         isTerminalVisible = true
         isTestsVisible = false
         isGitLogVisible = false
@@ -175,12 +185,31 @@ extension AppModel {
         }
         debugTerminalSessionIDs.removeAll()
         activeDebugTerminalSessionID = nil
+        debugTerminalSessionIDsByDebugSession.removeAll()
+        activeDebugTerminalSessionIDsByDebugSession.removeAll()
+    }
+
+    func stopDebugTerminalProcesses(for debugSessionID: DebugSessionID) {
+        let sessionIDs = debugTerminalSessionIDsByDebugSession.removeValue(forKey: debugSessionID) ?? []
+        for sessionID in sessionIDs.sorted(by: { $0.uuidString < $1.uuidString }) {
+            terminalSessions.first(where: { $0.id == sessionID })?.stop()
+            debugTerminalSessionIDs.remove(sessionID)
+        }
+        activeDebugTerminalSessionIDsByDebugSession.removeValue(forKey: debugSessionID)
+        if let activeDebugTerminalSessionID,
+           sessionIDs.contains(activeDebugTerminalSessionID) {
+            self.activeDebugTerminalSessionID = nil
+        }
     }
 
     var isDebugStandardInputAvailable: Bool {
         guard let terminalFeature else { return false }
-        let candidateIDs = [activeDebugTerminalSessionID]
+        let debugSessionID = genericDebugFeatureIfActive?.activeSessionID
+        let scopedIDs = debugSessionID.flatMap { debugTerminalSessionIDsByDebugSession[$0] } ?? []
+        let candidateIDs = [debugSessionID.flatMap { activeDebugTerminalSessionIDsByDebugSession[$0] }]
             .compactMap { $0 }
+            + scopedIDs.sorted(by: { $0.uuidString < $1.uuidString })
+            + [activeDebugTerminalSessionID].compactMap { $0 }
             + debugTerminalSessionIDs.sorted(by: { $0.uuidString < $1.uuidString })
         return candidateIDs.contains { sessionID in
             guard let session = terminalFeature.terminalSessions.first(where: { $0.id == sessionID }) else {
@@ -196,8 +225,12 @@ extension AppModel {
             showNotification("No running debug process accepts standard input")
             return false
         }
-        let candidateIDs = [activeDebugTerminalSessionID]
+        let debugSessionID = genericDebugFeatureIfActive?.activeSessionID
+        let scopedIDs = debugSessionID.flatMap { debugTerminalSessionIDsByDebugSession[$0] } ?? []
+        let candidateIDs = [debugSessionID.flatMap { activeDebugTerminalSessionIDsByDebugSession[$0] }]
             .compactMap { $0 }
+            + scopedIDs.sorted(by: { $0.uuidString < $1.uuidString })
+            + [activeDebugTerminalSessionID].compactMap { $0 }
             + debugTerminalSessionIDs.sorted(by: { $0.uuidString < $1.uuidString })
         guard let sessionID = candidateIDs.first(where: { sessionID in
             guard let session = terminalFeature.terminalSessions.first(where: { $0.id == sessionID }) else {
@@ -299,6 +332,15 @@ extension AppModel {
     func closeTerminalSession(_ session: TerminalSession) {
         guard terminalSessions.contains(where: { $0.id == session.id }) else { return }
         debugTerminalSessionIDs.remove(session.id)
+        for debugSessionID in debugTerminalSessionIDsByDebugSession.keys {
+            debugTerminalSessionIDsByDebugSession[debugSessionID]?.remove(session.id)
+            if debugTerminalSessionIDsByDebugSession[debugSessionID]?.isEmpty == true {
+                debugTerminalSessionIDsByDebugSession[debugSessionID] = nil
+            }
+            if activeDebugTerminalSessionIDsByDebugSession[debugSessionID] == session.id {
+                activeDebugTerminalSessionIDsByDebugSession[debugSessionID] = nil
+            }
+        }
         if activeDebugTerminalSessionID == session.id {
             activeDebugTerminalSessionID = nil
         }
@@ -316,6 +358,8 @@ extension AppModel {
     func stopTerminalSessions() {
         debugTerminalSessionIDs.removeAll()
         activeDebugTerminalSessionID = nil
+        debugTerminalSessionIDsByDebugSession.removeAll()
+        activeDebugTerminalSessionIDsByDebugSession.removeAll()
         editorTabOrderFeature.removeAllTerminals()
         terminalPlacementFeature.reset()
         terminalFeature?.stopAllSessions()

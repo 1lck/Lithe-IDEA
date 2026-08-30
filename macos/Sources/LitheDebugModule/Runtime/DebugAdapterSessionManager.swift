@@ -72,7 +72,20 @@ public final class DebugAdapterSessionManager: ObservableObject {
     public var onRunInTerminalRequest: DebugRunInTerminalRequestHandler? {
         didSet {
             for managed in sessions.values {
-                configureRunInTerminalHandler(managed.session)
+                configureRunInTerminalHandler(managed.session, sessionID: managed.id)
+            }
+        }
+    }
+    /// Session-aware reverse request routing used by hosts that own one
+    /// integrated terminal per debugger session.
+    public var onSessionRunInTerminalRequest: ((
+        DebugSessionID,
+        DebugRunInTerminalRequest,
+        @escaping DebugRunInTerminalCompletion
+    ) -> Void)? {
+        didSet {
+            for managed in sessions.values {
+                configureRunInTerminalHandler(managed.session, sessionID: managed.id)
             }
         }
     }
@@ -374,7 +387,7 @@ public final class DebugAdapterSessionManager: ObservableObject {
         providerID: String,
         activationToken: UUID
     ) {
-        configureRunInTerminalHandler(session)
+        configureRunInTerminalHandler(session, sessionID: sessionID)
         guard let controlling = session as? any DebugAdapterControllingSession else { return }
         controlling.onStateChange = { [weak self] state in
             guard let self,
@@ -480,8 +493,21 @@ public final class DebugAdapterSessionManager: ObservableObject {
         updateSessionSummary(sessionID)
     }
 
-    private func configureRunInTerminalHandler(_ session: any DebugAdapterSession) {
+    private func configureRunInTerminalHandler(
+        _ session: any DebugAdapterSession,
+        sessionID: DebugSessionID
+    ) {
         guard let session = session as? any DebugAdapterRunInTerminalSession else { return }
-        session.onRunInTerminalRequest = onRunInTerminalRequest
+        session.onRunInTerminalRequest = { [weak self] request, completion in
+            guard let self else {
+                completion(.failure(DebugAdapterProtocolError.stopped))
+                return
+            }
+            if let onSessionRunInTerminalRequest {
+                onSessionRunInTerminalRequest(sessionID, request, completion)
+            } else {
+                onRunInTerminalRequest?(request, completion)
+            }
+        }
     }
 }

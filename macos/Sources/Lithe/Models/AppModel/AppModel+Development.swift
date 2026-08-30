@@ -653,8 +653,17 @@ extension AppModel {
 
     func stopDebugging() {
         cancelJavaTestDebugLaunch()
-        genericDebugFeatureIfActive?.stop()
-        stopDebugTerminalProcesses()
+        guard let feature = genericDebugFeatureIfActive else {
+            stopDebugTerminalProcesses()
+            return
+        }
+        let activeSessionID = feature.activeSessionID
+        feature.stop()
+        if let activeSessionID {
+            stopDebugTerminalProcesses(for: activeSessionID)
+        } else {
+            stopDebugTerminalProcesses()
+        }
     }
 
     func cancelJavaTestDebugLaunch() {
@@ -686,7 +695,11 @@ extension AppModel {
         }
         guard state == .terminated || state == .failed else { return }
         stopJavaTestResultServer()
-        stopDebugTerminalProcesses()
+        if let activeSessionID = genericDebugFeatureIfActive?.activeSessionID {
+            stopDebugTerminalProcesses(for: activeSessionID)
+        } else {
+            stopDebugTerminalProcesses()
+        }
     }
 
     private func isCurrentJavaTestDebugLaunch(_ operationID: UUID) -> Bool {

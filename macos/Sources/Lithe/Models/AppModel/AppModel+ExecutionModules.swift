@@ -81,12 +81,29 @@ extension AppModel {
     }
 
     private func configureDebugRunInTerminalHandler(_ feature: GenericDebugFeatureModel) {
+        feature.onSessionSelectionChanged = { [weak self] debugSessionID in
+            guard let self else { return }
+            self.activeDebugTerminalSessionID = debugSessionID.flatMap {
+                self.activeDebugTerminalSessionIDsByDebugSession[$0]
+            }
+        }
+        feature.onSessionRunInTerminalRequest = { [weak self] debugSessionID, request, completion in
+            guard let self else {
+                completion(.failure(DebugAdapterCapabilityError.unsupported("run in terminal")))
+                return
+            }
+            handleDebugRunInTerminalRequest(
+                request,
+                debugSessionID: debugSessionID,
+                completion: completion
+            )
+        }
         feature.onRunInTerminalRequest = { [weak self] request, completion in
             guard let self else {
                 completion(.failure(DebugAdapterCapabilityError.unsupported("run in terminal")))
                 return
             }
-            handleDebugRunInTerminalRequest(request, completion: completion)
+            handleDebugRunInTerminalRequest(request, debugSessionID: nil, completion: completion)
         }
     }
 

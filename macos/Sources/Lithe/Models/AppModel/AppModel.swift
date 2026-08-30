@@ -165,6 +165,8 @@ final class AppModel: ObservableObject, Identifiable {
     let terminalPlacementFeature: TerminalPlacementFeatureModel
     var debugTerminalSessionIDs: Set<UUID> = []
     var activeDebugTerminalSessionID: UUID?
+    var debugTerminalSessionIDsByDebugSession: [DebugSessionID: Set<UUID>] = [:]
+    var activeDebugTerminalSessionIDsByDebugSession: [DebugSessionID: UUID] = [:]
     private struct CachedModuleCapability {
         let moduleID: ModuleID
         let value: AnyObject

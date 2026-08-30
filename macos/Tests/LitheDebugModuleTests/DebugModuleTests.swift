@@ -118,6 +118,44 @@ struct DebugModuleTests {
     }
 
     @Test
+    func sessionAwareRunInTerminalRequestsKeepTheirOwningSessionIdentity() throws {
+        let descriptor = DebugProviderDescriptor(
+            id: "java",
+            displayName: "Java",
+            fileExtensions: ["java"]
+        )
+        var createdSessions: [DeferredInspectionDebugSession] = []
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
+            let session = DeferredInspectionDebugSession()
+            createdSessions.append(session)
+            return session
+        }
+        var requests: [(DebugSessionID, DebugRunInTerminalRequest)] = []
+        manager.onSessionRunInTerminalRequest = { sessionID, request, completion in
+            requests.append((sessionID, request))
+            completion(.success(DebugRunInTerminalResponse(processID: 42)))
+        }
+        let root = URL(fileURLWithPath: "/tmp/java-debug-terminal-routing", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.java")
+        let first = try manager.activateNew(for: source, rootURL: root)
+        let second = try manager.activateNew(for: source, rootURL: root)
+        let request = DebugRunInTerminalRequest(
+            kind: .integrated,
+            title: "Second",
+            cwd: root.path,
+            args: ["/usr/bin/java", "example.Second"],
+            environment: [],
+            argsCanBeInterpretedByShell: false
+        )
+
+        createdSessions[0].emitRunInTerminalRequest(request)
+        createdSessions[1].emitRunInTerminalRequest(request)
+
+        #expect(requests.map(\.0) == [first.id, second.id])
+        manager.stopAll()
+    }
+
+    @Test
     func featureSwitchesSessionsWithoutMixingTheirConsoleState() throws {
         let descriptor = DebugProviderDescriptor(
             id: "java",
@@ -2612,7 +2650,7 @@ private struct RecordingDebugVariablePageRequest: Equatable {
 }
 
 @MainActor
-private final class DeferredInspectionDebugSession: DebugAdapterControllingSession {
+private final class DeferredInspectionDebugSession: DebugAdapterControllingSession, DebugAdapterRunInTerminalSession {
     let capabilities: DebugAdapterCapabilities
     private(set) var isRunning = false
     private(set) var state: DebugAdapterState = .idle
@@ -2622,6 +2660,7 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
     var failNextLaunch = false
     var onStateChange: ((DebugAdapterState) -> Void)?
     var onEvent: ((DebugAdapterEvent) -> Void)?
+    var onRunInTerminalRequest: DebugRunInTerminalRequestHandler?
 
     private var stackTraceRequests: [(
         threadID: Int,
@@ -2751,6 +2790,10 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
 
     func emit(_ event: DebugAdapterEvent) {
         onEvent?(event)
+    }
+
+    func emitRunInTerminalRequest(_ request: DebugRunInTerminalRequest) {
+        onRunInTerminalRequest?(request) { _ in }
     }
 
     func completeStackTrace(at index: Int, with frames: [DebugStackFrame]) {

@@ -255,6 +255,19 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         set { sessions.onRunInTerminalRequest = newValue }
     }
 
+    /// Routes an integrated-terminal reverse request with its owning session.
+    public var onSessionRunInTerminalRequest: ((
+        DebugSessionID,
+        DebugRunInTerminalRequest,
+        @escaping DebugRunInTerminalCompletion
+    ) -> Void)? {
+        get { sessions.onSessionRunInTerminalRequest }
+        set { sessions.onSessionRunInTerminalRequest = newValue }
+    }
+
+    /// Notifies the host when the visible debugger session changes.
+    public var onSessionSelectionChanged: ((DebugSessionID?) -> Void)?
+
     private let sessions: DebugAdapterSessionManager
     private let breakpointPersistence: (any DebugBreakpointPersisting)?
     private let breakpointRelocator: (any DebugBreakpointRelocating)?
@@ -415,6 +428,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         _ = sessions.select(sessionID: previousSessionID)
         activeSessionID = previousSessionID
         providerID = previousSnapshot.providerID
+        onSessionSelectionChanged?(previousSessionID)
         sessionSnapshots[previousSessionID] = previousSnapshot
         restoreSessionSnapshot(
             previousSessionID,
@@ -436,6 +450,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         guard sessions.select(sessionID: sessionID) else { return false }
         activeSessionID = sessionID
         providerID = summary.providerID
+        onSessionSelectionChanged?(sessionID)
         restoreSessionSnapshot(sessionID, summary: summary)
         sessionSummaries = sessions.sessionSummaries
         resetInspectionState()
@@ -552,6 +567,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
            sessions.select(sessionID: replacement.id) {
             activeSessionID = replacement.id
             providerID = replacement.providerID
+            onSessionSelectionChanged?(replacement.id)
             restoreSessionSnapshot(replacement.id, summary: replacement)
             resetInspectionState()
             if state == .paused {
@@ -565,6 +581,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             return
         }
         activeSessionID = nil
+        onSessionSelectionChanged?(nil)
         state = .idle
         stoppedReason = nil
         exceptionInfo = nil
