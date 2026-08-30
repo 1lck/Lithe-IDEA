@@ -1295,9 +1295,7 @@ struct GitLogView: View {
                 .lithePointer()
                 .popover(isPresented: $showsGitLogBranchFilterPopover, arrowEdge: .bottom) {
                     GitLogBranchFilterPopover(
-                        menuBuilder: {
-                            GitLogFilterList.branchMenu(references: model.gitReferences)
-                        },
+                        menu: GitLogFilterList.branchMenu(references: model.gitReferences),
                         querySections: { query in
                             GitLogFilterList.branchSections(
                                 references: model.gitReferences,
@@ -1305,10 +1303,7 @@ struct GitLogView: View {
                             )
                         },
                         isItemSelected: { item in
-                            guard let reference = item.reference else {
-                                return model.selectedGitReference == nil
-                            }
-                            return model.selectedGitReference?.id == reference.id
+                            item.matches(selected: model.selectedGitReference)
                         },
                         onSelect: { item in
                             showsGitLogBranchFilterPopover = false
@@ -1343,10 +1338,7 @@ struct GitLogView: View {
                         searchPlaceholder: "Search users",
                         emptyText: "No matching users",
                         isItemSelected: { item in
-                            guard let selection = selectedGitLogAuthor else {
-                                return item.kind == .allUsers
-                            }
-                            return item.selection == selection
+                            item.matches(selected: selectedGitLogAuthor)
                         },
                         onSelect: { item in
                             showsGitLogAuthorFilterPopover = false

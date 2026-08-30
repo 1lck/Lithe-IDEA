@@ -43,6 +43,9 @@ struct GitLogAuthorOption: Identifiable, Hashable {
 /// A row a Git Log filter popover knows how to render.
 protocol GitLogFilterRow: Identifiable {
     var rowTitle: String { get }
+    /// Localized fixed label for the title, or `nil` when `rowTitle` is a
+    /// data-derived name that must render verbatim.
+    var rowTitleKey: LocalizedStringKey? { get }
     var rowDetail: String? { get }
     var rowSystemImage: String { get }
     /// Starred rows use the accent color for their icon, mirroring IDEA's
@@ -51,66 +54,187 @@ protocol GitLogFilterRow: Identifiable {
 }
 
 extension GitLogFilterRow {
+    var rowTitleKey: LocalizedStringKey? { nil }
     var rowIsStarred: Bool { false }
 }
 
-/// A titled group of rows inside a flat Git Log filter popover. A `nil` title
-/// marks an ungrouped region such as the pinned reset entries.
+/// A region of a flat Git Log filter popover. Pinned regions hold reset and
+/// starred shortcut rows and end with a divider before grouped content; a
+/// `nil` title marks an untitled region such as ungrouped local branches.
 struct GitLogFilterSection<Row: GitLogFilterRow>: Identifiable {
     let id: String
     let title: String?
+    /// Localized fixed label for the title, or `nil` for data-derived
+    /// namespace titles that render verbatim.
+    let titleKey: LocalizedStringKey?
     let systemImage: String?
+    let isPinned: Bool
     let items: [Row]
 }
 
-/// A branch filter row: the pinned "All Branches" reset entry, a starred
-/// shortcut, or a concrete reference inside a group flyout. `title` is the
-/// display name computed at section-build time (flyouts show full names).
-struct GitLogBranchFilterItem: GitLogFilterRow, Hashable {
-    let reference: GitReference?
-    let title: String
-    let detail: String?
-    let isStarred: Bool
+/// The fixed label of a pinned filter row. The English key is the single
+/// source of truth: it renders through Localizable.strings and joins query
+/// matching together with the resolved localized text, so a search hits the
+/// row by either wording.
+struct GitLogFilterFixedLabel: Hashable {
+    let key: String
 
-    init(reference: GitReference?, title: String, detail: String?, isStarred: Bool = false) {
-        self.reference = reference
-        self.title = title
-        self.detail = detail
-        self.isStarred = isStarred
+    var titleKey: LocalizedStringKey { LocalizedStringKey(key) }
+
+    /// Display text resolved in the main bundle. Unit tests run without the
+    /// app strings bundle, where this resolves back to the key itself.
+    var localizedTitle: String {
+        NSLocalizedString(key, comment: "Git Log filter fixed row")
     }
 
-    var id: String { reference?.fullName ?? "all-branches" }
-    var rowTitle: String { title }
-    var rowDetail: String? { detail }
-    var rowIsStarred: Bool { isStarred }
+    /// A query matches the English key or the localized display text.
+    func matches(_ query: String, localizedTitle override: String? = nil) -> Bool {
+        if query.isEmpty { return true }
+        if key.localizedCaseInsensitiveContains(query) { return true }
+        let localized = override ?? localizedTitle
+        return localized.localizedCaseInsensitiveContains(query)
+    }
+}
 
-    var rowSystemImage: String {
-        guard let reference else { return "point.3.connected.trianglepath.dotted" }
-        if reference.isCurrent || isStarred { return "star.fill" }
-        switch reference.kind {
-        case .local: return "point.3.connected.trianglepath.dotted"
-        case .remote: return "cloud"
-        case .tag: return "tag"
+/// What a branch filter row represents. The kind replaces sentinel values so
+/// reset entries, starred shortcuts, and reference rows are distinguishable
+/// without magic strings.
+struct GitLogBranchFilterItem: GitLogFilterRow, Identifiable, Hashable {
+    enum Kind: Hashable {
+        /// The pinned entry that clears the reference filter.
+        case allBranches
+        /// A starred shortcut for the current checkout or its upstream.
+        case starred(reference: GitReference)
+        /// A concrete reference listed inside a group.
+        case reference(GitReference)
+    }
+
+    static let allBranchesLabel = GitLogFilterFixedLabel(key: "All Branches")
+
+    let kind: Kind
+    let detail: String?
+
+    private init(kind: Kind, detail: String?) {
+        self.kind = kind
+        self.detail = detail
+    }
+
+    var id: String {
+        switch kind {
+        case .allBranches:
+            return "all-branches"
+        case .starred(let reference):
+            return "starred:\(reference.fullName)"
+        case .reference(let reference):
+            return reference.fullName
         }
     }
 
-    static var allBranches: GitLogBranchFilterItem {
-        GitLogBranchFilterItem(reference: nil, title: "All Branches", detail: nil)
+    var reference: GitReference? {
+        switch kind {
+        case .allBranches:
+            return nil
+        case .starred(let reference), .reference(let reference):
+            return reference
+        }
+    }
+
+    var rowTitle: String {
+        switch kind {
+        case .allBranches:
+            return Self.allBranchesLabel.localizedTitle
+        case .starred(let reference), .reference(let reference):
+            return reference.shortName
+        }
+    }
+
+    var rowDetail: String? { detail }
+
+    var rowIsStarred: Bool {
+        if case .starred = kind { return true }
+        return false
+    }
+
+    var rowTitleKey: LocalizedStringKey? {
+        guard case .allBranches = kind else { return nil }
+        return Self.allBranchesLabel.titleKey
+    }
+
+    var rowSystemImage: String {
+        switch kind {
+        case .allBranches:
+            return "point.3.connected.trianglepath.dotted"
+        case .starred:
+            return "star.fill"
+        case .reference(let reference):
+            if reference.isCurrent { return "star.fill" }
+            switch reference.kind {
+            case .local: return "point.3.connected.trianglepath.dotted"
+            case .remote: return "cloud"
+            case .tag: return "tag"
+            }
+        }
+    }
+
+    /// Whether this row survives the given query: the reset entry matches its
+    /// label (English key and localized text), data rows match their short
+    /// name.
+    func matches(query: String) -> Bool {
+        switch kind {
+        case .allBranches:
+            return Self.allBranchesLabel.matches(query)
+        case .starred(let reference), .reference(let reference):
+            return query.isEmpty || reference.shortName.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    /// Whether this row corresponds to the given selected reference; the
+    /// reset entry matches only when nothing is selected.
+    func matches(selected: GitReference?) -> Bool {
+        switch kind {
+        case .allBranches:
+            return selected == nil
+        case .starred(let reference), .reference(let reference):
+            return selected?.id == reference.id
+        }
+    }
+
+    static let allBranches = GitLogBranchFilterItem(kind: .allBranches, detail: nil)
+
+    /// A starred shortcut row; shortcuts render names only, like IDEA.
+    static func starred(_ reference: GitReference) -> GitLogBranchFilterItem {
+        GitLogBranchFilterItem(kind: .starred(reference: reference), detail: nil)
+    }
+
+    /// A reference row. Reference rows keep their full short name in every
+    /// mode and surface the upstream, when present, as detail.
+    static func reference(_ reference: GitReference) -> GitLogBranchFilterItem {
+        GitLogBranchFilterItem(
+            kind: .reference(reference),
+            detail: reference.upstreamShortName
+        )
     }
 }
 
 /// An author filter row: a pinned reset entry, the current user, or a
 /// concrete commit author.
-struct GitLogAuthorFilterItem: GitLogFilterRow, Hashable {
+struct GitLogAuthorFilterItem: Identifiable, Hashable, GitLogFilterRow {
     enum Kind: Hashable {
         case allUsers
         case currentUser
         case author(name: String, email: String)
     }
 
+    static let allUsersLabel = GitLogFilterFixedLabel(key: "All Users")
+    static let currentUserLabel = GitLogFilterFixedLabel(key: "Me")
+
     let kind: Kind
-    let title: String
     let detail: String?
+
+    private init(kind: Kind, detail: String?) {
+        self.kind = kind
+        self.detail = detail
+    }
 
     var id: String {
         switch kind {
@@ -120,14 +244,47 @@ struct GitLogAuthorFilterItem: GitLogFilterRow, Hashable {
         }
     }
 
-    var rowTitle: String { title }
+    var rowTitle: String {
+        switch kind {
+        case .allUsers:
+            return Self.allUsersLabel.localizedTitle
+        case .currentUser:
+            return Self.currentUserLabel.localizedTitle
+        case .author(let name, _):
+            return name
+        }
+    }
+
     var rowDetail: String? { detail }
+
+    var rowTitleKey: LocalizedStringKey? {
+        switch kind {
+        case .allUsers: return Self.allUsersLabel.titleKey
+        case .currentUser: return Self.currentUserLabel.titleKey
+        case .author: return nil
+        }
+    }
 
     var rowSystemImage: String {
         switch kind {
         case .allUsers: return "person.2"
         case .currentUser: return "person.fill"
         case .author: return "person"
+        }
+    }
+
+    /// Whether this row survives the given query: pinned entries match their
+    /// label (English key and localized text), authors match name and email.
+    func matches(query: String) -> Bool {
+        switch kind {
+        case .allUsers:
+            return Self.allUsersLabel.matches(query)
+        case .currentUser:
+            return Self.currentUserLabel.matches(query)
+        case .author(let name, let email):
+            return query.isEmpty ||
+                name.localizedCaseInsensitiveContains(query) ||
+                email.localizedCaseInsensitiveContains(query)
         }
     }
 
@@ -142,13 +299,35 @@ struct GitLogAuthorFilterItem: GitLogFilterRow, Hashable {
             return .author(name: name, email: email)
         }
     }
+
+    /// Whether this row corresponds to the given selection; the reset entry
+    /// matches only when nothing is selected.
+    func matches(selected: GitLogAuthorSelection?) -> Bool {
+        switch kind {
+        case .allUsers:
+            return selected == nil
+        case .currentUser:
+            return selected == .currentUser
+        case .author(let name, let email):
+            return selected == .author(name: name, email: email)
+        }
+    }
+
+    static let allUsers = GitLogAuthorFilterItem(kind: .allUsers, detail: nil)
+    static let currentUser = GitLogAuthorFilterItem(kind: .currentUser, detail: nil)
+
+    static func author(name: String, email: String) -> GitLogAuthorFilterItem {
+        GitLogAuthorFilterItem(kind: .author(name: name, email: email), detail: email)
+    }
 }
 
 /// A first-level group whose children open in the branch popover's flyout
-/// column, mirroring IDEA's `origin/…` and `本地` submenu rows.
+/// column, mirroring IDEA's `origin/…` and `本地` submenu rows. Remote titles
+/// are data-derived (`origin/…`) while `Local` and `Tags` are fixed labels.
 struct GitLogBranchGroup: Identifiable {
     let id: String
     let title: String
+    let titleKey: LocalizedStringKey?
     let systemImage: String
     let children: [GitLogBranchFilterItem]
 }
@@ -162,52 +341,25 @@ struct GitLogBranchMenu {
     let groups: [GitLogBranchGroup]
 }
 
-/// Pure builders for the Git Log filter popovers. Deterministic and
-/// side-effect free so large repositories produce stable, testable lists.
+/// Pure builders for the Git Log filter popovers. Browse mode and search mode
+/// follow the same per-row rules — full short names, upstream as detail,
+/// starred shortcuts for the current branch and its upstream — so a branch
+/// renders identically before and after the user types a query.
 enum GitLogFilterList {
     /// Builds the browse-mode branch menu: starred shortcuts for the current
     /// branch and its upstream, then non-empty groups ordered Local,
-    /// remotes by name (`origin/…`), and Tags. Flyout children keep full
-    /// short names and sort current-branch first.
+    /// remotes by name (`origin/…`), and Tags.
     static func branchMenu(references: [GitReference]) -> GitLogBranchMenu {
-        var starred: [GitLogBranchFilterItem] = []
-        if let current = references.first(where: { $0.isCurrent }) {
-            starred.append(GitLogBranchFilterItem(
-                reference: current,
-                title: current.shortName,
-                detail: nil,
-                isStarred: true
-            ))
-            if let upstreamName = current.upstreamShortName,
-               let upstream = references.first(where: { $0.kind == .remote && $0.shortName == upstreamName }) {
-                starred.append(GitLogBranchFilterItem(
-                    reference: upstream,
-                    title: upstream.shortName,
-                    detail: nil,
-                    isStarred: true
-                ))
-            }
-        }
-
         var groups: [GitLogBranchGroup] = []
+
         let locals = references.filter { $0.kind == .local }
         if !locals.isEmpty {
             groups.append(GitLogBranchGroup(
                 id: "local",
                 title: "Local",
+                titleKey: "Local",
                 systemImage: "arrow.triangle.branch",
-                children: locals
-                    .sorted { lhs, rhs in
-                        if lhs.isCurrent != rhs.isCurrent { return lhs.isCurrent }
-                        return lhs.shortName.localizedStandardCompare(rhs.shortName) == .orderedAscending
-                    }
-                    .map { reference in
-                        GitLogBranchFilterItem(
-                            reference: reference,
-                            title: reference.shortName,
-                            detail: reference.upstreamShortName
-                        )
-                    }
+                children: sortedReferenceItems(locals)
             ))
         }
 
@@ -219,21 +371,12 @@ enum GitLogFilterList {
             $0.localizedStandardCompare($1) == .orderedAscending
         }
         let remoteGroups: [GitLogBranchGroup] = remoteNames.map { remoteName in
-            let groupReferences = remotesByName[remoteName] ?? []
-            let children = groupReferences
-                .sorted { $0.shortName.localizedStandardCompare($1.shortName) == .orderedAscending }
-                .map { reference in
-                    GitLogBranchFilterItem(
-                        reference: reference,
-                        title: reference.shortName,
-                        detail: nil
-                    )
-                }
-            return GitLogBranchGroup(
+            GitLogBranchGroup(
                 id: "remote:\(remoteName)",
                 title: "\(remoteName)/…",
+                titleKey: nil,
                 systemImage: "cloud",
-                children: children
+                children: sortedReferenceItems(remotesByName[remoteName] ?? [])
             )
         }
         groups.append(contentsOf: remoteGroups)
@@ -243,44 +386,44 @@ enum GitLogFilterList {
             groups.append(GitLogBranchGroup(
                 id: "tags",
                 title: "Tags",
+                titleKey: "Tags",
                 systemImage: "tag",
-                children: tags
-                    .sorted { $0.shortName.localizedStandardCompare($1.shortName) == .orderedAscending }
-                    .map { reference in
-                        GitLogBranchFilterItem(
-                            reference: reference,
-                            title: reference.shortName,
-                            detail: nil
-                        )
-                    }
+                children: sortedReferenceItems(tags)
             ))
         }
 
         return GitLogBranchMenu(
             reset: .allBranches,
-            starred: starred,
+            starred: starredItems(references: references),
             groups: groups
         )
     }
 
-    /// Builds flat branch sections for the popover's type-to-search mode: the
-    /// pinned "All Branches" reset entry followed by local namespaces,
-    /// remotes, and tags grouped like the branch switcher popover. The query
-    /// matches short names and upstreams case-insensitively; an empty query
-    /// matches everything, including the pinned entry.
+    /// Builds flat branch sections for the popover's type-to-search mode. The
+    /// pinned region carries the reset entry plus the starred shortcuts whose
+    /// titles match the query; the rest groups by local namespace, remote,
+    /// and tags. An empty query matches everything.
     static func branchSections(
         references: [GitReference],
         query: String
     ) -> [GitLogFilterSection<GitLogBranchFilterItem>] {
         var sections: [GitLogFilterSection<GitLogBranchFilterItem>] = []
-        // An empty search string never matches `localizedCaseInsensitiveContains`,
-        // so treat it as "match everything" explicitly.
-        if query.isEmpty || "All Branches".localizedCaseInsensitiveContains(query) {
+
+        var pinned: [GitLogBranchFilterItem] = []
+        if GitLogBranchFilterItem.allBranches.matches(query: query) {
+            pinned.append(.allBranches)
+        }
+        pinned.append(contentsOf: starredItems(references: references).filter {
+            $0.matches(query: query)
+        })
+        if !pinned.isEmpty {
             sections.append(GitLogFilterSection(
-                id: "all-branches",
+                id: "pinned",
                 title: nil,
+                titleKey: nil,
                 systemImage: nil,
-                items: [.allBranches]
+                isPinned: true,
+                items: pinned
             ))
         }
 
@@ -316,19 +459,10 @@ enum GitLogFilterList {
             GitLogFilterSection(
                 id: "\(group.kind.rawValue):\(group.title)",
                 title: group.title.isEmpty ? nil : group.title,
+                titleKey: fixedSectionTitleKey(group.title),
                 systemImage: groupSystemImage(group.kind),
-                items: group.references
-                    .sorted { lhs, rhs in
-                        if lhs.isCurrent != rhs.isCurrent { return lhs.isCurrent }
-                        return lhs.shortName.localizedStandardCompare(rhs.shortName) == .orderedAscending
-                    }
-                    .map { reference in
-                        GitLogBranchFilterItem(
-                            reference: reference,
-                            title: displayTitle(for: reference, groupTitle: group.title),
-                            detail: reference.upstreamShortName ?? kindLabel(reference.kind)
-                        )
-                    }
+                isPinned: false,
+                items: sortedReferenceItems(group.references)
             )
         })
         return sections
@@ -343,11 +477,11 @@ enum GitLogFilterList {
         query: String
     ) -> [GitLogFilterSection<GitLogAuthorFilterItem>] {
         var pinned: [GitLogAuthorFilterItem] = []
-        if query.isEmpty || "All Users".localizedCaseInsensitiveContains(query) {
-            pinned.append(GitLogAuthorFilterItem(kind: .allUsers, title: "All Users", detail: nil))
+        if GitLogAuthorFilterItem.allUsers.matches(query: query) {
+            pinned.append(.allUsers)
         }
-        if query.isEmpty || "Me".localizedCaseInsensitiveContains(query) {
-            pinned.append(GitLogAuthorFilterItem(kind: .currentUser, title: "Me", detail: nil))
+        if GitLogAuthorFilterItem.currentUser.matches(query: query) {
+            pinned.append(.currentUser)
         }
 
         let matched = authors.filter { author in
@@ -363,11 +497,7 @@ enum GitLogFilterList {
             return lhs.id < rhs.id
         }
         .map { author in
-            GitLogAuthorFilterItem(
-                kind: .author(name: author.name, email: author.email),
-                title: author.name,
-                detail: author.email
-            )
+            GitLogAuthorFilterItem.author(name: author.name, email: author.email)
         }
 
         var sections: [GitLogFilterSection<GitLogAuthorFilterItem>] = []
@@ -375,7 +505,9 @@ enum GitLogFilterList {
             sections.append(GitLogFilterSection(
                 id: "pinned",
                 title: nil,
+                titleKey: nil,
                 systemImage: nil,
+                isPinned: true,
                 items: pinned
             ))
         }
@@ -383,11 +515,46 @@ enum GitLogFilterList {
             sections.append(GitLogFilterSection(
                 id: "authors",
                 title: nil,
+                titleKey: nil,
                 systemImage: nil,
+                isPinned: false,
                 items: sorted
             ))
         }
         return sections
+    }
+
+    /// Starred shortcuts for the checked-out branch and, when it exists as a
+    /// remote reference, its upstream. Shared by both modes so the shortcuts
+    /// never disappear while searching.
+    private static func starredItems(references: [GitReference]) -> [GitLogBranchFilterItem] {
+        guard let current = references.first(where: { $0.isCurrent }) else { return [] }
+        var items = [GitLogBranchFilterItem.starred(current)]
+        if let upstreamName = current.upstreamShortName,
+           let upstream = references.first(where: { $0.kind == .remote && $0.shortName == upstreamName }) {
+            items.append(.starred(upstream))
+        }
+        return items
+    }
+
+    /// Reference rows sort the current branch first, then by short name.
+    private static func sortedReferenceItems(
+        _ references: [GitReference]
+    ) -> [GitLogBranchFilterItem] {
+        references
+            .sorted { lhs, rhs in
+                if lhs.isCurrent != rhs.isCurrent { return lhs.isCurrent }
+                return lhs.shortName.localizedStandardCompare(rhs.shortName) == .orderedAscending
+            }
+            .map { GitLogBranchFilterItem.reference($0) }
+    }
+
+    private static func fixedSectionTitleKey(_ title: String) -> LocalizedStringKey? {
+        switch title {
+        case "Remote": return "Remote"
+        case "Tags": return "Tags"
+        default: return nil
+        }
     }
 
     private static func kindOrder(_ kind: GitReferenceKind) -> Int {
@@ -405,26 +572,13 @@ enum GitLogFilterList {
         case .tag: return "tag"
         }
     }
-
-    private static func kindLabel(_ kind: GitReferenceKind) -> String? {
-        switch kind {
-        case .local: return nil
-        case .remote: return "Remote"
-        case .tag: return "Tag"
-        }
-    }
-
-    private static func displayTitle(for reference: GitReference, groupTitle: String) -> String {
-        guard reference.kind == .local, !groupTitle.isEmpty else { return reference.shortName }
-        return reference.shortName.split(separator: "/").last.map(String.init) ?? reference.shortName
-    }
 }
 
 /// Shared search field for Git Log filter popovers; focuses itself on appear
 /// so typing filters immediately.
 struct GitLogFilterSearchBar: View {
     @Binding var text: String
-    let placeholder: String
+    let placeholder: LocalizedStringKey
     let onSubmit: () -> Void
 
     @FocusState private var focused: Bool
@@ -449,10 +603,10 @@ struct GitLogFilterSearchBar: View {
                 .help("Clear search")
             }
         }
-            .padding(.horizontal, 14)
-            .frame(height: 34)
-            .background(LitheTheme.toolHeader)
-            .onAppear { focused = true }
+        .padding(.horizontal, 14)
+        .frame(height: 34)
+        .background(LitheTheme.toolHeader)
+        .onAppear { focused = true }
     }
 }
 
@@ -469,13 +623,13 @@ struct GitLogFilterRowView<Row: GitLogFilterRow>: View {
                     .font(.system(size: 11.5))
                     .foregroundStyle(item.rowIsStarred ? LitheTheme.warning : LitheTheme.secondaryText)
                     .frame(width: 17)
-                Text(item.rowTitle)
+                titleText
                     .font(.system(size: 12.5))
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
                 Spacer(minLength: 10)
                 if let detail = item.rowDetail {
-                    Text(detail)
+                    Text(verbatim: detail)
                         .font(.system(size: 11.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .lineLimit(1)
@@ -496,13 +650,23 @@ struct GitLogFilterRowView<Row: GitLogFilterRow>: View {
         .buttonStyle(.plain)
         .lithePointer()
     }
+
+    @ViewBuilder
+    private var titleText: some View {
+        if let titleKey = item.rowTitleKey {
+            Text(titleKey)
+        } else {
+            Text(verbatim: item.rowTitle)
+        }
+    }
 }
 
 /// Shared grouped-list body for flat filter popovers: section headers plus
-/// row rendering with an empty-state fallback.
+/// row rendering with an empty-state fallback. A divider follows pinned
+/// regions only, which the section flags explicitly.
 struct GitLogFilterListView<Row: GitLogFilterRow>: View {
     let sections: [GitLogFilterSection<Row>]
-    let emptyText: String
+    let emptyText: LocalizedStringKey
     let isItemSelected: (Row) -> Bool
     let onSelect: (Row) -> Void
 
@@ -516,7 +680,7 @@ struct GitLogFilterListView<Row: GitLogFilterRow>: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
                     ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
-                        if let title = section.title {
+                        if let title = sectionHeaderTitle(section) {
                             sectionHeader(title, systemImage: section.systemImage)
                         }
                         ForEach(section.items) { item in
@@ -527,9 +691,7 @@ struct GitLogFilterListView<Row: GitLogFilterRow>: View {
                                 onSelect(item)
                             }
                         }
-                        // Untitled regions such as pinned reset rows end with a
-                        // divider before the grouped content below.
-                        if section.title == nil && index < sections.count - 1 {
+                        if section.isPinned && index < sections.count - 1 {
                             Rectangle()
                                 .fill(LitheTheme.divider)
                                 .frame(height: 1)
@@ -543,7 +705,17 @@ struct GitLogFilterListView<Row: GitLogFilterRow>: View {
         }
     }
 
-    private func sectionHeader(_ title: String, systemImage: String?) -> some View {
+    private func sectionHeaderTitle(_ section: GitLogFilterSection<Row>) -> Text? {
+        if let titleKey = section.titleKey {
+            return Text(titleKey)
+        }
+        if let title = section.title {
+            return Text(verbatim: title)
+        }
+        return nil
+    }
+
+    private func sectionHeader(_ title: Text, systemImage: String?) -> some View {
         HStack(spacing: 7) {
             Image(systemName: "chevron.down")
                 .font(.system(size: 8, weight: .bold))
@@ -551,7 +723,7 @@ struct GitLogFilterListView<Row: GitLogFilterRow>: View {
                 Image(systemName: systemImage)
                     .font(.system(size: 11.5))
             }
-            Text(LocalizedStringKey(title))
+            title
                 .font(.system(size: 12, weight: .medium))
             Spacer()
         }
@@ -563,9 +735,10 @@ struct GitLogFilterListView<Row: GitLogFilterRow>: View {
 
 /// The IDEA-style branch filter popover: a compact first level (reset entry,
 /// starred shortcuts, group rows) whose group rows open a bounded flyout
-/// column, plus a flat filtered list once the user types a query.
+/// column, plus a flat filtered list once the user types a query. The menu is
+/// injected as data so body re-evaluations never rebuild it.
 struct GitLogBranchFilterPopover: View {
-    let menuBuilder: () -> GitLogBranchMenu
+    let menu: GitLogBranchMenu
     let querySections: (String) -> [GitLogFilterSection<GitLogBranchFilterItem>]
     let isItemSelected: (GitLogBranchFilterItem) -> Bool
     let onSelect: (GitLogBranchFilterItem) -> Void
@@ -583,17 +756,21 @@ struct GitLogBranchFilterPopover: View {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             content
         }
-        .frame(width: normalizedQuery.isEmpty ? 560 : 340)
+        .frame(width: popoverWidth)
         .frame(maxHeight: 460)
         .lithePopupChrome(cornerRadius: LitheTheme.Metrics.popupCornerRadius)
     }
 
-    private var normalizedQuery: String {
-        searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    // The popover opens at the compact width so the first frame has no dead
+    // space; each width change is driven by an explicit user action (opening
+    // a group or typing a query) rather than by layout surprises.
+    private var popoverWidth: CGFloat {
+        if !normalizedQuery.isEmpty { return 340 }
+        return expandedGroup == nil ? 224 : 560
     }
 
-    private var menu: GitLogBranchMenu {
-        menuBuilder()
+    private var normalizedQuery: String {
+        searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     @ViewBuilder
@@ -611,7 +788,7 @@ struct GitLogBranchFilterPopover: View {
     }
 
     private var browseColumns: some View {
-        HStack(spacing: 0) {
+        HStack(alignment: .top, spacing: 0) {
             levelOneColumn
                 .frame(width: 224)
             if let group = expandedGroup {
@@ -674,7 +851,7 @@ struct GitLogBranchFilterPopover: View {
                     .font(.system(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(width: 17)
-                Text(LocalizedStringKey(group.title))
+                groupTitleText(group)
                     .font(.system(size: 12.5))
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
@@ -692,6 +869,15 @@ struct GitLogBranchFilterPopover: View {
         }
         .buttonStyle(.plain)
         .lithePointer()
+    }
+
+    @ViewBuilder
+    private func groupTitleText(_ group: GitLogBranchGroup) -> some View {
+        if let titleKey = group.titleKey {
+            Text(titleKey)
+        } else {
+            Text(verbatim: group.title)
+        }
     }
 
     private func flyoutColumn(_ group: GitLogBranchGroup) -> some View {
@@ -722,8 +908,8 @@ struct GitLogBranchFilterPopover: View {
 /// large lists scroll instead of covering the workbench.
 struct GitLogFilterPopover<Row: GitLogFilterRow>: View {
     let sectionsForQuery: (String) -> [GitLogFilterSection<Row>]
-    let searchPlaceholder: String
-    let emptyText: String
+    let searchPlaceholder: LocalizedStringKey
+    let emptyText: LocalizedStringKey
     let isItemSelected: (Row) -> Bool
     let onSelect: (Row) -> Void
 

@@ -762,6 +762,11 @@
 "Search for branches and actions" = "搜索分支和操作";
 "Loading branches…" = "正在加载分支…";
 "No matching branches" = "没有匹配的分支";
+"All Branches" = "全部分支";
+"All Users" = "所有用户";
+"Me" = "我";
+"Search users" = "搜索用户";
+"No matching users" = "没有匹配的用户";
 "Create" = "创建";
 "Create from '%@'." = "从“%@”创建。";
 "Checkout branch after creation" = "创建后检出分支";
