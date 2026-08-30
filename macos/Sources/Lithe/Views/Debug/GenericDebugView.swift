@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import LitheCoreContracts
 import LitheDebugModule
 
@@ -529,6 +530,10 @@ struct GenericDebugView: View {
                         exceptionInspector(exceptionInfo)
                         divider
                     }
+                    if !feature.scopes.isEmpty {
+                        scopePicker
+                        divider
+                    }
                     sectionHeader("Variables", count: feature.variables.count)
                     if feature.visibleVariableRows.isEmpty {
                         placeholder("Select a stack frame to inspect variables")
@@ -568,6 +573,12 @@ struct GenericDebugView: View {
                                             feature.requestDataBreakpoint(for: variable)
                                         }
                                     }
+                                    Divider()
+                                    Button("Copy Value") { copyToPasteboard(variable.value) }
+                                    Button("Copy Expression") {
+                                        copyToPasteboard(variable.evaluateName ?? variable.name)
+                                    }
+                                    Button("Copy Name") { copyToPasteboard(variable.name) }
                                 }
                             case .loadMore(let parentVariableID, let nextCount, let remainingCount):
                                 variableLoadMoreRow(
@@ -639,6 +650,40 @@ struct GenericDebugView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .litheWorkbenchSurface(LitheTheme.sidebar)
+    }
+
+    private var scopePicker: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            sectionHeader("Scopes", count: feature.scopes.count)
+            ForEach(feature.scopes) { scope in
+                Button {
+                    feature.selectScope(scope)
+                } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: feature.selectedScopeID == scope.id ? "circle.inset.filled" : "circle")
+                            .font(.system(size: 9))
+                        Text(scope.name)
+                            .font(.system(size: 10.5))
+                        if scope.expensive {
+                            Text("expensive")
+                                .font(.system(size: 9))
+                                .foregroundStyle(LitheTheme.secondaryText)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .foregroundStyle(feature.selectedScopeID == scope.id ? LitheTheme.accent : LitheTheme.primaryText)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func copyToPasteboard(_ value: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
     }
 
     private func exceptionInspector(_ info: DebugExceptionInfo) -> some View {

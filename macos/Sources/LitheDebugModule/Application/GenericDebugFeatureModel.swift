@@ -227,6 +227,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     @Published public private(set) var threads: [DebugThread] = []
     @Published public private(set) var stackFrames: [DebugStackFrame] = []
     @Published public private(set) var scopes: [DebugScope] = []
+    @Published public private(set) var selectedScopeID: Int?
     @Published public private(set) var variables: [DebugVariable] = []
     @Published public private(set) var variableChildren: [String: [DebugVariable]] = [:]
     @Published public private(set) var expandedVariableIDs: Set<String> = []
@@ -509,6 +510,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         threads = []
         stackFrames = []
         scopes = []
+        selectedScopeID = nil
         resetVariableTree()
         invalidateWatchResults()
         capabilities = .unknown
@@ -607,6 +609,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         stackFrames = []
         areFilteredStackFramesExpanded = false
         scopes = []
+        selectedScopeID = nil
         resetVariableTree()
         invalidateWatchResults()
         capabilities = .unknown
@@ -635,6 +638,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         stackFrames = []
         areFilteredStackFramesExpanded = false
         scopes = []
+        selectedScopeID = nil
         resetVariableTree()
         invalidateWatchResults()
         capabilities = .unknown
@@ -1119,6 +1123,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         stackFrames = []
         areFilteredStackFramesExpanded = false
         scopes = []
+        selectedScopeID = nil
         resetVariableTree()
         invalidateWatchResults()
         guard let session = activeSession else { return }
@@ -1150,6 +1155,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         selectedFrameID = frame.id
         selectedFrame = frame
         scopes = []
+        selectedScopeID = nil
         resetVariableTree()
         invalidateWatchResults()
         publishStoppedLocation(frame)
@@ -1163,19 +1169,31 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             case .success(let scopes):
                 self.scopes = scopes
                 if let scope = scopes.first(where: { !$0.expensive }) ?? scopes.first {
-                    self.loadVariables(
-                        reference: scope.variablesReference,
-                        namedVariables: scope.namedVariables,
-                        indexedVariables: scope.indexedVariables,
-                        frameID: frame.id,
-                        generation: generation
-                    )
+                    self.selectScope(scope, frameID: frame.id, generation: generation)
                 } else {
                     self.resetVariableTree()
                 }
             case .failure(let error): self.record(error)
             }
         }
+    }
+
+    /// Selects the stack-frame scope whose variables are shown in the inspector.
+    public func selectScope(_ scope: DebugScope) {
+        guard let frameID = selectedFrameID else { return }
+        selectScope(scope, frameID: frameID, generation: inspectionGeneration)
+    }
+
+    private func selectScope(_ scope: DebugScope, frameID: Int, generation: Int) {
+        guard selectedFrameID == frameID, inspectionGeneration == generation else { return }
+        selectedScopeID = scope.id
+        loadVariables(
+            reference: scope.variablesReference,
+            namedVariables: scope.namedVariables,
+            indexedVariables: scope.indexedVariables,
+            frameID: frameID,
+            generation: generation
+        )
     }
 
     public func loadVariables(reference: Int) {

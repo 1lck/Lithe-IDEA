@@ -861,6 +861,10 @@ struct DebugModuleTests {
                     "name": "Locals",
                     "variablesReference": 200,
                     "expensive": false
+                ], [
+                    "name": "Fields",
+                    "variablesReference": 201,
+                    "expensive": true
                 ]]
             ]
         ]])
@@ -869,6 +873,12 @@ struct DebugModuleTests {
             "exceptionInfo", "threads", "stackTrace", "scopes", "variables"
         ])
         #expect(core.inspectionRequests.last?.variablesReference == 200)
+        #expect(feature.selectedScopeID == feature.scopes.first?.id)
+
+        let fieldsScope = try #require(feature.scopes.last)
+        feature.selectScope(fieldsScope)
+        #expect(core.inspectionRequests.last?.kind == "variables")
+        #expect(core.inspectionRequests.last?.variablesReference == 201)
 
         let variablesOperationID = try #require(
             core.inspectionRequests.first(where: { $0.kind == "variables" })?.operationID
