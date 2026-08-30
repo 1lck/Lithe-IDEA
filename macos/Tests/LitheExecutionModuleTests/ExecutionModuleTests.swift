@@ -194,6 +194,125 @@ struct ExecutionModuleTests {
         #expect(service.errorMessage == "go testing extension is not active.")
     }
 
+    @Test
+    func mavenServiceExecutesTheSharedLaunchPlanWithLocalRuntimeOverrides() async throws {
+        let workspace = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let reactor = workspace.appendingPathComponent("projects/demo", isDirectory: true)
+        let module = MavenModule(
+            relativePath: "service-api",
+            url: reactor.appendingPathComponent("service-api", isDirectory: true),
+            groupID: "dev.lithe",
+            artifactID: "service-api",
+            version: "1.0",
+            packaging: "jar",
+            modules: []
+        )
+        let project = MavenProject(
+            rootURL: reactor,
+            pomURL: reactor.appendingPathComponent("pom.xml"),
+            groupID: "dev.lithe",
+            artifactID: "demo",
+            version: "1.0",
+            packaging: "pom",
+            modules: [module],
+            profiles: [MavenProfile(id: "dev", isActiveByDefault: false)],
+            hasWrapper: false
+        )
+        let plan = MavenLaunchPlan(
+            version: 1,
+            toolchain: "project-maven",
+            arguments: ["core-owned-argument", "-s", "/local/settings.xml", "verify"],
+            workingDirectory: "projects/demo",
+            configurationFingerprint: "sha256:test"
+        )
+        let operations = RecordingMavenOperations(project: project, plan: plan)
+        let process = MavenRecordingProcess()
+        let runtime = MavenRecordingRuntime()
+        let store = RecordingMavenConfigurationStore(configuration: MavenStoredConfiguration(
+            portable: MavenPortableConfiguration(
+                selectedProfiles: ["dev"],
+                customProfiles: [],
+                skipTests: true
+            ),
+            local: MavenLocalConfiguration(
+                settingsPath: "/local/settings.xml",
+                mavenExecutablePath: "/local/apache-maven",
+                javaHomePath: "/local/jdk"
+            )
+        ))
+        let service = MavenService(
+            runtimeService: runtime,
+            process: process,
+            mavenOperations: operations,
+            configurationStore: store
+        )
+
+        await service.loadProject(at: workspace, files: [project.pomURL])
+        service.runCustomGoal(
+            "help:evaluate -Dexpression=fixture.config -q -DforceStdout",
+            module: module
+        )
+        let request = try #require(await process.nextStart(timeout: .seconds(1)))
+
+        #expect(request.arguments == plan.arguments)
+        #expect(request.workingDirectory == reactor.path)
+        #expect(request.environment?["TEST_JAVA_HOME"] == "/local/jdk")
+        #expect(runtime.lastMavenOverride == "/local/apache-maven")
+        #expect(operations.lastContext?.reactorPath == "projects/demo")
+        #expect(operations.lastContext?.profiles == ["dev"])
+        #expect(operations.lastContext?.settingsPath == "/local/settings.xml")
+        #expect(operations.lastContext?.skipTests == true)
+        #expect(operations.lastModule == "service-api")
+        #expect(operations.lastGoals == [
+            "help:evaluate",
+            "-Dexpression=fixture.config",
+            "-q",
+            "-DforceStdout"
+        ])
+        #expect(service.output.contains("-s <settings.xml>"))
+        #expect(!service.output.contains("/local/settings.xml"))
+    }
+
+    @Test
+    func mavenServiceReportsCancellationWithoutInventingAnExitCode() async throws {
+        let workspace = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let project = MavenProject(
+            rootURL: workspace,
+            pomURL: workspace.appendingPathComponent("pom.xml"),
+            groupID: "dev.lithe",
+            artifactID: "demo",
+            version: "1.0",
+            packaging: "jar",
+            modules: [],
+            profiles: [],
+            hasWrapper: false
+        )
+        let plan = MavenLaunchPlan(
+            version: 1,
+            toolchain: "project-maven",
+            arguments: ["-B", "-ntp", "validate"],
+            workingDirectory: ".",
+            configurationFingerprint: "sha256:test"
+        )
+        let process = MavenRecordingProcess()
+        let service = MavenService(
+            runtimeService: MavenRecordingRuntime(),
+            process: process,
+            mavenOperations: RecordingMavenOperations(project: project, plan: plan)
+        )
+
+        await service.loadProject(at: workspace, files: [project.pomURL])
+        service.run(phase: .validate, module: nil)
+        _ = try #require(await process.nextStart(timeout: .seconds(1)))
+        service.stop()
+
+        #expect(service.taskState == .cancelled)
+        #expect(service.runningTitle == nil)
+        #expect(service.lastExitCode == nil)
+        #expect(service.output.hasSuffix("Maven task cancelled.\n"))
+        #expect(!process.isRunning)
+    }
+
     private func factory(recorder: Recorder) -> ModuleFactory {
         ModuleFactory(manifest: ExecutionModule.moduleManifest, contributions: ExecutionModule.moduleContributions) {
             recorder.factoryCalls += 1
@@ -251,8 +370,8 @@ private func makeTestGraph() -> ExecutionFeatureGraph {
 
 @MainActor
 private final class TestRuntime: MavenRuntimePort, RunRuntimePort {
-    func mavenExecutable(for project: MavenProject) -> URL? { nil }
-    func mavenProcessEnvironment() -> [String: String] { [:] }
+    func mavenExecutable(for project: MavenProject, overridePath: String?) -> URL? { nil }
+    func mavenProcessEnvironment(javaHomePath: String?) -> [String: String] { [:] }
     func setActiveServiceJavaHomePath(_ path: String) {}
     func javaHomeURL(overridePath: String?) -> URL? { nil }
     func mavenJavaHomeURL(overridePath: String?) -> URL? { nil }
@@ -279,8 +398,148 @@ private final class TestStreamingProcess: StreamingProcess, @unchecked Sendable 
 }
 
 private struct TestMavenOperations: MavenProjectOperations {
-    func scanMavenProject(at rootURL: URL, files: [URL]) -> MavenProject? { nil }
+    func scanMavenProject(at rootURL: URL, files: [URL]) throws -> MavenProject? { nil }
+    func mavenLaunchPlan(
+        at rootURL: URL,
+        context: MavenLaunchContext,
+        module: String?,
+        goals: [String]
+    ) throws -> MavenLaunchPlan {
+        MavenLaunchPlan(
+            version: 1,
+            toolchain: "project-maven",
+            arguments: goals,
+            workingDirectory: ".",
+            configurationFingerprint: "test"
+        )
+    }
     func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue] { [] }
+}
+
+private final class RecordingMavenOperations: MavenProjectOperations, @unchecked Sendable {
+    private let lock = NSLock()
+    private let project: MavenProject
+    private let plan: MavenLaunchPlan
+    private var recordedContext: MavenLaunchContext?
+    private var recordedModule: String?
+    private var recordedGoals: [String] = []
+
+    init(project: MavenProject, plan: MavenLaunchPlan) {
+        self.project = project
+        self.plan = plan
+    }
+
+    var lastContext: MavenLaunchContext? {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedContext
+    }
+
+    var lastModule: String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedModule
+    }
+
+    var lastGoals: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedGoals
+    }
+
+    func scanMavenProject(at rootURL: URL, files: [URL]) throws -> MavenProject? {
+        project
+    }
+
+    func mavenLaunchPlan(
+        at rootURL: URL,
+        context: MavenLaunchContext,
+        module: String?,
+        goals: [String]
+    ) throws -> MavenLaunchPlan {
+        lock.lock()
+        recordedContext = context
+        recordedModule = module
+        recordedGoals = goals
+        lock.unlock()
+        return plan
+    }
+
+    func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue] { [] }
+}
+
+private final class RecordingMavenConfigurationStore: MavenConfigurationStoring, @unchecked Sendable {
+    private let configuration: MavenStoredConfiguration
+
+    init(configuration: MavenStoredConfiguration) {
+        self.configuration = configuration
+    }
+
+    func loadMavenConfiguration(
+        workspaceURL: URL,
+        reactorPath: String
+    ) throws -> MavenStoredConfiguration {
+        configuration
+    }
+
+    func saveMavenConfiguration(
+        _ configuration: MavenStoredConfiguration,
+        workspaceURL: URL,
+        reactorPath: String
+    ) throws {}
+}
+
+@MainActor
+private final class MavenRecordingRuntime: MavenRuntimePort {
+    private(set) var lastMavenOverride: String?
+
+    func mavenExecutable(for project: MavenProject, overridePath: String?) -> URL? {
+        lastMavenOverride = overridePath
+        return URL(fileURLWithPath: "/test/bin/mvn")
+    }
+
+    func mavenProcessEnvironment(javaHomePath: String?) -> [String: String] {
+        ["TEST_JAVA_HOME": javaHomePath ?? ""]
+    }
+}
+
+private final class MavenRecordingProcess: StreamingProcess, @unchecked Sendable {
+    var isRunning = false
+    var onOutput: (@Sendable (String) -> Void)?
+    var onTermination: (@Sendable (Int32) -> Void)?
+    var onStateChange: (@Sendable (ProcessLifecycleEvent) -> Void)?
+
+    private let stream: AsyncStream<ProcessRequest>
+    private let continuation: AsyncStream<ProcessRequest>.Continuation
+
+    init() {
+        (stream, continuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(4))
+    }
+
+    func start(_ request: ProcessRequest) throws {
+        isRunning = true
+        continuation.yield(request)
+    }
+
+    func send(_ input: Data) throws {}
+    func stop() { isRunning = false }
+
+    func nextStart(timeout: Duration) async -> ProcessRequest? {
+        await withTaskGroup(of: ProcessRequest?.self) { group in
+            let stream = stream
+            group.addTask {
+                var iterator = stream.makeAsyncIterator()
+                return await iterator.next()
+            }
+            group.addTask {
+                try? await ContinuousClock().sleep(for: timeout)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+    }
 }
 
 private struct TestRunFileAccess: RunFileAccess {

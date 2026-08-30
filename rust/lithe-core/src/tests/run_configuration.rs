@@ -222,7 +222,16 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
             "command": "runConfig.createLaunchPlan",
             "payload": {
                 "root": root,
-                "configurationId": service["id"]
+                "configurationId": service["id"],
+                "mavenContext": {
+                    "version": 1,
+                    "reactorPath": "projects/demo",
+                    "profiles": ["qa", "dev"],
+                    "settingsPath": "/local/settings.xml",
+                    "skipTests": true,
+                    "mavenExecutablePath": "/local/apache-maven/bin/mvn",
+                    "javaHomePath": "/local/jdk"
+                }
             }
         })
         .to_string(),
@@ -230,11 +239,59 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
     .unwrap();
     assert_eq!(plan["ok"], true, "{plan}");
     assert_eq!(plan["data"]["workingDirectory"], "projects/demo");
-    assert!(plan["data"]["arguments"]
-        .as_array()
-        .unwrap()
-        .windows(2)
-        .any(|arguments| arguments == ["-pl", "service"]));
+    assert_eq!(
+        &plan["data"]["arguments"].as_array().unwrap()[..12],
+        [
+            "-B",
+            "-ntp",
+            "-P",
+            "dev,qa",
+            "-s",
+            "/local/settings.xml",
+            "-pl",
+            "service",
+            "-am",
+            "-DskipTests",
+            "-Dspring-boot.run.main-class=com.example.App",
+            "spring-boot:run"
+        ]
+    );
+
+    fs::write(
+        root.join(".lithe/run/configurations.json"),
+        serde_json::json!({
+            "version": 2,
+            "configurations": [{
+                "id": service["id"],
+                "extensions": {"maven": {"profiles": ["release"]}}
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let overridden_plan: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "plan-explicit-profile",
+            "command": "runConfig.createLaunchPlan",
+            "payload": {
+                "root": root,
+                "configurationId": service["id"],
+                "mavenContext": {
+                    "version": 1,
+                    "reactorPath": "projects/demo",
+                    "profiles": ["dev", "qa"],
+                    "skipTests": false
+                }
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(overridden_plan["ok"], true, "{overridden_plan}");
+    assert_eq!(
+        &overridden_plan["data"]["arguments"].as_array().unwrap()[..4],
+        ["-B", "-ntp", "-P", "release"]
+    );
 
     let java_plan: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({

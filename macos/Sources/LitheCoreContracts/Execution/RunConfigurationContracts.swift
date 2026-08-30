@@ -221,6 +221,14 @@ package protocol RunConfigurationOperations: Sendable {
         classPath: String?,
         debugPort: Int?
     ) throws -> SharedLaunchPlan
+    func launchPlan(
+        at projectURL: URL,
+        configurationID: String,
+        currentFile: String?,
+        classPath: String?,
+        debugPort: Int?,
+        mavenContext: MavenLaunchContext?
+    ) throws -> SharedLaunchPlan
     func saveEditorChanges(
         _ options: RunOptions,
         toolchain: ProjectToolchainSelection,
@@ -233,6 +241,23 @@ package protocol RunConfigurationOperations: Sendable {
 }
 
 package extension RunConfigurationOperations {
+    func launchPlan(
+        at projectURL: URL,
+        configurationID: String,
+        currentFile: String?,
+        classPath: String?,
+        debugPort: Int?,
+        mavenContext _: MavenLaunchContext?
+    ) throws -> SharedLaunchPlan {
+        try launchPlan(
+            at: projectURL,
+            configurationID: configurationID,
+            currentFile: currentFile,
+            classPath: classPath,
+            debugPort: debugPort
+        )
+    }
+
     func saveEditorChanges(
         _: RunOptions,
         toolchain _: ProjectToolchainSelection,

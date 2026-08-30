@@ -81,6 +81,9 @@ pub struct LaunchPlanRequest {
     /// Host-owned local layer. When present, Core uses it instead of `.lithe/run/local.json`.
     #[serde(default)]
     pub local_document: Option<Value>,
+    /// Project Maven defaults supplied by the native host for Maven-backed plans.
+    #[serde(default)]
+    pub maven_context: Option<crate::project::MavenLaunchContextRequest>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1341,7 +1344,7 @@ pub fn create_user_configuration(
 pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError> {
     let workspace_root = existing_root(&request.root)?;
     let resolved = resolve(ResolveRequest {
-        root: request.root,
+        root: request.root.clone(),
         toolchain_candidates: Vec::new(),
         local_document: request.local_document,
     })?;
@@ -1429,9 +1432,11 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
         arguments.push(json!(current_file));
         arguments.extend(program_arguments);
     } else if is_java_main && uses_maven_toolchain {
-        arguments.extend([json!("-B"), json!("-ntp")]);
-        if let Some(module) = maven["module"].as_str().filter(|m| *m != ".") {
-            arguments.extend([json!("-pl"), json!(module)]);
+        if request.maven_context.is_none() {
+            arguments.extend([json!("-B"), json!("-ntp")]);
+            if let Some(module) = maven["module"].as_str().filter(|m| *m != ".") {
+                arguments.extend([json!("-pl"), json!(module)]);
+            }
         }
         let main = maven["mainClass"].as_str().ok_or_else(|| {
             CoreError::new(
@@ -1476,19 +1481,21 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
     } else {
         // `maven.module` has no framework goal: it runs whatever goals the
         // configuration names, so only the reactor selection applies.
-        arguments.extend([json!("-B"), json!("-ntp")]);
-        if let Some(module) = maven["module"].as_str().filter(|m| *m != ".") {
-            arguments.extend([json!("-pl"), json!(module)]);
-        }
-        if let Some(profiles) = maven["profiles"].as_array().filter(|p| !p.is_empty()) {
-            arguments.extend([
-                json!("-P"),
-                json!(profiles
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .collect::<Vec<_>>()
-                    .join(",")),
-            ]);
+        if request.maven_context.is_none() {
+            arguments.extend([json!("-B"), json!("-ntp")]);
+            if let Some(module) = maven["module"].as_str().filter(|m| *m != ".") {
+                arguments.extend([json!("-pl"), json!(module)]);
+            }
+            if let Some(profiles) = maven["profiles"].as_array().filter(|p| !p.is_empty()) {
+                arguments.extend([
+                    json!("-P"),
+                    json!(profiles
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                        .join(",")),
+                ]);
+            }
         }
         if let Some(goal) = goal {
             arguments.extend(framework_arguments(
@@ -1518,10 +1525,42 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
     let java_toolchain = config["toolchains"]["java"]
         .as_str()
         .unwrap_or("project-jdk");
+    let mut working_directory = config["cwd"].as_str().unwrap_or(".").to_string();
+    if executable_kind == "maven" {
+        if let Some(mut context) = request.maven_context {
+            if let Some(profiles) = maven["profiles"]
+                .as_array()
+                .filter(|items| !items.is_empty())
+            {
+                context.profiles = profiles
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect();
+            }
+            let module = maven["module"].as_str().map(str::to_string);
+            let trailing_arguments = arguments
+                .into_iter()
+                .filter_map(|value| value.as_str().map(str::to_string))
+                .collect();
+            let shared_plan = crate::project::launch_plan_with_arguments(
+                request.root,
+                context,
+                module,
+                trailing_arguments,
+            )?;
+            arguments = shared_plan
+                .arguments
+                .into_iter()
+                .map(Value::String)
+                .collect();
+            working_directory = shared_plan.working_directory;
+        }
+    }
     Ok(json!({
         "executable": { "toolchain": executable_toolchain },
         "arguments": arguments,
-        "workingDirectory": config["cwd"].as_str().unwrap_or("."),
+        "workingDirectory": working_directory,
         "environment": {
             "JAVA_HOME": { "toolchain": java_toolchain, "property": "home" }
         }

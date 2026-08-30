@@ -126,13 +126,32 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         classPath: String?,
         debugPort: Int?
     ) throws -> SharedLaunchPlan {
+        try launchPlan(
+            at: projectURL,
+            configurationID: configurationID,
+            currentFile: currentFile,
+            classPath: classPath,
+            debugPort: debugPort,
+            mavenContext: nil
+        )
+    }
+
+    func launchPlan(
+        at projectURL: URL,
+        configurationID: String,
+        currentFile: String?,
+        classPath: String?,
+        debugPort: Int?,
+        mavenContext: MavenLaunchContext?
+    ) throws -> SharedLaunchPlan {
         let value: RustCoreBridge.LaunchPlanPayload
         switch core.createLaunchPlan(
             at: projectURL,
             configurationID: configurationID,
             currentFile: currentFile,
             classPath: classPath,
-            debugPort: debugPort
+            debugPort: debugPort,
+            mavenContext: mavenContext
         ) {
         case .success(let payload): value = payload
         case .failure(let error): throw RunConfigurationOperationFailure(message: error.userMessage)

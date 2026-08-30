@@ -2,13 +2,14 @@
 
 use crate::protocol::{CoreError, ErrorCode};
 use crate::protocol::{
-    MavenDiagnosticResponse, MavenDiagnosticsResponse, MavenModuleResponse, MavenProfileResponse,
-    MavenScanResponse,
+    MavenDiagnosticResponse, MavenDiagnosticsResponse, MavenLaunchExecutableResponse,
+    MavenLaunchPlanResponse, MavenModuleResponse, MavenProfileResponse, MavenScanResponse,
 };
 use quick_xml::events::Event;
 use quick_xml::Reader;
 use regex::Regex;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -28,6 +29,319 @@ pub struct MavenScanRequest {
 pub struct MavenDiagnosticsRequest {
     pub root: String,
     pub output: String,
+}
+
+const MAVEN_CONTEXT_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Versioned Maven defaults merged by the platform before launch planning.
+pub struct MavenLaunchContextRequest {
+    pub version: u32,
+    pub reactor_path: String,
+    #[serde(default)]
+    pub profiles: Vec<String>,
+    #[serde(default)]
+    pub settings_path: Option<String>,
+    #[serde(default)]
+    pub skip_tests: bool,
+    #[serde(default)]
+    pub maven_executable_path: Option<String>,
+    #[serde(default)]
+    pub java_home_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Ordered Maven invocation tokens selected by a tool-window consumer.
+///
+/// The first token is a lifecycle or custom goal. Remaining tokens are passed
+/// directly to Maven as arguments without shell interpretation.
+pub struct MavenLaunchPlanRequest {
+    pub root: String,
+    pub context: MavenLaunchContextRequest,
+    #[serde(default)]
+    pub module: Option<String>,
+    pub goals: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+/// Validated Maven import settings consumed by the JDT LS adapter.
+pub(crate) struct MavenJdtConfiguration {
+    pub profiles: Vec<String>,
+    pub settings_path: Option<String>,
+    /// Workspace-relative reactor and recursive module directories.
+    pub project_paths: Vec<String>,
+}
+
+struct ValidatedMavenContext {
+    reactor_path: String,
+    canonical_reactor: PathBuf,
+    profiles: Vec<String>,
+    settings_path: Option<String>,
+    skip_tests: bool,
+    maven_executable_path: Option<String>,
+    java_home_path: Option<String>,
+}
+
+/// Produces a deterministic Maven plan without resolving a native executable.
+pub fn launch_plan(request: MavenLaunchPlanRequest) -> Result<MavenLaunchPlanResponse, CoreError> {
+    let arguments = normalized_tool_window_arguments(request.goals)?;
+    launch_plan_with_arguments(request.root, request.context, request.module, arguments)
+}
+
+/// Applies a validated Maven context to Core-owned run/debug arguments.
+///
+/// Unlike the public tool-window command, the trailing arguments may contain
+/// properties such as `-Dexec.mainClass`: those values were generated and
+/// validated by the run-configuration domain rather than entered as goals.
+pub(crate) fn launch_plan_with_arguments(
+    root: String,
+    context: MavenLaunchContextRequest,
+    module: Option<String>,
+    trailing_arguments: Vec<String>,
+) -> Result<MavenLaunchPlanResponse, CoreError> {
+    let validated = validated_maven_context(&root, context)?;
+
+    let module = module
+        .as_deref()
+        .map(|value| normalized_project_path(value, "Maven module"))
+        .transpose()?;
+    if let Some(module) = module.as_deref().filter(|value| *value != ".") {
+        let declared = declared_modules(&validated.canonical_reactor)?;
+        if !declared
+            .iter()
+            .any(|candidate| candidate.relative_path == module)
+        {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Maven module is not part of the selected reactor",
+            )
+            .with_details(module));
+        }
+    }
+
+    let arguments = maven_arguments(
+        &validated.profiles,
+        validated.settings_path.as_deref(),
+        module.as_deref(),
+        validated.skip_tests,
+        &trailing_arguments,
+    );
+    let configuration_fingerprint = maven_context_fingerprint(
+        &validated.reactor_path,
+        &validated.profiles,
+        validated.settings_path.as_deref(),
+        validated.skip_tests,
+        validated.maven_executable_path.as_deref(),
+        validated.java_home_path.as_deref(),
+    );
+
+    Ok(MavenLaunchPlanResponse {
+        version: MAVEN_CONTEXT_VERSION,
+        executable: MavenLaunchExecutableResponse {
+            toolchain: "project-maven".to_string(),
+        },
+        arguments,
+        working_directory: validated.reactor_path,
+        configuration_fingerprint,
+    })
+}
+
+/// Resolves the same Maven profiles and settings for JDT LS project import.
+pub(crate) fn jdt_configuration(
+    root: &str,
+    context: MavenLaunchContextRequest,
+) -> Result<MavenJdtConfiguration, CoreError> {
+    let validated = validated_maven_context(root, context)?;
+    let project_paths = declared_modules(&validated.canonical_reactor)?
+        .into_iter()
+        .map(|module| {
+            if module.relative_path == "." {
+                validated.reactor_path.clone()
+            } else if validated.reactor_path == "." {
+                module.relative_path
+            } else {
+                format!("{}/{}", validated.reactor_path, module.relative_path)
+            }
+        })
+        .collect();
+    Ok(MavenJdtConfiguration {
+        profiles: validated.profiles,
+        settings_path: validated.settings_path,
+        project_paths,
+    })
+}
+
+fn validated_maven_context(
+    root: &str,
+    context: MavenLaunchContextRequest,
+) -> Result<ValidatedMavenContext, CoreError> {
+    let workspace_root = existing_root(root)?;
+    if context.version != MAVEN_CONTEXT_VERSION {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Unsupported Maven context version",
+        )
+        .with_details(context.version.to_string()));
+    }
+
+    let reactor_path = normalized_project_path(&context.reactor_path, "Maven reactor")?;
+    let reactor_root = if reactor_path == "." {
+        workspace_root.clone()
+    } else {
+        workspace_root.join(&reactor_path)
+    };
+    let canonical_reactor = reactor_root.canonicalize().map_err(|_| {
+        CoreError::new(ErrorCode::WorkspaceNotFound, "Maven reactor does not exist")
+    })?;
+    if !canonical_reactor.starts_with(&workspace_root)
+        || !canonical_reactor.join("pom.xml").is_file()
+    {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Maven reactor must contain pom.xml inside the workspace",
+        ));
+    }
+
+    Ok(ValidatedMavenContext {
+        reactor_path,
+        canonical_reactor,
+        profiles: normalized_profiles(context.profiles)?,
+        settings_path: normalized_local_path(context.settings_path, "Maven settings")?,
+        skip_tests: context.skip_tests,
+        maven_executable_path: normalized_local_path(
+            context.maven_executable_path,
+            "Maven executable",
+        )?,
+        java_home_path: normalized_local_path(context.java_home_path, "Maven JDK")?,
+    })
+}
+
+/// Builds the shared Maven option prefix used by tool-window and run plans.
+pub(crate) fn maven_arguments(
+    profiles: &[String],
+    settings_path: Option<&str>,
+    module: Option<&str>,
+    skip_tests: bool,
+    goals: &[String],
+) -> Vec<String> {
+    let mut arguments = vec!["-B".to_string(), "-ntp".to_string()];
+    if !profiles.is_empty() {
+        arguments.extend(["-P".to_string(), profiles.join(",")]);
+    }
+    if let Some(settings_path) = settings_path {
+        arguments.extend(["-s".to_string(), settings_path.to_string()]);
+    }
+    if let Some(module) = module.filter(|value| *value != ".") {
+        arguments.extend(["-pl".to_string(), module.to_string(), "-am".to_string()]);
+    }
+    if skip_tests {
+        arguments.push("-DskipTests".to_string());
+    }
+    arguments.extend(goals.iter().cloned());
+    arguments
+}
+
+fn normalized_profiles(values: Vec<String>) -> Result<Vec<String>, CoreError> {
+    let mut profiles = BTreeSet::new();
+    for value in values {
+        let profile = value.trim();
+        if profile.is_empty() || profile.contains(',') || profile.chars().any(char::is_control) {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Maven profile ID is invalid",
+            ));
+        }
+        profiles.insert(profile.to_string());
+    }
+    Ok(profiles.into_iter().collect())
+}
+
+fn normalized_tool_window_arguments(values: Vec<String>) -> Result<Vec<String>, CoreError> {
+    if values.is_empty() {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "At least one Maven goal is required",
+        ));
+    }
+
+    let mut arguments = Vec::with_capacity(values.len());
+    for (index, value) in values.into_iter().enumerate() {
+        let argument = value.trim();
+        if argument.is_empty() || argument.chars().any(char::is_control) {
+            return Err(
+                CoreError::new(ErrorCode::InvalidRequest, "Maven argument is invalid")
+                    .with_details(argument),
+            );
+        }
+        if index == 0 {
+            let valid_goal = !argument.starts_with('-')
+                && argument.chars().all(|character| {
+                    character.is_ascii_alphanumeric() || ".:_-".contains(character)
+                });
+            if !valid_goal {
+                return Err(
+                    CoreError::new(ErrorCode::InvalidRequest, "Maven goal is invalid")
+                        .with_details(argument),
+                );
+            }
+        }
+        arguments.push(argument.to_string());
+    }
+    Ok(arguments)
+}
+
+fn normalized_project_path(value: &str, label: &str) -> Result<String, CoreError> {
+    let trimmed = value.trim();
+    if trimmed == "." {
+        return Ok(".".to_string());
+    }
+    normalize_relative_path(trimmed).ok_or_else(|| {
+        CoreError::new(
+            ErrorCode::InvalidRequest,
+            format!("{label} path is invalid"),
+        )
+    })
+}
+
+fn normalized_local_path(value: Option<String>, label: &str) -> Result<Option<String>, CoreError> {
+    let Some(value) = value else { return Ok(None) };
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.chars().any(char::is_control) {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            format!("{label} path is invalid"),
+        ));
+    }
+    Ok(Some(trimmed.to_string()))
+}
+
+fn maven_context_fingerprint(
+    reactor_path: &str,
+    profiles: &[String],
+    settings_path: Option<&str>,
+    skip_tests: bool,
+    maven_executable_path: Option<&str>,
+    java_home_path: Option<&str>,
+) -> String {
+    let mut digest = Sha256::new();
+    for value in [
+        MAVEN_CONTEXT_VERSION.to_string(),
+        reactor_path.to_string(),
+        profiles.join(","),
+        settings_path.unwrap_or_default().to_string(),
+        skip_tests.to_string(),
+        maven_executable_path.unwrap_or_default().to_string(),
+        java_home_path.unwrap_or_default().to_string(),
+    ] {
+        digest.update(value.as_bytes());
+        digest.update([0]);
+    }
+    format!("sha256:{:x}", digest.finalize())
 }
 
 #[derive(Debug, Default)]

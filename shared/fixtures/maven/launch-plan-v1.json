@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "nested reactor module lifecycle with local settings",
+      "context": {
+        "version": 1,
+        "reactorPath": "projects/demo",
+        "profiles": ["qa", "dev", "dev"],
+        "settingsPath": "/Users/example/.m2/settings.xml",
+        "skipTests": true,
+        "mavenExecutablePath": "/opt/apache-maven/bin/mvn",
+        "javaHomePath": "/Library/Java/JavaVirtualMachines/example/Contents/Home"
+      },
+      "module": "service-api",
+      "goals": ["verify"],
+      "expected": {
+        "version": 1,
+        "executable": { "toolchain": "project-maven" },
+        "arguments": [
+          "-B",
+          "-ntp",
+          "-P",
+          "dev,qa",
+          "-s",
+          "/Users/example/.m2/settings.xml",
+          "-pl",
+          "service-api",
+          "-am",
+          "-DskipTests",
+          "verify"
+        ],
+        "workingDirectory": "projects/demo",
+        "configurationFingerprint": "sha256:8e665a85f0c0a9fa5567cfc88d90cc1e794a34810b4617662c5610699ad22df6"
+      }
+    },
+    {
+      "name": "root reactor custom goal preserves maven config behavior",
+      "context": {
+        "version": 1,
+        "reactorPath": ".",
+        "profiles": [],
+        "skipTests": false
+      },
+      "module": null,
+      "goals": ["spring-boot:run"],
+      "expected": {
+        "version": 1,
+        "executable": { "toolchain": "project-maven" },
+        "arguments": ["-B", "-ntp", "spring-boot:run"],
+        "workingDirectory": ".",
+        "configurationFingerprint": "sha256:225165d5264a20dba15802483efebc3a0d29abb16f36702d599324891e242511"
+      }
+    },
+    {
+      "name": "custom goal keeps property and quiet arguments as argv",
+      "context": {
+        "version": 1,
+        "reactorPath": ".",
+        "profiles": [],
+        "skipTests": false
+      },
+      "module": null,
+      "goals": [
+        "help:evaluate",
+        "-Dexpression=fixture.config",
+        "-q",
+        "-DforceStdout"
+      ],
+      "expected": {
+        "version": 1,
+        "executable": { "toolchain": "project-maven" },
+        "arguments": [
+          "-B",
+          "-ntp",
+          "help:evaluate",
+          "-Dexpression=fixture.config",
+          "-q",
+          "-DforceStdout"
+        ],
+        "workingDirectory": ".",
+        "configurationFingerprint": "sha256:225165d5264a20dba15802483efebc3a0d29abb16f36702d599324891e242511"
+      }
+    }
+  ]
+}
