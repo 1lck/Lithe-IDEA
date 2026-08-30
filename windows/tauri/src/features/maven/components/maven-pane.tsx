@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { getJavaWorkspaceLanguageServerOwner } from "@/features/editor/lsp/java-workspace-language-server";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
+import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
+import { workspaceScopeMatchesRoot } from "@/features/workspace/types/workspace-launch-scope";
 import { RunOutputText } from "@/features/run/components/run-output-text";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useTranslation } from "@/i18n/locale-provider";
@@ -34,6 +36,10 @@ import { joinPath } from "@/utils/path-helpers";
 import { cn } from "@/utils/cn";
 import { ensureMavenProcessListeners } from "../hooks/use-maven-process-events";
 import { availableMavenProfiles, useMavenStore } from "../stores/maven.store";
+import {
+  reloadJavaForMavenWorkspace,
+  reloadMavenWorkspaceProjects,
+} from "../services/reload-maven-workspace";
 import {
   MAVEN_LIFECYCLE_PHASES,
   type MavenLifecyclePhase,
@@ -216,6 +222,7 @@ function MavenSettingsDialog({
 
 export default function MavenPane() {
   const { t } = useTranslation();
+  const workspaceId = useActiveWorkspaceId();
   const root = useMavenStore((state) => state.root);
   const visiblePaths = useMavenStore((state) => state.visiblePaths);
   const projectStatus = useMavenStore((state) => state.projectStatus);
@@ -259,6 +266,10 @@ export default function MavenPane() {
   }, []);
 
   useEffect(() => {
+    setReloadError(null);
+  }, [root, workspaceId]);
+
+  useEffect(() => {
     if (!project) return;
     const initial = new Set<string>([`project:${project.relativePath}`]);
     if (profiles.length > 0) initial.add("profiles");
@@ -299,26 +310,34 @@ export default function MavenPane() {
 
   const reloadJava = async () => {
     if (!root) return;
+    const scope = { workspaceId, root };
     setReloadError(null);
     try {
-      const files = await useFileSystemStore.getState().getAllProjectFiles();
-      const javaFile = files
-        .filter((entry) => !entry.isDir && entry.path.toLowerCase().endsWith(".java"))
-        .map((entry) => entry.path)
-        .sort()[0];
-      const owner = getJavaWorkspaceLanguageServerOwner();
-      await owner.stop(root);
-      if (javaFile) await owner.prewarm(root, javaFile);
-      actions.acknowledgeReload();
+      await reloadJavaForMavenWorkspace(scope);
     } catch (error) {
-      setReloadError(error instanceof Error ? error.message : t("maven.reloadFailed"));
+      if (
+        workspaceRuntimeRegistry.getActiveWorkspaceId() === workspaceId &&
+        workspaceScopeMatchesRoot(scope, useMavenStore.getStore(workspaceId).getState().root)
+      ) {
+        setReloadError(error instanceof Error ? error.message : t("maven.reloadFailed"));
+      }
     }
   };
 
   const reloadProjects = async () => {
     if (!root) return;
-    await actions.loadProject(root, visiblePaths);
-    if (useMavenStore.getState().project) await reloadJava();
+    const scope = { workspaceId, root };
+    setReloadError(null);
+    try {
+      await reloadMavenWorkspaceProjects(scope);
+    } catch (error) {
+      if (
+        workspaceRuntimeRegistry.getActiveWorkspaceId() === workspaceId &&
+        workspaceScopeMatchesRoot(scope, useMavenStore.getStore(workspaceId).getState().root)
+      ) {
+        setReloadError(error instanceof Error ? error.message : t("maven.reloadFailed"));
+      }
+    }
   };
 
   const openIssue = (path: string, line: number, column?: number | null) => {

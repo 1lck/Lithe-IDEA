@@ -26,6 +26,11 @@ import {
 } from "@/features/layout/utils/project-carousel";
 import type { SidebarView } from "@/features/layout/utils/sidebar-pane-utils";
 import {
+  setSidebarActivityItemVisibility,
+  sidebarActivityVisibilityItemIds,
+  type SidebarActivityItemId,
+} from "@/features/layout/config/item-order";
+import {
   openGlobalSearchSidebar,
   toggleDiagnosticsPane,
 } from "@/features/layout/actions/workbench-tool-window-actions";
@@ -70,6 +75,7 @@ import {
   GitBranchIcon,
   GitGraphIcon,
   MagnifyingGlassIcon,
+  PackageIcon,
   TerminalWindowIcon,
   WarningIcon,
 } from "@/ui/icons";
@@ -174,74 +180,34 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
     openSidebarView(view);
   };
 
-  const activityRailVisibilityItems = useMemo(
-    () => [
-      {
-        id: "files",
-        label: t("workbench.project"),
-        icon: <FilesIcon />,
-      },
-      ...(coreFeatures.search
-        ? [
-            {
-              id: "search",
-              label: t("workbench.search"),
-              icon: <MagnifyingGlassIcon />,
-            },
-          ]
-        : []),
-      ...(coreFeatures.git
-        ? [
-            {
-              id: "git",
-              label: t("workbench.changes"),
-              icon: <GitBranchIcon />,
-            },
-            {
-              id: "gitLog",
-              label: t("workbench.gitLog"),
-              icon: <GitGraphIcon />,
-            },
-          ]
-        : []),
-      ...(coreFeatures.terminal
-        ? [
-            {
-              id: "terminal",
-              label: t("workbench.terminal"),
-              icon: <TerminalWindowIcon />,
-            },
-          ]
-        : []),
-      ...(coreFeatures.diagnostics
-        ? [
-            {
-              id: "diagnostics",
-              label: t("workbench.diagnostics"),
-              icon: <WarningIcon />,
-            },
-          ]
-        : []),
-      {
-        id: "run",
-        label: t("workbench.run"),
-        icon: <RunIcon />,
-      },
-      {
-        id: "settings",
-        label: t("workbench.settings"),
-        icon: <GearIcon />,
-      },
-    ],
-    [coreFeatures.diagnostics, coreFeatures.git, coreFeatures.search, coreFeatures.terminal, t],
-  );
+  const activityRailVisibilityItems = useMemo(() => {
+    const items = new Map<
+      SidebarActivityItemId,
+      { id: SidebarActivityItemId; label: string; icon: ReactNode }
+    >([
+      ["files", { id: "files", label: t("workbench.project"), icon: <FilesIcon /> }],
+      ["git", { id: "git", label: t("workbench.changes"), icon: <GitBranchIcon /> }],
+      ["search", { id: "search", label: t("workbench.search"), icon: <MagnifyingGlassIcon /> }],
+      ["maven", { id: "maven", label: t("workbench.maven"), icon: <PackageIcon /> }],
+      ["run", { id: "run", label: t("workbench.run"), icon: <RunIcon /> }],
+      [
+        "terminal",
+        { id: "terminal", label: t("workbench.terminal"), icon: <TerminalWindowIcon /> },
+      ],
+      [
+        "diagnostics",
+        { id: "diagnostics", label: t("workbench.diagnostics"), icon: <WarningIcon /> },
+      ],
+      ["gitLog", { id: "gitLog", label: t("workbench.gitLog"), icon: <GitGraphIcon /> }],
+      ["settings", { id: "settings", label: t("workbench.settings"), icon: <GearIcon /> }],
+    ]);
+    return sidebarActivityVisibilityItemIds(coreFeatures).map((id) => items.get(id)!);
+  }, [coreFeatures.diagnostics, coreFeatures.git, coreFeatures.search, coreFeatures.terminal, t]);
 
   const setActivityRailItemVisible = useCallback(
-    (itemId: string, visible: boolean) => {
+    (itemId: SidebarActivityItemId, visible: boolean) => {
       const currentHiddenItems = useSettingsStore.getState().settings.hiddenSidebarActivityItems;
-      const nextHiddenItems = visible
-        ? currentHiddenItems.filter((hiddenItemId) => hiddenItemId !== itemId)
-        : Array.from(new Set([...currentHiddenItems, itemId]));
+      const nextHiddenItems = setSidebarActivityItemVisibility(currentHiddenItems, itemId, visible);
 
       void updateSetting("hiddenSidebarActivityItems", nextHiddenItems);
     },

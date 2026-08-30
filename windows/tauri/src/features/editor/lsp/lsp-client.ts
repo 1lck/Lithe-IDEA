@@ -58,6 +58,10 @@ import {
   type WorkspaceEdit,
 } from "./workspace-edit";
 import type { LspAdapterSessionPhase } from "@/platform/lsp-session-lifecycle";
+import {
+  workspaceScopesMatch,
+  type WorkspaceLaunchScope,
+} from "@/features/workspace/types/workspace-launch-scope";
 
 export type LspWorkspaceStartOutcome =
   | { kind: "ready" }
@@ -128,8 +132,13 @@ type TrackedLspDocument = {
 };
 
 type PendingFileStart = {
-  workspacePath: string;
+  scope: WorkspaceLaunchScope;
   task: Promise<LspFileAttachmentOutcome>;
+};
+
+type PendingWorkspaceStart = {
+  scope: WorkspaceLaunchScope;
+  task: Promise<LspWorkspaceStartOutcome>;
 };
 
 type LspFileStartIntent = "attach" | "manualRestart";
@@ -201,12 +210,13 @@ export class LspClient {
   private activeLanguages = new Set<string>(); // Track active language IDs for status
   private activeServerFiles = new Map<string, Set<string>>(); // workspace:language -> tracked files
   private workspaceRepresentativeFiles = new Map<string, string>();
+  private serverScopes = new Map<string, WorkspaceLaunchScope>();
   /** workspace:language -> failure timestamp (ms); expired after a short cooldown. */
   private failedLanguageServers = new Map<string, number>();
   private repairLanguageServerPromises = new Map<string, Promise<LanguageServerRepairOutcome>>();
   private fileAttachmentIds = new Map<string, string>();
   private fileStartTasks = new Map<string, PendingFileStart>();
-  private workspaceStartTasks = new Map<string, Promise<LspWorkspaceStartOutcome>>();
+  private workspaceStartTasks = new Map<string, PendingWorkspaceStart>();
   private documentOpenTasks = new Map<string, PendingDocumentOpen>();
   private documents = new Map<string, TrackedLspDocument>();
 
@@ -347,6 +357,7 @@ export class LspClient {
       if (trackedFiles.size === 0) {
         this.activeServerFiles.delete(existingKey);
         this.activeLanguageServers.delete(existingKey);
+        this.serverScopes.delete(existingKey);
       }
     }
     const trackedFiles = this.activeServerFiles.get(serverKey) ?? new Set<string>();
@@ -357,8 +368,14 @@ export class LspClient {
     this.activeServerFiles.set(serverKey, trackedFiles);
   }
 
-  private registerActiveServer(serverKey: string, languageId: string, filePath?: string) {
+  private registerActiveServer(
+    serverKey: string,
+    languageId: string,
+    scope: WorkspaceLaunchScope,
+    filePath?: string,
+  ) {
     this.activeLanguageServers.add(serverKey);
+    this.serverScopes.set(serverKey, scope);
     if (filePath) this.addTrackedFile(serverKey, filePath);
     this.activeLanguages.add(getLanguageDisplayName(languageId));
     this.updateLspStatus();
@@ -551,9 +568,10 @@ export class LspClient {
   }
 
   async start(
-    workspacePath: string,
+    scope: WorkspaceLaunchScope,
     representativeFilePath?: string,
   ): Promise<LspWorkspaceStartOutcome> {
+    const workspacePath = scope.root;
     try {
       logger.debug("LSPClient", "Starting LSP with workspace:", workspacePath);
 
@@ -563,7 +581,7 @@ export class LspClient {
       }
 
       const launch = representativeFilePath
-        ? await resolveEditorLspLaunch(representativeFilePath, workspacePath)
+        ? await resolveEditorLspLaunch(representativeFilePath, scope)
         : null;
       if (!launch) {
         logger.debug("LSPClient", `No LSP server configured for workspace ${workspacePath}`);
@@ -579,12 +597,15 @@ export class LspClient {
         if (representativeFilePath) {
           this.workspaceRepresentativeFiles.set(serverKey, representativeFilePath);
         }
-        this.registerActiveServer(serverKey, launch.languageId);
+        this.registerActiveServer(serverKey, launch.languageId, scope);
         return { kind: "ready" } as const;
       }
 
       const existingTask = this.workspaceStartTasks.get(serverKey);
-      if (existingTask) return existingTask;
+      if (existingTask && workspaceScopesMatch(existingTask.scope, scope)) {
+        return existingTask.task;
+      }
+      if (existingTask) await existingTask.task;
 
       const task: Promise<LspWorkspaceStartOutcome> = (async (): Promise<LspWorkspaceStartOutcome> => {
         logger.debug(
@@ -611,15 +632,15 @@ export class LspClient {
         if (representativeFilePath) {
           this.workspaceRepresentativeFiles.set(serverKey, representativeFilePath);
         }
-        this.registerActiveServer(serverKey, launch.languageId);
+        this.registerActiveServer(serverKey, launch.languageId, scope);
         logger.debug("LSPClient", "LSP started successfully for workspace:", workspacePath);
         return { kind: "ready" };
       })().finally(() => {
-        if (this.workspaceStartTasks.get(serverKey) === task) {
+        if (this.workspaceStartTasks.get(serverKey)?.task === task) {
           this.workspaceStartTasks.delete(serverKey);
         }
       });
-      this.workspaceStartTasks.set(serverKey, task);
+      this.workspaceStartTasks.set(serverKey, { scope, task });
       return await task;
     } catch (error) {
       logger.error("LSPClient", "Failed to start LSP:", error);
@@ -634,7 +655,7 @@ export class LspClient {
       const workspaceKey = trackedFileKey(workspacePath);
       const pendingStarts = [...this.workspaceStartTasks.entries()]
         .filter(([key]) => trackedFileKey(this.parseServerKey(key).workspacePath) === workspaceKey)
-        .map(([, task]) => task);
+        .map(([, pending]) => pending.task);
       if (pendingStarts.length > 0) await Promise.allSettled(pendingStarts);
       await invoke<void>("lsp_stop", { workspacePath });
 
@@ -653,6 +674,7 @@ export class LspClient {
         this.activeLanguageServers.delete(server);
         this.activeServerFiles.delete(server);
         this.workspaceRepresentativeFiles.delete(server);
+        this.serverScopes.delete(server);
         const { languageId: language } = this.parseServerKey(server);
         if (language) {
           const displayName = getLanguageDisplayName(language);
@@ -684,33 +706,35 @@ export class LspClient {
 
   async startForFile(
     filePath: string,
-    workspacePath: string,
+    scope: WorkspaceLaunchScope,
     intent: LspFileStartIntent = "attach",
   ): Promise<LspFileAttachmentOutcome> {
     const attachmentKey = trackedFileKey(filePath);
     const currentAttachmentId = this.fileAttachmentIds.get(attachmentKey);
     const currentSession = getLspSessionSnapshot({ filePath });
+    const currentServerKey = currentSession
+      ? `${currentSession.workspacePath}:${currentSession.languageId}`
+      : null;
+    const currentScope = currentServerKey ? this.serverScopes.get(currentServerKey) : undefined;
     if (
       currentAttachmentId &&
       currentSession &&
-      trackedFileKey(currentSession.workspacePath) === trackedFileKey(workspacePath)
+      currentServerKey &&
+      currentScope &&
+      workspaceScopesMatch(currentScope, scope)
     ) {
-      this.registerActiveServer(
-        `${currentSession.workspacePath}:${currentSession.languageId}`,
-        currentSession.languageId,
-        filePath,
-      );
+      this.registerActiveServer(currentServerKey, currentSession.languageId, scope, filePath);
       return { kind: "attached", attachmentId: currentAttachmentId };
     }
 
     const pending = this.fileStartTasks.get(attachmentKey);
-    if (pending && trackedFileKey(pending.workspacePath) === trackedFileKey(workspacePath)) {
+    if (pending && workspaceScopesMatch(pending.scope, scope)) {
       return pending.task;
     }
 
     const attachmentId = crypto.randomUUID();
     this.fileAttachmentIds.set(attachmentKey, attachmentId);
-    const task = this.startFileAttachment(filePath, workspacePath, {
+    const task = this.startFileAttachment(filePath, scope, {
       kind: intent,
       attachmentId,
     }).finally(() => {
@@ -718,15 +742,16 @@ export class LspClient {
         this.fileStartTasks.delete(attachmentKey);
       }
     });
-    this.fileStartTasks.set(attachmentKey, { workspacePath, task });
+    this.fileStartTasks.set(attachmentKey, { scope, task });
     return task;
   }
 
   private async startFileAttachment(
     filePath: string,
-    workspacePath: string,
+    scope: WorkspaceLaunchScope,
     attempt: LspFileStartAttempt,
   ): Promise<LspFileAttachmentOutcome> {
+    const workspacePath = scope.root;
     const attachmentKey = trackedFileKey(filePath);
     const attachmentId = attempt.attachmentId;
     if (this.fileAttachmentIds.get(attachmentKey) !== attachmentId) {
@@ -745,14 +770,14 @@ export class LspClient {
 
       let launch: Awaited<ReturnType<typeof resolveEditorLspLaunch>> = null;
       try {
-        launch = await resolveEditorLspLaunch(filePath, workspacePath);
+        launch = await resolveEditorLspLaunch(filePath, scope);
       } catch (error) {
         if (attempt.kind !== "repairRetry" && !isBuiltInLspPath(filePath)) {
           const languageId = languageIdForEditorFile(filePath);
           if (languageId) {
             const repaired = await this.repairLanguageServerForFile(filePath, languageId);
             if (repaired.kind === "repaired") {
-              return this.startFileAttachment(filePath, workspacePath, {
+              return this.startFileAttachment(filePath, scope, {
                 kind: "repairRetry",
                 attachmentId,
               });
@@ -767,7 +792,7 @@ export class LspClient {
         if (languageId && attempt.kind !== "repairRetry" && !isBuiltInLspPath(filePath)) {
           const repaired = await this.repairLanguageServerForFile(filePath, languageId);
           if (repaired.kind === "repaired") {
-            return this.startFileAttachment(filePath, workspacePath, {
+            return this.startFileAttachment(filePath, scope, {
               kind: "repairRetry",
               attachmentId,
             });
@@ -842,13 +867,13 @@ export class LspClient {
           return { kind: "cancelled", reason: "superseded" };
         }
         clearLanguageServerFailure(this.failedLanguageServers, serverKey);
-        this.registerActiveServer(serverKey, languageId, filePath);
+        this.registerActiveServer(serverKey, languageId, scope, filePath);
       } catch (error) {
         recordLanguageServerFailure(this.failedLanguageServers, serverKey, Date.now());
         if (attempt.kind !== "repairRetry" && this.isRepairableStartupError(error)) {
           const repaired = await this.repairLanguageServerForFile(filePath, languageId);
           if (repaired.kind === "repaired") {
-            return this.startFileAttachment(filePath, workspacePath, {
+            return this.startFileAttachment(filePath, scope, {
               kind: "repairRetry",
               attachmentId,
             });
@@ -918,7 +943,7 @@ export class LspClient {
 
   async ensureDocumentReady(
     target: LspDocumentTargetInput,
-    workspacePath: string,
+    scope: WorkspaceLaunchScope,
     content: string,
     feature?: string,
   ): Promise<LspDocumentAvailability> {
@@ -931,7 +956,7 @@ export class LspClient {
     // that source document from virtual class text would corrupt synchronization.
     if (sessionFilePath !== document.filePath) return initial;
 
-    const attachment = await this.startForFile(sessionFilePath, workspacePath);
+    const attachment = await this.startForFile(sessionFilePath, scope);
     if (attachment.kind !== "attached") return this.getDocumentAvailability(document, feature);
     const { attachmentId } = attachment;
 
@@ -977,6 +1002,7 @@ export class LspClient {
           });
           if (!stillActiveForServer && !(languageId === JAVA_LANGUAGE_ID && workspaceSession)) {
             this.activeLanguageServers.delete(activeKey);
+            this.serverScopes.delete(activeKey);
           }
           clearLanguageServerFailure(this.failedLanguageServers, activeKey);
         }
@@ -1010,7 +1036,11 @@ export class LspClient {
     await this.stopForFile(trackedFilePath);
   }
 
-  async restartForFile(filePath: string, workspacePath: string, content: string): Promise<void> {
+  async restartForFile(
+    filePath: string,
+    scope: WorkspaceLaunchScope,
+    content: string,
+  ): Promise<void> {
     const { actions } = useLspStore.getState();
 
     try {
@@ -1019,7 +1049,7 @@ export class LspClient {
 
       await this.notifyDocumentClose(filePath);
       await this.stopForFile(filePath);
-      const attachment = await this.startForFile(filePath, workspacePath, "manualRestart");
+      const attachment = await this.startForFile(filePath, scope, "manualRestart");
       if (attachment.kind !== "attached") {
         throw new Error("Language server failed to start.");
       }
@@ -1038,16 +1068,24 @@ export class LspClient {
       if (!representativeFilePath) {
         throw new Error("No representative file for this language server");
       }
-      const { workspacePath } = this.parseServerKey(serverKey);
+      const scope = this.serverScopes.get(serverKey);
+      if (!scope) {
+        throw new Error("No workspace scope for this language server");
+      }
+      const workspacePath = scope.root;
       await this.stop(workspacePath);
-      await this.start(workspacePath, representativeFilePath);
+      await this.start(scope, representativeFilePath);
       return;
     }
 
     const filePath = trackedFilePath;
     const buffer = useBufferStore.getState().buffers.find((entry) => entry.path === filePath);
     const content = buffer && hasTextContent(buffer) ? buffer.content : "";
-    await this.restartForFile(filePath, this.parseServerKey(serverKey).workspacePath, content);
+    const scope = this.serverScopes.get(serverKey);
+    if (!scope) {
+      throw new Error("No workspace scope for this language server");
+    }
+    await this.restartForFile(filePath, scope, content);
   }
 
   async restartAllTrackedServers(): Promise<void> {
