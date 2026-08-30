@@ -577,12 +577,17 @@ struct GitModuleTests {
         await feature.deleteTag(reference)
         await feature.restoreRecentlyDeletedTag()
 
-        // The restore must replay exactly the recorded deletion record so the
-        // rebuilt annotated tag points at the original commit with its message.
-        #expect(Array(recorder.recorded.suffix(2)) == [
-            TagCallRecorder.Call(name: "v1.0", revision: "abc123def456", message: "release"),
-            TagCallRecorder.Call(name: "v1.0", revision: "abc123def456", message: "release")
-        ])
+        // Exactly one delete and one restore create must have run, and the
+        // restore must replay exactly the recorded deletion record so the
+        // rebuilt annotated tag points at the original commit with its
+        // message. The delete itself records no revision.
+        #expect(recorder.recorded.count == 2)
+        #expect(recorder.recorded.first?.name == "v1.0")
+        #expect(recorder.recorded.last == TagCallRecorder.Call(
+            name: "v1.0",
+            revision: "abc123def456",
+            message: "release"
+        ))
         #expect(feature.recentlyDeletedTag == nil)
         #expect(notifications == ["Deleted tag v1.0", "Restored tag v1.0"])
     }
