@@ -27,8 +27,9 @@ describe("sidebar activity order", () => {
     expect([...SIDEBAR_ACTIVITY_ITEM_IDS]).not.toContain("database");
   });
 
-  test("places Run, Terminal, Diagnostics, Git Log, then Settings", () => {
+  test("places Maven, Run, Terminal, Diagnostics, Git Log, then Settings", () => {
     expect([...SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS]).toEqual([
+      "maven",
       "run",
       "terminal",
       "diagnostics",

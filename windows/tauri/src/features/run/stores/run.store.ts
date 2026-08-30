@@ -1,6 +1,7 @@
 import { createStore } from "zustand/vanilla";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
+import { currentMavenLaunchContext } from "@/features/maven/stores/maven.store";
 import {
   createLaunchPlan,
   generateRunConfiguration,
@@ -48,7 +49,11 @@ import {
   selectedToolchainCandidates,
 } from "../utils/run-configuration";
 import { editorSaveFailureMessage, runEditorSaveWorkflow } from "../services/run-editor-save";
-import { createOutputStamper, trimRunOutput, type OutputStamper } from "../utils/output-timestamper";
+import {
+  createOutputStamper,
+  trimRunOutput,
+  type OutputStamper,
+} from "../utils/output-timestamper";
 
 const MAXIMUM_OUTPUT_CHARACTERS = 500_000;
 const sessionWorkspaces = new Map<string, string>();
@@ -179,14 +184,11 @@ async function resolveConfigurations(root: string): Promise<ResolvedRunProject> 
       runtimeExecutablePaths: automaticRuntimePaths,
     }),
   );
-  const globalToolchain = mapCoreToolchain(
-    preliminary.toolchain,
-    preliminary.localToolchains,
-  );
+  const globalToolchain = mapCoreToolchain(preliminary.toolchain, preliminary.localToolchains);
   const hasSelectedToolchain = Boolean(
     globalToolchain.javaHomePath ||
-      globalToolchain.mavenExecutablePath ||
-      Object.values(globalToolchain.runtimeExecutablePaths).some(Boolean),
+    globalToolchain.mavenExecutablePath ||
+    Object.values(globalToolchain.runtimeExecutablePaths).some(Boolean),
   );
   const discovered = hasSelectedToolchain
     ? await discoverRunToolchains(root, globalToolchain)
@@ -257,7 +259,7 @@ function readyRunState(
   };
 }
 
-export const createRunStore = () =>
+export const createRunStore = (workspaceId = workspaceRuntimeRegistry.getActiveWorkspaceId()) =>
   createStore<RunState>()((set, get) => ({
     root: null,
     status: "missing",
@@ -400,18 +402,20 @@ export const createRunStore = () =>
         }
         const sessionId =
           configuration.execution === "service" ? configuration.id : PRIMARY_SESSION_ID;
-        bindRunSessionWorkspace(sessionId);
+        bindRunSessionWorkspace(sessionId, workspaceId);
         resetOutputStamper(sessionId);
         await stopRunProcess(sessionId).catch(() => undefined);
         try {
-          const plan = await createLaunchPlan(root, configuration.id, currentFile);
+          const mavenContext = currentMavenLaunchContext(root, workspaceId);
+          const plan = await createLaunchPlan(root, configuration.id, currentFile, mavenContext);
           const resolved = await resolveRunLaunch({
             root,
             executable: plan.executable,
             workingDirectory: plan.workingDirectory,
             javaHomePath: configuration.javaHomePath,
-            mavenExecutablePath: configuration.mavenExecutablePath,
-            mavenJavaHomePath: configuration.mavenJavaHomePath,
+            mavenExecutablePath:
+              configuration.mavenExecutablePath || mavenContext?.mavenExecutablePath || "",
+            mavenJavaHomePath: configuration.mavenJavaHomePath || mavenContext?.javaHomePath || "",
             runtimeExecutablePaths: state.effectiveRuntimeExecutablePaths,
             environment: mergeLaunchEnvironment(configuration.env, plan),
           });
