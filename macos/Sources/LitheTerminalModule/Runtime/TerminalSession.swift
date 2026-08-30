@@ -14,6 +14,9 @@ public final class TerminalSession: ObservableObject, Identifiable {
     @Published public private(set) var startedAt: Date?
     @Published public private(set) var endedAt: Date?
     public var onLink: ((String, [String: String]) -> Void)?
+    /// Receives decoded child-process output without taking ownership of the
+    /// terminal surface.
+    public var onOutput: ((String) -> Void)?
 
     private let transport: any TerminalTransport
     private var workspaceURL: URL?
@@ -24,6 +27,10 @@ public final class TerminalSession: ObservableObject, Identifiable {
         transport.onTermination = { [weak self] exitCode in
             guard let self else { return }
             isRunning = false; isReady = false; lastExitCode = exitCode; endedAt = Date()
+        }
+        transport.onOutput = { [weak self] data in
+            guard let self, !data.isEmpty else { return }
+            self.onOutput?(String(decoding: data, as: UTF8.self))
         }
         transport.onTitle = { [weak self] title in
             let value = title.trimmingCharacters(in: .whitespacesAndNewlines)

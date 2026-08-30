@@ -42,6 +42,9 @@ public protocol TerminalTransport: AnyObject {
     var shellName: String { get }
     var nativeView: AnyObject { get }
     var onTermination: ((Int32?) -> Void)? { get set }
+    /// Raw bytes received from the child process before terminal emulation.
+    /// Hosts may mirror this output into another product surface.
+    var onOutput: ((Data) -> Void)? { get set }
     var onTitle: ((String) -> Void)? { get set }
     var onDirectoryUpdate: ((String?) -> Void)? { get set }
     var onLink: ((String, [String: String]) -> Void)? { get set }

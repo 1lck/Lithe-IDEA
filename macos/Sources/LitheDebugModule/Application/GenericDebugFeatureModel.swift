@@ -125,6 +125,73 @@ private struct GenericDebugStartRequest: Equatable, Sendable {
     let configuration: DebugLaunchConfiguration
 }
 
+private struct GenericDebugOutputNormalizer {
+    private enum State {
+        case normal
+        case escape
+        case controlSequence
+        case operatingSystemCommand
+        case operatingSystemCommandEscape
+    }
+
+    private var state = State.normal
+    private var sawCarriageReturn = false
+
+    mutating func normalize(_ rawOutput: String) -> String {
+        var normalized = String()
+        normalized.reserveCapacity(rawOutput.count)
+        for scalar in rawOutput.unicodeScalars {
+            switch state {
+            case .normal:
+                if scalar.value == 0x1B {
+                    sawCarriageReturn = false
+                    state = .escape
+                } else if scalar.value == 0x0D {
+                    normalized.append("\n")
+                    sawCarriageReturn = true
+                } else if scalar.value == 0x0A {
+                    if !sawCarriageReturn { normalized.append("\n") }
+                    sawCarriageReturn = false
+                } else if scalar.value == 0x09 || scalar.value >= 0x20 {
+                    normalized.unicodeScalars.append(scalar)
+                    sawCarriageReturn = false
+                }
+            case .escape:
+                sawCarriageReturn = false
+                switch scalar.value {
+                case 0x5B: // CSI: ESC [ ... final byte
+                    state = .controlSequence
+                case 0x5D: // OSC: ESC ] ... BEL or ST
+                    state = .operatingSystemCommand
+                default:
+                    state = .normal
+                }
+            case .controlSequence:
+                sawCarriageReturn = false
+                if (0x40...0x7E).contains(scalar.value) {
+                    state = .normal
+                }
+            case .operatingSystemCommand:
+                sawCarriageReturn = false
+                if scalar.value == 0x07 {
+                    state = .normal
+                } else if scalar.value == 0x1B {
+                    state = .operatingSystemCommandEscape
+                }
+            case .operatingSystemCommandEscape:
+                sawCarriageReturn = false
+                state = scalar.value == 0x5C ? .normal : .operatingSystemCommand
+            }
+        }
+        return normalized
+    }
+
+    mutating func reset() {
+        state = .normal
+        sawCarriageReturn = false
+    }
+}
+
 @MainActor
 public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatureTarget {
     @Published public private(set) var providerID: String?
@@ -183,6 +250,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     private var watchGeneration = 0
     private var inspectionGeneration = 0
     private static let rootVariablePageID = "__lithe_debug_root_variables__"
+    private var debuggeeOutputNormalizer = GenericDebugOutputNormalizer()
 
     public init(
         sessions: DebugAdapterSessionManager,
@@ -281,6 +349,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         providerID = sessionsProviderID(for: fileURL)
         targetTitle = configuration.name
         output = ""
+        debuggeeOutputNormalizer.reset()
         errorMessage = nil
         stoppedReason = nil
         exceptionInfo = nil
@@ -361,6 +430,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         invalidateWatchResults()
         capabilities = .unknown
         activeFileURL = nil
+        debuggeeOutputNormalizer.reset()
     }
 
     public func reset() {
@@ -368,6 +438,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         providerID = nil
         targetTitle = nil
         output = ""
+        debuggeeOutputNormalizer.reset()
         errorMessage = nil
         breakpoints = []
         exceptionBreakpoints = []
@@ -1091,7 +1162,19 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         }
     }
 
-    public func clearOutput() { output = "" }
+    public func clearOutput() {
+        output = ""
+        debuggeeOutputNormalizer.reset()
+    }
+
+    /// Mirrors output emitted by a debuggee running in the host terminal into
+    /// the Debug Console. PTY control sequences are meaningful to the terminal
+    /// emulator but would otherwise render as noise in the text console.
+    public func appendDebuggeeOutput(_ rawOutput: String) {
+        let normalized = debuggeeOutputNormalizer.normalize(rawOutput)
+        guard !normalized.isEmpty else { return }
+        append(normalized)
+    }
 
     private var activeSession: (any DebugAdapterControllingSession)? {
         guard let providerID else { return nil }

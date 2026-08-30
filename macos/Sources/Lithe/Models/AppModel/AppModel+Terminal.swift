@@ -150,7 +150,9 @@ extension AppModel {
                 TerminalEnvironmentChange(name: $0.name, value: $0.value)
             }
         )
-        let created = try feature.createProcessSession(launch)
+        let created = try feature.createProcessSession(launch) { [weak self] output in
+            self?.genericDebugFeatureIfActive?.appendDebuggeeOutput(output)
+        }
         configureTerminalSession(created.session)
         terminalPlacementFeature.registerSession(created.session.id)
         debugTerminalSessionIDs.insert(created.session.id)

@@ -7,6 +7,7 @@ import LitheTerminalModule
 /// link event so workspace-relative paths can open in its own editor instead.
 final class LitheTerminalView: LocalProcessTerminalView {
     var onOpenLink: ((String, [String: String]) -> Void)?
+    var onProcessOutput: ((Data) -> Void)?
     private var showsWorkbenchBackground = false
     private weak var metalActivationFailedWindow: NSWindow?
 
@@ -109,6 +110,11 @@ final class LitheTerminalView: LocalProcessTerminalView {
     override func requestOpenLink(source: SwiftTerm.TerminalView, link: String, params: [String: String]) {
         onOpenLink?(link, params)
     }
+
+    override func dataReceived(slice: ArraySlice<UInt8>) {
+        onProcessOutput?(Data(slice))
+        super.dataReceived(slice: slice)
+    }
 }
 
 extension LitheTerminalView: WorkbenchBackgroundRendering {}
@@ -136,6 +142,7 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
     let view: LitheTerminalView
 
     var onTermination: ((Int32?) -> Void)?
+    var onOutput: ((Data) -> Void)?
     var onTitle: ((String) -> Void)?
     var onDirectoryUpdate: ((String?) -> Void)?
     var onLink: ((String, [String: String]) -> Void)?
@@ -166,6 +173,9 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
         view.processDelegate = self
         view.onOpenLink = { [weak self] link, params in
             self?.onLink?(link, params)
+        }
+        view.onProcessOutput = { [weak self] data in
+            self?.onOutput?(data)
         }
         view.font = Self.preferredTerminalFont()
         view.applyThemeColors()

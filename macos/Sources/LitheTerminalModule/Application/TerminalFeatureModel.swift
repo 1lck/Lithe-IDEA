@@ -42,9 +42,11 @@ public final class TerminalFeatureModel: ObservableObject {
 
     @discardableResult
     public func createProcessSession(
-        _ launch: TerminalProcessLaunch
+        _ launch: TerminalProcessLaunch,
+        onOutput: ((String) -> Void)? = nil
     ) throws -> (session: TerminalSession, processID: Int32) {
         let session = TerminalSession(transport: terminalFactory())
+        session.onOutput = onOutput
         let processID = try session.startProcess(launch)
         terminalSessions.append(session)
         activeTerminalSessionID = session.id

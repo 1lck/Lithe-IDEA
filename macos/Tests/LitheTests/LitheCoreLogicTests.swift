@@ -4023,6 +4023,7 @@ private final class TestTerminalTransport: TerminalTransport {
     var processID: Int32? { isRunning ? 1234 : nil }
     var shellName = "Shell"
     var onTermination: ((Int32?) -> Void)?
+    var onOutput: ((Data) -> Void)?
     var onTitle: ((String) -> Void)?
     var onDirectoryUpdate: ((String?) -> Void)?
     var onLink: ((String, [String: String]) -> Void)?

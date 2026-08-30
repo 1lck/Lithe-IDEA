@@ -8,6 +8,28 @@ import Testing
 @MainActor
 struct DebugModuleTests {
     @Test
+    func debuggeeOutputIsMirroredIntoConsoleWithoutTerminalControlSequences() {
+        let manager = DebugAdapterSessionManager(providers: []) { _, _ in nil }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+
+        feature.appendDebuggeeOutput("\u{001B}[31mready\u{001B}[0m\r\n")
+
+        #expect(feature.output == "ready\n")
+    }
+
+    @Test
+    func debuggeeOutputNormalizationPreservesStateAcrossOutputChunks() {
+        let manager = DebugAdapterSessionManager(providers: []) { _, _ in nil }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+
+        feature.appendDebuggeeOutput("\u{001B}")
+        feature.appendDebuggeeOutput("[31mready\u{001B}[0m\r")
+        feature.appendDebuggeeOutput("\nnext\n")
+
+        #expect(feature.output == "ready\nnext\n")
+    }
+
+    @Test
     func staleSessionCallbacksCannotOverwriteAReplacementSession() throws {
         let descriptor = DebugProviderDescriptor(
             id: "java",

@@ -87,6 +87,29 @@ struct TerminalModuleTests {
             fileExists: { _ in false }
         ) == .external(URL(string: "https://example.com")!))
     }
+
+    @Test
+    func processOutputIsForwardedBeforeAndAfterProcessStart() throws {
+        let transport = TestTransport()
+        transport.outputOnStart = "early\n"
+        let feature = TerminalFeatureModel(terminalFactory: { transport })
+        var output: [String] = []
+
+        let created = try feature.createProcessSession(
+            TerminalProcessLaunch(
+                title: "Debug Main",
+                executablePath: "/usr/bin/java",
+                arguments: ["Main"],
+                workingDirectory: "/tmp"
+            ),
+            onOutput: { output.append($0) }
+        )
+        transport.emitOutput("late\n")
+
+        #expect(created.session.isRunning)
+        #expect(output == ["early\n", "late\n"])
+        feature.stopAllSessions()
+    }
 }
 
 @MainActor
@@ -96,6 +119,7 @@ private final class TestTransport: TerminalTransport {
     var processID: Int32? { isRunning ? 1234 : nil }
     var shellName = "Shell"
     var onTermination: ((Int32?) -> Void)?
+    var onOutput: ((Data) -> Void)?
     var onTitle: ((String) -> Void)?
     var onDirectoryUpdate: ((String?) -> Void)?
     var onLink: ((String, [String: String]) -> Void)?
@@ -103,6 +127,7 @@ private final class TestTransport: TerminalTransport {
     var processLaunches: [TerminalProcessLaunch] = []
     var processEnvironments: [[String: String]] = []
     var sentInputs: [String] = []
+    var outputOnStart: String?
     func defaultShellPath() -> String { "/bin/zsh" }
     func defaultEnvironment() -> [String: String] { ["REMOVE_ME": "old"] }
     func start(workingDirectory: String, shellPath: String, environment: [String: String]) throws { isRunning = true }
@@ -113,8 +138,12 @@ private final class TestTransport: TerminalTransport {
         processLaunches.append(launch)
         processEnvironments.append(environment)
         isRunning = true
+        if let outputOnStart {
+            onOutput?(Data(outputOnStart.utf8))
+        }
         return 1234
     }
+    func emitOutput(_ value: String) { onOutput?(Data(value.utf8)) }
     func send(_ input: Data) throws {
         sentInputs.append(String(decoding: input, as: UTF8.self))
     }
