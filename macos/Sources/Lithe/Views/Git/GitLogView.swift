@@ -2239,7 +2239,6 @@ struct GitPullStrategyDialog: View {
     let onResolve: (GitPullStrategy) -> Void
 
     @State private var selectedStrategy: GitPullStrategy = .merge
-    @State private var doNotShowAgain = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -2273,11 +2272,6 @@ struct GitPullStrategyDialog: View {
                 .controlSize(.large)
                 .lithePointer()
                 .help("Choose how incoming changes are applied")
-
-                Toggle("Don't show", isOn: $doNotShowAgain)
-                    .toggleStyle(.checkbox)
-                    .font(.system(size: 12.5))
-                    .lithePointer()
 
                 Spacer(minLength: 16)
 
@@ -2330,9 +2324,9 @@ struct GitPushDialog: View {
     let reference: GitReference
     let onPush: () -> Void
 
-    @State private var pushTags = false
-
     var body: some View {
+        let presentation = GitPushDialogPresentation(reference: reference)
+
         VStack(spacing: 0) {
             HStack {
                 Text("Push to \(projectName)")
@@ -2359,7 +2353,7 @@ struct GitPushDialog: View {
                         Image(systemName: "arrow.right")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(LitheTheme.secondaryText)
-                        Text(reference.upstreamShortName ?? "No configured remote")
+                        Text(presentation.destination)
                             .font(.system(size: 13))
                             .foregroundStyle(reference.upstreamShortName == nil ? LitheTheme.secondaryText : LitheTheme.accent)
                             .lineLimit(1)
@@ -2426,11 +2420,6 @@ struct GitPushDialog: View {
                 .lithePointer()
                 .help("Review the branch that will be pushed")
 
-                Toggle("Push tags", isOn: $pushTags)
-                    .toggleStyle(.checkbox)
-                    .font(.system(size: 12.5))
-                    .lithePointer()
-
                 Spacer(minLength: 16)
 
                 Button("Cancel") {
@@ -2439,7 +2428,7 @@ struct GitPushDialog: View {
                 .keyboardShortcut(.cancelAction)
                 .lithePointer()
 
-                Button("Push") {
+                Button(presentation.actionTitle) {
                     onPush()
                     dismiss()
                 }
@@ -2447,12 +2436,26 @@ struct GitPushDialog: View {
                 .tint(LitheTheme.accent)
                 .keyboardShortcut(.defaultAction)
                 .lithePointer()
-                .disabled(reference.upstreamShortName == nil)
             }
             .padding(16)
         }
         .frame(width: 720, height: 430)
         .background(LitheTheme.raised)
+    }
+}
+
+struct GitPushDialogPresentation {
+    let destination: String
+    let actionTitle: String
+
+    init(reference: GitReference) {
+        if let upstream = reference.upstreamShortName {
+            destination = upstream
+            actionTitle = "Push"
+        } else {
+            destination = "Publish \(reference.shortName) to default remote"
+            actionTitle = "Publish Branch"
+        }
     }
 }
 
