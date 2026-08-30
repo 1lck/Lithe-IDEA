@@ -120,8 +120,17 @@ struct GoToLineInputTests {
     func preservesExplicitColumnThroughClamping() {
         // 收敛不改变显式列号标记
         let parsed = GoToLineInput.parse("99:2")
-        let clamped = parsed.map { GoToLineInput.clamped(line: $0.line, column: $0.column, in: "a\nb") }
+        // 与 AppModel.goToLine 一致：把解析出的显式列号标记一并传入收敛
+        let clamped = parsed.map {
+            GoToLineInput.clamped(
+                line: $0.line,
+                column: $0.column,
+                hasExplicitColumn: $0.hasExplicitColumn,
+                in: "a\nb"
+            )
+        }
         #expect(clamped?.hasExplicitColumn == true)
+        #expect(clamped == GoToLineInput(line: 1, column: 1, hasExplicitColumn: true))
     }
 
     @Test
