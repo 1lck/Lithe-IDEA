@@ -553,6 +553,12 @@ struct GenericDebugView: View {
                                         .font(.system(size: 10.5, design: .monospaced))
                                         .foregroundStyle(LitheTheme.accent)
                                         .lineLimit(2)
+                                    if let type = variable.type, !type.isEmpty {
+                                        Text(": (type)")
+                                            .font(.system(size: 9.5, design: .monospaced))
+                                            .foregroundStyle(LitheTheme.secondaryText)
+                                            .lineLimit(1)
+                                    }
                                     Spacer(minLength: 0)
                                 }
                                 .contentShape(Rectangle())
@@ -579,6 +585,13 @@ struct GenericDebugView: View {
                                         copyToPasteboard(variable.evaluateName ?? variable.name)
                                     }
                                     Button("Copy Name") { copyToPasteboard(variable.name) }
+                                    if let expression = variable.evaluateName,
+                                       !expression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                        Divider()
+                                        Button("Add to Watches") {
+                                            feature.addWatch(expression)
+                                        }
+                                    }
                                 }
                             case .loadMore(let parentVariableID, let nextCount, let remainingCount):
                                 variableLoadMoreRow(
