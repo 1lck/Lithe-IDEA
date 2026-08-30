@@ -3,6 +3,59 @@
 use super::{capture_git_with_options, is_safe_pathspec};
 use crate::protocol::{CoreError, ErrorCode};
 
+use super::{
+    current_branch, execute_git, switch_reference, validated_reference, GitCommandResponse,
+    GitWriteRequest,
+};
+
+/// Checks out a branch and rebases it onto the branch that was current before the switch.
+pub(super) fn checkout_and_rebase(
+    root: &str,
+    request: GitWriteRequest,
+) -> Result<GitCommandResponse, CoreError> {
+    if !matches!(request.reference_kind.as_deref(), Some("local" | "remote")) {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Checkout and rebase requires a local or remote branch",
+        ));
+    }
+    let original_branch = current_branch(root)?;
+    let reference = validated_reference(request.reference.as_deref())?;
+    if reference == original_branch || reference == format!("refs/heads/{original_branch}") {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "The current branch cannot be checked out and rebased onto itself",
+        ));
+    }
+    let status = execute_git(
+        root,
+        &[
+            "status".into(),
+            "--porcelain".into(),
+            "--untracked-files=normal".into(),
+        ],
+        None,
+    )?;
+    if status.exit_code != 0 {
+        return Ok(status);
+    }
+    if !status.output.trim().is_empty() {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Checkout and rebase requires a clean working tree",
+        ));
+    }
+    let switched = switch_reference(root, &request)?;
+    if switched.exit_code != 0 {
+        return Ok(switched);
+    }
+    execute_git(
+        root,
+        &["rebase".into(), format!("refs/heads/{original_branch}")],
+        None,
+    )
+}
+
 pub(super) fn remote_branch_components(
     root: &str,
     reference: &str,

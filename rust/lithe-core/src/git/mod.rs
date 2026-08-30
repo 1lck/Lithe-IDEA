@@ -554,7 +554,7 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
             }
             arguments = vec!["rebase".into(), reference];
         }
-        "checkoutAndRebase" => return checkout_and_rebase(&root, request),
+        "checkoutAndRebase" => return mutations::checkout_and_rebase(&root, request),
         "fetch" => arguments = vec!["fetch".into(), "--all".into(), "--prune".into()],
         // Strategy comes from the caller because only the user can decide whether a
         // divergent history should be merged or replayed. Absent a choice we stay on
@@ -1802,7 +1802,7 @@ fn validated_revision(value: Option<&str>) -> Result<String, CoreError> {
     Ok(value)
 }
 
-fn validated_reference(value: Option<&str>) -> Result<String, CoreError> {
+pub(super) fn validated_reference(value: Option<&str>) -> Result<String, CoreError> {
     let value = required_text(value, "reference")?;
     if value.starts_with('-') || value.chars().any(char::is_whitespace) {
         return Err(CoreError::new(
@@ -1859,7 +1859,7 @@ fn local_branch_name(reference: &str) -> Result<String, CoreError> {
     Ok(branch.to_string())
 }
 
-fn current_branch(root: &str) -> Result<String, CoreError> {
+pub(super) fn current_branch(root: &str) -> Result<String, CoreError> {
     let response = execute_git(root, &["branch".into(), "--show-current".into()], None)?;
     if response.exit_code != 0 {
         return Err(CoreError::new(
@@ -2182,55 +2182,6 @@ fn checkout(root: &str, request: GitWriteRequest) -> Result<GitCommandResponse, 
 /// Checks out a local or remote branch, then rebases it onto the branch that
 /// was current before the switch. A dirty tree is rejected before checkout so
 /// the composite operation cannot leave the repository half-switched.
-fn checkout_and_rebase(
-    root: &str,
-    request: GitWriteRequest,
-) -> Result<GitCommandResponse, CoreError> {
-    if !matches!(request.reference_kind.as_deref(), Some("local" | "remote")) {
-        return Err(CoreError::new(
-            ErrorCode::InvalidRequest,
-            "Checkout and rebase requires a local or remote branch",
-        ));
-    }
-    let original_branch = current_branch(root)?;
-    let reference = validated_reference(request.reference.as_deref())?;
-    if reference == original_branch || reference == format!("refs/heads/{original_branch}") {
-        return Err(CoreError::new(
-            ErrorCode::InvalidRequest,
-            "The current branch cannot be checked out and rebased onto itself",
-        ));
-    }
-
-    let status = execute_git(
-        root,
-        &[
-            "status".into(),
-            "--porcelain".into(),
-            "--untracked-files=normal".into(),
-        ],
-        None,
-    )?;
-    if status.exit_code != 0 {
-        return Ok(status);
-    }
-    if !status.output.trim().is_empty() {
-        return Err(CoreError::new(
-            ErrorCode::InvalidRequest,
-            "Checkout and rebase requires a clean working tree",
-        ));
-    }
-
-    let switched = switch_reference(root, &request)?;
-    if switched.exit_code != 0 {
-        return Ok(switched);
-    }
-    execute_git(
-        root,
-        &["rebase".into(), format!("refs/heads/{original_branch}")],
-        None,
-    )
-}
-
 /// Stash, switch, restore. A failed switch leaves the stash untouched so the caller can
 /// recover it, and a conflicting restore is reported as a failure rather than silently
 /// leaving the entry behind.
@@ -2282,7 +2233,7 @@ fn checkout_with_auto_stash(
     Ok(restored)
 }
 
-fn switch_reference(
+pub(super) fn switch_reference(
     root: &str,
     request: &GitWriteRequest,
 ) -> Result<GitCommandResponse, CoreError> {
