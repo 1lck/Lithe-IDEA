@@ -347,6 +347,81 @@ public class RealConfig {
     fs::remove_dir_all(root).expect("Spring fixture should be removable");
 }
 
+/// Bean and component names must come from the exact annotation's own
+/// argument list. A prefix decoy or a later neighbor cannot supply the name.
+#[test]
+fn spring_index_isolates_bean_and_component_names_from_neighbor_annotations() {
+    let root = temporary_root("spring-bean-name-isolation");
+    let java = root.join("src/main/java/demo");
+    fs::create_dir_all(&java).expect("Java fixture directory should be creatable");
+    fs::write(
+        java.join("ClockConfig.java"),
+        r#"package demo;
+@Configuration
+public class ClockConfig {
+  @BeanFactory("decoy") @Bean("real")
+  public Clock clock() { return null; }
+  @BeanFactory("decoyOnly")
+  public Clock decoyClock() { return null; }
+  @Bean
+  public Clock unnamedClock() { return null; }
+}
+"#,
+    )
+    .expect("bean name fixture should be writable");
+    fs::write(
+        java.join("Demo.java"),
+        "package demo;\n@Service(\"s\") @Component(\"c\")\npublic class Demo {}\n",
+    )
+    .expect("component name fixture should be writable");
+    fs::write(
+        java.join("Ordered.java"),
+        "package demo;\n@Component(\"c\") @Service(\"s\")\npublic class Ordered {}\n",
+    )
+    .expect("reversed component fixture should be writable");
+
+    let paths = [
+        "src/main/java/demo/ClockConfig.java",
+        "src/main/java/demo/Demo.java",
+        "src/main/java/demo/Ordered.java",
+    ];
+    let response = execute_spring(&root, &paths, serde_json::json!({}));
+    assert_eq!(response["ok"], true, "{response}");
+
+    let beans = response["data"]["beans"].as_array().unwrap();
+    let names = beans
+        .iter()
+        .map(|value| value["name"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert!(names.contains(&"real"), "{response}");
+    assert!(names.contains(&"unnamedClock"), "{response}");
+    assert!(names.contains(&"clockConfig"), "{response}");
+    assert!(names.contains(&"s"), "{response}");
+    assert!(names.contains(&"c"), "{response}");
+    assert!(!names.contains(&"decoy"), "{response}");
+    assert!(!names.contains(&"decoyOnly"), "{response}");
+    assert!(!names.contains(&"decoyClock"), "{response}");
+    assert!(!names.contains(&") @Component("), "{response}");
+
+    let demo = beans
+        .iter()
+        .find(|value| value["typeName"] == "Demo")
+        .unwrap_or_else(|| panic!("missing Demo bean: {response}"));
+    assert_eq!(demo["name"], "s");
+    let ordered = beans
+        .iter()
+        .find(|value| value["typeName"] == "Ordered")
+        .unwrap_or_else(|| panic!("missing Ordered bean: {response}"));
+    assert_eq!(ordered["name"], "c");
+    let clock = beans
+        .iter()
+        .find(|value| value["name"] == "real" && value["kind"] == "beanMethod")
+        .unwrap_or_else(|| panic!("missing named Clock bean: {response}"));
+    assert_eq!(clock["typeName"], "Clock");
+
+    fs::remove_dir_all(root).expect("Spring fixture should be removable");
+}
+
 /// Custom annotations that only share a Mapping prefix must not become
 /// endpoints or class-level base routes; exact Spring Mapping names still do.
 #[test]
