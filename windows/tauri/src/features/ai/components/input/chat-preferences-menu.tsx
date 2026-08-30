@@ -1,5 +1,4 @@
 import { useMemo } from "react";
-import { ProBadge } from "@/extensions/ui/components/pro-badge";
 import { ProviderIcon } from "@/features/ai/components/icons/provider-icons";
 import { useAgentOptions } from "@/features/ai/hooks/use-agent-options";
 import { useAIModelOptions } from "@/features/ai/hooks/use-ai-model-options";
@@ -29,7 +28,6 @@ import {
   BrainIcon as Brain,
   FadersHorizontalIcon as Preferences,
   KeyIcon as Key,
-  LockIcon as Lock,
   SlidersHorizontalIcon as Sliders,
   SparkleIcon as Sparkles,
 } from "@/ui/icons";
@@ -164,7 +162,7 @@ function LitheAgentPreferences({
   const { t } = useTranslation();
   const providers = useAvailableProviders();
   const currentProvider = providers.find((provider) => provider.id === providerId);
-  const { availableModels, currentModelName, hasHostedAi, modelFetchError } = useAIModelOptions(
+  const { availableModels, currentModelName, modelFetchError } = useAIModelOptions(
     providerId,
     modelId,
     onModelChange,
@@ -205,18 +203,13 @@ function LitheAgentPreferences({
             </DropdownMenuGroup>
           ) : null}
           <DropdownMenuRadioGroup value={modelId} onValueChange={onModelChange}>
-            {availableModels.map((model) => {
-              const locked = Boolean(model.proOnly && !hasHostedAi);
-              return (
-                <DropdownMenuRadioItem key={model.id} value={model.id} disabled={locked}>
-                  {locked ? <Lock /> : null}
-                  <span className="min-w-0 flex-1 truncate" title={model.id}>
-                    {model.name}
-                  </span>
-                  {model.proOnly ? <ProBadge /> : null}
-                </DropdownMenuRadioItem>
-              );
-            })}
+            {availableModels.map((model) => (
+              <DropdownMenuRadioItem key={model.id} value={model.id}>
+                <span className="min-w-0 flex-1 truncate" title={model.id}>
+                  {model.name}
+                </span>
+              </DropdownMenuRadioItem>
+            ))}
           </DropdownMenuRadioGroup>
           {providerId === "custom" ? (
             <>

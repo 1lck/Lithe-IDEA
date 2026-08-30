@@ -216,16 +216,19 @@ package struct GitBranchComparison: Identifiable, Sendable {
 
 package struct GitHistorySnapshot: Sendable {
     package let references: [GitReference]
+    package let recentReferences: [GitReference]
     package let commits: [GitCommit]
     package let hasMore: Bool
     package let identity: GitIdentity?
     package init(
         references: [GitReference],
+        recentReferences: [GitReference] = [],
         commits: [GitCommit],
         hasMore: Bool,
         identity: GitIdentity? = nil
     ) {
         self.references = references
+        self.recentReferences = recentReferences
         self.commits = commits
         self.hasMore = hasMore
         self.identity = identity

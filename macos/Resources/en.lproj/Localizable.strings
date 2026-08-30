@@ -109,3 +109,5 @@
 "No notifications" = "No notifications";
 "Log: %@" = "Log: %@";
 "Console" = "Console";
+"Pull Requests integration is under development" = "Pull Requests integration is under development";
+"GitHub sign-in and pull request management are temporarily unavailable." = "GitHub sign-in and pull request management are temporarily unavailable.";

@@ -539,6 +539,11 @@ package protocol LanguageServerSession: AnyObject {
     ///   state directory so structural changes (add/remove module, edit root
     ///   pom.xml) never reuse a stale project model.
     func start(rootURL: URL, workspaceFingerprint: String?) throws
+    func start(
+        rootURL: URL,
+        workspaceFingerprint: String?,
+        mavenContext: MavenLaunchContext?
+    ) throws
     func synchronize(fileURL: URL, text: String, languageID: String) throws
     func notifyWorkspaceFilesChanged(_ changes: [LanguageServerWorkspaceFileChange]) throws
     func closeDocument(_ fileURL: URL)
@@ -603,6 +608,16 @@ package protocol LanguageServerSession: AnyObject {
         completion: @escaping (Result<[LanguageServerLocation], Error>) -> Void
     ) throws
     func stop()
+}
+
+package extension LanguageServerSession {
+    func start(
+        rootURL: URL,
+        workspaceFingerprint: String?,
+        mavenContext _: MavenLaunchContext?
+    ) throws {
+        try start(rootURL: rootURL, workspaceFingerprint: workspaceFingerprint)
+    }
 }
 
 package extension LanguageServerSession {

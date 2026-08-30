@@ -1,6 +1,16 @@
 import Foundation
 import LitheCoreContracts
 
+/// Product-level availability switches for integrations that require external
+/// credentials or services. Keeping these switches in one place lets the UI
+/// and application model disable an integration consistently without removing
+/// its implementation, tests, or shared contracts.
+enum LitheFeatureAvailability {
+    /// Pull request support is temporarily hidden while the macOS credential
+    /// and signing story is being redesigned for preview and contributor builds.
+    static let githubPullRequests = false
+}
+
 struct WorkbenchNotification: Identifiable, Equatable {
     let id: UUID
     let message: String
@@ -55,6 +65,15 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
         case .database: "toolwindows/toolWindowDatabase.svg"
         }
     }
+
+    var isAvailable: Bool {
+        switch self {
+        case .pullRequests:
+            LitheFeatureAvailability.githubPullRequests
+        case .project, .changes, .search, .database:
+            true
+        }
+    }
 }
 
 typealias ProjectItemEditKind = LitheCoreContracts.ProjectItemEditKind
@@ -64,12 +83,20 @@ typealias ProjectItemDeletionRequest = LitheCoreContracts.ProjectItemDeletionReq
 enum FindNotificationKeys {
     static let query = "query"
     static let direction = "direction"
+    static let matchCase = "matchCase"
+    static let wholeWords = "wholeWords"
+    static let regularExpression = "regularExpression"
+    static let replacement = "replacement"
+    /// 替换通知的目标文档标识；接收编辑器必须与之匹配才执行替换。
+    static let documentID = "documentID"
 }
 
 extension Notification.Name {
     static let litheFindQueryChanged = Notification.Name("litheFindQueryChanged")
     static let litheFindNavigate = Notification.Name("litheFindNavigate")
     static let litheFindDismiss = Notification.Name("litheFindDismiss")
+    static let litheFindReplaceNext = Notification.Name("litheFindReplaceNext")
+    static let litheFindReplaceAll = Notification.Name("litheFindReplaceAll")
 }
 
 struct ProjectTreeRevealRequest: Equatable {

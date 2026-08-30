@@ -249,6 +249,10 @@
 "Navigate" = "导航";
 "Search Everywhere…" = "全局搜索…";
 "Find in File…" = "在文件中查找…";
+"Replace in File…" = "在文件中替换…";
+"Go to Line…" = "跳转到行…";
+"Go to Line:Column" = "跳转到行:列";
+"[Line] [:column]:" = "[行] [:列]:";
 "Find Next" = "查找下一个";
 "Find Previous" = "查找上一个";
 "Go to Usage" = "跳转到调用位置";
@@ -376,6 +380,8 @@
 "Running" = "运行中";
 
 /* GitHub pull requests. */
+"Pull Requests integration is under development" = "拉取请求集成正在开发中";
+"GitHub sign-in and pull request management are temporarily unavailable." = "GitHub 登录和拉取请求管理暂时不可用。";
 "Pull Requests" = "拉取请求";
 "Refresh pull requests" = "刷新拉取请求";
 "Restoring GitHub connection" = "正在恢复 GitHub 连接";
@@ -760,6 +766,11 @@
 "Search for branches and actions" = "搜索分支和操作";
 "Loading branches…" = "正在加载分支…";
 "No matching branches" = "没有匹配的分支";
+"All Branches" = "全部分支";
+"All Users" = "所有用户";
+"Me" = "我";
+"Search users" = "搜索用户";
+"No matching users" = "没有匹配的用户";
 "Create" = "创建";
 "Create from '%@'." = "从“%@”创建。";
 "Checkout branch after creation" = "创建后检出分支";
@@ -899,6 +910,10 @@
 "Search text across the workspace" = "搜索整个工作区的文本";
 "Find in File" = "在文件中查找";
 "Search within the active editor" = "在当前编辑器中搜索";
+"Replace in File" = "在文件中替换";
+"Replace within the active editor" = "在当前编辑器中替换";
+"Go to Line" = "跳转到行";
+"Jump to a line and column in the active editor" = "在当前编辑器中跳转到指定的行和列";
 "Navigate to a call site of the selected Java symbol" = "导航到所选 Java 符号的调用位置";
 "Find references to the selected Java symbol" = "查找所选 Java 符号的引用";
 "Open history for the active file" = "打开当前文件的历史记录";
@@ -1211,5 +1226,8 @@
 "Notifications" = "通知";
 "Clear All" = "全部清除";
 "No notifications" = "暂无通知";
+"Close Running Terminal?" = "关闭正在运行的终端？";
+"Close Terminal" = "关闭终端";
+"Closing this terminal will stop its shell and any running command." = "关闭此终端将停止其 Shell 和所有正在运行的命令。";
 "Log: %@" = "日志：%@";
 "Console" = "控制台";

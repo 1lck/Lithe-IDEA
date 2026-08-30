@@ -7,7 +7,6 @@ import {
 } from "@/features/ai/services/ai-token-service";
 import { getAvailableProviders, getProviderById } from "@/features/ai/types/providers.types";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
-import { useAuthStore } from "@/features/window/stores/auth.store";
 import type { AIChatActions } from "./ai-chat-store.types";
 import type { GetAIChatStore, SetAIChatStore } from "./ai-chat-store-context";
 
@@ -21,9 +20,7 @@ type ProviderActions = Pick<
   | "setDynamicModels"
 >;
 
-async function buildProviderApiKeyMap(
-  subscription: ReturnType<typeof useAuthStore.getState>["subscription"],
-) {
+async function buildProviderApiKeyMap() {
   const entries = await Promise.all(
     getAvailableProviders().map(async (provider) => {
       try {
@@ -35,8 +32,6 @@ async function buildProviderApiKeyMap(
         return [
           provider.id,
           canUseProviderWithoutApiKey({
-            providerId: provider.id,
-            subscription,
             hasStoredKey: Boolean(token),
             requiresApiKey: provider.requiresApiKey,
           }),
@@ -59,8 +54,7 @@ function getProviderAccessFromMap(providerId: string, providerApiKeys: Map<strin
 
 export function createProviderActions(set: SetAIChatStore, get: GetAIChatStore): ProviderActions {
   const refreshProviderAccess = async () => {
-    const subscription = useAuthStore.getState().subscription;
-    const providerApiKeys = await buildProviderApiKeyMap(subscription);
+    const providerApiKeys = await buildProviderApiKeyMap();
     const currentProviderId = useSettingsStore.getState().settings.aiProviderId;
 
     set((state) => {
@@ -73,7 +67,6 @@ export function createProviderActions(set: SetAIChatStore, get: GetAIChatStore):
     checkApiKey: async (providerId) => {
       try {
         const provider = getProviderById(providerId);
-        const subscription = useAuthStore.getState().subscription;
 
         if (provider && !provider.requiresApiKey) {
           set((state) => {
@@ -85,8 +78,6 @@ export function createProviderActions(set: SetAIChatStore, get: GetAIChatStore):
         const token = await getProviderApiToken(providerId);
         set((state) => {
           state.hasApiKey = canUseProviderWithoutApiKey({
-            providerId,
-            subscription,
             hasStoredKey: Boolean(token),
             requiresApiKey: provider?.requiresApiKey ?? true,
           });

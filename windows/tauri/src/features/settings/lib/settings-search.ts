@@ -4,7 +4,6 @@ import type { SettingSearchRecord } from "../types/search.types";
 
 export const SETTINGS_SEARCH_TAB_LABELS: Record<SettingsTab, string> = {
   general: "General",
-  account: "Account",
   appearance: "Appearance",
   editor: "Editor",
   language: "Language",
@@ -14,8 +13,6 @@ export const SETTINGS_SEARCH_TAB_LABELS: Record<SettingsTab, string> = {
   terminal: "Terminal",
   keyboard: "Keybindings",
   ai: "Agent",
-  collaboration: "Collaboration",
-  enterprise: "Enterprise",
   advanced: "Advanced",
 };
 

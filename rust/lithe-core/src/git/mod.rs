@@ -1,5 +1,7 @@
 //! Deterministic Git inspection and mutation behind the shared command contract.
 
+mod mutations;
+
 use crate::protocol::{CoreError, ErrorCode};
 use crate::protocol::{
     GitBlameLineResponse, GitBlameResponse, GitChange, GitCheckoutPreflightResponse,
@@ -19,6 +21,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
+
+const RECENT_BRANCH_LIMIT: usize = 5;
+const RECENT_BRANCH_REFLOG_LIMIT: &str = "100";
+const DEFAULT_BRANCH_FALLBACKS: [&str; 2] = ["main", "master"];
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -552,6 +558,7 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
             }
             arguments = vec!["rebase".into(), reference];
         }
+        "checkoutAndRebase" => return mutations::checkout_and_rebase(&root, request),
         "fetch" => arguments = vec!["fetch".into(), "--all".into(), "--prune".into()],
         // Strategy comes from the caller because only the user can decide whether a
         // divergent history should be merged or replayed. Absent a choice we stay on
@@ -568,6 +575,17 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
                     ))
                 }
             };
+            if let Some(reference) = request.reference.as_deref() {
+                if request.reference_kind.as_deref() != Some("remote") {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Explicit pull requires a remote Git reference",
+                    ));
+                }
+                let reference = validated_reference(Some(reference))?;
+                let (remote, branch) = mutations::remote_branch_components(&root, &reference)?;
+                arguments.extend(["--".into(), remote, branch]);
+            }
         }
         "push" => return push(&root, request.reference.as_deref()),
         "checkout" => return checkout(&root, request),
@@ -626,7 +644,7 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
     execute_git(&root, &arguments, None)
 }
 
-fn execute_git(
+pub(super) fn execute_git(
     root: &str,
     arguments: &[String],
     input: Option<String>,
@@ -634,7 +652,7 @@ fn execute_git(
     execute_git_with_options(root, arguments, input, false)
 }
 
-fn execute_git_readonly(
+pub(super) fn execute_git_readonly(
     root: &str,
     arguments: &[String],
     input: Option<String>,
@@ -772,6 +790,7 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
         ));
     }
 
+    let include_untracked_with_reference = request.reference.is_some() && request.untracked;
     let mut arguments = if let Some(commit) = request.commit {
         validate_revision(&commit)?;
         vec![
@@ -810,13 +829,52 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
         arguments.push("--ignore-all-space".to_string());
     }
     arguments.push("--".to_string());
-    if request.untracked {
+    if request.untracked && !include_untracked_with_reference {
         arguments.push(null_device().to_string());
     }
     arguments.extend(request.pathspecs);
 
     let root = validate_root(&request.root)?;
-    let output = capture_git_with_options(&root, &arguments, None, true)?;
+    let mut output = capture_git_with_options(&root, &arguments, None, true)?;
+    if include_untracked_with_reference {
+        let status = readonly_command(GitCommandRequest {
+            root: root.clone(),
+            arguments: vec![
+                "status".into(),
+                "--porcelain".into(),
+                "--untracked-files=all".into(),
+            ],
+            input: None,
+        })?;
+        if status.exit_code != 0 {
+            return Err(
+                CoreError::new(ErrorCode::ProcessFailed, "Git status failed")
+                    .with_details(status.output),
+            );
+        }
+        for line in status.output.lines().filter(|line| line.starts_with("?? ")) {
+            let path = line[3..].trim();
+            if path.is_empty() || !is_safe_pathspec(path) {
+                continue;
+            }
+            let untracked = capture_git_with_options(
+                &root,
+                &[
+                    "diff".into(),
+                    "--no-ext-diff".into(),
+                    "--binary".into(),
+                    "--no-index".into(),
+                    "--".into(),
+                    null_device().into(),
+                    path.into(),
+                ],
+                None,
+                true,
+            )?;
+            output.stdout.extend(untracked.stdout);
+            output.stderr.extend(untracked.stderr);
+        }
+    }
     Ok(structured_diff_from_output(output))
 }
 
@@ -918,6 +976,7 @@ pub fn history(request: GitHistoryRequest) -> Result<GitHistoryResponse, CoreErr
         .lines()
         .filter_map(parse_reference)
         .collect::<Vec<_>>();
+    let recent_references = recent_local_references(&root, &references, RECENT_BRANCH_LIMIT);
 
     let mut arguments = vec!["log".to_string()];
     if let Some(reference) = request.reference {
@@ -959,11 +1018,119 @@ pub fn history(request: GitHistoryRequest) -> Result<GitHistoryResponse, CoreErr
     let has_more = all_commits.len() > limit;
     Ok(GitHistoryResponse {
         references,
+        recent_references,
         commits: all_commits.into_iter().take(limit).collect(),
         has_more,
         user_name,
         user_email,
     })
+}
+
+/// Builds a bounded MRU list from Git's own checkout history.
+///
+/// HEAD's reflog survives application restarts and also observes branch switches
+/// made outside Lithe. Missing history is filled deterministically so a newly
+/// opened repository still offers useful branch shortcuts.
+fn recent_local_references(
+    root: &str,
+    references: &[GitReferenceResponse],
+    limit: usize,
+) -> Vec<GitReferenceResponse> {
+    let local_references = references
+        .iter()
+        .filter(|reference| reference.kind == "local")
+        .collect::<Vec<_>>();
+    let mut recent = Vec::with_capacity(limit.min(local_references.len()));
+
+    if let Some(current) = local_references
+        .iter()
+        .find(|reference| reference.is_current)
+    {
+        append_recent_reference(&mut recent, &local_references, &current.short_name, limit);
+    }
+
+    if let Some(reflog) = command_value(
+        root,
+        &[
+            "reflog",
+            "show",
+            "-n",
+            RECENT_BRANCH_REFLOG_LIMIT,
+            "--format=%gs",
+            "HEAD",
+        ],
+    ) {
+        for line in reflog.lines() {
+            let Some(checkout) = line.strip_prefix("checkout: moving from ") else {
+                continue;
+            };
+            let Some((source, destination)) = checkout.split_once(" to ") else {
+                continue;
+            };
+            append_recent_reference(&mut recent, &local_references, destination, limit);
+            append_recent_reference(&mut recent, &local_references, source, limit);
+            if recent.len() >= limit {
+                break;
+            }
+        }
+    }
+
+    if recent.len() < limit {
+        if let Some(remote_head) = command_value(
+            root,
+            &[
+                "symbolic-ref",
+                "--quiet",
+                "--short",
+                "refs/remotes/origin/HEAD",
+            ],
+        ) {
+            append_recent_reference(
+                &mut recent,
+                &local_references,
+                remote_head
+                    .split_once('/')
+                    .map_or(remote_head.as_str(), |(_, branch)| branch),
+                limit,
+            );
+        }
+    }
+    for branch in DEFAULT_BRANCH_FALLBACKS {
+        append_recent_reference(&mut recent, &local_references, branch, limit);
+    }
+
+    for reference in &local_references {
+        append_recent_reference(&mut recent, &local_references, &reference.short_name, limit);
+        if recent.len() >= limit {
+            break;
+        }
+    }
+
+    recent.into_iter().cloned().collect()
+}
+
+fn append_recent_reference<'a>(
+    recent: &mut Vec<&'a GitReferenceResponse>,
+    references: &[&'a GitReferenceResponse],
+    raw_name: &str,
+    limit: usize,
+) {
+    if recent.len() >= limit {
+        return;
+    }
+    let name = raw_name.trim().trim_start_matches("refs/heads/");
+    let Some(reference) = references
+        .iter()
+        .find(|reference| reference.short_name == name)
+    else {
+        return;
+    };
+    if !recent
+        .iter()
+        .any(|existing| existing.full_name == reference.full_name)
+    {
+        recent.push(*reference);
+    }
 }
 
 /// Reads one effective repository configuration value without making a missing
@@ -1748,7 +1915,7 @@ fn validated_revision(value: Option<&str>) -> Result<String, CoreError> {
     Ok(value)
 }
 
-fn validated_reference(value: Option<&str>) -> Result<String, CoreError> {
+pub(super) fn validated_reference(value: Option<&str>) -> Result<String, CoreError> {
     let value = required_text(value, "reference")?;
     if value.starts_with('-') || value.chars().any(char::is_whitespace) {
         return Err(CoreError::new(
@@ -1805,7 +1972,7 @@ fn local_branch_name(reference: &str) -> Result<String, CoreError> {
     Ok(branch.to_string())
 }
 
-fn current_branch(root: &str) -> Result<String, CoreError> {
+pub(super) fn current_branch(root: &str) -> Result<String, CoreError> {
     let response = execute_git(root, &["branch".into(), "--show-current".into()], None)?;
     if response.exit_code != 0 {
         return Err(CoreError::new(
@@ -2105,12 +2272,29 @@ fn publish_branch(root: &str, name: Option<&str>) -> Result<GitCommandResponse, 
 /// - `force`: `--discard-changes`, throwing the local edits away.
 /// - `auto_stash`: stash, switch, then restore the stash ("smart checkout").
 fn checkout(root: &str, request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> {
+    if request.reference_kind.as_deref() == Some("local") {
+        if let Some(reference) = request
+            .reference
+            .as_deref()
+            .filter(|value| !value.starts_with('-') && !value.chars().any(char::is_whitespace))
+        {
+            if is_current_reference(root, reference)? {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "The current branch is already checked out",
+                ));
+            }
+        }
+    }
     if request.auto_stash {
         return checkout_with_auto_stash(root, request);
     }
     switch_reference(root, &request)
 }
 
+/// Checks out a local or remote branch, then rebases it onto the branch that
+/// was current before the switch. A dirty tree is rejected before checkout so
+/// the composite operation cannot leave the repository half-switched.
 /// Stash, switch, restore. A failed switch leaves the stash untouched so the caller can
 /// recover it, and a conflicting restore is reported as a failure rather than silently
 /// leaving the entry behind.
@@ -2162,7 +2346,7 @@ fn checkout_with_auto_stash(
     Ok(restored)
 }
 
-fn switch_reference(
+pub(super) fn switch_reference(
     root: &str,
     request: &GitWriteRequest,
 ) -> Result<GitCommandResponse, CoreError> {
@@ -2185,13 +2369,8 @@ fn switch_reference(
             execute_git(root, &base, None)
         }
         Some("remote") => {
-            let remote_path = reference.strip_prefix("refs/remotes/").ok_or_else(|| {
-                CoreError::new(ErrorCode::InvalidRequest, "Invalid remote branch name")
-            })?;
-            let (_, local_name) = remote_path.split_once('/').ok_or_else(|| {
-                CoreError::new(ErrorCode::InvalidRequest, "Invalid remote branch name")
-            })?;
-            if !is_safe_pathspec(local_name) {
+            let (_, local_name) = mutations::remote_branch_components(root, &reference)?;
+            if !is_safe_pathspec(&local_name) {
                 return Err(CoreError::new(
                     ErrorCode::InvalidRequest,
                     "Invalid remote branch name",
@@ -2326,7 +2505,7 @@ fn parse_stash(line: &str) -> Option<GitStashResponse> {
     })
 }
 
-fn is_safe_pathspec(path: &str) -> bool {
+pub(super) fn is_safe_pathspec(path: &str) -> bool {
     let normalized = path.replace('\\', "/");
     !normalized.is_empty()
         && !normalized.starts_with('/')
@@ -2979,7 +3158,9 @@ mod tests {
         line_similarity, pair_diff_entries, parse_diff, structured_diff_from_output, DiffEntry,
         GitCommandInvocation, GitCommandResponse, GitProcessOutput, MAX_ALIGNMENT_CELLS,
     };
-    use crate::protocol::{CoreError, ErrorCode};
+    use crate::protocol::{
+        CoreError, ErrorCode, GitCommitResponse, GitHistoryResponse, GitReferenceResponse,
+    };
     use serde_json::Value;
 
     #[cfg(target_os = "windows")]
@@ -3215,6 +3396,51 @@ mod tests {
 
         assert_eq!(
             serde_json::to_value(response).expect("Git response should serialize"),
+            fixture
+        );
+    }
+
+    #[test]
+    fn history_response_matches_shared_fixture() {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/fixtures/git/history-response-v1.json"
+        )))
+        .expect("Git history response fixture should be valid JSON");
+        let feature = GitReferenceResponse {
+            full_name: "refs/heads/feature/recent".into(),
+            short_name: "feature/recent".into(),
+            kind: "local".into(),
+            is_current: true,
+            upstream_short_name: None,
+        };
+        let main = GitReferenceResponse {
+            full_name: "refs/heads/main".into(),
+            short_name: "main".into(),
+            kind: "local".into(),
+            is_current: false,
+            upstream_short_name: Some("origin/main".into()),
+        };
+        let response = GitHistoryResponse {
+            references: vec![feature.clone(), main.clone()],
+            recent_references: vec![feature, main],
+            commits: vec![GitCommitResponse {
+                hash: "0123456789abcdef0123456789abcdef01234567".into(),
+                short_hash: "0123456".into(),
+                parent_hashes: Vec::new(),
+                author_name: "Lithe Test".into(),
+                author_email: "test@example.invalid".into(),
+                date: "2026/08/30 12:00".into(),
+                subject: "Initial commit".into(),
+                decorations: "HEAD -> feature/recent".into(),
+            }],
+            has_more: false,
+            user_name: Some("Lithe Test".into()),
+            user_email: Some("test@example.invalid".into()),
+        };
+
+        assert_eq!(
+            serde_json::to_value(response).expect("Git history response should serialize"),
             fixture
         );
     }

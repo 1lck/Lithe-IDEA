@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { SERVICE_DEFAULTS } from "@/config/service-defaults";
+import { requireExtensionsCdnBaseUrl } from "./cdn-config";
 import {
   GENERATED_CDN_DIR,
   getContributionArray,
@@ -63,7 +63,7 @@ type IndexEntry = {
 
 const registryPath = join(GENERATED_CDN_DIR, "registry.json");
 const indexPath = join(GENERATED_CDN_DIR, "index.json");
-const cdnBaseUrl = process.env.EXTENSIONS_CDN_BASE_URL || SERVICE_DEFAULTS.extensionsCdnBaseUrl;
+const cdnBaseUrl = requireExtensionsCdnBaseUrl();
 const checkOnly = process.argv.includes("--check");
 
 function normalizeIndexCategory(raw?: string): IndexEntry["category"] {

@@ -1,14 +1,11 @@
-import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   ArrowClockwiseIcon as RefreshCw,
   ChatCircleTextIcon as Issue,
   GitPullRequestIcon as GitPullRequest,
   LightningIcon as Lightning,
-  LinkIcon as Link,
   WarningCircleIcon as WarningCircle,
 } from "@/ui/icons";
 import type { Settings } from "@/features/settings/types/settings.types";
-import { GITHUB_CONNECTION_URL } from "@/features/github/services/github-token-service";
 import type { Action } from "../types/action.types";
 
 type GitHubSidebarSection = "pull-requests" | "issues" | "actions";
@@ -158,17 +155,6 @@ export const createGitHubActions = (params: GitHubActionsParams): Action[] => {
         } catch (error) {
           showToast({ message: `GitHub authentication failed: ${error}`, type: "error" });
         }
-      },
-    },
-    {
-      id: "github-connect-account",
-      label: "GitHub: Connect Account",
-      description: "Open GitHub integration settings",
-      icon: <Link />,
-      category: "GitHub",
-      action: () => {
-        onClose();
-        void openUrl(GITHUB_CONNECTION_URL);
       },
     },
   ];

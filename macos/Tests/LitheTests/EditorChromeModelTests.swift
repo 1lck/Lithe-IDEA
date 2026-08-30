@@ -72,4 +72,79 @@ struct EditorChromeModelTests {
         chrome.updateFindState(currentIndex: 0, count: 2)
         #expect(publishCount == 2)
     }
+
+    @Test
+    func findOptionAndReplaceStateChangesPublishOnceEach() {
+        let chrome = EditorChromeModel()
+        let options = FindInFileOptions(matchCase: true, wholeWords: false, regularExpression: false)
+
+        var publishCount = 0
+        let observation = chrome.objectWillChange.sink { _ in publishCount += 1 }
+        defer { observation.cancel() }
+
+        chrome.setFindOptions(options)
+        chrome.setReplaceVisible(true)
+        chrome.setFindReplaceText("bar")
+        #expect(publishCount == 3)
+
+        chrome.setFindOptions(options)
+        chrome.setReplaceVisible(true)
+        chrome.setFindReplaceText("bar")
+        #expect(publishCount == 3)
+
+        #expect(chrome.findOptions == options)
+        #expect(chrome.isReplaceVisible)
+        #expect(chrome.findReplaceText == "bar")
+    }
+
+    @Test
+    func resetFindBarKeepsFindOptionsAndReplaceText() {
+        // 查找选项与替换文本在当前会话内保留；可见性与匹配计数被重置
+        let chrome = EditorChromeModel()
+        chrome.setFindBarVisible(true)
+        chrome.setFindOptions(FindInFileOptions(matchCase: false, wholeWords: true, regularExpression: true))
+        chrome.setReplaceVisible(true)
+        chrome.setFindReplaceText("bar")
+        chrome.setFindBarQuery("foo")
+        chrome.updateFindState(currentIndex: 1, count: 2)
+
+        chrome.resetFindBar()
+
+        #expect(!chrome.isFindBarVisible)
+        #expect(chrome.findBarQuery.isEmpty)
+        #expect(!chrome.isReplaceVisible)
+        #expect(
+            chrome.findOptions == FindInFileOptions(matchCase: false, wholeWords: true, regularExpression: true)
+        )
+        #expect(chrome.findReplaceText == "bar")
+    }
+
+    @Test
+    func goToLineDialogAndFindBarAreMutuallyExclusive() {
+        // The find bar and the go-to-line dialog are mutually exclusive:
+        // opening either dismisses the other.
+        let chrome = EditorChromeModel()
+        chrome.setFindBarVisible(true)
+        chrome.setGoToLineVisible(true)
+        #expect(chrome.isGoToLineVisible)
+        #expect(!chrome.isFindBarVisible)
+
+        chrome.setFindBarVisible(true)
+        #expect(chrome.isFindBarVisible)
+        #expect(!chrome.isGoToLineVisible)
+
+        chrome.setGoToLineVisible(false)
+        #expect(!chrome.isGoToLineVisible)
+        #expect(chrome.isFindBarVisible)
+    }
+
+    @Test
+    func resetClosesGoToLineBar() {
+        let chrome = EditorChromeModel()
+        chrome.setGoToLineVisible(true)
+
+        chrome.reset()
+
+        #expect(!chrome.isGoToLineVisible)
+    }
 }

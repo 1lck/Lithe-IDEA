@@ -80,6 +80,7 @@ stable error code and a user-facing message:
 | `history.rename` | Set or clear a user-visible label on a history entry |
 | `history.delete` | Delete one history entry and its snapshot |
 | `maven.scan` | Parse a Maven project descriptor and recursively return modules/profiles |
+| `maven.launchPlan` | Produce a deterministic Maven invocation from a versioned project context |
 | `maven.diagnostics` | Parse stable Maven compiler diagnostics from build output |
 | `lsp.applyTextEdits` | Apply LSP UTF-16 text edits with range validation |
 | `lsp.plainSnippet` | Convert LSP snippet insert text into plain editor text |
@@ -125,7 +126,7 @@ stable error code and a user-facing message:
 | `git.write` | Validate and execute shared Git mutations such as stage, commit, branch, checkout, remote sync, clone, and stash |
 | `git.diff` | Produce a structured working-tree, index, reference, or commit patch |
 | `git.apply` | Apply or check a patch in `stage`, `unstage`, `discard`, or Shelf restore mode |
-| `git.history` | Return deterministic refs, commits, parent hashes, decorations, and pagination state |
+| `git.history` | Return deterministic refs, recent local branches, commits, parent hashes, decorations, and pagination state |
 | `git.commit` | Return one structured commit by revision |
 | `git.commitFiles` | Return files changed by one commit |
 | `git.comparison` | Return files changed between a reference and the working tree |
@@ -148,6 +149,13 @@ current branch's tracking counts and are zero when no upstream is configured.
 The core rejects absolute paths and `..`
 traversal for file commands. Native file dialogs, file watching, PTY/ConPTY,
 Java processes, and runtime discovery remain platform adapters.
+
+`git.history.recentReferences` contains at most five existing local branches in
+most-recently-used order. The current branch is first. Core derives checkout
+history from the repository's HEAD reflog, de-duplicates branch names, ignores
+detached or deleted references, and fills missing entries deterministically.
+The remote HEAD target is preferred as the default branch, followed by `main`,
+`master`, and the remaining local references in refname order.
 
 The protocol version is currently `1`. Add a fixture under `shared/fixtures/`
 before changing a response shape or search rule.
@@ -217,6 +225,7 @@ response retains the invocation trace and includes the failure as
 `git.write` accepts a typed mutation request. Its required `operation` values are
 `stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `cherryPick`, `revert`,
 `reset`, `createBranch`, `publishBranch`, `renameBranch`, `deleteBranch`, `merge`, `rebase`,
+`checkoutAndRebase`,
 `fetch`, `pull`, `push`, `checkout`, `checkoutRevision`, `clone`, `stashPush`,
 `stashApply`, `stashPop`, `stashDrop`, `operationContinue`, `operationAbort`, and
 `operationSkip`. Optional fields are `paths`, `reference`, `referenceKind`,
@@ -248,6 +257,17 @@ before any Git subprocess use the standard `invalid_request` error envelope.
 and checks out that branch at a detached HEAD when needed, then pushes it with
 an upstream. If the push fails, the local branch is intentionally retained so
 the user can fix credentials or connectivity and retry without losing commits.
+
+`checkoutAndRebase` accepts a complete local or remote `reference` plus its
+`referenceKind`. Core records the current local branch, rejects any dirty
+working tree before switching, checks out the selected branch, and rebases it
+onto the original branch. Tags and the current local branch are rejected.
+
+`pull` without a reference continues to use the current branch's configured
+upstream. When `reference` is present, it must be a complete
+`refs/remotes/<remote>/<branch>` reference with `referenceKind: "remote"`;
+Core safely splits it into structured remote and branch arguments and applies
+the requested `ffOnly`, `merge`, or `rebase` strategy.
 
 `operationContinue`, `operationAbort`, and `operationSkip` inspect Git metadata
 to select the active merge, rebase, cherry-pick, or revert instead of accepting
@@ -370,6 +390,14 @@ provider ID, selected executable/arguments/environment, root URI, working
 directory, initialization options, optional runtime executable,
 `jdtlsLaunchResources`, cache directory, and `workspaceFingerprint`, plus
 initialize, post-initialize readiness, request, and shutdown deadlines.
+Java callers may also provide the versioned `mavenContext` accepted by
+`maven.launchPlan`. Core validates its reactor and recursively declared modules,
+publishes `settingsPath` through
+`java.configuration.maven.userSettings`, and, after `ServiceReady`, sends one
+`java.project.updateSettings` command per Maven project with
+`org.eclipse.m2e.core.selectedProfiles`. The session becomes `ready` only after
+every command succeeds; a command error or timeout terminates the session with
+`mavenContextFailed` or `mavenContextTimeout` at the `serviceReady` stage.
 `initializeTimeoutMilliseconds` bounds only the standard LSP handshake. For a
 provider such as JDT LS that has a later readiness signal,
 `serviceReadyIdleTimeoutMilliseconds` bounds time without changed work-done
@@ -528,6 +556,26 @@ contains its workspace `relativePath`,
 and `hasWrapper`. Module paths are relative to the selected Maven root and use
 `/` separators. Malformed XML returns `parse_failed`.
 
+`maven.launchPlan` accepts a workspace `root`, a versioned `context`, an
+optional reactor-relative `module`, and an ordered `goals` array whose first
+entry is a lifecycle or custom goal. Later entries may be ordinary Maven CLI
+arguments such as `-Dname=value` or `-q`. They remain separate process arguments
+and are never interpreted by a shell. Context version 1 contains the
+workspace-relative `reactorPath`,
+selected `profiles`, optional platform-local `settingsPath`, `skipTests`, and
+optional Maven/JDK paths used only for the configuration fingerprint. The
+response contains the `project-maven` toolchain reference, an argument array,
+the workspace-relative reactor working directory, and a deterministic SHA-256
+configuration fingerprint. Profiles are sorted and de-duplicated. Module plans
+from `maven.launchPlan` use `-pl <module> -am`; Run and Debug plans use
+`-pl <module>` without `-am`. Settings use `-s`; skipped tests use
+`-DskipTests`. Explicit Run `cwd`, Profiles, and `extensions.maven.skipTests`
+values override the project context, including `skipTests: false`.
+The core never reads `settings.xml` and never copies its path into a portable
+project document. Maven itself continues to read `.mvn/maven.config`; the plan
+does not expand or duplicate that file's arguments. Fixtures are in
+`shared/fixtures/maven/launch-plan-v1.json`.
+
 `maven.diagnostics` accepts `{ "root": string, "output": string }` and returns
 `{ "issues": [] }`. Diagnostic paths may be absolute or workspace-relative;
 the response preserves the path text, uses one-based line and column values,
@@ -585,7 +633,11 @@ per-configuration toolchain path overrides the corresponding project default.
 document transformations. They validate scope, paths, supported types, stable
 IDs, main classes, modules, and argument parsing, then return UTF-8 JSON in the
 `document` field. The platform adapter selects the target project or local
-file and performs the atomic write. These commands never write files.
+file and performs the atomic write. These commands never write files. An empty
+`workingDirectory` removes the layer's `cwd` override. Optional
+`mavenSkipTests` writes `extensions.maven.skipTests`; omission removes the
+override so the project Maven context is inherited, while explicit `false`
+continues to run tests even when the project default skips them.
 For project-scoped option updates, selected toolchain paths must resolve inside
 `root` and are persisted with `/`-separated project-relative paths. Local-scoped
 updates may carry host absolute paths. `runConfig.updateOptions` and
@@ -625,7 +677,14 @@ shell scripts.
 
 `runConfig.createLaunchPlan` accepts `root`, `configurationId`, optional
 `currentFile` and `classPath`, optional `debugPort`, and optional
-`localDocument`. It returns a toolchain
+`localDocument`. Maven-backed Run and Debug callers may also supply the same
+versioned `mavenContext` accepted by `maven.launchPlan`. Explicit profiles in
+the resolved Run Configuration replace the context profiles; otherwise the
+project profiles are inherited. Explicit `extensions.maven.skipTests` and
+`cwd` values also replace the context values. Core applies the shared settings,
+module, Skip Tests, and reactor-working-directory rules to the generated
+framework or Java-main arguments without adding tool-window-only `-am`. It
+returns a toolchain
 reference, argument array, project-relative working directory, and structured
 environment references. It does not return a shell command or platform
 executable path. All project paths use `/`, reject absolute paths and `..`

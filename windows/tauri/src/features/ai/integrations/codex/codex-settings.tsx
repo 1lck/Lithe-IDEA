@@ -165,10 +165,10 @@ export function CodexSettings() {
             variant="default"
             onClick={() => void invoke("start_codex_login", { loginType: "chatgpt" })}
           >
-            {t("account.signIn")}
+            {t("codexSettings.signIn")}
           </Button>
           <Button size="sm" variant="ghost" onClick={() => void invoke("logout_codex_account")}>
-            {t("account.signOut")}
+            {t("codexSettings.signOut")}
           </Button>
         </div>
       </SettingRow>

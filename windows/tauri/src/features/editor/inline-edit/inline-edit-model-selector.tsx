@@ -12,7 +12,6 @@ import { getProviderApiToken } from "@/features/ai/services/ai-token-service";
 import { getProvider } from "@/features/ai/services/providers/ai-provider-registry";
 import { useAIChatStore } from "@/features/ai/stores/ai-chat.store";
 import { getProviderById } from "@/features/ai/types/providers.types";
-import { useAuthStore } from "@/features/window/stores/auth.store";
 import { Button } from "@/ui/button";
 import { useTranslation } from "@/i18n/locale-provider";
 import Command, {
@@ -50,7 +49,6 @@ export const InlineEditModelSelector = ({
   const [isApiKeyOpen, setIsApiKeyOpen] = useState(false);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
 
-  const subscription = useAuthStore((state) => state.subscription);
   const dynamicModels = useAIChatStore((state) => state.dynamicModels);
   const setDynamicModels = useAIChatStore((state) => state.actions.setDynamicModels);
   const hasProviderApiKey = useAIChatStore((state) => state.actions.hasProviderApiKey);
@@ -73,8 +71,6 @@ export const InlineEditModelSelector = ({
       const apiKey = config?.requiresApiKey ? await getProviderApiToken(nextProviderId) : undefined;
       const canFetchWithoutApiKey = nextProviderId === "openrouter";
       const canUseWithoutApiKey = canUseProviderWithoutApiKey({
-        providerId: nextProviderId,
-        subscription,
         hasStoredKey: !!apiKey,
         requiresApiKey: config?.requiresApiKey ?? true,
       });
@@ -88,7 +84,7 @@ export const InlineEditModelSelector = ({
         setIsLoadingModels(false);
       }
     },
-    [setDynamicModels, subscription],
+    [setDynamicModels],
   );
 
   useEffect(() => {
@@ -115,7 +111,6 @@ export const InlineEditModelSelector = ({
         id: model.id,
         name: model.name,
         maxTokens: model.maxTokens ?? existingModel?.maxTokens ?? 4096,
-        proOnly: existingModel?.proOnly,
       });
     }
     return Array.from(mergedModels.values());
@@ -140,8 +135,6 @@ export const InlineEditModelSelector = ({
   const providerNeedsApiKey = Boolean(
     selectedProvider?.requiresApiKey &&
     !canUseProviderWithoutApiKey({
-      providerId: selectedProvider.id,
-      subscription,
       hasStoredKey: hasProviderApiKey(selectedProvider.id),
       requiresApiKey: selectedProvider.requiresApiKey,
     }),
