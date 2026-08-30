@@ -139,13 +139,194 @@ package struct MavenBuildIssue: Identifiable, Hashable, Sendable {
     }
 }
 
+package enum MavenProjectLoadState: Equatable, Sendable {
+    case idle
+    case loading
+    case ready
+    case failed(String)
+}
+
+package enum MavenTaskState: Equatable, Sendable {
+    case idle
+    case running
+    case stopping
+    case cancelled
+    case failed(String)
+}
+
+package struct MavenPortableConfiguration: Codable, Equatable, Sendable {
+    package static let currentVersion = 1
+
+    package var version: Int
+    package var selectedProfiles: [String]
+    package var customProfiles: [String]
+    package var skipTests: Bool
+
+    package init(
+        version: Int = currentVersion,
+        selectedProfiles: [String] = [],
+        customProfiles: [String] = [],
+        skipTests: Bool = false
+    ) {
+        self.version = version
+        self.selectedProfiles = selectedProfiles
+        self.customProfiles = customProfiles
+        self.skipTests = skipTests
+    }
+}
+
+package struct MavenLocalConfiguration: Codable, Equatable, Sendable {
+    package static let currentVersion = 1
+
+    package var version: Int
+    package var settingsPath: String?
+    package var mavenExecutablePath: String?
+    package var javaHomePath: String?
+
+    package init(
+        version: Int = currentVersion,
+        settingsPath: String? = nil,
+        mavenExecutablePath: String? = nil,
+        javaHomePath: String? = nil
+    ) {
+        self.version = version
+        self.settingsPath = settingsPath
+        self.mavenExecutablePath = mavenExecutablePath
+        self.javaHomePath = javaHomePath
+    }
+}
+
+package struct MavenStoredConfiguration: Equatable, Sendable {
+    package let portable: MavenPortableConfiguration?
+    package let local: MavenLocalConfiguration?
+
+    package init(
+        portable: MavenPortableConfiguration?,
+        local: MavenLocalConfiguration?
+    ) {
+        self.portable = portable
+        self.local = local
+    }
+}
+
+package struct MavenLaunchContext: Codable, Equatable, Sendable {
+    package static let currentVersion = 1
+
+    package let version: Int
+    package let reactorPath: String
+    package let profiles: [String]
+    package let settingsPath: String?
+    package let skipTests: Bool
+    package let mavenExecutablePath: String?
+    package let javaHomePath: String?
+
+    package init(
+        version: Int = currentVersion,
+        reactorPath: String,
+        profiles: [String],
+        settingsPath: String?,
+        skipTests: Bool,
+        mavenExecutablePath: String?,
+        javaHomePath: String?
+    ) {
+        self.version = version
+        self.reactorPath = reactorPath
+        self.profiles = profiles
+        self.settingsPath = settingsPath
+        self.skipTests = skipTests
+        self.mavenExecutablePath = mavenExecutablePath
+        self.javaHomePath = javaHomePath
+    }
+}
+
+package struct MavenLaunchPlan: Equatable, Sendable {
+    package let version: Int
+    package let toolchain: String
+    package let arguments: [String]
+    package let workingDirectory: String
+    package let configurationFingerprint: String
+
+    package init(
+        version: Int,
+        toolchain: String,
+        arguments: [String],
+        workingDirectory: String,
+        configurationFingerprint: String
+    ) {
+        self.version = version
+        self.toolchain = toolchain
+        self.arguments = arguments
+        self.workingDirectory = workingDirectory
+        self.configurationFingerprint = configurationFingerprint
+    }
+}
+
+package func redactedMavenArgumentsForDisplay(_ arguments: [String]) -> [String] {
+    var result: [String] = []
+    var index = 0
+    while index < arguments.count {
+        let argument = arguments[index]
+        if argument == "-s" || argument == "--settings" {
+            result.append(argument)
+            if arguments.indices.contains(index + 1) {
+                result.append("<settings.xml>")
+                index += 2
+            } else {
+                index += 1
+            }
+        } else if argument.hasPrefix("--settings=") || argument.hasPrefix("-s=") {
+            result.append(String(argument.prefix { $0 != "=" }) + "=<settings.xml>")
+            index += 1
+        } else {
+            result.append(argument)
+            index += 1
+        }
+    }
+    return result
+}
+
+package struct MavenOperationError: LocalizedError, Equatable, Sendable {
+    package let code: String
+    package let message: String
+    package let details: String?
+
+    package init(code: String, message: String, details: String? = nil) {
+        self.code = code
+        self.message = message
+        self.details = details
+    }
+
+    package var errorDescription: String? {
+        guard let details, !details.isEmpty else { return message }
+        return message + ": " + details
+    }
+}
+
 package protocol MavenProjectOperations: Sendable {
-    func scanMavenProject(at rootURL: URL, files: [URL]) -> MavenProject?
+    func scanMavenProject(at rootURL: URL, files: [URL]) throws -> MavenProject?
+    func mavenLaunchPlan(
+        at rootURL: URL,
+        context: MavenLaunchContext,
+        module: String?,
+        goals: [String]
+    ) throws -> MavenLaunchPlan
     func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue]
+}
+
+package protocol MavenConfigurationStoring: Sendable {
+    func loadMavenConfiguration(
+        workspaceURL: URL,
+        reactorPath: String
+    ) throws -> MavenStoredConfiguration
+    func saveMavenConfiguration(
+        _ configuration: MavenStoredConfiguration,
+        workspaceURL: URL,
+        reactorPath: String
+    ) throws
 }
 
 @MainActor
 package protocol MavenRuntimePort: AnyObject {
-    func mavenExecutable(for project: MavenProject) -> URL?
-    func mavenProcessEnvironment() -> [String: String]
+    func mavenExecutable(for project: MavenProject, overridePath: String?) -> URL?
+    func mavenProcessEnvironment(javaHomePath: String?) -> [String: String]
 }

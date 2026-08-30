@@ -233,7 +233,8 @@ final class JavaFeatureModel: ObservableObject {
                 configuration: configuration,
                 project: mavenProject,
                 projectURL: workspaceURL,
-                options: runFeature.options(for: configuration)
+                options: runFeature.options(for: configuration),
+                mavenContext: mavenFeature?.launchContext
             )
         case .remote:
             debugFeature.attachRemote()

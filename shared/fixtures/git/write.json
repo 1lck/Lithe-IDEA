@@ -30,6 +30,21 @@
       }
     },
     {
+      "operation": "checkoutAndRebase",
+      "payload": {
+        "reference": "refs/remotes/origin/feature/core",
+        "referenceKind": "remote"
+      }
+    },
+    {
+      "operation": "pull",
+      "payload": {
+        "reference": "refs/remotes/origin/feature/core",
+        "referenceKind": "remote",
+        "mode": "rebase"
+      }
+    },
+    {
       "operation": "stashPush",
       "payload": {
         "message": "Save work",
@@ -103,6 +118,15 @@
       "payload": {
         "name": "bad tag name",
         "revision": "HEAD"
+      },
+      "errorCode": "invalid_request"
+    },
+    {
+      "operation": "pull",
+      "payload": {
+        "reference": "refs/heads/main",
+        "referenceKind": "local",
+        "mode": "merge"
       },
       "errorCode": "invalid_request"
     }

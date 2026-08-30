@@ -407,7 +407,7 @@ struct EditorAreaView: View {
             .lithePointer()
 
             Button {
-                model.closeTerminalSession(session)
+                model.requestCloseTerminalSession(session)
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .semibold))
@@ -497,7 +497,7 @@ struct EditorAreaView: View {
             Button("Clear", action: session.clear)
             Divider()
             Button("Close") {
-                model.closeTerminalSession(session)
+                model.requestCloseTerminalSession(session)
             }
         }
         .opacity(isDragged ? 0.92 : 1)

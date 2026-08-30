@@ -318,6 +318,39 @@ struct GitModuleTests {
     }
 
     @Test
+    func remoteReferenceActionsPreserveIdentityAndPullStrategy() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let reference = GitReference(
+            fullName: "refs/remotes/origin/feature/demo",
+            shortName: "origin/feature/demo",
+            kind: .remote,
+            isCurrent: false,
+            upstreamShortName: nil
+        )
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: [])
+        ))
+        let feature = GitFeatureModel(service: service)
+        feature.configure(
+            workspaceURLProvider: { root },
+            isGitLogVisibleProvider: { false },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+
+        await feature.refreshGit()
+        await feature.checkoutAndRebase(reference)
+        await feature.pullRemoteReference(reference, strategy: .rebase)
+        await feature.pullRemoteReference(reference, strategy: .merge)
+
+        #expect(feature.gitConsoleEntries.map(\.arguments) == [
+            ["checkoutAndRebase", reference.fullName],
+            ["pull", "rebase", reference.fullName],
+            ["pull", "merge", reference.fullName]
+        ])
+    }
+
+    @Test
     func postInvocationOperationErrorFailsWhileKeepingConsoleTrace() async {
         let root = URL(fileURLWithPath: "/workspace")
         let change = GitChange(
@@ -771,6 +804,350 @@ struct GitModuleTests {
     }
 
     @Test
+    func commitSelectionLoadsFilesWithoutSelectingTheFirstFile() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let commit = GitCommit(
+            hash: "1111111111111111",
+            shortHash: "1111111",
+            parentHashes: [],
+            authorName: "Ada Lovelace",
+            authorEmail: "ada@example.com",
+            date: "2026-08-28T16:00:00+08:00",
+            subject: "Selected commit",
+            decorations: ""
+        )
+        let nextCommit = GitCommit(
+            hash: "2222222222222222",
+            shortHash: "2222222",
+            parentHashes: [commit.hash],
+            authorName: "Ada Lovelace",
+            authorEmail: "ada@example.com",
+            date: "2026-08-28T16:01:00+08:00",
+            subject: "Next commit",
+            decorations: ""
+        )
+        let files = [GitCommitFile(status: "M", path: "README.md")]
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            filesValue: files
+        ))
+        let feature = GitFeatureModel(service: service)
+        feature.configure(
+            workspaceURLProvider: { root },
+            isGitLogVisibleProvider: { false },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+
+        await feature.refreshGit()
+        await feature.selectGitCommit(commit)
+
+        #expect(feature.selectedGitCommit == commit)
+        #expect(feature.selectedGitCommitFiles == files)
+        #expect(feature.selectedGitCommitFilesLoadState == .ready)
+        #expect(feature.selectedGitCommitFile == nil)
+
+        feature.previewGitCommitSelection(nextCommit)
+
+        #expect(feature.selectedGitCommit == nextCommit)
+        #expect(feature.selectedGitCommitFiles.isEmpty)
+        #expect(feature.selectedGitCommitFilesLoadState == .loading)
+        #expect(feature.selectedGitCommitFile == nil)
+        #expect(feature.selectedGitCommitDiffContext == nil)
+        try #require(await waitForGitWorkToBecomeIdle {
+            feature.hasActiveModuleWork
+        })
+    }
+
+    @Test
+    func failedCommitFileReadIsNotCachedAndRetryRecovers() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let commit = makeTestCommit(hash: "1111111111111111", subject: "Retry commit")
+        let files = [GitCommitFile(status: "M", path: "README.md")]
+        let filesGate = GitFilesLoadGate(results: [nil, files])
+        defer { filesGate.releaseAll() }
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            filesGate: filesGate
+        ))
+        let feature = GitFeatureModel(service: service)
+        feature.configure(
+            workspaceURLProvider: { root },
+            isGitLogVisibleProvider: { false },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+
+        await feature.refreshGit()
+        feature.previewGitCommitSelection(commit)
+        #expect(feature.selectedGitCommitFilesLoadState == .loading)
+
+        let failedLoad = Task { @MainActor in
+            await feature.loadGitCommitFiles(for: commit)
+        }
+        defer { failedLoad.cancel() }
+        try #require(await filesGate.waitUntilCallStarts(0))
+        filesGate.releaseCall(0)
+        try #require(await filesGate.waitUntilCallFinishes(0))
+        try #require(await waitForGitTaskCompletion(failedLoad))
+
+        #expect(feature.selectedGitCommitFiles.isEmpty)
+        #expect(feature.selectedGitCommitFilesLoadState == .failed)
+
+        let retryLoad = Task { @MainActor in
+            await feature.loadGitCommitFiles(for: commit)
+        }
+        defer { retryLoad.cancel() }
+        try #require(await filesGate.waitUntilCallStarts(1))
+        filesGate.releaseCall(1)
+        try #require(await filesGate.waitUntilCallFinishes(1))
+        try #require(await waitForGitTaskCompletion(retryLoad))
+
+        #expect(!filesGate.didTimeOut)
+        #expect(filesGate.callHashes == [commit.hash, commit.hash])
+        #expect(feature.selectedGitCommitFiles == files)
+        #expect(feature.selectedGitCommitFilesLoadState == .ready)
+        try #require(await waitForGitWorkToBecomeIdle {
+            feature.hasActiveModuleWork
+        })
+    }
+
+    @Test
+    func repeatedCommitSelectionReusesCachedFilesAndResetInvalidatesCache() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let commit = GitCommit(
+            hash: "1111111111111111",
+            shortHash: "1111111",
+            parentHashes: [],
+            authorName: "Ada Lovelace",
+            authorEmail: "ada@example.com",
+            date: "2026-08-28T16:00:00+08:00",
+            subject: "Cached commit",
+            decorations: ""
+        )
+        let files = [GitCommitFile(status: "M", path: "README.md")]
+        let filesRecorder = GitFilesCallRecorder()
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            filesValue: files,
+            filesRecorder: filesRecorder
+        ))
+        let feature = GitFeatureModel(service: service)
+        feature.configure(
+            workspaceURLProvider: { root },
+            isGitLogVisibleProvider: { false },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+
+        await feature.refreshGit()
+        await feature.selectGitCommit(commit)
+        await feature.selectGitCommit(commit)
+
+        #expect(filesRecorder.callCount == 1)
+        #expect(feature.selectedGitCommitFiles == files)
+
+        feature.reset()
+        await feature.refreshGit()
+        await feature.selectGitCommit(commit)
+
+        #expect(filesRecorder.callCount == 2)
+        #expect(feature.selectedGitCommitFiles == files)
+        try #require(await waitForGitWorkToBecomeIdle {
+            feature.hasActiveModuleWork
+        })
+    }
+
+    @Test
+    func selectedAndQueryDemandCoalescesWhilePrefetchRemainsBounded() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let blocker = makeTestCommit(hash: "1111111111111111", subject: "Blocker")
+        let shared = makeTestCommit(hash: "2222222222222222", subject: "Shared demand")
+        let trailing = makeTestCommit(hash: "3333333333333333", subject: "Trailing prefetch")
+        let blockerFiles = [GitCommitFile(status: "M", path: "blocker.txt")]
+        let sharedFiles = [GitCommitFile(status: "A", path: "shared.txt")]
+        let trailingFiles = [GitCommitFile(status: "D", path: "trailing.txt")]
+        let filesGate = GitFilesLoadGate(results: [blockerFiles, sharedFiles, trailingFiles])
+        defer { filesGate.releaseAll() }
+        let service = GitService(operations: TestGitOperations(
+            filesGate: filesGate
+        ))
+        let loader = GitCommitFilesLoader(service: service)
+
+        loader.replacePrefetchCandidates([blocker, shared], at: root)
+        try #require(await filesGate.waitUntilCallStarts(0))
+
+        let queryLoad = Task { @MainActor in
+            await loader.loadQueryFiles(for: shared, at: root)
+        }
+        defer { queryLoad.cancel() }
+        try #require(await filesGate.waitUntilCallStarts(1))
+
+        let selectedLoad = loader.requestSelectedFiles(for: shared, at: root)
+        defer { selectedLoad.cancel() }
+        loader.replacePrefetchCandidates([trailing], at: root)
+
+        #expect(filesGate.callHashes == [blocker.hash, shared.hash])
+        #expect(filesGate.maximumConcurrentCalls == 2)
+
+        filesGate.releaseCall(1)
+        try #require(await filesGate.waitUntilCallFinishes(1))
+        let queryOutcome = try #require(await waitForGitCommitFilesOutcome(queryLoad))
+        let selectedOutcome = try #require(await waitForGitCommitFilesOutcome(selectedLoad))
+        #expect(queryOutcome == .ready(sharedFiles))
+        #expect(selectedOutcome == .ready(sharedFiles))
+
+        // The active speculative read keeps the next prefetch queued, so the
+        // loader never spends both physical slots on cache warming.
+        #expect(filesGate.callCount == 2)
+        filesGate.releaseCall(0)
+        try #require(await filesGate.waitUntilCallFinishes(0))
+        try #require(await filesGate.waitUntilCallStarts(2))
+        #expect(filesGate.callHashes == [blocker.hash, shared.hash, trailing.hash])
+        #expect(filesGate.maximumConcurrentCalls == 2)
+        filesGate.releaseCall(2)
+        try #require(await filesGate.waitUntilCallFinishes(2))
+
+        #expect(!filesGate.didTimeOut)
+        #expect(filesGate.callCount == 3)
+        #expect(loader.cachedFiles(for: shared, at: root) == sharedFiles)
+        try #require(await waitForGitWorkToBecomeIdle {
+            loader.hasActiveWork
+        })
+    }
+
+    @Test
+    func latestSelectionStartsBeforeBlockedPreviousSelectionFinishes() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let previous = makeTestCommit(hash: "1111111111111111", subject: "Previous")
+        let latest = makeTestCommit(hash: "2222222222222222", subject: "Latest")
+        let previousFiles = [GitCommitFile(status: "M", path: "previous.txt")]
+        let latestFiles = [GitCommitFile(status: "A", path: "latest.txt")]
+        let filesGate = GitFilesLoadGate(results: [previousFiles, latestFiles])
+        defer { filesGate.releaseAll() }
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            filesGate: filesGate
+        ))
+        let feature = GitFeatureModel(service: service)
+        feature.configure(
+            workspaceURLProvider: { root },
+            isGitLogVisibleProvider: { false },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+
+        await feature.refreshGit()
+        feature.previewGitCommitSelection(previous)
+        let previousLoad = Task { @MainActor in
+            await feature.loadGitCommitFiles(for: previous)
+        }
+        defer { previousLoad.cancel() }
+        try #require(await filesGate.waitUntilCallStarts(0))
+
+        feature.previewGitCommitSelection(latest)
+        let latestLoad = Task { @MainActor in
+            await feature.loadGitCommitFiles(for: latest)
+        }
+        defer { latestLoad.cancel() }
+
+        // The second selection must consume the free physical slot instead of
+        // waiting for the stale synchronous read to return.
+        try #require(await filesGate.waitUntilCallStarts(1))
+        #expect(filesGate.callHashes == [previous.hash, latest.hash])
+        #expect(filesGate.maximumConcurrentCalls == 2)
+
+        filesGate.releaseCall(1)
+        try #require(await filesGate.waitUntilCallFinishes(1))
+        try #require(await waitForGitTaskCompletion(latestLoad))
+        #expect(feature.selectedGitCommit == latest)
+        #expect(feature.selectedGitCommitFiles == latestFiles)
+        #expect(feature.selectedGitCommitFilesLoadState == .ready)
+
+        filesGate.releaseCall(0)
+        try #require(await filesGate.waitUntilCallFinishes(0))
+        try #require(await waitForGitTaskCompletion(previousLoad))
+        #expect(feature.selectedGitCommit == latest)
+        #expect(feature.selectedGitCommitFiles == latestFiles)
+        #expect(feature.selectedGitCommitFilesLoadState == .ready)
+        #expect(!filesGate.didTimeOut)
+        try #require(await waitForGitWorkToBecomeIdle {
+            feature.hasActiveModuleWork
+        })
+    }
+
+    @Test
+    func resetSupersedesStaleGenerationAndRetriesWithinPhysicalLimit() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let commit = makeTestCommit(hash: "1111111111111111", subject: "Reset commit")
+        let staleFiles = [GitCommitFile(status: "M", path: "stale.txt")]
+        let replacementFiles = [GitCommitFile(status: "A", path: "replacement.txt")]
+        let filesGate = GitFilesLoadGate(results: [staleFiles, replacementFiles])
+        defer { filesGate.releaseAll() }
+        let service = GitService(operations: TestGitOperations(
+            filesGate: filesGate
+        ))
+        let loader = GitCommitFilesLoader(service: service)
+
+        let staleLoad = loader.requestSelectedFiles(for: commit, at: root)
+        defer { staleLoad.cancel() }
+        try #require(await filesGate.waitUntilCallStarts(0))
+
+        loader.reset()
+        let replacementLoad = loader.requestSelectedFiles(for: commit, at: root)
+        defer { replacementLoad.cancel() }
+
+        let staleOutcome = try #require(await waitForGitCommitFilesOutcome(staleLoad))
+        #expect(staleOutcome == .superseded)
+        try #require(await filesGate.waitUntilCallStarts(1))
+        #expect(filesGate.maximumConcurrentCalls == 2)
+
+        filesGate.releaseCall(1)
+        try #require(await filesGate.waitUntilCallFinishes(1))
+        let replacementOutcome = try #require(await waitForGitCommitFilesOutcome(replacementLoad))
+        #expect(replacementOutcome == .ready(replacementFiles))
+
+        filesGate.releaseCall(0)
+        try #require(await filesGate.waitUntilCallFinishes(0))
+        #expect(!filesGate.didTimeOut)
+        #expect(filesGate.callHashes == [commit.hash, commit.hash])
+        #expect(loader.cachedFiles(for: commit, at: root) == replacementFiles)
+        try #require(await waitForGitWorkToBecomeIdle {
+            loader.hasActiveWork
+        })
+    }
+
+    @Test
+    func commitFilesPrefetchPrioritizesTheNextOlderAndNewerCommits() {
+        let commits = (0..<6).map { index in
+            let hash = String(index)
+            return GitCommit(
+                hash: hash,
+                shortHash: hash,
+                parentHashes: [],
+                authorName: "Test Author",
+                authorEmail: "author@example.com",
+                date: "2026-08-28T16:00:00+08:00",
+                subject: hash,
+                decorations: ""
+            )
+        }
+
+        let candidates = GitCommitFilesPrefetchPlan.candidates(
+            in: commits,
+            centeredAt: "2",
+            radius: 3
+        )
+
+        #expect(candidates.map(\.hash) == ["3", "1", "4", "0", "5"])
+        #expect(GitCommitFilesPrefetchPlan.candidates(
+            in: commits,
+            centeredAt: "missing",
+            radius: 3
+        ).isEmpty)
+    }
+
+    @Test
     func clearingGitConsoleDoesNotTriggerInitialLoadAgain() async {
         let root = URL(fileURLWithPath: "/workspace")
         let service = GitService(operations: TestGitOperations(
@@ -793,7 +1170,7 @@ struct GitModuleTests {
     }
 
     @Test
-    func switchingRepositoriesDiscardsStaleInitialGitConsoleOutput() async {
+    func switchingRepositoriesDiscardsStaleInitialGitConsoleOutput() async throws {
         let firstRoot = URL(fileURLWithPath: "/first-workspace")
         let secondRoot = URL(fileURLWithPath: "/second-workspace")
         let runGate = TestGitRunGate()
@@ -813,12 +1190,17 @@ struct GitModuleTests {
         )
 
         await feature.refreshGit()
-        let initialLoad = Task { await feature.loadGitConsoleIfNeeded() }
-        await runGate.waitUntilFirstRunStarts()
+        let initialLoad = Task { @MainActor in await feature.loadGitConsoleIfNeeded() }
+        defer {
+            initialLoad.cancel()
+            runGate.releaseFirstRun()
+        }
+        try #require(await runGate.waitUntilFirstRunStarts())
         workspaceURL = secondRoot
         await feature.refreshGit()
         runGate.releaseFirstRun()
-        await initialLoad.value
+        try #require(await waitForGitTaskCompletion(initialLoad))
+        #expect(!runGate.didTimeOut)
 
         #expect(feature.gitConsoleEntries.isEmpty)
 
@@ -1077,38 +1459,299 @@ private struct TestShelfStorage: GitShelfStorage {
 
 private final class TestGitRunGate: @unchecked Sendable {
     private let lock = NSLock()
-    private let firstRunRelease = DispatchSemaphore(value: 0)
+    private let firstRunStarted = GitModuleTestGate()
+    private let firstRunRelease = GitModuleTestGate()
     private var hasBlockedFirstRun = false
-    private var firstRunWaiter: CheckedContinuation<Void, Never>?
+    private var didTimeOutValue = false
+
+    var didTimeOut: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return didTimeOutValue
+    }
 
     func blockFirstRun() {
         lock.lock()
         let shouldBlock = !hasBlockedFirstRun
         hasBlockedFirstRun = true
-        let waiter = shouldBlock ? firstRunWaiter : nil
-        firstRunWaiter = nil
         lock.unlock()
         guard shouldBlock else { return }
-        waiter?.resume()
-        firstRunRelease.wait()
-    }
-
-    func waitUntilFirstRunStarts() async {
-        await withCheckedContinuation { continuation in
+        firstRunStarted.open()
+        guard firstRunRelease.waitSynchronously() else {
             lock.lock()
-            if hasBlockedFirstRun {
-                lock.unlock()
-                continuation.resume()
-            } else {
-                firstRunWaiter = continuation
-                lock.unlock()
-            }
+            didTimeOutValue = true
+            lock.unlock()
+            return
         }
     }
 
-    func releaseFirstRun() {
-        firstRunRelease.signal()
+    func waitUntilFirstRunStarts() async -> Bool {
+        await firstRunStarted.waitUntilOpen()
     }
+
+    func releaseFirstRun() {
+        firstRunRelease.open()
+    }
+}
+
+private final class GitFilesCallRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls = 0
+
+    var callCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return calls
+    }
+
+    func recordCall() {
+        lock.lock()
+        calls += 1
+        lock.unlock()
+    }
+}
+
+private func makeTestCommit(hash: String, subject: String) -> GitCommit {
+    GitCommit(
+        hash: hash,
+        shortHash: String(hash.prefix(7)),
+        parentHashes: [],
+        authorName: "Test Author",
+        authorEmail: "author@example.com",
+        date: "2026-08-28T16:00:00+08:00",
+        subject: subject,
+        decorations: ""
+    )
+}
+
+private final class GitModuleTestGate: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var isOpen = false
+    private var asyncWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
+    private var timeoutTasks: [UUID: Task<Void, Never>] = [:]
+
+    func open() {
+        condition.lock()
+        isOpen = true
+        let waiters = Array(asyncWaiters.values)
+        let tasks = Array(timeoutTasks.values)
+        asyncWaiters.removeAll()
+        timeoutTasks.removeAll()
+        condition.broadcast()
+        condition.unlock()
+        tasks.forEach { $0.cancel() }
+        waiters.forEach { $0.resume(returning: true) }
+    }
+
+    func waitSynchronously(timeout: TimeInterval = 5) -> Bool {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        condition.lock()
+        defer { condition.unlock() }
+        while !isOpen {
+            guard condition.wait(until: deadline) else { return false }
+        }
+        return true
+    }
+
+    func waitUntilOpen(timeout: Duration = .seconds(2)) async -> Bool {
+        let waiterID = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                condition.lock()
+                guard !isOpen else {
+                    condition.unlock()
+                    continuation.resume(returning: true)
+                    return
+                }
+                asyncWaiters[waiterID] = continuation
+                condition.unlock()
+
+                let timeoutTask = Task { [weak self] in
+                    // test-stability: allow(swift-real-sleep) reason: this watchdog bounds a failed event-driven Git test without controlling successful execution order.
+                    try? await Task.sleep(for: timeout)
+                    guard !Task.isCancelled else { return }
+                    self?.finishAsyncWaiter(waiterID, result: false)
+                }
+                condition.lock()
+                if asyncWaiters[waiterID] == nil {
+                    condition.unlock()
+                    timeoutTask.cancel()
+                } else {
+                    timeoutTasks[waiterID] = timeoutTask
+                    condition.unlock()
+                }
+                if Task.isCancelled {
+                    finishAsyncWaiter(waiterID, result: false)
+                }
+            }
+        } onCancel: {
+            finishAsyncWaiter(waiterID, result: false)
+        }
+    }
+
+    private func finishAsyncWaiter(_ waiterID: UUID, result: Bool) {
+        condition.lock()
+        let waiter = asyncWaiters.removeValue(forKey: waiterID)
+        let timeoutTask = timeoutTasks.removeValue(forKey: waiterID)
+        condition.unlock()
+        timeoutTask?.cancel()
+        waiter?.resume(returning: result)
+    }
+}
+
+private final class GitFilesLoadGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private let results: [[GitCommitFile]?]
+    private let startedGates: [GitModuleTestGate]
+    private let releaseGates: [GitModuleTestGate]
+    private let finishedGates: [GitModuleTestGate]
+    private var calls = 0
+    private var activeCalls = 0
+    private var peakConcurrentCalls = 0
+    private var hashes: [String] = []
+    private var timedOut = false
+
+    init(results: [[GitCommitFile]?]) {
+        self.results = results
+        startedGates = results.map { _ in GitModuleTestGate() }
+        releaseGates = results.map { _ in GitModuleTestGate() }
+        finishedGates = results.map { _ in GitModuleTestGate() }
+    }
+
+    var callCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return calls
+    }
+
+    var didTimeOut: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return timedOut
+    }
+
+    var maximumConcurrentCalls: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return peakConcurrentCalls
+    }
+
+    var callHashes: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return hashes
+    }
+
+    func loadFiles(for commit: GitCommit) -> [GitCommitFile]? {
+        lock.lock()
+        let callIndex = calls
+        calls += 1
+        activeCalls += 1
+        peakConcurrentCalls = max(peakConcurrentCalls, activeCalls)
+        hashes.append(commit.hash)
+        lock.unlock()
+
+        guard results.indices.contains(callIndex) else {
+            finishCall(callIndex, timedOut: true)
+            return nil
+        }
+        startedGates[callIndex].open()
+        guard releaseGates[callIndex].waitSynchronously() else {
+            finishCall(callIndex, timedOut: true)
+            return nil
+        }
+        let result = results[callIndex]
+        finishCall(callIndex, timedOut: false)
+        return result
+    }
+
+    func waitUntilCallStarts(_ index: Int) async -> Bool {
+        guard startedGates.indices.contains(index) else { return false }
+        return await startedGates[index].waitUntilOpen()
+    }
+
+    func waitUntilCallFinishes(_ index: Int) async -> Bool {
+        guard finishedGates.indices.contains(index) else { return false }
+        return await finishedGates[index].waitUntilOpen()
+    }
+
+    func releaseCall(_ index: Int) {
+        guard releaseGates.indices.contains(index) else { return }
+        releaseGates[index].open()
+    }
+
+    func releaseAll() {
+        releaseGates.forEach { $0.open() }
+    }
+
+    private func finishCall(_ index: Int, timedOut: Bool) {
+        lock.lock()
+        activeCalls = max(0, activeCalls - 1)
+        self.timedOut = self.timedOut || timedOut
+        lock.unlock()
+        guard finishedGates.indices.contains(index) else { return }
+        finishedGates[index].open()
+    }
+}
+
+private func waitForGitCommitFilesOutcome(
+    _ task: Task<GitCommitFilesLoadOutcome, Never>,
+    timeout: Duration = .seconds(2)
+) async -> GitCommitFilesLoadOutcome? {
+    await withTaskGroup(of: GitCommitFilesLoadOutcome?.self) { group in
+        group.addTask {
+            await task.value
+        }
+        group.addTask {
+            // test-stability: allow(swift-real-sleep) reason: this task is the bounded failure deadline for a loader outcome.
+            try? await Task.sleep(for: timeout)
+            task.cancel()
+            return nil
+        }
+        let result = await group.next() ?? nil
+        if result == nil {
+            task.cancel()
+        }
+        group.cancelAll()
+        return result
+    }
+}
+
+private func waitForGitTaskCompletion(
+    _ task: Task<Void, Never>,
+    timeout: Duration = .seconds(2)
+) async -> Bool {
+    await withTaskGroup(of: Bool.self) { group in
+        group.addTask {
+            await task.value
+            return true
+        }
+        group.addTask {
+            // test-stability: allow(swift-real-sleep) reason: this task is the bounded failure deadline for an event-driven Git task.
+            try? await Task.sleep(for: timeout)
+            task.cancel()
+            return false
+        }
+        let completed = await group.next() ?? false
+        if !completed {
+            task.cancel()
+        }
+        group.cancelAll()
+        return completed
+    }
+}
+
+@MainActor
+private func waitForGitWorkToBecomeIdle(
+    timeout: Duration = .seconds(2),
+    isActive: @MainActor () -> Bool
+) async -> Bool {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while isActive(), clock.now < deadline {
+        await Task.yield()
+    }
+    return !isActive()
 }
 
 /// Records tag create/delete arguments so restore flows can be asserted on
@@ -1163,10 +1806,14 @@ private final class BranchCallRecorder: @unchecked Sendable {
 private struct TestGitOperations: GitOperations {
     private let snapshotValue: GitSnapshot?
     private let comparisonValue: GitBranchComparison?
+    private let filesValue: [GitCommitFile]?
     private let untrackedDiffDocumentValue: DiffDocument?
     private let comparisonDiffDocumentValue: DiffDocument?
+    private let historyValue: GitHistorySnapshot?
     private let stageResult: GitProcessResult?
     private let runGate: TestGitRunGate?
+    private let filesRecorder: GitFilesCallRecorder?
+    private let filesGate: GitFilesLoadGate?
     private let createTagResult: GitProcessResult?
     private let deleteTagResult: GitProcessResult?
     private let tagCallRecorder: TagCallRecorder?
@@ -1177,10 +1824,14 @@ private struct TestGitOperations: GitOperations {
     init(
         snapshotValue: GitSnapshot? = nil,
         comparisonValue: GitBranchComparison? = nil,
+        historyValue: GitHistorySnapshot? = nil,
+        filesValue: [GitCommitFile]? = nil,
         untrackedDiffDocumentValue: DiffDocument? = nil,
         comparisonDiffDocumentValue: DiffDocument? = nil,
         stageResult: GitProcessResult? = nil,
         runGate: TestGitRunGate? = nil,
+        filesRecorder: GitFilesCallRecorder? = nil,
+        filesGate: GitFilesLoadGate? = nil,
         createTagResult: GitProcessResult? = nil,
         deleteTagResult: GitProcessResult? = nil,
         tagCallRecorder: TagCallRecorder? = nil,
@@ -1190,10 +1841,14 @@ private struct TestGitOperations: GitOperations {
     ) {
         self.snapshotValue = snapshotValue
         self.comparisonValue = comparisonValue
+        self.historyValue = historyValue
+        self.filesValue = filesValue
         self.untrackedDiffDocumentValue = untrackedDiffDocumentValue
         self.comparisonDiffDocumentValue = comparisonDiffDocumentValue
         self.stageResult = stageResult
         self.runGate = runGate
+        self.filesRecorder = filesRecorder
+        self.filesGate = filesGate
         self.createTagResult = createTagResult
         self.deleteTagResult = deleteTagResult
         self.tagCallRecorder = tagCallRecorder
@@ -1222,8 +1877,14 @@ private struct TestGitOperations: GitOperations {
     func commitDiffDocument(at rootURL: URL, commit: String, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { nil }
     func comparisonDiffDocument(at rootURL: URL, reference: String, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { comparisonDiffDocumentValue }
     func applyPatch(_ patch: String, at rootURL: URL, mode: String) -> GitProcessResult? { nil }
-    func history(at rootURL: URL, reference: GitReference?, limit: Int) -> GitHistorySnapshot? { nil }
-    func files(in commit: GitCommit, at rootURL: URL) -> [GitCommitFile]? { nil }
+    func history(at rootURL: URL, reference: GitReference?, limit: Int) -> GitHistorySnapshot? { historyValue }
+    func files(in commit: GitCommit, at rootURL: URL) -> [GitCommitFile]? {
+        filesRecorder?.recordCall()
+        if let filesGate {
+            return filesGate.loadFiles(for: commit)
+        }
+        return filesValue
+    }
     func commit(at rootURL: URL, hash: String) -> GitCommit? { nil }
     func comparison(for reference: GitReference, at rootURL: URL) -> GitBranchComparison? { comparisonValue }
     func stashes(at rootURL: URL) -> [GitStash]? { nil }
@@ -1247,7 +1908,25 @@ private struct TestGitOperations: GitOperations {
     }
     func mergeBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? { nil }
     func rebaseCurrentBranch(onto reference: GitReference, at rootURL: URL) -> GitProcessResult? { nil }
+    func checkoutAndRebase(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? {
+        GitProcessResult(
+            arguments: ["checkoutAndRebase", reference.fullName],
+            output: "",
+            exitCode: 0
+        )
+    }
     func updateCurrentBranch(at rootURL: URL, strategy: GitPullStrategy) -> GitProcessResult? { nil }
+    func pullRemoteReference(
+        _ reference: GitReference,
+        strategy: GitPullStrategy,
+        at rootURL: URL
+    ) -> GitProcessResult? {
+        GitProcessResult(
+            arguments: ["pull", strategy.rawValue, reference.fullName],
+            output: "",
+            exitCode: 0
+        )
+    }
     func pullPreflight(at rootURL: URL) -> GitPullPreflightState? { nil }
     func conflictMarkerPaths(at rootURL: URL) -> [String] { [] }
     func integrationPreflight(for target: GitIntegrationTarget, operation: GitIntegrationOperation, at rootURL: URL) -> GitIntegrationPreflightState? { nil }

@@ -170,8 +170,31 @@ struct RustGitOperations: GitOperations, Sendable {
         write(at: rootURL, operation: "rebase", reference: reference.fullName)
     }
 
+    func checkoutAndRebase(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? {
+        write(
+            at: rootURL,
+            operation: "checkoutAndRebase",
+            reference: reference.fullName,
+            referenceKind: reference.kind
+        )
+    }
+
     func updateCurrentBranch(at rootURL: URL, strategy: GitPullStrategy = .ffOnly) -> GitProcessResult? {
         write(at: rootURL, operation: "pull", mode: strategy.rawValue)
+    }
+
+    func pullRemoteReference(
+        _ reference: GitReference,
+        strategy: GitPullStrategy,
+        at rootURL: URL
+    ) -> GitProcessResult? {
+        write(
+            at: rootURL,
+            operation: "pull",
+            reference: reference.fullName,
+            referenceKind: reference.kind,
+            mode: strategy.rawValue
+        )
     }
 
     /// Staged files still containing conflict markers.

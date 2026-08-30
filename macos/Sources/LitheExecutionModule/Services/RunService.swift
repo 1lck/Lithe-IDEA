@@ -56,6 +56,7 @@ package final class RunService: ObservableObject {
     private let maximumOutputCharacters = 500_000
     private let runtime: any RunRuntimePort
     private let executableResolver: any RunExecutableResolving
+    private var mavenContextProvider: @MainActor () -> MavenLaunchContext? = { nil }
 
     package init(
         runtime: any RunRuntimePort,
@@ -104,6 +105,12 @@ package final class RunService: ObservableObject {
 
     package var lastRunFileURL: URL? { lastCurrentFileURL }
     package var lastConfiguration: RunConfiguration? { lastRunConfiguration }
+
+    package func configureMavenContextProvider(
+        _ provider: @escaping @MainActor () -> MavenLaunchContext?
+    ) {
+        mavenContextProvider = provider
+    }
 
     @discardableResult
     package func registerLanguageRunExtension(
@@ -406,7 +413,8 @@ package final class RunService: ObservableObject {
         lastExitCode = nil
         lastRunConfiguration = configuration
         lastCurrentFileURL = currentFileURL
-        let options = self.options(for: configuration)
+        let mavenContext = configuration.kind.isMavenBacked ? mavenContextProvider() : nil
+        let options = effectiveOptions(for: configuration, mavenContext: mavenContext)
         let usesGenericCurrentFile = configuration.kind == .currentFile
             && isGenericCurrentFile(currentFileURL)
         if !usesGenericCurrentFile {
@@ -469,7 +477,8 @@ package final class RunService: ObservableObject {
                     configurationID: configuration.id,
                     currentFile: currentFile,
                     classPath: planClassPath,
-                    debugPort: nil
+                    debugPort: nil,
+                    mavenContext: mavenContext
                 )
                 extensionSession = languageRunExtension(
                     providerID: configuration.kind.providerID
@@ -491,7 +500,13 @@ package final class RunService: ObservableObject {
 
         runningTitle = configuration.name
         isRunning = true
-        append("$ " + resolved.executableURL.lastPathComponent + " " + arguments.joined(separator: " ") + "\n\n")
+        let displayedArguments = configuration.kind.isMavenBacked
+            ? redactedMavenArgumentsForDisplay(arguments)
+            : arguments
+        append(
+            "$ " + resolved.executableURL.lastPathComponent + " "
+                + displayedArguments.joined(separator: " ") + "\n\n"
+        )
 
         let operationID = UUID().uuidString
         activeOperationID = operationID
@@ -903,7 +918,8 @@ package final class RunService: ObservableObject {
             ))
             return
         }
-        let options = self.options(for: configuration)
+        let mavenContext = configuration.kind.isMavenBacked ? mavenContextProvider() : nil
+        let options = effectiveOptions(for: configuration, mavenContext: mavenContext)
         let configuredJavaHome = (options.mavenJavaHomePath.isEmpty
             ? options.javaHomePath
             : options.mavenJavaHomePath).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -926,7 +942,8 @@ package final class RunService: ObservableObject {
                 configurationID: configuration.id,
                 currentFile: nil,
                 classPath: nil,
-                debugPort: nil
+                debugPort: nil,
+                mavenContext: mavenContext
             )
         } catch {
             moduleSessions.append(RunSession(
@@ -963,7 +980,10 @@ package final class RunService: ObservableObject {
             id: configuration.id,
             configurationID: configuration.id,
             title: configuration.name,
-            output: "$ " + resolved.executableURL.lastPathComponent + " " + arguments.joined(separator: " ") + "\n\n",
+            output: "$ " + resolved.executableURL.lastPathComponent + " "
+                + (configuration.kind.isMavenBacked
+                    ? redactedMavenArgumentsForDisplay(arguments)
+                    : arguments).joined(separator: " ") + "\n\n",
             isRunning: true,
             exitCode: nil
         )
@@ -1216,6 +1236,21 @@ package final class RunService: ObservableObject {
         let filePath = fileURL.standardizedFileURL.path
         let directoryPath = directory.standardizedFileURL.path
         return filePath.hasPrefix(directoryPath + "/")
+    }
+
+    private func effectiveOptions(
+        for configuration: RunConfiguration,
+        mavenContext: MavenLaunchContext?
+    ) -> RunOptions {
+        var options = self.options(for: configuration)
+        guard let mavenContext else { return options }
+        if options.mavenExecutablePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            options.mavenExecutablePath = mavenContext.mavenExecutablePath ?? ""
+        }
+        if options.mavenJavaHomePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            options.mavenJavaHomePath = mavenContext.javaHomePath ?? ""
+        }
+        return options
     }
 
     private func resolvedWorkingDirectory(_ path: String, fallback: URL) -> URL {

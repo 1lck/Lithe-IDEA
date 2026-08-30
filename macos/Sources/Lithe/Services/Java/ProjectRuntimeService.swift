@@ -19,12 +19,8 @@ extension ProjectRuntimeService: LanguageToolRuntimePort {
 }
 
 extension ProjectRuntimeService: MavenRuntimePort {
-    package func mavenExecutable(for project: MavenProject) -> URL? {
-        mavenExecutable(for: project, overridePath: nil)
-    }
-
-    package func mavenProcessEnvironment() -> [String: String] {
-        environment(for: .maven)
+    package func mavenProcessEnvironment(javaHomePath: String?) -> [String: String] {
+        environment(for: .maven, javaHomeOverride: javaHomePath)
     }
 }
 
@@ -377,14 +373,13 @@ final class ProjectRuntimeService: ObservableObject {
             let resolved = configured.hasPrefix("/")
                 ? URL(fileURLWithPath: configured)
                 : rootURL.appendingPathComponent(configured)
-            let candidates = [
-                resolved,
-                resolved.appendingPathComponent("bin/mvn")
-            ]
-            if let candidate = candidates.first(where: { runtimeLocator.isExecutable(at: $0.standardizedFileURL) }) {
-                return candidate.standardizedFileURL
+            let standardized = resolved.standardizedFileURL
+            if runtimeLocator.isExecutable(at: standardized) {
+                return standardized
             }
-            return nil
+            return runtimeLocator.mavenExecutable(
+                forHomePath: standardized.path
+            )
         }
         let wrapper = rootURL.appendingPathComponent("mvnw")
         if runtimeLocator.isExecutable(at: wrapper) {

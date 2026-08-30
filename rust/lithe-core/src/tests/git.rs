@@ -197,6 +197,7 @@ fn git_write_validates_and_executes_shared_mutations() {
         .status
         .success());
     assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    assert!(run(&["remote", "add", "origin", "."]).status.success());
     fs::write(root.join("example.txt"), "initial\n").expect("file should be writable");
 
     let request = |operation: &str, payload: Value| -> Value {
@@ -385,6 +386,79 @@ fn git_write_validates_and_executes_shared_mutations() {
         "feature/nested"
     );
     assert!(run(&["switch", &current]).status.success());
+
+    let repeated_checkout = request(
+        "checkout",
+        serde_json::json!({
+            "reference": format!("refs/heads/{current}"),
+            "referenceKind": "local"
+        }),
+    );
+    assert_eq!(
+        repeated_checkout["data"]["operationError"]["code"], "invalid_request",
+        "{repeated_checkout:?}"
+    );
+
+    assert!(run(&["branch", "feature/rebase"]).status.success());
+    fs::write(root.join("rebase.txt"), "new base\n").expect("file should be writable");
+    assert!(run(&["add", "rebase.txt"]).status.success());
+    assert!(run(&["commit", "-qm", "new base"]).status.success());
+    let checkout_and_rebase = request(
+        "checkoutAndRebase",
+        serde_json::json!({
+            "reference": "refs/heads/feature/rebase",
+            "referenceKind": "local"
+        }),
+    );
+    assert_eq!(checkout_and_rebase["ok"], true, "{checkout_and_rebase:?}");
+    assert_eq!(
+        checkout_and_rebase["data"]["exitCode"], 0,
+        "{checkout_and_rebase:?}"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run(&["branch", "--show-current"]).stdout).trim(),
+        "feature/rebase"
+    );
+    assert!(run(&["merge-base", "--is-ancestor", &current, "HEAD"])
+        .status
+        .success());
+    assert!(run(&["switch", &current]).status.success());
+
+    fs::write(root.join("dirty.txt"), "keep me\n").expect("file should be writable");
+    let dirty_checkout_and_rebase = request(
+        "checkoutAndRebase",
+        serde_json::json!({
+            "reference": "refs/heads/feature/rebase",
+            "referenceKind": "local"
+        }),
+    );
+    assert_eq!(
+        dirty_checkout_and_rebase["ok"], true,
+        "{dirty_checkout_and_rebase:?}"
+    );
+    assert_eq!(
+        dirty_checkout_and_rebase["data"]["operationError"]["code"], "invalid_request",
+        "{dirty_checkout_and_rebase:?}"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run(&["branch", "--show-current"]).stdout).trim(),
+        current
+    );
+    fs::remove_file(root.join("dirty.txt")).expect("file should be removable");
+
+    let explicit_pull = request(
+        "pull",
+        serde_json::json!({
+            "reference": "refs/remotes/origin/feature/core",
+            "referenceKind": "remote",
+            "mode": "rebase"
+        }),
+    );
+    assert_eq!(explicit_pull["ok"], true, "{explicit_pull:?}");
+    assert_eq!(
+        explicit_pull["data"]["arguments"],
+        serde_json::json!(["pull", "--rebase", "--", "origin", "feature/core"])
+    );
 
     fs::write(root.join("example.txt"), "working tree\n").expect("file should be writable");
     let stash = request(
@@ -1987,4 +2061,95 @@ fn git_pull_preflight_reports_divergence_and_strategies_resolve_it() {
     assert_eq!(invalid["ok"], false);
 
     fs::remove_dir_all(root).expect("Git fixture should be removable");
+}
+
+#[test]
+fn explicit_pull_resolves_nested_remote_and_branch_names_against_bare_remote() {
+    let root = temporary_root("git-pull-nested-ref");
+    let source = root.join("source");
+    let work = root.join("work");
+    fs::create_dir_all(&source).expect("source should be creatable");
+    let git = |directory: &Path, arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(directory)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(git(&source, &["init", "--bare", "-q"]).status.success());
+    let seed = root.join("seed");
+    fs::create_dir_all(&seed).expect("seed should be creatable");
+    assert!(git(&seed, &["init", "-q", "-b", "main"]).status.success());
+    assert!(git(&seed, &["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(git(&seed, &["config", "user.name", "Lithe Test"])
+        .status
+        .success());
+    fs::write(seed.join("base.txt"), "base\n").expect("file should be writable");
+    assert!(git(&seed, &["add", "."]).status.success());
+    assert!(git(&seed, &["commit", "-qm", "base"]).status.success());
+    assert!(git(
+        &seed,
+        &[
+            "remote",
+            "add",
+            "company/origin",
+            source.to_string_lossy().as_ref()
+        ]
+    )
+    .status
+    .success());
+    assert!(git(&seed, &["push", "-q", "company/origin", "main"])
+        .status
+        .success());
+    assert!(git(&seed, &["switch", "-c", "feature/core"])
+        .status
+        .success());
+    fs::write(seed.join("nested.txt"), "nested\n").expect("file should be writable");
+    assert!(git(&seed, &["add", "."]).status.success());
+    assert!(git(&seed, &["commit", "-qm", "nested"]).status.success());
+    assert!(
+        git(&seed, &["push", "-q", "company/origin", "feature/core"])
+            .status
+            .success()
+    );
+    assert!(git(
+        &root,
+        &[
+            "clone",
+            "-q",
+            seed.to_string_lossy().as_ref(),
+            work.to_string_lossy().as_ref()
+        ]
+    )
+    .status
+    .success());
+    assert!(git(&work, &["remote", "remove", "origin"]).status.success());
+    assert!(git(
+        &work,
+        &[
+            "remote",
+            "add",
+            "company/origin",
+            source.to_string_lossy().as_ref()
+        ]
+    )
+    .status
+    .success());
+    let response: Value = serde_json::from_str(&execute_json(&serde_json::to_string(&serde_json::json!({
+        "id": "nested-pull", "command": "git.write", "payload": {
+            "root": work, "operation": "pull", "reference": "refs/remotes/company/origin/feature/core",
+            "referenceKind": "remote", "mode": "rebase"
+        }
+    })).expect("request should encode"))).expect("response should be JSON");
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(response["data"]["exitCode"], 0, "{response}");
+    assert_eq!(
+        fs::read_to_string(work.join("nested.txt"))
+            .expect("file should exist")
+            .replace("\r\n", "\n"),
+        "nested\n"
+    );
+    fs::remove_dir_all(root).expect("fixture should be removable");
 }

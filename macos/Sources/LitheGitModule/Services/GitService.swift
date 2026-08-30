@@ -73,7 +73,13 @@ package protocol GitOperations: Sendable {
     func deleteBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult?
     func mergeBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult?
     func rebaseCurrentBranch(onto reference: GitReference, at rootURL: URL) -> GitProcessResult?
+    func checkoutAndRebase(_ reference: GitReference, at rootURL: URL) -> GitProcessResult?
     func updateCurrentBranch(at rootURL: URL, strategy: GitPullStrategy) -> GitProcessResult?
+    func pullRemoteReference(
+        _ reference: GitReference,
+        strategy: GitPullStrategy,
+        at rootURL: URL
+    ) -> GitProcessResult?
     func pullPreflight(at rootURL: URL) -> GitPullPreflightState?
     func conflictMarkerPaths(at rootURL: URL) -> [String]
     func integrationPreflight(
@@ -343,8 +349,8 @@ package struct GitService: Sendable {
         } ?? GitHistorySnapshot(references: [], commits: [], hasMore: false)
     }
 
-    func files(in commit: GitCommit, at repositoryRoot: URL) async -> [GitCommitFile] {
-        await read(priority: .utility) { $0.files(in: commit, at: repositoryRoot) } ?? []
+    func files(in commit: GitCommit, at repositoryRoot: URL) async -> [GitCommitFile]? {
+        await read(priority: .utility) { $0.files(in: commit, at: repositoryRoot) }
     }
 
     func diffDocument(
@@ -515,11 +521,25 @@ package struct GitService: Sendable {
         await command(at: repositoryRoot) { $0.rebaseCurrentBranch(onto: reference, at: repositoryRoot) }
     }
 
+    func checkoutAndRebase(_ reference: GitReference, at repositoryRoot: URL) async -> CommandResult {
+        await command(at: repositoryRoot) { $0.checkoutAndRebase(reference, at: repositoryRoot) }
+    }
+
     func updateCurrentBranch(
         at repositoryRoot: URL,
         strategy: GitPullStrategy = .ffOnly
     ) async -> CommandResult {
         await command(at: repositoryRoot) { $0.updateCurrentBranch(at: repositoryRoot, strategy: strategy) }
+    }
+
+    func pullRemoteReference(
+        _ reference: GitReference,
+        strategy: GitPullStrategy,
+        at repositoryRoot: URL
+    ) async -> CommandResult {
+        await command(at: repositoryRoot) {
+            $0.pullRemoteReference(reference, strategy: strategy, at: repositoryRoot)
+        }
     }
 
     func pullPreflight(at repositoryRoot: URL) async -> GitPullPreflightState? {

@@ -235,6 +235,9 @@ extension AppModel {
         set { gitFeatureIfActive?.selectedGitCommit = newValue }
     }
     var selectedGitCommitFiles: [GitCommitFile] { gitFeatureIfActive?.selectedGitCommitFiles ?? [] }
+    var selectedGitCommitFilesLoadState: GitCommitFilesLoadState {
+        gitFeatureIfActive?.selectedGitCommitFilesLoadState ?? .idle
+    }
     var selectedGitCommitFile: GitCommitFile? {
         get { gitFeatureIfActive?.selectedGitCommitFile }
         set { gitFeatureIfActive?.selectedGitCommitFile = newValue }
@@ -336,7 +339,7 @@ extension AppModel {
         switch id {
         case "open-project", "settings":
             true
-        case "save", "find-in-file", "local-history", "reveal-in-finder":
+        case "save", "find-in-file", "replace-in-file", "local-history", "reveal-in-finder":
             activeDocument != nil
         case "find-next", "find-previous":
             isFindBarVisible && findMatchCount > 0
