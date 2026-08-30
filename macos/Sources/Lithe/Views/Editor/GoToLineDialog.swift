@@ -59,7 +59,7 @@ enum GoToLineDialog {
             backing: .buffered,
             defer: false
         )
-        panel.title = "Go to Line:Column"
+        panel.title = String(localized: "Go to Line:Column")
         panel.isReleasedWhenClosed = false
         panel.level = .floating
         panel.delegate = coordinator
@@ -77,7 +77,7 @@ enum GoToLineDialog {
     ) {
         let content = NSView(frame: NSRect(x: 0, y: 0, width: 340, height: 96))
 
-        let label = NSTextField(labelWithString: "[Line] [:column]:")
+        let label = NSTextField(labelWithString: String(localized: "[Line] [:column]:"))
         label.font = .systemFont(ofSize: 13)
         label.sizeToFit()
         label.frame.origin = NSPoint(x: 16, y: 50)
@@ -98,7 +98,7 @@ enum GoToLineDialog {
         content.addSubview(field)
 
         let cancelButton = NSButton(
-            title: "Cancel",
+            title: String(localized: "Cancel"),
             target: coordinator,
             action: #selector(DialogCoordinator.cancelFromButton)
         )
@@ -108,7 +108,7 @@ enum GoToLineDialog {
         content.addSubview(cancelButton)
 
         let okButton = NSButton(
-            title: "OK",
+            title: String(localized: "OK"),
             target: coordinator,
             action: #selector(DialogCoordinator.confirmFromButton)
         )

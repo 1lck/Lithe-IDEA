@@ -23,16 +23,23 @@ extension AppModel {
     /// active document is a no-op. Line and column are converged against the
     /// current document text right before jumping, without caching stale
     /// line counts, and the jump enters the navigation history so Cmd+[
-    /// returns to the departure position.
+    /// returns to the departure position. Line-only jumps select the whole
+    /// target line; an explicitly entered column places the caret at that
+    /// column instead, so the entered position is never discarded.
     func goToLine(_ text: String) {
         guard let document = activeDocument,
               let parsed = GoToLineInput.parse(text) else { return }
-        let target = GoToLineInput.clamped(line: parsed.line, column: parsed.column, in: document.text)
+        let target = GoToLineInput.clamped(
+            line: parsed.line,
+            column: parsed.column,
+            hasExplicitColumn: parsed.hasExplicitColumn,
+            in: document.text
+        )
         navigateToEditorLocation(
             url: document.url,
             line: target.line,
             utf16Column: target.column,
-            selectsWholeLine: true
+            selectsWholeLine: !target.hasExplicitColumn
         )
     }
 }

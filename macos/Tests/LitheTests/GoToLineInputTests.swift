@@ -12,13 +12,28 @@ struct GoToLineInputTests {
 
     @Test
     func parsesLineAndColumnInput() {
-        #expect(GoToLineInput.parse("120:35") == GoToLineInput(line: 119, column: 34))
+        #expect(
+            GoToLineInput.parse("120:35")
+                == GoToLineInput(line: 119, column: 34, hasExplicitColumn: true)
+        )
+    }
+
+    @Test
+    func marksExplicitColumnOnlyForColonInput() {
+        // 只有显式输入了列号才标记 hasExplicitColumn：行号跳转整行选中，
+        // 行:列跳转把 caret 放到该列
+        #expect(GoToLineInput.parse("120")?.hasExplicitColumn == false)
+        #expect(GoToLineInput.parse("120:35")?.hasExplicitColumn == true)
+        #expect(GoToLineInput.parse(" 120 : 35 ")?.hasExplicitColumn == true)
     }
 
     @Test
     func toleratesWhitespaceAroundAndBetweenNumbers() {
         #expect(GoToLineInput.parse("  120 ") == GoToLineInput(line: 119, column: 0))
-        #expect(GoToLineInput.parse("12 : 34") == GoToLineInput(line: 11, column: 33))
+        #expect(
+            GoToLineInput.parse("12 : 34")
+                == GoToLineInput(line: 11, column: 33, hasExplicitColumn: true)
+        )
     }
 
     @Test
@@ -80,6 +95,33 @@ struct GoToLineInputTests {
         // "a\n" has an addressable second line (the trailing empty line).
         #expect(GoToLineInput.clamped(line: 9, column: 3, in: "a\n") == GoToLineInput(line: 1, column: 0))
         #expect(GoToLineInput.clamped(line: 9, column: 3, in: "a\nb") == GoToLineInput(line: 1, column: 1))
+    }
+
+    @Test
+    func clampsLineAndColumnInCRLFContent() {
+        // CRLF 终止符不计入上一行的列上限
+        let content = "first\r\nsecond\r\nthird"
+        #expect(GoToLineInput.clamped(line: 0, column: 99, in: content) == GoToLineInput(line: 0, column: 5))
+        #expect(GoToLineInput.clamped(line: 1, column: 99, in: content) == GoToLineInput(line: 1, column: 6))
+        #expect(GoToLineInput.clamped(line: 2, column: 1, in: content) == GoToLineInput(line: 2, column: 1))
+        #expect(GoToLineInput.clamped(line: 9, column: 0, in: content) == GoToLineInput(line: 2, column: 0))
+    }
+
+    @Test
+    func clampsLineAndColumnInCRonlyContent() {
+        // CR-only 换行与编辑器 TextLineIndex 的行索引规则一致
+        let content = "a\rb"
+        #expect(GoToLineInput.clamped(line: 0, column: 99, in: content) == GoToLineInput(line: 0, column: 1))
+        #expect(GoToLineInput.clamped(line: 1, column: 0, in: content) == GoToLineInput(line: 1, column: 0))
+        #expect(GoToLineInput.clamped(line: 9, column: 0, in: content) == GoToLineInput(line: 1, column: 0))
+    }
+
+    @Test
+    func preservesExplicitColumnThroughClamping() {
+        // 收敛不改变显式列号标记
+        let parsed = GoToLineInput.parse("99:2")
+        let clamped = parsed.map { GoToLineInput.clamped(line: $0.line, column: $0.column, in: "a\nb") }
+        #expect(clamped?.hasExplicitColumn == true)
     }
 
     @Test

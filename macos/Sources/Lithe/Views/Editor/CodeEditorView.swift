@@ -1319,27 +1319,14 @@ struct CodeEditorView: NSViewRepresentable {
             appliedNavigationTargetID = target.id
 
             let text = textView.string as NSString
-            var lineStart = 0
-            var currentLine = 0
-            while currentLine < target.line, lineStart < text.length {
-                let range = text.lineRange(for: NSRange(location: lineStart, length: 0))
-                lineStart = NSMaxRange(range)
-                currentLine += 1
-            }
-            let lineRange = text.lineRange(for: NSRange(location: min(lineStart, text.length), length: 0))
-            let location = min(NSMaxRange(lineRange), lineStart + target.utf16Column)
-            if target.selectsWholeLine {
-                // Go to Line feedback: select the whole target line, excluding
-                // the trailing newline so the selection is pure line content.
-                var selectionLength = NSMaxRange(lineRange) - lineStart
-                if selectionLength > 0, text.character(at: NSMaxRange(lineRange) - 1) == 10 {
-                    selectionLength -= 1
-                }
-                textView.setSelectedRange(NSRange(location: lineStart, length: selectionLength))
-            } else {
-                textView.setSelectedRange(NSRange(location: location, length: 0))
-            }
-            textView.scrollRangeToVisible(NSRange(location: location, length: 0))
+            let selection = GoToLineSelection.targetRange(
+                line: target.line,
+                utf16Column: target.utf16Column,
+                selectsWholeLine: target.selectsWholeLine,
+                in: text
+            )
+            textView.setSelectedRange(selection)
+            textView.scrollRangeToVisible(selection)
             textView.window?.makeFirstResponder(textView)
             scheduleCaretUpdate()
         }
@@ -2875,7 +2862,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
         let menu = super.menu(for: event) ?? NSMenu()
         let goToLineItem = NSMenuItem(
-            title: "Go to Line…",
+            title: NSLocalizedString("Go to Line…", comment: "Context menu item that opens the go-to-line dialog"),
             action: #selector(goToLineFromMenu),
             keyEquivalent: ""
         )

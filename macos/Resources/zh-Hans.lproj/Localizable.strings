@@ -251,6 +251,8 @@
 "Find in File…" = "在文件中查找…";
 "Replace in File…" = "在文件中替换…";
 "Go to Line…" = "跳转到行…";
+"Go to Line:Column" = "跳转到行:列";
+"[Line] [:column]:" = "[行] [:列]:";
 "Find Next" = "查找下一个";
 "Find Previous" = "查找上一个";
 "Go to Usage" = "跳转到调用位置";
