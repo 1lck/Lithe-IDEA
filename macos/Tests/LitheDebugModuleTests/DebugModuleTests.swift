@@ -156,6 +156,51 @@ struct DebugModuleTests {
     }
 
     @Test
+    func consoleHistoryIsBoundedDeduplicatedAndScopedToTheSelectedSession() throws {
+        let descriptor = DebugProviderDescriptor(
+            id: "java",
+            displayName: "Java",
+            fileExtensions: ["java"]
+        )
+        var createdSessions: [DeferredInspectionDebugSession] = []
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
+            let session = DeferredInspectionDebugSession()
+            createdSessions.append(session)
+            return session
+        }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        let root = URL(fileURLWithPath: "/tmp/java-debug-console-history", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.java")
+        let configuration = DebugLaunchConfiguration(
+            name: "Main",
+            request: .launch,
+            arguments: ["mainClass": .string("example.Main")]
+        )
+
+        #expect(feature.start(fileURL: source, rootURL: root, configuration: configuration))
+        for index in 0..<105 {
+            feature.evaluate("value\(index)")
+        }
+        feature.evaluate("value104")
+
+        #expect(feature.consoleHistory.count == 100)
+        #expect(feature.consoleHistory.first == "value5")
+        #expect(feature.consoleHistory.last == "value104")
+        #expect(feature.previousConsoleExpression(current: "") == "value104")
+        #expect(feature.previousConsoleExpression(current: "value104") == "value103")
+        #expect(feature.nextConsoleExpression() == "value104")
+        #expect(feature.nextConsoleExpression() == "")
+
+        #expect(feature.startAdditional(
+            fileURL: source,
+            rootURL: root,
+            configuration: configuration
+        ))
+        #expect(feature.consoleHistory.isEmpty)
+        feature.stop()
+    }
+
+    @Test
     func featureSwitchesSessionsWithoutMixingTheirConsoleState() throws {
         let descriptor = DebugProviderDescriptor(
             id: "java",

@@ -814,6 +814,16 @@ struct GenericDebugView: View {
             Image(systemName: "chevron.right")
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(LitheTheme.accent)
+            Button {
+                if let expression = feature.previousConsoleExpression(current: consoleExpression) {
+                    consoleExpression = expression
+                }
+            } label: {
+                Image(systemName: "chevron.up")
+            }
+            .litheIconButton()
+            .disabled(feature.consoleHistory.isEmpty || feature.state != .paused)
+            .help("Previous console expression")
             TextField("Evaluate expression while paused", text: $consoleExpression)
                 .textFieldStyle(.plain)
                 .font(.system(size: 11.5, design: .monospaced))
@@ -826,6 +836,16 @@ struct GenericDebugView: View {
             .litheIconButton()
             .disabled(feature.state != .paused || consoleExpression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .help("Evaluate expression")
+            Button {
+                if let expression = feature.nextConsoleExpression() {
+                    consoleExpression = expression
+                }
+            } label: {
+                Image(systemName: "chevron.down")
+            }
+            .litheIconButton()
+            .disabled(feature.consoleHistory.isEmpty || feature.state != .paused)
+            .help("Next console expression")
         }
         .padding(.horizontal, 10)
         .frame(height: 34)

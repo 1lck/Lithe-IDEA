@@ -243,6 +243,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     /// the frame that initially caused the stop.
     @Published public private(set) var selectedFrame: DebugStackFrame?
     @Published public private(set) var javaSteppingFilters: DebugSteppingFilters?
+    @Published public private(set) var consoleHistory: [String] = []
     @Published public private(set) var areFilteredStackFramesExpanded = false
 
     /// Delivers the selected stopped frame to the host editor for source
@@ -281,6 +282,10 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     private var activeFileURL: URL?
     private var lastStartRequest: GenericDebugStartRequest?
     private var sessionSnapshots: [DebugSessionID: GenericDebugSessionSnapshot] = [:]
+    private var consoleHistoryBySession: [DebugSessionID: [String]] = [:]
+    private var consoleHistoryCursorBySession: [DebugSessionID: Int] = [:]
+    private var consoleHistoryDraftBySession: [DebugSessionID: String] = [:]
+    private let maximumConsoleHistoryEntries = 100
     private let maximumOutputCharacters = 400_000
     private let variablePageSize = 100
     private var watchGeneration = 0
@@ -454,6 +459,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         activeSessionID = sessionID
         providerID = summary.providerID
         onSessionSelectionChanged?(sessionID)
+        publishConsoleHistory(for: sessionID)
         restoreSessionSnapshot(sessionID, summary: summary)
         sessionSummaries = sessions.sessionSummaries
         resetInspectionState()
@@ -536,6 +542,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             activeSessionID = launched.id
             state = launched.session.state
             sessionSummaries = sessions.sessionSummaries
+            publishConsoleHistory(for: launched.id)
             saveActiveSessionSnapshot()
             return true
         } catch {
@@ -573,6 +580,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             activeSessionID = replacement.id
             providerID = replacement.providerID
             onSessionSelectionChanged?(replacement.id)
+            publishConsoleHistory(for: replacement.id)
             restoreSessionSnapshot(replacement.id, summary: replacement)
             resetInspectionState()
             if state == .paused {
@@ -587,6 +595,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         }
         activeSessionID = nil
         onSessionSelectionChanged?(nil)
+        consoleHistory = []
         state = .idle
         stoppedReason = nil
         exceptionInfo = nil
@@ -611,6 +620,10 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         sessionSnapshots.removeAll()
         activeSessionID = nil
         sessionSummaries = []
+        consoleHistory = []
+        consoleHistoryBySession.removeAll()
+        consoleHistoryCursorBySession.removeAll()
+        consoleHistoryDraftBySession.removeAll()
         state = .idle
         stoppedReason = nil
         exceptionInfo = nil
@@ -1321,6 +1334,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     public func evaluate(_ expression: String) {
         let value = expression.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty, let session = activeSession else { return }
+        recordConsoleExpression(value)
         session.evaluate(value, frameID: selectedFrameID) { [weak self] result in
             switch result {
             case .success(let variable):
@@ -1328,6 +1342,52 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             case .failure(let error): self?.record(error)
             }
         }
+    }
+
+    /// Returns the previous expression for the active session's console.
+    public func previousConsoleExpression(current: String) -> String? {
+        guard let activeSessionID else { return nil }
+        let history = consoleHistoryBySession[activeSessionID] ?? []
+        guard !history.isEmpty else { return nil }
+        let cursor = consoleHistoryCursorBySession[activeSessionID] ?? history.count
+        if cursor == history.count, !current.isEmpty {
+            consoleHistoryDraftBySession[activeSessionID] = current
+        }
+        let next = max(0, cursor - 1)
+        consoleHistoryCursorBySession[activeSessionID] = next
+        return history[next]
+    }
+
+    /// Returns the next expression for the active session's console.
+    public func nextConsoleExpression() -> String? {
+        guard let activeSessionID else { return nil }
+        let history = consoleHistoryBySession[activeSessionID] ?? []
+        guard !history.isEmpty else { return nil }
+        let cursor = consoleHistoryCursorBySession[activeSessionID] ?? history.count
+        let next = min(history.count, cursor + 1)
+        consoleHistoryCursorBySession[activeSessionID] = next
+        if next < history.count { return history[next] }
+        return consoleHistoryDraftBySession[activeSessionID] ?? ""
+    }
+
+    private func recordConsoleExpression(_ expression: String) {
+        guard let activeSessionID else { return }
+        var history = consoleHistoryBySession[activeSessionID] ?? []
+        history.removeAll { $0 == expression }
+        history.append(expression)
+        if history.count > maximumConsoleHistoryEntries {
+            history.removeFirst(history.count - maximumConsoleHistoryEntries)
+        }
+        consoleHistoryBySession[activeSessionID] = history
+        consoleHistoryCursorBySession[activeSessionID] = history.count
+        consoleHistoryDraftBySession[activeSessionID] = nil
+        consoleHistory = history
+    }
+
+    private func publishConsoleHistory(for sessionID: DebugSessionID) {
+        consoleHistory = consoleHistoryBySession[sessionID] ?? []
+        consoleHistoryCursorBySession[sessionID] = consoleHistory.count
+        consoleHistoryDraftBySession[sessionID] = nil
     }
 
     public func evaluateForHover(
