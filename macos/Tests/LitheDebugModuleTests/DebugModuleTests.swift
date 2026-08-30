@@ -233,6 +233,59 @@ struct DebugModuleTests {
     }
 
     @Test
+    func stoppingActiveSessionPromotesTheMostRecentRemainingSession() throws {
+        let descriptor = DebugProviderDescriptor(
+            id: "java",
+            displayName: "Java",
+            fileExtensions: ["java"]
+        )
+        var createdSessions: [DeferredInspectionDebugSession] = []
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
+            let session = DeferredInspectionDebugSession()
+            createdSessions.append(session)
+            return session
+        }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        let root = URL(fileURLWithPath: "/tmp/java-debug-stop-promotion", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.java")
+        let firstConfiguration = DebugLaunchConfiguration(
+            name: "First",
+            request: .launch,
+            arguments: ["mainClass": .string("example.First")]
+        )
+        let secondConfiguration = DebugLaunchConfiguration(
+            name: "Second",
+            request: .launch,
+            arguments: ["mainClass": .string("example.Second")]
+        )
+
+        #expect(feature.start(fileURL: source, rootURL: root, configuration: firstConfiguration))
+        let firstID = try #require(feature.activeSessionID)
+        let first = try #require(createdSessions.first)
+        first.emit(.output(category: "stdout", output: "first\n"))
+        #expect(feature.startAdditional(
+            fileURL: source,
+            rootURL: root,
+            configuration: secondConfiguration
+        ))
+        let secondID = try #require(feature.activeSessionID)
+        #expect(secondID != firstID)
+        let second = try #require(createdSessions.dropFirst().first)
+        second.emit(.output(category: "stdout", output: "second\n"))
+
+        feature.stop()
+
+        #expect(feature.activeSessionID == firstID)
+        #expect(feature.targetTitle == "First")
+        #expect(feature.output == "first\n")
+        #expect(feature.state == .paused)
+        #expect(manager.activeSessionIDs == [firstID])
+        #expect(second.isRunning == false)
+
+        feature.stop()
+    }
+
+    @Test
     func coreProtocolSessionProjectsRustUpdatesThroughInjectedTransport() throws {
         let transport = RecordingTransport()
         let core = RecordingDebugProtocolCore()

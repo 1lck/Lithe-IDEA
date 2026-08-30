@@ -547,6 +547,23 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             sessions.stop(sessionID: activeSessionID)
             sessionSnapshots[activeSessionID] = nil
         }
+        sessionSummaries = sessions.sessionSummaries
+        if let replacement = sessionSummaries.last,
+           sessions.select(sessionID: replacement.id) {
+            activeSessionID = replacement.id
+            providerID = replacement.providerID
+            restoreSessionSnapshot(replacement.id, summary: replacement)
+            resetInspectionState()
+            if state == .paused {
+                let generation = inspectionGeneration
+                loadStoppedContext(
+                    threadID: nil,
+                    generation: generation,
+                    shouldLoadExceptionInfo: false
+                )
+            }
+            return
+        }
         activeSessionID = nil
         state = .idle
         stoppedReason = nil
@@ -564,7 +581,6 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         capabilities = .unknown
         activeFileURL = nil
         debuggeeOutputNormalizer.reset()
-        sessionSummaries = sessions.sessionSummaries
     }
 
     public func reset() {
