@@ -1,9 +1,9 @@
 import type { BackendLanguageToolConfigSet } from "@/extensions/registry/extension-store-runtime";
 import { isJavaSourcePath, JAVA_LANGUAGE_ID, JAVA_PROVIDER_ID } from "./built-in-language-support";
-import {
-  resolveJavaLspLaunch,
-  type JdtlsLaunchResources,
-} from "./java-lsp-host-api";
+import { resolveJavaLspLaunch, type JdtlsLaunchResources } from "./java-lsp-host-api";
+import type { MavenLaunchContext } from "@/features/maven/types/maven.types";
+import { mavenLaunchContextForWorkspace } from "@/features/maven/stores/maven.store";
+import { getRelativePath } from "@/utils/path-helpers";
 
 export interface EditorLspLaunch {
   providerId: string;
@@ -18,6 +18,7 @@ export interface EditorLspLaunch {
   environment?: Record<string, string>;
   /** Workspace structure digest forwarded to the Rust core. */
   workspaceFingerprint?: string | null;
+  mavenContext?: MavenLaunchContext | null;
 }
 
 export async function resolveEditorLspLaunch(
@@ -25,7 +26,10 @@ export async function resolveEditorLspLaunch(
   workspacePath: string,
 ): Promise<EditorLspLaunch | null> {
   if (isJavaSourcePath(filePath)) {
-    const launch = await resolveJavaLspLaunch(workspacePath);
+    const [launch, mavenContext] = await Promise.all([
+      resolveJavaLspLaunch(workspacePath),
+      mavenLaunchContextForWorkspace(workspacePath, [getRelativePath(filePath, workspacePath)]),
+    ]);
     const environment: Record<string, string> = {};
     if (launch.environment.JAVA_HOME) {
       environment.JAVA_HOME = launch.environment.JAVA_HOME;
@@ -40,6 +44,7 @@ export async function resolveEditorLspLaunch(
       cacheDirectory: launch.cacheDirectory,
       environment,
       workspaceFingerprint: launch.workspaceFingerprint,
+      mavenContext,
     };
   }
 

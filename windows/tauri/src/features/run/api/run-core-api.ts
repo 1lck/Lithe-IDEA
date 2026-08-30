@@ -8,6 +8,7 @@ import type {
   RunOptions,
   RunSaveScope,
 } from "../types/run.types";
+import type { MavenLaunchContext } from "@/features/maven/types/maven.types";
 import { projectScopedPath } from "../utils/run-configuration";
 
 let requestSequence = 0;
@@ -56,11 +57,17 @@ export function resolveRunConfiguration(
   return runCore<CoreResolveResult>("runConfig.resolve", { root, toolchainCandidates });
 }
 
-export function createLaunchPlan(root: string, configurationId: string, currentFile?: string) {
+export function createLaunchPlan(
+  root: string,
+  configurationId: string,
+  currentFile?: string,
+  mavenContext?: MavenLaunchContext | null,
+) {
   return runCore<LaunchPlan>("runConfig.createLaunchPlan", {
     root,
     configurationId,
     currentFile,
+    mavenContext: mavenContext ?? null,
   });
 }
 

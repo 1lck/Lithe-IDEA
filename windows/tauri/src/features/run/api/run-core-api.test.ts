@@ -8,7 +8,7 @@ const executeCore = mock(async () => ({
 
 mock.module("@/core/lithe-core-client", () => ({ executeCore }));
 
-const { saveRunConfigurationEditorChanges } = await import("./run-core-api");
+const { createLaunchPlan, saveRunConfigurationEditorChanges } = await import("./run-core-api");
 
 const emptyToolchain = {
   javaHomePath: "",
@@ -22,6 +22,32 @@ beforeEach(() => {
 });
 
 describe("saveRunConfigurationEditorChanges", () => {
+  test("forwards the shared Maven context when creating a launch plan", async () => {
+    const mavenContext = {
+      version: 1 as const,
+      reactorPath: "reactor",
+      profiles: ["dev"],
+      settingsPath: "C:/Users/example/.m2/settings.xml",
+      skipTests: true,
+      mavenExecutablePath: "D:/Tools/apache-maven",
+      javaHomePath: "C:/Java/jdk-21",
+    };
+
+    await createLaunchPlan("D:/fixture/project", "spring", undefined, mavenContext);
+
+    expect(executeCore).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: "runConfig.createLaunchPlan",
+        payload: {
+          root: "D:/fixture/project",
+          configurationId: "spring",
+          currentFile: undefined,
+          mavenContext,
+        },
+      }),
+    );
+  });
+
   test("sends project-relative working directory and toolchain paths in project scope", async () => {
     await saveRunConfigurationEditorChanges(
       "D:/fixture/project",

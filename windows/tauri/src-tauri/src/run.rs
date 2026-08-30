@@ -440,7 +440,7 @@ fn validate_write_target(root: &Path, target: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), String> {
+pub(crate) fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), String> {
     if path.exists() {
         if let Ok(existing) = fs::read(path) {
             if existing == contents {

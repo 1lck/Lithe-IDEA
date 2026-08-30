@@ -605,6 +605,7 @@ export class LspClient {
           cacheDirectory: launch.cacheDirectory || null,
           environment: launch.environment || null,
           workspaceFingerprint: launch.workspaceFingerprint || null,
+          mavenContext: launch.mavenContext || null,
         });
 
         if (representativeFilePath) {
@@ -833,6 +834,7 @@ export class LspClient {
           cacheDirectory: launch.cacheDirectory || null,
           environment: launch.environment || null,
           workspaceFingerprint: launch.workspaceFingerprint || null,
+          mavenContext: launch.mavenContext || null,
           attachmentId,
         });
         if (!isCurrentAttachment()) {

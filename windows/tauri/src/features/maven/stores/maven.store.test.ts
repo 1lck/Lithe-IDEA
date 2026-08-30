@@ -1,0 +1,282 @@
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+import type {
+  MavenDiagnostic,
+  MavenLaunchPlan,
+  MavenProject,
+  MavenStoredConfiguration,
+} from "../types/maven.types";
+import { createMavenStore, mavenLaunchContext, type MavenStoreDependencies } from "./maven.store";
+
+type Deferred<T> = {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+};
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((complete) => {
+    resolve = complete;
+  });
+  return { promise, resolve };
+}
+
+const project: MavenProject = {
+  relativePath: "reactor",
+  groupId: "dev.lithe",
+  artifactId: "demo",
+  version: "1.0.0",
+  packaging: "pom",
+  hasWrapper: true,
+  profiles: [
+    { id: "default", isActiveByDefault: true },
+    { id: "dev", isActiveByDefault: false },
+  ],
+  modules: [],
+};
+
+const launchPlan: MavenLaunchPlan = {
+  version: 1,
+  executable: { toolchain: "project-maven" },
+  arguments: ["-B", "compile"],
+  workingDirectory: "reactor",
+  configurationFingerprint: "fixture-fingerprint",
+};
+
+const scanMavenProject = mock(async (_root: string, _paths?: string[]) => project);
+const createMavenLaunchPlan = mock(async () => launchPlan);
+const parseMavenDiagnostics = mock(
+  async (_root: string, _output: string): Promise<MavenDiagnostic[]> => [],
+);
+const loadMavenConfiguration = mock(async () => ({}));
+const writeMavenConfiguration = mock(
+  async (
+    _root: string,
+    _reactorPath: string,
+    _configuration: MavenStoredConfiguration,
+  ): Promise<void> => undefined,
+);
+const resolveMavenLaunch = mock(async () => ({
+  executable: "D:/Tools/apache-maven/bin/mvn.cmd",
+  workingDirectory: "D:/work/reactor",
+  environment: {},
+}));
+const startMavenProcess = mock(async () => undefined);
+const stopMavenProcess = mock(async () => undefined);
+
+const dependencies = {
+  createMavenLaunchPlan,
+  loadMavenConfiguration,
+  parseMavenDiagnostics,
+  resolveMavenLaunch,
+  scanMavenProject,
+  startMavenProcess,
+  stopMavenProcess,
+  writeMavenConfiguration,
+} satisfies MavenStoreDependencies;
+
+beforeEach(() => {
+  scanMavenProject.mockReset();
+  scanMavenProject.mockResolvedValue(project);
+  loadMavenConfiguration.mockReset();
+  loadMavenConfiguration.mockResolvedValue({});
+  writeMavenConfiguration.mockClear();
+  createMavenLaunchPlan.mockReset();
+  createMavenLaunchPlan.mockResolvedValue(launchPlan);
+  parseMavenDiagnostics.mockReset();
+  parseMavenDiagnostics.mockResolvedValue([]);
+  resolveMavenLaunch.mockClear();
+  startMavenProcess.mockClear();
+  stopMavenProcess.mockClear();
+});
+
+describe("Maven workspace state", () => {
+  test("restores portable selections and machine-local paths into one launch context", async () => {
+    loadMavenConfiguration.mockResolvedValue({
+      portable: {
+        version: 1,
+        selectedProfiles: ["qa", "dev"],
+        customProfiles: ["qa"],
+        skipTests: true,
+      },
+      local: {
+        version: 1,
+        settingsPath: "C:/Users/example/.m2/settings.xml",
+        mavenExecutablePath: "D:/Tools/apache-maven",
+        javaHomePath: "C:/Java/jdk-21",
+      },
+    });
+    const store = createMavenStore("workspace", dependencies);
+
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+
+    expect(mavenLaunchContext(store.getState())).toEqual({
+      version: 1,
+      reactorPath: "reactor",
+      profiles: ["dev", "qa"],
+      settingsPath: "C:/Users/example/.m2/settings.xml",
+      skipTests: true,
+      mavenExecutablePath: "D:/Tools/apache-maven",
+      javaHomePath: "C:/Java/jdk-21",
+    });
+  });
+
+  test("persists portable and local values in separate documents", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    const writeStarted = deferred<void>();
+    writeMavenConfiguration.mockImplementationOnce(async () => {
+      writeStarted.resolve(undefined);
+    });
+
+    store.getState().actions.updateLocalConfiguration({
+      settingsPath: "C:/Users/example/.m2/settings.xml",
+      mavenExecutablePath: "D:/Tools/apache-maven",
+      javaHomePath: "C:/Java/jdk-21",
+    });
+    await writeStarted.promise;
+
+    const calls = writeMavenConfiguration.mock.calls;
+    const configuration = calls[calls.length - 1]?.[2];
+    expect(configuration?.portable).toEqual({
+      version: 1,
+      selectedProfiles: ["default"],
+      customProfiles: [],
+      skipTests: false,
+    });
+    expect(configuration?.portable).not.toHaveProperty("settingsPath");
+    expect(configuration?.local).toEqual({
+      version: 1,
+      settingsPath: "C:/Users/example/.m2/settings.xml",
+      mavenExecutablePath: "D:/Tools/apache-maven",
+      javaHomePath: "C:/Java/jdk-21",
+    });
+  });
+
+  test("serializes rapid configuration writes so the newest value wins", async () => {
+    const firstStarted = deferred<void>();
+    const firstWrite = deferred<void>();
+    const secondStarted = deferred<void>();
+    writeMavenConfiguration
+      .mockImplementationOnce(async () => {
+        firstStarted.resolve(undefined);
+        await firstWrite.promise;
+      })
+      .mockImplementationOnce(async () => {
+        secondStarted.resolve(undefined);
+      });
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+
+    store.getState().actions.setSkipTests(true);
+    store.getState().actions.setSkipTests(false);
+    try {
+      await firstStarted.promise;
+      expect(writeMavenConfiguration).toHaveBeenCalledTimes(1);
+
+      firstWrite.resolve(undefined);
+      await secondStarted.promise;
+
+      expect(writeMavenConfiguration).toHaveBeenCalledTimes(2);
+      expect(writeMavenConfiguration.mock.calls[1]?.[2].portable?.skipTests).toBe(false);
+    } finally {
+      firstWrite.resolve(undefined);
+    }
+  });
+
+  test("waits for a pending configuration write before reloading", async () => {
+    const firstStarted = deferred<void>();
+    const firstWrite = deferred<void>();
+    const reloadScanStarted = deferred<void>();
+    const reloadConfigurationStarted = deferred<void>();
+    writeMavenConfiguration.mockImplementationOnce(async () => {
+      firstStarted.resolve(undefined);
+      await firstWrite.promise;
+    });
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    scanMavenProject.mockImplementationOnce(async () => {
+      reloadScanStarted.resolve(undefined);
+      return project;
+    });
+    loadMavenConfiguration.mockImplementationOnce(async () => {
+      reloadConfigurationStarted.resolve(undefined);
+      return {};
+    });
+    let reload: Promise<void> | undefined;
+
+    try {
+      store.getState().actions.setSkipTests(true);
+      await firstStarted.promise;
+      reload = store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+      await reloadScanStarted.promise;
+
+      expect(loadMavenConfiguration).toHaveBeenCalledTimes(1);
+      firstWrite.resolve(undefined);
+      await reloadConfigurationStarted.promise;
+      await reload;
+
+      expect(loadMavenConfiguration).toHaveBeenCalledTimes(2);
+    } finally {
+      firstWrite.resolve(undefined);
+      await reload;
+    }
+  });
+
+  test("does not let an older scan replace a newer workspace", async () => {
+    const firstScan = deferred<typeof project>();
+    const secondScan = deferred<typeof project>();
+    scanMavenProject
+      .mockImplementationOnce(() => firstScan.promise)
+      .mockImplementationOnce(() => secondScan.promise);
+    const store = createMavenStore("workspace", dependencies);
+
+    const first = store.getState().actions.loadProject("D:/first", ["pom.xml"]);
+    const second = store.getState().actions.loadProject("D:/second", ["pom.xml"]);
+    secondScan.resolve({ ...project, artifactId: "second" });
+    await second;
+    firstScan.resolve({ ...project, artifactId: "first" });
+    await first;
+
+    expect(store.getState().root).toBe("D:/second");
+    expect(store.getState().project?.artifactId).toBe("second");
+  });
+
+  test("cancels a pending launch without starting a stale process", async () => {
+    const pendingPlan = deferred<MavenLaunchPlan>();
+    createMavenLaunchPlan.mockImplementationOnce(() => pendingPlan.promise);
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+
+    const run = store.getState().actions.runGoals(["compile"], null, "compile");
+    await Promise.resolve();
+    await store.getState().actions.stop();
+    pendingPlan.resolve(launchPlan);
+    await run;
+
+    expect(startMavenProcess).not.toHaveBeenCalled();
+    expect(store.getState().taskStatus).toBe("idle");
+    expect(store.getState().activeSessionId).toBeNull();
+  });
+
+  test("does not let diagnostics from a completed task replace a newer run", async () => {
+    const pendingDiagnostics =
+      deferred<Array<{ path: string; line: number; severity: "error"; message: string }>>();
+    parseMavenDiagnostics.mockImplementationOnce(() => pendingDiagnostics.promise);
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    await store.getState().actions.runGoals(["compile"], null, "compile");
+    const completedSession = store.getState().activeSessionId;
+    expect(completedSession).not.toBeNull();
+
+    store.getState().actions.finishProcess(completedSession!, 1);
+    await store.getState().actions.runGoals(["test"], null, "test");
+    pendingDiagnostics.resolve([
+      { path: "src/Old.java", line: 3, severity: "error", message: "old task" },
+    ]);
+    await pendingDiagnostics.promise;
+    await Promise.resolve();
+
+    expect(store.getState().issues).toEqual([]);
+    expect(store.getState().runningTitle).toBe("test");
+  });
+});
