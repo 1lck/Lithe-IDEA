@@ -1751,3 +1751,82 @@ fn git_pull_preflight_reports_divergence_and_strategies_resolve_it() {
 
     fs::remove_dir_all(root).expect("Git fixture should be removable");
 }
+
+#[test]
+fn explicit_pull_resolves_nested_remote_and_branch_names_against_bare_remote() {
+    let root = temporary_root("git-pull-nested-ref");
+    let source = root.join("source");
+    let work = root.join("work");
+    fs::create_dir_all(&source).expect("source should be creatable");
+    let git = |directory: &Path, arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(directory)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(git(&source, &["init", "--bare", "-q"]).status.success());
+    let seed = root.join("seed");
+    fs::create_dir_all(&seed).expect("seed should be creatable");
+    assert!(git(&seed, &["init", "-q", "-b", "main"]).status.success());
+    assert!(git(&seed, &["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(git(&seed, &["config", "user.name", "Lithe Test"])
+        .status
+        .success());
+    fs::write(seed.join("base.txt"), "base\n").expect("file should be writable");
+    assert!(git(&seed, &["add", "."]).status.success());
+    assert!(git(&seed, &["commit", "-qm", "base"]).status.success());
+    assert!(git(
+        &seed,
+        &[
+            "remote",
+            "add",
+            "company/origin",
+            source.to_string_lossy().as_ref()
+        ]
+    )
+    .status
+    .success());
+    assert!(git(&seed, &["push", "-q", "company/origin", "main"])
+        .status
+        .success());
+    assert!(git(&seed, &["switch", "-c", "feature/core"])
+        .status
+        .success());
+    fs::write(seed.join("nested.txt"), "nested\n").expect("file should be writable");
+    assert!(git(&seed, &["add", "."]).status.success());
+    assert!(git(&seed, &["commit", "-qm", "nested"]).status.success());
+    assert!(
+        git(&seed, &["push", "-q", "company/origin", "feature/core"])
+            .status
+            .success()
+    );
+    assert!(git(
+        &root,
+        &[
+            "clone",
+            "-q",
+            seed.to_string_lossy().as_ref(),
+            work.to_string_lossy().as_ref()
+        ]
+    )
+    .status
+    .success());
+    let response: Value = serde_json::from_str(&execute_json(&serde_json::to_string(&serde_json::json!({
+        "id": "nested-pull", "command": "git.write", "payload": {
+            "root": work, "operation": "pull", "reference": "refs/remotes/company/origin/feature/core",
+            "referenceKind": "remote", "mode": "rebase"
+        }
+    })).expect("request should encode"))).expect("response should be JSON");
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(response["data"]["exitCode"], 0, "{response}");
+    assert_eq!(
+        fs::read_to_string(work.join("nested.txt"))
+            .expect("file should exist")
+            .replace("\r\n", "\n"),
+        "nested\n"
+    );
+    fs::remove_dir_all(root).expect("fixture should be removable");
+}
