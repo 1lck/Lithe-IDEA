@@ -8,8 +8,8 @@ struct EditorNavigationLocation: Hashable, Sendable {
     let isReadOnly: Bool
     let displayPath: String?
     let virtualProviderID: String?
-    /// 消费该位置时整行选中目标行（Go to Line 行为）；符号与查找导航
-    /// 保持零长度光标。
+    /// Consume the location with the whole target line selected (Go to Line);
+    /// symbol and find navigation keep a zero-length caret.
     let selectsWholeLine: Bool
 
     init(

@@ -74,8 +74,9 @@ struct EditorChromeModelTests {
     }
 
     @Test
-    func goToLineBarAndFindBarAreMutuallyExclusive() {
-        // 查找栏与跳转条互斥：任一打开都会收起另一个
+    func goToLineDialogAndFindBarAreMutuallyExclusive() {
+        // The find bar and the go-to-line dialog are mutually exclusive:
+        // opening either dismisses the other.
         let chrome = EditorChromeModel()
         chrome.setFindBarVisible(true)
         chrome.setGoToLineVisible(true)

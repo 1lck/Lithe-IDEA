@@ -1,12 +1,13 @@
 import Foundation
 
-/// AppModel 的按行号跳转门面：驱动 `EditorChromeModel` 的跳转条显隐，
-/// 并把状态栏、菜单和快捷键入口提交的“行:列”输入经现有导航通路
-/// `navigateToEditorLocation` 跳转到目标行，进入既有导航历史。
+/// AppModel facade for the Go to Line feature: drives the `EditorChromeModel`
+/// visibility flag that the dialog presenter observes, and routes the
+/// submitted "line" or "line:column" input through the existing
+/// `navigateToEditorLocation` pathway so jumps enter the navigation history.
 extension AppModel {
     var isGoToLineVisible: Bool { editorChrome.isGoToLineVisible }
 
-    func showGoToLineBar() {
+    func showGoToLine() {
         guard activeDocument != nil else { return }
         if isFindBarVisible {
             hideFindBar()
@@ -14,13 +15,15 @@ extension AppModel {
         editorChrome.setGoToLineVisible(true)
     }
 
-    func hideGoToLineBar() {
+    func hideGoToLine() {
         editorChrome.setGoToLineVisible(false)
     }
 
-    /// 解析“120”或“120:35”输入并跳转，解析失败或无活动文档时为无操作。
-    /// 跳转前用当前文档文本重新收敛行列，不缓存打开输入框时的行数；
-    /// 跳转进入导航历史，Cmd+[ 可以回到跳转前的位置。
+    /// Parse "120" or "120:35" and jump; unparseable input or a missing
+    /// active document is a no-op. Line and column are converged against the
+    /// current document text right before jumping, without caching stale
+    /// line counts, and the jump enters the navigation history so Cmd+[
+    /// returns to the departure position.
     func goToLine(_ text: String) {
         guard let document = activeDocument,
               let parsed = GoToLineInput.parse(text) else { return }

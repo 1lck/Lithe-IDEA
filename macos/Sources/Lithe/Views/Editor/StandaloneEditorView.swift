@@ -14,6 +14,7 @@ struct StandaloneEditorView: View {
             content
         }
         .background(LitheTheme.editor)
+        .background(GoToLineDialogPresenter())
         .confirmationDialog(
             "Save changes before closing?",
             isPresented: Binding(
@@ -51,9 +52,6 @@ struct StandaloneEditorView: View {
                                 .padding(.top, 10)
                                 .padding(.horizontal, 12)
                         }
-                    }
-                    .overlay(alignment: .topTrailing) {
-                        GoToLineBarOverlay()
                     }
             } else {
                 failureView(.readFailed)

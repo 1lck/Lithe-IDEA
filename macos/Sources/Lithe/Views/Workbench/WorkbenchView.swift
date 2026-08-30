@@ -1064,7 +1064,7 @@ struct WorkbenchView: View {
     private var detailedStatusItems: some View {
         HStack(spacing: 14) {
             EditorCaretPositionLabel(chrome: model.editorChrome) {
-                model.showGoToLineBar()
+                model.showGoToLine()
             }
             Text("UTF-8")
             Text("\(settings.tabWidth) spaces")
@@ -1087,7 +1087,7 @@ struct WorkbenchView: View {
     private var compactStatusItems: some View {
         HStack(spacing: 10) {
             EditorCaretPositionLabel(chrome: model.editorChrome) {
-                model.showGoToLineBar()
+                model.showGoToLine()
             }
             MemoryUsageStatusView()
             FrameRateStatusView()

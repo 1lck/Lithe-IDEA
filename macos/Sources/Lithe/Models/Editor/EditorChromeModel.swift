@@ -27,7 +27,8 @@ final class EditorChromeModel: ObservableObject {
     func setFindBarVisible(_ isVisible: Bool) {
         guard isFindBarVisible != isVisible else { return }
         isFindBarVisible = isVisible
-        // 查找栏与跳转条互斥，任一打开都会收起另一个
+        // The find bar and the go-to-line dialog are mutually exclusive;
+        // opening either dismisses the other.
         if isVisible, isGoToLineVisible {
             setGoToLineVisible(false)
         }
