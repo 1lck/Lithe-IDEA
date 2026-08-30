@@ -634,6 +634,93 @@ struct GitModuleTests {
         #expect(feature.recentlyDeletedTag == nil)
     }
 
+    // MARK: Branch deletion restore
+
+    @Test
+    func gitBranchDeletionKeepsARestorableSessionRecord() async {
+        var notifications: [String] = []
+        let (feature, _) = makeTagTestFeature(
+            TestGitOperations(
+                snapshotValue: GitSnapshot(repositoryRoot: URL(fileURLWithPath: "/workspace"), branch: "main", changes: []),
+                deleteBranchResult: GitProcessResult(
+                    arguments: ["branch", "-d", "--", "feature/short-lived"],
+                    output: "Deleted branch feature/short-lived\n",
+                    exitCode: 0,
+                    branchDeletion: GitBranchDeletion(
+                        name: "feature/short-lived",
+                        deletedTarget: "abc123def456"
+                    )
+                )
+            ),
+            onNotify: { notifications.append($0) }
+        )
+        await feature.refreshGit()
+        let reference = GitReference(
+            fullName: "refs/heads/feature/short-lived",
+            shortName: "feature/short-lived",
+            kind: .local,
+            isCurrent: false,
+            upstreamShortName: nil
+        )
+
+        await feature.deleteBranch(reference)
+
+        #expect(feature.recentlyDeletedBranch == GitBranchDeletion(
+            name: "feature/short-lived",
+            deletedTarget: "abc123def456"
+        ))
+        #expect(notifications == ["Deleted branch feature/short-lived"])
+
+        feature.dismissDeletedBranchBanner()
+        #expect(feature.recentlyDeletedBranch == nil)
+    }
+
+    @Test
+    func gitBranchRestoreReplaysRecordedNameAndTarget() async {
+        var notifications: [String] = []
+        let recorder = BranchCallRecorder()
+        let (feature, _) = makeTagTestFeature(
+            TestGitOperations(
+                snapshotValue: GitSnapshot(repositoryRoot: URL(fileURLWithPath: "/workspace"), branch: "main", changes: []),
+                createBranchResult: GitProcessResult(arguments: ["branch", "feature/short-lived", "abc123def456"], output: "", exitCode: 0),
+                deleteBranchResult: GitProcessResult(
+                    arguments: ["branch", "-d", "--", "feature/short-lived"],
+                    output: "Deleted branch feature/short-lived\n",
+                    exitCode: 0,
+                    branchDeletion: GitBranchDeletion(
+                        name: "feature/short-lived",
+                        deletedTarget: "abc123def456"
+                    )
+                ),
+                branchCallRecorder: recorder
+            ),
+            onNotify: { notifications.append($0) }
+        )
+        await feature.refreshGit()
+        let reference = GitReference(
+            fullName: "refs/heads/feature/short-lived",
+            shortName: "feature/short-lived",
+            kind: .local,
+            isCurrent: false,
+            upstreamShortName: nil
+        )
+
+        await feature.deleteBranch(reference)
+        await feature.restoreRecentlyDeletedBranch()
+
+        // The restore replays createBranch against the recorded commit without
+        // checking the branch out.
+        #expect(Array(recorder.recorded.suffix(1)) == [
+            BranchCallRecorder.Call(name: "feature/short-lived", reference: "abc123def456", checkout: false)
+        ])
+        #expect(feature.recentlyDeletedBranch == nil)
+        #expect(notifications == ["Deleted branch feature/short-lived", "Restored branch feature/short-lived"])
+
+        // Project close drops the restorable record as well.
+        feature.reset()
+        #expect(feature.recentlyDeletedBranch == nil)
+    }
+
     @Test
     func gitServicePreservesExecutedArgumentsAndWorkingDirectory() async {        let root = URL(fileURLWithPath: "/workspace")
         let change = GitChange(
@@ -1049,6 +1136,30 @@ private final class TagCallRecorder: @unchecked Sendable {
     }
 }
 
+/// Records branch create/delete arguments for the branch restore flow.
+private final class BranchCallRecorder: @unchecked Sendable {
+    struct Call: Equatable {
+        let name: String
+        let reference: String
+        let checkout: Bool
+    }
+
+    private let lock = NSLock()
+    private var calls: [Call] = []
+
+    func record(_ call: Call) {
+        lock.lock()
+        calls.append(call)
+        lock.unlock()
+    }
+
+    var recorded: [Call] {
+        lock.lock()
+        defer { lock.unlock() }
+        return calls
+    }
+}
+
 private struct TestGitOperations: GitOperations {
     private let snapshotValue: GitSnapshot?
     private let comparisonValue: GitBranchComparison?
@@ -1059,6 +1170,9 @@ private struct TestGitOperations: GitOperations {
     private let createTagResult: GitProcessResult?
     private let deleteTagResult: GitProcessResult?
     private let tagCallRecorder: TagCallRecorder?
+    private let createBranchResult: GitProcessResult?
+    private let deleteBranchResult: GitProcessResult?
+    private let branchCallRecorder: BranchCallRecorder?
 
     init(
         snapshotValue: GitSnapshot? = nil,
@@ -1069,7 +1183,10 @@ private struct TestGitOperations: GitOperations {
         runGate: TestGitRunGate? = nil,
         createTagResult: GitProcessResult? = nil,
         deleteTagResult: GitProcessResult? = nil,
-        tagCallRecorder: TagCallRecorder? = nil
+        tagCallRecorder: TagCallRecorder? = nil,
+        createBranchResult: GitProcessResult? = nil,
+        deleteBranchResult: GitProcessResult? = nil,
+        branchCallRecorder: BranchCallRecorder? = nil
     ) {
         self.snapshotValue = snapshotValue
         self.comparisonValue = comparisonValue
@@ -1080,6 +1197,9 @@ private struct TestGitOperations: GitOperations {
         self.createTagResult = createTagResult
         self.deleteTagResult = deleteTagResult
         self.tagCallRecorder = tagCallRecorder
+        self.createBranchResult = createBranchResult
+        self.deleteBranchResult = deleteBranchResult
+        self.branchCallRecorder = branchCallRecorder
     }
 
     func run(arguments: [String], workingDirectory: String, input: String?) -> GitProcessResult {
@@ -1116,9 +1236,15 @@ private struct TestGitOperations: GitOperations {
     func cherryPick(_ hash: String, at rootURL: URL) -> GitProcessResult? { nil }
     func revert(_ hash: String, at rootURL: URL) -> GitProcessResult? { nil }
     func resetCurrentBranch(to hash: String, mode: String, at rootURL: URL) -> GitProcessResult? { nil }
-    func createBranch(named name: String, from reference: GitReference, checkout: Bool, at rootURL: URL) -> GitProcessResult? { nil }
+    func createBranch(named name: String, from reference: GitReference, checkout: Bool, at rootURL: URL) -> GitProcessResult? {
+        branchCallRecorder?.record(BranchCallRecorder.Call(name: name, reference: reference.fullName, checkout: checkout))
+        return createBranchResult
+    }
     func renameBranch(_ reference: GitReference, to name: String, at rootURL: URL) -> GitProcessResult? { nil }
-    func deleteBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? { nil }
+    func deleteBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? {
+        branchCallRecorder?.record(BranchCallRecorder.Call(name: reference.shortName, reference: reference.fullName, checkout: false))
+        return deleteBranchResult
+    }
     func mergeBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? { nil }
     func rebaseCurrentBranch(onto reference: GitReference, at rootURL: URL) -> GitProcessResult? { nil }
     func updateCurrentBranch(at rootURL: URL, strategy: GitPullStrategy) -> GitProcessResult? { nil }

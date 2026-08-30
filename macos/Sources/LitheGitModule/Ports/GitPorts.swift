@@ -42,6 +42,18 @@ public struct GitTagDeletion: Equatable, Sendable {
     public var isAnnotated: Bool { kind == "annotated" }
 }
 
+/// A deleted local branch and the commit it pointed at, kept in session state
+/// so the host can offer a restore.
+public struct GitBranchDeletion: Equatable, Sendable {
+    public let name: String
+    public let deletedTarget: String
+
+    public init(name: String, deletedTarget: String) {
+        self.name = name
+        self.deletedTarget = deletedTarget
+    }
+}
+
 public struct GitProcessResult: Sendable {
     public let arguments: [String]
     public let output: String
@@ -52,6 +64,7 @@ public struct GitProcessResult: Sendable {
     public let operationErrorMessage: String?
     public let stashRestoreConflict: GitStashRestoreConflict?
     public let tagDeletion: GitTagDeletion?
+    public let branchDeletion: GitBranchDeletion?
     public init(
         arguments: [String] = [],
         output: String,
@@ -61,7 +74,8 @@ public struct GitProcessResult: Sendable {
         invocations: [GitProcessInvocation] = [],
         operationErrorMessage: String? = nil,
         stashRestoreConflict: GitStashRestoreConflict? = nil,
-        tagDeletion: GitTagDeletion? = nil
+        tagDeletion: GitTagDeletion? = nil,
+        branchDeletion: GitBranchDeletion? = nil
     ) {
         self.arguments = arguments
         self.output = output
@@ -72,6 +86,7 @@ public struct GitProcessResult: Sendable {
         self.operationErrorMessage = operationErrorMessage
         self.stashRestoreConflict = stashRestoreConflict
         self.tagDeletion = tagDeletion
+        self.branchDeletion = branchDeletion
     }
 }
 

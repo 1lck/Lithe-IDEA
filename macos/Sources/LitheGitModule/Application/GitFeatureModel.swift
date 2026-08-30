@@ -37,6 +37,9 @@ package final class GitFeatureModel: ObservableObject {
     /// offer a restore. A new deletion, closing the banner, or `reset()`
     /// (project close) clears it; it never persists across sessions.
     @Published package private(set) var recentlyDeletedTag: GitTagDeletion?
+    /// The most recently deleted local branch, following the same session-only
+    /// rules as `recentlyDeletedTag`.
+    @Published package private(set) var recentlyDeletedBranch: GitBranchDeletion?
     @Published package private(set) var gitConflictFilterPaths: Set<String> = []
     @Published package private(set) var requestedStashReference: String?
     /// Set whenever Git is mid-merge, mid-rebase, mid-cherry-pick, or mid-revert.
@@ -167,6 +170,7 @@ package final class GitFeatureModel: ObservableObject {
         pendingStashRestoreConflict = nil
         isStashRestoreConflictNoticeVisible = false
         recentlyDeletedTag = nil
+        recentlyDeletedBranch = nil
         gitConflictFilterPaths = []
         requestedStashReference = nil
         deferredSavedChanges = nil
@@ -1538,8 +1542,47 @@ package final class GitFeatureModel: ObservableObject {
         isPerformingBranchOperation = true
         let result = await withGitOperation { await service.deleteBranch(reference, at: gitRepositoryRoot) }
         isPerformingBranchOperation = false
-        notify?(result.succeeded ? "Deleted \(reference.shortName)" : trimmedMessage(result))
+        if result.succeeded, let deletion = result.branchDeletion {
+            recentlyDeletedBranch = deletion
+            notify?("Deleted branch \(deletion.name)")
+        } else {
+            notify?(result.succeeded ? "Deleted \(reference.shortName)" : trimmedMessage(result))
+        }
         await refreshGit()
+    }
+
+    /// Rebuilds the deleted branch at its recorded commit. A failure (for
+    /// example the name was re-created elsewhere) keeps the record so the user
+    /// can retry or close the banner themselves.
+    package func restoreRecentlyDeletedBranch() async {
+        guard let deletion = recentlyDeletedBranch, let gitRepositoryRoot else { return }
+        isPerformingBranchOperation = true
+        let result = await withGitOperation {
+            await service.createBranch(
+                named: deletion.name,
+                from: GitReference(
+                    fullName: deletion.deletedTarget,
+                    shortName: deletion.deletedTarget,
+                    kind: .local,
+                    isCurrent: false,
+                    upstreamShortName: nil
+                ),
+                checkout: false,
+                at: gitRepositoryRoot
+            )
+        }
+        isPerformingBranchOperation = false
+        if result.succeeded {
+            recentlyDeletedBranch = nil
+            notify?("Restored branch \(deletion.name)")
+            await refreshGit()
+        } else {
+            notify?(trimmedMessage(result))
+        }
+    }
+
+    package func dismissDeletedBranchBanner() {
+        recentlyDeletedBranch = nil
     }
 
     /// Creates a lightweight or annotated tag. Returns `nil` on success so a

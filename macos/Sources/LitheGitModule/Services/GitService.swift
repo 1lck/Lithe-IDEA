@@ -127,6 +127,7 @@ package struct GitService: Sendable {
         package let operationErrorMessage: String?
         package let stashRestoreConflict: GitStashRestoreConflict?
         package let tagDeletion: GitTagDeletion?
+        package let branchDeletion: GitBranchDeletion?
 
         package init(
             workingDirectory: URL? = nil,
@@ -138,7 +139,8 @@ package struct GitService: Sendable {
             invocations: [GitProcessInvocation] = [],
             operationErrorMessage: String? = nil,
             stashRestoreConflict: GitStashRestoreConflict? = nil,
-            tagDeletion: GitTagDeletion? = nil
+            tagDeletion: GitTagDeletion? = nil,
+            branchDeletion: GitBranchDeletion? = nil
         ) {
             self.workingDirectory = workingDirectory
             self.arguments = arguments
@@ -150,6 +152,7 @@ package struct GitService: Sendable {
             self.operationErrorMessage = operationErrorMessage
             self.stashRestoreConflict = stashRestoreConflict
             self.tagDeletion = tagDeletion
+            self.branchDeletion = branchDeletion
         }
 
         package var succeeded: Bool {
@@ -657,7 +660,8 @@ package struct GitService: Sendable {
                 invocations: result?.invocations ?? [],
                 operationErrorMessage: result?.operationErrorMessage,
                 stashRestoreConflict: result?.stashRestoreConflict,
-                tagDeletion: result?.tagDeletion
+                tagDeletion: result?.tagDeletion,
+                branchDeletion: result?.branchDeletion
             )
         }.value
     }

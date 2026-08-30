@@ -1679,6 +1679,15 @@ final class AppModel: ObservableObject, Identifiable {
         await gitFeature.deleteBranch(reference)
     }
 
+    func restoreRecentlyDeletedBranch() async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.restoreRecentlyDeletedBranch()
+    }
+
+    func dismissDeletedBranchBanner() {
+        gitFeatureIfActive?.dismissDeletedBranchBanner()
+    }
+
     /// Returns nil on success, otherwise the error message a tag dialog
     /// should show where the user typed.
     @discardableResult

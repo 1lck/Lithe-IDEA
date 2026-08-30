@@ -220,8 +220,21 @@ struct GitLogView: View {
     private var logTabContent: some View {
         Group {
             primaryActionBar
+            if let deletedBranch = model.recentlyDeletedBranch {
+                deletedReferenceBanner(
+                    icon: "arrow.triangle.branch",
+                    message: "Deleted branch '\(deletedBranch.name)'",
+                    onRestore: { await model.restoreRecentlyDeletedBranch() },
+                    onDismiss: { model.dismissDeletedBranchBanner() }
+                )
+            }
             if let deletedTag = model.recentlyDeletedTag {
-                deletedTagBanner(deletedTag)
+                deletedReferenceBanner(
+                    icon: "tag",
+                    message: "Deleted tag '\(deletedTag.name)'",
+                    onRestore: { await model.restoreRecentlyDeletedTag() },
+                    onDismiss: { model.dismissDeletedTagBanner() }
+                )
             }
             logPanes
         }
@@ -684,19 +697,24 @@ struct GitLogView: View {
         }
     }
 
-    /// IntelliJ-style "deleted tag [Restore]" notice. The restore record lives
+    /// IntelliJ-style "deleted ref [Restore]" notice. The restore record lives
     /// in session state, so closing the banner ends the restore opportunity.
-    private func deletedTagBanner(_ deletedTag: GitTagDeletion) -> some View {
+    private func deletedReferenceBanner(
+        icon: String,
+        message: String,
+        onRestore: @escaping () async -> Void,
+        onDismiss: @escaping () -> Void
+    ) -> some View {
         HStack(spacing: 7) {
-            LitheSystemIcon(systemImage: "tag", size: 13)
+            LitheSystemIcon(systemImage: icon, size: 13)
                 .foregroundStyle(LitheTheme.warning)
-            Text("Deleted tag '\(deletedTag.name)'")
+            Text(message)
                 .font(.system(size: 11.5, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
                 .lineLimit(1)
             Spacer(minLength: 8)
             Button("Restore") {
-                Task { await model.restoreRecentlyDeletedTag() }
+                Task { await onRestore() }
             }
             .controlSize(.small)
             .buttonStyle(.borderedProminent)
@@ -704,7 +722,7 @@ struct GitLogView: View {
             .disabled(model.isPerformingBranchOperation)
             .lithePointer()
             Button {
-                model.dismissDeletedTagBanner()
+                onDismiss()
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .semibold))

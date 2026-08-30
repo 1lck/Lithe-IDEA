@@ -56,6 +56,12 @@
       "payload": {
         "name": "v2.0.0"
       }
+    },
+    {
+      "operation": "deleteBranch",
+      "payload": {
+        "reference": "refs/heads/feature/pending"
+      }
     }
   ],
   "responses": [
@@ -66,6 +72,13 @@
         "deletedTarget": "8e4b2d7bb019f0e5a3c6f1a2d4e5b6c7d8e9f0a1",
         "kind": "annotated",
         "message": "Release 2.0.0"
+      }
+    },
+    {
+      "operation": "deleteBranch",
+      "branchDeletion": {
+        "name": "feature/pending",
+        "deletedTarget": "2f1c9a4bb019f0e5a3c6f1a2d4e5b6c7d8e9f0a1"
       }
     }
   ],

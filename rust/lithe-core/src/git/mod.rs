@@ -117,6 +117,10 @@ pub struct GitCommandResponse {
     /// to offer a restore without re-querying the repository.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tag_deletion: Option<GitTagDeletionResponse>,
+    /// Present when a local branch deletion succeeded, carrying the commit the
+    /// branch pointed at so the host can offer to recreate it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch_deletion: Option<GitBranchDeletionResponse>,
 }
 
 /// Raw Git process streams kept separate for machine-readable consumers.
@@ -147,6 +151,7 @@ impl GitProcessOutput {
             operation_error: None,
             stash_restore: None,
             tag_deletion: None,
+            branch_deletion: None,
         }
     }
 }
@@ -230,6 +235,16 @@ pub struct GitTagDeletionResponse {
     /// Annotation message; `None` for lightweight tags and empty annotations.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Deletion record that lets a host recreate the deleted local branch later.
+pub struct GitBranchDeletionResponse {
+    /// Short branch name, without the `refs/heads/` prefix.
+    pub name: String,
+    /// Commit the deleted branch pointed at when it was removed.
+    pub deleted_target: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -552,7 +567,7 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
                     "The current branch cannot be deleted",
                 ));
             }
-            arguments = vec!["branch".into(), "-d".into(), "--".into(), branch];
+            return delete_branch(&root, &branch);
         }
         "merge" => {
             let reference = validated_reference(request.reference.as_deref())?;
@@ -1978,6 +1993,45 @@ fn delete_tag(root: &str, value: Option<&str>) -> Result<GitCommandResponse, Cor
     Ok(result)
 }
 
+/// Deletes one local branch and returns a structured deletion record so the
+/// host can offer a restore. The commit is resolved before the deletion
+/// because `git branch -d` diagnostics are localized prose.
+fn delete_branch(root: &str, branch: &str) -> Result<GitCommandResponse, CoreError> {
+    let target = execute_git(
+        root,
+        &[
+            "rev-parse".into(),
+            "--verify".into(),
+            format!("refs/heads/{branch}"),
+        ],
+        None,
+    )?;
+    if target.exit_code != 0 {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            format!("The branch '{branch}' does not exist"),
+        )
+        .with_details(target.output));
+    }
+    let mut result = execute_git(
+        root,
+        &[
+            "branch".into(),
+            "-d".into(),
+            "--".into(),
+            branch.to_string(),
+        ],
+        None,
+    )?;
+    if result.exit_code == 0 {
+        result.branch_deletion = Some(GitBranchDeletionResponse {
+            name: branch.to_string(),
+            deleted_target: target.stdout.trim().to_string(),
+        });
+    }
+    Ok(result)
+}
+
 /// Extracts the annotation message from a raw tag object, preserving the
 /// original line breaks. The signature block is dropped because it belongs to
 /// the previous tagger; a restored tag would be signed separately.
@@ -2065,6 +2119,7 @@ fn failed_git_result(error: CoreError) -> GitCommandResponse {
         operation_error: Some(error),
         stash_restore: None,
         tag_deletion: None,
+        branch_deletion: None,
     }
 }
 
@@ -3245,6 +3300,7 @@ mod tests {
             operation_error: None,
             stash_restore: None,
             tag_deletion: None,
+            branch_deletion: None,
         };
 
         super::synchronize_final_invocation(&mut response);
@@ -3424,6 +3480,7 @@ mod tests {
             operation_error: None,
             stash_restore: None,
             tag_deletion: None,
+            branch_deletion: None,
         };
 
         assert_eq!(
@@ -3469,6 +3526,7 @@ mod tests {
             )),
             stash_restore: None,
             tag_deletion: None,
+            branch_deletion: None,
         };
 
         assert_eq!(

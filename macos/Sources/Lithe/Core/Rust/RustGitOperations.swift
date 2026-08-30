@@ -38,6 +38,12 @@ struct RustGitOperations: GitOperations, Sendable {
                     kind: $0.kind,
                     message: $0.message
                 )
+            },
+            branchDeletion: response.branchDeletion.map {
+                GitBranchDeletion(
+                    name: $0.name,
+                    deletedTarget: $0.deletedTarget
+                )
             }
         )
     }

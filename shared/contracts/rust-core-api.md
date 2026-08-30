@@ -265,7 +265,11 @@ structured `tagDeletion` record — `{ "name": string, "deletedTarget": string,
 `message` is the original annotation with its line breaks preserved. Hosts
 can rebuild the tag by replaying `createTag` with `name`, `deletedTarget`,
 and `message`; the tagger identity and timestamp are intentionally not
-preserved.
+preserved. `deleteBranch` resolves `refs/heads/<name>` before deleting and,
+on success, carries a structured `branchDeletion` record —
+`{ "name": string, "deletedTarget": string }` — so hosts can offer to
+recreate the branch at its previous commit; a missing branch fails with
+`The branch '<name>' does not exist`.
 
 `operationContinue`, `operationAbort`, and `operationSkip` inspect Git metadata
 to select the active merge, rebase, cherry-pick, or revert instead of accepting

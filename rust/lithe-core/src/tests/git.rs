@@ -746,6 +746,110 @@ fn git_write_creates_deletes_and_records_tags() {
 }
 
 #[test]
+fn git_write_records_the_deleted_branch_target() {
+    let root = temporary_root("git-branch-delete");
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q", "-b", "main"]).status.success());
+    assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    fs::write(root.join("example.txt"), "initial\n").expect("file should be writable");
+    assert!(run(&["add", "example.txt"]).status.success());
+    assert!(run(&["commit", "-qm", "initial"]).status.success());
+    assert!(run(&["branch", "feature/short-lived"]).status.success());
+    let head = String::from_utf8_lossy(&run(&["rev-parse", "HEAD"]).stdout)
+        .trim()
+        .to_string();
+
+    let request = |operation: &str, payload: Value| -> Value {
+        let request = serde_json::json!({
+            "id": operation,
+            "command": "git.write",
+            "payload": {
+                "root": root,
+                "operation": operation,
+                "paths": [],
+                "reference": null,
+                "referenceKind": null,
+                "revision": null,
+                "name": null,
+                "message": null,
+                "remote": null,
+                "destination": null,
+                "mode": null,
+                "includeUntracked": false,
+                "checkout": false,
+                "amend": false
+            }
+        });
+        let mut request = request;
+        if let Value::Object(overrides) = payload {
+            for (key, value) in overrides {
+                request["payload"][key.as_str()] = value;
+            }
+        }
+        serde_json::from_str(&execute_json(
+            &serde_json::to_string(&request).expect("write request should encode"),
+        ))
+        .expect("write response should be JSON")
+    };
+
+    // A successful branch deletion carries the commit the branch pointed at so
+    // the host can offer a restore, exactly like the tag deletion record.
+    let deletion = request(
+        "deleteBranch",
+        serde_json::json!({"reference": "refs/heads/feature/short-lived"}),
+    );
+    assert_eq!(deletion["ok"], true, "{deletion:?}");
+    assert_eq!(deletion["data"]["exitCode"], 0);
+    assert_eq!(
+        deletion["data"]["branchDeletion"]["name"],
+        "feature/short-lived"
+    );
+    assert_eq!(deletion["data"]["branchDeletion"]["deletedTarget"], head);
+    assert!(deletion["data"].get("tagDeletion").is_none());
+
+    // Deleting a missing branch fails with the stable not-exist message.
+    let missing = request(
+        "deleteBranch",
+        serde_json::json!({"reference": "refs/heads/feature/short-lived"}),
+    );
+    assert_eq!(missing["ok"], true, "{missing:?}");
+    assert_eq!(missing["data"]["operationError"]["code"], "invalid_request");
+    assert_eq!(
+        missing["data"]["operationError"]["message"],
+        "The branch 'feature/short-lived' does not exist"
+    );
+
+    // Restoring replays createBranch against the recorded commit.
+    let restore = request(
+        "createBranch",
+        serde_json::json!({
+            "reference": deletion["data"]["branchDeletion"]["deletedTarget"],
+            "name": "feature/short-lived",
+            "checkout": false
+        }),
+    );
+    assert_eq!(restore["ok"], true, "{restore:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&run(&["rev-parse", "refs/heads/feature/short-lived"]).stdout)
+            .trim(),
+        head
+    );
+
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
 fn detached_worktree_context_can_publish_a_pull_request_branch() {
     let repository = temporary_root("detached-pr-repository");
     let root = temporary_root("detached-pr-worktree");
