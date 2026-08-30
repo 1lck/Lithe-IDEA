@@ -1,4 +1,5 @@
 import { createStore } from "zustand/vanilla";
+import { saveWorkspaceBeforeLaunch } from "@/features/editor/services/save-workspace-before-launch";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { mavenLaunchContextForWorkspace } from "@/features/maven/stores/maven.store";
@@ -105,6 +106,7 @@ export interface RunStoreDependencies {
   createLaunchPlan: typeof createLaunchPlan;
   mavenLaunchContextForWorkspace: typeof mavenLaunchContextForWorkspace;
   resolveRunLaunch: typeof resolveRunLaunch;
+  saveWorkspaceBeforeLaunch: typeof saveWorkspaceBeforeLaunch;
   startRunProcess: typeof startRunProcess;
   stopRunProcess: typeof stopRunProcess;
 }
@@ -113,6 +115,7 @@ const defaultRunStoreDependencies: RunStoreDependencies = {
   createLaunchPlan,
   mavenLaunchContextForWorkspace,
   resolveRunLaunch,
+  saveWorkspaceBeforeLaunch,
   startRunProcess,
   stopRunProcess,
 };
@@ -426,6 +429,7 @@ export const createRunStore = (
         resetOutputStamper(sessionId);
         await dependencies.stopRunProcess(sessionId).catch(() => undefined);
         try {
+          await dependencies.saveWorkspaceBeforeLaunch(workspaceId);
           const mavenContext = configurationUsesMaven(configuration)
             ? await dependencies.mavenLaunchContextForWorkspace(root, [], workspaceId)
             : null;
@@ -488,18 +492,27 @@ export const createRunStore = (
               primaryOutput: trimOutput(`${get().primaryOutput}${message}\n`),
             });
           } else {
-            set((current) => ({
-              sessions: current.sessions.map((session) =>
-                session.id === sessionId
-                  ? {
-                      ...session,
-                      isRunning: false,
-                      exitCode: 1,
-                      output: trimOutput(`${session.output}${message}\n`),
-                    }
-                  : session,
-              ),
-            }));
+            set((current) => {
+              const existingSession = current.sessions.find(
+                (session) => session.id === sessionId,
+              );
+              const failedSession: RunSession = {
+                id: sessionId,
+                configurationId: configuration.id,
+                title: configuration.name,
+                output: trimOutput(`${existingSession?.output ?? ""}${message}\n`),
+                isRunning: false,
+                exitCode: 1,
+              };
+              return {
+                selectedSessionId: sessionId,
+                sessions: existingSession
+                  ? current.sessions.map((session) =>
+                      session.id === sessionId ? failedSession : session,
+                    )
+                  : [...current.sessions, failedSession],
+              };
+            });
           }
         }
       },

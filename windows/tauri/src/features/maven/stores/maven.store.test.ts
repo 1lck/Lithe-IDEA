@@ -60,6 +60,7 @@ const resolveMavenLaunch = mock(async () => ({
   workingDirectory: "D:/work/reactor",
   environment: {},
 }));
+const saveWorkspaceBeforeLaunch = mock(async (_workspaceId: string): Promise<void> => undefined);
 const startMavenProcess = mock(async () => undefined);
 const stopMavenProcess = mock(async () => undefined);
 
@@ -68,6 +69,7 @@ const dependencies = {
   loadMavenConfiguration,
   parseMavenDiagnostics,
   resolveMavenLaunch,
+  saveWorkspaceBeforeLaunch,
   scanMavenProject,
   startMavenProcess,
   stopMavenProcess,
@@ -85,6 +87,8 @@ beforeEach(() => {
   parseMavenDiagnostics.mockReset();
   parseMavenDiagnostics.mockResolvedValue([]);
   resolveMavenLaunch.mockClear();
+  saveWorkspaceBeforeLaunch.mockReset();
+  saveWorkspaceBeforeLaunch.mockResolvedValue(undefined);
   startMavenProcess.mockClear();
   stopMavenProcess.mockClear();
 });
@@ -262,6 +266,41 @@ describe("Maven workspace state", () => {
 
     expect(store.getState().taskStatus).toBe("idle");
     expect(store.getState().output).toBe("");
+  });
+
+  test("waits for workspace files to save before creating a launch plan", async () => {
+    const pendingSave = deferred<void>();
+    saveWorkspaceBeforeLaunch.mockImplementationOnce(() => pendingSave.promise);
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+
+    const run = store.getState().actions.runGoals(["compile"], null, "compile");
+    try {
+      await Promise.resolve();
+      expect(saveWorkspaceBeforeLaunch).toHaveBeenCalledWith("workspace");
+      expect(createMavenLaunchPlan).not.toHaveBeenCalled();
+    } finally {
+      pendingSave.resolve(undefined);
+      await run;
+    }
+
+    expect(createMavenLaunchPlan).toHaveBeenCalledTimes(1);
+    expect(startMavenProcess).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not launch Maven when workspace files cannot be saved", async () => {
+    saveWorkspaceBeforeLaunch.mockRejectedValueOnce(
+      new Error("Unable to start because modified files could not be saved: App.java."),
+    );
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+
+    await store.getState().actions.runGoals(["compile"], null, "compile");
+
+    expect(createMavenLaunchPlan).not.toHaveBeenCalled();
+    expect(startMavenProcess).not.toHaveBeenCalled();
+    expect(store.getState().taskStatus).toBe("failed");
+    expect(store.getState().taskError).toContain("App.java");
   });
 
   test("keeps cancellation when process exit arrives before stop completes", async () => {

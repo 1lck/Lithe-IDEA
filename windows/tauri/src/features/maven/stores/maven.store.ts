@@ -1,4 +1,5 @@
 import { createStore } from "zustand/vanilla";
+import { saveWorkspaceBeforeLaunch } from "@/features/editor/services/save-workspace-before-launch";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import {
@@ -41,6 +42,7 @@ export interface MavenStoreDependencies {
   loadMavenConfiguration: typeof loadMavenConfiguration;
   parseMavenDiagnostics: typeof parseMavenDiagnostics;
   resolveMavenLaunch: typeof resolveMavenLaunch;
+  saveWorkspaceBeforeLaunch: typeof saveWorkspaceBeforeLaunch;
   scanMavenProject: typeof scanMavenProject;
   startMavenProcess: typeof startMavenProcess;
   stopMavenProcess: typeof stopMavenProcess;
@@ -52,6 +54,7 @@ const defaultMavenStoreDependencies: MavenStoreDependencies = {
   loadMavenConfiguration,
   parseMavenDiagnostics,
   resolveMavenLaunch,
+  saveWorkspaceBeforeLaunch,
   scanMavenProject,
   startMavenProcess,
   stopMavenProcess,
@@ -406,6 +409,7 @@ export const createMavenStore = (
             lastExitCode: null,
           });
           try {
+            await dependencies.saveWorkspaceBeforeLaunch(workspaceId);
             const plan = await dependencies.createMavenLaunchPlan(
               state.root,
               context,
