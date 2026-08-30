@@ -8,6 +8,9 @@ struct EditorNavigationLocation: Hashable, Sendable {
     let isReadOnly: Bool
     let displayPath: String?
     let virtualProviderID: String?
+    /// Consume the location with the whole target line selected (Go to Line);
+    /// symbol and find navigation keep a zero-length caret.
+    let selectsWholeLine: Bool
 
     init(
         url: URL,
@@ -15,7 +18,8 @@ struct EditorNavigationLocation: Hashable, Sendable {
         utf16Column: Int,
         isReadOnly: Bool = false,
         displayPath: String? = nil,
-        virtualProviderID: String? = nil
+        virtualProviderID: String? = nil,
+        selectsWholeLine: Bool = false
     ) {
         self.url = url.isFileURL ? url.standardizedFileURL : url
         self.line = max(0, line)
@@ -23,6 +27,7 @@ struct EditorNavigationLocation: Hashable, Sendable {
         self.isReadOnly = isReadOnly
         self.displayPath = displayPath
         self.virtualProviderID = virtualProviderID
+        self.selectsWholeLine = selectsWholeLine
     }
 }
 

@@ -1069,6 +1069,7 @@ final class AppModel: ObservableObject, Identifiable {
         standaloneFileURL = nil
         documentFeature.reset()
         editorChrome.resetFindBar()
+        editorChrome.setGoToLineVisible(false)
         didCloseProject?()
     }
 

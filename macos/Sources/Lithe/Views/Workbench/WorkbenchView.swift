@@ -1247,7 +1247,9 @@ struct WorkbenchView: View {
 
     private var detailedStatusItems: some View {
         HStack(spacing: 14) {
-            EditorCaretPositionLabel(chrome: model.editorChrome)
+            EditorCaretPositionLabel(chrome: model.editorChrome) {
+                model.showGoToLine()
+            }
             Text("UTF-8")
             Text("\(settings.tabWidth) spaces")
             Button {
@@ -1268,7 +1270,9 @@ struct WorkbenchView: View {
 
     private var compactStatusItems: some View {
         HStack(spacing: 10) {
-            EditorCaretPositionLabel(chrome: model.editorChrome)
+            EditorCaretPositionLabel(chrome: model.editorChrome) {
+                model.showGoToLine()
+            }
             MemoryUsageStatusView()
             FrameRateStatusView()
             gitStatus

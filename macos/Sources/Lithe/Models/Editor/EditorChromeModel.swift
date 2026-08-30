@@ -9,6 +9,7 @@ final class EditorChromeModel: ObservableObject {
     @Published private(set) var caret: EditorCaret?
     @Published private(set) var selectedText = ""
     @Published private(set) var isFindBarVisible = false
+    @Published private(set) var isGoToLineVisible = false
     @Published private(set) var findBarQuery = ""
     @Published private(set) var findOptions = FindInFileOptions()
     @Published private(set) var isReplaceVisible = false
@@ -29,6 +30,19 @@ final class EditorChromeModel: ObservableObject {
     func setFindBarVisible(_ isVisible: Bool) {
         guard isFindBarVisible != isVisible else { return }
         isFindBarVisible = isVisible
+        // The find bar and the go-to-line dialog are mutually exclusive;
+        // opening either dismisses the other.
+        if isVisible, isGoToLineVisible {
+            setGoToLineVisible(false)
+        }
+    }
+
+    func setGoToLineVisible(_ isVisible: Bool) {
+        guard isGoToLineVisible != isVisible else { return }
+        isGoToLineVisible = isVisible
+        if isVisible, isFindBarVisible {
+            setFindBarVisible(false)
+        }
     }
 
     func setFindBarQuery(_ query: String) {
@@ -70,5 +84,6 @@ final class EditorChromeModel: ObservableObject {
         update(caret: nil)
         update(selectedText: "")
         resetFindBar()
+        setGoToLineVisible(false)
     }
 }
