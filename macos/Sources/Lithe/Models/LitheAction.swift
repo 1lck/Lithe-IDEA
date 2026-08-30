@@ -80,6 +80,7 @@ enum LitheActionRegistry {
             action("search-in-project", model: model) { model.openProjectSearch() },
             action("replace-in-project", model: model) { model.openProjectReplace() },
             action("find-in-file", model: model) { model.showFindBar() },
+            action("replace-in-file", model: model) { model.showReplaceBar() },
             action("go-to-definition", model: model) { model.goToDefinition() },
             action("find-usages", model: model) { model.findReferences() },
             action("spring-endpoints", model: model) { model.toggleSpringEndpoints() },
