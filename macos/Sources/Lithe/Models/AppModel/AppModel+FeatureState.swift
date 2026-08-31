@@ -4,6 +4,7 @@ import LitheLocalHistoryModule
 import LitheSearchModule
 
 extension AppModel {
+    var workspaceSnapshotID: UUID? { workspaceFeature.appliedSnapshot?.id }
     var springEndpoints: [SpringEndpoint] { springFeature.endpoints }
     var springBeans: [SpringBean] { springFeature.beans }
     var isIndexingSpring: Bool { springFeature.isIndexing }

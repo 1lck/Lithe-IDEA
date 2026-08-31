@@ -314,10 +314,14 @@ package final class WorkspaceFeatureModel: ObservableObject {
             if let restoreSession, let session = workspaceSessionStore.load(for: workspaceURL) {
                 await restoreSession(session, snapshot.files)
             }
+            guard isCurrent() else { return .stale }
             hasRestoredWorkspaceSession = true
         }
+        guard isCurrent() else { return .stale }
         await updateWatchConfiguration()
+        guard isCurrent() else { return .stale }
         await onSnapshotLoaded?(snapshot, isInitialLoad)
+        guard isCurrent() else { return .stale }
         await requestGitRefreshNow()
         if pendingFullRescan || pendingWatchRootsChanged {
             scheduleRecovery()
@@ -330,10 +334,13 @@ package final class WorkspaceFeatureModel: ObservableObject {
         refreshTask?.cancel()
         pendingExternalPaths.removeAll()
         externalRefreshGeneration += 1
+        let generation = workspaceGeneration
         _ = await rebuild(
             at: workspaceURL,
             rules: visibilityRules,
-            isCurrent: { [weak self] in self?.workspaceURL == workspaceURL }
+            isCurrent: { [weak self] in
+                self?.workspaceURL == workspaceURL && self?.workspaceGeneration == generation
+            }
         )
     }
 
@@ -600,8 +607,10 @@ package final class WorkspaceFeatureModel: ObservableObject {
 
     private func updateWatchConfiguration(forceRebuild: Bool = false) async {
         guard let workspaceURL else { return }
+        let generation = workspaceGeneration
         let context = await gitWatchContextProvider.watchContext(for: workspaceURL)
-        guard self.workspaceURL == workspaceURL else { return }
+        guard self.workspaceURL == workspaceURL,
+              self.workspaceGeneration == generation else { return }
         let configuration = DirectoryWatchConfiguration(
             workspaceRoot: workspaceURL,
             gitContext: context

@@ -134,6 +134,7 @@ package final class RunFeatureModel: ObservableObject {
     package var configurationStatus: ProjectRunConfigurationStatus { service.configurationStatus }
     package var configurationDiagnostics: [RunConfigurationDiagnostic] { service.configurationDiagnostics }
     package var generationState: RunConfigurationGenerationState { service.generationState }
+    package var projectLoadState: ProjectLoadState { service.projectLoadState }
     package func reportGenerationProjectNotReady() { service.reportGenerationProjectNotReady() }
     package var recoveryAction: RunConfigurationRecoveryAction { service.recoveryAction }
     package var recoveryPath: String? { service.recoveryPath }

@@ -100,6 +100,148 @@ struct ExecutionModuleTests {
         #expect(recorder.graphCalls == 2)
     }
 
+    /// Run and Debug can reach identification before the workspace snapshot has
+    /// bound a project. Reporting nothing at all made the confirmed dialog look
+    /// like a dead button, so the unloaded project must become visible state.
+    @Test
+    func identificationBeforeProjectLoadReportsUnloadedProjectWithoutGenerating() async throws {
+        let operations = RecordingRunConfigurationOperations()
+        let service = RunService(
+            runtime: TestRuntime(),
+            process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() },
+            fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(),
+            serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: operations,
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+
+        #expect(service.projectLoadState == .idle)
+        await service.generateRunConfigurations()
+
+        #expect(service.generationState == .projectNotReady)
+        #expect(operations.generateCallCount == 0)
+        #expect(service.configurationStatus == .missing)
+    }
+
+    /// Once the project is bound, identification must behave exactly as before.
+    @Test
+    func identificationAfterProjectLoadGeneratesAndClearsTheUnloadedState() async throws {
+        let operations = RecordingRunConfigurationOperations()
+        let service = RunService(
+            runtime: TestRuntime(),
+            process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() },
+            fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(),
+            serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: operations,
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+
+        await service.generateRunConfigurations()
+        #expect(service.generationState == .projectNotReady)
+
+        // Binding without a snapshot only unlocks reading existing configuration.
+        await service.loadProject(at: root, files: [], mavenProject: nil)
+        #expect(service.projectLoadState == .bound(workspace: root))
+        #expect(!service.isProjectReady(for: root, snapshotID: UUID()))
+        await service.generateRunConfigurations()
+        #expect(service.generationState == .projectNotReady)
+        #expect(operations.generateCallCount == 0)
+
+        let snapshotID = UUID()
+        await service.loadProject(at: root, files: [], mavenProject: nil, snapshotID: snapshotID)
+        #expect(service.projectLoadState == .ready(workspace: root, snapshotID: snapshotID))
+        #expect(service.isProjectReady(for: root, snapshotID: snapshotID))
+        // A superseded snapshot of the same workspace is not ready.
+        #expect(!service.isProjectReady(for: root, snapshotID: UUID()))
+        await service.generateRunConfigurations()
+
+        #expect(operations.generateCallCount == 1)
+        #expect(service.generationState == .succeeded(entryCount: 1))
+        #expect(service.configurationStatus == .ready)
+    }
+
+    /// Generation scans the inventory the service holds, so a workspace that was
+    /// bound before its snapshot arrived must not be scanned with the provisional
+    /// list. Doing so writes a configuration that omits real entry points.
+    @Test
+    func generationScansTheSnapshotInventoryAndNeverAProvisionalOne() async throws {
+        let operations = RecordingRunConfigurationOperations()
+        let service = RunService(
+            runtime: TestRuntime(),
+            process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() },
+            fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(),
+            serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: operations,
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let source = root.appendingPathComponent("src/main/java/demo/App.java")
+
+        // The workspace snapshot has not arrived, so the inventory is empty.
+        await service.loadProject(at: root, files: [], mavenProject: nil)
+        await service.generateRunConfigurations()
+        #expect(service.generationState == .projectNotReady)
+        #expect(operations.generatedInventories.isEmpty, "a provisional inventory must not be scanned")
+
+        await service.loadProject(
+            at: root,
+            files: [source],
+            mavenProject: nil,
+            snapshotID: UUID()
+        )
+        await service.generateRunConfigurations()
+
+        #expect(service.generationState == .succeeded(entryCount: 1))
+        #expect(
+            operations.generatedInventories == [[source]],
+            "generation must scan exactly the inventory the snapshot reported"
+        )
+    }
+
+    /// A broken configuration must stay regenerable. Inventory readiness and
+    /// configuration validity are separate concerns, so an unreadable
+    /// `generated.json` must not make the project un-ready and lock the user out
+    /// of the only action that repairs it.
+    @Test
+    func unreadableConfigurationStillAllowsRegeneration() async throws {
+        let operations = FailingInspectionRunConfigurationOperations()
+        let service = RunService(
+            runtime: TestRuntime(),
+            process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() },
+            fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(),
+            serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: operations,
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let snapshotID = UUID()
+
+        await service.loadProject(at: root, files: [], mavenProject: nil, snapshotID: snapshotID)
+
+        #expect(service.configurationStatus == .invalid("generated.json is invalid"))
+        #expect(service.isProjectReady(for: root, snapshotID: snapshotID))
+
+        await service.generateRunConfigurations()
+        #expect(service.generationState != .projectNotReady)
+    }
+
     @Test
     func currentGoFileRunsThroughExtensionOwnedSession() async throws {
         let builtInProcess = TestStreamingProcess()
@@ -765,6 +907,63 @@ private struct TestRunConfigurationOperations: RunConfigurationOperations {
     }
     func launchPlan(at projectURL: URL, configurationID: String, currentFile: String?, classPath: String?, debugPort: Int?) throws -> SharedLaunchPlan {
         throw RunConfigurationOperationFailure(message: "Unavailable in lifecycle test")
+    }
+    func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String { draft.name }
+    func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {}
+}
+
+/// Records the file inventory each generation attempt was given, so a test can
+/// prove both that a pending workspace never reaches the store and that a ready
+/// one is scanned with the complete inventory.
+private final class RecordingRunConfigurationOperations: RunConfigurationOperations, @unchecked Sendable {
+    private(set) var generatedInventories: [[URL]] = []
+
+    var generateCallCount: Int { generatedInventories.count }
+
+    func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
+        ProjectRunConfigurationInspection(
+            status: generatedInventories.isEmpty ? .missing : .ready,
+            diagnostics: []
+        )
+    }
+    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+        generatedInventories.append(files)
+        return RunConfigurationGenerationResult(entryCount: 1)
+    }
+    func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
+        RunConfigurationResolution(
+            configurations: [EffectiveRunConfiguration(
+                configuration: .currentFile,
+                options: RunOptions()
+            )],
+            diagnostics: [],
+            defaultConfigurationID: RunConfiguration.currentFileID
+        )
+    }
+    func launchPlan(at projectURL: URL, configurationID: String, currentFile: String?, classPath: String?, debugPort: Int?) throws -> SharedLaunchPlan {
+        throw RunConfigurationOperationFailure(message: "Unavailable in identification test")
+    }
+    func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String { draft.name }
+    func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {}
+}
+
+/// Reports an unreadable configuration so a test can observe the failed state.
+private struct FailingInspectionRunConfigurationOperations: RunConfigurationOperations {
+    func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
+        ProjectRunConfigurationInspection(
+            status: .invalid("generated.json is invalid"),
+            diagnostics: [],
+            recoveryAction: .editConfiguration
+        )
+    }
+    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+        RunConfigurationGenerationResult(entryCount: 0)
+    }
+    func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
+        RunConfigurationResolution(configurations: [], diagnostics: [], defaultConfigurationID: nil)
+    }
+    func launchPlan(at projectURL: URL, configurationID: String, currentFile: String?, classPath: String?, debugPort: Int?) throws -> SharedLaunchPlan {
+        throw RunConfigurationOperationFailure(message: "Unavailable in inspection test")
     }
     func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String { draft.name }
     func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {}

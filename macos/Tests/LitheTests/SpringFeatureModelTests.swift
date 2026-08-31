@@ -99,17 +99,111 @@ struct SpringFeatureModelTests {
         let locations = feature.navigationLocations(for: injectionURL, line: 7)
         #expect(locations.map(\.url) == [firstURL, secondURL])
     }
+
+    /// Opening a workspace must not wait for Spring indexing, which scales with
+    /// the number of Java sources.
+    @Test
+    func scheduleLoadDefersIndexingAndPublishesTheResult() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let beanURL = root.appendingPathComponent("Service.java")
+        let operations = SpringTestOperations(result: componentIndex(at: beanURL))
+        let feature = SpringFeatureModel(operations: operations)
+        defer { feature.reset() }
+
+        feature.scheduleLoad(workspaceURL: root, files: [beanURL])
+
+        // The schedule owns a MainActor task, which cannot run before this test
+        // suspends. Reaching these assertions proves the caller was not blocked.
+        #expect(feature.beans.isEmpty)
+        #expect(operations.requestedFiles.isEmpty)
+
+        let published = await awaitChange(on: feature) {
+            !feature.isIndexing && !feature.beans.isEmpty
+        }
+        #expect(published, "the scheduled index never published a result")
+        #expect(feature.beans.map(\.id) == ["Service.java"])
+        #expect(operations.requestedFiles == [[beanURL]])
+    }
+
+    /// A newer schedule supersedes the pending one so a burst of reloads cannot
+    /// publish a stale index.
+    @Test
+    func scheduleLoadReplacesAPendingSchedule() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let staleURL = root.appendingPathComponent("Stale.java")
+        let freshURL = root.appendingPathComponent("Fresh.java")
+        let operations = SpringTestOperations { files in
+            files.first.map(componentIndex(at:)) ?? .empty
+        }
+        let feature = SpringFeatureModel(operations: operations)
+        defer { feature.reset() }
+
+        feature.scheduleLoad(workspaceURL: root, files: [staleURL])
+        feature.scheduleLoad(workspaceURL: root, files: [freshURL])
+
+        let published = await awaitChange(on: feature) {
+            !feature.isIndexing && !feature.beans.isEmpty
+        }
+        #expect(published, "the replacement schedule never published a result")
+        // A schedule superseded before it started must not run a second full
+        // workspace index, which the generation token would only discard.
+        #expect(operations.requestedFiles == [[freshURL]])
+        #expect(feature.beans.map(\.id) == ["Fresh.java"])
+    }
 }
 
-private struct SpringTestOperations: JavaMavenOperations {
-    let result: SpringIndexResult
+private func componentIndex(at url: URL) -> SpringIndexResult {
+    SpringIndexResult(
+        properties: [],
+        values: [],
+        propertyReferences: [],
+        diagnostics: [],
+        beans: [SpringBean(
+            id: url.lastPathComponent,
+            name: "service",
+            typeName: "Service",
+            url: url,
+            line: 3,
+            column: 7,
+            kind: "component"
+        )],
+        injections: [],
+        endpoints: []
+    )
+}
+
+private final class SpringTestOperations: JavaMavenOperations, @unchecked Sendable {
+    private let makeResult: @Sendable ([URL]) -> SpringIndexResult
+    private let lock = NSLock()
+    private var requested: [[URL]] = []
+
+    /// Every set of files handed to the index, in call order. An empty value
+    /// proves the double was never reached.
+    var requestedFiles: [[URL]] {
+        lock.lock()
+        defer { lock.unlock() }
+        return requested
+    }
+
+    init(result: SpringIndexResult) {
+        makeResult = { _ in result }
+    }
+
+    init(resultForFiles: @escaping @Sendable ([URL]) -> SpringIndexResult) {
+        makeResult = resultForFiles
+    }
 
     func springIndex(
         at rootURL: URL,
         files: [URL],
         textOverrides: [URL: String],
         refreshDependencyMetadata: Bool
-    ) -> SpringIndexResult? { result }
+    ) -> SpringIndexResult? {
+        lock.lock()
+        requested.append(files)
+        lock.unlock()
+        return makeResult(files)
+    }
     func scanMavenProject(at rootURL: URL, files: [URL]) -> MavenProject? { nil }
     func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue] { [] }
     func codeVision(at rootURL: URL, targetPath: String, paths: [String]) -> [JavaCodeVisionValue] { [] }

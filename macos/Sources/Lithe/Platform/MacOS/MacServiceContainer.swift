@@ -52,6 +52,10 @@ final class MacServiceContainer {
         processRegistry: ManagedProcessRegistry = ManagedProcessRegistry(),
         moduleLaunchMode: ModuleLaunchMode = .normal,
         moduleStore providedModuleStore: MacModuleConfigurationStore? = nil,
+        workspaceOperations providedWorkspaceOperations: (any WorkspaceOperations)? = nil,
+        runConfigurationOperations providedRunConfigurationOperations: (any RunConfigurationOperations)? = nil,
+        gitWatchContextProvider providedGitWatchContextProvider: (any GitWatchContextProviding)? = nil,
+        runExecutableResolver providedRunExecutableResolver: (any RunExecutableResolving)? = nil,
         pluginRuntimeRecovery: MacPluginRuntimeRecoveryCoordinator? = nil,
         authorizationCallbackRouter providedAuthorizationCallbackRouter: MacExternalAuthorizationCallbackRouter? = nil,
         platformUI providedPlatformUI: (any PlatformUI)? = nil
@@ -304,7 +308,7 @@ final class MacServiceContainer {
         do {
             try moduleRegistry.register(ModuleFactory(manifest: ExecutionModule.moduleManifest, contributions: ExecutionModule.moduleContributions) {
                 ExecutionModule(makeGraph: {
-                    let executableResolver = RunExecutableResolver(
+                    let executableResolver = providedRunExecutableResolver ?? RunExecutableResolver(
                         runtimeService: runtimeService,
                         toolchainRegistry: runToolchainRegistry,
                         metadataResolver: ProcessRunToolchainMetadataResolver(processRunner: processRunner)
@@ -323,7 +327,7 @@ final class MacServiceContainer {
                             fileAccess: MacRunFileAccess(storage: fileStorage),
                             preferences: MacRunPreferenceStore(store: store),
                             serverPortParser: javaMavenOperations,
-                            runConfigurationOperations: runConfigurationStore,
+                            runConfigurationOperations: providedRunConfigurationOperations ?? runConfigurationStore,
                             executableResolver: executableResolver,
                             languageProviderCatalog: languagePackRegistry.catalog,
                             languageRunProviders: languagePackRegistry.runProviders,
@@ -426,7 +430,12 @@ final class MacServiceContainer {
             preconditionFailure("Invalid execution/debug module graph: \(error.localizedDescription)")
         }
         let gitOperations = RustGitOperations(core: rustCore)
-        let workspaceOperations = RustWorkspaceOperations(core: rustCore)
+        let defaultWorkspaceOperations = RustWorkspaceOperations(core: rustCore)
+        let workspaceOperations: any WorkspaceOperations = providedWorkspaceOperations ?? defaultWorkspaceOperations
+        let searchOperations: any SearchOperations =
+            (providedWorkspaceOperations as? any SearchOperations) ?? defaultWorkspaceOperations
+        let gitWatchContextProvider: any GitWatchContextProviding =
+            providedGitWatchContextProvider ?? RustGitWatchContextProvider(core: rustCore)
         let localHistoryOperations = RustLocalHistoryOperations(core: rustCore)
         let markdownRenderer = RustMarkdownRendering(core: rustCore)
         let markdownImageImporter = MarkdownImageImportService(storage: fileStorage)
@@ -438,7 +447,7 @@ final class MacServiceContainer {
                 )
             })
             try moduleRegistry.register(ModuleFactory(manifest: SearchModule.moduleManifest, contributions: SearchModule.moduleContributions) {
-                SearchModule(operations: workspaceOperations)
+                SearchModule(operations: searchOperations)
             })
             try moduleRegistry.register(ModuleFactory(manifest: HistoryModule.moduleManifest, contributions: HistoryModule.moduleContributions) {
                 HistoryModule(
@@ -520,7 +529,7 @@ final class MacServiceContainer {
             fileOperations: fileOperations,
             binaryFileViewerRegistry: binaryFileViewerRegistry,
             projectRuntimeService: runtimeService,
-            gitWatchContextProvider: RustGitWatchContextProvider(core: rustCore),
+            gitWatchContextProvider: gitWatchContextProvider,
             githubService: githubService,
             secureStore: secureStore,
             databaseSecureStore: databaseSecureStore,

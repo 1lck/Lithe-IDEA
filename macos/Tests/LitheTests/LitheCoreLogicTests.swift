@@ -3492,7 +3492,7 @@ struct EditorDocumentTests {
             reloadProjectServices: {},
             refreshGit: {},
             updateHistoryVisibilityRules: { _ in },
-            onSnapshotLoaded: { _, _ in }
+            onSnapshotLoaded: { _, _, _ in }
         )
 
         let workspace = URL(fileURLWithPath: "/tmp/retry-workspace")
@@ -3546,7 +3546,7 @@ struct EditorDocumentTests {
             reloadProjectServices: {},
             refreshGit: { gitRefreshCount += 1 },
             updateHistoryVisibilityRules: { _ in },
-            onSnapshotLoaded: { _, _ in snapshotLoadCount += 1 }
+            onSnapshotLoaded: { _, _, _ in snapshotLoadCount += 1 }
         )
         let workspace = URL(fileURLWithPath: "/tmp/lithe-initial-refresh")
         model.beginWorkspace(at: workspace, visibilityRules: .default)
@@ -3558,6 +3558,151 @@ struct EditorDocumentTests {
         }
         #expect(snapshotLoadCount == 1)
         #expect(gitRefreshCount == 1)
+    }
+
+    /// After the snapshot is published, restoreSession and watch setup can still
+    /// suspend. A project switch in that window must not deliver the old scan
+    /// through onSnapshotLoaded under the new workspace identity.
+    @Test
+    @MainActor
+    func rebuildRejectsStaleWorkspaceBeforeSnapshotCallback() async {
+        let enteredRestore = TestGate()
+        let releaseRestore = TestGate()
+        defer { releaseRestore.open() }
+
+        let operations = SequencedWorkspaceOperations(snapshotAvailability: [true])
+        let sessionStore = WorkspaceSessionStore(store: MutableKeyValueStore())
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-stale-snapshot-callback")
+        sessionStore.save(
+            WorkspaceSession(openPaths: [], activePath: nil, selectedSidebar: "project"),
+            for: workspace
+        )
+
+        var snapshotLoadCount = 0
+        var isCurrent = true
+        let model = WorkspaceFeatureModel(
+            operations: operations,
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            gitWatchContextProvider: SequencedGitWatchContextProvider([nil]),
+            directoryWatcherFactory: TestDirectoryWatcherFactory(),
+            workspaceSessionStore: sessionStore
+        )
+        model.configure(
+            documentsProvider: { [] },
+            activeDocumentProvider: { nil },
+            selectedSidebarProvider: { "project" },
+            setSelectedSidebar: { _ in },
+            restoreSession: { _, _ in
+                enteredRestore.open()
+                _ = await releaseRestore.waitUntilOpen(timeout: .seconds(5))
+            },
+            openFile: { _ in },
+            notify: { _ in },
+            recordHistory: { _, _ in },
+            relocateHistory: { _, _ in },
+            relocateOpenDocuments: { _, _ in },
+            closeDocuments: { _ in },
+            processExternalChanges: { _ in false },
+            reloadProjectServices: {},
+            refreshGit: {},
+            updateHistoryVisibilityRules: { _ in },
+            onSnapshotLoaded: { _, _, _ in snapshotLoadCount += 1 }
+        )
+
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        let rebuildTask = Task {
+            await model.rebuild(
+                at: workspace,
+                rules: .default,
+                isCurrent: { isCurrent }
+            )
+        }
+
+        #expect(await enteredRestore.waitUntilOpen(timeout: .seconds(5)))
+        #expect(model.appliedSnapshot != nil, "the snapshot should already be published")
+        isCurrent = false
+        releaseRestore.open()
+
+        let result = await rebuildTask.value
+        if case .stale = result {} else {
+            Issue.record("A rebuild that lost isCurrent before the callback should report stale")
+        }
+        #expect(snapshotLoadCount == 0, "the stale rebuild must not deliver onSnapshotLoaded")
+    }
+
+    /// Closing and reopening the same path leaves the workspace URL unchanged, so
+    /// only the opening's generation can tell a refresh that outlived the close
+    /// from one that belongs to the current session. Without it, the earlier
+    /// refresh would publish its scan into the new opening after `reset`.
+    @Test
+    @MainActor
+    func refreshFromAnEarlierOpeningOfTheSamePathDoesNotDeliverItsSnapshot() async {
+        let enteredRestore = TestGate()
+        let releaseRestore = TestGate()
+        defer { releaseRestore.open() }
+
+        let operations = SequencedWorkspaceOperations(snapshotAvailability: [true])
+        let sessionStore = WorkspaceSessionStore(store: MutableKeyValueStore())
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-same-path-reopen-refresh")
+        sessionStore.save(
+            WorkspaceSession(openPaths: [], activePath: nil, selectedSidebar: "project"),
+            for: workspace
+        )
+
+        var snapshotLoadCount = 0
+        let model = WorkspaceFeatureModel(
+            operations: operations,
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            gitWatchContextProvider: SequencedGitWatchContextProvider([nil]),
+            directoryWatcherFactory: TestDirectoryWatcherFactory(),
+            workspaceSessionStore: sessionStore
+        )
+        model.configure(
+            documentsProvider: { [] },
+            activeDocumentProvider: { nil },
+            selectedSidebarProvider: { "project" },
+            setSelectedSidebar: { _ in },
+            restoreSession: { _, _ in
+                enteredRestore.open()
+                _ = await releaseRestore.waitUntilOpen(timeout: .seconds(5))
+            },
+            openFile: { _ in },
+            notify: { _ in },
+            recordHistory: { _, _ in },
+            relocateHistory: { _, _ in },
+            relocateOpenDocuments: { _, _ in },
+            closeDocuments: { _ in },
+            processExternalChanges: { _ in false },
+            reloadProjectServices: {},
+            refreshGit: {},
+            updateHistoryVisibilityRules: { _ in },
+            onSnapshotLoaded: { _, _, _ in snapshotLoadCount += 1 }
+        )
+
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        // The refresh builds its own current guard, so this exercises production
+        // identity rather than a guard supplied by the test.
+        let refreshTask = Task { await model.refreshCurrent() }
+
+        #expect(await enteredRestore.waitUntilOpen(timeout: .seconds(5)))
+        #expect(model.appliedSnapshot != nil, "the snapshot should already be published")
+
+        // Close and reopen the same path while the refresh is suspended.
+        model.reset()
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        releaseRestore.open()
+        await refreshTask.value
+
+        #expect(
+            snapshotLoadCount == 0,
+            "a refresh from the previous opening must not deliver its snapshot to the new one"
+        )
+        #expect(
+            model.appliedSnapshot == nil,
+            "the new opening has not scanned yet, so no snapshot should be applied"
+        )
     }
 
     @Test
@@ -3705,7 +3850,7 @@ struct EditorDocumentTests {
             reloadProjectServices: {},
             refreshGit: { refreshCount += 1 },
             updateHistoryVisibilityRules: { _ in },
-            onSnapshotLoaded: { _, _ in }
+            onSnapshotLoaded: { _, _, _ in }
         )
 
         let workspace = URL(fileURLWithPath: "/tmp/frozen-workspace")
@@ -4328,7 +4473,7 @@ private func makeWorkspaceObservationUnitModel(
         reloadProjectServices: reloadProjectServices,
         refreshGit: refreshGit,
         updateHistoryVisibilityRules: { _ in },
-        onSnapshotLoaded: { _, _ in }
+        onSnapshotLoaded: { _, _, _ in }
     )
     return model
 }
