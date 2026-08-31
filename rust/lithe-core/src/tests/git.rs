@@ -202,7 +202,14 @@ fn git_write_commits_only_selected_paths_and_keeps_other_index_entries() {
     assert!(run(&["add", "--all"]).status.success());
     assert!(run(&["commit", "-qm", "initial"]).status.success());
 
-    fs::write(root.join("selected.txt"), "selected change\n").expect("file should be writable");
+    fs::write(root.join("selected.txt"), "selected staged change\n")
+        .expect("file should be writable");
+    assert!(run(&["add", "selected.txt"]).status.success());
+    fs::write(
+        root.join("selected.txt"),
+        "selected staged and unstaged change\n",
+    )
+    .expect("file should be writable");
     fs::write(root.join("other.txt"), "other staged change\n").expect("file should be writable");
     fs::write(root.join("new.txt"), "selected untracked\n").expect("file should be writable");
     assert!(run(&["add", "other.txt"]).status.success());
@@ -236,12 +243,130 @@ fn git_write_commits_only_selected_paths_and_keeps_other_index_entries() {
     );
     assert_eq!(
         String::from_utf8_lossy(&run(&["show", "HEAD:selected.txt"]).stdout),
-        "selected change\n"
+        "selected staged and unstaged change\n"
     );
     assert_eq!(
         String::from_utf8_lossy(&run(&["show", "HEAD:new.txt"]).stdout),
         "selected untracked\n"
     );
+
+    fs::remove_dir_all(root).expect("temporary workspace should be removable");
+}
+
+#[test]
+fn git_write_restores_the_index_when_a_selected_commit_hook_fails() {
+    let root = temporary_root("git-write-selected-hook-failure");
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q"]).status.success());
+    assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    fs::write(root.join("selected.txt"), "initial\n").expect("file should be writable");
+    fs::write(root.join("other.txt"), "initial\n").expect("file should be writable");
+    assert!(run(&["add", "--all"]).status.success());
+    assert!(run(&["commit", "-qm", "initial"]).status.success());
+
+    fs::write(root.join("selected.txt"), "selected worktree change\n")
+        .expect("file should be writable");
+    fs::write(root.join("other.txt"), "other staged change\n").expect("file should be writable");
+    assert!(run(&["add", "other.txt"]).status.success());
+    let cached_before = run(&["diff", "--cached", "--binary"]).stdout;
+
+    let hook = root.join(".git/hooks/pre-commit");
+    fs::write(&hook, "#!/bin/sh\nexit 1\n").expect("hook should be writable");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(&hook)
+            .expect("hook metadata should be readable")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&hook, permissions).expect("hook should be executable");
+    }
+
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&serde_json::json!({
+            "id": "selected-commit-hook-failure",
+            "command": "git.write",
+            "payload": {
+                "root": root,
+                "operation": "commit",
+                "message": "must fail",
+                "paths": ["selected.txt"]
+            }
+        }))
+        .expect("selected commit request should encode"),
+    ))
+    .expect("selected commit response should be JSON");
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_ne!(response["data"]["exitCode"], 0, "{response:?}");
+    assert_eq!(run(&["diff", "--cached", "--binary"]).stdout, cached_before);
+    assert_eq!(
+        String::from_utf8_lossy(&run(&["diff", "--name-only"]).stdout).trim(),
+        "selected.txt"
+    );
+
+    fs::remove_dir_all(root).expect("temporary workspace should be removable");
+}
+
+#[test]
+fn git_write_checks_selected_worktree_conflict_markers_before_committing() {
+    let root = temporary_root("git-write-selected-markers");
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q"]).status.success());
+    assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    fs::write(root.join("selected.txt"), "initial\n").expect("file should be writable");
+    assert!(run(&["add", "--all"]).status.success());
+    assert!(run(&["commit", "-qm", "initial"]).status.success());
+    let head_before = run(&["rev-parse", "HEAD"]).stdout;
+
+    fs::write(
+        root.join("selected.txt"),
+        "<<<<<<< ours\nleft\n=======\nright\n>>>>>>> theirs\n",
+    )
+    .expect("file should be writable");
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&serde_json::json!({
+            "id": "selected-commit-markers",
+            "command": "git.write",
+            "payload": {
+                "root": root,
+                "operation": "commit",
+                "message": "must not commit markers",
+                "paths": ["selected.txt"]
+            }
+        }))
+        .expect("selected commit request should encode"),
+    ))
+    .expect("selected commit response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(
+        response["data"]["operationError"]["message"],
+        "Conflict markers remain in selected files"
+    );
+    assert!(run(&["diff", "--cached", "--name-only"]).stdout.is_empty());
+    assert_eq!(run(&["rev-parse", "HEAD"]).stdout, head_before);
 
     fs::remove_dir_all(root).expect("temporary workspace should be removable");
 }

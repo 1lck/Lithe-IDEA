@@ -1,5 +1,5 @@
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
-import type { GitPullPreflight, GitRemote, PullStrategy } from "../types/git.types";
+import type { GitPullPreflight, GitReference, GitRemote, PullStrategy } from "../types/git.types";
 import { emitGitChanged } from "../events/git-events";
 import { GitPullWorkflow } from "../hooks/git-pull-workflow";
 import { runGitRead } from "../runtime/git-read-coordinator";
@@ -7,6 +7,7 @@ import { getBranches } from "./git-branches-api";
 import { getGitHistory } from "./git-commits-api";
 import { getOperationState } from "./git-integration-api";
 import { executeGitPush } from "./git-push-api";
+import { toCoreGitReference } from "./git-reference-payload";
 import { getGitStatus } from "./git-status-api";
 import {
   isNotGitRepositoryError,
@@ -73,13 +74,13 @@ export const removeRemote = async (repoPath: string, name: string): Promise<bool
 
 export const deleteRemoteBranch = async (
   repoPath: string,
-  remote: string,
-  branchName: string,
+  reference: GitReference,
 ): Promise<void> => {
   const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
-  await tauriInvoke("git.command", {
+  await tauriInvoke("git.write", {
     repoPath: resolvedRepoPath,
-    arguments: ["push", "--delete", "--", remote, `refs/heads/${branchName}`],
+    operation: "deleteRemoteBranch",
+    gitReference: toCoreGitReference(reference),
   });
   emitGitChanged({
     repoPath: resolvedRepoPath,

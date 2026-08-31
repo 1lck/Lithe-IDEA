@@ -21,9 +21,8 @@ import {
   requestInlineEdit,
 } from "@/features/editor/services/editor-inline-edit-service";
 import { commitSelectedChanges, getGitLog } from "../api/git-commits-api";
-import { getConflictMarkerPaths } from "../api/git-integration-api";
+import { getWorkingTreePathDiff } from "../api/git-diff-api";
 import { showGitPushDialog } from "../services/git-push-dialog-service";
-import { loadWorkingTreeFileDiff } from "../services/working-tree-file-diff";
 import { useGitBlameStore } from "../stores/git-blame.store";
 import { useGitStore } from "../stores/git.store";
 import type { GitDiff, GitFile } from "../types/git.types";
@@ -117,7 +116,11 @@ async function buildCommitMessageContext({
   const diffFilesForContext = selectedFiles.slice(0, MAX_DIFF_FILES_FOR_AI_CONTEXT);
   const [recentCommits, selectedDiffs] = await Promise.all([
     getGitLog(repoPath, MAX_RECENT_COMMITS_FOR_AI_CONTEXT),
-    Promise.all(diffFilesForContext.map((file) => loadWorkingTreeFileDiff(repoPath, file))),
+    Promise.all(
+      diffFilesForContext.map((file) =>
+        getWorkingTreePathDiff(repoPath, file.path, file.status === "untracked"),
+      ),
+    ),
   ]);
   const overflowCount = Math.max(selectedFiles.length - selectedFilesForContext.length, 0);
   const diffOverflowCount = Math.max(selectedFiles.length - diffFilesForContext.length, 0);
@@ -297,22 +300,6 @@ const GitCommitPanel = ({
       return;
     }
 
-    let markerPaths: string[];
-    try {
-      const selectedPathSet = new Set(selectedFiles.map((file) => file.path));
-      markerPaths = (await getConflictMarkerPaths(repoPath)).filter((path) =>
-        selectedPathSet.has(path),
-      );
-    } catch (markerError) {
-      console.error("Failed to check staged files for conflict markers:", markerError);
-      setError(t("git.verifyConflictMarkersFailed"));
-      return;
-    }
-    if (markerPaths.length > 0) {
-      setError(t("git.conflictMarkersRemain", { paths: markerPaths.join(", ") }));
-      return;
-    }
-
     setIsCommitting(true);
     setError(null);
 
@@ -340,7 +327,13 @@ const GitCommitPanel = ({
         setError(t("git.commitChangesFailed"));
       }
     } catch (error) {
-      setError(error instanceof Error ? error.message : t("ai.unknownError"));
+      setError(
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+            ? error
+            : t("ai.unknownError"),
+      );
     } finally {
       setIsCommitting(false);
     }
@@ -367,7 +360,7 @@ const GitCommitPanel = ({
   };
 
   const isCommitDisabled =
-    isCommitting || isGenerating || (selectedFilesCount > 0 && !commitMessage.trim());
+    selectedFilesCount === 0 || !commitMessage.trim() || isCommitting || isGenerating;
   const isGenerateDisabled = selectedFilesCount === 0 || isGenerating || isCommitting;
   const hasRemoteChanges = ahead > 0 || behind > 0;
   const isRemoteActionLoading = remoteAction !== null;

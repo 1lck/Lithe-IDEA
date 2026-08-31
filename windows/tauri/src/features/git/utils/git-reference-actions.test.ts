@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import type { GitReference } from "../types/git.types";
 import {
   getGitReferenceActions,
-  parseRemoteBranch,
   suggestWorktreeBranchName,
 } from "./git-reference-actions";
 
@@ -56,10 +55,9 @@ describe("Git reference actions", () => {
     expect(actions).not.toContain("rename");
   });
 
-  test("parses remote names and suggests a local worktree branch", () => {
-    const remote = reference("remote", "upstream/feature/orders");
-    expect(parseRemoteBranch(remote)).toEqual({ remote: "upstream", branch: "feature/orders" });
-    expect(suggestWorktreeBranchName(remote)).toBe("feature/orders-worktree");
+  test("suggests a safe display-derived worktree branch without parsing remote identity", () => {
+    const remote = reference("remote", "team/origin/feature/orders");
+    expect(suggestWorktreeBranchName(remote)).toBe("orders-worktree");
   });
 
   test("offers only checkout, branch creation, and comparisons for tags", () => {

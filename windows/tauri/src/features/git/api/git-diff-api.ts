@@ -207,6 +207,34 @@ export const getFileDiff = async (
   }
 };
 
+export const getWorkingTreePathDiff = async (
+  repoPath: string,
+  filePath: string,
+  untracked = false,
+): Promise<GitDiff | null> => {
+  if (untracked) {
+    return getUntrackedFileDiff(repoPath, filePath);
+  }
+
+  try {
+    const resolved = await resolveRepositoryForFile(repoPath, filePath);
+    if (!resolved) return null;
+
+    return await runGitRead(resolved.repoPath, `working-tree-path-diff:${resolved.filePath}`, () =>
+      tauriInvoke<GitDiff>("git_diff_file", {
+        repoPath: resolved.repoPath,
+        filePath: resolved.filePath,
+        reference: "HEAD",
+      }),
+    );
+  } catch (error) {
+    if (!isNotGitRepositoryError(error) && !isNoDiffFoundError(error)) {
+      console.error("Failed to get working-tree path diff:", error);
+    }
+    return null;
+  }
+};
+
 export const getUntrackedFileDiff = async (
   repoPath: string,
   filePath: string,

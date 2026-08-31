@@ -916,6 +916,29 @@ mod tests {
     }
 
     #[test]
+    fn preserves_head_reference_for_complete_working_tree_path_diff() {
+        let (command, payload) = translate(
+            "git_diff_file",
+            json!({
+                "repoPath": "C:/work",
+                "filePath": "src/main.rs",
+                "reference": "HEAD"
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(command, "git.diff");
+        assert_eq!(
+            payload,
+            json!({
+                "root": "C:/work",
+                "pathspecs": ["src/main.rs"],
+                "reference": "HEAD"
+            })
+        );
+    }
+
+    #[test]
     fn translates_untracked_diff_file_pathspec() {
         let (command, payload) = translate(
             "git_diff_file",

@@ -45,7 +45,6 @@ import {
   updateGitHistorySelection,
 } from "../../utils/git-history-selection";
 import {
-  parseRemoteBranch,
   suggestWorktreeBranchName,
   type GitReferenceAction,
 } from "../../utils/git-reference-actions";
@@ -406,15 +405,13 @@ export function GitLogToolWindow() {
 
   const deleteRemoteReference = async (reference: GitReference) => {
     if (!repoPath) return;
-    const remoteBranch = parseRemoteBranch(reference);
-    if (!remoteBranch) return;
     const confirmed = await showConfirmDialog(
       t("git.log.deleteRemoteBranchConfirm", { branch: reference.shortName }),
       { title: t("git.log.deleteRemoteBranch"), confirmLabel: t("git.delete") },
     );
     if (!confirmed) return;
     await runReferenceMutation(t("git.log.deleteRemoteBranch"), () =>
-      deleteRemoteBranch(repoPath, remoteBranch.remote, remoteBranch.branch),
+      deleteRemoteBranch(repoPath, reference),
     );
   };
 

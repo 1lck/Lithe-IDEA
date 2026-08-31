@@ -246,8 +246,8 @@ response retains the invocation trace and includes the failure as
 `reset`, `editCommitMessage`, `deleteCommit`, `squashCommits`, `createBranch`, `publishBranch`,
 `renameBranch`, `deleteBranch`, `merge`, `rebase`,
 `fetch`, `pull`, `push`, `checkout`, `checkoutAndRebase`, `checkoutRevision`, `clone`, `stashPush`,
-`stashApply`, `stashPop`, `stashDrop`, `operationContinue`, `operationAbort`, and
-`operationSkip`. Optional fields are `paths`, `reference`, `referenceKind`,
+`stashApply`, `stashPop`, `stashDrop`, `deleteRemoteBranch`, `operationContinue`,
+`operationAbort`, and `operationSkip`. Optional fields are `paths`, `reference`, `referenceKind`,
 `gitReference`, `revision`, `revisions`, `name`, `message`, `remote`, `destination`, `mode`,
 `includeUntracked`, `checkout`, `amend`, `force`, and `pushTags`.
 
@@ -280,9 +280,11 @@ the user can fix credentials or connectivity and retry without losing commits.
 `git.pushPreview` accepts `root`, an optional complete local `gitReference` or
 legacy `reference`, and an optional bounded `limit`. It returns `localBranch`,
 `remote`, `remoteBranch`, nullable `upstream`, `commits`, and `hasMore` using
-`shared/fixtures/git/push-preview-v1.json`. A branch without an upstream uses
-`origin`, or the first configured remote, and previews commits not reachable
-from that remote. The `push` mutation resolves the same destination. `force`
+`shared/fixtures/git/push-preview-v1.json`. The push destination follows
+`branch.<name>.pushRemote`, then `remote.pushDefault`, the configured upstream
+remote, `branch.<name>.remote`, and finally `origin` or the first configured
+remote. A destination without a fetched tracking reference previews commits not
+reachable from that remote. The `push` mutation resolves the same destination. `force`
 uses `--force-with-lease`; `pushTags` accepts `none`, `all`, or `reachable` and
 maps to no tag option, `--tags`, or `--follow-tags` respectively.
 
@@ -303,11 +305,17 @@ then invokes pull with the explicit remote and branch using `mode` `ffOnly`,
 `merge`, or `rebase`. Platforms must not parse the remote reference or construct
 these Git arguments themselves.
 
+`deleteRemoteBranch` requires a complete remote `gitReference`. Core resolves
+the configured remote with longest-prefix matching and invokes a structured
+remote branch deletion; platforms must not split `shortName` themselves.
+
 When `commit` includes `paths`, Core stages the complete working-tree state of
 those paths, including untracked files and deletions, then commits only those
 paths. Other paths already present in the index remain staged and are not part
-of the new commit. A `commit` request without `paths` retains the legacy behavior
-of committing the existing index. `ignore` appends root-anchored patterns to the
+of the new commit. Core checks conflict markers after preparing that final
+snapshot and restores the exact original index if staging, validation, a hook,
+signing, or commit execution fails. A `commit` request without `paths` retains
+the legacy behavior of committing the existing index. `ignore` appends root-anchored patterns to the
 repository's top-level `.gitignore`; `exclude` appends the same patterns to the
 worktree-aware Git metadata path for `info/exclude`. Both ignore operations
 preserve existing content, escape Git pattern characters, de-duplicate rules,

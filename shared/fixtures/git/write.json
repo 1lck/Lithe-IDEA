@@ -88,6 +88,16 @@
       }
     },
     {
+      "operation": "deleteRemoteBranch",
+      "payload": {
+        "gitReference": {
+          "fullName": "refs/remotes/team/origin/feature/core",
+          "shortName": "team/origin/feature/core",
+          "kind": "remote"
+        }
+      }
+    },
+    {
       "operation": "stashPush",
       "payload": {
         "message": "Save work",
@@ -136,6 +146,17 @@
       "payload": {
         "reference": "refs/heads/main",
         "pushTags": "invalid"
+      },
+      "errorCode": "invalid_request"
+    },
+    {
+      "operation": "deleteRemoteBranch",
+      "payload": {
+        "gitReference": {
+          "fullName": "refs/heads/main",
+          "shortName": "main",
+          "kind": "local"
+        }
       },
       "errorCode": "invalid_request"
     }

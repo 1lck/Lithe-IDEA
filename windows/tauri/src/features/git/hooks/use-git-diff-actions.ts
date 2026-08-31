@@ -9,6 +9,7 @@ import {
   getRefDiff,
   getStashDiff,
   getTypedReferenceDiff,
+  getWorkingTreePathDiff,
   getWorkingTreeRefDiff,
 } from "../api/git-diff-api";
 import {
@@ -142,14 +143,32 @@ export function useGitDiffActions({
             title,
             loadingDiff,
           );
-          void loadWorkingTreeDiffsProgressively({
-            repoPath: activeRepoPath,
-            bufferId,
-            title,
-            indexingLabel: t("git.indexing"),
-            diffEntries: [[fileKey, { ...file, staged }]],
-            initiallyExpandedFileKey: fileKey,
-          });
+          void (async () => {
+            const diff = await getWorkingTreePathDiff(
+              activeRepoPath,
+              actualFilePath,
+              file.status === "untracked",
+            );
+            if (
+              !latestFileDiffRequest.isCurrent(requestId) ||
+              activeRepoPathRef.current !== activeRepoPath
+            ) {
+              return;
+            }
+            await loadWorkingTreeDiffsProgressively({
+              repoPath: activeRepoPath,
+              bufferId,
+              title,
+              indexingLabel: t("git.indexing"),
+              diffEntries: [],
+              initialDiffs:
+                diff && (diff.lines.length > 0 || diff.is_image || diff.is_binary)
+                  ? [{ fileKey, diff }]
+                  : [],
+              initialProcessed: 1,
+              initiallyExpandedFileKey: fileKey,
+            });
+          })();
           return;
         }
 

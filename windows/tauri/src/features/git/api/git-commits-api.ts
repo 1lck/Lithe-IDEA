@@ -21,17 +21,21 @@ const runHistoryMutation = async (
   payload: Record<string, unknown>,
 ): Promise<void> => {
   const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
-  const result = await tauriInvoke<GitWriteResult>("git.write", {
-    repoPath: resolvedRepoPath,
-    ...payload,
-  });
-  emitGitChanged({
-    repoPath: resolvedRepoPath,
-    scopes: ["working-tree", "history", "refs"],
-    source,
-  });
-  if (typeof result?.exitCode === "number" && result.exitCode !== 0) {
-    throw new Error(result.output?.trim() || "Git history operation failed");
+  try {
+    const result = await tauriInvoke<GitWriteResult>("git.write", {
+      repoPath: resolvedRepoPath,
+      ...payload,
+    });
+    if (typeof result?.exitCode === "number" && result.exitCode !== 0) {
+      throw new Error(result.output?.trim() || "Git history operation failed");
+    }
+  } finally {
+    // A rejected rewrite can leave conflicts or sequencer state behind.
+    emitGitChanged({
+      repoPath: resolvedRepoPath,
+      scopes: ["working-tree", "history", "refs"],
+      source,
+    });
   }
 };
 

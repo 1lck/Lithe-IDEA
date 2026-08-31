@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import * as gitEvents from "../events/git-events";
-import type { GitPullPreflight } from "../types/git.types";
+import type { GitPullPreflight, GitReference } from "../types/git.types";
 
 const invoke = mock(async (_command: string, _args?: unknown): Promise<unknown> => null);
 const emitGitChanged = spyOn(gitEvents, "emitGitChanged");
@@ -111,17 +111,22 @@ describe("Git remote Pull API", () => {
       command === "git_discover_repo" ? "C:/repo" : null,
     );
 
-    await deleteRemoteBranch("C:/repo", "upstream", "feature/orders");
+    const reference: GitReference = {
+      fullName: "refs/remotes/team/origin/feature/orders",
+      shortName: "team/origin/feature/orders",
+      kind: "remote",
+      isCurrent: false,
+    };
+    await deleteRemoteBranch("C:/repo", reference);
 
-    expect(invoke).toHaveBeenCalledWith("git.command", {
+    expect(invoke).toHaveBeenCalledWith("git.write", {
       repoPath: "C:/repo",
-      arguments: [
-        "push",
-        "--delete",
-        "--",
-        "upstream",
-        "refs/heads/feature/orders",
-      ],
+      operation: "deleteRemoteBranch",
+      gitReference: {
+        fullName: "refs/remotes/team/origin/feature/orders",
+        shortName: "team/origin/feature/orders",
+        kind: "remote",
+      },
     });
     expect(emitGitChanged).toHaveBeenLastCalledWith({
       repoPath: "C:/repo",

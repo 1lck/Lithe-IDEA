@@ -80,6 +80,15 @@ fn initialize_repository(fixture: &GitFixture) -> (PathBuf, PathBuf) {
     (repository, remote)
 }
 
+fn add_bare_remote(fixture: &GitFixture, repository: &Path, name: &str) -> PathBuf {
+    let remote = fixture.root.join(format!("{}.git", name.replace('/', "-")));
+    fs::create_dir_all(&remote).expect("additional remote should be creatable");
+    require_git(&remote, &["init", "--bare", "-q"]);
+    let remote_path = remote.to_string_lossy().into_owned();
+    require_git(repository, &["remote", "add", name, &remote_path]);
+    remote
+}
+
 #[test]
 fn push_preview_and_write_share_destination_and_safe_options() {
     let fixture = GitFixture::new();
@@ -159,4 +168,80 @@ fn push_preview_preserves_a_configured_remote_name_with_slashes() {
     assert_eq!(preview["data"]["remoteBranch"], "main");
     assert_eq!(preview["data"]["upstream"], "team/origin/main");
     assert_eq!(preview["data"]["commits"][0]["subject"], "nested remote");
+}
+
+#[test]
+fn branch_push_remote_overrides_the_tracking_remote_for_preview_and_push() {
+    let fixture = GitFixture::new();
+    let (repository, _) = initialize_repository(&fixture);
+    let fork = add_bare_remote(&fixture, &repository, "fork");
+    require_git(&repository, &["config", "branch.main.pushRemote", "fork"]);
+    fs::write(repository.join("fork.txt"), "fork\n").expect("fixture should be writable");
+    require_git(&repository, &["add", "fork.txt"]);
+    require_git(&repository, &["commit", "-q", "-m", "fork change"]);
+
+    let preview = core("git.pushPreview", &repository, json!({}));
+    assert_eq!(preview["ok"], true, "response: {preview}");
+    assert_eq!(preview["data"]["remote"], "fork");
+    assert_eq!(preview["data"]["remoteBranch"], "main");
+    assert_eq!(preview["data"]["upstream"], "origin/main");
+
+    let pushed = core("git.write", &repository, json!({ "operation": "push" }));
+    assert_eq!(pushed["ok"], true, "response: {pushed}");
+    assert_eq!(pushed["data"]["exitCode"], 0, "response: {pushed}");
+    assert_eq!(
+        git(&repository, &["rev-parse", "HEAD"]).stdout,
+        git(&fork, &["rev-parse", "refs/heads/main"]).stdout
+    );
+}
+
+#[test]
+fn remote_push_default_overrides_the_tracking_remote() {
+    let fixture = GitFixture::new();
+    let (repository, _) = initialize_repository(&fixture);
+    add_bare_remote(&fixture, &repository, "fork");
+    require_git(&repository, &["config", "remote.pushDefault", "fork"]);
+
+    let preview = core("git.pushPreview", &repository, json!({}));
+    assert_eq!(preview["ok"], true, "response: {preview}");
+    assert_eq!(preview["data"]["remote"], "fork");
+    assert_eq!(preview["data"]["remoteBranch"], "main");
+    assert_eq!(preview["data"]["upstream"], "origin/main");
+}
+
+#[test]
+fn typed_remote_deletion_preserves_remote_names_with_slashes() {
+    let fixture = GitFixture::new();
+    let (repository, remote) = initialize_repository(&fixture);
+    require_git(&repository, &["remote", "rename", "origin", "team/origin"]);
+    require_git(
+        &repository,
+        &[
+            "push",
+            "-q",
+            "team/origin",
+            "refs/heads/main:refs/heads/feature/orders",
+        ],
+    );
+
+    let deleted = core(
+        "git.write",
+        &repository,
+        json!({
+            "operation": "deleteRemoteBranch",
+            "gitReference": {
+                "fullName": "refs/remotes/team/origin/feature/orders",
+                "shortName": "team/origin/feature/orders",
+                "kind": "remote"
+            }
+        }),
+    );
+    assert_eq!(deleted["ok"], true, "response: {deleted}");
+    assert_eq!(deleted["data"]["exitCode"], 0, "response: {deleted}");
+    assert!(!git(
+        &remote,
+        &["show-ref", "--verify", "refs/heads/feature/orders"]
+    )
+    .status
+    .success());
 }

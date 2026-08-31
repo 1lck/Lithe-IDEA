@@ -74,18 +74,8 @@ export function getGitReferenceActions(reference: GitReference): GitReferenceAct
   return TAG_ACTIONS;
 }
 
-export function parseRemoteBranch(reference: GitReference): {
-  remote: string;
-  branch: string;
-} | null {
-  if (reference.kind !== "remote") return null;
-  const [remote, ...branchParts] = reference.shortName.split("/");
-  const branch = branchParts.join("/");
-  return remote && branch && branch !== "HEAD" ? { remote, branch } : null;
-}
-
 export function suggestWorktreeBranchName(reference: GitReference): string {
-  const remoteBranch = parseRemoteBranch(reference);
-  const sourceName = remoteBranch?.branch ?? reference.shortName;
+  const sourceParts = reference.shortName.split("/").filter(Boolean);
+  const sourceName = sourceParts[sourceParts.length - 1] ?? "worktree";
   return `${sourceName}-worktree`;
 }

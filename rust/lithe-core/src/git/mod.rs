@@ -279,6 +279,36 @@ pub struct GitWriteRequest {
     pub auto_stash: bool,
 }
 
+/// Exact on-disk index state restored when a selected-path commit does not complete.
+struct GitIndexSnapshot {
+    path: PathBuf,
+    contents: Option<Vec<u8>>,
+}
+
+impl GitIndexSnapshot {
+    fn capture(root: &str) -> Result<Self, CoreError> {
+        let path = git_path(root, "index")?;
+        let contents = match std::fs::read(&path) {
+            Ok(contents) => Some(contents),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(git_index_io_error("read", error)),
+        };
+        Ok(Self { path, contents })
+    }
+
+    fn restore(&self) -> Result<(), CoreError> {
+        match self.contents.as_ref() {
+            Some(contents) => std::fs::write(&self.path, contents)
+                .map_err(|error| git_index_io_error("restore", error)),
+            None => match std::fs::remove_file(&self.path) {
+                Ok(()) => Ok(()),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(error) => Err(git_index_io_error("restore", error)),
+            },
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Request to resolve the exact destination and commits for a branch push.
@@ -531,23 +561,7 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
             let message = required_text(request.message.as_deref(), "commit message")?;
             if !request.paths.is_empty() {
                 let paths = validate_paths(&request.paths)?;
-                let stage_arguments = ["add", "-A", "--"]
-                    .into_iter()
-                    .map(String::from)
-                    .chain(paths.clone())
-                    .collect::<Vec<_>>();
-                let staged = execute_git(&root, &stage_arguments, None)?;
-                if staged.exit_code != 0 {
-                    return Ok(staged);
-                }
-
-                arguments = vec!["commit".into()];
-                if request.amend {
-                    arguments.push("--amend".into());
-                }
-                arguments.extend(["--only".into(), "-m".into(), message, "--".into()]);
-                arguments.extend(paths);
-                return execute_git(&root, &arguments, None);
+                return commit_selected_paths(&root, paths, message, request.amend);
             }
             arguments = vec!["commit".into()];
             if request.amend {
@@ -696,6 +710,28 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
                 let (remote, branch) = mutations::remote_branch_components(&root, &reference)?;
                 arguments.extend(["--".into(), remote, branch]);
             }
+        }
+        "deleteRemoteBranch" => {
+            let reference = request
+                .git_reference
+                .as_ref()
+                .ok_or_else(|| invalid_git_reference())?;
+            let reference = validated_git_reference(&root, reference)?;
+            if reference.kind != "remote" {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Remote branch deletion requires a remote Git reference",
+                ));
+            }
+            let (remote, branch) =
+                mutations::remote_branch_components(&root, &reference.full_name)?;
+            arguments = vec![
+                "push".into(),
+                "--delete".into(),
+                "--".into(),
+                remote,
+                format!("refs/heads/{branch}"),
+            ];
         }
         "push" => {
             let reference = optional_write_request_reference(&root, &request)?;
@@ -1584,18 +1620,26 @@ pub fn conflict_marker_paths(
     request: GitConflictMarkerRequest,
 ) -> Result<GitConflictMarkerResponse, CoreError> {
     let root = validate_root(&request.root)?;
+    let paths = staged_conflict_marker_paths(&root, &[])?;
+    Ok(GitConflictMarkerResponse { paths })
+}
 
-    let found = readonly_command(GitCommandRequest {
-        root,
-        arguments: vec![
-            "grep".to_string(),
-            "--cached".to_string(),
-            "-l".to_string(),
-            "-E".to_string(),
-            r"^(<<<<<<<|>>>>>>>|\|\|\|\|\|\|\|) ".to_string(),
-        ],
-        input: None,
-    })?;
+fn staged_conflict_marker_paths(
+    root: &str,
+    pathspecs: &[String],
+) -> Result<Vec<String>, CoreError> {
+    let mut arguments = vec![
+        "grep".to_string(),
+        "--cached".to_string(),
+        "-l".to_string(),
+        "-E".to_string(),
+        r"^(<<<<<<<|>>>>>>>|\|\|\|\|\|\|\|) ".to_string(),
+    ];
+    if !pathspecs.is_empty() {
+        arguments.push("--".into());
+        arguments.extend(pathspecs.iter().cloned());
+    }
+    let found = execute_git_readonly(root, &arguments, None)?;
     // `git grep` exits 1 when nothing matches, which is not a failure here.
     if found.exit_code > 1 {
         return Err(
@@ -1612,7 +1656,100 @@ pub fn conflict_marker_paths(
         .collect();
     paths.sort();
     paths.dedup();
-    Ok(GitConflictMarkerResponse { paths })
+    Ok(paths)
+}
+
+fn commit_selected_paths(
+    root: &str,
+    paths: Vec<String>,
+    message: String,
+    amend: bool,
+) -> Result<GitCommandResponse, CoreError> {
+    // `commit --only` needs untracked paths in the index, but that preparation
+    // must remain invisible if a hook, signer, or validation rejects the commit.
+    let index_snapshot = GitIndexSnapshot::capture(root)?;
+    let stage_arguments = ["add", "-A", "--"]
+        .into_iter()
+        .map(String::from)
+        .chain(paths.iter().cloned())
+        .collect::<Vec<_>>();
+    let staged = match execute_git(root, &stage_arguments, None) {
+        Ok(staged) => staged,
+        Err(error) => return restore_index_after_error(&index_snapshot, error),
+    };
+    if staged.exit_code != 0 {
+        restore_index_after_command_failure(&index_snapshot, &staged)?;
+        return Ok(staged);
+    }
+
+    let marker_paths = match staged_conflict_marker_paths(root, &paths) {
+        Ok(paths) => paths,
+        Err(error) => return restore_index_after_error(&index_snapshot, error),
+    };
+    if !marker_paths.is_empty() {
+        let error = CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Conflict markers remain in selected files",
+        )
+        .with_details(marker_paths.join(", "));
+        return restore_index_after_error(&index_snapshot, error);
+    }
+
+    let mut arguments = vec!["commit".into()];
+    if amend {
+        arguments.push("--amend".into());
+    }
+    arguments.extend(["--only".into(), "-m".into(), message, "--".into()]);
+    arguments.extend(paths);
+    let committed = match execute_git(root, &arguments, None) {
+        Ok(committed) => committed,
+        Err(error) => return restore_index_after_error(&index_snapshot, error),
+    };
+    if committed.exit_code != 0 {
+        restore_index_after_command_failure(&index_snapshot, &committed)?;
+    }
+    Ok(committed)
+}
+
+fn restore_index_after_error(
+    snapshot: &GitIndexSnapshot,
+    original: CoreError,
+) -> Result<GitCommandResponse, CoreError> {
+    match snapshot.restore() {
+        Ok(()) => Err(original),
+        Err(restore_error) => Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Git commit failed and the original index could not be restored",
+        )
+        .with_details(format!("{}; {}", original.message, restore_error.message))),
+    }
+}
+
+fn restore_index_after_command_failure(
+    snapshot: &GitIndexSnapshot,
+    command: &GitCommandResponse,
+) -> Result<(), CoreError> {
+    snapshot.restore().map_err(|restore_error| {
+        CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Git commit failed and the original index could not be restored",
+        )
+        .with_details(format!(
+            "{}; {}",
+            command.output.trim(),
+            restore_error.message
+        ))
+    })
+}
+
+fn git_index_io_error(action: &str, error: std::io::Error) -> CoreError {
+    let code = if error.kind() == std::io::ErrorKind::PermissionDenied {
+        ErrorCode::PermissionDenied
+    } else {
+        ErrorCode::Unknown
+    };
+    CoreError::new(code, format!("Could not {action} the Git index"))
+        .with_details(error.to_string())
 }
 
 /// How an operation decides whether a dirty working tree is in its way.
@@ -3173,6 +3310,7 @@ struct PushTarget {
     remote: String,
     remote_branch: String,
     upstream: Option<String>,
+    comparison_reference: Option<String>,
 }
 
 /// Resolves the remote destination and commits that a subsequent push will use.
@@ -3197,8 +3335,8 @@ pub fn push_preview(request: GitPushPreviewRequest) -> Result<GitPushPreviewResp
     let target = resolve_push_target(&root, reference.as_deref())?;
     let limit = request.limit.clamp(1, 5_000);
     let local_reference = format!("refs/heads/{}", target.local_branch);
-    let selectors = if let Some(upstream) = target.upstream.as_ref() {
-        vec![format!("{upstream}..{local_reference}")]
+    let selectors = if let Some(comparison_reference) = target.comparison_reference.as_ref() {
+        vec![format!("{comparison_reference}..{local_reference}")]
     } else {
         // A branch without an upstream may still be based on another remote branch.
         // Excluding every commit reachable from the selected remote keeps the preview
@@ -3265,7 +3403,7 @@ fn resolve_push_target(root: &str, reference: Option<&str>) -> Result<PushTarget
         Some(reference) => local_branch_name(&validated_reference(Some(reference))?)?,
         None => current_branch(root)?,
     };
-    let upstream = execute_git_readonly(
+    let upstream_lookup = execute_git_readonly(
         root,
         &[
             "rev-parse".into(),
@@ -3274,28 +3412,99 @@ fn resolve_push_target(root: &str, reference: Option<&str>) -> Result<PushTarget
         ],
         None,
     )?;
-    if upstream.exit_code == 0 {
-        let upstream = upstream.output.trim();
-        let upstream_reference = format!("refs/remotes/{upstream}");
-        let (remote, remote_branch) =
-            mutations::remote_branch_components(root, &upstream_reference)?;
-        return Ok(PushTarget {
-            local_branch,
-            remote,
-            remote_branch,
-            upstream: Some(upstream.to_string()),
-        });
-    }
+    let (upstream, upstream_components) = if upstream_lookup.exit_code == 0 {
+        let upstream = upstream_lookup.output.trim().to_string();
+        let components =
+            mutations::remote_branch_components(root, &format!("refs/remotes/{upstream}"))?;
+        (Some(upstream), Some(components))
+    } else {
+        (None, None)
+    };
+
+    let branch_push_remote =
+        read_git_config_value(root, &format!("branch.{local_branch}.pushRemote"))?;
+    let default_push_remote = read_git_config_value(root, "remote.pushDefault")?;
+    let branch_remote = read_git_config_value(root, &format!("branch.{local_branch}.remote"))?
+        .filter(|remote| remote != ".");
+    let remote = branch_push_remote
+        .or(default_push_remote)
+        .or_else(|| {
+            upstream_components
+                .as_ref()
+                .map(|(remote, _)| remote.clone())
+        })
+        .or(branch_remote)
+        .map(Ok)
+        .unwrap_or_else(|| default_push_remote_name(root))?;
+    validate_push_component(&remote)?;
+
+    let remote_branch = upstream_components
+        .as_ref()
+        .filter(|(upstream_remote, _)| upstream_remote == &remote)
+        .map(|(_, branch)| branch.clone())
+        .unwrap_or_else(|| local_branch.clone());
+    let target_reference = format!("refs/remotes/{remote}/{remote_branch}");
+    let comparison_reference = if reference_exists(root, &target_reference)? {
+        Some(target_reference)
+    } else {
+        None
+    };
 
     Ok(PushTarget {
-        remote: default_push_remote(root)?,
-        remote_branch: local_branch.clone(),
         local_branch,
-        upstream: None,
+        remote,
+        remote_branch,
+        upstream,
+        comparison_reference,
     })
 }
 
-fn default_push_remote(root: &str) -> Result<String, CoreError> {
+fn read_git_config_value(root: &str, key: &str) -> Result<Option<String>, CoreError> {
+    let configured = execute_git_readonly(
+        root,
+        &["config".into(), "--get".into(), key.to_string()],
+        None,
+    )?;
+    if configured.exit_code == 1 {
+        return Ok(None);
+    }
+    if configured.exit_code != 0 {
+        return Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Could not read Git push configuration",
+        )
+        .with_details(configured.output));
+    }
+    let value = configured.output.trim();
+    if value.is_empty() {
+        return Ok(None);
+    }
+    validate_push_component(value)?;
+    Ok(Some(value.to_string()))
+}
+
+fn reference_exists(root: &str, reference: &str) -> Result<bool, CoreError> {
+    let result = execute_git_readonly(
+        root,
+        &[
+            "show-ref".into(),
+            "--verify".into(),
+            "--quiet".into(),
+            reference.to_string(),
+        ],
+        None,
+    )?;
+    if result.exit_code > 1 {
+        return Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Could not inspect Git push destination",
+        )
+        .with_details(result.output));
+    }
+    Ok(result.exit_code == 0)
+}
+
+fn default_push_remote_name(root: &str) -> Result<String, CoreError> {
     let remotes = execute_git_readonly(root, &["remote".into()], None)?;
     if remotes.exit_code != 0 {
         return Err(
