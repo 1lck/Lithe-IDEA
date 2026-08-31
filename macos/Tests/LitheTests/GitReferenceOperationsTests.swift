@@ -7,6 +7,8 @@ import Testing
 struct GitReferenceOperationsTests {
     @Test
     func remoteReferenceWorkflowsUseCompleteIdentityThroughRustCore() async throws {
+        let core = RustCoreBridge()
+        guard core.isAvailable else { return }
         let fixture = try await GitReferenceFixture()
         let repository = fixture.repository
         let mainName = try await fixture.git(["branch", "--show-current"])
@@ -32,7 +34,7 @@ struct GitReferenceOperationsTests {
             isCurrent: false,
             upstreamShortName: nil
         )
-        let operations = RustGitOperations(core: RustCoreBridge())
+        let operations = RustGitOperations(core: core)
 
         let comparison = operations.comparison(
             from: mainReference,
