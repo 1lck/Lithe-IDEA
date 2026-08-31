@@ -12,6 +12,9 @@ struct EditorNavigationTarget: Equatable, Identifiable {
     let url: URL
     let line: Int
     let utf16Column: Int
+    /// Select the whole target line on arrival (Go to Line); symbol and find
+    /// navigation keep a zero-length caret.
+    var selectsWholeLine: Bool = false
 }
 
 struct LanguageNavigationLocation: Identifiable, Hashable, Sendable {

@@ -118,8 +118,7 @@ extension AppModel {
 
     func runMaven(
         phase: MavenLifecyclePhase,
-        module: MavenModule?,
-        profiles: Set<String>
+        module: MavenModule?
     ) {
         isMavenVisible = true
         isGitLogVisible = false
@@ -130,7 +129,15 @@ extension AppModel {
         isDebugVisible = false
         Task { [weak self] in
             guard let feature = await self?.activateExecutionModule()?.mavenFeature else { return }
-            feature.run(phase: phase, module: module, profiles: profiles)
+            feature.run(phase: phase, module: module)
+        }
+    }
+
+    func runMavenGoal(_ goal: String, module: MavenModule?) {
+        isMavenVisible = true
+        Task { [weak self] in
+            guard let feature = await self?.activateExecutionModule()?.mavenFeature else { return }
+            feature.runCustomGoal(goal, module: module)
         }
     }
 
@@ -1066,7 +1073,8 @@ extension AppModel {
         line: Int,
         utf16Column: Int,
         isReadOnly: Bool = false,
-        displayPath: String? = nil
+        displayPath: String? = nil,
+        selectsWholeLine: Bool = false
     ) {
         navigate(
             to: EditorNavigationLocation(
@@ -1075,7 +1083,8 @@ extension AppModel {
                 utf16Column: utf16Column,
                 isReadOnly: isReadOnly,
                 displayPath: displayPath,
-                virtualProviderID: nil
+                virtualProviderID: nil,
+                selectsWholeLine: selectsWholeLine
             ),
             recordsHistory: true
         )
@@ -1096,7 +1105,8 @@ extension AppModel {
                 editorNavigationTarget = EditorNavigationTarget(
                     url: location.url,
                     line: location.line,
-                    utf16Column: location.utf16Column
+                    utf16Column: location.utf16Column,
+                    selectsWholeLine: location.selectsWholeLine
                 )
                 return
             }
@@ -1138,7 +1148,8 @@ extension AppModel {
                         self.editorNavigationTarget = EditorNavigationTarget(
                             url: location.url,
                             line: location.line,
-                            utf16Column: location.utf16Column
+                            utf16Column: location.utf16Column,
+                            selectsWholeLine: location.selectsWholeLine
                         )
                     case .failure(let error):
                         onFailure?()
@@ -1165,7 +1176,8 @@ extension AppModel {
         editorNavigationTarget = EditorNavigationTarget(
             url: location.url.standardizedFileURL,
             line: location.line,
-            utf16Column: location.utf16Column
+            utf16Column: location.utf16Column,
+            selectsWholeLine: location.selectsWholeLine
         )
     }
 

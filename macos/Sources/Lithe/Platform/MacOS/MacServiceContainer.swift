@@ -55,6 +55,7 @@ final class MacServiceContainer {
         workspaceOperations providedWorkspaceOperations: (any WorkspaceOperations)? = nil,
         runConfigurationOperations providedRunConfigurationOperations: (any RunConfigurationOperations)? = nil,
         gitWatchContextProvider providedGitWatchContextProvider: (any GitWatchContextProviding)? = nil,
+        runExecutableResolver providedRunExecutableResolver: (any RunExecutableResolving)? = nil,
         pluginRuntimeRecovery: MacPluginRuntimeRecoveryCoordinator? = nil,
         authorizationCallbackRouter providedAuthorizationCallbackRouter: MacExternalAuthorizationCallbackRouter? = nil
     ) {
@@ -308,16 +309,22 @@ final class MacServiceContainer {
         do {
             try moduleRegistry.register(ModuleFactory(manifest: ExecutionModule.moduleManifest, contributions: ExecutionModule.moduleContributions) {
                 ExecutionModule(makeGraph: {
-                    let executableResolver = RunExecutableResolver(
-                        runtimeService: runtimeService,
-                        toolchainRegistry: runToolchainRegistry,
-                        metadataResolver: ProcessRunToolchainMetadataResolver(processRunner: processRunner)
-                    )
+                    // Toolchain discovery inspects installed JDKs through
+                    // processes, so it is overridable for the same reason the
+                    // other ports here are: a caller that does not exercise
+                    // toolchain resolution should not depend on the machine.
+                    let executableResolver: any RunExecutableResolving = providedRunExecutableResolver
+                        ?? RunExecutableResolver(
+                            runtimeService: runtimeService,
+                            toolchainRegistry: runToolchainRegistry,
+                            metadataResolver: ProcessRunToolchainMetadataResolver(processRunner: processRunner)
+                        )
                     let graph = ExecutionFeatureGraph(
                         maven: MavenService(
                             runtimeService: runtimeService,
                             process: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution),
-                            mavenOperations: javaMavenOperations
+                            mavenOperations: javaMavenOperations,
+                            configurationStore: MacMavenConfigurationStore(storage: fileStorage)
                         ),
                         run: RunService(
                             runtime: runtimeService,

@@ -54,6 +54,7 @@ package final class LanguageToolingSessionManager: ObservableObject {
     private let workspaceFingerprintProvider: (LanguageProviderDescriptor, URL) throws -> String?
     private let workspaceStateResetter: ((LanguageProviderDescriptor, URL, String?) throws -> Void)?
     private let workspaceStateCleaner: ((LanguageProviderDescriptor, URL, String?) throws -> Int)?
+    private var mavenContextProvider: (LanguageProviderDescriptor, URL) -> MavenLaunchContext? = { _, _ in nil }
 
     package init(
         catalog: LanguageProviderCatalog = .compatibilityFallback,
@@ -85,6 +86,13 @@ package final class LanguageToolingSessionManager: ObservableObject {
             return providerID
         })
     }
+
+    package func configureMavenContextProvider(
+        _ provider: @escaping (LanguageProviderDescriptor, URL) -> MavenLaunchContext?
+    ) {
+        mavenContextProvider = provider
+    }
+
     package func updateCatalog(_ catalog: LanguageProviderCatalog) {
         let previousDescriptors = Dictionary(
             uniqueKeysWithValues: self.catalog.descriptors.map { ($0.id, $0) }
@@ -832,7 +840,8 @@ package final class LanguageToolingSessionManager: ObservableObject {
         do {
             try created.start(
                 rootURL: rootURL,
-                workspaceFingerprint: workspaceFingerprint
+                workspaceFingerprint: workspaceFingerprint,
+                mavenContext: mavenContextProvider(descriptor, rootURL)
             )
         } catch {
             if languageServerSessionIdentities[descriptor.id] == sessionIdentity {

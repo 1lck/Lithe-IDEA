@@ -9,7 +9,12 @@ type GitLogLoadState = "idle" | "loading" | "ready" | "failed";
 
 const COMMITS_PER_PAGE = 50;
 const MAX_COMMITS = 5_000;
-const EMPTY_HISTORY: GitHistorySnapshot = { references: [], commits: [], hasMore: false };
+const EMPTY_HISTORY: GitHistorySnapshot = {
+  references: [],
+  recentReferences: [],
+  commits: [],
+  hasMore: false,
+};
 
 export function useGitLogController(repoPath: string | null) {
   const { t } = useTranslation();

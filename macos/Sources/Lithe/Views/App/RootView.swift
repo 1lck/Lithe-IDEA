@@ -166,12 +166,37 @@ private struct ActiveSessionChrome: View {
                 ProjectLocalHistoryView(request: request)
                     .environmentObject(model)
             }
+            .confirmationDialog(
+                "Close Running Terminal?",
+                isPresented: terminalCloseConfirmationPresented,
+                titleVisibility: .visible
+            ) {
+                Button("Close Terminal", role: .destructive) {
+                    model.confirmTerminalClose()
+                }
+                Button("Cancel", role: .cancel) {
+                    model.cancelTerminalClose()
+                }
+            } message: {
+                Text("Closing this terminal will stop its shell and any running command.")
+            }
     }
 
     private var windowLayout: LitheWindowLayout {
         let activeModel = projectSessions.activeModel
         if activeModel.standaloneFileURL != nil { return .standalone }
         return activeModel.workspaceURL == nil ? .welcome : .workspace
+    }
+
+    private var terminalCloseConfirmationPresented: Binding<Bool> {
+        Binding(
+            get: { model.pendingTerminalCloseSessionID != nil },
+            set: { isPresented in
+                if !isPresented {
+                    model.cancelTerminalClose()
+                }
+            }
+        )
     }
 
     private var windowTitle: String? {
@@ -211,6 +236,10 @@ private struct WindowCloseGuard: NSViewRepresentable {
         DispatchQueue.main.async {
             context.coordinator.attach(to: view.window, layout: layout, title: title)
         }
+    }
+
+    static func dismantleNSView(_ view: NSView, coordinator: LitheWindowCoordinator) {
+        coordinator.detach()
     }
 }
 
@@ -272,11 +301,13 @@ enum LitheWindowLayout: Equatable {
 }
 
 @MainActor
-protocol ProjectWindowSessionHandling: AnyObject {
+protocol ProjectWindowSessionHandling: UnsavedDocumentHandling {
     var hasActiveProject: Bool { get }
     var hasActiveStandaloneFile: Bool { get }
     func closeActiveProject()
+    func requestCloseActiveWorkbenchItem() -> Bool
     func requestCloseActiveSession() -> Bool
+    func resetForProjectWindowClose() async
 }
 
 extension ProjectSessionManager: ProjectWindowSessionHandling {
@@ -291,22 +322,43 @@ extension ProjectSessionManager: ProjectWindowSessionHandling {
 
 @MainActor
 final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
+    private enum NativeWindowCloseIntent {
+        case commandW
+        case projectCleanupCompleted
+    }
+
     var projectSessions: any ProjectWindowSessionHandling
     weak var window: NSWindow?
     private var layout: LitheWindowLayout?
     private var restoredWorkspaceFrame: NSRect?
+    private var closeCommandMonitor: Any?
+    private var pendingNativeWindowCloseIntent: NativeWindowCloseIntent?
+    private var nativeWindowCloseTask: Task<Void, Never>?
+    private let confirmUnsavedDocuments: @MainActor (any UnsavedDocumentHandling) -> Bool
+    private var isDetached = false
 
-    init(projectSessions: any ProjectWindowSessionHandling) {
+    init(
+        projectSessions: any ProjectWindowSessionHandling,
+        confirmUnsavedDocuments: @escaping @MainActor (any UnsavedDocumentHandling) -> Bool = {
+            LitheAppDelegate.confirmUnsavedDocuments(
+                for: $0,
+                context: .projectWindowClose
+            )
+        }
+    ) {
         self.projectSessions = projectSessions
+        self.confirmUnsavedDocuments = confirmUnsavedDocuments
     }
 
     func attach(to window: NSWindow?, layout: LitheWindowLayout, title: String? = nil) {
-        guard let window else { return }
+        guard !isDetached, let window else { return }
         if self.window !== window {
+            stopMonitoringCloseCommand()
             self.window = window
             window.delegate = self
             self.layout = nil
             restoredWorkspaceFrame = nil
+            startMonitoringCloseCommand()
         }
         apply(layout, title: title, to: window)
     }
@@ -333,10 +385,87 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if case .projectCleanupCompleted? = pendingNativeWindowCloseIntent {
+            pendingNativeWindowCloseIntent = nil
+            return true
+        }
+        guard nativeWindowCloseTask == nil else { return false }
+        if case .commandW? = pendingNativeWindowCloseIntent {
+            pendingNativeWindowCloseIntent = nil
+            guard confirmUnsavedDocuments(projectSessions) else { return false }
+            closeWindowAfterProjectCleanup(sender)
+            return false
+        }
         if projectSessions.hasActiveProject || projectSessions.hasActiveStandaloneFile {
             return projectSessions.requestCloseActiveSession()
         }
         return true
+    }
+
+    func performCloseCommand() {
+        guard let window else { return }
+        guard nativeWindowCloseTask == nil else { return }
+        guard !projectSessions.requestCloseActiveWorkbenchItem() else { return }
+        pendingNativeWindowCloseIntent = .commandW
+        defer { pendingNativeWindowCloseIntent = nil }
+        window.performClose(nil)
+    }
+
+    private func closeWindowAfterProjectCleanup(_ sender: NSWindow) {
+        guard nativeWindowCloseTask == nil else { return }
+        let projectSessions = projectSessions
+        nativeWindowCloseTask = Task { @MainActor [weak self, weak sender] in
+            await projectSessions.resetForProjectWindowClose()
+            guard let self else { return }
+            defer { self.nativeWindowCloseTask = nil }
+            guard !self.isDetached,
+                  let sender,
+                  self.window === sender else { return }
+            self.pendingNativeWindowCloseIntent = .projectCleanupCompleted
+            defer { self.pendingNativeWindowCloseIntent = nil }
+            sender.performClose(nil)
+        }
+    }
+
+    private func startMonitoringCloseCommand() {
+        guard closeCommandMonitor == nil else { return }
+        closeCommandMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
+            [weak self] event in
+            guard let self, Self.isCloseCommand(event, for: self.window) else { return event }
+            self.performCloseCommand()
+            return nil
+        }
+    }
+
+    func stopMonitoringCloseCommand() {
+        guard let closeCommandMonitor else { return }
+        NSEvent.removeMonitor(closeCommandMonitor)
+        self.closeCommandMonitor = nil
+    }
+
+    func detach() {
+        isDetached = true
+        stopMonitoringCloseCommand()
+        window = nil
+    }
+
+    static func isCloseCommand(_ event: NSEvent, for window: NSWindow?) -> Bool {
+        guard event.type == .keyDown,
+              !event.isARepeat,
+              event.window === window,
+              event.charactersIgnoringModifiers?.lowercased() == "w" else {
+            return false
+        }
+        let closeModifiers = event.modifierFlags.intersection([
+            .command, .control, .option, .shift
+        ])
+        return closeModifiers == .command
+    }
+
+    deinit {
+        if let closeCommandMonitor {
+            NSEvent.removeMonitor(closeCommandMonitor)
+        }
     }
 
     private func apply(_ layout: LitheWindowLayout, title: String?, to window: NSWindow) {

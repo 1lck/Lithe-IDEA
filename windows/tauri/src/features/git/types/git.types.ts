@@ -35,6 +35,7 @@ export interface GitReference {
 
 export interface GitHistorySnapshot {
   references: GitReference[];
+  recentReferences: GitReference[];
   commits: GitCommit[];
   hasMore: boolean;
 }

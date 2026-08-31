@@ -37,6 +37,8 @@ enum LitheCommandCatalog {
         command("find-in-file", "Find in File", "Search within the active editor", .navigation, "f", [.command]),
         command("find-next", "Find Next", "Move to the next match in the active editor", .navigation, "g", [.command]),
         command("find-previous", "Find Previous", "Move to the previous match in the active editor", .navigation, "g", [.shift, .command]),
+        command("replace-in-file", "Replace in File", "Replace within the active editor", .navigation, "r", [.command]),
+        command("go-to-line", "Go to Line", "Jump to a line and column in the active editor", .navigation, "l", [.command]),
         command("go-to-definition", "Go to Definition", "Navigate to the declaration of the selected symbol", .navigation, "b", [.command]),
         command("go-to-implementation", "Go to Implementation", "Navigate to an implementation of the selected symbol", .navigation, "b", [.option, .command]),
         command("find-usages", "Find Usages", "Find references to the selected symbol", .navigation, "u", [.option, .command]),

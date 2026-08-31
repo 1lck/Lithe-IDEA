@@ -18,19 +18,67 @@ package final class MavenFeatureModel: ObservableObject {
     }
 
     package var project: MavenProject? { service.project }
+    package var projectState: MavenProjectLoadState { service.projectState }
+    package var taskState: MavenTaskState { service.taskState }
     package var isLoadingProject: Bool { service.isLoadingProject }
     package var isRunning: Bool { service.isRunning }
     package var runningTitle: String? { service.runningTitle }
     package var output: String { service.output }
     package var issues: [MavenBuildIssue] { service.issues }
     package var lastExitCode: Int32? { service.lastExitCode }
+    package var availableProfiles: [MavenProfile] { service.availableProfiles }
+    package var selectedProfiles: Set<String> { service.selectedProfiles }
+    package var skipTests: Bool { service.skipTests }
+    package var settingsPath: String? { service.settingsPath }
+    package var mavenExecutablePath: String? { service.mavenExecutablePath }
+    package var javaHomePath: String? { service.javaHomePath }
+    package var configurationSaveError: String? { service.configurationSaveError }
+    package var isReloadRequired: Bool { service.isReloadRequired }
+    package var launchContext: MavenLaunchContext? { service.launchContext }
 
     package func loadProject(at workspaceURL: URL, files: [URL]) async {
         await service.loadProject(at: workspaceURL, files: files)
     }
 
-    package func run(phase: MavenLifecyclePhase, module: MavenModule?, profiles: Set<String>) {
-        service.run(phase: phase, module: module, profiles: profiles)
+    package func run(phase: MavenLifecyclePhase, module: MavenModule?) {
+        service.run(phase: phase, module: module)
+    }
+
+    package func runCustomGoal(_ value: String, module: MavenModule?) {
+        service.runCustomGoal(value, module: module)
+    }
+
+    package func setSelectedProfiles(_ profiles: Set<String>) {
+        service.setSelectedProfiles(profiles)
+    }
+
+    @discardableResult
+    package func addCustomProfile(_ value: String) -> Bool {
+        service.addCustomProfile(value)
+    }
+
+    package func restoreDefaultProfiles() {
+        service.restoreDefaultProfiles()
+    }
+
+    package func setSkipTests(_ enabled: Bool) {
+        service.setSkipTests(enabled)
+    }
+
+    package func updateLocalConfiguration(
+        settingsPath: String?,
+        mavenExecutablePath: String?,
+        javaHomePath: String?
+    ) {
+        service.updateLocalConfiguration(
+            settingsPath: settingsPath,
+            mavenExecutablePath: mavenExecutablePath,
+            javaHomePath: javaHomePath
+        )
+    }
+
+    package func acknowledgeReload() {
+        service.acknowledgeReload()
     }
 
     package func reset() { service.reset() }
