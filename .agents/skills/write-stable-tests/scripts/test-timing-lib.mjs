@@ -58,7 +58,7 @@ export async function terminateProcessTree(
   return waitForProcessGroupExit(child.pid, forcedTerminationTimeoutMs, pollIntervalMs);
 }
 
-function lineCollector(callback) {
+function lineCollector(callback, partialCallback = () => {}) {
   const decoder = new StringDecoder("utf8");
   let pending = "";
   return {
@@ -67,6 +67,7 @@ function lineCollector(callback) {
       const lines = pending.split(/\r?\n/);
       pending = lines.pop() ?? "";
       for (const line of lines) callback(line);
+      if (pending) partialCallback(pending);
     },
     finish() {
       pending += decoder.end();
@@ -84,6 +85,8 @@ export function runProcess({
   timeoutMs,
   onStdoutLine = () => {},
   onStderrLine = () => {},
+  onStdoutPartialLine = () => {},
+  onStderrPartialLine = () => {},
   onSpawn = () => {},
   streamStdout = false,
   streamStderr = false,
@@ -102,8 +105,8 @@ export function runProcess({
     });
     const stdoutChunks = [];
     const stderrChunks = [];
-    const stdoutLines = lineCollector(onStdoutLine);
-    const stderrLines = lineCollector(onStderrLine);
+    const stdoutLines = lineCollector(onStdoutLine, onStdoutPartialLine);
+    const stderrLines = lineCollector(onStderrLine, onStderrPartialLine);
     let timedOut = false;
     let timeout;
     let terminationPromise = null;

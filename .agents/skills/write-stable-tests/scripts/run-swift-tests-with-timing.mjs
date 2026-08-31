@@ -57,6 +57,14 @@ export function parseSwiftSuiteLine(line) {
   };
 }
 
+export function isSwiftTestCompletionFragment(fragment, testName) {
+  const plain = fragment.replace(/\u001B\[[0-9;]*m/g, "");
+  const result = plain.match(/(?:^|\s)[✔✘↷] Test (.+)$/u);
+  if (!result) return false;
+  const reported = result[1];
+  return testName.startsWith(reported) || reported.startsWith(testName);
+}
+
 function parseArguments(arguments_) {
   const separator = arguments_.indexOf("--");
   if (separator < 0 || separator === arguments_.length - 1) {
@@ -83,7 +91,14 @@ function parseArguments(arguments_) {
   return options;
 }
 
-export async function run(options, { runProcessImpl = runProcess } = {}) {
+export async function run(
+  options,
+  {
+    runProcessImpl = runProcess,
+    setTimeoutImpl = setTimeout,
+    clearTimeoutImpl = clearTimeout,
+  } = {},
+) {
   mkdirSync(path.dirname(options.report), { recursive: true });
   const logPath = options.report.replace(/\.json$/i, ".log");
   const log = createWriteStream(logPath, { flags: "w" });
@@ -92,7 +107,19 @@ export async function run(options, { runProcessImpl = runProcess } = {}) {
   let currentSuite = null;
   let timedOutTest = null;
   let testTimer = null;
+  let timedTest = null;
   let terminateChild = () => {};
+
+  const clearTestTimer = () => {
+    if (testTimer !== null) clearTimeoutImpl(testTimer);
+    testTimer = null;
+    timedTest = null;
+  };
+
+  const recordPartialLine = (line) => {
+    if (!timedTest || !isSwiftTestCompletionFragment(line, timedTest.name)) return;
+    clearTestTimer();
+  };
 
   const recordLine = (line, stream) => {
     log.write(`${stream}: ${line}\n`);
@@ -104,9 +131,14 @@ export async function run(options, { runProcessImpl = runProcess } = {}) {
     if (event.event === "started") {
       const startedAt = performance.now();
       active.set(event.name, { startedAt, suite: currentSuite });
-      if (testTimer) clearTimeout(testTimer);
-      testTimer = setTimeout(() => {
-        timedOutTest = { name: event.name, suite: currentSuite };
+      clearTestTimer();
+      timedTest = { name: event.name, suite: currentSuite };
+      const scheduledTest = timedTest;
+      testTimer = setTimeoutImpl(() => {
+        if (timedTest !== scheduledTest) return;
+        timedOutTest = scheduledTest;
+        testTimer = null;
+        timedTest = null;
         terminateChild();
       }, options.maxMs);
       return;
@@ -114,10 +146,7 @@ export async function run(options, { runProcessImpl = runProcess } = {}) {
 
     const activeTest = active.get(event.name);
     active.delete(event.name);
-    if (testTimer) {
-      clearTimeout(testTimer);
-      testTimer = null;
-    }
+    clearTestTimer();
     records.push({
       name: event.name,
       ...(activeTest?.suite ? { suite: activeTest.suite } : {}),
@@ -140,12 +169,13 @@ export async function run(options, { runProcessImpl = runProcess } = {}) {
     },
     onStdoutLine: (line) => recordLine(line, "stdout"),
     onStderrLine: (line) => recordLine(line, "stderr"),
+    onStdoutPartialLine: recordPartialLine,
     streamStdout: true,
     streamStderr: true,
   });
 
   const result = await childPromise;
-  if (testTimer) clearTimeout(testTimer);
+  clearTestTimer();
   await new Promise((resolve, reject) => {
     log.once("error", reject);
     log.end(resolve);

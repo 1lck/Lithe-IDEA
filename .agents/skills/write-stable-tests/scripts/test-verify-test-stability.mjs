@@ -11,6 +11,7 @@ import { parseJUnitCases } from "./parse-junit-cases.mjs";
 import { run as runBunTestsWithTiming } from "./run-bun-tests-with-timing.mjs";
 import { run as runRustTestsWithTiming } from "./run-rust-tests-with-timing.mjs";
 import {
+  isSwiftTestCompletionFragment,
   parseSwiftSuiteLine,
   parseSwiftTimingLine,
   run as runSwiftTestsWithTiming,
@@ -164,6 +165,106 @@ assert.deepEqual(
   parseSwiftSuiteLine('◇ Suite "App localization" started.'),
   { name: "App localization", event: "started" },
 );
+assert.equal(
+  isSwiftTestCompletionFragment(
+    "✔ Test catalogHa",
+    "catalogHasStableUniqueCommandsAndConflictFreeDefaults()",
+  ),
+  true,
+);
+assert.equal(
+  isSwiftTestCompletionFragment(
+    "◇ Test catalogHasStableUniqueCommandsAndConflictFreeDefaults() started.",
+    "catalogHasStableUniqueCommandsAndConflictFreeDefaults()",
+  ),
+  false,
+);
+assert.equal(
+  isSwiftTestCompletionFragment("✔ Test anotherTest", "catalogHasStableUniqueCommands"),
+  false,
+);
+
+let observedPartialLine = null;
+const partialLineResult = await runProcess({
+  command: process.execPath,
+  args: ["-e", "process.stdout.write('✔ Test catalogHa')"],
+  timeoutMs: 1000,
+  onStdoutPartialLine: (line) => {
+    observedPartialLine = line;
+  },
+});
+assert.equal(partialLineResult.code, 0);
+assert.equal(observedPartialLine, "✔ Test catalogHa");
+
+const swiftFragmentRoot = mkdtempSync(path.join(os.tmpdir(), "lithe-swift-fragment-"));
+try {
+  const reportPath = path.join(swiftFragmentRoot, "swift-fragment.json");
+  const timeoutToken = Symbol("swift-test-timeout");
+  let timeoutCleared = false;
+  let childTerminated = false;
+  await runSwiftTestsWithTiming(
+    {
+      warnMs: 50,
+      maxMs: 200,
+      suiteTimeoutMs: 500,
+      report: reportPath,
+      command: "swift",
+      commandArguments: ["test"],
+    },
+    {
+      setTimeoutImpl: (callback) => {
+        assert.equal(typeof callback, "function");
+        return timeoutToken;
+      },
+      clearTimeoutImpl: (token) => {
+        assert.equal(token, timeoutToken);
+        timeoutCleared = true;
+      },
+      runProcessImpl: async ({ onSpawn, onStdoutLine, onStdoutPartialLine }) => {
+        onSpawn({
+          terminate: async () => {
+            childTerminated = true;
+            return true;
+          },
+        });
+        onStdoutLine('◇ Suite "Keyboard shortcuts" started.');
+        onStdoutLine(
+          "◇ Test catalogHasStableUniqueCommandsAndConflictFreeDefaults() started.",
+        );
+        onStdoutPartialLine("✔ Test catalogHa");
+        assert.equal(timeoutCleared, true);
+        onStdoutLine(
+          "✔ Test catalogHasStableUniqueCommandsAndConflictFreeDefaults() passed after 0.001 seconds.",
+        );
+        onStdoutLine('✔ Suite "Keyboard shortcuts" passed after 0.001 seconds.');
+        return {
+          code: 0,
+          signal: null,
+          timedOut: false,
+          terminationConfirmed: true,
+          durationMs: 1,
+          stdout: "",
+          stderr: "",
+        };
+      },
+    },
+  );
+  assert.equal(childTerminated, false);
+  assert.deepEqual(
+    JSON.parse(readFileSync(reportPath, "utf8")).tests.map(({ name, status }) => ({
+      name,
+      status,
+    })),
+    [
+      {
+        name: "catalogHasStableUniqueCommandsAndConflictFreeDefaults()",
+        status: "passed",
+      },
+    ],
+  );
+} finally {
+  rmSync(swiftFragmentRoot, { recursive: true, force: true });
+}
 
 assert.deepEqual(
   parseJUnitCases(
