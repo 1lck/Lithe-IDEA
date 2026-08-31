@@ -547,6 +547,7 @@ struct LitheIcon: View {
 
 /// A small SwiftUI bridge for the imported IntelliJ SVG catalog.
 /// `fallbackSystemImage` keeps the UI usable in an unbundled debug preview.
+@MainActor
 struct LitheIDEAIcon: View {
     @Environment(\.colorScheme) private var colorScheme
     let resourcePath: String
@@ -578,6 +579,7 @@ struct LitheIDEAIcon: View {
         }
     }
 
+    @MainActor
     private var resolvedImage: NSImage? {
         if colorScheme == .dark,
            let darkImage = LitheIcons.ideaImage(
