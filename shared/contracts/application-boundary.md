@@ -306,3 +306,29 @@ Runtime consumption is declared by the detector from the actual command rather
 than inferred from the provider namespace. An automatically discovered runtime
 path is session-effective: validation and launch share it, but persistence
 still requires an explicit user selection.
+
+Maven tool-window execution uses `maven.launchPlan`; platform views do not
+assemble Maven arguments. Portable profile and Skip Tests defaults conform to
+[`maven-portable-configuration-v1.schema.json`](maven-portable-configuration-v1.schema.json).
+The transient Core request conforms to
+[`maven-launch-context-v1.schema.json`](maven-launch-context-v1.schema.json).
+External `settings.xml`, Maven executable, and Maven JDK paths remain in a
+machine-local store. They may be supplied transiently to Core for planning and
+fingerprinting, but Core never opens `settings.xml` or serializes those paths
+into the portable project context.
+
+The Java language-server startup consumes that same context. Core exposes the
+selected `settings.xml` to JDT LS as
+`java.configuration.maven.userSettings`, then applies the sorted Profile set
+to the reactor and every recursively declared Maven module after JDT LS
+reports `ServiceReady`. The Java session remains `initializing` until those
+project updates all succeed; a rejected or timed-out update fails the session
+instead of silently retaining the previous Maven model.
+
+Maven-backed Run and Debug launch planning consumes the current project Maven
+context. A Run Configuration's explicit Profiles and toolchain paths take
+precedence; explicit `cwd` and `extensions.maven.skipTests` values also take
+precedence, including `skipTests: false`. Unset values inherit the project
+settings. The shared Core applies the final Maven argument order for all three
+entry points. Tool-window module launches add `-am`; Run and Debug retain their
+existing `-pl <module>` behavior without implicitly building dependencies.

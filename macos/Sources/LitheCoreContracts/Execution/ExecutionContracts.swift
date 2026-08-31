@@ -7,9 +7,11 @@ package struct RunOptions: Codable, Hashable, Sendable {
         package var mavenJavaHomePath = ""
         package var vmArguments = ""
         package var activeMavenProfiles: Set<String> = []
+        package var skipTests: Bool?
 
         private enum CodingKeys: String, CodingKey {
             case homePath, mavenExecutablePath, mavenJavaHomePath, vmArguments, activeMavenProfiles
+            case skipTests
         }
 
         package init(
@@ -17,13 +19,15 @@ package struct RunOptions: Codable, Hashable, Sendable {
             mavenExecutablePath: String = "",
             mavenJavaHomePath: String = "",
             vmArguments: String = "",
-            activeMavenProfiles: Set<String> = []
+            activeMavenProfiles: Set<String> = [],
+            skipTests: Bool? = nil
         ) {
             self.homePath = homePath
             self.mavenExecutablePath = mavenExecutablePath
             self.mavenJavaHomePath = mavenJavaHomePath
             self.vmArguments = vmArguments
             self.activeMavenProfiles = activeMavenProfiles
+            self.skipTests = skipTests
         }
 
         package init(from decoder: Decoder) throws {
@@ -33,6 +37,7 @@ package struct RunOptions: Codable, Hashable, Sendable {
             mavenJavaHomePath = try container.decodeIfPresent(String.self, forKey: .mavenJavaHomePath) ?? ""
             vmArguments = try container.decodeIfPresent(String.self, forKey: .vmArguments) ?? ""
             activeMavenProfiles = try container.decodeIfPresent(Set<String>.self, forKey: .activeMavenProfiles) ?? []
+            skipTests = try container.decodeIfPresent(Bool.self, forKey: .skipTests)
         }
     }
 
@@ -47,6 +52,7 @@ package struct RunOptions: Codable, Hashable, Sendable {
         vmArguments: String = "",
         programArguments: String = "",
         activeProfiles: Set<String> = [],
+        mavenSkipTests: Bool? = nil,
         mavenExecutablePath: String = "",
         mavenJavaHomePath: String = "",
         environment: [String: String] = [:]
@@ -59,7 +65,8 @@ package struct RunOptions: Codable, Hashable, Sendable {
             mavenExecutablePath: mavenExecutablePath,
             mavenJavaHomePath: mavenJavaHomePath,
             vmArguments: vmArguments,
-            activeMavenProfiles: activeProfiles
+            activeMavenProfiles: activeProfiles,
+            skipTests: mavenSkipTests
         )
     }
 
@@ -86,6 +93,10 @@ package struct RunOptions: Codable, Hashable, Sendable {
     package var activeProfiles: Set<String> {
         get { java.activeMavenProfiles }
         set { java.activeMavenProfiles = newValue }
+    }
+    package var mavenSkipTests: Bool? {
+        get { java.skipTests }
+        set { java.skipTests = newValue }
     }
 
     private enum CodingKeys: String, CodingKey {

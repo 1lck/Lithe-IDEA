@@ -92,6 +92,14 @@ final class SpringFeatureModel: ObservableObject {
         }
     }
 
+    func scheduleLoad(workspaceURL: URL, files: [URL], textOverrides: [URL: String]) {
+        reloadTask?.cancel()
+        reloadTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.load(workspaceURL: workspaceURL, files: files, textOverrides: textOverrides)
+        }
+    }
+
     func handles(_ url: URL) -> Bool {
         let name = url.lastPathComponent.lowercased()
         return name == "application.properties"

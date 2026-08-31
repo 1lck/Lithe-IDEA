@@ -329,8 +329,36 @@ extension AppModel {
         isTerminalVisible = true
     }
 
-    func closeTerminalSession(_ session: TerminalSession) {
+    func requestCloseTerminalSession(_ session: TerminalSession) {
         guard terminalSessions.contains(where: { $0.id == session.id }) else { return }
+        guard session.isRunning else {
+            closeTerminalSession(session)
+            return
+        }
+        pendingTerminalCloseSessionID = session.id
+    }
+
+    var pendingTerminalCloseSession: TerminalSession? {
+        guard let pendingTerminalCloseSessionID else { return nil }
+        return terminalSessions.first { $0.id == pendingTerminalCloseSessionID }
+    }
+
+    func confirmTerminalClose() {
+        guard let session = pendingTerminalCloseSession else {
+            pendingTerminalCloseSessionID = nil
+            return
+        }
+        pendingTerminalCloseSessionID = nil
+        closeTerminalSession(session)
+    }
+
+    func cancelTerminalClose() {
+        pendingTerminalCloseSessionID = nil
+    }
+
+    private func closeTerminalSession(_ session: TerminalSession) {
+        guard terminalSessions.contains(where: { $0.id == session.id }) else { return }
+        pendingTerminalCloseSessionID = nil
         debugTerminalSessionIDs.remove(session.id)
         for debugSessionID in debugTerminalSessionIDsByDebugSession.keys {
             debugTerminalSessionIDsByDebugSession[debugSessionID]?.remove(session.id)

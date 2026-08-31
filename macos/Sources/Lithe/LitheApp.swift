@@ -4,8 +4,39 @@ import SwiftUI
 private let litheProcessLaunchDate = Date()
 
 @MainActor
+protocol UnsavedDocumentHandling: AnyObject {
+    var hasUnsavedDocuments: Bool { get }
+    var unsavedDocumentNames: [String] { get }
+
+    @discardableResult
+    func saveAllDocuments() -> Bool
+}
+
+enum UnsavedDocumentsConfirmationContext {
+    case applicationTermination
+    case projectWindowClose
+
+    var messageText: String {
+        switch self {
+        case .applicationTermination:
+            "Save changes before quitting?"
+        case .projectWindowClose:
+            "Save changes before closing this window?"
+        }
+    }
+}
+
+@MainActor
 final class LitheAppDelegate: NSObject, NSApplicationDelegate {
+    private enum TerminationCleanupState {
+        case idle
+        case cleaning
+        case approved
+    }
+
     private var pendingFileURLs: [URL] = []
+    private var terminationCleanupTask: Task<Void, Never>?
+    private var terminationCleanupState: TerminationCleanupState = .idle
     weak var projectSessions: ProjectSessionManager? {
         didSet {
             guard let projectSessions else { return }
@@ -34,7 +65,38 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let projectSessions else { return .terminateNow }
-        return Self.confirmUnsavedDocuments(for: projectSessions) ? .terminateNow : .terminateCancel
+
+        // AppKit may ask more than once while a previous asynchronous reply is
+        // pending. Do not show another confirmation dialog or start a second
+        // module shutdown graph in that interval. Once the cleanup reply has
+        // been approved, allow AppKit's follow-up request to finish normally.
+        switch terminationCleanupState {
+        case .cleaning:
+            return .terminateLater
+        case .approved:
+            return .terminateNow
+        case .idle:
+            break
+        }
+        return Self.confirmUnsavedDocuments(
+            for: projectSessions,
+            context: .applicationTermination
+        ) ? beginTerminationCleanup(for: projectSessions, sender: sender) : .terminateCancel
+    }
+
+    private func beginTerminationCleanup(
+        for projectSessions: ProjectSessionManager,
+        sender: NSApplication
+    ) -> NSApplication.TerminateReply {
+        terminationCleanupState = .cleaning
+        terminationCleanupTask = Task { @MainActor [weak self, projectSessions, sender] in
+            await projectSessions.stopAllSessions()
+            guard let self, self.terminationCleanupState == .cleaning else { return }
+            self.terminationCleanupTask = nil
+            self.terminationCleanupState = .approved
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -42,7 +104,6 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
             forEventClass: AEEventClass(kCoreEventClass),
             andEventID: AEEventID(kAEOpenDocuments)
         )
-        projectSessions?.stopAllSessions()
         recordCleanPluginShutdown?()
     }
 
@@ -103,20 +164,23 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    static func confirmUnsavedDocuments(for projectSessions: ProjectSessionManager) -> Bool {
-        guard projectSessions.hasUnsavedDocuments else { return true }
+    static func confirmUnsavedDocuments(
+        for documentOwner: any UnsavedDocumentHandling,
+        context: UnsavedDocumentsConfirmationContext
+    ) -> Bool {
+        guard documentOwner.hasUnsavedDocuments else { return true }
 
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Save changes before quitting?"
-        alert.informativeText = projectSessions.unsavedDocumentNames.joined(separator: ", ")
+        alert.messageText = context.messageText
+        alert.informativeText = documentOwner.unsavedDocumentNames.joined(separator: ", ")
         alert.addButton(withTitle: "Save All")
         alert.addButton(withTitle: "Don't Save")
         alert.addButton(withTitle: "Cancel")
 
         switch alert.runModal() {
         case .alertFirstButtonReturn:
-            return projectSessions.saveAllDocuments()
+            return documentOwner.saveAllDocuments()
         case .alertSecondButtonReturn:
             return true
         default:
@@ -335,6 +399,12 @@ struct LitheApp: App {
                     .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "find-in-file"))
                     .disabled(model.activeDocument == nil)
 
+                    Button("Replace in File…") {
+                        model.showReplaceBar()
+                    }
+                    .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "replace-in-file"))
+                    .disabled(model.activeDocument == nil)
+
                     Button("Find Next") {
                         model.navigateFind(offset: 1)
                     }
@@ -346,6 +416,12 @@ struct LitheApp: App {
                     }
                     .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "find-previous"))
                     .disabled(!model.isFindBarVisible || model.findMatchCount == 0)
+
+                    Button("Go to Line…") {
+                        model.showGoToLine()
+                    }
+                    .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "go-to-line"))
+                    .disabled(model.activeDocument == nil)
                 }
 
                 Divider()
@@ -604,7 +680,10 @@ private func settingsWindowTitle(for language: AppLanguage) -> String {
     )
 }
 
-private extension AppThemePreference {
+extension AppThemePreference {
+    /// NSAppearance applied to app windows for the selected theme; `nil`
+    /// means follow the system appearance. Shared by every presenting
+    /// window, including the Go to Line dialog.
     var windowAppearance: NSAppearance? {
         switch self {
         case .system: nil

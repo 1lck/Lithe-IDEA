@@ -39,6 +39,7 @@
         "jvmArguments": { "type": "array", "items": { "type": "string" } },
         "programArguments": { "type": "array", "items": { "type": "string" } },
         "mavenProfiles": { "type": "array", "items": { "type": "string" } },
+        "mavenSkipTests": { "type": "boolean" },
         "disabled": { "type": "boolean" }
       },
       "additionalProperties": false

@@ -14,6 +14,7 @@ package final class RunService: ObservableObject {
         }
     }
     @Published package private(set) var isLoadingProject = false
+    @Published package private(set) var projectLoadState: ProjectLoadState = .idle
     @Published package private(set) var isRunning = false
     @Published package private(set) var runningTitle: String?
     @Published package private(set) var output = ""
@@ -56,6 +57,7 @@ package final class RunService: ObservableObject {
     private let maximumOutputCharacters = 500_000
     private let runtime: any RunRuntimePort
     private let executableResolver: any RunExecutableResolving
+    private var mavenContextProvider: @MainActor () -> MavenLaunchContext? = { nil }
 
     package init(
         runtime: any RunRuntimePort,
@@ -105,6 +107,36 @@ package final class RunService: ObservableObject {
     package var lastRunFileURL: URL? { lastCurrentFileURL }
     package var lastConfiguration: RunConfiguration? { lastRunConfiguration }
 
+    /// Whether the file inventory for `workspace` came from its snapshot, and is
+    /// therefore complete enough to generate a configuration from. Entry points
+    /// that activate the execution module on demand use this to decide whether
+    /// the project still has to be loaded.
+    package func isProjectReady(for workspace: URL, snapshotID: UUID?) -> Bool {
+        projectLoadState.isReady(for: workspace, snapshotID: snapshotID)
+    }
+
+    /// Whether a complete inventory for `workspace` is already loaded, even if a
+    /// newer snapshot has since been published. Entry points use this to tell a
+    /// superseded inventory apart from one that was never loaded.
+    package func hasReadyInventory(for workspace: URL) -> Bool {
+        projectLoadState.hasReadyInventory(for: workspace)
+    }
+
+    /// Surfaces the "project still loading" generation notice without scanning.
+    ///
+    /// AppModel uses this when readiness cannot be established for the current
+    /// snapshot: the service may still hold an older `.ready` inventory, and
+    /// calling `generateRunConfigurations` would scan that stale list.
+    package func reportGenerationProjectNotReady() {
+        generationState = .projectNotReady
+    }
+
+    package func configureMavenContextProvider(
+        _ provider: @escaping @MainActor () -> MavenLaunchContext?
+    ) {
+        mavenContextProvider = provider
+    }
+
     @discardableResult
     package func registerLanguageRunExtension(
         _ provider: any LanguageRunExtensionProviding,
@@ -132,14 +164,22 @@ package final class RunService: ObservableObject {
         return roots
     }
 
+    /// Loads run state for a workspace.
+    ///
+    /// `snapshotID` identifies the workspace snapshot `files` came from. Passing
+    /// `nil` means no snapshot has been applied yet, which binds the service so
+    /// existing configuration can be read while generation stays blocked.
     package func loadProject(
         at projectURL: URL,
         files: [URL],
-        mavenProject: MavenProject?
+        mavenProject: MavenProject?,
+        snapshotID: UUID? = nil
     ) async {
         let loadID = UUID()
         projectLoadID = loadID
+        let workspace = projectURL.standardizedFileURL
         isLoadingProject = true
+        projectLoadState = .loading(workspace: workspace)
         defer {
             if projectLoadID == loadID {
                 isLoadingProject = false
@@ -155,7 +195,14 @@ package final class RunService: ObservableObject {
         if let currentProject = self.projectURL {
             selectedConfigurationIDsByProject[currentProject.path] = selectedConfigurationID
         }
-        self.projectURL = projectURL.standardizedFileURL
+        self.projectURL = workspace
+        // Whether the existing configuration parses is `configurationStatus`, not
+        // this state. Keeping them apart is what lets a broken generated.json be
+        // regenerated: folding a parse failure in here would block generation,
+        // which is the only way to repair it.
+        projectLoadState = snapshotID
+            .map { .ready(workspace: workspace, snapshotID: $0) }
+            ?? .bound(workspace: workspace)
         self.mavenProject = mavenProject
         mavenProfiles = mavenProject?.profiles ?? []
         self.projectFiles = files
@@ -199,7 +246,14 @@ package final class RunService: ObservableObject {
     }
 
     package func generateRunConfigurations() async {
-        guard let projectURL else { return }
+        // Generation scans the file inventory this service holds, so a
+        // provisional inventory would write a configuration that omits entry
+        // points the workspace contains. Dropping the request silently is also
+        // indistinguishable from a broken button, so report the pending state.
+        guard let projectURL, case .ready = projectLoadState else {
+            generationState = .projectNotReady
+            return
+        }
         let loadID = projectLoadID
         isLoadingProject = true
         defer {
@@ -413,7 +467,8 @@ package final class RunService: ObservableObject {
         lastExitCode = nil
         lastRunConfiguration = configuration
         lastCurrentFileURL = currentFileURL
-        let options = self.options(for: configuration)
+        let mavenContext = configuration.kind.isMavenBacked ? mavenContextProvider() : nil
+        let options = effectiveOptions(for: configuration, mavenContext: mavenContext)
         let usesGenericCurrentFile = configuration.kind == .currentFile
             && isGenericCurrentFile(currentFileURL)
         if !usesGenericCurrentFile {
@@ -476,7 +531,8 @@ package final class RunService: ObservableObject {
                     configurationID: configuration.id,
                     currentFile: currentFile,
                     classPath: planClassPath,
-                    debugPort: nil
+                    debugPort: nil,
+                    mavenContext: mavenContext
                 )
                 extensionSession = languageRunExtension(
                     providerID: configuration.kind.providerID
@@ -498,7 +554,13 @@ package final class RunService: ObservableObject {
 
         runningTitle = configuration.name
         isRunning = true
-        append("$ " + resolved.executableURL.lastPathComponent + " " + arguments.joined(separator: " ") + "\n\n")
+        let displayedArguments = configuration.kind.isMavenBacked
+            ? redactedMavenArgumentsForDisplay(arguments)
+            : arguments
+        append(
+            "$ " + resolved.executableURL.lastPathComponent + " "
+                + displayedArguments.joined(separator: " ") + "\n\n"
+        )
 
         let operationID = UUID().uuidString
         activeOperationID = operationID
@@ -590,6 +652,7 @@ package final class RunService: ObservableObject {
         stopAllServices()
         projectLoadID = UUID()
         projectURL = nil
+        projectLoadState = .idle
         selectedConfigurationIDsByProject = [:]
         projectFiles = []
         mavenProject = nil
@@ -910,7 +973,8 @@ package final class RunService: ObservableObject {
             ))
             return
         }
-        let options = self.options(for: configuration)
+        let mavenContext = configuration.kind.isMavenBacked ? mavenContextProvider() : nil
+        let options = effectiveOptions(for: configuration, mavenContext: mavenContext)
         let configuredJavaHome = (options.mavenJavaHomePath.isEmpty
             ? options.javaHomePath
             : options.mavenJavaHomePath).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -933,7 +997,8 @@ package final class RunService: ObservableObject {
                 configurationID: configuration.id,
                 currentFile: nil,
                 classPath: nil,
-                debugPort: nil
+                debugPort: nil,
+                mavenContext: mavenContext
             )
         } catch {
             moduleSessions.append(RunSession(
@@ -970,7 +1035,10 @@ package final class RunService: ObservableObject {
             id: configuration.id,
             configurationID: configuration.id,
             title: configuration.name,
-            output: "$ " + resolved.executableURL.lastPathComponent + " " + arguments.joined(separator: " ") + "\n\n",
+            output: "$ " + resolved.executableURL.lastPathComponent + " "
+                + (configuration.kind.isMavenBacked
+                    ? redactedMavenArgumentsForDisplay(arguments)
+                    : arguments).joined(separator: " ") + "\n\n",
             isRunning: true,
             exitCode: nil
         )
@@ -1223,6 +1291,21 @@ package final class RunService: ObservableObject {
         let filePath = fileURL.standardizedFileURL.path
         let directoryPath = directory.standardizedFileURL.path
         return filePath.hasPrefix(directoryPath + "/")
+    }
+
+    private func effectiveOptions(
+        for configuration: RunConfiguration,
+        mavenContext: MavenLaunchContext?
+    ) -> RunOptions {
+        var options = self.options(for: configuration)
+        guard let mavenContext else { return options }
+        if options.mavenExecutablePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            options.mavenExecutablePath = mavenContext.mavenExecutablePath ?? ""
+        }
+        if options.mavenJavaHomePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            options.mavenJavaHomePath = mavenContext.javaHomePath ?? ""
+        }
+        return options
     }
 
     private func resolvedWorkingDirectory(_ path: String, fallback: URL) -> URL {

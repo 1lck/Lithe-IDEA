@@ -17,6 +17,15 @@ describe("git history result adaptation", () => {
             upstreamShortName: "origin/main",
           },
         ],
+        recentReferences: [
+          {
+            fullName: "refs/heads/main",
+            shortName: "main",
+            kind: "local",
+            isCurrent: true,
+            upstreamShortName: "origin/main",
+          },
+        ],
         commits: [
           {
             hash: "abc123",
@@ -35,6 +44,15 @@ describe("git history result adaptation", () => {
 
     expect(result).toEqual({
       references: [
+        {
+          fullName: "refs/heads/main",
+          shortName: "main",
+          kind: "local",
+          isCurrent: true,
+          upstreamShortName: "origin/main",
+        },
+      ],
+      recentReferences: [
         {
           fullName: "refs/heads/main",
           shortName: "main",
@@ -62,6 +80,7 @@ describe("git history result adaptation", () => {
   test("defaults missing history fields to an exhausted empty snapshot", () => {
     expect(adaptCoreResult<GitHistorySnapshot>("git_log", undefined, {})).toEqual({
       references: [],
+      recentReferences: [],
       commits: [],
       hasMore: false,
     });

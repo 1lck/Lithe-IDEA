@@ -451,6 +451,24 @@ fn execute(request: &str) -> CoreResponse {
             ),
             Err(error) => CoreResponse::failure(id, error),
         },
+        CoreCommand::MavenLaunchPlan => {
+            match serde_json::from_value::<crate::project::MavenLaunchPlanRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Maven launch-plan request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::project::launch_plan)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Maven launch plan should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::MavenDiagnostics => {
             match serde_json::from_value::<MavenDiagnosticsRequest>(parsed.payload)
                 .map_err(|error| {

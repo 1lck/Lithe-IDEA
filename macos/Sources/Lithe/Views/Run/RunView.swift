@@ -201,6 +201,12 @@ struct RunView: View {
             return (String(localized: "Project identification failed"), message, "xmark.octagon.fill")
         case .idle:
             return nil
+        case .projectNotReady:
+            return (
+                String(localized: "Project is still loading"),
+                String(localized: "Wait for the workspace scan to finish, then identify the project again."),
+                "hourglass"
+            )
         }
     }
 

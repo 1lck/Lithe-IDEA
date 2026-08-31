@@ -42,12 +42,15 @@ package final class GitFeatureModel: ObservableObject {
     @Published package private(set) var gitBlameLines: [URL: [GitBlameLine]] = [:]
     @Published package private(set) var gitLineChangeMarkers: [URL: [GitLineChangeMarker]] = [:]
     @Published package private(set) var gitReferences: [GitReference] = []
+    @Published package private(set) var recentGitReferences: [GitReference] = []
     @Published package private(set) var gitCommits: [GitCommit] = []
     @Published package private(set) var gitLogMatchedCommitHashes: Set<String>?
     @Published package private(set) var isFilteringGitLog = false
     @Published package var selectedGitReference: GitReference?
     @Published package var selectedGitCommit: GitCommit?
     @Published package private(set) var selectedGitCommitFiles: [GitCommitFile] = []
+    @Published package private(set) var selectedGitCommitFilesLoadState =
+        GitCommitFilesLoadState.idle
     @Published package var selectedGitCommitFile: GitCommitFile?
     @Published package var selectedGitCommitDiffContext: GitCommitDiffContext?
     @Published package private(set) var isLoadingGitHistory = false
@@ -62,8 +65,10 @@ package final class GitFeatureModel: ObservableObject {
     @Published package private(set) var isCloningRepository = false
 
     private let service: GitService
+    private let commitFilesLoader: GitCommitFilesLoader
     private var gitIdentity: GitIdentity?
     private var commitPathsByHash: [String: Set<String>] = [:]
+    private var selectedGitCommitFilesGeneration: UInt64 = 0
     private var gitLogFilterGeneration = UUID()
     private let shelveService: ShelveService?
     private let snapshotProvider: @Sendable (URL) async -> GitSnapshot?
@@ -90,6 +95,7 @@ package final class GitFeatureModel: ObservableObject {
     private var loadingLineChangeURLs: Set<URL> = []
     private var lineChangeHunks: [URL: [String: DiffHunk]] = [:]
 
+    private static let commitFilesPrefetchRadius = 4
 
     package init(
         service: GitService,
@@ -100,6 +106,7 @@ package final class GitFeatureModel: ObservableObject {
         diffDocumentProvider: (@Sendable (GitChange, GitDiffWhitespaceMode) async -> DiffDocument)? = nil
     ) {
         self.service = service
+        commitFilesLoader = GitCommitFilesLoader(service: service)
         self.shelveService = shelveService
         self.snapshotProvider = snapshotProvider ?? { await service.snapshot(for: $0) }
         self.stashesProvider = stashesProvider ?? { await service.stashes(at: $0) }
@@ -149,6 +156,7 @@ package final class GitFeatureModel: ObservableObject {
             || isPerformingBranchOperation
             || isCloningRepository
             || isResolvingGitOperation
+            || commitFilesLoader.hasActiveWork
     }
 
     package func reset() {
@@ -184,11 +192,13 @@ package final class GitFeatureModel: ObservableObject {
         loadingLineChangeURLs = []
         lineChangeHunks = [:]
         gitReferences = []
+        recentGitReferences = []
         gitCommits = []
         gitIdentity = nil
         gitLogMatchedCommitHashes = nil
         isFilteringGitLog = false
         commitPathsByHash = [:]
+        clearGitCommitFilesCache()
         gitLogFilterGeneration = UUID()
         gitHistoryLimit = 300
         isLoadingGitHistory = false
@@ -201,6 +211,7 @@ package final class GitFeatureModel: ObservableObject {
         selectedGitReference = nil
         selectedGitCommit = nil
         selectedGitCommitFiles = []
+        selectedGitCommitFilesLoadState = .idle
         selectedGitCommitFile = nil
         selectedGitCommitDiffContext = nil
         branchComparison = nil
@@ -289,6 +300,7 @@ package final class GitFeatureModel: ObservableObject {
             guard !Task.isCancelled else { return }
             let changesChanged = gitChanges != snapshot.changes
             if gitRepositoryRoot != snapshot.repositoryRoot {
+                clearGitCommitFilesCache()
                 gitRepositoryRoot = snapshot.repositoryRoot
                 gitConsoleRepositoryGeneration &+= 1
                 isLoadingInitialGitConsoleEntry = false
@@ -360,7 +372,11 @@ package final class GitFeatureModel: ObservableObject {
                 didChange = true
             }
         } else {
-            if gitRepositoryRoot != nil { gitRepositoryRoot = nil; didChange = true }
+            if gitRepositoryRoot != nil {
+                clearGitCommitFilesCache()
+                gitRepositoryRoot = nil
+                didChange = true
+            }
             if currentBranch != "No Git" { currentBranch = "No Git"; didChange = true }
             if !gitChanges.isEmpty { gitChanges = []; didChange = true }
             if !gitStashes.isEmpty { gitStashes = []; didChange = true }
@@ -1236,6 +1252,7 @@ package final class GitFeatureModel: ObservableObject {
             limit: gitHistoryLimit
         )
         gitReferences = snapshot.references
+        recentGitReferences = snapshot.recentReferences
         gitCommits = snapshot.commits
         gitIdentity = snapshot.identity
         canLoadMoreGitHistory = snapshot.hasMore
@@ -1246,12 +1263,15 @@ package final class GitFeatureModel: ObservableObject {
         if let nextCommit {
             if previousCommitHash == nextCommit.hash {
                 selectedGitCommit = nextCommit
+                await loadGitCommitFiles(for: nextCommit)
             } else {
                 await selectGitCommit(nextCommit)
             }
         } else {
+            selectedGitCommitFilesGeneration &+= 1
             selectedGitCommit = nil
             selectedGitCommitFiles = []
+            selectedGitCommitFilesLoadState = .idle
             selectedGitCommitFile = nil
             selectedGitCommitDiffContext = nil
         }
@@ -1302,8 +1322,16 @@ package final class GitFeatureModel: ObservableObject {
                 if let cached = commitPathsByHash[commit.hash] {
                     paths = cached
                 } else {
-                    paths = Set(await service.files(in: commit, at: repositoryRoot).map(\.path))
+                    let outcome = await commitFilesLoader.loadQueryFiles(
+                        for: commit,
+                        at: repositoryRoot
+                    )
                     guard gitLogFilterGeneration == generation else { return }
+                    guard case .ready(let files) = outcome else {
+                        isFilteringGitLog = false
+                        return
+                    }
+                    paths = Set(files.map(\.path))
                     commitPathsByHash[commit.hash] = paths
                 }
                 if query.matchesPaths(paths) { pathMatched.append(commit) }
@@ -1325,14 +1353,87 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func selectGitCommit(_ commit: GitCommit) async {
-        guard let gitRepositoryRoot else { return }
+        previewGitCommitSelection(commit)
+        await loadGitCommitFiles(for: commit)
+    }
+
+    package func previewGitCommitSelection(_ commit: GitCommit) {
+        selectedGitCommitFilesGeneration &+= 1
         selectedGitCommit = commit
+        guard let gitRepositoryRoot else {
+            selectedGitCommitFiles = []
+            selectedGitCommitFilesLoadState = .failed
+            selectedGitCommitFile = nil
+            selectedGitCommitDiffContext = nil
+            return
+        }
+        if let cachedFiles = commitFilesLoader.cachedFiles(for: commit, at: gitRepositoryRoot) {
+            selectedGitCommitFiles = cachedFiles
+            selectedGitCommitFilesLoadState = .ready
+        } else {
+            selectedGitCommitFiles = []
+            selectedGitCommitFilesLoadState = .loading
+        }
         selectedGitCommitFile = nil
         selectedGitCommitDiffContext = nil
-        let files = await service.files(in: commit, at: gitRepositoryRoot)
+    }
+
+    package func loadGitCommitFiles(for commit: GitCommit) async {
         guard selectedGitCommit?.hash == commit.hash else { return }
-        selectedGitCommitFiles = files
-        selectedGitCommitFile = files.first
+        guard let gitRepositoryRoot else {
+            selectedGitCommitFiles = []
+            selectedGitCommitFilesLoadState = .failed
+            return
+        }
+        let generation = selectedGitCommitFilesGeneration
+        if let cachedFiles = commitFilesLoader.cachedFiles(for: commit, at: gitRepositoryRoot) {
+            selectedGitCommitFiles = cachedFiles
+            selectedGitCommitFilesLoadState = .ready
+            scheduleGitCommitFilesPrefetch(around: commit, at: gitRepositoryRoot)
+            return
+        }
+        selectedGitCommitFilesLoadState = .loading
+        let outcome = await commitFilesLoader.loadSelectedFiles(
+            for: commit,
+            at: gitRepositoryRoot
+        )
+        guard selectedGitCommitFilesGeneration == generation,
+              selectedGitCommit?.hash == commit.hash,
+              self.gitRepositoryRoot?.standardizedFileURL
+                == gitRepositoryRoot.standardizedFileURL else {
+            return
+        }
+        switch outcome {
+        case .ready(let files):
+            selectedGitCommitFiles = files
+            selectedGitCommitFilesLoadState = .ready
+            scheduleGitCommitFilesPrefetch(around: commit, at: gitRepositoryRoot)
+        case .failed:
+            selectedGitCommitFiles = []
+            selectedGitCommitFilesLoadState = .failed
+        case .superseded:
+            break
+        }
+    }
+
+    private func scheduleGitCommitFilesPrefetch(
+        around commit: GitCommit,
+        at repositoryRoot: URL
+    ) {
+        let candidates = GitCommitFilesPrefetchPlan.candidates(
+            in: gitCommits,
+            centeredAt: commit.hash,
+            radius: Self.commitFilesPrefetchRadius
+        )
+        commitFilesLoader.replacePrefetchCandidates(candidates, at: repositoryRoot)
+    }
+
+    private func clearGitCommitFilesCache() {
+        commitPathsByHash = [:]
+        selectedGitCommitFilesGeneration &+= 1
+        commitFilesLoader.reset()
+        selectedGitCommitFiles = []
+        selectedGitCommitFilesLoadState = selectedGitCommit == nil ? .idle : .loading
     }
 
     package func showGitCommitDiff(for file: GitCommitFile) async {
@@ -1627,6 +1728,92 @@ package final class GitFeatureModel: ObservableObject {
 
     package func rebaseCurrentBranch(onto reference: GitReference) async {
         await startIntegration(.reference(reference), operation: .rebase)
+    }
+
+    package func checkoutAndRebase(_ reference: GitReference) async {
+        guard let gitRepositoryRoot, reference.kind != .tag, !reference.isCurrent else { return }
+        isPerformingBranchOperation = true
+        let result = await withGitOperation {
+            await service.checkoutAndRebase(reference, at: gitRepositoryRoot)
+        }
+        isPerformingBranchOperation = false
+        await reportBranchOperation(
+            result,
+            success: "Checked out \(reference.shortName) and rebased it onto the previous branch"
+        )
+    }
+
+    package func pullRemoteReference(
+        _ reference: GitReference,
+        strategy: GitPullStrategy
+    ) async {
+        guard let gitRepositoryRoot, reference.kind == .remote else { return }
+        isPerformingBranchOperation = true
+        let preflight = await service.integrationPreflight(
+            for: .reference(reference),
+            operation: strategy == .rebase ? .rebase : .merge,
+            at: gitRepositoryRoot
+        )
+        if let preflight, !preflight.isClear {
+            switch selectedSaveChangesPolicy {
+            case .stash:
+                let message = "Lithe auto-stash before pull"
+                let stashed = await recordingGitCommand {
+                    await service.stash(message: message, includeUntracked: true, at: gitRepositoryRoot)
+                }
+                guard stashed.succeeded else {
+                    isPerformingBranchOperation = false
+                    notify?(trimmedMessage(stashed))
+                    return
+                }
+                let result = await withGitOperation {
+                    await service.pullRemoteReference(reference, strategy: strategy, at: gitRepositoryRoot)
+                }
+                isPerformingBranchOperation = false
+                await refreshGit()
+                if gitOperationState?.hasConflicts == true {
+                    if let stash = gitStashes.first(where: { $0.message.contains(message) }) {
+                        deferredSavedChanges = GitDeferredSavedChanges(stashReference: stash.reference, operationTitle: "pull")
+                    }
+                    notify?("拉取产生冲突，改动已保留在暂存中")
+                    return
+                }
+                if let stash = gitStashes.first(where: { $0.message.contains(message) }) {
+                    let restored = await service.popStash(stash, at: gitRepositoryRoot)
+                    if !restored.succeeded { notify?("恢复本地改动失败：\(trimmedMessage(restored))") }
+                }
+                await reportBranchOperation(result, success: strategy == .rebase ? "从远程分支变基拉取完成" : "从远程分支合并拉取完成")
+                return
+            case .shelve:
+                let capture = await captureAndCleanShelf(message: "Lithe shelf before pull", at: gitRepositoryRoot)
+                guard case .saved(let shelf) = capture else {
+                    isPerformingBranchOperation = false
+                    if case .failed(let message) = capture { notify?(message) }
+                    return
+                }
+                let result = await withGitOperation {
+                    await service.pullRemoteReference(reference, strategy: strategy, at: gitRepositoryRoot)
+                }
+                isPerformingBranchOperation = false
+                await refreshGit()
+                if gitOperationState?.hasConflicts == true {
+                    deferredSavedChanges = GitDeferredSavedChanges(shelfID: shelf.id, operationTitle: "pull")
+                    notify?("拉取产生冲突，改动已保留在搁置中")
+                    return
+                }
+                if !(await restoreShelf(shelf, at: gitRepositoryRoot)) {
+                    notify?("恢复搁置改动失败")
+                }
+                await reportBranchOperation(result, success: strategy == .rebase ? "从远程分支变基拉取完成" : "从远程分支合并拉取完成")
+                return
+            }
+        }
+        let result = await withGitOperation {
+            await service.pullRemoteReference(reference, strategy: strategy, at: gitRepositoryRoot)
+        }
+        isPerformingBranchOperation = false
+        let verb = strategy == .rebase ? "Rebased from" : "Merged from"
+        await reportBranchOperation(result, success: "\(verb) \(reference.shortName)")
     }
 
     /// Checks whether uncommitted changes would stop the operation before running
@@ -2116,5 +2303,31 @@ package final class GitFeatureModel: ObservableObject {
     private func trimmedMessage(_ result: GitService.CommandResult) -> String {
         let message = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
         return message.isEmpty ? "Git operation failed" : message
+    }
+}
+
+package enum GitCommitFilesPrefetchPlan {
+    package static func candidates(
+        in commits: [GitCommit],
+        centeredAt commitHash: String,
+        radius: Int
+    ) -> [GitCommit] {
+        guard radius > 0,
+              let centerIndex = commits.firstIndex(where: { $0.hash == commitHash }) else {
+            return []
+        }
+
+        var candidates: [GitCommit] = []
+        for distance in 1...radius {
+            let olderIndex = centerIndex + distance
+            if commits.indices.contains(olderIndex) {
+                candidates.append(commits[olderIndex])
+            }
+            let newerIndex = centerIndex - distance
+            if commits.indices.contains(newerIndex) {
+                candidates.append(commits[newerIndex])
+            }
+        }
+        return candidates
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 import LitheTerminalModule
 import Testing
 @testable import Lithe
@@ -71,6 +72,69 @@ struct TerminalPlacementFeatureModelTests {
     }
 
     @Test
+    func cancelingRunningTerminalCloseKeepsTheSessionAlive() {
+        let context = makeTerminalCloseContext()
+
+        #expect(context.model.requestCloseActiveWorkbenchItem())
+        #expect(context.model.pendingTerminalCloseSessionID == context.session.id)
+        #expect(context.model.terminalSessions.contains { $0.id == context.session.id })
+        #expect(context.transport.stopCount == 0)
+
+        context.model.cancelTerminalClose()
+
+        #expect(context.model.pendingTerminalCloseSessionID == nil)
+        #expect(context.model.terminalSessions.contains { $0.id == context.session.id })
+        #expect(context.session.isRunning)
+        #expect(context.transport.stopCount == 0)
+    }
+
+    @Test
+    func confirmingRunningTerminalCloseStopsAndRemovesTheSession() {
+        let context = makeTerminalCloseContext()
+
+        #expect(context.model.requestCloseActiveWorkbenchItem())
+        #expect(context.model.pendingTerminalCloseSessionID == context.session.id)
+        #expect(context.transport.stopCount == 0)
+
+        context.model.confirmTerminalClose()
+
+        #expect(context.model.pendingTerminalCloseSessionID == nil)
+        #expect(!context.model.terminalSessions.contains { $0.id == context.session.id })
+        #expect(context.model.activeEditorTerminalSession == nil)
+        #expect(!context.session.isRunning)
+        #expect(context.transport.stopCount == 1)
+    }
+
+    private func makeTerminalCloseContext() -> (
+        model: AppModel,
+        session: TerminalSession,
+        transport: PlacementTestTerminalTransport
+    ) {
+        let store = TerminalPlacementTestStore()
+        let settings = AppSettings(store: store)
+        let services = MacServiceContainer(
+            store: store,
+            settings: settings,
+            moduleLaunchMode: .safeMode
+        ).services
+        let model = AppModel(settings: settings, services: services)
+        let transport = PlacementTestTerminalTransport()
+        let feature = TerminalFeatureModel(terminalFactory: { transport })
+        model.cacheModuleCapability(
+            TerminalModuleCapability(feature: feature),
+            id: .terminalWorkspace,
+            moduleID: .terminal
+        )
+        let session = feature.createSession(
+            in: URL(fileURLWithPath: "/tmp/lithe-terminal-close-tests"),
+            shellPath: "/bin/zsh"
+        )
+        model.terminalPlacementFeature.registerSession(session.id)
+        model.terminalPlacementFeature.moveToEditor(session.id)
+        return (model, session, transport)
+    }
+
+    @Test
     func movingPresentationNeverStopsOrRecreatesTheTerminalTransport() {
         let transport = PlacementTestTerminalTransport()
         let terminalFeature = TerminalFeatureModel(terminalFactory: { transport })
@@ -140,4 +204,14 @@ private final class PlacementTestTerminalTransport: TerminalTransport {
         stopCount += 1
         isRunning = false
     }
+}
+
+private final class TerminalPlacementTestStore: KeyValueStore, @unchecked Sendable {
+    private var values: [String: Any] = [:]
+
+    func data(forKey key: String) -> Data? { values[key] as? Data }
+    func object(forKey key: String) -> Any? { values[key] }
+    func string(forKey key: String) -> String? { values[key] as? String }
+    func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
+    func set(_ value: Any?, forKey key: String) { values[key] = value }
 }

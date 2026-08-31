@@ -190,6 +190,101 @@ fn maven_scan_returns_recursive_shared_project_model() {
 }
 
 #[test]
+fn maven_launch_plan_matches_the_shared_compatibility_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/maven/launch-plan-v1.json"
+    ))
+    .expect("Maven launch-plan fixture should be valid JSON");
+    let root = temporary_root("maven-launch-plan");
+    fs::create_dir_all(root.join("projects/demo/service-api"))
+        .expect("nested Maven reactor should be creatable");
+    fs::write(
+        root.join("projects/demo/pom.xml"),
+        r#"<project><artifactId>demo</artifactId><packaging>pom</packaging><modules><module>service-api</module></modules></project>"#,
+    )
+    .expect("reactor pom should be writable");
+    fs::write(
+        root.join("projects/demo/service-api/pom.xml"),
+        r#"<project><artifactId>service-api</artifactId></project>"#,
+    )
+    .expect("module pom should be writable");
+    fs::write(
+        root.join("pom.xml"),
+        r#"<project><artifactId>root</artifactId></project>"#,
+    )
+    .expect("root pom should be writable");
+    fs::create_dir_all(root.join(".mvn")).expect("Maven config directory should be creatable");
+    fs::write(root.join(".mvn/maven.config"), "-DfromConfig=true\n")
+        .expect("Maven config should be writable");
+
+    for case in fixture["cases"]
+        .as_array()
+        .expect("Maven launch-plan fixture should contain cases")
+    {
+        let request = serde_json::json!({
+            "id": case["name"],
+            "command": "maven.launchPlan",
+            "payload": {
+                "root": root,
+                "context": case["context"],
+                "module": case["module"],
+                "goals": case["goals"]
+            }
+        });
+        let response: Value = serde_json::from_str(&execute_json(&request.to_string()))
+            .expect("Maven launch-plan response should be JSON");
+
+        assert_eq!(response["ok"], true, "case {}: {response}", case["name"]);
+        assert_eq!(response["data"], case["expected"], "case {}", case["name"]);
+        assert!(!response["data"]["arguments"]
+            .as_array()
+            .expect("arguments should be an array")
+            .iter()
+            .any(|argument| argument == "-DfromConfig=true"));
+    }
+    fs::remove_dir_all(root).expect("Maven launch-plan fixture should be removable");
+}
+
+#[test]
+fn maven_launch_plan_rejects_unknown_modules_and_invalid_invocation_tokens() {
+    let root = temporary_root("maven-launch-invalid");
+    fs::create_dir_all(&root).expect("invalid Maven fixture should be creatable");
+    fs::write(
+        root.join("pom.xml"),
+        r#"<project><artifactId>demo</artifactId></project>"#,
+    )
+    .expect("pom should be writable");
+    for (name, module, goals) in [
+        ("unknown-module", Some("missing"), vec!["verify"]),
+        ("missing-goal", None, vec!["-q", "-DskipTests"]),
+        ("invalid-goal", None, vec!["verify;", "-q"]),
+        (
+            "control-character",
+            None,
+            vec!["verify", "-Dvalue=line\nbreak"],
+        ),
+    ] {
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": name,
+                "command": "maven.launchPlan",
+                "payload": {
+                    "root": root,
+                    "context": {"version": 1, "reactorPath": "."},
+                    "module": module,
+                    "goals": goals
+                }
+            })
+            .to_string(),
+        ))
+        .expect("invalid Maven response should be JSON");
+        assert_eq!(response["ok"], false, "case {name}: {response}");
+        assert_eq!(response["error"]["code"], "invalid_request");
+    }
+    fs::remove_dir_all(root).expect("invalid Maven fixture should be removable");
+}
+
+#[test]
 fn maven_scan_discovers_a_deterministic_project_below_the_workspace() {
     let root = temporary_root("nested-maven");
     fs::create_dir_all(root.join("apps-a/module-a")).expect("first project should be creatable");

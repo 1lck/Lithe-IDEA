@@ -1795,6 +1795,47 @@ struct DebugModuleTests {
     }
 
     @Test
+    func expandingSelfReferentialVariableDoesNotRecurseForever() throws {
+        let session = DeferredInspectionDebugSession()
+        let feature = makeDeferredFeature(
+            session: session,
+            rootPath: "/tmp/java-self-referential-variable"
+        )
+        defer { feature.stop() }
+
+        session.emit(.stopped(reason: "breakpoint", threadID: 1, description: nil))
+        feature.loadVariables(reference: 100)
+        session.completeVariables(at: 0, with: [DebugVariable(
+            id: "self",
+            name: "self",
+            value: "Node@1",
+            type: "Node",
+            evaluateName: "self",
+            variablesReference: 101,
+            containerReference: 100,
+            namedVariables: 1,
+            indexedVariables: 0
+        )])
+
+        let root = try #require(feature.variables.first)
+        feature.toggleVariableExpansion(root)
+        session.completeVariables(at: 1, with: [DebugVariable(
+            id: "self",
+            name: "self",
+            value: "Node@1",
+            type: "Node",
+            evaluateName: "self",
+            variablesReference: 101,
+            containerReference: 101,
+            namedVariables: 1,
+            indexedVariables: 0
+        )])
+
+        #expect(feature.visibleVariableRows.map(\.depth) == [0, 1])
+        #expect(feature.visibleVariableRows.compactMap { $0.variable?.name } == ["self", "self"])
+    }
+
+    @Test
     func genericBreakpointsPreserveAdvancedOptionsAcrossMuteAndClear() throws {
         let transport = RecordingTransport()
         let core = RecordingDebugProtocolCore()

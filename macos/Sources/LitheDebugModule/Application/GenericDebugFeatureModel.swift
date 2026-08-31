@@ -2385,7 +2385,9 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         _ values: [DebugVariable],
         parentPath: String,
         depth: Int,
-        to rows: inout [GenericDebugVariableRow]
+        to rows: inout [GenericDebugVariableRow],
+        ancestorVariableIDs: Set<String> = [],
+        ancestorVariableReferences: Set<Int> = []
     ) {
         for (index, variable) in values.enumerated() {
             let path = "\(parentPath)/\(index):\(variable.id)"
@@ -2394,12 +2396,27 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                 content: .variable(variable),
                 depth: depth
             ))
-            if expandedVariableIDs.contains(variable.id) {
+
+            // DAP variable containers can legally expose a parent object again
+            // (for example through `this`), so stop walking when an ancestor
+            // reference or identity repeats instead of recursing forever.
+            let repeatsAncestor = ancestorVariableIDs.contains(variable.id)
+                || (variable.variablesReference != 0
+                    && ancestorVariableReferences.contains(variable.variablesReference))
+            if expandedVariableIDs.contains(variable.id), !repeatsAncestor {
+                var nextAncestorIDs = ancestorVariableIDs
+                nextAncestorIDs.insert(variable.id)
+                var nextAncestorReferences = ancestorVariableReferences
+                if variable.variablesReference != 0 {
+                    nextAncestorReferences.insert(variable.variablesReference)
+                }
                 appendVisibleVariables(
                     variableChildren[variable.id] ?? [],
                     parentPath: path,
                     depth: depth + 1,
-                    to: &rows
+                    to: &rows,
+                    ancestorVariableIDs: nextAncestorIDs,
+                    ancestorVariableReferences: nextAncestorReferences
                 )
                 appendVariableLoadMoreRow(
                     parentVariableID: variable.id,

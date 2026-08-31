@@ -86,16 +86,6 @@ final class AppModel: ObservableObject, Identifiable {
     }
     /// 递增令牌：搜索侧栏观察它来把焦点移回输入框。
     @Published var searchSidebarFocusRequest = 0
-    var isFindBarVisible: Bool {
-        get { editorChrome.isFindBarVisible }
-        set { editorChrome.setFindBarVisible(newValue) }
-    }
-    var findBarQuery: String {
-        get { editorChrome.findBarQuery }
-        set { editorChrome.setFindBarQuery(newValue) }
-    }
-    var findMatchCount: Int { editorChrome.findMatchCount }
-    var currentFindMatchIndex: Int { editorChrome.currentFindMatchIndex }
     var projectItemEditRequest: ProjectItemEditRequest? {
         get { workspaceFeature.projectItemEditRequest }
         set { workspaceFeature.projectItemEditRequest = newValue }
@@ -116,6 +106,8 @@ final class AppModel: ObservableObject, Identifiable {
     @Published private(set) var pendingGeneratedCommitMessage: String?
     @Published var isGitLogVisible = false
     @Published var isTerminalVisible = false
+    @Published var pendingTerminalCloseSessionID: UUID?
+    var pendingRunAction: PendingRunAction?
     @Published var isReferencesVisible = false
     @Published var isProblemsVisible = false
     @Published var isMavenVisible = false
@@ -141,6 +133,9 @@ final class AppModel: ObservableObject, Identifiable {
     @Published var gitLogSearchQuery = ""
     private var shortcutDetector: (any ShortcutDetector)?
     private var sidebarRefreshTask: Task<Void, Never>?
+    // Keep the runtime shutdown operation alive and coalesce close paths that
+    // can race (for example, project close followed by window teardown).
+    private var moduleRuntimeShutdownTask: Task<Void, Never>?
     private var shortcutSettingsObservation: AnyCancellable?
     private var shortcutRecordingObservation: AnyCancellable?
     private var workbenchBackgroundFeatureObservation: AnyCancellable?
@@ -699,7 +694,7 @@ final class AppModel: ObservableObject, Identifiable {
         }
     }
 
-    func shutdownProjectSession() {
+    func shutdownProjectSession() async {
         shortcutDetector?.stop()
         Task { [weak self] in
             await self?.services.moduleRuntime.shutdownAll()
@@ -713,6 +708,25 @@ final class AppModel: ObservableObject, Identifiable {
             settings.removeFileVisibilityRulesObserver(fileVisibilityRulesObserverID)
             self.fileVisibilityRulesObserverID = nil
         }
+        await shutdownModuleRuntime()
+    }
+
+    /// Shuts down this session's module graph once, even when multiple
+    /// lifecycle paths request cleanup at the same time.
+    private func shutdownModuleRuntime() async {
+        if let moduleRuntimeShutdownTask {
+            await moduleRuntimeShutdownTask.value
+            return
+        }
+
+        let moduleRuntime = services.moduleRuntime
+        let shutdownTask = Task { @MainActor in
+            await moduleRuntime.shutdownAll()
+        }
+        moduleRuntimeShutdownTask = shutdownTask
+        await shutdownTask.value
+        moduleRuntimeShutdownTask = nil
+        clearModuleBindings(for: .database)
     }
 
     private func reloadJavaRuntimeServices() {
@@ -897,10 +911,7 @@ final class AppModel: ObservableObject, Identifiable {
         let normalizedURL = url.standardizedFileURL
         Task { [weak self] in
             guard let self else { return }
-            await self.services.moduleRuntime.shutdownAll()
-            await MainActor.run {
-                self.clearModuleBindings(for: .database)
-            }
+            await self.shutdownModuleRuntime()
         }
         if let previousWorkspaceURL = workspaceURL {
             workspaceFeature.persistWorkspaceSession(for: previousWorkspaceURL)
@@ -987,10 +998,7 @@ final class AppModel: ObservableObject, Identifiable {
         cancelJavaLanguageServerPreparation()
         Task { [weak self] in
             guard let self else { return }
-            await self.services.moduleRuntime.shutdownAll()
-            await MainActor.run {
-                self.clearModuleBindings(for: .database)
-            }
+            await self.shutdownModuleRuntime()
         }
         if let workspaceURL {
             workspaceFeature.persistWorkspaceSession(for: workspaceURL)
@@ -1051,6 +1059,7 @@ final class AppModel: ObservableObject, Identifiable {
         standaloneFileURL = nil
         documentFeature.reset()
         editorChrome.resetFindBar()
+        editorChrome.setGoToLineVisible(false)
         didCloseProject?()
     }
 
@@ -1395,45 +1404,6 @@ final class AppModel: ObservableObject, Identifiable {
         }
     }
 
-    func showFindBar() {
-        guard activeDocument != nil else { return }
-        editorChrome.setFindBarVisible(true)
-    }
-
-    func hideFindBar() {
-        editorChrome.resetFindBar()
-        NotificationCenter.default.post(name: .litheFindDismiss, object: nil)
-    }
-
-    func toggleFindBar() {
-        if isFindBarVisible {
-            hideFindBar()
-        } else {
-            showFindBar()
-        }
-    }
-
-    func setFindBarQuery(_ query: String) {
-        editorChrome.setFindBarQuery(query)
-        NotificationCenter.default.post(
-            name: .litheFindQueryChanged,
-            object: nil,
-            userInfo: [FindNotificationKeys.query: query]
-        )
-    }
-
-    func navigateFind(offset: Int) {
-        NotificationCenter.default.post(
-            name: .litheFindNavigate,
-            object: nil,
-            userInfo: [FindNotificationKeys.direction: offset]
-        )
-    }
-
-    func updateFindState(currentIndex: Int, count: Int) {
-        editorChrome.updateFindState(currentIndex: currentIndex, count: count)
-    }
-
     func commitStagedChanges() async {
         guard let gitFeature = await activateGitModule() else { return }
         if await gitFeature.commitStagedChanges(message: commitMessage, amend: amendCommit) {
@@ -1710,6 +1680,16 @@ final class AppModel: ObservableObject, Identifiable {
         await gitFeature.rebaseCurrentBranch(onto: reference)
     }
 
+    func checkoutAndRebase(_ reference: GitReference) async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.checkoutAndRebase(reference)
+    }
+
+    func pullRemoteReference(_ reference: GitReference, strategy: GitPullStrategy) async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.pullRemoteReference(reference, strategy: strategy)
+    }
+
     func updateCurrentBranch(_ reference: GitReference) async {
         guard let gitFeature = await activateGitModule() else { return }
         await gitFeature.updateCurrentBranch(reference)
@@ -1758,26 +1738,4 @@ final class AppModel: ObservableObject, Identifiable {
         await gitFeature.pushBranch(reference)
     }
 
-    func loadExternalVersion(of document: EditorDocument) {
-        documentFeature.loadExternalVersion(of: document)
-    }
-
-    func keepEditorVersion(of document: EditorDocument) {
-        documentFeature.keepEditorVersion(of: document)
-    }
-
-    func relativePath(for url: URL) -> String {
-        guard let workspaceURL else { return url.lastPathComponent }
-        return workspaceRelativePath(for: url, root: workspaceURL) ?? url.lastPathComponent
-    }
-
-    func recordSave(_ document: EditorDocument, previousText: String) {
-        let snapshot = LocalHistoryDocumentSnapshot(id: document.id, url: document.url, text: document.text)
-        withHistoryModule { $0.recordSave(snapshot, previousText: previousText) }
-    }
-
-    private func recordDiscardedEditorText(_ document: EditorDocument) {
-        let snapshot = LocalHistoryDocumentSnapshot(id: document.id, url: document.url, text: document.text)
-        withHistoryModule { $0.recordDiscardedEditorText(snapshot) }
-    }
 }

@@ -17,8 +17,36 @@ plugin_fixture="shared/fixtures/plugins/official-v1.json"
 github_fixture="shared/fixtures/github/pull-request-v1.json"
 workbench_background_fixture="shared/fixtures/settings/workbench-background-v1.json"
 syntax_theme_fixture="shared/fixtures/editor-themes/lithe-v1.json"
+maven_platform_fixture="shared/fixtures/maven/platform-contract-v1.json"
+maven_portable_schema="shared/contracts/maven-portable-configuration-v1.schema.json"
+maven_launch_context_schema="shared/contracts/maven-launch-context-v1.schema.json"
 macos_syntax_colors="macos/Sources/Lithe/Resources/SyntaxHighlighting/color-mappings.json"
 windows_lithe_theme="windows/tauri/src/extensions/themes/builtin/lithe.json"
+
+/usr/bin/ruby -rjson -e '
+  portable = JSON.parse(File.read(ARGV.fetch(0)))
+  launch = JSON.parse(File.read(ARGV.fetch(1)))
+  fixture = JSON.parse(File.read(ARGV.fetch(2)))
+
+  abort "Maven portable schema ID mismatch" unless portable.fetch("$id").end_with?("/maven-portable-configuration-v1.schema.json")
+  portable_fields = %w[customProfiles selectedProfiles skipTests version]
+  abort "Maven portable fields differ from v1" unless portable.fetch("properties").keys.sort == portable_fields
+  abort "Maven portable required fields differ from v1" unless portable.fetch("required").sort == portable_fields
+
+  abort "Maven launch-context schema ID mismatch" unless launch.fetch("$id").end_with?("/maven-launch-context-v1.schema.json")
+  launch_fields = %w[javaHomePath mavenExecutablePath profiles reactorPath settingsPath skipTests version]
+  abort "Maven launch-context fields differ from v1" unless launch.fetch("properties").keys.sort == launch_fields.sort
+  abort "Maven launch-context required fields differ from v1" unless launch.fetch("required").sort == %w[profiles reactorPath skipTests version]
+
+  abort "Maven platform fixture version must be 1" unless fixture.fetch("version") == 1
+  phases = fixture.fetch("lifecyclePhases")
+  abort "Maven lifecycle phases differ from v1" unless phases == %w[clean validate compile test package verify install site deploy]
+  cases = fixture.fetch("storageIdentityCases")
+  abort "Maven storage fixture must cover both platforms" unless cases.map { |item| item.fetch("platform") }.sort == %w[macos windows]
+  abort "Maven storage fixture names must be unique" unless cases.map { |item| item.fetch("name") }.uniq.length == cases.length
+  abort "Maven storage identities must contain one separator" unless cases.all? { |item| item.fetch("expectedIdentity").count("\0") == 1 }
+' "$maven_portable_schema" "$maven_launch_context_schema" "$maven_platform_fixture"
+
 fixture_ids=$(/usr/bin/ruby -rjson -e 'puts JSON.parse(File.read(ARGV.fetch(0))).fetch("modules").map { |m| m.fetch("id") }.sort' "$module_fixture")
 swift_ids=$(rg '^[[:space:]]*static let .* = ModuleID\("dev\.lithe\.[^"]+"\)' macos/Sources/LitheModuleAPI/Lifecycle/ModuleTypes.swift \
     | sed -E 's/.*ModuleID\("([^"]+)"\).*/\1/' \

@@ -92,6 +92,18 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     }
 
     package func start(rootURL: URL, workspaceFingerprint: String?) throws {
+        try start(
+            rootURL: rootURL,
+            workspaceFingerprint: workspaceFingerprint,
+            mavenContext: nil
+        )
+    }
+
+    package func start(
+        rootURL: URL,
+        workspaceFingerprint: String?,
+        mavenContext: MavenLaunchContext?
+    ) throws {
         guard sessionID == nil else { return }
         let normalizedRoot = rootURL.standardizedFileURL
         transition(to: .startingProcess)
@@ -113,6 +125,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             jdtlsLaunchResources: jdtlsLaunchResources,
             cacheDirectoryURL: cacheDirectoryURL,
             workspaceFingerprint: workspaceFingerprint,
+            mavenContext: mavenContext,
             initializeTimeout: initializeTimeout,
             requestTimeout: requestTimeout,
             shutdownTimeout: shutdownTimeout

@@ -11,6 +11,8 @@ package enum WorkspaceRebuildResult: Sendable {
 /// Owns the workspace snapshot and delegates scanning and text reads to Core.
 @MainActor
 package final class WorkspaceFeatureModel: ObservableObject {
+    package private(set) var workspaceGeneration = 0
+    package private(set) var appliedSnapshot: WorkspaceSnapshot?
     @Published package private(set) var rootNode: FileNode?
     @Published package private(set) var projectFiles: [URL] = []
     @Published package private(set) var isLoadingWorkspace = false
@@ -161,6 +163,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     }
 
     package func reset() {
+        workspaceGeneration &+= 1
         if let workspaceURL {
             scheduleSearchIndexInvalidation(at: workspaceURL, rules: visibilityRules)
         }
@@ -184,6 +187,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         hasRestoredWorkspaceSession = false
         rootNode = nil
         projectFiles = []
+        appliedSnapshot = nil
         isLoadingWorkspace = false
         isRefreshingWorkspace = false
         loadErrorMessage = nil
@@ -202,6 +206,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     }
 
     package func beginWorkspace(at url: URL, visibilityRules: FileVisibilityRules) {
+        workspaceGeneration &+= 1
         workspaceURL = url.standardizedFileURL
         self.visibilityRules = visibilityRules
         hasRestoredWorkspaceSession = false
@@ -294,6 +299,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         loadErrorMessage = nil
         rootNode = snapshot.root
         projectFiles = snapshot.files
+        appliedSnapshot = snapshot
         scheduleSearchIndexWarm(at: workspaceURL, rules: rules)
 
         // The tree is usable as soon as the shared snapshot is ready. Service
