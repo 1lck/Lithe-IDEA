@@ -19,12 +19,33 @@ lombok_url="$(manifest_value lombokURL)"
 lombok_sha256="$(manifest_value lombokSHA256)"
 lombok_license_url="$(manifest_value lombokLicenseURL)"
 lombok_license_sha256="$(manifest_value lombokLicenseSHA256)"
+java_debug_archive_url="$(manifest_value javaDebugArchiveURL)"
+java_debug_archive_sha256="$(manifest_value javaDebugArchiveSHA256)"
+java_debug_plugin_sha256="$(manifest_value javaDebugPluginSHA256)"
+java_debug_license_url="$(manifest_value javaDebugLicenseURL)"
+java_debug_license_sha256="$(manifest_value javaDebugLicenseSHA256)"
+java_test_archive_url="$(manifest_value javaTestArchiveURL)"
+java_test_archive_sha256="$(manifest_value javaTestArchiveSHA256)"
+java_test_plugin_sha256="$(manifest_value javaTestPluginSHA256)"
+java_test_runner_sha256="$(manifest_value javaTestRunnerSHA256)"
+java_test_license_url="$(manifest_value javaTestLicenseURL)"
+java_test_license_sha256="$(manifest_value javaTestLicenseSHA256)"
 jdtls_version="$(manifest_value version)"
 lombok_version="$(manifest_value lombokVersion)"
+java_debug_extension_version="$(manifest_value javaDebugExtensionVersion)"
+java_debug_server_version="$(manifest_value javaDebugServerVersion)"
+java_test_extension_version="$(manifest_value javaTestExtensionVersion)"
 archive_path="${LITHE_JDTLS_ARCHIVE:-$CACHE_DIR/jdtls-$jdtls_version-$archive_sha256.tar.gz}"
 license_path="$CACHE_DIR/EPL-2.0-$license_sha256.txt"
 lombok_path="$CACHE_DIR/lombok-$lombok_version-$lombok_sha256.jar"
 lombok_license_path="$CACHE_DIR/lombok-MIT-$lombok_version-$lombok_license_sha256.txt"
+java_debug_archive_path="$CACHE_DIR/vscode-java-debug-$java_debug_extension_version-$java_debug_archive_sha256.vsix"
+java_debug_license_path="$CACHE_DIR/java-debug-EPL-1.0-$java_debug_server_version-$java_debug_license_sha256.txt"
+java_debug_plugin_name="com.microsoft.java.debug.plugin-$java_debug_server_version.jar"
+java_test_archive_path="$CACHE_DIR/vscode-java-test-$java_test_extension_version-$java_test_archive_sha256.vsix"
+java_test_license_path="$CACHE_DIR/java-test-MIT-$java_test_extension_version-$java_test_license_sha256.txt"
+java_test_plugin_name="com.microsoft.java.test.plugin-$java_test_extension_version.jar"
+java_test_runner_name="com.microsoft.java.test.runner-jar-with-dependencies.jar"
 
 file_sha256() {
     shasum -a 256 "$1" | awk '{print tolower($1)}'
@@ -96,6 +117,13 @@ validate_output() {
     [[ -f "$OUTPUT_DIR/bin/jdtls.ps1" ]] || { print -u2 -- "JDTLS Windows launcher is missing: $OUTPUT_DIR"; exit 1; }
     [[ -f "$OUTPUT_DIR/lombok/lombok.jar" ]] || { print -u2 -- "JDTLS Lombok agent is missing: $OUTPUT_DIR"; exit 1; }
     [[ -f "$OUTPUT_DIR/lombok/LICENSE-MIT.txt" ]] || { print -u2 -- "JDTLS Lombok license is missing: $OUTPUT_DIR"; exit 1; }
+    [[ -f "$OUTPUT_DIR/java-debug/$java_debug_plugin_name" ]] || { print -u2 -- "Java Debug Server plugin is missing: $OUTPUT_DIR"; exit 1; }
+    [[ -f "$OUTPUT_DIR/java-debug/LICENSE-EPL-1.0.txt" ]] || { print -u2 -- "Java Debug Server license is missing: $OUTPUT_DIR"; exit 1; }
+    [[ -f "$OUTPUT_DIR/java-test/extensions/$java_test_plugin_name" ]] || { print -u2 -- "Java Test extension plugin is missing: $OUTPUT_DIR"; exit 1; }
+    local java_test_extension_bundles=("$OUTPUT_DIR"/java-test/extensions/*.jar(N))
+    (( ${#java_test_extension_bundles[@]} == 18 )) || { print -u2 -- "Java Test extension bundle set is incomplete: $OUTPUT_DIR/java-test/extensions"; exit 1; }
+    [[ -f "$OUTPUT_DIR/java-test/runner/$java_test_runner_name" ]] || { print -u2 -- "Java Test runner is missing: $OUTPUT_DIR"; exit 1; }
+    [[ -f "$OUTPUT_DIR/java-test/LICENSE-MIT.txt" ]] || { print -u2 -- "Java Test license is missing: $OUTPUT_DIR"; exit 1; }
     # Wrapper scripts remain available for external/legacy launch plans. The
     # packaged product launches bundled Java directly with the resources above.
     grep -Fq -- '-javaagent:' "$OUTPUT_DIR/bin/jdtls" || { print -u2 -- "JDTLS launcher does not load the Lombok agent: $OUTPUT_DIR"; exit 1; }
@@ -122,6 +150,10 @@ fi
 download_verified_file "$license_url" "$license_sha256" "$license_path" "EPL-2.0 license"
 download_verified_file "$lombok_url" "$lombok_sha256" "$lombok_path" "Lombok agent"
 download_verified_file "$lombok_license_url" "$lombok_license_sha256" "$lombok_license_path" "Lombok MIT license"
+download_verified_file "$java_debug_archive_url" "$java_debug_archive_sha256" "$java_debug_archive_path" "Java Debug extension"
+download_verified_file "$java_debug_license_url" "$java_debug_license_sha256" "$java_debug_license_path" "Java Debug EPL-1.0 license"
+download_verified_file "$java_test_archive_url" "$java_test_archive_sha256" "$java_test_archive_path" "Java Test extension"
+download_verified_file "$java_test_license_url" "$java_test_license_sha256" "$java_test_license_path" "Java Test MIT license"
 
 rm -rf "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR"
@@ -131,6 +163,47 @@ cp "$MANIFEST" "$OUTPUT_DIR/manifest.json"
 mkdir -p "$OUTPUT_DIR/lombok"
 cp "$lombok_path" "$OUTPUT_DIR/lombok/lombok.jar"
 cp "$lombok_license_path" "$OUTPUT_DIR/lombok/LICENSE-MIT.txt"
+mkdir -p "$OUTPUT_DIR/java-debug"
+unzip -p \
+    "$java_debug_archive_path" \
+    "extension/server/$java_debug_plugin_name" \
+    > "$OUTPUT_DIR/java-debug/$java_debug_plugin_name"
+actual_java_debug_plugin_sha256="$(file_sha256 "$OUTPUT_DIR/java-debug/$java_debug_plugin_name")"
+if [[ "$actual_java_debug_plugin_sha256" != "$java_debug_plugin_sha256" ]]; then
+    print -u2 -- "Java Debug Server plugin checksum mismatch: expected $java_debug_plugin_sha256, got $actual_java_debug_plugin_sha256"
+    exit 1
+fi
+cp "$java_debug_license_path" "$OUTPUT_DIR/java-debug/LICENSE-EPL-1.0.txt"
+java_test_extraction="$(mktemp -d "$CACHE_DIR/java-test-extract.XXXXXX")"
+unzip -q -j \
+    "$java_test_archive_path" \
+    "extension/server/*.jar" \
+    -d "$java_test_extraction"
+mkdir -p "$OUTPUT_DIR/java-test/extensions" "$OUTPUT_DIR/java-test/runner"
+for java_test_jar in "$java_test_extraction"/*.jar(N); do
+    case "${java_test_jar:t}" in
+        jacocoagent.jar)
+            ;;
+        "$java_test_runner_name")
+            cp "$java_test_jar" "$OUTPUT_DIR/java-test/runner/$java_test_runner_name"
+            ;;
+        *)
+            cp "$java_test_jar" "$OUTPUT_DIR/java-test/extensions/${java_test_jar:t}"
+            ;;
+    esac
+done
+rm -rf -- "$java_test_extraction"
+actual_java_test_plugin_sha256="$(file_sha256 "$OUTPUT_DIR/java-test/extensions/$java_test_plugin_name")"
+if [[ "$actual_java_test_plugin_sha256" != "$java_test_plugin_sha256" ]]; then
+    print -u2 -- "Java Test plugin checksum mismatch: expected $java_test_plugin_sha256, got $actual_java_test_plugin_sha256"
+    exit 1
+fi
+actual_java_test_runner_sha256="$(file_sha256 "$OUTPUT_DIR/java-test/runner/$java_test_runner_name")"
+if [[ "$actual_java_test_runner_sha256" != "$java_test_runner_sha256" ]]; then
+    print -u2 -- "Java Test runner checksum mismatch: expected $java_test_runner_sha256, got $actual_java_test_runner_sha256"
+    exit 1
+fi
+cp "$java_test_license_path" "$OUTPUT_DIR/java-test/LICENSE-MIT.txt"
 
 cat > "$OUTPUT_DIR/bin/jdtls" <<'EOF'
 #!/bin/zsh

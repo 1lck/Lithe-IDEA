@@ -4,6 +4,156 @@ import Testing
 
 @Suite("Editor gutter layout")
 struct EditorGutterLayoutTests {
+    @Test
+    func inlineDebugValuesMatchWholeIdentifiersInSourceOrder() {
+        let values = EditorInlineDebugValueProjection.values(
+            forLine: 0,
+            in: "int total = count + counter;" as NSString,
+            variables: [
+                EditorInlineDebugValue(name: "counter", value: "9"),
+                EditorInlineDebugValue(name: "count", value: "4"),
+                EditorInlineDebugValue(name: "total", value: "13")
+            ]
+        )
+
+        #expect(values.map(\.name) == ["total", "count", "counter"])
+        #expect(values.map(\.value) == ["13", "4", "9"])
+        #expect(EditorInlineDebugValueProjection.values(
+            forLine: 0,
+            in: "counter" as NSString,
+            variables: [EditorInlineDebugValue(name: "count", value: "4")]
+        ).isEmpty)
+    }
+
+    @Test
+    func inlineDebugValuesAreBoundedAndSingleLine() {
+        let longValue = String(repeating: "x", count: 100) + "\nnext"
+        let values = EditorInlineDebugValueProjection.values(
+            forLine: 0,
+            in: "a + b + c + d + e" as NSString,
+            variables: ["e", "d", "c", "b", "a"].map {
+                EditorInlineDebugValue(name: $0, value: $0 == "a" ? longValue : $0)
+            }
+        )
+
+        #expect(values.map(\.name) == ["a", "b", "c", "d"])
+        #expect(values[0].value.count == EditorInlineDebugValueProjection.maximumValueCharacters)
+        #expect(values[0].value.last == "…")
+        #expect(!values[0].value.contains("\n"))
+    }
+
+    @Test
+    func javaAutomaticDebugExpressionsKeepReceiversAndSkipMethods() {
+        let source = "return service.listUsers();" as NSString
+
+        let expressions = DebugAutomaticExpressionProjection.javaExpressions(
+            forLine: 0,
+            in: source
+        )
+
+        #expect(expressions == ["service"])
+    }
+
+    @Test
+    func javaAutomaticDebugExpressionsAreBoundedAndSourceOrdered() {
+        let source = "a + b + c + d + e + f + g + h + i + j" as NSString
+
+        let expressions = DebugAutomaticExpressionProjection.javaExpressions(
+            forLine: 0,
+            in: source
+        )
+
+        #expect(expressions == ["a", "b", "c", "d", "e", "f", "g", "h"])
+    }
+
+    @MainActor
+    @Test
+    func inlineDebugValueOverlayUsesOnlyRemainingEditorWidth() throws {
+        let textView = CodeTextView(frame: NSRect(x: 0, y: 0, width: 480, height: 120))
+        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.string = "int count = 4;\nreturn count;"
+        let layoutManager = try #require(textView.layoutManager)
+        let textContainer = try #require(textView.textContainer)
+        layoutManager.delegate = textView
+        layoutManager.ensureLayout(for: textContainer)
+        let overlay = DebugInlineValueOverlayController(textView: textView)
+
+        overlay.update(
+            line: 1,
+            values: [EditorInlineDebugValue(name: "count", value: "4")]
+        )
+
+        let frame = try #require(overlay.renderedFrame)
+        #expect(overlay.renderedText == "count = 4")
+        #expect(frame.minX > textView.textContainerOrigin.x)
+        #expect(frame.maxX <= textView.bounds.maxX - 12)
+
+        textView.frame.size.width = 40
+        overlay.update(
+            line: 1,
+            values: [EditorInlineDebugValue(name: "count", value: "4")]
+        )
+        #expect(overlay.renderedText == nil)
+    }
+
+    @Test
+    func debugHoverResolvesOnlyJavaIdentifierTokens() throws {
+        let source = "userService.login(userName)" as NSString
+
+        let service = try #require(DebugHoverExpressionResolver.expression(at: 5, in: source))
+        let argument = try #require(DebugHoverExpressionResolver.expression(at: 22, in: source))
+
+        #expect(service.0 == "userService")
+        #expect(source.substring(with: service.1) == "userService")
+        #expect(argument.0 == "userName")
+        #expect(DebugHoverExpressionResolver.expression(at: 11, in: source) == nil)
+    }
+
+    @Test
+    func editorBreakpointLinesConvertToOneBasedProductLines() {
+        #expect(EditorDebugBreakpointLocation.productLine(forEditorLine: 0) == 1)
+        #expect(EditorDebugBreakpointLocation.productLine(forEditorLine: 7) == 8)
+    }
+
+    @MainActor
+    @Test
+    func breakpointContextMenuOffersEditingAndDispatchesTheEditorLine() throws {
+        let gutter = LineNumberGutterView(frame: NSRect(x: 0, y: 0, width: 80, height: 200))
+        var editedLine: Int?
+        gutter.updateDebugBreakpointLines(
+            [7: EditorDebugBreakpointState(enabled: true, verified: false)],
+            onToggle: { _ in },
+            onEdit: { editedLine = $0 }
+        )
+
+        let menu = try #require(gutter.debugBreakpointContextMenu(forLine: 6))
+        #expect(menu.items.map(\.title) == [
+            "Edit Breakpoint…",
+            "Disable Breakpoint",
+            "Remove Breakpoint"
+        ])
+
+        gutter.editDebugBreakpointFromMenu()
+        #expect(editedLine == 6)
+    }
+
+    @MainActor
+    @Test
+    func emptyExecutableLineContextMenuOffersSettingABreakpoint() throws {
+        let gutter = LineNumberGutterView(frame: NSRect(x: 0, y: 0, width: 80, height: 200))
+        var toggledLine: Int?
+        gutter.updateDebugBreakpointLines(
+            [:],
+            onToggle: { toggledLine = $0 },
+            canAdd: { $0 == 4 }
+        )
+
+        let menu = try #require(gutter.debugBreakpointContextMenu(forLine: 4))
+        #expect(menu.items.map(\.title) == ["Set Breakpoint"])
+        gutter.addDebugBreakpointFromMenu()
+        #expect(toggledLine == 4)
+    }
+
     @MainActor
     @Test
     func foldingLinesChangesTheOverlayTargetGeometry() throws {
@@ -272,11 +422,23 @@ struct EditorGutterLayoutTests {
     @Test
     func columnsHaveDistinctHitTargets() {
         let layout = EditorGutterLayout(lineNumberTextWidth: 24)
-        #expect(layout.hitTarget(at: 6, hasGitChange: false) == .breakpoint)
+        #expect(layout.hitTarget(at: 6, hasGitChange: false) == .lineNumber)
         #expect(layout.hitTarget(at: 22, hasGitChange: false) == .lineNumber)
+        #expect(layout.hitTarget(at: 34, hasGitChange: false) == .breakpoint)
         #expect(layout.hitTarget(at: 48, hasGitChange: false) == .implementation)
         #expect(layout.hitTarget(at: 68, hasGitChange: false) == .fold)
         #expect(layout.hitTarget(at: 78, hasGitChange: true) == .gitChange)
+    }
+
+    @Test
+    func breakpointInteractionIncludesMarkerAndLineNumberColumns() {
+        let layout = EditorGutterLayout(lineNumberTextWidth: 24)
+
+        #expect(layout.breakpointInteractionRange.contains(6))
+        #expect(layout.breakpointInteractionRange.contains(22))
+        #expect(layout.breakpointInteractionRange.contains(34))
+        #expect(!layout.breakpointInteractionRange.contains(48))
+        #expect(EditorDebugBreakpointAppearance.markerSize == 14)
     }
 
     @Test
@@ -319,7 +481,8 @@ struct EditorGutterLayoutTests {
     func lineNumberColumnExpandsWithoutOverlappingFollowingColumns() {
         let layout = EditorGutterLayout(lineNumberTextWidth: 34)
         #expect(layout.lineNumberRange.upperBound - layout.lineNumberRange.lowerBound == 37)
-        #expect(layout.lineNumberRange.upperBound == layout.implementationRange.lowerBound)
+        #expect(layout.lineNumberRange.upperBound == layout.breakpointRange.lowerBound)
+        #expect(layout.breakpointRange.upperBound == layout.implementationRange.lowerBound)
         #expect(layout.implementationRange.upperBound == layout.foldRange.lowerBound)
         #expect(layout.foldRange.upperBound == layout.gitChangeRange.lowerBound)
         #expect(layout.gitChangeRange.upperBound == layout.width)

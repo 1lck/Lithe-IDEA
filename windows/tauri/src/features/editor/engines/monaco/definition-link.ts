@@ -1,6 +1,7 @@
 import { editor as monacoEditor, Range as MonacoRange } from "monaco-editor";
 import type * as Monaco from "monaco-editor";
 import type { DefinitionNavigationHint } from "@/features/editor/lsp/definition-navigation-hint";
+import type { WorkspaceLaunchScope } from "@/features/workspace/types/workspace-launch-scope";
 import {
   isEditorLspTargetSupported,
   type LspDocumentTarget,
@@ -25,7 +26,7 @@ interface MonacoDefinitionLinkOptions {
   editor: Monaco.editor.IStandaloneCodeEditor;
   model: Monaco.editor.ITextModel;
   documentTarget: LspDocumentTarget;
-  workspaceRoot?: string;
+  workspaceScope?: WorkspaceLaunchScope;
   enabled?: boolean;
 }
 
@@ -54,7 +55,7 @@ export function registerMonacoDefinitionLinkGesture({
   editor,
   model,
   documentTarget,
-  workspaceRoot,
+  workspaceScope,
   enabled = true,
 }: MonacoDefinitionLinkOptions): MonacoDefinitionLinkGesture {
   const decorations = editor.createDecorationsCollection();
@@ -114,7 +115,7 @@ export function registerMonacoDefinitionLinkGesture({
       }
       const lspClient = LspClient.getInstance();
       if (
-        workspaceRoot &&
+        workspaceScope &&
         !isDocumentFeatureAvailable(
           lspClient.getDocumentAvailability(documentTarget, "definition"),
         )
@@ -122,7 +123,7 @@ export function registerMonacoDefinitionLinkGesture({
         try {
           await lspClient.ensureDocumentReady(
             documentTarget,
-            workspaceRoot,
+            workspaceScope,
             model.getValue(),
             "definition",
           );
@@ -143,7 +144,7 @@ export function registerMonacoDefinitionLinkGesture({
         model.isDisposed() ||
         model.getLanguageId() !== "java" ||
         documentTarget.documentUri ||
-        !workspaceRoot
+        !workspaceScope
       ) {
         return { locations };
       }
@@ -152,7 +153,7 @@ export function registerMonacoDefinitionLinkGesture({
         const lombokDefinition = await resolveLombokAccessorDefinition({
           source: model.getValue(),
           sourceFilePath: documentTarget.filePath,
-          workspaceRoot,
+          workspaceRoot: workspaceScope.root,
           line,
           character: request.character,
         });

@@ -232,13 +232,27 @@ package struct LanguageTestItem: Identifiable, Equatable, Sendable {
     package let label: String
     package let kind: LanguageTestItemKind
     package let fileURL: URL?
+    /// Stable provider identifier used to run or debug this exact test item.
+    package let testIdentifier: String?
+    /// Visual nesting below the provider section; source files start at zero.
+    package let depth: Int
 
-    package init(id: String, providerID: String, label: String, kind: LanguageTestItemKind, fileURL: URL?) {
+    package init(
+        id: String,
+        providerID: String,
+        label: String,
+        kind: LanguageTestItemKind,
+        fileURL: URL?,
+        testIdentifier: String? = nil,
+        depth: Int = 0
+    ) {
         self.id = id
         self.providerID = providerID
         self.label = label
         self.kind = kind
         self.fileURL = fileURL
+        self.testIdentifier = testIdentifier
+        self.depth = max(0, depth)
     }
 }
 

@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "java-defaults",
+      "payload": {
+        "adapterId": "java"
+      },
+      "expected": {
+        "classNameFilters": [
+          "$JDK",
+          "$Libraries",
+          "com.ibm.ws.*",
+          "com.springsource.loaded.*",
+          "com.sun.proxy.*",
+          "javassist.*",
+          "jdk.proxy*.*",
+          "junit.*",
+          "net.bytebuddy.*",
+          "net.sf.cglib.*",
+          "org.apache.webbeans.*",
+          "org.junit.*",
+          "org.mockito.*",
+          "org.springframework.aop.framework.*",
+          "org.springframework.cglib.*",
+          "org.springsource.loaded.*"
+        ],
+        "skipSynthetics": true,
+        "skipStaticInitializers": true,
+        "skipConstructors": false,
+        "hideFilteredStackFrames": true
+      }
+    },
+    {
+      "name": "normalized-java-override",
+      "payload": {
+        "adapterId": "java",
+        "filters": {
+          "classNameFilters": [
+            " org.mockito.* ",
+            "$JDK",
+            "org.mockito.*",
+            ""
+          ],
+          "skipSynthetics": true,
+          "skipStaticInitializers": false,
+          "skipConstructors": true,
+          "hideFilteredStackFrames": true
+        }
+      },
+      "expected": {
+        "classNameFilters": [
+          "$JDK",
+          "org.mockito.*"
+        ],
+        "skipSynthetics": true,
+        "skipStaticInitializers": false,
+        "skipConstructors": true,
+        "hideFilteredStackFrames": true
+      }
+    },
+    {
+      "name": "unknown-adapter-is-unfiltered",
+      "payload": {
+        "adapterId": "go"
+      },
+      "expected": {
+        "classNameFilters": [],
+        "skipSynthetics": false,
+        "skipStaticInitializers": false,
+        "skipConstructors": false,
+        "hideFilteredStackFrames": false
+      }
+    },
+    {
+      "name": "unknown-adapter-empty-override-stays-unfiltered",
+      "payload": {
+        "adapterId": "python",
+        "filters": {}
+      },
+      "expected": {
+        "classNameFilters": [],
+        "skipSynthetics": false,
+        "skipStaticInitializers": false,
+        "skipConstructors": false,
+        "hideFilteredStackFrames": false
+      }
+    }
+  ]
+}

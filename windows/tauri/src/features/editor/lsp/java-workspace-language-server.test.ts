@@ -1,5 +1,10 @@
-import { expect, mock, test } from "bun:test";
+import { afterEach, expect, mock, test } from "bun:test";
+import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { JavaWorkspaceLanguageServerOwner } from "./java-workspace-language-server";
+
+const workspaceA = { workspaceId: "workspace-a", root: "C:/work" };
+
+afterEach(() => workspaceRuntimeRegistry.resetForTests());
 
 function operationRecorder() {
   const outcomes: string[] = [];
@@ -43,14 +48,14 @@ test("shares one Java workspace prewarm and reports readiness once", async () =>
     () => undefined,
   );
 
-  const first = owner.prewarm("C:/work", "C:/work/src/Main.java");
-  const second = owner.prewarm("C:\\work", "C:/work/src/Other.java");
+  const first = owner.prewarm(workspaceA, "C:/work/src/Main.java");
+  const second = owner.prewarm({ ...workspaceA, root: "C:\\work" }, "C:/work/src/Other.java");
   expect(start).toHaveBeenCalledTimes(1);
 
   releaseStart?.({ kind: "ready" });
   expect(await first).toEqual({ kind: "ready" });
   expect(await second).toEqual({ kind: "ready" });
-  expect(await owner.prewarm("C:/work", "C:/work/src/Third.java")).toEqual({ kind: "ready" });
+  expect(await owner.prewarm(workspaceA, "C:/work/src/Third.java")).toEqual({ kind: "ready" });
   expect(operations.outcomes).toEqual(["succeeded"]);
   expect(operations.names).toEqual(["workspacePrewarm"]);
   expect(notifyReady).toHaveBeenCalledTimes(1);
@@ -78,8 +83,8 @@ test("closing a workspace cancels an in-flight prewarm and stops its server", as
     () => undefined,
   );
 
-  const prewarm = owner.prewarm("C:/work", "C:/work/src/Main.java");
-  const close = owner.stop("C:\\work");
+  const prewarm = owner.prewarm(workspaceA, "C:/work/src/Main.java");
+  const close = owner.stop({ ...workspaceA, root: "C:\\work" });
   releaseStart?.({ kind: "ready" });
 
   expect(await prewarm).toEqual({
@@ -113,7 +118,7 @@ test("records a timeout without converting it to a generic failure", async () =>
     notifyFailure,
   );
 
-  expect(await owner.prewarm("C:/work", "C:/work/src/Main.java")).toEqual({
+  expect(await owner.prewarm(workspaceA, "C:/work/src/Main.java")).toEqual({
     kind: "timedOut",
     error: timeout,
   });
@@ -152,15 +157,15 @@ test("waits for a stopping owner before starting a replacement workspace session
     () => undefined,
   );
 
-  const first = owner.prewarm("C:/work", "C:/work/src/First.java");
-  const stopping = owner.stop("C:/work");
+  const first = owner.prewarm(workspaceA, "C:/work/src/First.java");
+  const stopping = owner.stop(workspaceA);
   startResolvers[0]?.({ kind: "ready" });
   expect(await first).toEqual({
     kind: "cancelled",
     reason: "workspace-closed-before-ready",
   });
 
-  const replacement = owner.prewarm("C:/work", "C:/work/src/Second.java");
+  const replacement = owner.prewarm(workspaceA, "C:/work/src/Second.java");
   await Promise.resolve();
   expect(stop).toHaveBeenCalledTimes(1);
   releaseStop?.();
@@ -194,11 +199,11 @@ test("creates a new operation after a failed start is retried", async () => {
     () => undefined,
   );
 
-  expect(await owner.prewarm("C:/work", "C:/work/src/Main.java")).toEqual({
+  expect(await owner.prewarm(workspaceA, "C:/work/src/Main.java")).toEqual({
     kind: "failed",
     error: failure,
   });
-  expect(await owner.prewarm("C:/work", "C:/work/src/Main.java")).toEqual({ kind: "ready" });
+  expect(await owner.prewarm(workspaceA, "C:/work/src/Main.java")).toEqual({ kind: "ready" });
 
   expect(operations.outcomes).toEqual(["failed", "succeeded"]);
   expect(operations.operationIds).toHaveLength(2);
@@ -220,7 +225,7 @@ test("reports a configured workspace without a usable runtime as unavailable", a
     notifyFailure,
   );
 
-  expect(await owner.prewarm("C:/work", "C:/work/src/Main.java")).toEqual({
+  expect(await owner.prewarm(workspaceA, "C:/work/src/Main.java")).toEqual({
     kind: "unavailable",
     reason: "notConfigured",
   });
@@ -231,4 +236,32 @@ test("reports a configured workspace without a usable runtime as unavailable", a
     { kind: "unavailable" },
     expect.any(Function),
   );
+});
+
+test("keeps workspace A scope when retrying while workspace B is active", async () => {
+  const retryCallbacks: Array<() => void> = [];
+  let startAttempt = 0;
+  const start = mock(async (_scope: typeof workspaceA) => {
+    startAttempt += 1;
+    if (startAttempt === 1) throw new Error("first start failed");
+    return { kind: "ready" } as const;
+  });
+  const owner = new JavaWorkspaceLanguageServerOwner(
+    { start, stop: async () => undefined },
+    operationRecorder().factory,
+    () => undefined,
+    () => undefined,
+    () => undefined,
+    (_workspacePath, _languageId, _failure, retry) => retryCallbacks.push(retry),
+  );
+
+  workspaceRuntimeRegistry.activateWorkspace({ id: "workspace-b", name: "B" }, "ready");
+  await owner.prewarm(workspaceA, "C:/work/src/Main.java");
+  expect(retryCallbacks).toHaveLength(1);
+  retryCallbacks[0]!();
+  expect(await owner.prewarm(workspaceA, "C:/work/src/Main.java")).toEqual({ kind: "ready" });
+
+  expect(workspaceRuntimeRegistry.getActiveWorkspaceId()).toBe("workspace-b");
+  expect(start).toHaveBeenCalledTimes(2);
+  expect(start.mock.calls.map((call) => call[0])).toEqual([workspaceA, workspaceA]);
 });

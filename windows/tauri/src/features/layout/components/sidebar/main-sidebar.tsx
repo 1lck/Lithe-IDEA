@@ -26,13 +26,20 @@ import {
 } from "@/features/layout/utils/project-carousel";
 import type { SidebarView } from "@/features/layout/utils/sidebar-pane-utils";
 import {
+  setSidebarActivityItemVisibility,
+  sidebarActivityVisibilityItemIds,
+  type SidebarActivityItemId,
+} from "@/features/layout/config/item-order";
+import {
   openGlobalSearchSidebar,
   toggleDiagnosticsPane,
 } from "@/features/layout/actions/workbench-tool-window-actions";
 import { RunIcon } from "@/features/run/components/run-icon";
+import { useMavenStore } from "@/features/maven/stores/maven.store";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import {
   toggleGitLogPane,
+  toggleMavenPane,
   toggleRunPane,
   toggleTerminalPane,
 } from "@/features/keymaps/commands/view-command-actions";
@@ -68,6 +75,7 @@ import {
   GitBranchIcon,
   GitGraphIcon,
   MagnifyingGlassIcon,
+  PackageIcon,
   TerminalWindowIcon,
   WarningIcon,
 } from "@/ui/icons";
@@ -119,6 +127,8 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
   const openSettingsDialog = useUIState((state) => state.openSettingsDialog);
   const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible);
   const bottomPaneActiveTab = useUIState((state) => state.bottomPaneActiveTab);
+  const mavenProject = useMavenStore((state) => state.project);
+  const mavenProjectStatus = useMavenStore((state) => state.projectStatus);
   const configuredActivityRailWidth = useSettingsStore((state) => state.settings.activityRailWidth);
   const askWhereToOpenProjects = useSettingsStore((state) => state.settings.askWhereToOpenProjects);
   const openFoldersInNewWindow = useSettingsStore((state) => state.settings.openFoldersInNewWindow);
@@ -170,74 +180,34 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
     openSidebarView(view);
   };
 
-  const activityRailVisibilityItems = useMemo(
-    () => [
-      {
-        id: "files",
-        label: t("workbench.project"),
-        icon: <FilesIcon />,
-      },
-      ...(coreFeatures.search
-        ? [
-            {
-              id: "search",
-              label: t("workbench.search"),
-              icon: <MagnifyingGlassIcon />,
-            },
-          ]
-        : []),
-      ...(coreFeatures.git
-        ? [
-            {
-              id: "git",
-              label: t("workbench.changes"),
-              icon: <GitBranchIcon />,
-            },
-            {
-              id: "gitLog",
-              label: t("workbench.gitLog"),
-              icon: <GitGraphIcon />,
-            },
-          ]
-        : []),
-      ...(coreFeatures.terminal
-        ? [
-            {
-              id: "terminal",
-              label: t("workbench.terminal"),
-              icon: <TerminalWindowIcon />,
-            },
-          ]
-        : []),
-      ...(coreFeatures.diagnostics
-        ? [
-            {
-              id: "diagnostics",
-              label: t("workbench.diagnostics"),
-              icon: <WarningIcon />,
-            },
-          ]
-        : []),
-      {
-        id: "run",
-        label: t("workbench.run"),
-        icon: <RunIcon />,
-      },
-      {
-        id: "settings",
-        label: t("workbench.settings"),
-        icon: <GearIcon />,
-      },
-    ],
-    [coreFeatures.diagnostics, coreFeatures.git, coreFeatures.search, coreFeatures.terminal, t],
-  );
+  const activityRailVisibilityItems = useMemo(() => {
+    const items = new Map<
+      SidebarActivityItemId,
+      { id: SidebarActivityItemId; label: string; icon: ReactNode }
+    >([
+      ["files", { id: "files", label: t("workbench.project"), icon: <FilesIcon /> }],
+      ["git", { id: "git", label: t("workbench.changes"), icon: <GitBranchIcon /> }],
+      ["search", { id: "search", label: t("workbench.search"), icon: <MagnifyingGlassIcon /> }],
+      ["maven", { id: "maven", label: t("workbench.maven"), icon: <PackageIcon /> }],
+      ["run", { id: "run", label: t("workbench.run"), icon: <RunIcon /> }],
+      [
+        "terminal",
+        { id: "terminal", label: t("workbench.terminal"), icon: <TerminalWindowIcon /> },
+      ],
+      [
+        "diagnostics",
+        { id: "diagnostics", label: t("workbench.diagnostics"), icon: <WarningIcon /> },
+      ],
+      ["gitLog", { id: "gitLog", label: t("workbench.gitLog"), icon: <GitGraphIcon /> }],
+      ["settings", { id: "settings", label: t("workbench.settings"), icon: <GearIcon /> }],
+    ]);
+    return sidebarActivityVisibilityItemIds(coreFeatures).map((id) => items.get(id)!);
+  }, [coreFeatures.diagnostics, coreFeatures.git, coreFeatures.search, coreFeatures.terminal, t]);
 
   const setActivityRailItemVisible = useCallback(
-    (itemId: string, visible: boolean) => {
+    (itemId: SidebarActivityItemId, visible: boolean) => {
       const currentHiddenItems = useSettingsStore.getState().settings.hiddenSidebarActivityItems;
-      const nextHiddenItems = visible
-        ? currentHiddenItems.filter((hiddenItemId) => hiddenItemId !== itemId)
-        : Array.from(new Set([...currentHiddenItems, itemId]));
+      const nextHiddenItems = setSidebarActivityItemVisibility(currentHiddenItems, itemId, visible);
 
       void updateSetting("hiddenSidebarActivityItems", nextHiddenItems);
     },
@@ -666,6 +636,12 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
                   isDiagnosticsActive={isBottomPaneVisible && bottomPaneActiveTab === "diagnostics"}
                   onRunClick={() => toggleRunPane()}
                   isRunActive={isBottomPaneVisible && bottomPaneActiveTab === "run"}
+                  onMavenClick={
+                    mavenProject || mavenProjectStatus === "failed"
+                      ? () => toggleMavenPane()
+                      : undefined
+                  }
+                  isMavenActive={isBottomPaneVisible && bottomPaneActiveTab === "maven"}
                   compact={!expanded}
                   showLabels={expanded}
                   orientation="vertical"

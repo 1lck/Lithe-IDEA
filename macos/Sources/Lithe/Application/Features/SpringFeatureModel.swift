@@ -51,6 +51,30 @@ final class SpringFeatureModel: ObservableObject {
         isIndexing = false
     }
 
+    /// Starts a workspace index without making the caller wait for it. Opening a
+    /// project must not block build-system and run state behind Spring indexing,
+    /// which scales with the number of Java sources in the workspace.
+    func scheduleLoad(
+        workspaceURL: URL,
+        files: [URL],
+        textOverrides: [URL: String] = [:],
+        refreshDependencyMetadata: Bool = true
+    ) {
+        reloadTask?.cancel()
+        reloadTask = Task { @MainActor [weak self] in
+            // Cancellation is cooperative, so a schedule that was superseded
+            // before it started must return here instead of running a second
+            // full workspace index whose result the generation token discards.
+            guard !Task.isCancelled, let self else { return }
+            await self.load(
+                workspaceURL: workspaceURL,
+                files: files,
+                textOverrides: textOverrides,
+                refreshDependencyMetadata: refreshDependencyMetadata
+            )
+        }
+    }
+
     func reset() {
         reloadTask?.cancel()
         reloadTask = nil
@@ -89,6 +113,14 @@ final class SpringFeatureModel: ObservableObject {
                 textOverrides: overrides,
                 refreshDependencyMetadata: false
             )
+        }
+    }
+
+    func scheduleLoad(workspaceURL: URL, files: [URL], textOverrides: [URL: String]) {
+        reloadTask?.cancel()
+        reloadTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.load(workspaceURL: workspaceURL, files: files, textOverrides: textOverrides)
         }
     }
 

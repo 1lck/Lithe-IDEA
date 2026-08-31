@@ -689,6 +689,7 @@ async function createSession(args: JsonRecord, key: string): Promise<Session> {
         jdtlsLaunchResources: args.jdtlsLaunchResources ?? null,
         cacheDirectory: args.cacheDirectory ?? null,
         workspaceFingerprint: args.workspaceFingerprint ?? null,
+        mavenContext: args.mavenContext ?? null,
         initializeTimeoutMilliseconds: INITIALIZE_TIMEOUT_MS,
       },
       operationId,

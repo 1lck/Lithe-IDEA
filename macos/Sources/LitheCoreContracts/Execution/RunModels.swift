@@ -37,7 +37,7 @@ package struct RunPortConflict: Identifiable, Hashable, Sendable {
     package var id: String { String(port) }
 
     package var title: String {
-        "Port (port) is used by " + configurationNames.joined(separator: ", ")
+        "Port \(port) is used by " + configurationNames.joined(separator: ", ")
     }
 }
 

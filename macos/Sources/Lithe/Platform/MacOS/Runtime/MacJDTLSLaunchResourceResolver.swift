@@ -9,6 +9,9 @@ enum MacJDTLSLaunchResourceResolution {
 
 struct MacJDTLSLaunchResourceResolver {
     private static let equinoxLauncherPrefix = "org.eclipse.equinox.launcher_"
+    private static let javaDebugBundlePrefix = "com.microsoft.java.debug.plugin-"
+    private static let javaTestBundlePrefix = "com.microsoft.java.test.plugin-"
+    private static let javaTestRunnerName = "com.microsoft.java.test.runner-jar-with-dependencies.jar"
 
     private let bundledJdtlsRootURL: URL?
     private let fileManager: FileManager
@@ -39,15 +42,32 @@ struct MacJDTLSLaunchResourceResolver {
             let pluginsURL = rootURL.appendingPathComponent("plugins", isDirectory: true)
             let configurationURL = configurationDirectory(in: rootURL)
             let lombokURL = rootURL.appendingPathComponent("lombok/lombok.jar")
+            let javaDebugURL = try firstJavaDebugBundle(
+                in: rootURL.appendingPathComponent("java-debug", isDirectory: true)
+            )
+            let javaTestBundleURLs = try javaTestExtensionBundles(
+                in: rootURL.appendingPathComponent("java-test/extensions", isDirectory: true)
+            )
+            let javaTestRunnerURL = rootURL
+                .appendingPathComponent("java-test/runner", isDirectory: true)
+                .appendingPathComponent(Self.javaTestRunnerName)
             guard let launcherURL = try firstEquinoxLauncher(in: pluginsURL),
                   let configurationURL,
+                  let javaDebugURL,
+                  javaTestBundleURLs.contains(where: {
+                      $0.lastPathComponent.hasPrefix(Self.javaTestBundlePrefix)
+                  }),
+                  fileManager.fileExists(atPath: javaTestRunnerURL.path),
                   fileManager.fileExists(atPath: lombokURL.path) else {
                 continue
             }
             return JDTLSLaunchResources(
                 launcherJarURL: launcherURL,
                 configurationDirectoryURL: configurationURL,
-                lombokAgentURL: lombokURL
+                lombokAgentURL: lombokURL,
+                javaDebugBundleURL: javaDebugURL,
+                javaExtensionBundleURLs: javaTestBundleURLs,
+                javaTestRunnerURL: javaTestRunnerURL
             )
         }
         throw ResolutionError.incompleteInstallation
@@ -82,25 +102,55 @@ struct MacJDTLSLaunchResourceResolver {
     }
 
     private func firstEquinoxLauncher(in pluginsURL: URL) throws -> URL? {
+        try firstRegularFile(
+            in: pluginsURL,
+            prefix: Self.equinoxLauncherPrefix,
+            suffix: ".jar"
+        )
+    }
+
+    private func firstJavaDebugBundle(in directoryURL: URL) throws -> URL? {
+        try firstRegularFile(
+            in: directoryURL,
+            prefix: Self.javaDebugBundlePrefix,
+            suffix: ".jar"
+        )
+    }
+
+    private func firstRegularFile(
+        in directoryURL: URL,
+        prefix: String,
+        suffix: String
+    ) throws -> URL? {
+        try regularFiles(in: directoryURL, prefix: prefix, suffix: suffix).first
+    }
+
+    private func javaTestExtensionBundles(in directoryURL: URL) throws -> [URL] {
+        try regularFiles(in: directoryURL, prefix: "", suffix: ".jar")
+    }
+
+    private func regularFiles(
+        in directoryURL: URL,
+        prefix: String,
+        suffix: String
+    ) throws -> [URL] {
         let entries: [URL]
         do {
             entries = try fileManager.contentsOfDirectory(
-                at: pluginsURL,
+                at: directoryURL,
                 includingPropertiesForKeys: [.isRegularFileKey],
                 options: [.skipsHiddenFiles]
             )
         } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
-            return nil
+            return []
         }
         return try entries
             .filter { url in
                 let name = url.lastPathComponent
-                guard name.hasPrefix(Self.equinoxLauncherPrefix),
-                      name.hasSuffix(".jar") else { return false }
+                guard name.hasPrefix(prefix), name.hasSuffix(suffix) else { return false }
                 return try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true
             }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
-            .first
     }
 
     private func isDirectory(_ url: URL) -> Bool {
@@ -120,7 +170,8 @@ struct MacJDTLSLaunchResourceResolver {
 
         var errorDescription: String? {
             "Expected an Equinox launcher JAR, a macOS configuration directory, "
-                + "and lombok/lombok.jar in the selected JDTLS installation."
+                + "lombok/lombok.jar, Java Debug and Java Test extension bundles, and the TestNG runner "
+                + "in the selected JDTLS installation."
         }
     }
 }

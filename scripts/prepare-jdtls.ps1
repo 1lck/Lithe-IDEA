@@ -27,8 +27,13 @@ $archiveHash = $manifest.archiveSHA256.ToLowerInvariant()
 $licenseHash = $manifest.licenseSHA256.ToLowerInvariant()
 $lombokHash = $manifest.lombokSHA256.ToLowerInvariant()
 $lombokLicenseHash = $manifest.lombokLicenseSHA256.ToLowerInvariant()
+$javaDebugArchiveHash = $manifest.javaDebugArchiveSHA256.ToLowerInvariant()
+$javaDebugPluginHash = $manifest.javaDebugPluginSHA256.ToLowerInvariant()
+$javaDebugLicenseHash = $manifest.javaDebugLicenseSHA256.ToLowerInvariant()
 $safeVersion = ([string]$manifest.version) -replace '[^A-Za-z0-9._-]', '_'
 $safeLombokVersion = ([string]$manifest.lombokVersion) -replace '[^A-Za-z0-9._-]', '_'
+$safeJavaDebugExtensionVersion = ([string]$manifest.javaDebugExtensionVersion) -replace '[^A-Za-z0-9._-]', '_'
+$safeJavaDebugServerVersion = ([string]$manifest.javaDebugServerVersion) -replace '[^A-Za-z0-9._-]', '_'
 $archive = if ($archiveUsesOverride) {
     $env:LITHE_JDTLS_ARCHIVE
 } else {
@@ -37,6 +42,11 @@ $archive = if ($archiveUsesOverride) {
 $license = Join-Path $cache "EPL-2.0-$licenseHash.txt"
 $lombok = Join-Path $cache "lombok-$safeLombokVersion-$lombokHash.jar"
 $lombokLicense = Join-Path $cache "lombok-MIT-$safeLombokVersion-$lombokLicenseHash.txt"
+# Expand-Archive validates the file extension even though VSIX files are ZIP
+# archives, so keep the verified payload under a compatible cache name.
+$javaDebugArchive = Join-Path $cache "vscode-java-debug-$safeJavaDebugExtensionVersion-$javaDebugArchiveHash.zip"
+$javaDebugLicense = Join-Path $cache "java-debug-EPL-1.0-$safeJavaDebugServerVersion-$javaDebugLicenseHash.txt"
+$javaDebugPluginName = "com.microsoft.java.debug.plugin-$safeJavaDebugServerVersion.jar"
 
 function Get-FileSHA256 {
     param([Parameter(Mandatory)][string]$Path)
@@ -94,6 +104,8 @@ function Assert-JdtlsOutput {
     if (-not (Test-Path -LiteralPath (Join-Path $output "bin/jdtls.bat") -PathType Leaf)) { throw "JDTLS batch launcher is missing: $output" }
     if (-not (Test-Path -LiteralPath (Join-Path $output "lombok/lombok.jar") -PathType Leaf)) { throw "JDTLS Lombok agent is missing: $output" }
     if (-not (Test-Path -LiteralPath (Join-Path $output "lombok/LICENSE-MIT.txt") -PathType Leaf)) { throw "JDTLS Lombok license is missing: $output" }
+    if (-not (Test-Path -LiteralPath (Join-Path $output "java-debug/$javaDebugPluginName") -PathType Leaf)) { throw "Java Debug Server plugin is missing: $output" }
+    if (-not (Test-Path -LiteralPath (Join-Path $output "java-debug/LICENSE-EPL-1.0.txt") -PathType Leaf)) { throw "Java Debug Server license is missing: $output" }
     # Wrapper scripts remain for external/legacy launch plans. Packaged JDTLS
     # uses the direct-launch resources validated above.
     $launcher = Get-Content -Raw -LiteralPath (Join-Path $output "bin/jdtls.ps1")
@@ -117,6 +129,8 @@ if ($archiveUsesOverride) {
 Get-VerifiedDownload -Uri $manifest.licenseURL -ExpectedSHA256 $licenseHash -Destination $license -Description "EPL-2.0 license"
 Get-VerifiedDownload -Uri $manifest.lombokURL -ExpectedSHA256 $lombokHash -Destination $lombok -Description "Lombok agent"
 Get-VerifiedDownload -Uri $manifest.lombokLicenseURL -ExpectedSHA256 $lombokLicenseHash -Destination $lombokLicense -Description "Lombok MIT license"
+Get-VerifiedDownload -Uri $manifest.javaDebugArchiveURL -ExpectedSHA256 $javaDebugArchiveHash -Destination $javaDebugArchive -Description "Java Debug extension"
+Get-VerifiedDownload -Uri $manifest.javaDebugLicenseURL -ExpectedSHA256 $javaDebugLicenseHash -Destination $javaDebugLicense -Description "Java Debug EPL-1.0 license"
 
 if (Test-Path -LiteralPath $output) { Remove-Item -Recurse -Force -LiteralPath $output }
 New-Item -ItemType Directory -Force -Path $output | Out-Null
@@ -127,6 +141,23 @@ $lombokOutput = Join-Path $output "lombok"
 New-Item -ItemType Directory -Force -Path $lombokOutput | Out-Null
 Copy-Item -LiteralPath $lombok -Destination (Join-Path $lombokOutput "lombok.jar") -Force
 Copy-Item -LiteralPath $lombokLicense -Destination (Join-Path $lombokOutput "LICENSE-MIT.txt") -Force
+$javaDebugOutput = Join-Path $output "java-debug"
+New-Item -ItemType Directory -Force -Path $javaDebugOutput | Out-Null
+$javaDebugExtraction = Join-Path $cache "java-debug-extract-$PID"
+try {
+    if (Test-Path -LiteralPath $javaDebugExtraction) { Remove-Item -Recurse -Force -LiteralPath $javaDebugExtraction }
+    Expand-Archive -LiteralPath $javaDebugArchive -DestinationPath $javaDebugExtraction -Force
+    $javaDebugPlugin = Join-Path $javaDebugExtraction "extension/server/$javaDebugPluginName"
+    if (-not (Test-Path -LiteralPath $javaDebugPlugin -PathType Leaf)) { throw "Java Debug Server plugin was not found in the verified extension archive" }
+    $actualJavaDebugPluginHash = Get-FileSHA256 -Path $javaDebugPlugin
+    if ($actualJavaDebugPluginHash -ne $javaDebugPluginHash) {
+        throw "Java Debug Server plugin checksum mismatch: expected $javaDebugPluginHash, got $actualJavaDebugPluginHash"
+    }
+    Copy-Item -LiteralPath $javaDebugPlugin -Destination (Join-Path $javaDebugOutput $javaDebugPluginName) -Force
+} finally {
+    if (Test-Path -LiteralPath $javaDebugExtraction) { Remove-Item -Recurse -Force -LiteralPath $javaDebugExtraction }
+}
+Copy-Item -LiteralPath $javaDebugLicense -Destination (Join-Path $javaDebugOutput "LICENSE-EPL-1.0.txt") -Force
 
 $windowsLauncher = @'
 $ErrorActionPreference = "Stop"

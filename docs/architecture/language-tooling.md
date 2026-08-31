@@ -196,6 +196,14 @@ marker 结果。新版本会取消旧批次并使缓存失效，因此频繁输�
 CodeLens、implementation 或 `java/findLinks` 请求。没有语义目标的声明不显示
 图标；一个目标直接跳转，多个目标由平台 UI 显示选择列表。
 
+Java 测试类与方法同样不能由 UI 猜测。Tests 面板打开或刷新时，
+`LanguageToolingSessionManager` 直接调用 JDT LS 已注册的 Java Test 扩展命令
+`vscode.java.test.findTestTypesAndMethods`，将 JDT 返回的类、方法、框架和
+全限定标识投影为平台无关的测试项。UI 只展示并回传稳定标识；JUnit/TestNG 的
+Debug 启动继续由 JDT 生成项目参数，再交给 Rust Debug Core 归一化。测试发现本身
+不会创建 Debug 会话、回环 socket 或目标 JVM，关闭面板、切换项目和重载 Java
+runtime 都会取消尚未完成的发现任务并丢弃晚到结果。
+
 ### 当前限制
 
 - 只支持 stdio transport，尚无 socket/TCP 或服务器自定义握手 adapter。

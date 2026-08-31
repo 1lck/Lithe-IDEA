@@ -8,7 +8,6 @@ import LitheLocalHistoryModule
 import LitheLanguageIntelligenceModule
 import LitheModuleAPI
 import LitheSearchModule
-import LitheTerminalModule
 import LitheWorkspaceModule
 import LitheCoreContracts
 
@@ -108,11 +107,13 @@ final class AppModel: ObservableObject, Identifiable {
     @Published var isGitLogVisible = false
     @Published var isTerminalVisible = false
     @Published var pendingTerminalCloseSessionID: UUID?
+    var pendingRunAction: PendingRunAction?
     @Published var isReferencesVisible = false
     @Published var isProblemsVisible = false
     @Published var isMavenVisible = false
     @Published var isSpringVisible = false
     @Published var isDebugVisible = false
+    @Published var debugBreakpointPresentation = DebugBreakpointPresentationState()
     @Published var isDiscourseCommunityVisible = false
     @Published var isImplementationChooserVisible = false
     var languageProviderCatalog: LanguageProviderCatalog { languageToolingFeature.catalog }
@@ -143,6 +144,7 @@ final class AppModel: ObservableObject, Identifiable {
     private var requestProjectOpen: ((URL) -> Void)?
     private var didCloseProject: (() -> Void)?
     private var securityScopedWorkspaceURL: URL?
+    let javaTestWorkflowState = JavaTestWorkflowState()
     let services: AppServices
     let platformUI: any PlatformUI
     let settings: AppSettings
@@ -151,11 +153,16 @@ final class AppModel: ObservableObject, Identifiable {
     let runtimeFeature: RuntimeSettingsFeatureModel
     let languageToolingFeature: LanguageToolingFeatureModel
     let debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver
+    let debugPortAvailabilityChecker: any DebugPortAvailabilityChecking
     let workspaceFeature: WorkspaceFeatureModel
     let githubFeature: GitHubFeatureModel
     let discourseCommunityFeature: DiscourseCommunityFeatureModel
     let editorTabOrderFeature = EditorTabOrderFeatureModel()
     let terminalPlacementFeature: TerminalPlacementFeatureModel
+    var debugTerminalSessionIDs: Set<UUID> = []
+    var activeDebugTerminalSessionID: UUID?
+    var debugTerminalSessionIDsByDebugSession: [DebugSessionID: Set<UUID>] = [:]
+    var activeDebugTerminalSessionIDsByDebugSession: [DebugSessionID: UUID] = [:]
     private struct CachedModuleCapability {
         let moduleID: ModuleID
         let value: AnyObject
@@ -173,28 +180,6 @@ final class AppModel: ObservableObject, Identifiable {
     }
     var searchCapability: LitheSearchModule.SearchModuleCapability? {
         cachedModuleCapability(.searchWorkspace)
-    }
-    var terminalCapability: LitheTerminalModule.TerminalModuleCapability? {
-        cachedModuleCapability(.terminalWorkspace)
-    }
-    var terminalFeature: TerminalFeatureModel? { terminalCapability?.feature }
-    var availableTerminalShells: [String] { terminalFeature?.availableShells ?? [] }
-
-    @MainActor
-    func activateTerminalModule() async -> Bool {
-        guard terminalCapability == nil else { return true }
-        do {
-            let value = try await services.moduleRuntime.activateCapability(.terminalWorkspace)
-            guard let capability = value as? LitheTerminalModule.TerminalModuleCapability else { return false }
-            let feature = capability.feature
-            cacheModuleCapability(capability, id: .terminalWorkspace, moduleID: .terminal)
-            observeModuleFeature(.terminal, observation: feature.objectWillChange.sink { [weak self] _ in
-                self?.scheduleObjectWillChangeRelay()
-            })
-            return true
-        } catch {
-            return false
-        }
     }
     var historyCapability: LitheLocalHistoryModule.HistoryModuleCapability? {
         cachedModuleCapability(.historyWorkspace)
@@ -375,6 +360,7 @@ final class AppModel: ObservableObject, Identifiable {
             sessionsProvider: { nil }
         )
         debugLaunchConfigurationResolver = services.debugLaunchConfigurationResolver
+        debugPortAvailabilityChecker = services.debugPortAvailabilityChecker
         documentFeature = DocumentFeatureModel(
             operations: services.workspaceOperations,
             documentLifecycleDecider: services.documentLifecycleDecider,
@@ -586,8 +572,6 @@ final class AppModel: ObservableObject, Identifiable {
             .sink { [weak self] ids in self?.editorTabOrderFeature.reconcileDocuments(orderedIDs: ids) }
         javaFeature.configure(
             documentProvider: { [weak self] in self?.activeDocument },
-            caretProvider: { [weak self] in self?.editorCaret },
-            notify: { [weak self] message in self?.showNotification(message) },
             loadBlame: { [weak self] fileURL in
                 guard let self else { return [] }
                 guard let feature = await self.activateGitModule() else { return [] }
@@ -712,6 +696,10 @@ final class AppModel: ObservableObject, Identifiable {
 
     func shutdownProjectSession() async {
         shortcutDetector?.stop()
+        Task { [weak self] in
+            await self?.services.moduleRuntime.shutdownAll()
+        }
+        cancelJavaTestWorkflows()
         languageToolingSessionsIfActive?.stopAll()
         languageTestServiceIfActive?.stop()
         stopTerminalSessions()
@@ -742,7 +730,8 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     private func reloadJavaRuntimeServices() {
-        debugFeatureIfActive?.stop()
+        cancelJavaTestWorkflows()
+        genericDebugFeatureIfActive?.stop()
         mavenFeatureIfActive?.stop()
         languageToolingSessionsIfActive?.stopLanguageServer(providerID: "java")
         javaFeature.stop()
@@ -762,10 +751,6 @@ final class AppModel: ObservableObject, Identifiable {
     /// Loads build-system and run state at the workspace boundary. The generic
     /// run lifecycle is intentionally not owned by JavaFeatureModel.
     func loadProjectServices(at workspaceURL: URL, files: [URL]) async {
-        let execution = await activateExecutionModule()
-        if let execution {
-            await execution.projectDevelopment.loadProject(at: workspaceURL, files: files)
-        }
         prepareJavaLanguageServerForWorkspaceIfNeeded(
             at: workspaceURL,
             files: files
@@ -777,7 +762,9 @@ final class AppModel: ObservableObject, Identifiable {
                 ($0.url.standardizedFileURL, $0.text)
             })
         )
-        execution?.tests.discover(workspaceURL: workspaceURL, files: files)
+        guard let execution = await activateExecutionModule() else { return }
+        execution.tests.discover(workspaceURL: workspaceURL, files: files)
+        await execution.projectDevelopment.loadProject(at: workspaceURL, files: files)
     }
 
     var projectName: String {
@@ -933,7 +920,7 @@ final class AppModel: ObservableObject, Identifiable {
         // every provider session before replacing the catalog or clearing the
         // document projection so no old-root documents, diagnostics, or
         // responses can survive into the next workspace.
-        cancelJavaLanguageServerPreparation()
+        cancelJavaWorkspaceWorkflows()
         languageToolingSessionsIfActive?.stopAll()
         reloadLanguageProviderCatalog(for: normalizedURL)
         stopTerminalSessions()
@@ -942,8 +929,8 @@ final class AppModel: ObservableObject, Identifiable {
         runtimeFeature.openProject(at: normalizedURL)
         mavenFeatureIfActive?.reset()
         runFeatureIfActive?.reset()
-        debugFeatureIfActive?.reset()
         genericDebugFeatureIfActive?.reset()
+        debugBreakpointPresentation.reset()
         clearLanguageNavigationProjection()
         javaFeature.stop()
         springFeature.reset()
@@ -977,6 +964,8 @@ final class AppModel: ObservableObject, Identifiable {
         recentProjects = recentProjectsStore.record(normalizedURL, in: recentProjects)
 
         Task {
+            await restoreDebugBreakpoints(for: normalizedURL)
+            guard workspaceURL == normalizedURL else { return }
             _ = await workspaceFeature.rebuild(
                 at: normalizedURL,
                 rules: visibilityRules,
@@ -1044,13 +1033,14 @@ final class AppModel: ObservableObject, Identifiable {
         isTestsVisible = false
         isDebugVisible = false
         stopTerminalSessions()
+        cancelJavaWorkspaceWorkflows()
         languageToolingSessionsIfActive?.stopAll()
         languageTestServiceIfActive?.reset()
         runtimeFeature.closeProject()
         mavenFeatureIfActive?.reset()
         runFeatureIfActive?.reset()
-        debugFeatureIfActive?.reset()
         genericDebugFeatureIfActive?.reset()
+        debugBreakpointPresentation.reset()
         javaFeature.stop()
         springFeature.reset()
         editorChrome.reset()

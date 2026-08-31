@@ -47,8 +47,28 @@ package struct ProjectRunConfigurationInspection: Equatable, Sendable {
     }
 }
 
+package enum ProjectLoadState: Equatable, Sendable {
+    case idle
+    case loading(workspace: URL)
+    case bound(workspace: URL)
+    case ready(workspace: URL, snapshotID: UUID)
+    case failed(workspace: URL, message: String)
+
+    package func isReady(for workspace: URL, snapshotID: UUID? = nil) -> Bool {
+        guard case .ready(let boundWorkspace, let boundSnapshotID) = self,
+              boundWorkspace == workspace.standardizedFileURL else { return false }
+        return snapshotID.map { $0 == boundSnapshotID } ?? true
+    }
+
+    package func hasReadyInventory(for workspace: URL) -> Bool {
+        guard case .ready(let boundWorkspace, _) = self else { return false }
+        return boundWorkspace == workspace.standardizedFileURL
+    }
+}
+
 package enum RunConfigurationGenerationState: Equatable, Sendable {
     case idle
+    case projectNotReady
     case succeeded(entryCount: Int)
     case noEntries
     case failed(String)

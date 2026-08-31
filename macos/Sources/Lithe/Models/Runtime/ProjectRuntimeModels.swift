@@ -80,7 +80,6 @@ enum JavaEnvironmentStatus: Equatable, Sendable {
     case ready
     case jdkMissing
     case configuredJDKInvalid(path: String)
-    case jdbMissing
 
     var requiresAttention: Bool {
         self != .checking && self != .ready
@@ -88,7 +87,7 @@ enum JavaEnvironmentStatus: Equatable, Sendable {
 
     var blocksJavaRun: Bool {
         switch self {
-        case .jdkMissing, .configuredJDKInvalid, .jdbMissing: true
+        case .jdkMissing, .configuredJDKInvalid: true
         case .checking, .ready: false
         }
     }
@@ -99,15 +98,13 @@ struct JavaEnvironmentReport: Equatable, Sendable {
     let projectURL: URL
     let javaHomePath: String?
     let javaExecutablePath: String?
-    let jdbExecutablePath: String?
 
     static func checking(for projectURL: URL) -> Self {
         Self(
             status: .checking,
             projectURL: projectURL.standardizedFileURL,
             javaHomePath: nil,
-            javaExecutablePath: nil,
-            jdbExecutablePath: nil
+            javaExecutablePath: nil
         )
     }
 
@@ -117,22 +114,19 @@ struct JavaEnvironmentReport: Equatable, Sendable {
         case .ready: "Java environment ready"
         case .jdkMissing: "JDK not found"
         case .configuredJDKInvalid: "Configured JDK is invalid"
-        case .jdbMissing: "Java debugger is incomplete"
         }
     }
 
     var message: String {
         switch status {
         case .checking:
-            "Lithe is checking the JDK and Java debugger."
+            "Lithe is checking the project JDK."
         case .ready:
-            "JDK and JDB are available for this project."
+            "A usable JDK is available for this project."
         case .jdkMissing:
             "This project contains Java sources, but no usable JDK was detected."
         case .configuredJDKInvalid(let path):
             "The configured JDK path is not a valid JDK: \(path)"
-        case .jdbMissing:
-            "A JDK was found, but its bin/jdb debugger is unavailable."
         }
     }
 
@@ -143,8 +137,6 @@ struct JavaEnvironmentReport: Equatable, Sendable {
             "Choose a JDK in the Java service settings or install a full JDK and set JAVA_HOME."
         case .configuredJDKInvalid:
             "Choose another JDK in the Java service settings or clear the invalid path."
-        case .jdbMissing:
-            "Use a full JDK distribution instead of a JRE or minimal runtime."
         }
     }
 }

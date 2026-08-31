@@ -14,6 +14,7 @@ package final class RunService: ObservableObject {
         }
     }
     @Published package private(set) var isLoadingProject = false
+    @Published package private(set) var projectLoadState: ProjectLoadState = .idle
     @Published package private(set) var isRunning = false
     @Published package private(set) var runningTitle: String?
     @Published package private(set) var output = ""
@@ -106,6 +107,30 @@ package final class RunService: ObservableObject {
     package var lastRunFileURL: URL? { lastCurrentFileURL }
     package var lastConfiguration: RunConfiguration? { lastRunConfiguration }
 
+    /// Whether the file inventory for `workspace` came from its snapshot, and is
+    /// therefore complete enough to generate a configuration from. Entry points
+    /// that activate the execution module on demand use this to decide whether
+    /// the project still has to be loaded.
+    package func isProjectReady(for workspace: URL, snapshotID: UUID?) -> Bool {
+        projectLoadState.isReady(for: workspace, snapshotID: snapshotID)
+    }
+
+    /// Whether a complete inventory for `workspace` is already loaded, even if a
+    /// newer snapshot has since been published. Entry points use this to tell a
+    /// superseded inventory apart from one that was never loaded.
+    package func hasReadyInventory(for workspace: URL) -> Bool {
+        projectLoadState.hasReadyInventory(for: workspace)
+    }
+
+    /// Surfaces the "project still loading" generation notice without scanning.
+    ///
+    /// AppModel uses this when readiness cannot be established for the current
+    /// snapshot: the service may still hold an older `.ready` inventory, and
+    /// calling `generateRunConfigurations` would scan that stale list.
+    package func reportGenerationProjectNotReady() {
+        generationState = .projectNotReady
+    }
+
     package func configureMavenContextProvider(
         _ provider: @escaping @MainActor () -> MavenLaunchContext?
     ) {
@@ -139,14 +164,22 @@ package final class RunService: ObservableObject {
         return roots
     }
 
+    /// Loads run state for a workspace.
+    ///
+    /// `snapshotID` identifies the workspace snapshot `files` came from. Passing
+    /// `nil` means no snapshot has been applied yet, which binds the service so
+    /// existing configuration can be read while generation stays blocked.
     package func loadProject(
         at projectURL: URL,
         files: [URL],
-        mavenProject: MavenProject?
+        mavenProject: MavenProject?,
+        snapshotID: UUID? = nil
     ) async {
         let loadID = UUID()
         projectLoadID = loadID
+        let workspace = projectURL.standardizedFileURL
         isLoadingProject = true
+        projectLoadState = .loading(workspace: workspace)
         defer {
             if projectLoadID == loadID {
                 isLoadingProject = false
@@ -162,7 +195,14 @@ package final class RunService: ObservableObject {
         if let currentProject = self.projectURL {
             selectedConfigurationIDsByProject[currentProject.path] = selectedConfigurationID
         }
-        self.projectURL = projectURL.standardizedFileURL
+        self.projectURL = workspace
+        // Whether the existing configuration parses is `configurationStatus`, not
+        // this state. Keeping them apart is what lets a broken generated.json be
+        // regenerated: folding a parse failure in here would block generation,
+        // which is the only way to repair it.
+        projectLoadState = snapshotID
+            .map { .ready(workspace: workspace, snapshotID: $0) }
+            ?? .bound(workspace: workspace)
         self.mavenProject = mavenProject
         mavenProfiles = mavenProject?.profiles ?? []
         self.projectFiles = files
@@ -206,7 +246,14 @@ package final class RunService: ObservableObject {
     }
 
     package func generateRunConfigurations() async {
-        guard let projectURL else { return }
+        // Generation scans the file inventory this service holds, so a
+        // provisional inventory would write a configuration that omits entry
+        // points the workspace contains. Dropping the request silently is also
+        // indistinguishable from a broken button, so report the pending state.
+        guard let projectURL, case .ready = projectLoadState else {
+            generationState = .projectNotReady
+            return
+        }
         let loadID = projectLoadID
         isLoadingProject = true
         defer {
@@ -292,6 +339,13 @@ package final class RunService: ObservableObject {
 
     package func options(for configuration: RunConfiguration) -> RunOptions {
         optionsByConfigurationID[configuration.id] ?? RunOptions()
+    }
+
+    /// Returns the service port explicitly configured for this run target, or
+    /// a Spring-style framework's conventional 8080 default when no override exists.
+    package func configuredServerPort(for configuration: RunConfiguration) -> Int? {
+        configuredPort(for: configuration)
+            ?? (configuration.kind.mavenFramework != nil ? 8080 : nil)
     }
 
     package func source(for configuration: RunConfiguration) -> RunConfigurationSource {
@@ -598,6 +652,7 @@ package final class RunService: ObservableObject {
         stopAllServices()
         projectLoadID = UUID()
         projectURL = nil
+        projectLoadState = .idle
         selectedConfigurationIDsByProject = [:]
         projectFiles = []
         mavenProject = nil

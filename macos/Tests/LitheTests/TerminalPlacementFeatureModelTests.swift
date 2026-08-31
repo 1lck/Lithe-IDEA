@@ -163,8 +163,10 @@ struct TerminalPlacementFeatureModelTests {
 private final class PlacementTestTerminalTransport: TerminalTransport {
     let nativeView: AnyObject = NSObject()
     var isRunning = false
+    var processID: Int32? { isRunning ? 1234 : nil }
     var shellName = "Shell"
     var onTermination: ((Int32?) -> Void)?
+    var onOutput: ((Data) -> Void)?
     var onTitle: ((String) -> Void)?
     var onDirectoryUpdate: ((String?) -> Void)?
     var onLink: ((String, [String: String]) -> Void)?
@@ -181,6 +183,15 @@ private final class PlacementTestTerminalTransport: TerminalTransport {
     ) throws {
         startCount += 1
         isRunning = true
+    }
+
+    func startProcess(
+        _ launch: TerminalProcessLaunch,
+        environment: [String: String]
+    ) throws -> Int32 {
+        startCount += 1
+        isRunning = true
+        return 1234
     }
 
     func send(_ input: Data) throws {}

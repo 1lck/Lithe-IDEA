@@ -851,7 +851,7 @@ fn lsp_feature_result_for_method(method: Option<&str>, result: Option<&Value>) -
                 "action": action
             })
         }),
-        Some("workspace/executeCommand") => Some(json!({ "ok": true })),
+        Some("workspace/executeCommand") => Some(json!({ "value": result })),
         Some("textDocument/definition")
         | Some("textDocument/declaration")
         | Some("textDocument/typeDefinition")

@@ -36,7 +36,7 @@ package final class MavenFeatureModel: ObservableObject {
     package var isReloadRequired: Bool { service.isReloadRequired }
     package var launchContext: MavenLaunchContext? { service.launchContext }
 
-    package func loadProject(at workspaceURL: URL, files: [URL]) async {
+    package func loadProject(at workspaceURL: URL, files: [URL], snapshotID: UUID? = nil) async {
         await service.loadProject(at: workspaceURL, files: files)
     }
 
@@ -134,6 +134,8 @@ package final class RunFeatureModel: ObservableObject {
     package var configurationStatus: ProjectRunConfigurationStatus { service.configurationStatus }
     package var configurationDiagnostics: [RunConfigurationDiagnostic] { service.configurationDiagnostics }
     package var generationState: RunConfigurationGenerationState { service.generationState }
+    package var projectLoadState: ProjectLoadState { service.projectLoadState }
+    package func reportGenerationProjectNotReady() { service.reportGenerationProjectNotReady() }
     package var recoveryAction: RunConfigurationRecoveryAction { service.recoveryAction }
     package var recoveryPath: String? { service.recoveryPath }
     package var configurationSaveError: String? { service.configurationSaveError }
@@ -142,13 +144,25 @@ package final class RunFeatureModel: ObservableObject {
         service.blockingToolchainDiagnostic(for: service.selectedConfiguration)
     }
     package var sourceSearchRoots: [URL] { service.sourceSearchRoots }
+    package func isProjectReady(for workspace: URL, snapshotID: UUID?) -> Bool { service.isProjectReady(for: workspace, snapshotID: snapshotID) }
+    package func hasReadyInventory(for workspace: URL) -> Bool { service.hasReadyInventory(for: workspace) }
 
     package func options(for configuration: RunConfiguration) -> RunOptions {
         service.options(for: configuration)
     }
 
+    package func configuredServerPort(for configuration: RunConfiguration) -> Int? {
+        service.configuredServerPort(for: configuration)
+    }
+
     package func source(for configuration: RunConfiguration) -> RunConfigurationSource {
         service.source(for: configuration)
+    }
+
+    /// Applies the same selected configuration side effects used by Run,
+    /// including project-scoped Java runtime selection, before Debug starts.
+    package func select(_ configuration: RunConfiguration) {
+        service.select(configuration)
     }
 
     package func serviceURL(for configuration: RunConfiguration) -> URL? {
@@ -210,9 +224,10 @@ package final class RunFeatureModel: ObservableObject {
     package func loadProject(
         at workspaceURL: URL,
         files: [URL],
-        mavenProject: MavenProject?
+        mavenProject: MavenProject?,
+        snapshotID: UUID? = nil
     ) async {
-        await service.loadProject(at: workspaceURL, files: files, mavenProject: mavenProject)
+        await service.loadProject(at: workspaceURL, files: files, mavenProject: mavenProject, snapshotID: snapshotID)
     }
 
     package func generateRunConfigurations() async {
@@ -226,7 +241,6 @@ package final class RunFeatureModel: ObservableObject {
         isGenerationConfirmationPresented = true
     }
 
-    package func select(_ configuration: RunConfiguration) { service.select(configuration) }
     @discardableResult
     package func registerLanguageRunExtension(
         _ provider: any LanguageRunExtensionProviding,
@@ -257,7 +271,7 @@ package final class ProjectDevelopmentFeatureModel {
         self.runFeature = runFeature
     }
 
-    package func loadProject(at workspaceURL: URL, files: [URL]) async {
+    package func loadProject(at workspaceURL: URL, files: [URL], snapshotID: UUID? = nil) async {
         // Maven is one build-system Provider, not a workspace prerequisite.
         // Avoid scanning every project as Maven; non-Maven ecosystems should
         // reach the generic run pipeline without paying for Java discovery.
@@ -272,7 +286,8 @@ package final class ProjectDevelopmentFeatureModel {
         await runFeature.loadProject(
             at: workspaceURL,
             files: files,
-            mavenProject: mavenFeature.project
+            mavenProject: mavenFeature.project,
+            snapshotID: snapshotID
         )
     }
 }

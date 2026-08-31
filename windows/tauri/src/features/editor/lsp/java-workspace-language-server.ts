@@ -1,4 +1,5 @@
 import { LspOperationLog } from "@/platform/lsp-session-lifecycle";
+import type { WorkspaceLaunchScope } from "@/features/workspace/types/workspace-launch-scope";
 import { JAVA_LANGUAGE_ID } from "./built-in-language-support";
 import {
   clearLanguageServerReadyFeedback,
@@ -14,7 +15,7 @@ import {
 
 interface WorkspaceLanguageServerClient {
   start(
-    workspacePath: string,
+    scope: WorkspaceLaunchScope,
     representativeFilePath?: string,
   ): Promise<LspWorkspaceStartOutcome>;
   stop(workspacePath: string): Promise<void>;
@@ -50,13 +51,13 @@ type WorkspaceOwnerState =
 interface WorkspaceOwner {
   operationId: string;
   operation: OperationLog;
-  workspacePath: string;
+  scope: WorkspaceLaunchScope;
   representativeJavaFile: string;
   state: WorkspaceOwnerState;
 }
 
-function workspaceKey(workspacePath: string): string {
-  return workspacePath.replace(/\\/g, "/").toLowerCase();
+function workspaceKey(scope: WorkspaceLaunchScope): string {
+  return `${scope.workspaceId}\0${scope.root.replace(/\\/g, "/").toLowerCase()}`;
 }
 
 function isTimeout(error: unknown): boolean {
@@ -92,21 +93,22 @@ export class JavaWorkspaceLanguageServerOwner {
   ) {}
 
   prewarm(
-    workspacePath: string,
+    scope: WorkspaceLaunchScope,
     representativeJavaFile: string,
   ): Promise<JavaWorkspacePreparationOutcome> {
-    const key = workspaceKey(workspacePath);
+    const workspacePath = scope.root;
+    const key = workspaceKey(scope);
     const existing = this.owners.get(key);
     if (existing) {
       if (existing.state.phase === "starting" || existing.state.phase === "ready") {
         return existing.state.task;
       }
       if (existing.state.phase === "stopping") {
-        return existing.state.task.then(() => this.prewarm(workspacePath, representativeJavaFile));
+        return existing.state.task.then(() => this.prewarm(scope, representativeJavaFile));
       }
       if (existing.state.phase === "stopFailed") {
-        return this.stop(workspacePath).then(() =>
-          this.prewarm(workspacePath, representativeJavaFile),
+        return this.stop(scope).then(() =>
+          this.prewarm(scope, representativeJavaFile),
         );
       }
       this.owners.delete(key);
@@ -114,6 +116,7 @@ export class JavaWorkspaceLanguageServerOwner {
 
     const operationId = crypto.randomUUID();
     const operation = this.createOperationLog("workspacePrewarm", operationId, {
+      workspaceId: scope.workspaceId,
       workspacePath,
       languageId: JAVA_LANGUAGE_ID,
     });
@@ -121,7 +124,7 @@ export class JavaWorkspaceLanguageServerOwner {
     const owner: WorkspaceOwner = {
       operationId,
       operation,
-      workspacePath,
+      scope,
       representativeJavaFile,
       state: { phase: "created" },
     };
@@ -135,9 +138,10 @@ export class JavaWorkspaceLanguageServerOwner {
     owner: WorkspaceOwner,
     key: string,
   ): Promise<JavaWorkspacePreparationOutcome> {
-    const { workspacePath, representativeJavaFile, operation } = owner;
+    const { scope, representativeJavaFile, operation } = owner;
+    const workspacePath = scope.root;
     try {
-      const startOutcome = await this.client.start(workspacePath, representativeJavaFile);
+      const startOutcome = await this.client.start(scope, representativeJavaFile);
       if (this.owners.get(key) !== owner) {
         operation.cancelled("superseded-owner");
         return { kind: "cancelled", reason: "superseded-owner" };
@@ -152,7 +156,7 @@ export class JavaWorkspaceLanguageServerOwner {
           workspacePath,
           JAVA_LANGUAGE_ID,
           { kind: "unavailable" },
-          () => void this.prewarm(workspacePath, representativeJavaFile),
+          () => void this.prewarm(scope, representativeJavaFile),
         );
         if (this.owners.get(key) === owner) this.owners.delete(key);
         return { kind: "unavailable", reason: startOutcome.kind };
@@ -184,20 +188,22 @@ export class JavaWorkspaceLanguageServerOwner {
           kind: timedOut ? "timedOut" : "failed",
           detail: error instanceof Error ? error.message : String(error),
         },
-        () => void this.prewarm(workspacePath, representativeJavaFile),
+        () => void this.prewarm(scope, representativeJavaFile),
       );
       if (this.owners.get(key) === owner) this.owners.delete(key);
       return timedOut ? { kind: "timedOut", error } : { kind: "failed", error };
     }
   }
 
-  async stop(workspacePath: string): Promise<void> {
-    const key = workspaceKey(workspacePath);
+  async stop(scope: WorkspaceLaunchScope): Promise<void> {
+    const workspacePath = scope.root;
+    const key = workspaceKey(scope);
     const owner = this.owners.get(key);
     if (owner?.state.phase === "stopping") return owner.state.task;
 
     const operationId = crypto.randomUUID();
     const operation = this.createOperationLog("workspaceStop", operationId, {
+      workspaceId: scope.workspaceId,
       workspacePath,
       languageId: JAVA_LANGUAGE_ID,
     });
