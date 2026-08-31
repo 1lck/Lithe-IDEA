@@ -14,6 +14,7 @@ struct StandaloneEditorView: View {
             content
         }
         .background(LitheTheme.editor)
+        .background(GoToLineDialogPresenter())
         .confirmationDialog(
             "Save changes before closing?",
             isPresented: Binding(

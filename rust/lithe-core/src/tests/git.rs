@@ -1669,6 +1669,87 @@ fn git_history_returns_references_and_commit_graph_fields() {
 
     fs::remove_dir_all(root).expect("temporary workspace should be removable");
 }
+
+#[test]
+fn git_history_returns_bounded_recent_checkout_order_and_stable_fallback() {
+    struct RemoveOnDrop(std::path::PathBuf);
+
+    impl Drop for RemoveOnDrop {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    let root = temporary_root("git-recent-branches");
+    let _cleanup = RemoveOnDrop(root.clone());
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q"]).status.success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    fs::write(root.join("example.txt"), "initial\n").expect("file should be writable");
+    assert!(run(&["add", "example.txt"]).status.success());
+    assert!(run(&["commit", "-qm", "initial"]).status.success());
+    assert!(run(&["branch", "-M", "main"]).status.success());
+    for branch in ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"] {
+        assert!(run(&["branch", branch]).status.success());
+    }
+
+    let history = || {
+        let request = serde_json::json!({
+            "id": "recent-branches",
+            "command": "git.history",
+            "payload": {"root": root, "limit": 10}
+        });
+        serde_json::from_str::<Value>(&execute_json(
+            &serde_json::to_string(&request).expect("history request should encode"),
+        ))
+        .expect("history response should be JSON")
+    };
+    let recent_names = |response: &Value| {
+        response["data"]["recentReferences"]
+            .as_array()
+            .expect("recent references should be an array")
+            .iter()
+            .map(|reference| {
+                reference["shortName"]
+                    .as_str()
+                    .expect("recent reference name should be text")
+                    .to_string()
+            })
+            .collect::<Vec<_>>()
+    };
+
+    let initial = history();
+    assert_eq!(initial["ok"], true, "{initial:?}");
+    assert_eq!(
+        recent_names(&initial),
+        ["main", "alpha", "beta", "delta", "epsilon"]
+    );
+
+    for branch in [
+        "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "gamma",
+    ] {
+        assert!(run(&["checkout", "-q", branch]).status.success());
+    }
+    assert!(run(&["branch", "-D", "beta"]).status.success());
+
+    let switched = history();
+    assert_eq!(switched["ok"], true, "{switched:?}");
+    assert_eq!(
+        recent_names(&switched),
+        ["gamma", "zeta", "epsilon", "delta", "alpha"]
+    );
+}
+
 #[test]
 fn git_conflict_markers_ignore_markdown_headings() {
     let root = temporary_root("git-markers");

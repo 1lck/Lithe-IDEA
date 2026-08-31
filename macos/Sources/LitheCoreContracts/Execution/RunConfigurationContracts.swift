@@ -47,8 +47,63 @@ package struct ProjectRunConfigurationInspection: Equatable, Sendable {
     }
 }
 
+/// How complete the workspace file inventory a run service holds is.
+///
+/// Being bound to a workspace URL and holding a complete file inventory are
+/// different things. Reading an existing configuration only needs the URL, while
+/// generating one scans the inventory, so a provisional inventory would write a
+/// configuration that omits entry points the workspace actually contains.
+///
+/// This describes the inventory only. Whether the configuration on disk is
+/// readable is `ProjectRunConfigurationStatus`, and the two must stay separate:
+/// a broken `generated.json` has to remain regenerable.
+package enum ProjectLoadState: Equatable, Sendable {
+    case idle
+    /// A load is in flight. Entering this state before the load's first
+    /// suspension point is what stops a cancelled or superseded load from
+    /// leaving the previous `ready` inventory in place.
+    case loading(workspace: URL)
+    /// Bound to the workspace, but the file inventory is provisional because the
+    /// workspace snapshot has not been applied yet. Existing configuration can be
+    /// read; generation must wait.
+    case bound(workspace: URL)
+    /// The inventory came from the identified workspace snapshot, so generation
+    /// can scan it safely.
+    case ready(workspace: URL, snapshotID: UUID)
+
+    /// Whether the inventory matches `snapshotID` for `workspace`, and is
+    /// therefore the current, complete inventory.
+    ///
+    /// Comparing the snapshot as well as the workspace is what rejects a
+    /// superseded snapshot of the same workspace: a refresh publishes a new
+    /// snapshot before the run service consumes it, and scanning the previous
+    /// inventory would miss entry points the refresh added.
+    package func isReady(for workspace: URL, snapshotID: UUID?) -> Bool {
+        guard let snapshotID,
+              case .ready(let boundWorkspace, let boundSnapshotID) = self
+        else { return false }
+        return boundWorkspace == workspace.standardizedFileURL && boundSnapshotID == snapshotID
+    }
+
+    /// Whether a complete inventory for `workspace` is already applied, whichever
+    /// snapshot produced it.
+    ///
+    /// A refresh publishes its snapshot before this state consumes it, so in that
+    /// window the inventory is complete but superseded. Distinguishing it from a
+    /// provisional or foreign binding is what lets a caller leave the transition
+    /// to the snapshot callback instead of loading the scan itself.
+    package func hasReadyInventory(for workspace: URL) -> Bool {
+        guard case .ready(let boundWorkspace, _) = self else { return false }
+        return boundWorkspace == workspace.standardizedFileURL
+    }
+}
+
 package enum RunConfigurationGenerationState: Equatable, Sendable {
     case idle
+    /// The request arrived before the workspace snapshot was applied, so there
+    /// was no complete file inventory to identify. Nothing failed, and nothing
+    /// was written.
+    case projectNotReady
     case succeeded(entryCount: Int)
     case noEntries
     case failed(String)

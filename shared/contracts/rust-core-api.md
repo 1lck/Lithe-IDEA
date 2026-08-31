@@ -126,7 +126,7 @@ stable error code and a user-facing message:
 | `git.write` | Validate and execute shared Git mutations such as stage, commit, branch, checkout, remote sync, clone, and stash |
 | `git.diff` | Produce a structured working-tree, index, reference, or commit patch |
 | `git.apply` | Apply or check a patch in `stage`, `unstage`, `discard`, or Shelf restore mode |
-| `git.history` | Return deterministic refs, commits, parent hashes, decorations, and pagination state |
+| `git.history` | Return deterministic refs, recent local branches, commits, parent hashes, decorations, and pagination state |
 | `git.commit` | Return one structured commit by revision |
 | `git.commitFiles` | Return files changed by one commit |
 | `git.comparison` | Return files changed between a reference and the working tree |
@@ -149,6 +149,13 @@ current branch's tracking counts and are zero when no upstream is configured.
 The core rejects absolute paths and `..`
 traversal for file commands. Native file dialogs, file watching, PTY/ConPTY,
 Java processes, and runtime discovery remain platform adapters.
+
+`git.history.recentReferences` contains at most five existing local branches in
+most-recently-used order. The current branch is first. Core derives checkout
+history from the repository's HEAD reflog, de-duplicates branch names, ignores
+detached or deleted references, and fills missing entries deterministically.
+The remote HEAD target is preferred as the default branch, followed by `main`,
+`master`, and the remaining local references in refname order.
 
 The protocol version is currently `1`. Add a fixture under `shared/fixtures/`
 before changing a response shape or search rule.

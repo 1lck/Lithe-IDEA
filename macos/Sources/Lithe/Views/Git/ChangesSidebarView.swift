@@ -15,7 +15,6 @@ struct ChangesSidebarView: View {
     @State private var selectedShelf: GitShelfEntry?
     @State private var pendingDropStash: GitStash?
     @State private var pendingDropShelf: GitShelfEntry?
-    @State private var shouldConfirmCommitAndPush = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -101,20 +100,6 @@ struct ChangesSidebarView: View {
                 .lithePointer()
         } message: {
             Text("This removes the saved patch from Lithe and cannot be undone.")
-        }
-        .confirmationDialog(
-            "Commit and push changes?",
-            isPresented: $shouldConfirmCommitAndPush,
-            titleVisibility: .visible
-        ) {
-            Button("Commit and Push") {
-                Task { await model.commitAndPushStagedChanges() }
-            }
-            .lithePointer()
-            Button("Cancel", role: .cancel) {}
-                .lithePointer()
-        } message: {
-            Text("The staged changes will be committed and the current branch will be pushed to its configured remote.")
         }
         .confirmationDialog(
             "Replace current commit message?",
@@ -767,20 +752,6 @@ struct ChangesSidebarView: View {
                             ProgressView().controlSize(.mini)
                         }
                         Text("Commit")
-                    }
-                }
-                .buttonStyle(.bordered)
-                .lithePointer()
-                .disabled(!canCommit)
-
-                Button {
-                    shouldConfirmCommitAndPush = true
-                } label: {
-                    HStack(spacing: 6) {
-                        if model.isCommitting {
-                            ProgressView().controlSize(.mini)
-                        }
-                        Text("Commit and Push…")
                     }
                 }
                 .buttonStyle(.bordered)

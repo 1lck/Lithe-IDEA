@@ -929,6 +929,7 @@ struct RustCoreBridge: Sendable {
         }
 
         let references: [Reference]
+        let recentReferences: [Reference]?
         let commits: [Commit]
         let hasMore: Bool
         let userName: String?
@@ -937,6 +938,16 @@ struct RustCoreBridge: Sendable {
         func makeSnapshot() -> GitHistorySnapshot {
             GitHistorySnapshot(
                 references: references.compactMap { reference in
+                    guard let kind = GitReferenceKind(rawValue: reference.kind) else { return nil }
+                    return GitReference(
+                        fullName: reference.fullName,
+                        shortName: reference.shortName,
+                        kind: kind,
+                        isCurrent: reference.isCurrent,
+                        upstreamShortName: reference.upstreamShortName
+                    )
+                },
+                recentReferences: (recentReferences ?? []).compactMap { reference in
                     guard let kind = GitReferenceKind(rawValue: reference.kind) else { return nil }
                     return GitReference(
                         fullName: reference.fullName,

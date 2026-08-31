@@ -52,6 +52,10 @@ final class MacServiceContainer {
         processRegistry: ManagedProcessRegistry = ManagedProcessRegistry(),
         moduleLaunchMode: ModuleLaunchMode = .normal,
         moduleStore providedModuleStore: MacModuleConfigurationStore? = nil,
+        workspaceOperations providedWorkspaceOperations: (any WorkspaceOperations)? = nil,
+        runConfigurationOperations providedRunConfigurationOperations: (any RunConfigurationOperations)? = nil,
+        gitWatchContextProvider providedGitWatchContextProvider: (any GitWatchContextProviding)? = nil,
+        runExecutableResolver providedRunExecutableResolver: (any RunExecutableResolving)? = nil,
         pluginRuntimeRecovery: MacPluginRuntimeRecoveryCoordinator? = nil,
         authorizationCallbackRouter providedAuthorizationCallbackRouter: MacExternalAuthorizationCallbackRouter? = nil
     ) {
@@ -73,6 +77,10 @@ final class MacServiceContainer {
             preferences: store
         )
         self.runConfigurationStore = runConfigurationStore
+        // Only the run-configuration boundary is overridable. The concrete store
+        // stays available for callers that need the macOS adapter itself.
+        let runConfigurationOperations: any RunConfigurationOperations =
+            providedRunConfigurationOperations ?? runConfigurationStore
         let fileOperations = MacWorkspaceFileOperations()
         let processRunner = MacProcessRunner()
         let secureStore = MacLocalSecretStore()
@@ -301,11 +309,16 @@ final class MacServiceContainer {
         do {
             try moduleRegistry.register(ModuleFactory(manifest: ExecutionModule.moduleManifest, contributions: ExecutionModule.moduleContributions) {
                 ExecutionModule(makeGraph: {
-                    let executableResolver = RunExecutableResolver(
-                        runtimeService: runtimeService,
-                        toolchainRegistry: runToolchainRegistry,
-                        metadataResolver: ProcessRunToolchainMetadataResolver(processRunner: processRunner)
-                    )
+                    // Toolchain discovery inspects installed JDKs through
+                    // processes, so it is overridable for the same reason the
+                    // other ports here are: a caller that does not exercise
+                    // toolchain resolution should not depend on the machine.
+                    let executableResolver: any RunExecutableResolving = providedRunExecutableResolver
+                        ?? RunExecutableResolver(
+                            runtimeService: runtimeService,
+                            toolchainRegistry: runToolchainRegistry,
+                            metadataResolver: ProcessRunToolchainMetadataResolver(processRunner: processRunner)
+                        )
                     let graph = ExecutionFeatureGraph(
                         maven: MavenService(
                             runtimeService: runtimeService,
@@ -320,7 +333,7 @@ final class MacServiceContainer {
                             fileAccess: MacRunFileAccess(storage: fileStorage),
                             preferences: MacRunPreferenceStore(store: store),
                             serverPortParser: javaMavenOperations,
-                            runConfigurationOperations: runConfigurationStore,
+                            runConfigurationOperations: runConfigurationOperations,
                             executableResolver: executableResolver,
                             languageProviderCatalog: languagePackRegistry.catalog,
                             languageRunProviders: languagePackRegistry.runProviders,
@@ -395,7 +408,7 @@ final class MacServiceContainer {
                             processFactory: { MacStreamingProcess(processRegistry: processRegistry, moduleID: .debug) },
                             fileStorage: fileStorage,
                             javaMavenOperations: javaMavenOperations,
-                            runConfigurationOperations: runConfigurationStore
+                            runConfigurationOperations: runConfigurationOperations
                         ),
                         adapterSessions: adapterSessions
                     )
@@ -406,7 +419,12 @@ final class MacServiceContainer {
             preconditionFailure("Invalid execution/debug module graph: \(error.localizedDescription)")
         }
         let gitOperations = RustGitOperations(core: rustCore)
-        let workspaceOperations = RustWorkspaceOperations(core: rustCore)
+        let rustWorkspaceOperations = RustWorkspaceOperations(core: rustCore)
+        // Only the workspace snapshot boundary is overridable. Search and local
+        // history need the concrete Rust operations, which carry their own
+        // capabilities beyond WorkspaceOperations.
+        let workspaceOperations: any WorkspaceOperations =
+            providedWorkspaceOperations ?? rustWorkspaceOperations
         let localHistoryOperations = RustLocalHistoryOperations(core: rustCore)
         let markdownRenderer = RustMarkdownRendering(core: rustCore)
         let markdownImageImporter = MarkdownImageImportService(storage: fileStorage)
@@ -418,11 +436,11 @@ final class MacServiceContainer {
                 )
             })
             try moduleRegistry.register(ModuleFactory(manifest: SearchModule.moduleManifest, contributions: SearchModule.moduleContributions) {
-                SearchModule(operations: workspaceOperations)
+                SearchModule(operations: rustWorkspaceOperations)
             })
             try moduleRegistry.register(ModuleFactory(manifest: HistoryModule.moduleManifest, contributions: HistoryModule.moduleContributions) {
                 HistoryModule(
-                    workspaceAccess: MacLocalHistoryWorkspaceAccess(workspaceOperations: workspaceOperations, fileOperations: fileOperations),
+                    workspaceAccess: MacLocalHistoryWorkspaceAccess(workspaceOperations: rustWorkspaceOperations, fileOperations: fileOperations),
                     storage: MacLocalHistoryStorage(storage: fileStorage),
                     operations: localHistoryOperations
                 )
@@ -493,7 +511,8 @@ final class MacServiceContainer {
             fileOperations: fileOperations,
             binaryFileViewerRegistry: binaryFileViewerRegistry,
             projectRuntimeService: runtimeService,
-            gitWatchContextProvider: RustGitWatchContextProvider(core: rustCore),
+            gitWatchContextProvider: providedGitWatchContextProvider
+                ?? RustGitWatchContextProvider(core: rustCore),
             githubService: githubService,
             secureStore: secureStore,
             databaseSecureStore: databaseSecureStore,

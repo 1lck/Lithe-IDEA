@@ -38,8 +38,16 @@ package struct FileNode: Identifiable, Hashable, Sendable {
 package struct WorkspaceSnapshot: Sendable {
     package let root: FileNode
     package let files: [URL]
-    package init(root: FileNode, files: [URL]) {
+    /// Distinguishes this scan of the workspace from any other.
+    ///
+    /// Consumers that scan `files` compare this identity to decide whether their
+    /// inventory is current. Carrying it in the snapshot is what keeps a file
+    /// list from ever being paired with a different scan's identity.
+    package let id: UUID
+
+    package init(root: FileNode, files: [URL], id: UUID = UUID()) {
         self.root = root
         self.files = files
+        self.id = id
     }
 }
