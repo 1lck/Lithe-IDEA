@@ -2270,23 +2270,7 @@ private struct GitTagNameDialog: View {
     private var validationError: String? {
         let name = trimmedName
         guard !name.isEmpty else { return nil }
-        if name.contains(" ") || name.contains("~") || name.contains("^") || name.contains(":")
-            || name.contains("?") || name.contains("*") || name.contains("[") || name.contains("\\") {
-            return "A tag name cannot contain spaces or ~^:?*[\\" + "."
-        }
-        if name.hasPrefix("-") {
-            return "A tag name cannot start with a dash."
-        }
-        if name.contains("..") || name.hasSuffix(".") || name.hasPrefix(".") || name.hasSuffix("/") || name.contains("//") {
-            return "A tag name cannot contain '..' or start or end with '.', '/'."
-        }
-        if name.contains("@{") || name == "@" {
-            return "A tag name cannot contain '@{'."
-        }
-        if name.lowercased().hasSuffix(".lock") {
-            return "A tag name cannot end with '.lock'."
-        }
-        return nil
+        return GitTagNameValidator.validationError(for: name)
     }
 
     private func submit() {

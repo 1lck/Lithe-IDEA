@@ -89,6 +89,11 @@ struct CoreVerification {
         let expected: Expected
     }
 
+    private struct GitTagNamesFixture: Decodable {
+        let valid: [String]
+        let invalid: [String]
+    }
+
     private static func verifySharedContractFixtures() {
         let searchURL = URL(fileURLWithPath: "shared/fixtures/search/basic.json")
         guard let searchData = try? Data(contentsOf: searchURL),
@@ -164,6 +169,19 @@ struct CoreVerification {
         require(mergeRow.parentEdges.count == gitFixture.expected.mergeParentCount, "Git fixture merge edge count changed")
         require(layout.hasMissingParents == gitFixture.expected.hasMissingParents, "Git fixture missing-parent state changed")
         require(mergeRow.labels.contains { $0.title == gitFixture.expected.headLabel }, "Git fixture HEAD label changed")
+
+        let tagNamesURL = URL(fileURLWithPath: "shared/fixtures/git/tag-names.json")
+        guard let tagNamesData = try? Data(contentsOf: tagNamesURL),
+              let tagNames = try? JSONDecoder().decode(GitTagNamesFixture.self, from: tagNamesData) else {
+            require(false, "Git tag name fixture could not be decoded")
+            return
+        }
+        for name in tagNames.valid {
+            require(GitTagNameValidator.isValid(name), "valid Git tag name was rejected: \(name)")
+        }
+        for name in tagNames.invalid {
+            require(!GitTagNameValidator.isValid(name), "invalid Git tag name was accepted: \(name)")
+        }
 
         let commandURL = URL(fileURLWithPath: "shared/fixtures/git/command-response-v1.json")
         guard let commandData = try? Data(contentsOf: commandURL),

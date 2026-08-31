@@ -821,7 +821,7 @@ struct RustCoreBridge: Sendable {
         struct TagDeletion: Decodable, Sendable {
             let name: String
             let deletedTarget: String
-            let kind: String
+            let kind: GitTagKind
             let message: String?
         }
 

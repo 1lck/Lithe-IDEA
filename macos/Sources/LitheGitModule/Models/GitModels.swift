@@ -3,6 +3,42 @@ import LitheCoreContracts
 
 package typealias GitWatchContext = LitheCoreContracts.GitWatchContext
 
+/// Mirrors the shared Rust refname checks used by tag mutations so the macOS
+/// dialog can reject the same invalid names before crossing the Core boundary.
+public enum GitTagNameValidator {
+    public static func isValid(_ value: String) -> Bool {
+        !isInvalid(value)
+    }
+
+    public static func validationError(for value: String) -> String? {
+        isInvalid(value) ? "Invalid Git tag name." : nil
+    }
+
+    private static func isInvalid(_ value: String) -> Bool {
+        if value.isEmpty
+            || value.hasPrefix("-")
+            || value == "@"
+            || value.hasPrefix("/")
+            || value.hasSuffix("/")
+            || value.hasSuffix(".")
+            || value.contains("..")
+            || value.contains("@{")
+            || value.contains("//")
+        {
+            return true
+        }
+        if value.unicodeScalars.contains(where: { scalar in
+            CharacterSet.controlCharacters.contains(scalar)
+                || " ~^:?*[\\".unicodeScalars.contains(scalar)
+        }) {
+            return true
+        }
+        return value.split(separator: "/", omittingEmptySubsequences: false).contains { component in
+            component.hasPrefix(".") || component.hasSuffix(".lock")
+        }
+    }
+}
+
 package struct GitSnapshot: Sendable {
     package let repositoryRoot: URL
     package let branch: String

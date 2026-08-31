@@ -238,7 +238,8 @@ pub struct GitTagDeletionResponse {
     pub deleted_target: String,
     /// `lightweight` or `annotated`, taken from the tag object type.
     pub kind: String,
-    /// Annotation message; `None` for lightweight tags and empty annotations.
+    /// Annotation message; `None` only for lightweight tags. Empty annotated
+    /// messages remain `Some` so a restore does not change the tag form.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
 }
@@ -635,7 +636,7 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
         }
         "createTag" => {
             let name = validated_tag_name(request.name.as_deref())?;
-            let target = validated_revision(request.revision.as_deref())?;
+            let requested_target = validated_revision(request.revision.as_deref())?;
             // Existence and resolvability probes run before Git so a duplicate
             // or unresolvable target fails with a stable message instead of
             // leaving the caller to parse localized `git tag` stderr.
@@ -645,21 +646,23 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
                     format!("A tag named '{name}' already exists"),
                 ));
             }
-            if !target_resolves(&root, &target)? {
+            // Git can tag trees and blobs, but the deletion/restore contract
+            // promises a commit target, so anything else is rejected here and
+            // the tag is created against the resolved commit id.
+            let Some(target) = resolved_commit_target(&root, &requested_target)? else {
                 return Err(CoreError::new(
                     ErrorCode::InvalidRequest,
-                    format!("Could not resolve tag target '{target}'"),
+                    format!("Could not resolve tag target '{requested_target}'"),
                 ));
-            }
-            let message = request
-                .message
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty());
-            arguments = match message {
+            };
+            // An explicit message field (even an empty one) selects the
+            // annotated form. Verbatim cleanup keeps restored CRLF and trailing
+            // blank lines intact; UIs trim newly entered messages before send.
+            arguments = match request.message.as_deref() {
                 Some(message) => vec![
                     "tag".into(),
                     "-a".into(),
+                    "--cleanup=verbatim".into(),
                     name,
                     "-m".into(),
                     message.to_string(),
@@ -2081,19 +2084,22 @@ fn tag_exists(root: &str, name: &str) -> Result<bool, CoreError> {
     Ok(probe.exit_code == 0)
 }
 
-/// Reports whether a tag target revision resolves to any object.
-fn target_resolves(root: &str, target: &str) -> Result<bool, CoreError> {
+/// Resolves a tag target revision to a commit and returns its object id.
+/// Git allows tagging trees and blobs; the tag contract only promises commit
+/// targets, so `<revision>^{commit}` both validates and yields the id the
+/// mutation should point at.
+fn resolved_commit_target(root: &str, target: &str) -> Result<Option<String>, CoreError> {
     let probe = execute_git(
         root,
         &[
             "rev-parse".into(),
             "--verify".into(),
             "--quiet".into(),
-            target.to_string(),
+            format!("{target}^{{commit}}"),
         ],
         None,
     )?;
-    Ok(probe.exit_code == 0)
+    Ok((probe.exit_code == 0).then(|| probe.stdout.trim().to_string()))
 }
 
 /// Deletes one tag and returns a structured deletion record so the host can
@@ -2125,14 +2131,14 @@ fn delete_tag(root: &str, value: Option<&str>) -> Result<GitCommandResponse, Cor
             message = annotation_message_from_tag_object(&tag_object.stdout);
         }
     }
-    // Peel the ref so an annotated tag restores against its commit rather
-    // than the old tag object.
+    // Peel the ref to a commit so pre-existing tree/blob tags cannot produce
+    // a recovery record that violates the restore contract.
     let peeled = execute_git(
         root,
         &[
             "rev-parse".into(),
             "--verify".into(),
-            format!("{reference}^{{}}"),
+            format!("{reference}^{{commit}}"),
         ],
         None,
     )?;
@@ -2144,7 +2150,9 @@ fn delete_tag(root: &str, value: Option<&str>) -> Result<GitCommandResponse, Cor
         .with_details(peeled.output));
     }
     let mut result = execute_git(root, &["tag".into(), "-d".into(), name.clone()], None)?;
-    if result.exit_code == 0 {
+    if result.exit_code == 0 && !ref_exists(&root, &reference)? {
+        // Defense against the probe-mutate race: the record is only offered
+        // when the ref is actually gone, never against re-created state.
         result.tag_deletion = Some(GitTagDeletionResponse {
             name,
             deleted_target: peeled.stdout.trim().to_string(),
@@ -2190,7 +2198,9 @@ fn delete_branch(root: &str, branch: &str) -> Result<GitCommandResponse, CoreErr
         ],
         None,
     )?;
-    if result.exit_code == 0 {
+    if result.exit_code == 0 && !ref_exists(&root, &format!("refs/heads/{branch}"))? {
+        // Same probe-mutate defense as tags: only offer a restore when the
+        // ref is actually gone.
         result.branch_deletion = Some(GitBranchDeletionResponse {
             name: branch.to_string(),
             deleted_target: target.stdout.trim().to_string(),
@@ -2199,22 +2209,46 @@ fn delete_branch(root: &str, branch: &str) -> Result<GitCommandResponse, CoreErr
     Ok(result)
 }
 
-/// Extracts the annotation message from a raw tag object, preserving the
-/// original line breaks. The signature block is dropped because it belongs to
-/// the previous tagger; a restored tag would be signed separately.
+/// Reports whether a full refname currently resolves, used after a deletion
+/// to confirm the ref is really gone before offering a restore.
+fn ref_exists(root: &str, reference: &str) -> Result<bool, CoreError> {
+    let probe = execute_git(
+        root,
+        &[
+            "for-each-ref".into(),
+            "--format=%(refname)".into(),
+            reference.to_string(),
+        ],
+        None,
+    )?;
+    if probe.exit_code != 0 {
+        return Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Could not verify deleted Git reference",
+        )
+        .with_details(probe.output));
+    }
+    // `for-each-ref` patterns can also return descendant refs, so compare the
+    // emitted full names instead of treating any output as an exact match.
+    Ok(probe.stdout.lines().any(|candidate| candidate == reference))
+}
+
+/// Extracts the annotation message from a raw tag object byte-for-byte, so a
+/// restored tag keeps the original message including CRLF line endings and
+/// trailing newlines. Only the signature block is cut, by locating its first
+/// line in the raw content; the signature belongs to the previous tagger and
+/// a restored tag would be signed separately.
 fn annotation_message_from_tag_object(raw: &str) -> Option<String> {
     let (_, message) = raw.split_once("\n\n")?;
-    let message = message
-        .lines()
-        .take_while(|line| !(line.starts_with("-----BEGIN ") && line.ends_with("SIGNATURE-----")))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let message = message.trim_end();
-    if message.is_empty() {
-        None
-    } else {
-        Some(message.to_string())
+    let mut offset = 0;
+    for line in message.split_inclusive('\n') {
+        let without_eol = line.trim_end_matches(['\r', '\n']);
+        if without_eol.starts_with("-----BEGIN ") && without_eol.ends_with("SIGNATURE-----") {
+            return Some(message[..offset].to_string());
+        }
+        offset += line.len();
     }
+    Some(message.to_string())
 }
 
 fn local_branch_name(reference: &str) -> Result<String, CoreError> {
@@ -3421,13 +3455,55 @@ fn relative_or_absolute(path: &Path, root: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        line_similarity, pair_diff_entries, parse_diff, structured_diff_from_output, DiffEntry,
-        GitCommandInvocation, GitCommandResponse, GitProcessOutput, MAX_ALIGNMENT_CELLS,
+        annotation_message_from_tag_object, line_similarity, pair_diff_entries, parse_diff,
+        structured_diff_from_output, DiffEntry, GitCommandInvocation, GitCommandResponse,
+        GitProcessOutput, MAX_ALIGNMENT_CELLS,
     };
     use crate::protocol::{
         CoreError, ErrorCode, GitCommitResponse, GitHistoryResponse, GitReferenceResponse,
     };
     use serde_json::Value;
+
+    #[test]
+    fn tag_annotation_parser_preserves_crlf_and_trailing_blank_lines() {
+        let raw = concat!(
+            "object abc123\n",
+            "type commit\n",
+            "tag v1.0\n",
+            "tagger Lithe Test <test@example.com> 0 +0000\n",
+            "\n",
+            "release\r\n",
+            "\r\n",
+            "details\r\n",
+            "\r\n"
+        );
+
+        assert_eq!(
+            annotation_message_from_tag_object(raw).as_deref(),
+            Some("release\r\n\r\ndetails\r\n\r\n")
+        );
+    }
+
+    #[test]
+    fn tag_annotation_parser_removes_only_the_signature_block() {
+        let raw = concat!(
+            "object abc123\n",
+            "type commit\n",
+            "tag v1.0\n",
+            "tagger Lithe Test <test@example.com> 0 +0000\n",
+            "\n",
+            "release\r\n",
+            "\r\n",
+            "-----BEGIN PGP SIGNATURE-----\r\n",
+            "signature-data\r\n",
+            "-----END PGP SIGNATURE-----\r\n"
+        );
+
+        assert_eq!(
+            annotation_message_from_tag_object(raw).as_deref(),
+            Some("release\r\n\r\n")
+        );
+    }
 
     #[cfg(target_os = "windows")]
     #[test]

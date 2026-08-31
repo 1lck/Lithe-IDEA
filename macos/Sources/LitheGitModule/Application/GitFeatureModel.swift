@@ -34,11 +34,12 @@ package final class GitFeatureModel: ObservableObject {
     @Published package private(set) var pendingStashRestoreConflict: GitStashRestoreConflictRequest?
     @Published package private(set) var isStashRestoreConflictNoticeVisible = false
     /// The most recently deleted tag, kept in session state so the Git log can
-    /// offer a restore. A new deletion, closing the banner, or `reset()`
-    /// (project close) clears it; it never persists across sessions.
+    /// offer a restore. A later tag deletion replaces it on success or clears
+    /// it on failure; branch recovery is independent, so both banners may be
+    /// visible. Closing the banner or `reset()` clears this session-only state.
     @Published package private(set) var recentlyDeletedTag: GitTagDeletion?
-    /// The most recently deleted local branch, following the same session-only
-    /// rules as `recentlyDeletedTag`.
+    /// The most recently deleted local branch. Later branch attempts follow the
+    /// same replace-or-clear rule without changing tag recovery state.
     @Published package private(set) var recentlyDeletedBranch: GitBranchDeletion?
     @Published package private(set) var gitConflictFilterPaths: Set<String> = []
     @Published package private(set) var requestedStashReference: String?
@@ -1647,6 +1648,7 @@ package final class GitFeatureModel: ObservableObject {
             recentlyDeletedBranch = deletion
             notify?("Deleted branch \(deletion.name)")
         } else {
+            recentlyDeletedBranch = nil
             notify?(result.succeeded ? "Deleted \(reference.shortName)" : trimmedMessage(result))
         }
         await refreshGit()
@@ -1739,6 +1741,11 @@ package final class GitFeatureModel: ObservableObject {
     /// retry or close the banner themselves.
     package func restoreRecentlyDeletedTag() async {
         guard let deletion = recentlyDeletedTag, let gitRepositoryRoot else { return }
+        guard deletion.hasConsistentKindAndMessage else {
+            recentlyDeletedTag = nil
+            notify?("The deleted tag recovery record is invalid")
+            return
+        }
         isPerformingBranchOperation = true
         let result = await withGitOperation {
             await service.createTag(

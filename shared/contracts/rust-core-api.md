@@ -270,12 +270,18 @@ Core safely splits it into structured remote and branch arguments and applies
 the requested `ffOnly`, `merge`, or `rebase` strategy.
 
 `createTag` uses `name` for the new tag, `revision` as its target commit or
-revision, and an optional `message`: a trimmed, non-empty `message` creates an
-annotated tag (`git tag -a`), otherwise a lightweight tag is created. Tag
+revision, and an optional `message`: when the field is present (including an
+empty value), it creates an annotated tag (`git tag -a`); an absent field
+creates a lightweight tag. UI callers trim new user-entered messages. Core
+passes the supplied annotation with verbatim cleanup so restore preserves
+CRLF and trailing blank lines, and an explicit empty value preserves an empty
+annotated tag. Tag
 names must satisfy the `git check-ref-format` refname rules and must not
-begin with a dash. Before invoking Git, `createTag` probes the repository so
+begin with a dash; `shared/fixtures/git/tag-names.json` pins the boundary cases
+for Core and host-side validation. Before invoking Git, `createTag` probes the
+repository so
 a duplicate tag (`A tag named '<name>' already exists`) and an unresolvable
-target (`Could not resolve tag target '<rev>'`) fail with stable
+non-commit target (`Could not resolve tag target '<rev>'`) fail with stable
 `invalid_request` messages instead of localized Git output. `deleteTag` uses
 `name` and removes `refs/tags/<name>`; a missing tag fails with
 `The tag '<name>' does not exist`. On success the response carries a

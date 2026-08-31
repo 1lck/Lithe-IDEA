@@ -21,25 +21,42 @@ public struct GitProcessInvocation: Equatable, Sendable {
     public var output: String { standardOutput + standardError }
 }
 
+/// The two tag object forms supported by the shared Git contract.
+public enum GitTagKind: String, Codable, Sendable {
+    case lightweight
+    case annotated
+}
+
 /// Everything a host needs to rebuild a deleted tag later: the record is kept
 /// in session state only, and restores replay `createTag` with these values.
 public struct GitTagDeletion: Equatable, Sendable {
     public let name: String
     /// The commit the deleted ref resolved to (peeled for annotated tags).
     public let deletedTarget: String
-    /// `lightweight` or `annotated`, taken from the tag object type.
-    public let kind: String
+    /// Tag form taken from the deleted ref's object type.
+    public let kind: GitTagKind
     /// Original annotation, if any; lightweight tags carry `nil`.
     public let message: String?
 
-    public init(name: String, deletedTarget: String, kind: String, message: String?) {
+    public init(name: String, deletedTarget: String, kind: GitTagKind, message: String?) {
         self.name = name
         self.deletedTarget = deletedTarget
         self.kind = kind
         self.message = message
     }
 
-    public var isAnnotated: Bool { kind == "annotated" }
+    public var isAnnotated: Bool { kind == .annotated }
+
+    /// A lightweight tag has no annotation, while an annotated tag always
+    /// carries a message value (which may be empty) so restore preserves form.
+    public var hasConsistentKindAndMessage: Bool {
+        switch kind {
+        case .lightweight:
+            message == nil
+        case .annotated:
+            message != nil
+        }
+    }
 }
 
 /// A deleted local branch and the commit it pointed at, kept in session state

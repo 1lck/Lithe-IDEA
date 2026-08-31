@@ -683,14 +683,14 @@ fn git_write_creates_deletes_and_records_tags() {
         head
     );
 
-    // An annotation creates a tag object whose message must round-trip with
-    // its original line breaks.
+    // An annotation creates a tag object whose CRLF and trailing blank lines
+    // must survive the later delete/restore round trip byte for byte.
     let annotated = request(
         "createTag",
         serde_json::json!({
             "name": "v2.0",
             "revision": "HEAD",
-            "message": "release\n\nsecond paragraph"
+            "message": "release\r\n\r\nsecond paragraph\r\n\r\n"
         }),
     );
     assert_eq!(annotated["ok"], true, "{annotated:?}");
@@ -699,10 +699,17 @@ fn git_write_creates_deletes_and_records_tags() {
         "tag"
     );
 
-    // An empty name is a missing required field; the format matrix below
-    // mirrors `git check-ref-format` plus the command-line guards every Git
-    // mutation argument needs. Each rejection must happen before any
-    // subprocess so the error stays a plain invalid_request envelope.
+    // An empty name is a missing required field. The format matrix below is
+    // shared with the macOS dialog through `tag-names.json`, so both sides
+    // reject exactly the same names: `git check-ref-format` refname rules,
+    // per-component checks such as `foo/.bar`, and the command-line guards.
+    // Each rejection must happen before any subprocess so the error stays a
+    // plain invalid_request envelope.
+    let tag_names: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../shared/fixtures/git/tag-names.json"
+    )))
+    .expect("tag name fixture should be valid JSON");
     let empty = request(
         "createTag",
         serde_json::json!({"name": "", "revision": "HEAD"}),
@@ -710,10 +717,8 @@ fn git_write_creates_deletes_and_records_tags() {
     assert_eq!(empty["ok"], false, "{empty:?}");
     assert_eq!(empty["error"]["code"], "invalid_request");
     assert_eq!(empty["error"]["message"], "Missing or invalid Git tag name");
-    for name in [
-        "a..b", "-v1", "a b", "v~1", "a:b", "a?b", "a*b", "a[b", "a\\b", "@{x", "a//b", "a.lock",
-        ".hidden", "@", "head/",
-    ] {
+    for name in tag_names["invalid"].as_array().expect("invalid list") {
+        let name = name.as_str().expect("invalid name should be a string");
         let response = request(
             "createTag",
             serde_json::json!({"name": name, "revision": "HEAD"}),
@@ -723,10 +728,14 @@ fn git_write_creates_deletes_and_records_tags() {
             response["error"]["code"], "invalid_request",
             "name {name:?}"
         );
-        assert_eq!(
-            response["error"]["message"], "Invalid Git tag name",
-            "name {name:?}"
+    }
+    for name in tag_names["valid"].as_array().expect("valid list") {
+        let name = name.as_str().expect("valid name should be a string");
+        let response = request(
+            "createTag",
+            serde_json::json!({"name": name, "revision": "HEAD"}),
         );
+        assert_eq!(response["ok"], true, "name {name:?}: {response:?}");
     }
 
     // A duplicate name is a structured operation error so callers can show it
@@ -759,6 +768,37 @@ fn git_write_creates_deletes_and_records_tags() {
         "Could not resolve tag target 'no-such-revision'"
     );
 
+    // Tree and blob revisions are valid Git objects but not valid targets for
+    // this commit-only contract. Neither rejection may leave a tag behind.
+    let tree = String::from_utf8_lossy(&run(&["rev-parse", "HEAD^{tree}"]).stdout)
+        .trim()
+        .to_string();
+    let blob = String::from_utf8_lossy(&run(&["hash-object", "example.txt"]).stdout)
+        .trim()
+        .to_string();
+    for (name, revision) in [("tree-target", tree), ("blob-target", blob)] {
+        let response = request(
+            "createTag",
+            serde_json::json!({"name": name, "revision": revision}),
+        );
+        assert_eq!(response["ok"], true, "{response:?}");
+        assert_eq!(
+            response["data"]["operationError"]["message"],
+            format!("Could not resolve tag target '{revision}'")
+        );
+        assert_ne!(
+            run(&[
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                &format!("refs/tags/{name}")
+            ])
+            .status
+            .code(),
+            Some(0)
+        );
+    }
+
     // Deleting a lightweight tag reports the commit it pointed at.
     let delete_lightweight = request("deleteTag", serde_json::json!({"name": "v1.0"}));
     assert_eq!(delete_lightweight["ok"], true, "{delete_lightweight:?}");
@@ -789,7 +829,10 @@ fn git_write_creates_deletes_and_records_tags() {
     let deletion = &delete_annotated["data"]["tagDeletion"];
     assert_eq!(deletion["name"], "v2.0");
     assert_eq!(deletion["kind"], "annotated");
-    assert_eq!(deletion["message"], "release\n\nsecond paragraph");
+    assert_eq!(
+        deletion["message"],
+        "release\r\n\r\nsecond paragraph\r\n\r\n"
+    );
     assert_eq!(deletion["deletedTarget"], head);
 
     // Deleting a missing tag fails with the stable not-exist message.
@@ -813,8 +856,9 @@ fn git_write_creates_deletes_and_records_tags() {
     );
     assert_eq!(restore["ok"], true, "{restore:?}");
     let restored_object = run(&["cat-file", "tag", "refs/tags/v2.0"]);
-    let restored_object = String::from_utf8_lossy(&restored_object.stdout);
-    assert!(restored_object.contains("\n\nrelease\n\nsecond paragraph"));
+    assert!(restored_object
+        .stdout
+        .ends_with(b"\n\nrelease\r\n\r\nsecond paragraph\r\n\r\n"));
 
     fs::remove_dir_all(root).expect("temporary repository should be removable");
 }

@@ -473,6 +473,57 @@ struct GitModuleTests {
     }
 
     @Test
+    func gitTagNameValidationMatchesTheSharedContractFixture() throws {
+        struct TagNames: Decodable {
+            let valid: [String]
+            let invalid: [String]
+        }
+
+        let fixtureURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // LitheGitModuleTests
+            .deletingLastPathComponent() // Tests
+            .deletingLastPathComponent() // macos
+            .deletingLastPathComponent() // repository root
+            .appendingPathComponent("shared/fixtures/git/tag-names.json")
+        let fixture = try JSONDecoder().decode(TagNames.self, from: Data(contentsOf: fixtureURL))
+
+        for name in fixture.valid {
+            #expect(GitTagNameValidator.isValid(name), "expected valid tag name: \(name)")
+        }
+        for name in fixture.invalid {
+            #expect(!GitTagNameValidator.isValid(name), "expected invalid tag name: \(name)")
+        }
+    }
+
+    @Test
+    func gitTagDeletionRequiresKindAndMessageToDescribeTheSameTagForm() {
+        #expect(GitTagDeletion(
+            name: "v1.0",
+            deletedTarget: "abc123def456",
+            kind: .lightweight,
+            message: nil
+        ).hasConsistentKindAndMessage)
+        #expect(GitTagDeletion(
+            name: "v1.0",
+            deletedTarget: "abc123def456",
+            kind: .annotated,
+            message: ""
+        ).hasConsistentKindAndMessage)
+        #expect(!GitTagDeletion(
+            name: "v1.0",
+            deletedTarget: "abc123def456",
+            kind: .lightweight,
+            message: "release"
+        ).hasConsistentKindAndMessage)
+        #expect(!GitTagDeletion(
+            name: "v1.0",
+            deletedTarget: "abc123def456",
+            kind: .annotated,
+            message: nil
+        ).hasConsistentKindAndMessage)
+    }
+
+    @Test
     func gitTagCreationSucceedsSilentlyForTheDialogAndNotifiesOnSuccess() async {
         var notifications: [String] = []
         let (feature, _) = makeTagTestFeature(
@@ -522,7 +573,7 @@ struct GitModuleTests {
                     tagDeletion: GitTagDeletion(
                         name: "v1.0",
                         deletedTarget: "abc123def456",
-                        kind: "annotated",
+                        kind: .annotated,
                         message: "release"
                     )
                 )
@@ -543,7 +594,7 @@ struct GitModuleTests {
         #expect(feature.recentlyDeletedTag == GitTagDeletion(
             name: "v1.0",
             deletedTarget: "abc123def456",
-            kind: "annotated",
+            kind: .annotated,
             message: "release"
         ))
         #expect(notifications == ["Deleted tag v1.0"])
@@ -596,7 +647,7 @@ struct GitModuleTests {
                     tagDeletion: GitTagDeletion(
                         name: "v1.0",
                         deletedTarget: "abc123def456",
-                        kind: "annotated",
+                        kind: .annotated,
                         message: "release"
                     )
                 ),
@@ -649,7 +700,7 @@ struct GitModuleTests {
                     tagDeletion: GitTagDeletion(
                         name: "v1.0",
                         deletedTarget: "abc123def456",
-                        kind: "lightweight",
+                        kind: .lightweight,
                         message: nil
                     )
                 )
@@ -674,6 +725,46 @@ struct GitModuleTests {
     }
 
     @Test
+    func gitTagRestoreRejectsAnInconsistentRecoveryRecord() async {
+        var notifications: [String] = []
+        let recorder = TagCallRecorder()
+        let (feature, _) = makeTagTestFeature(
+            TestGitOperations(
+                snapshotValue: GitSnapshot(repositoryRoot: URL(fileURLWithPath: "/workspace"), branch: "main", changes: []),
+                createTagResult: GitProcessResult(arguments: ["tag", "v1.0"], output: "", exitCode: 0),
+                deleteTagResult: GitProcessResult(
+                    arguments: ["tag", "-d", "v1.0"],
+                    output: "Deleted tag 'v1.0'\n",
+                    exitCode: 0,
+                    tagDeletion: GitTagDeletion(
+                        name: "v1.0",
+                        deletedTarget: "abc123def456",
+                        kind: .lightweight,
+                        message: "unexpected annotation"
+                    )
+                ),
+                tagCallRecorder: recorder
+            ),
+            onNotify: { notifications.append($0) }
+        )
+        await feature.refreshGit()
+        let reference = GitReference(
+            fullName: "refs/tags/v1.0",
+            shortName: "v1.0",
+            kind: .tag,
+            isCurrent: false,
+            upstreamShortName: nil
+        )
+
+        await feature.deleteTag(reference)
+        await feature.restoreRecentlyDeletedTag()
+
+        #expect(feature.recentlyDeletedTag == nil)
+        #expect(recorder.recorded.count == 1, "invalid recovery data must not issue createTag")
+        #expect(notifications == ["Deleted tag v1.0", "The deleted tag recovery record is invalid"])
+    }
+
+    @Test
     func gitFeatureModelResetClearsTheRestorableTagRecord() async {
         var notifications: [String] = []
         let (feature, _) = makeTagTestFeature(
@@ -686,7 +777,7 @@ struct GitModuleTests {
                     tagDeletion: GitTagDeletion(
                         name: "v1.0",
                         deletedTarget: "abc123def456",
-                        kind: "lightweight",
+                        kind: .lightweight,
                         message: nil
                     )
                 )
@@ -750,6 +841,95 @@ struct GitModuleTests {
 
         feature.dismissDeletedBranchBanner()
         #expect(feature.recentlyDeletedBranch == nil)
+    }
+
+    @Test
+    func gitBranchDeletionFailureClearsThePreviousRecoveryRecord() async {
+        var notifications: [String] = []
+        let results = GitProcessResultQueue([
+            GitProcessResult(
+                arguments: ["branch", "-d", "--", "feature/a"],
+                output: "Deleted branch feature/a\n",
+                exitCode: 0,
+                branchDeletion: GitBranchDeletion(name: "feature/a", deletedTarget: "abc123def456")
+            ),
+            GitProcessResult(
+                arguments: ["branch", "-d", "--", "feature/b"],
+                output: "The branch 'feature/b' does not exist",
+                exitCode: 1
+            )
+        ])
+        let (feature, _) = makeTagTestFeature(
+            TestGitOperations(
+                snapshotValue: GitSnapshot(repositoryRoot: URL(fileURLWithPath: "/workspace"), branch: "main", changes: []),
+                deleteBranchResults: results
+            ),
+            onNotify: { notifications.append($0) }
+        )
+        await feature.refreshGit()
+
+        await feature.deleteBranch(GitReference(
+            fullName: "refs/heads/feature/a",
+            shortName: "feature/a",
+            kind: .local,
+            isCurrent: false,
+            upstreamShortName: nil
+        ))
+        #expect(feature.recentlyDeletedBranch?.name == "feature/a")
+
+        await feature.deleteBranch(GitReference(
+            fullName: "refs/heads/feature/b",
+            shortName: "feature/b",
+            kind: .local,
+            isCurrent: false,
+            upstreamShortName: nil
+        ))
+
+        #expect(feature.recentlyDeletedBranch == nil)
+        #expect(notifications == ["Deleted branch feature/a", "The branch 'feature/b' does not exist"])
+    }
+
+    @Test
+    func gitTagAndBranchRecoveryRecordsCanCoexist() async {
+        let (feature, _) = makeTagTestFeature(TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: URL(fileURLWithPath: "/workspace"), branch: "main", changes: []),
+            deleteTagResult: GitProcessResult(
+                arguments: ["tag", "-d", "v1.0"],
+                output: "Deleted tag 'v1.0'\n",
+                exitCode: 0,
+                tagDeletion: GitTagDeletion(
+                    name: "v1.0",
+                    deletedTarget: "abc123def456",
+                    kind: .lightweight,
+                    message: nil
+                )
+            ),
+            deleteBranchResult: GitProcessResult(
+                arguments: ["branch", "-d", "--", "feature/a"],
+                output: "Deleted branch feature/a\n",
+                exitCode: 0,
+                branchDeletion: GitBranchDeletion(name: "feature/a", deletedTarget: "abc123def456")
+            )
+        ))
+        await feature.refreshGit()
+
+        await feature.deleteTag(GitReference(
+            fullName: "refs/tags/v1.0",
+            shortName: "v1.0",
+            kind: .tag,
+            isCurrent: false,
+            upstreamShortName: nil
+        ))
+        await feature.deleteBranch(GitReference(
+            fullName: "refs/heads/feature/a",
+            shortName: "feature/a",
+            kind: .local,
+            isCurrent: false,
+            upstreamShortName: nil
+        ))
+
+        #expect(feature.recentlyDeletedTag?.name == "v1.0")
+        #expect(feature.recentlyDeletedBranch?.name == "feature/a")
     }
 
     @Test
@@ -1847,6 +2027,23 @@ private final class BranchCallRecorder: @unchecked Sendable {
     }
 }
 
+/// Supplies deterministic per-call results for consecutive branch mutations.
+private final class GitProcessResultQueue: @unchecked Sendable {
+    private let lock = NSLock()
+    private var results: [GitProcessResult]
+
+    init(_ results: [GitProcessResult]) {
+        self.results = results
+    }
+
+    func next() -> GitProcessResult? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !results.isEmpty else { return nil }
+        return results.removeFirst()
+    }
+}
+
 private struct TestGitOperations: GitOperations {
     private let snapshotValue: GitSnapshot?
     private let comparisonValue: GitBranchComparison?
@@ -1863,6 +2060,7 @@ private struct TestGitOperations: GitOperations {
     private let tagCallRecorder: TagCallRecorder?
     private let createBranchResult: GitProcessResult?
     private let deleteBranchResult: GitProcessResult?
+    private let deleteBranchResults: GitProcessResultQueue?
     private let branchCallRecorder: BranchCallRecorder?
 
     init(
@@ -1881,6 +2079,7 @@ private struct TestGitOperations: GitOperations {
         tagCallRecorder: TagCallRecorder? = nil,
         createBranchResult: GitProcessResult? = nil,
         deleteBranchResult: GitProcessResult? = nil,
+        deleteBranchResults: GitProcessResultQueue? = nil,
         branchCallRecorder: BranchCallRecorder? = nil
     ) {
         self.snapshotValue = snapshotValue
@@ -1898,6 +2097,7 @@ private struct TestGitOperations: GitOperations {
         self.tagCallRecorder = tagCallRecorder
         self.createBranchResult = createBranchResult
         self.deleteBranchResult = deleteBranchResult
+        self.deleteBranchResults = deleteBranchResults
         self.branchCallRecorder = branchCallRecorder
     }
 
@@ -1948,7 +2148,7 @@ private struct TestGitOperations: GitOperations {
     func renameBranch(_ reference: GitReference, to name: String, at rootURL: URL) -> GitProcessResult? { nil }
     func deleteBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? {
         branchCallRecorder?.record(BranchCallRecorder.Call(name: reference.shortName, reference: reference.fullName, checkout: false))
-        return deleteBranchResult
+        return deleteBranchResults?.next() ?? deleteBranchResult
     }
     func mergeBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? { nil }
     func rebaseCurrentBranch(onto reference: GitReference, at rootURL: URL) -> GitProcessResult? { nil }
