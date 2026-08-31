@@ -168,6 +168,7 @@ export async function run(
     command: options.command,
     args: options.commandArguments,
     cwd: REPOSITORY_ROOT,
+    env: { ...process.env, NSUnbufferedIO: "YES" },
     timeoutMs: options.suiteTimeoutMs,
     onSpawn: ({ terminate }) => {
       terminateChild = terminate;

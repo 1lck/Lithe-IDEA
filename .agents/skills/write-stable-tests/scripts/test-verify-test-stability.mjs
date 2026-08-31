@@ -363,7 +363,8 @@ try {
         clearTimeoutImpl: (timerID) => {
           assert.equal(scheduledTimers.delete(timerID), true);
         },
-        runProcessImpl: async ({ onSpawn, onStdoutLine }) => {
+        runProcessImpl: async ({ env, onSpawn, onStdoutLine }) => {
+          assert.equal(env.NSUnbufferedIO, "YES");
           onSpawn({
             terminate: async () => {
               interleavedChildTerminated = true;
