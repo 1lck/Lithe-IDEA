@@ -21,7 +21,7 @@ export function parseSwiftTimingLine(line) {
     };
   }
   const swiftFinish = plain.match(
-    /(?:^|\s)Test (?!run\b|case\b)(.+?)(?: with (\d+) test cases)? (passed|failed|skipped) after ([0-9.]+) seconds\.$/,
+    /(?:^|\s)Test (?!run\b|case\b)(.+?)(?: with (\d+) test cases)? (passed|failed|skipped) after ([0-9.]+) seconds(?: with \d+ issues?)?\.$/,
   );
   if (swiftFinish) {
     return {
@@ -59,7 +59,10 @@ export function parseSwiftSuiteLine(line) {
 
 export function isSwiftTestCompletionFragment(fragment, testName) {
   const plain = fragment.replace(/\u001B\[[0-9;]*m/g, "");
-  const result = plain.match(/(?:^|\s)[✔✘↷] Test (.+)$/u);
+  const completed = parseSwiftTimingLine(plain);
+  if (completed && completed.event !== "started") return completed.name === testName;
+
+  const result = plain.match(/(?:^|\s)[✔↷] Test (.+)$/u);
   if (!result) return false;
   const reported = result[1];
   return testName.startsWith(reported) || reported.startsWith(testName);

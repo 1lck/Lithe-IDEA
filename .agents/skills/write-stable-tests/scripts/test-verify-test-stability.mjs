@@ -162,6 +162,10 @@ assert.deepEqual(
   { name: "parameterized(_:)", event: "passed", durationMs: 125, caseCount: 4 },
 );
 assert.deepEqual(
+  parseSwiftTimingLine("✘ Test runBeforeTheSnapshot() failed after 30.259 seconds with 3 issues."),
+  { name: "runBeforeTheSnapshot()", event: "failed", durationMs: 30259, caseCount: null },
+);
+assert.deepEqual(
   parseSwiftSuiteLine('◇ Suite "App localization" started.'),
   { name: "App localization", event: "started" },
 );
@@ -182,6 +186,20 @@ assert.equal(
 assert.equal(
   isSwiftTestCompletionFragment("✔ Test anotherTest", "catalogHasStableUniqueCommands"),
   false,
+);
+assert.equal(
+  isSwiftTestCompletionFragment(
+    "✘ Test runBeforeTheSnapshot() recorded an issue at RunEntryPointTests.swift:35:9",
+    "runBeforeTheSnapshot()",
+  ),
+  false,
+);
+assert.equal(
+  isSwiftTestCompletionFragment(
+    "✘ Test runBeforeTheSnapshot() failed after 30.259 seconds with 3 issues.",
+    "runBeforeTheSnapshot()",
+  ),
+  true,
 );
 
 let observedPartialLine = null;
@@ -261,6 +279,65 @@ try {
         status: "passed",
       },
     ],
+  );
+
+  const issueReportPath = path.join(swiftFragmentRoot, "swift-issue-fragment.json");
+  let issueTimeout = null;
+  let issueTimerCleared = false;
+  let issueChildTerminated = false;
+  await assert.rejects(
+    runSwiftTestsWithTiming(
+      {
+        warnMs: 50,
+        maxMs: 200,
+        suiteTimeoutMs: 500,
+        report: issueReportPath,
+        command: "swift",
+        commandArguments: ["test"],
+      },
+      {
+        setTimeoutImpl: (callback) => {
+          issueTimeout = callback;
+          return timeoutToken;
+        },
+        clearTimeoutImpl: () => {
+          issueTimerCleared = true;
+        },
+        runProcessImpl: async ({ onSpawn, onStdoutLine, onStdoutPartialLine }) => {
+          onSpawn({
+            terminate: async () => {
+              issueChildTerminated = true;
+              return true;
+            },
+          });
+          onStdoutLine('◇ Suite "Run entry points" started.');
+          onStdoutLine("◇ Test runBeforeTheSnapshot() started.");
+          onStdoutPartialLine(
+            "✘ Test runBeforeTheSnapshot() recorded an issue at RunEntryPointTests.swift:35:9",
+          );
+          assert.equal(issueTimerCleared, false);
+          issueTimeout();
+          assert.equal(issueChildTerminated, true);
+          return {
+            code: null,
+            signal: "SIGTERM",
+            timedOut: false,
+            terminationConfirmed: true,
+            durationMs: 200,
+            stdout: "",
+            stderr: "",
+          };
+        },
+      },
+    ),
+    /Swift test exceeded 200ms: runBeforeTheSnapshot\(\)/,
+  );
+  assert.deepEqual(
+    JSON.parse(readFileSync(issueReportPath, "utf8")).tests.map(({ name, status }) => ({
+      name,
+      status,
+    })),
+    [{ name: "runBeforeTheSnapshot()", status: "timeout" }],
   );
 } finally {
   rmSync(swiftFragmentRoot, { recursive: true, force: true });
