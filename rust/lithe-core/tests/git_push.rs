@@ -3,7 +3,10 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+static NEXT_FIXTURE_ID: AtomicU64 = AtomicU64::new(0);
 
 struct GitFixture {
     root: PathBuf,
@@ -15,8 +18,11 @@ impl GitFixture {
             .duration_since(UNIX_EPOCH)
             .expect("system clock should be valid")
             .as_nanos();
-        let root =
-            std::env::temp_dir().join(format!("lithe-git-push-{}-{nonce}", std::process::id()));
+        let fixture_id = NEXT_FIXTURE_ID.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!(
+            "lithe-git-push-{}-{nonce}-{fixture_id}",
+            std::process::id()
+        ));
         fs::create_dir_all(&root).expect("Git fixture root should be creatable");
         Self { root }
     }
