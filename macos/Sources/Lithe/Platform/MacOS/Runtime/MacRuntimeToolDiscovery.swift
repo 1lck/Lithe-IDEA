@@ -171,7 +171,7 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
                 command: command,
                 displayName: "Java Debug Adapter",
                 summary: "A Java DAP adapter was not found.",
-                recovery: "Set LITHE_JAVA_DEBUG_PATH to a stdio DAP adapter; Lithe will keep using JDB until one is available."
+                recovery: "Reinstall Lithe's bundled Java language and Debug Adapter resources."
             )
         default:
             return RuntimeToolGuidance(

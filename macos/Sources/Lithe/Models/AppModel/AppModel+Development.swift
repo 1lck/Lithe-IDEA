@@ -1,5 +1,6 @@
 import Foundation
 import LitheCoreContracts
+import LitheDebugModule
 import LitheExecutionModule
 import LitheModuleAPI
 
@@ -42,6 +43,15 @@ private enum RunProjectReadiness: Equatable {
     case ready
     case waitingForSnapshot(identity: WorkspaceIdentity)
     case stale
+}
+
+@MainActor
+final class JavaTestWorkflowState {
+    var resultServer: (any JavaTestResultServing)?
+    var debugLaunchTask: Task<Void, Never>?
+    var debugLaunchOperationID: UUID?
+    var discoveryTask: Task<Void, Never>?
+    var discoveryOperationID: UUID?
 }
 
 @MainActor
@@ -162,6 +172,28 @@ extension AppModel {
             url: url.standardizedFileURL,
             line: max(0, line - 1),
             utf16Column: max(0, (column ?? 1) - 1)
+        )
+    }
+
+    /// Reveals a stopped debugger frame without adding every step to the
+    /// user's editor back/forward history. Debug stepping is transient
+    /// inspection, unlike an explicit navigation from build output or a link.
+    func revealDebugLocation(url: URL, line: Int, column: Int?) {
+        let normalizedURL = url.standardizedFileURL
+        guard workspaceFeature.fileExists(at: normalizedURL) else {
+            showNotification("The stopped source file is no longer available: \(url.lastPathComponent)")
+            return
+        }
+        navigate(
+            to: EditorNavigationLocation(
+                url: normalizedURL,
+                line: max(0, line - 1),
+                utf16Column: max(0, (column ?? 1) - 1),
+                isReadOnly: false,
+                displayPath: nil,
+                virtualProviderID: nil
+            ),
+            recordsHistory: false
         )
     }
 
@@ -620,15 +652,79 @@ extension AppModel {
         isRunVisible = false
     }
 
+    func showDebugBreakpointManager() {
+        guard let requestedWorkspaceURL = workspaceURL else { return }
+        Task { [weak self] in
+            guard let self,
+                  await activateDebugModule() != nil,
+                  workspaceURL == requestedWorkspaceURL else { return }
+            debugBreakpointPresentation.isManagerPresented = true
+        }
+    }
+
     func startDebugging() {
         Task { [weak self] in await self?.startDebuggingAfterActivation() }
+    }
+
+    func startOrRestartDebugging() {
+        guard let feature = genericDebugFeatureIfActive,
+              feature.isSessionActive else {
+            startDebugging()
+            return
+        }
+        showDebugToolWindow()
+        if feature.canRestart {
+            feature.execute(.restart)
+        }
+    }
+
+    func attachJavaDebugger(host: String, port: Int) {
+        Task { [weak self] in
+            await self?.attachJavaDebuggerAfterActivation(host: host, port: port)
+        }
+    }
+
+    private func attachJavaDebuggerAfterActivation(host: String, port: Int) async {
+        guard let workspaceURL,
+              await activateDebugModule() != nil else { return }
+        let sourceURL = ([activeDocument?.url].compactMap { $0 } + projectFiles)
+            .map(\.standardizedFileURL)
+            .first {
+                languageProviderCatalog.provider(for: $0)?.id == "java"
+            }
+        guard let sourceURL else {
+            showNotification("Open a Java project before connecting the debugger")
+            return
+        }
+        let configuration: DebugLaunchConfiguration
+        do {
+            configuration = try debugLaunchConfigurationResolver.resolveJavaAttach(
+                host: host,
+                port: port
+            )
+        } catch {
+            showNotification(error.localizedDescription)
+            return
+        }
+        guard let genericDebugFeature = genericDebugFeatureIfActive,
+              genericDebugFeature.start(
+                  fileURL: sourceURL,
+                  rootURL: workspaceURL,
+                  configuration: configuration
+              ) else {
+            showNotification(
+                genericDebugFeatureIfActive?.errorMessage ?? "Could not connect to the JVM"
+            )
+            isDebugVisible = true
+            return
+        }
+        showDebugToolWindow()
     }
 
     private func startDebuggingAfterActivation() async {
         guard let identity = currentWorkspaceIdentity else { return }
         guard let execution = await activateExecutionModule(),
-              let debug = await activateDebugModule() else { return }
-        guard isCurrentWorkspace(identity) else { return }
+              isCurrentWorkspace(identity) else { return }
         let runFeature = execution.runFeature
         switch await ensureRunProjectReady(runFeature, for: identity) {
         case .ready:
@@ -639,63 +735,66 @@ extension AppModel {
         case .stale:
             return
         }
-        let debugFeature = debug.javaFeature
-        javaFeature.configureRuntime(
-            mavenFeature: execution.mavenFeature,
-            debugFeature: debugFeature
-        )
-        if let document = activeDocument,
-           languageProviderCatalog.provider(for: document.url)?
-               .capabilities.contains(.debugAdapter) == true {
-            startGenericDebugging(document)
-            return
-        }
-        if debugFeature.targetKind == .currentFile,
-           let document = activeDocument,
-           languageProviderCatalog.provider(for: document.url)?.id != "java" {
-            let language = languageProviderCatalog.provider(for: document.url)?.displayName
-                ?? "This file type"
-            showNotification("\(language) debugging is not available on this machine")
-            isDebugVisible = true
-            return
-        }
-        if debugFeature.targetKind == .runConfiguration,
-           runFeature.configurationStatus != .ready {
+        let workspaceURL = identity.url
+        guard isCurrentWorkspace(identity) else { return }
+        guard await activateDebugModule() != nil,
+              isCurrentWorkspace(identity) else { return }
+        guard runFeature.configurationStatus == .ready else {
             runFeature.requestRunConfigurationGeneration(intent: .debug)
             return
         }
-        if runFeature.blockingToolchainDiagnostic != nil {
-            isRunVisible = true
-            isDebugVisible = false
-            isGitLogVisible = false
-            isTerminalVisible = false
-            isReferencesVisible = false
-            isProblemsVisible = false
-            isMavenVisible = false
+        guard let selectedConfiguration = runFeature.selectedConfiguration else {
+            showNotification("Choose a Run configuration before starting Debug")
             return
         }
-        guard javaFeature.startDebugging(
-            currentDocument: activeDocument,
-            workspaceURL: workspaceURL,
-            runFeature: runFeature,
-            saveDocument: { [weak self] document in try self?.saveDocument(document) },
-            recordSave: { [weak self] document, previousText in
-                self?.recordSave(document, previousText: previousText)
+        let configuration = DebugLaunchSourceResolver().configurationForDebug(
+            selected: selectedConfiguration,
+            activeDocumentText: activeDocument?.text,
+            configurations: runFeature.configurations
+        )
+        runFeature.select(configuration)
+
+        let sourceURL: URL
+        if configuration.usesCurrentEditorFile {
+            guard let document = activeDocument else {
+                showNotification("Open a source file or choose a project Run configuration")
+                return
             }
-        ) else { return }
-        isDebugVisible = true
-        isGitLogVisible = false
-        isTerminalVisible = false
-        isReferencesVisible = false
-        isProblemsVisible = false
-        isMavenVisible = false
-        isRunVisible = false
+            sourceURL = document.url
+        } else if configuration.kind.capabilities.contains(.jdwpDebug) {
+            guard let resolved = DebugLaunchSourceResolver().resolve(
+                configuration: configuration,
+                activeDocumentURL: activeDocument?.url,
+                projectFiles: projectFiles,
+                workspaceURL: workspaceURL
+            ) else {
+                showNotification("Could not find the Java source for \(configuration.name)")
+                return
+            }
+            sourceURL = resolved
+        } else {
+            showNotification("\(configuration.name) does not support Debug yet")
+            return
+        }
+
+        guard languageProviderCatalog.provider(for: sourceURL)?
+            .capabilities.contains(.debugAdapter) == true else {
+            showNotification("Debug support is not available for \(sourceURL.lastPathComponent)")
+            isDebugVisible = true
+            return
+        }
+        let document = openDocuments.first {
+            $0.url.standardizedFileURL == sourceURL.standardizedFileURL
+        }
+        await startGenericDebuggingAfterActivation(fileURL: sourceURL, document: document)
     }
 
     func toggleTests() {
         isTestsVisible.toggle()
-        guard isTestsVisible else { return }
-        Task { [weak self] in _ = await self?.activateExecutionModule() }
+        guard isTestsVisible else {
+            cancelLanguageTestDiscovery()
+            return
+        }
         isGitLogVisible = false
         isTerminalVisible = false
         isReferencesVisible = false
@@ -704,28 +803,86 @@ extension AppModel {
         isRunVisible = false
         isDebugVisible = false
         guard let workspaceURL else { return }
-        Task { [weak self] in
-            guard let self,
-                  let execution = await activateExecutionModule(),
-                  await activateLanguageTestExtensionsIfNeeded(
-                      for: projectFiles,
-                      testService: execution.tests
-                  ) else { return }
-            execution.tests.discover(workspaceURL: workspaceURL, files: projectFiles)
-        }
+        startLanguageTestDiscovery(workspaceURL: workspaceURL)
     }
 
     func refreshTests() {
         guard let workspaceURL else { return }
-        Task { [weak self] in
-            guard let self,
-                  let execution = await activateExecutionModule(),
+        startLanguageTestDiscovery(workspaceURL: workspaceURL)
+    }
+
+    private func startLanguageTestDiscovery(workspaceURL: URL) {
+        cancelLanguageTestDiscovery()
+        let operationID = UUID()
+        javaTestWorkflowState.discoveryOperationID = operationID
+        javaTestWorkflowState.discoveryTask = Task { [weak self] in
+            guard let self else { return }
+            defer { finishLanguageTestDiscovery(operationID) }
+            guard let execution = await activateExecutionModule(),
                   await activateLanguageTestExtensionsIfNeeded(
                       for: projectFiles,
                       testService: execution.tests
-                  ) else { return }
+                  ),
+                  isCurrentLanguageTestDiscovery(operationID) else { return }
             execution.tests.discover(workspaceURL: workspaceURL, files: projectFiles)
+
+            let baseItems = execution.tests.itemsByProviderID["java"] ?? []
+            let javaFiles = baseItems.filter { $0.kind == .file && $0.fileURL != nil }
+            guard !javaFiles.isEmpty else { return }
+            do {
+                let sessions = try await languageSessionsForWorkspaceMaintenance()
+                var projected = baseItems.filter { $0.kind == .workspace }
+                var completedFileCount = 0
+                for fileItem in javaFiles {
+                    try Task.checkCancellation()
+                    guard isCurrentLanguageTestDiscovery(operationID),
+                          let fileURL = fileItem.fileURL else { return }
+                    do {
+                        let details = try await sessions.discoverJavaTestItems(
+                            fileURL: fileURL,
+                            rootURL: workspaceURL
+                        )
+                        completedFileCount += 1
+                        if !details.isEmpty {
+                            projected.append(fileItem)
+                            projected.append(contentsOf: details)
+                        }
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        // Preserve the cheap file-level fallback when semantic
+                        // discovery fails for only one source file.
+                        projected.append(fileItem)
+                    }
+                }
+                guard isCurrentLanguageTestDiscovery(operationID) else { return }
+                if projected.allSatisfy({ $0.kind == .workspace }), completedFileCount > 0 {
+                    projected = []
+                }
+                execution.tests.replaceDiscoveredItems(projected, providerID: "java")
+            } catch is CancellationError {
+                return
+            } catch {
+                guard isCurrentLanguageTestDiscovery(operationID) else { return }
+                showNotification(error.localizedDescription)
+            }
         }
+    }
+
+    func cancelLanguageTestDiscovery() {
+        javaTestWorkflowState.discoveryOperationID = nil
+        javaTestWorkflowState.discoveryTask?.cancel()
+        javaTestWorkflowState.discoveryTask = nil
+    }
+
+    private func isCurrentLanguageTestDiscovery(_ operationID: UUID) -> Bool {
+        javaTestWorkflowState.discoveryOperationID == operationID && !Task.isCancelled
+    }
+
+    private func finishLanguageTestDiscovery(_ operationID: UUID) {
+        guard javaTestWorkflowState.discoveryOperationID == operationID else { return }
+        javaTestWorkflowState.discoveryOperationID = nil
+        javaTestWorkflowState.discoveryTask = nil
     }
 
     func runTest(providerID: String, scope: LanguageTestScope) {
@@ -753,6 +910,89 @@ extension AppModel {
                 workspaceURL: workspaceURL,
                 projectFiles: projectFiles
             )
+        }
+    }
+
+    func debugTest(providerID: String, scope: LanguageTestScope) {
+        guard providerID == "java", let workspaceURL else {
+            showNotification("Java test debugging is currently available for Java projects only")
+            return
+        }
+        let fileURL: URL
+        let testIdentifier: String?
+        switch scope {
+        case .workspace:
+            showNotification("Select a Java test file or test case to debug")
+            return
+        case .file(let url):
+            fileURL = url.standardizedFileURL
+            testIdentifier = nil
+        case .testCase(let identifier, let url):
+            guard let url else {
+                showNotification("The selected Java test has no source file")
+                return
+            }
+            fileURL = url.standardizedFileURL
+            testIdentifier = identifier
+        }
+        cancelJavaTestDebugLaunch()
+        let operationID = UUID()
+        javaTestWorkflowState.debugLaunchOperationID = operationID
+        javaTestWorkflowState.debugLaunchTask = Task { [weak self] in
+            guard let self else { return }
+            defer { finishJavaTestDebugLaunch(operationID) }
+            guard let runFeature = await activateExecutionModule()?.runFeature,
+                  let genericDebugFeature = await activateDebugModule()?.genericFeature,
+                  isCurrentJavaTestDebugLaunch(operationID) else { return }
+            if let selectedConfiguration = runFeature.selectedConfiguration {
+                runFeature.select(selectedConfiguration)
+            }
+            if let document = openDocuments.first(where: {
+                $0.url.standardizedFileURL == fileURL
+            }),
+               document.isDirty {
+                do {
+                    let previousText = document.savedText
+                    try saveDocument(document)
+                    recordSave(document, previousText: previousText)
+                } catch {
+                    showNotification("Could not save \(document.url.lastPathComponent)")
+                    return
+                }
+            }
+            do {
+                let sessions = try await languageSessionsForWorkspaceMaintenance()
+                let prepared = try await services.javaTestDebugLaunchService.prepare(
+                    fileURL: fileURL,
+                    testIdentifier: testIdentifier,
+                    rootURL: workspaceURL,
+                    targetResolver: sessions
+                )
+                guard isCurrentJavaTestDebugLaunch(operationID) else {
+                    prepared.stop()
+                    return
+                }
+                stopJavaTestResultServer()
+                javaTestWorkflowState.resultServer = prepared.resultServer
+                guard genericDebugFeature.start(
+                    fileURL: prepared.target.fileURL,
+                    rootURL: workspaceURL,
+                    configuration: prepared.configuration
+                ) else {
+                    let message = genericDebugFeature.errorMessage
+                        ?? "Could not debug the Java test"
+                    stopJavaTestResultServer()
+                    showNotification(message)
+                    return
+                }
+                showDebugToolWindow()
+            } catch is CancellationError {
+                finishJavaTestDebugLaunch(operationID, stopResultServer: true)
+            } catch {
+                guard isCurrentJavaTestDebugLaunch(operationID) else { return }
+                finishJavaTestDebugLaunch(operationID, stopResultServer: true)
+                showNotification(error.localizedDescription)
+            }
         }
     }
 
@@ -801,11 +1041,99 @@ extension AppModel {
     }
 
     func stopDebugging() {
-        if genericDebugFeatureIfActive?.providerID != nil {
-            genericDebugFeatureIfActive?.stop()
-        } else {
-            debugFeatureIfActive?.stop()
+        cancelJavaTestDebugLaunch()
+        guard let feature = genericDebugFeatureIfActive else {
+            stopDebugTerminalProcesses()
+            return
         }
+        let activeSessionID = feature.activeSessionID
+        feature.stop()
+        if let activeSessionID {
+            stopDebugTerminalProcesses(for: activeSessionID)
+        } else {
+            stopDebugTerminalProcesses()
+        }
+    }
+
+    func cancelJavaTestDebugLaunch() {
+        javaTestWorkflowState.debugLaunchOperationID = nil
+        javaTestWorkflowState.debugLaunchTask?.cancel()
+        javaTestWorkflowState.debugLaunchTask = nil
+        stopJavaTestResultServer()
+    }
+
+    func stopJavaTestResultServer() {
+        javaTestWorkflowState.resultServer?.stop()
+        javaTestWorkflowState.resultServer = nil
+    }
+
+    func cancelJavaTestWorkflows() {
+        cancelLanguageTestDiscovery()
+        cancelJavaTestDebugLaunch()
+    }
+
+    func cancelJavaWorkspaceWorkflows() {
+        cancelJavaLanguageServerPreparation()
+        cancelJavaTestWorkflows()
+    }
+
+    func handleDebugSessionStateChange(_ state: DebugAdapterState) {
+        // A Java launch may request an integrated terminal before the adapter
+        // reaches `running`. Once the debug session is live, the debugger is
+        // the primary tool window, matching IDEA's launch behavior; the
+        // terminal session remains available as a separate session tab.
+        if state == .launching || state == .running {
+            showDebugToolWindow()
+            return
+        }
+        if state == .paused {
+            showDebugToolWindow()
+            platformUI.activateApplication()
+            return
+        }
+        guard state == .terminated || state == .failed else { return }
+        stopJavaTestResultServer()
+        if let activeSessionID = genericDebugFeatureIfActive?.activeSessionID {
+            stopDebugTerminalProcesses(for: activeSessionID)
+        } else {
+            stopDebugTerminalProcesses()
+        }
+    }
+
+    private func isCurrentJavaTestDebugLaunch(_ operationID: UUID) -> Bool {
+        javaTestWorkflowState.debugLaunchOperationID == operationID && !Task.isCancelled
+    }
+
+    private func finishJavaTestDebugLaunch(
+        _ operationID: UUID,
+        stopResultServer: Bool = false
+    ) {
+        guard javaTestWorkflowState.debugLaunchOperationID == operationID else { return }
+        javaTestWorkflowState.debugLaunchOperationID = nil
+        javaTestWorkflowState.debugLaunchTask = nil
+        if stopResultServer {
+            stopJavaTestResultServer()
+        }
+    }
+
+    func resumeDebugging() {
+        guard let feature = genericDebugFeatureIfActive, feature.state == .paused else { return }
+        feature.execute(.continueExecution)
+    }
+
+    func stepOverDebugging() {
+        guard let feature = genericDebugFeatureIfActive, feature.state == .paused else { return }
+        feature.execute(.next)
+    }
+
+    func stepIntoDebugging() {
+        guard let feature = genericDebugFeatureIfActive, feature.state == .paused else { return }
+        feature.execute(.stepIn)
+    }
+
+    func stepOutDebugging() {
+        guard let feature = genericDebugFeatureIfActive, feature.state == .paused else { return }
+        feature.execute(.stepOut)
     }
 
     func toggleDebugBreakpointAtCaret() {
@@ -819,46 +1147,151 @@ extension AppModel {
     }
 
     func toggleDebugBreakpoint(fileURL: URL, line: Int) {
+        if languageProviderCatalog.provider(for: fileURL)?.id == "java",
+           let document = openDocuments.first(where: {
+               $0.url.standardizedFileURL == fileURL.standardizedFileURL
+           }),
+           !DebugBreakpointLocationValidator.isExecutableJavaLine(
+               source: document.text,
+               line: line
+           ) {
+            showNotification("This line cannot hold a Java breakpoint")
+            return
+        }
         if languageProviderCatalog.provider(for: fileURL)?
             .capabilities.contains(.debugAdapter) == true {
             Task { [weak self] in
                 guard let feature = await self?.activateDebugModule()?.genericFeature else { return }
                 feature.toggleBreakpoint(fileURL: fileURL, line: line)
             }
-        } else if javaFeature.supportsLegacyDebugging(fileURL: fileURL) {
-            javaFeature.toggleDebugBreakpoint(at: fileURL, line: line, documents: openDocuments)
         } else {
             showNotification("Debugging is not supported for this file type")
         }
     }
 
-    var prefersGenericDebugUI: Bool {
-        if genericDebugFeatureIfActive?.providerID != nil { return true }
-        guard let document = activeDocument else { return false }
-        // Never show the Java/JDB panel for another language. A configured
-        // Provider may still be unavailable locally; the generic panel can
-        // then present the Provider's installation error without leaking a
-        // Java-specific workflow into that project.
-        guard let descriptor = languageProviderCatalog.provider(for: document.url) else {
-            return true
+    func applyDebugSourceEdit(
+        fileURL: URL,
+        previousSource: String,
+        replacedRange: NSRange,
+        replacement: String
+    ) {
+        guard replacedRange.location != NSNotFound,
+              replacedRange.location >= 0,
+              replacedRange.length >= 0,
+              NSMaxRange(replacedRange) <= previousSource.utf16.count else { return }
+        genericDebugFeatureIfActive?.applySourceEdit(
+            fileURL: fileURL,
+            source: previousSource,
+            edit: DebugSourceEdit(
+                startUTF16Offset: replacedRange.location,
+                endUTF16Offset: NSMaxRange(replacedRange),
+                replacement: replacement
+            )
+        )
+    }
+
+    func editDebugBreakpoint(fileURL: URL, line: Int) {
+        let normalizedURL = fileURL.standardizedFileURL
+        debugBreakpointPresentation.pendingEditor = genericDebugFeatureIfActive?.breakpoints
+            .filter {
+                $0.fileURL.standardizedFileURL == normalizedURL && $0.line == line
+            }
+            .min { ($0.column ?? 0) < ($1.column ?? 0) }
+    }
+
+    func updateDebugBreakpoint(
+        _ breakpoint: GenericDebugBreakpoint,
+        enabled: Bool,
+        condition: String?,
+        hitCondition: String?,
+        logMessage: String?
+    ) {
+        debugBreakpointPresentation.pendingEditor = nil
+        guard let expectedWorkspaceURL = workspaceURL,
+              workspaceRelativePath(
+                  for: breakpoint.fileURL,
+                  root: expectedWorkspaceURL
+              ) != nil else { return }
+        Task { [weak self] in
+            guard let self,
+                  self.workspaceURL == expectedWorkspaceURL,
+                  let feature = await activateDebugModule()?.genericFeature,
+                  self.workspaceURL == expectedWorkspaceURL else { return }
+            feature.updateBreakpoint(
+                fileURL: breakpoint.fileURL,
+                line: breakpoint.line,
+                enabled: enabled,
+                condition: condition,
+                hitCondition: hitCondition,
+                logMessage: logMessage
+            )
         }
-        return descriptor.id != "java"
-            || descriptor.capabilities.contains(.debugAdapter)
     }
 
-    private func startGenericDebugging(_ document: EditorDocument) {
-        Task { [weak self] in await self?.startGenericDebuggingAfterActivation(document) }
+    func runToCursor(fileURL: URL, line: Int, column: Int) {
+        guard let feature = genericDebugFeatureIfActive,
+              feature.state == .paused,
+              feature.capabilities.supportsGotoTargetsRequest else {
+            showNotification("Run to Cursor is unavailable for the active debug session")
+            return
+        }
+        feature.requestRunToCursor(
+            fileURL: fileURL,
+            line: line,
+            column: column
+        ) { [weak self, weak feature] result in
+            switch result {
+            case .success(let targets):
+                guard let target = targets.min(by: {
+                    abs(($0.column ?? column) - column) < abs(($1.column ?? column) - column)
+                }) else {
+                    self?.showNotification("No executable location was found at the cursor")
+                    return
+                }
+                feature?.runToCursor(target)
+            case .failure(let error):
+                self?.showNotification(error.localizedDescription)
+            }
+        }
     }
 
-    private func startGenericDebuggingAfterActivation(_ document: EditorDocument) async {
+    func requestDebugHover(
+        expression: String,
+        completion: @escaping (String?) -> Void
+    ) {
+        guard let feature = genericDebugFeatureIfActive,
+              feature.state == .paused else {
+            completion(nil)
+            return
+        }
+        feature.evaluateForHover(expression) { variable in
+            guard let variable else {
+                completion(nil)
+                return
+            }
+            let type = variable.type.map { " : \($0)" } ?? ""
+            completion("\(expression)\(type) = \(variable.value)")
+        }
+    }
+
+    private func startGenericDebuggingAfterActivation(
+        fileURL: URL,
+        document: EditorDocument?
+    ) async {
         guard let workspaceURL,
-              let provider = languageProviderCatalog.provider(for: document.url),
+              let provider = languageProviderCatalog.provider(for: fileURL),
               let runFeature = await activateExecutionModule()?.runFeature,
               let genericDebugFeature = await activateDebugModule()?.genericFeature else {
             showNotification("No language provider is available for this file")
             return
         }
-        if document.isDirty {
+        // Debug is the second execution mode for the Run selection. Re-apply
+        // the selection here so its project-scoped Java runtime override is
+        // active even when the Run panel was never opened in this session.
+        if let selectedConfiguration = runFeature.selectedConfiguration {
+            runFeature.select(selectedConfiguration)
+        }
+        if let document, document.isDirty {
             do {
                 let previousText = document.savedText
                 try saveDocument(document)
@@ -868,14 +1301,38 @@ extension AppModel {
                 return
             }
         }
+        // Reject an occupied service port before asking JDT LS to resolve the
+        // launch target. A failed preflight therefore creates no language
+        // service, Debug Adapter, terminal, or Java child process.
+        if provider.id == "java",
+           let selectedConfiguration = runFeature.selectedConfiguration,
+           let port = runFeature.configuredServerPort(for: selectedConfiguration),
+           !debugPortAvailabilityChecker.isPortAvailable(port) {
+            showNotification(
+                "Port \(port) is already in use. Stop the process using it or change server.port in the Run configuration."
+            )
+            isDebugVisible = true
+            return
+        }
         let configuration: DebugLaunchConfiguration
         do {
+            let javaTarget: JavaDebugLaunchTarget?
+            if provider.id == "java" {
+                let sessions = try await languageSessionsForWorkspaceMaintenance()
+                javaTarget = try await sessions.resolveJavaDebugLaunchTarget(
+                    fileURL: fileURL,
+                    rootURL: workspaceURL
+                )
+            } else {
+                javaTarget = nil
+            }
             configuration = try debugLaunchConfigurationResolver.resolve(
                 provider: provider,
-                documentURL: document.url,
+                documentURL: fileURL,
                 workspaceURL: workspaceURL,
                 configurations: runFeature.configurations,
                 selectedConfiguration: runFeature.selectedConfiguration,
+                javaTarget: javaTarget,
                 options: { [runFeature] in runFeature.options(for: $0) }
             )
         } catch {
@@ -883,7 +1340,7 @@ extension AppModel {
             return
         }
         guard genericDebugFeature.start(
-            fileURL: document.url,
+            fileURL: fileURL,
             rootURL: workspaceURL,
             configuration: configuration
         ) else {
@@ -891,6 +1348,10 @@ extension AppModel {
             isDebugVisible = true
             return
         }
+        showDebugToolWindow()
+    }
+
+    private func showDebugToolWindow() {
         isDebugVisible = true
         isGitLogVisible = false
         isTerminalVisible = false

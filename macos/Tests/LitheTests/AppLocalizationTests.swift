@@ -160,6 +160,44 @@ struct AppLocalizationTests {
         #expect(translations["Java service failed to start: %@"] == "Java 服务启动失败：%@")
     }
 
+    @Test
+    func simplifiedChineseResourcesCoverBreakpointManager() throws {
+        let translations = try simplifiedChineseTranslations()
+        let requiredKeys = [
+            "View Breakpoints",
+            "Manage all project breakpoints",
+            "View breakpoints (⌘⇧F8)",
+            "View breakpoints",
+            "Loading breakpoints…",
+            "Manage project breakpoints without starting a debug session",
+            "Line Breakpoints",
+            "Exception Breakpoints",
+            "Method Breakpoints",
+            "Field Breakpoints",
+            "Mute Line Breakpoints",
+            "Unmute Line Breakpoints",
+            "Click the editor gutter to add a breakpoint",
+            "Add a class or method name",
+            "Right-click a field while paused to add a breakpoint",
+            "Remove All",
+            "Disable breakpoint",
+            "Enable breakpoint",
+            "Edit…",
+            "Edit exception breakpoint",
+            "Add method breakpoint",
+            "Breakpoint actions",
+            "Line breakpoint actions",
+            "If: %@",
+            "Hit: %@",
+            "Verified",
+            "Pending verification"
+        ]
+
+        for key in requiredKeys {
+            #expect(translations[key] != nil, "Missing breakpoint manager translation: \(key)")
+        }
+    }
+
     private func simplifiedChineseTranslations() throws -> [String: String] {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

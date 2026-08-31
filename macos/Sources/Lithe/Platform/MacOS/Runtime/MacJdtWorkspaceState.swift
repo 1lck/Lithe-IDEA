@@ -125,7 +125,7 @@ struct MacJdtWorkspaceState {
         return try workspaceFingerprintResolver(
             buildFiles,
             modules,
-            languageServerVersion(for: languageServerExecutableURL)
+            languageServerCacheIdentity(for: languageServerExecutableURL)
         )
     }
 
@@ -342,6 +342,24 @@ struct MacJdtWorkspaceState {
         }
         throw MacJdtWorkspaceStateError.languageServerVersionUnavailable
     }
+
+    private func languageServerCacheIdentity(for executableURL: URL?) throws -> String {
+        let version = try languageServerVersion(for: executableURL)
+        let installationPath: String
+        if let executableURL {
+            installationPath = executableURL.standardizedFileURL.path
+        } else if let resourceURL = Bundle.main.resourceURL {
+            installationPath = resourceURL
+                .appendingPathComponent("LanguageServers", isDirectory: true)
+                .appendingPathComponent("jdtls", isDirectory: true)
+                .standardizedFileURL.path
+        } else {
+            throw MacJdtWorkspaceStateError.languageServerInstallationUnavailable
+        }
+        // JDT LS persists absolute JRE and source paths inside its workspace.
+        // Relocating an app or Preview build must therefore select a fresh cache.
+        return "\(version)|installation=\(installationPath)"
+    }
 }
 
 private struct JdtManifest: Decodable {
@@ -358,6 +376,7 @@ private enum MacJdtWorkspaceStateError: LocalizedError {
     case invalidBuildFileMetadata(String)
     case invalidLanguageServerManifest(String)
     case languageServerVersionUnavailable
+    case languageServerInstallationUnavailable
     case invalidWorkspaceKey
     case cacheRetentionUnavailable
     case invalidRetentionPlan
@@ -373,6 +392,8 @@ private enum MacJdtWorkspaceStateError: LocalizedError {
             "The bundled JDT LS manifest is invalid at \(path)."
         case .languageServerVersionUnavailable:
             "The bundled JDT LS version could not be determined."
+        case .languageServerInstallationUnavailable:
+            "The bundled JDT LS installation could not be determined."
         case .invalidWorkspaceKey:
             "Rust Core returned an invalid Java workspace key."
         case .cacheRetentionUnavailable:

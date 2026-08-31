@@ -8,7 +8,6 @@ import LitheLocalHistoryModule
 import LitheLanguageIntelligenceModule
 import LitheModuleAPI
 import LitheSearchModule
-import LitheTerminalModule
 import LitheWorkspaceModule
 import LitheCoreContracts
 
@@ -108,11 +107,13 @@ final class AppModel: ObservableObject, Identifiable {
     @Published var isGitLogVisible = false
     @Published var isTerminalVisible = false
     @Published var pendingTerminalCloseSessionID: UUID?
+    var pendingRunAction: PendingRunAction?
     @Published var isReferencesVisible = false
     @Published var isProblemsVisible = false
     @Published var isMavenVisible = false
     @Published var isSpringVisible = false
     @Published var isDebugVisible = false
+    @Published var debugBreakpointPresentation = DebugBreakpointPresentationState()
     @Published var isDiscourseCommunityVisible = false
     @Published var isImplementationChooserVisible = false
     var languageProviderCatalog: LanguageProviderCatalog { languageToolingFeature.catalog }
@@ -140,12 +141,10 @@ final class AppModel: ObservableObject, Identifiable {
     private var workbenchBackgroundFeatureObservation: AnyCancellable?
     private var isProjectSessionActive = true
     private var fileVisibilityRulesObserverID: UUID?
-    /// Run or Debug that arrived before the workspace snapshot reached the run
-    /// feature. `loadProjectServices` resumes it once the inventory matches.
-    var pendingRunAction: PendingRunAction?
     private var requestProjectOpen: ((URL) -> Void)?
     private var didCloseProject: (() -> Void)?
     private var securityScopedWorkspaceURL: URL?
+    let javaTestWorkflowState = JavaTestWorkflowState()
     let services: AppServices
     let platformUI: any PlatformUI
     let settings: AppSettings
@@ -154,11 +153,16 @@ final class AppModel: ObservableObject, Identifiable {
     let runtimeFeature: RuntimeSettingsFeatureModel
     let languageToolingFeature: LanguageToolingFeatureModel
     let debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver
+    let debugPortAvailabilityChecker: any DebugPortAvailabilityChecking
     let workspaceFeature: WorkspaceFeatureModel
     let githubFeature: GitHubFeatureModel
     let discourseCommunityFeature: DiscourseCommunityFeatureModel
     let editorTabOrderFeature = EditorTabOrderFeatureModel()
     let terminalPlacementFeature: TerminalPlacementFeatureModel
+    var debugTerminalSessionIDs: Set<UUID> = []
+    var activeDebugTerminalSessionID: UUID?
+    var debugTerminalSessionIDsByDebugSession: [DebugSessionID: Set<UUID>] = [:]
+    var activeDebugTerminalSessionIDsByDebugSession: [DebugSessionID: UUID] = [:]
     private struct CachedModuleCapability {
         let moduleID: ModuleID
         let value: AnyObject
@@ -176,28 +180,6 @@ final class AppModel: ObservableObject, Identifiable {
     }
     var searchCapability: LitheSearchModule.SearchModuleCapability? {
         cachedModuleCapability(.searchWorkspace)
-    }
-    var terminalCapability: LitheTerminalModule.TerminalModuleCapability? {
-        cachedModuleCapability(.terminalWorkspace)
-    }
-    var terminalFeature: TerminalFeatureModel? { terminalCapability?.feature }
-    var availableTerminalShells: [String] { terminalFeature?.availableShells ?? [] }
-
-    @MainActor
-    func activateTerminalModule() async -> Bool {
-        guard terminalCapability == nil else { return true }
-        do {
-            let value = try await services.moduleRuntime.activateCapability(.terminalWorkspace)
-            guard let capability = value as? LitheTerminalModule.TerminalModuleCapability else { return false }
-            let feature = capability.feature
-            cacheModuleCapability(capability, id: .terminalWorkspace, moduleID: .terminal)
-            observeModuleFeature(.terminal, observation: feature.objectWillChange.sink { [weak self] _ in
-                self?.scheduleObjectWillChangeRelay()
-            })
-            return true
-        } catch {
-            return false
-        }
     }
     var historyCapability: LitheLocalHistoryModule.HistoryModuleCapability? {
         cachedModuleCapability(.historyWorkspace)
@@ -378,6 +360,7 @@ final class AppModel: ObservableObject, Identifiable {
             sessionsProvider: { nil }
         )
         debugLaunchConfigurationResolver = services.debugLaunchConfigurationResolver
+        debugPortAvailabilityChecker = services.debugPortAvailabilityChecker
         documentFeature = DocumentFeatureModel(
             operations: services.workspaceOperations,
             documentLifecycleDecider: services.documentLifecycleDecider,
@@ -502,7 +485,7 @@ final class AppModel: ObservableObject, Identifiable {
             },
             reloadProjectServices: { [weak self] in
                 guard let self, let workspaceURL = self.workspaceURL else { return }
-                await self.loadProjectServicesForAppliedSnapshot(at: workspaceURL)
+                await self.loadProjectServices(at: workspaceURL, files: self.projectFiles)
             },
             refreshGit: { [weak self] in
                 guard let feature = self?.gitFeatureIfActive else { return }
@@ -512,17 +495,10 @@ final class AppModel: ObservableObject, Identifiable {
                 guard let feature = await self?.activateHistoryModule() else { return }
                 await feature.updateVisibilityRules(rules.localHistoryRules)
             },
-            onSnapshotLoaded: { [weak self] workspaceURL, snapshot, isInitialLoad in
-                guard let self else { return }
-                // The rebuild already rejected a stale workspace before calling
-                // us, and it passes that workspace with the snapshot so this
-                // load cannot pair A.files with B's URL after a project switch.
-                await self.loadProjectServices(
-                    at: workspaceURL,
-                    files: snapshot.files,
-                    snapshotID: snapshot.id,
-                    resumesDeferredRunAction: true
-                )
+            onSnapshotLoaded: { [weak self] snapshot, isInitialLoad in
+                guard let self, let workspaceURL = self.workspaceURL else { return }
+                // WorkspaceFeatureModel requests the single Git refresh after this callback.
+                await self.loadProjectServices(at: workspaceURL, files: snapshot.files)
                 if isInitialLoad {
                     self.projectHistoryFeatureIfActive?.seed(files: snapshot.files)
                 }
@@ -596,8 +572,6 @@ final class AppModel: ObservableObject, Identifiable {
             .sink { [weak self] ids in self?.editorTabOrderFeature.reconcileDocuments(orderedIDs: ids) }
         javaFeature.configure(
             documentProvider: { [weak self] in self?.activeDocument },
-            caretProvider: { [weak self] in self?.editorCaret },
-            notify: { [weak self] message in self?.showNotification(message) },
             loadBlame: { [weak self] fileURL in
                 guard let self else { return [] }
                 guard let feature = await self.activateGitModule() else { return [] }
@@ -722,6 +696,10 @@ final class AppModel: ObservableObject, Identifiable {
 
     func shutdownProjectSession() async {
         shortcutDetector?.stop()
+        Task { [weak self] in
+            await self?.services.moduleRuntime.shutdownAll()
+        }
+        cancelJavaTestWorkflows()
         languageToolingSessionsIfActive?.stopAll()
         languageTestServiceIfActive?.stop()
         stopTerminalSessions()
@@ -733,43 +711,27 @@ final class AppModel: ObservableObject, Identifiable {
         await shutdownModuleRuntime()
     }
 
-    /// Starts this session's module-graph teardown, or joins the one already in
-    /// flight, and records it before returning.
-    ///
-    /// Recording the task synchronously is what lets an on-demand activation
-    /// that follows a project switch see the teardown at all: the caller does not
-    /// block the switch on it, so an activation can otherwise start first and be
-    /// released moments later by this shutdown.
-    private func beginModuleRuntimeShutdown() {
-        guard moduleRuntimeShutdownTask == nil else { return }
-        let moduleRuntime = services.moduleRuntime
-        moduleRuntimeShutdownTask = Task { @MainActor [weak self] in
-            await moduleRuntime.shutdownAll()
-            guard let self else { return }
-            self.moduleRuntimeShutdownTask = nil
-            self.clearModuleBindings(for: .database)
-        }
-    }
-
     /// Shuts down this session's module graph once, even when multiple
     /// lifecycle paths request cleanup at the same time.
     private func shutdownModuleRuntime() async {
-        beginModuleRuntimeShutdown()
-        await moduleRuntimeShutdownTask?.value
-    }
-
-    /// Lets an on-demand activation resume after a session teardown finishes.
-    ///
-    /// A shutdown that starts while this wait is suspended is joined as well, so
-    /// activation never returns a capability the runtime is about to release.
-    func awaitModuleRuntimeShutdown() async {
-        while let shutdownTask = moduleRuntimeShutdownTask {
-            await shutdownTask.value
+        if let moduleRuntimeShutdownTask {
+            await moduleRuntimeShutdownTask.value
+            return
         }
+
+        let moduleRuntime = services.moduleRuntime
+        let shutdownTask = Task { @MainActor in
+            await moduleRuntime.shutdownAll()
+        }
+        moduleRuntimeShutdownTask = shutdownTask
+        await shutdownTask.value
+        moduleRuntimeShutdownTask = nil
+        clearModuleBindings(for: .database)
     }
 
     private func reloadJavaRuntimeServices() {
-        debugFeatureIfActive?.stop()
+        cancelJavaTestWorkflows()
+        genericDebugFeatureIfActive?.stop()
         mavenFeatureIfActive?.stop()
         languageToolingSessionsIfActive?.stopLanguageServer(providerID: "java")
         javaFeature.stop()
@@ -781,9 +743,28 @@ final class AppModel: ObservableObject, Identifiable {
             }
             Task { [weak self] in
                 guard let self else { return }
-                await self.loadProjectServicesForAppliedSnapshot(at: workspaceURL)
+                await self.loadProjectServices(at: workspaceURL, files: self.projectFiles)
             }
         }
+    }
+
+    /// Loads build-system and run state at the workspace boundary. The generic
+    /// run lifecycle is intentionally not owned by JavaFeatureModel.
+    func loadProjectServices(at workspaceURL: URL, files: [URL]) async {
+        prepareJavaLanguageServerForWorkspaceIfNeeded(
+            at: workspaceURL,
+            files: files
+        )
+        await springFeature.load(
+            workspaceURL: workspaceURL,
+            files: files,
+            textOverrides: Dictionary(uniqueKeysWithValues: openDocuments.map {
+                ($0.url.standardizedFileURL, $0.text)
+            })
+        )
+        guard let execution = await activateExecutionModule() else { return }
+        execution.tests.discover(workspaceURL: workspaceURL, files: files)
+        await execution.projectDevelopment.loadProject(at: workspaceURL, files: files)
     }
 
     var projectName: String {
@@ -928,7 +909,10 @@ final class AppModel: ObservableObject, Identifiable {
 
     func openProjectDirectly(_ url: URL) {
         let normalizedURL = url.standardizedFileURL
-        beginModuleRuntimeShutdown()
+        Task { [weak self] in
+            guard let self else { return }
+            await self.shutdownModuleRuntime()
+        }
         if let previousWorkspaceURL = workspaceURL {
             workspaceFeature.persistWorkspaceSession(for: previousWorkspaceURL)
         }
@@ -936,7 +920,7 @@ final class AppModel: ObservableObject, Identifiable {
         // every provider session before replacing the catalog or clearing the
         // document projection so no old-root documents, diagnostics, or
         // responses can survive into the next workspace.
-        cancelJavaLanguageServerPreparation()
+        cancelJavaWorkspaceWorkflows()
         languageToolingSessionsIfActive?.stopAll()
         reloadLanguageProviderCatalog(for: normalizedURL)
         stopTerminalSessions()
@@ -945,10 +929,8 @@ final class AppModel: ObservableObject, Identifiable {
         runtimeFeature.openProject(at: normalizedURL)
         mavenFeatureIfActive?.reset()
         runFeatureIfActive?.reset()
-        pendingRunAction = nil
-        scheduleObjectWillChangeRelay()
-        debugFeatureIfActive?.reset()
         genericDebugFeatureIfActive?.reset()
+        debugBreakpointPresentation.reset()
         clearLanguageNavigationProjection()
         javaFeature.stop()
         springFeature.reset()
@@ -981,18 +963,13 @@ final class AppModel: ObservableObject, Identifiable {
         pendingProjectItemDeletion = nil
         recentProjects = recentProjectsStore.record(normalizedURL, in: recentProjects)
 
-        // The rebuild belongs to this opening. Reopening the same path advances
-        // the generation, so a rebuild left over from the previous opening stops
-        // instead of publishing its snapshot into this one.
-        let generation = workspaceFeature.workspaceGeneration
         Task {
+            await restoreDebugBreakpoints(for: normalizedURL)
+            guard workspaceURL == normalizedURL else { return }
             _ = await workspaceFeature.rebuild(
                 at: normalizedURL,
                 rules: visibilityRules,
-                isCurrent: { [weak self] in
-                    self?.workspaceURL == normalizedURL
-                        && self?.workspaceFeature.workspaceGeneration == generation
-                }
+                isCurrent: { [weak self] in self?.workspaceURL == normalizedURL }
             )
         }
     }
@@ -1019,7 +996,10 @@ final class AppModel: ObservableObject, Identifiable {
 
     private func performCloseProject() {
         cancelJavaLanguageServerPreparation()
-        beginModuleRuntimeShutdown()
+        Task { [weak self] in
+            guard let self else { return }
+            await self.shutdownModuleRuntime()
+        }
         if let workspaceURL {
             workspaceFeature.persistWorkspaceSession(for: workspaceURL)
         }
@@ -1053,15 +1033,14 @@ final class AppModel: ObservableObject, Identifiable {
         isTestsVisible = false
         isDebugVisible = false
         stopTerminalSessions()
+        cancelJavaWorkspaceWorkflows()
         languageToolingSessionsIfActive?.stopAll()
         languageTestServiceIfActive?.reset()
         runtimeFeature.closeProject()
         mavenFeatureIfActive?.reset()
         runFeatureIfActive?.reset()
-        pendingRunAction = nil
-        scheduleObjectWillChangeRelay()
-        debugFeatureIfActive?.reset()
         genericDebugFeatureIfActive?.reset()
+        debugBreakpointPresentation.reset()
         javaFeature.stop()
         springFeature.reset()
         editorChrome.reset()

@@ -3,6 +3,10 @@ import Foundation
 import UniformTypeIdentifiers
 
 final class MacPlatformUI: PlatformUI {
+    func activateApplication() {
+        NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
     func chooseDirectory(title: String, prompt: String) -> URL? {
         let panel = NSOpenPanel()
         panel.title = title

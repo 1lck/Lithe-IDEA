@@ -82,6 +82,24 @@ stable error code and a user-facing message:
 | `maven.scan` | Parse a Maven project descriptor and recursively return modules/profiles |
 | `maven.launchPlan` | Produce a deterministic Maven invocation from a versioned project context |
 | `maven.diagnostics` | Parse stable Maven compiler diagnostics from build output |
+| `debug.createSession` | Create a transport-neutral DAP session and return its initialize frame |
+| `debug.launch` | Queue a launch or attach request, including during initialization |
+| `debug.javaTestLaunch` | Normalize JUnit or TestNG launch metadata into Java DAP arguments |
+| `debug.steppingFilters` | Return adapter defaults or normalize portable stepping filters |
+| `debug.relocateBreakpoints` | Move source breakpoints across one exact UTF-16 editor replacement |
+| `debug.setBreakpoints` | Replace and deterministically order one source's DAP breakpoints |
+| `debug.setExceptionBreakpoints` | Replace and deterministically order one session's exception filters |
+| `debug.setFunctionBreakpoints` | Replace and deterministically order one session's named function breakpoints |
+| `debug.dataBreakpointInfo` | Resolve an adapter-owned data breakpoint identity for a paused variable or field |
+| `debug.setDataBreakpoints` | Replace and deterministically order one session's resolved data breakpoints |
+| `debug.setVariable` | Replace one visible variable value in its adapter-owned parent container |
+| `debug.cancelOperation` | Cancel or time out one pending operation and ignore its late response |
+| `debug.execute` | Submit continue, pause, next, step-in, or step-out control |
+| `debug.inspect` | Request normalized threads, frames, scopes, variables, or evaluation |
+| `debug.receive` | Reduce base64-encoded bytes received from a platform-owned DAP transport |
+| `debug.runInTerminalResponse` | Complete one adapter-requested native terminal launch |
+| `debug.disconnect` | Begin the DAP disconnect handshake without closing the native transport |
+| `debug.destroySession` | Remove a session after the platform closes its native transport |
 | `lsp.applyTextEdits` | Apply LSP UTF-16 text edits with range validation |
 | `lsp.plainSnippet` | Convert LSP snippet insert text into plain editor text |
 | `lsp.builtinCompletions` | Return lightweight current-file identifier completions |
@@ -364,6 +382,173 @@ details `invalidRange`. Successful responses return `{ "text": string }`.
 after removing LSP tab stops and replacing simple placeholder defaults such as
 `${1:name}` with `name`.
 
+The `debug.*` commands are the shared Debug Adapter Protocol boundary. Rust
+owns DAP framing, request sequences, response correlation, initialization and
+execution state, deterministic breakpoint sets, and normalized thread, stack,
+scope, variable, evaluation, output, stop, continue, and termination events.
+Platforms own adapter discovery, JDT LS activation, sockets or process pipes,
+native process termination, persistence, and UI rendering.
+
+`debug.createSession` accepts `{ sessionId, adapterId, rootPath,
+supportsRunInTerminalRequest }`. It does not
+open a socket or launch a process. It returns a session update in
+`initializing` state with an ordered `outboundFrames` array. Each frame is a
+complete Content-Length-framed byte sequence encoded as base64. Every Debug
+command returns the same update shape: `{ sessionId, state, outboundFrames,
+events }`. The platform writes frames in array order and feeds received chunks
+back through `debug.receive` as `{ sessionId, dataBase64 }`; partial and
+consecutive messages are buffered and reduced in Rust.
+
+When `supportsRunInTerminalRequest` is true, the initialize frame advertises
+the native host's terminal capability. An adapter `runInTerminal` reverse
+request becomes a deterministic `runInTerminalRequested` event containing a
+Core-generated `requestId`, terminal kind, title, working directory, ordered
+argument vector, sorted environment changes, and shell-interpretation flag.
+The platform launches the process through its PTY/ConPTY adapter and calls
+`debug.runInTerminalResponse` with `{ sessionId, requestId, success, processId?,
+shellProcessId?, message? }`. Core validates process identifiers, emits the DAP
+response, ignores duplicate or expired completions, and fails pending terminal
+requests when the session disconnects. The shared compatibility cases are in
+`shared/fixtures/debug/run-in-terminal-v1.json`.
+
+`debug.launch` accepts an `operationId` and a language-neutral configuration
+containing `name`, request kind (`launch` or `attach`), provider arguments, and
+optional portable `steppingFilters`.
+`debug.javaTestLaunch` accepts JDT LS-owned working directory, main class,
+project, classpath, module path, VM arguments, program arguments, Java test
+framework, and a platform-owned loopback result port. JUnit placeholder ports
+are replaced deterministically. TestNG appends the packaged runner once and
+uses its selected method names. Core serializes JDT's VM and program argument
+arrays into the string fields required by Java Debug Server's DAP launch model.
+JDT LS remains responsible for resolving file,
+class, and method selections to this metadata; Core does not parse Java source
+or infer a test framework in this command. The command creates no process,
+socket, timer, or persistent session; compatibility cases live in
+`shared/fixtures/debug/java-test-launch-v1.json`.
+Launch submitted during initialization is retained until the initialize
+response. For Java, Core projects those filters into the adapter's `stepFilters`
+launch object unless the provider arguments already contain an explicit value.
+`debug.steppingFilters` accepts `{ adapterId, filters? }`; omission of `filters`
+returns deterministic adapter defaults, while a supplied value is trimmed,
+sorted, de-duplicated, and validated before persistence or launch. Omitted
+fields inside a supplied value are empty or false, so future adapters never
+inherit Java policy accidentally. Java class
+patterns support `$JDK`, `$Libraries`, and adapter-compatible wildcards. Other
+adapters default to an unfiltered policy until their integration defines one.
+Java defaults include both `$JDK` and `$Libraries`, matching the IDE convention
+of collapsing platform and dependency frames while retaining project frames.
+The portable cases are in
+`shared/fixtures/debug/stepping-filters-v1.json`.
+
+Normalized stack frames include `isFiltered`. Core derives it from the active
+class filters using the DAP frame name, source path, presentation hint, and
+session root. This classification is presentation metadata only: Core returns
+the complete ordered stack, while native UIs may collapse consecutive matching
+frames and must allow users to expand them. `debug.setBreakpoints` accepts
+one-based line and optional column,
+enabled state, condition, hit condition, and log message values. Rust sorts and
+de-duplicates the complete source set, retains disabled entries without sending
+them to the adapter, waits for the DAP `initialized` event, then sends all
+sources in deterministic path order followed by `configurationDone` when the
+adapter supports it. This allows native products to mute or restore breakpoints
+without maintaining a second protocol representation.
+
+`debug.setExceptionBreakpoints` accepts adapter-defined filter identifiers,
+enabled state, and an optional condition. Rust trims, sorts, and de-duplicates
+the complete selection, retains disabled filters without sending them, and uses
+DAP `filterOptions` only when the adapter negotiated that capability. Before a
+native client has configured a selection, Rust adopts the adapter's declared
+defaults so the first `initialized` flow sends exception filters before source
+breakpoints and `configurationDone`.
+
+`debug.setFunctionBreakpoints` accepts a method or function name, enabled
+state, condition, and hit condition. Rust retains the complete sorted set,
+omits disabled entries, and sends DAP `setFunctionBreakpoints` before source
+breakpoints only when the adapter negotiated function-breakpoint support.
+
+Data breakpoints use DAP's required two-step flow. The native client first calls
+`debug.dataBreakpointInfo` with the selected variable name plus its parent
+`variablesReference` and current frame. Rust Core correlates the response by
+`operationId` and returns the adapter-owned `dataId`, display description,
+allowed access modes, and `canPersist`. The client then calls
+`debug.setDataBreakpoints`; Core keeps the complete deterministic set, omits
+disabled entries, and sends access type, condition, and hit count only when the
+adapter negotiated data-breakpoint support. Native clients must discard IDs
+whose `canPersist` is false when the debug session ends.
+
+`debug.setVariable` accepts the selected variable's parent `variablesReference`,
+name, and replacement text. Core permits mutation only while paused and after
+the adapter advertises `supportsSetVariable`, then returns the adapter's
+normalized replacement value and optional type through the caller's
+`operationId`.
+
+`debug.execute` covers continue, pause, step over, step in, step out, step back,
+restart, terminate, and capability-gated single-thread execution. Rust Core rejects stepping unless the session is paused
+and a thread is selected, and gates step back, restart, and terminate against
+the adapter capabilities negotiated during initialization. Restart and
+terminate are session-level requests and never receive a stale `threadId`.
+Single-thread pause, continue, and stepping preserve the paused session when
+the adapter reports that other threads remain stopped.
+
+`debug.cancelOperation` removes the matching pending request before emitting a
+terminal failure, so a late adapter response cannot mutate current UI state. If
+the adapter advertises `supportsCancelRequest`, Core also sends DAP `cancel`
+with the original request sequence. Native hosts own monotonic deadlines and
+invoke this command with `cancelled` or `timedOut`; the macOS reference product
+uses a bounded 10-second deadline for interactive inspections and mutations.
+
+Smart step into and run to cursor keep DAP's target lookup explicit. Clients
+use `debug.inspect` with `stepInTargets` and a frame, or `gotoTargets` with a
+source path and one-based cursor coordinates. Core normalizes the returned
+targets and correlates them to the caller's operation. The selected target is
+then passed as `targetId` to `debug.execute` using `stepIn` or `goto`; both
+flows are rejected unless the adapter advertised the matching capability.
+
+The successful DAP initialize response emits a normalized `capabilities` event.
+It includes conditional, hit-count, log, function, data, and exception
+breakpoint support; variable mutation; restart and terminate requests; step
+back; exception information; request cancellation; single-thread execution;
+step-in targets; goto targets; and ordered exception filters. Native UIs
+must treat capability state as unknown until this event arrives and hide or
+disable unsupported actions after negotiation.
+
+`debug.execute` correlates continue, pause, next, step-in, and step-out to the
+caller's `operationId`. `debug.inspect` supports `threads`, `stackTrace`,
+`scopes`, `variables`, `evaluate`, and capability-gated `exceptionInfo`;
+required thread, frame, variable reference, and expression fields are validated
+before a request is emitted. A `variables` inspection may additionally carry
+`variableFilter` (`named` or `indexed`), zero-based `start`, and positive
+`count`; Core maps them to DAP `filter`, `start`, and `count` and rejects those
+fields for every other inspection kind. Normalized scopes, variables,
+evaluations, and variable-mutation results include non-negative
+`namedVariables` and `indexedVariables` counts, using zero when the adapter
+omits or reports an invalid negative value. The compatibility cases are in
+`shared/fixtures/debug/variable-paging-v1.json`.
+
+Exception information is available only while
+paused and normalizes the exception type, description, break mode, optional
+stack trace, evaluation name, and nested exception details. The Java adapter
+currently supplies the type, description, and break mode but no expandable
+exception object reference, so native clients continue to inspect ordinary
+frame scopes for local state.
+Terminal operation events are exactly one of `operationCompleted` with a typed
+result or `operationFailed` with the adapter command and safe message. Other
+ordered events are `stateChanged`, `initialized`, `output`, `stopped`,
+`continued`, `terminated`, and `breakpoint`. Source coordinates are one-based.
+The compatibility flow is captured in
+`shared/fixtures/debug/dap-session-v1.json`; exception normalization cases are
+captured in `shared/fixtures/debug/exception-info-v1.json`.
+
+`debug.disconnect` emits the protocol handshake and enters `terminating`.
+Core derives DAP `terminateDebuggee` from the session's request kind: `launch`
+uses `true`, while `attach` and a session stopped before either request use
+`false`. This prevents a remote detach from killing a JVM the IDE does not own.
+The compatibility cases are in
+`shared/fixtures/debug/disconnect-policy-v1.json`. The platform keeps the
+socket or process alive long enough to flush the frame, then closes it and
+calls `debug.destroySession`. A session allocates no process, socket, timer, or
+background task, and no session exists until Debug is used.
+
 `lsp.builtinCompletions`, `lsp.builtinHover`, and `lsp.builtinNavigation` are
 the no-process lightweight language path. They accept current-file text, an
 absolute `filePath`, and a zero-based LSP position. Completion returns
@@ -404,8 +589,11 @@ provider such as JDT LS that has a later readiness signal,
 progress and `serviceReadyAbsoluteTimeoutMilliseconds` is the final safety cap.
 The defaults are 45 seconds idle and 10 minutes absolute; duplicate progress
 does not refresh the idle deadline. `jdtlsLaunchResources`, when present,
-contains `launcherJarPath`, `configurationDirectory`, and `lombokAgentPath`; it
-is valid only for the Java provider and requires `runtimeExecutablePath`. Rust
+contains `launcherJarPath`, `configurationDirectory`, `lombokAgentPath`, the
+legacy optional `javaDebugBundlePath`, and ordered
+`javaExtensionBundlePaths`. It is valid only for the Java provider and requires
+`runtimeExecutablePath`. Rust loads the legacy Debug bundle first when present,
+then appends the extension bundle paths with stable de-duplication. Rust
 then uses `runtimeExecutablePath` as the process executable and constructs the
 complete deterministic JDT LS JVM argument list. When the structured object is
 absent, the selected `executablePath` and legacy wrapper arguments remain the
@@ -425,10 +613,11 @@ diagnostic snapshot in `underlyingMessage`.
 
 Platform adapters own filesystem discovery and validate that packaged JDT LS
 contains the Equinox launcher, platform configuration directory, Lombok agent,
-and bundled Java. They do not construct JVM commands. Packaged macOS and Windows
-plans always use structured direct launch, so runtime startup has no shell,
-PowerShell, or user-`PATH` dependency. Wrapper launch remains optional only for
-external or older plans.
+Java Debug Server, and bundled Java. Java Test-capable hosts additionally
+validate their extension bundles and runner. They do not construct JVM commands.
+Packaged macOS and Windows plans always use structured direct launch, so runtime
+startup has no shell, PowerShell, or user-`PATH` dependency. Wrapper launch
+remains optional only for external or older plans.
 
 For JDT LS, platform adapters observe root Maven/Gradle descriptor timestamps
 and sizes, names of direct Maven module directories, and the selected JDT LS

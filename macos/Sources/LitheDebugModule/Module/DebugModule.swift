@@ -2,14 +2,10 @@ import Foundation
 import LitheModuleAPI
 
 @MainActor
-public protocol JavaDebugFeatureTarget: AnyObject {}
-
-@MainActor
 public protocol GenericDebugFeatureTarget: AnyObject {}
 
 @MainActor
 public protocol DebugServiceGraph: AnyObject {
-    var javaFeatureTarget: any JavaDebugFeatureTarget { get }
     var genericFeatureTarget: any GenericDebugFeatureTarget { get }
     var hasActiveDebugWork: Bool { get }
     func activate(context: ModuleContext)
@@ -19,11 +15,9 @@ public protocol DebugServiceGraph: AnyObject {
 
 @MainActor
 public final class DebugModuleCapability: NSObject {
-    public let javaFeature: any JavaDebugFeatureTarget
     public let genericFeature: any GenericDebugFeatureTarget
 
     fileprivate init(graph: any DebugServiceGraph) {
-        javaFeature = graph.javaFeatureTarget
         genericFeature = graph.genericFeatureTarget
     }
 }
