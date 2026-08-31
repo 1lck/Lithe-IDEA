@@ -12,6 +12,7 @@ const {
   rollbackFilesChanges,
   setFilesStaged,
 } = await import("./git-status-api");
+const { getWorkingTreePathDiff } = await import("./git-diff-api");
 
 beforeEach(() => {
   invoke.mockClear();
@@ -80,6 +81,20 @@ describe("Git status batch mutations", () => {
       repoPath: "C:/repo",
       operation: "exclude",
       paths: ["generated/"],
+    });
+  });
+});
+
+describe("Git status review diffs", () => {
+  test("reviews a partially staged path against HEAD before selected-path commit", async () => {
+    await expect(
+      getWorkingTreePathDiff("C:/repo", "src/partially-staged.ts"),
+    ).resolves.toBeNull();
+
+    expect(invoke).toHaveBeenLastCalledWith("git_diff_file", {
+      repoPath: "C:/repo",
+      filePath: "src/partially-staged.ts",
+      reference: "HEAD",
     });
   });
 });
