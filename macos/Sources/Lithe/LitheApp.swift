@@ -540,6 +540,7 @@ private struct SettingsWindowAccessor: NSViewRepresentable {
             guard let window = view.window else { return }
             reference.window = window
             window.title = title
+            window.level = .floating
             let windowAppearance = themePreference.windowAppearance
             if window.appearance?.name != windowAppearance?.name {
                 window.appearance = windowAppearance

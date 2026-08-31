@@ -6,6 +6,7 @@ struct ProjectSidebarView: View {
     let rowHeight: CGFloat
     @State private var expandedDirectoryPaths: Set<String> = []
     @State private var expandedTreeRootPath: String?
+    @State private var contextMenuPath: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -40,7 +41,8 @@ struct ProjectSidebarView: View {
                                     ),
                                     actions: ProjectTreeActions(model: model),
                                     expandedDirectoryPathsSnapshot: expandedDirectoryPaths,
-                                    expandedDirectoryPaths: $expandedDirectoryPaths
+                                    expandedDirectoryPaths: $expandedDirectoryPaths,
+                                    contextMenuPath: $contextMenuPath
                                 )
                                 .equatable()
                             }
@@ -266,6 +268,7 @@ private struct ProjectFileTreeContent: View, Equatable {
     let actions: ProjectTreeActions
     let expandedDirectoryPathsSnapshot: Set<String>
     @Binding var expandedDirectoryPaths: Set<String>
+    @Binding var contextMenuPath: String?
 
     static func == (lhs: ProjectFileTreeContent, rhs: ProjectFileTreeContent) -> Bool {
         lhs.root == rhs.root
@@ -274,6 +277,7 @@ private struct ProjectFileTreeContent: View, Equatable {
             && lhs.activeDocumentURL == rhs.activeDocumentURL
             && lhs.gitStatus == rhs.gitStatus
             && lhs.expandedDirectoryPathsSnapshot == rhs.expandedDirectoryPathsSnapshot
+            && lhs.contextMenuPath == rhs.contextMenuPath
     }
 
     var body: some View {
@@ -285,7 +289,8 @@ private struct ProjectFileTreeContent: View, Equatable {
             activeDocumentURL: activeDocumentURL,
             gitStatus: gitStatus,
             actions: actions,
-            expandedDirectoryPaths: $expandedDirectoryPaths
+            expandedDirectoryPaths: $expandedDirectoryPaths,
+            contextMenuPath: $contextMenuPath
         )
         .id(root.url.standardizedFileURL.path)
     }
@@ -300,6 +305,7 @@ private struct FileNodeRow: View {
     let gitStatus: ProjectGitStatusSnapshot
     let actions: ProjectTreeActions
     @Binding var expandedDirectoryPaths: Set<String>
+    @Binding var contextMenuPath: String?
     @State private var resolvedJavaIconKind: LitheIconKind?
 
     private var rowWidth: CGFloat {
@@ -330,7 +336,8 @@ private struct FileNodeRow: View {
                             activeDocumentURL: activeDocumentURL,
                             gitStatus: gitStatus,
                             actions: actions,
-                            expandedDirectoryPaths: $expandedDirectoryPaths
+                            expandedDirectoryPaths: $expandedDirectoryPaths,
+                            contextMenuPath: $contextMenuPath
                         )
                         .id(child.url.standardizedFileURL.path)
                     }
@@ -343,6 +350,7 @@ private struct FileNodeRow: View {
 
     private var directoryRow: some View {
         Button {
+            contextMenuPath = nil
             if isExpanded {
                 expandedDirectoryPaths.remove(node.url.path)
                 node.collapsedAncestorPaths.forEach { expandedDirectoryPaths.remove($0) }
@@ -373,18 +381,24 @@ private struct FileNodeRow: View {
             .frame(height: rowHeight)
             .contentShape(Rectangle())
             .litheRowHover(
+                isActive: contextMenuPath == node.url.standardizedFileURL.path,
                 cornerRadius: LitheTheme.Metrics.projectTreeSelectionCornerRadius,
+                activeBackground: LitheTheme.subtleSelection,
                 animation: nil
             )
         }
         .buttonStyle(LitheTreeRowButtonStyle())
         .lithePointer()
         .padding(.horizontal, LitheTheme.Metrics.projectTreeContentHorizontalInset)
-        .litheContextMenu { directoryContextMenuItems }
+        .litheContextMenu(
+            items: { directoryContextMenuItems },
+            onRightClick: { contextMenuPath = node.url.standardizedFileURL.path }
+        )
     }
 
     private var fileRow: some View {
         Button {
+            contextMenuPath = nil
             actions.openFile(node.url)
         } label: {
             HStack(spacing: 6) {
@@ -412,7 +426,8 @@ private struct FileNodeRow: View {
             .contentShape(Rectangle())
             .litheRowHover(
                 isActive: activeDocumentURL?.standardizedFileURL.path
-                    == node.url.standardizedFileURL.path,
+                    == node.url.standardizedFileURL.path
+                    || contextMenuPath == node.url.standardizedFileURL.path,
                 cornerRadius: LitheTheme.Metrics.projectTreeSelectionCornerRadius,
                 activeBackground: LitheTheme.subtleSelection,
                 animation: nil
@@ -421,7 +436,10 @@ private struct FileNodeRow: View {
         .buttonStyle(LitheTreeRowButtonStyle())
         .lithePointer()
         .padding(.horizontal, LitheTheme.Metrics.projectTreeContentHorizontalInset)
-        .litheContextMenu { fileContextMenuItems }
+        .litheContextMenu(
+            items: { fileContextMenuItems },
+            onRightClick: { contextMenuPath = node.url.standardizedFileURL.path }
+        )
         .task(id: node.url.standardizedFileURL.path) {
             guard node.url.pathExtension.lowercased() == "java" else { return }
             resolvedJavaIconKind = await actions.javaIconKind(node.url)
@@ -441,10 +459,10 @@ private struct FileNodeRow: View {
         }
 
         items += [
-            .action("New File…", systemImage: "doc.badge.plus") {
+            .action("New File…") {
                 actions.requestCreateFile(node.url)
             },
-            .action("New Directory…", systemImage: "folder.badge.plus") {
+            .action("New Directory…") {
                 actions.requestCreateDirectory(node.url)
             },
             .separator
@@ -461,7 +479,7 @@ private struct FileNodeRow: View {
                 .action("Copy Project Path", systemImage: "doc.on.doc") {
                     actions.copyPath(node.url, relative: false)
                 },
-                .action("Copy Relative Path", systemImage: "link") {
+                .action("Copy Relative Path") {
                     actions.copyPath(node.url, relative: true)
                 }
             ]
@@ -473,14 +491,14 @@ private struct FileNodeRow: View {
                 .action("Copy Path", systemImage: "doc.on.doc") {
                     actions.copyPath(node.url, relative: false)
                 },
-                .action("Copy Relative Path", systemImage: "link") {
+                .action("Copy Relative Path") {
                     actions.copyPath(node.url, relative: true)
                 },
                 .separator,
-                .action("Duplicate", systemImage: "plus.square.on.square") {
+                .action("Duplicate") {
                     actions.duplicate(node.url)
                 },
-                .action("Rename…", systemImage: "pencil") {
+                .action("Rename…") {
                     actions.requestRename(node.url)
                 },
                 .action("Move to Trash", systemImage: "trash", role: .destructive) {
@@ -500,7 +518,7 @@ private struct FileNodeRow: View {
 
     private var fileContextMenuItems: [LitheContextMenuItem] {
         var items: [LitheContextMenuItem] = [
-            .action("Open", systemImage: "arrow.up.right.square") {
+            .action("Open") {
                 actions.openFile(node.url)
             }
         ]
@@ -515,10 +533,10 @@ private struct FileNodeRow: View {
 
         items += [
             .separator,
-            .action("Duplicate", systemImage: "plus.square.on.square") {
+            .action("Duplicate") {
                 actions.duplicate(node.url)
             },
-            .action("Rename…", systemImage: "pencil") {
+            .action("Rename…") {
                 actions.requestRename(node.url)
             },
             .action("Local History…", systemImage: "clock.arrow.circlepath") {
@@ -534,7 +552,7 @@ private struct FileNodeRow: View {
             .action("Copy Path", systemImage: "doc.on.doc") {
                 actions.copyPath(node.url, relative: false)
             },
-            .action("Copy Relative Path", systemImage: "link") {
+            .action("Copy Relative Path") {
                 actions.copyPath(node.url, relative: true)
             }
         ]

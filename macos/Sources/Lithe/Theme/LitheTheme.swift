@@ -406,7 +406,7 @@ enum LitheTheme {
         static let treeRowHeight: CGFloat = 27
         // IntelliJ IDEA New UI uses contiguous project-tree rows, 4/12 pt
         // tree insets, and an 8 pt selection arc (4 pt corner radius).
-        static let projectTreeRowSpacing: CGFloat = 0
+        static let projectTreeRowSpacing: CGFloat = 1
         static let projectTreeContentVerticalInset: CGFloat = 4
         static let projectTreeContentHorizontalInset: CGFloat = 12
         static let projectTreeSelectionCornerRadius: CGFloat = 4

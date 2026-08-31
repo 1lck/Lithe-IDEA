@@ -798,7 +798,7 @@ struct ChangesSidebarView: View {
             }
             .controlSize(.small)
         }
-        .padding(10)
+        .padding([.top, .horizontal], 10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.toolHeader)
     }

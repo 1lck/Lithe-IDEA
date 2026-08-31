@@ -107,7 +107,7 @@ private struct LitheContextMenuRow: View {
                 )
 
                 Text(LocalizedStringKey(item.title))
-                    .font(.system(size: 13, weight: .regular))
+                    .font(.system(size: 12, weight: .regular))
                     .foregroundStyle(isHovering ? LitheTheme.toolWindowSelectedText : LitheTheme.primaryText)
                     .lineLimit(1)
 
@@ -115,12 +115,12 @@ private struct LitheContextMenuRow: View {
 
                 if let shortcut = item.shortcut {
                     Text(shortcut)
-                        .font(.system(size: 12, weight: .regular))
+                        .font(.system(size: 11, weight: .regular))
                         .foregroundStyle(isHovering ? LitheTheme.toolWindowSelectedText.opacity(0.78) : LitheTheme.tertiaryText)
                 }
             }
             .padding(.horizontal, 9)
-            .frame(height: 28)
+            .frame(height: 26)
             .contentShape(Rectangle())
             .background {
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
@@ -159,7 +159,7 @@ private final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         guard !items.isEmpty else { return }
 
         let menuHeight = items.reduce(CGFloat(12)) { height, item in
-            height + (item.kind == .separator ? 11 : 28)
+            height + (item.kind == .separator ? 11 : 26)
         }
         let content = LitheContextMenuContent(
             items: items,
@@ -251,6 +251,7 @@ private final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
 private struct LitheContextMenuTrigger: NSViewRepresentable {
     @Environment(\.locale) private var locale
     let items: () -> [LitheContextMenuItem]
+    let onRightClick: () -> Void
 
     func makeNSView(context: Context) -> LitheRightClickCaptureView {
         let view = LitheRightClickCaptureView()
@@ -264,6 +265,7 @@ private struct LitheContextMenuTrigger: NSViewRepresentable {
 
     private func update(_ view: LitheRightClickCaptureView) {
         view.onRightClick = { screenPoint, appearance in
+            onRightClick()
             LitheContextMenuPresenter.shared.show(
                 items: items(),
                 at: screenPoint,
@@ -290,9 +292,12 @@ private final class LitheRightClickCaptureView: NSView {
 }
 
 extension View {
-    func litheContextMenu(items: @escaping () -> [LitheContextMenuItem]) -> some View {
+    func litheContextMenu(
+        items: @escaping () -> [LitheContextMenuItem],
+        onRightClick: @escaping () -> Void = {}
+    ) -> some View {
         overlay {
-            LitheContextMenuTrigger(items: items)
+            LitheContextMenuTrigger(items: items, onRightClick: onRightClick)
         }
     }
 }

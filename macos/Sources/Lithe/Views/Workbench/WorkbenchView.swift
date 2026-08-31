@@ -21,6 +21,8 @@ private enum WorkbenchWorkspaceMetrics {
     static let paneInset: CGFloat = 0
     static let paneSpacing: CGFloat = 6
     static let paneCornerRadius: CGFloat = 10
+    static let minimumTopPaneHeight: CGFloat = 220
+    static let changesMinimumTopPaneHeight: CGFloat = 332
 }
 
 struct WorkbenchView: View {
@@ -902,6 +904,12 @@ struct WorkbenchView: View {
         WorkbenchWorkspaceSplitView(
             sidebarWidth: sidebarWidth,
             topPaneHeight: topPaneHeight,
+            sidebarPaneBackground: model.selectedSidebar == .changes
+                ? LitheTheme.toolHeader
+                : LitheTheme.editor,
+            minimumTopPaneHeight: model.selectedSidebar == .changes
+                ? WorkbenchWorkspaceMetrics.changesMinimumTopPaneHeight
+                : WorkbenchWorkspaceMetrics.minimumTopPaneHeight,
             isBottomToolVisible: isBottomToolVisible,
             onSidebarWidthCommitted: { width in
                 sidebarWidth = width
@@ -1240,6 +1248,8 @@ private struct WorkbenchNotificationCenterView: View {
 private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTool: View>: View {
     let sidebarWidth: CGFloat
     let topPaneHeight: CGFloat?
+    let sidebarPaneBackground: Color
+    let minimumTopPaneHeight: CGFloat
     let isBottomToolVisible: Bool
     let onSidebarWidthCommitted: (CGFloat) -> Void
     let onTopPaneHeightCommitted: (CGFloat) -> Void
@@ -1258,6 +1268,8 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
     init(
         sidebarWidth: CGFloat,
         topPaneHeight: CGFloat?,
+        sidebarPaneBackground: Color,
+        minimumTopPaneHeight: CGFloat,
         isBottomToolVisible: Bool,
         onSidebarWidthCommitted: @escaping (CGFloat) -> Void,
         onTopPaneHeightCommitted: @escaping (CGFloat) -> Void,
@@ -1270,6 +1282,8 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
     ) {
         self.sidebarWidth = sidebarWidth
         self.topPaneHeight = topPaneHeight
+        self.sidebarPaneBackground = sidebarPaneBackground
+        self.minimumTopPaneHeight = minimumTopPaneHeight
         self.isBottomToolVisible = isBottomToolVisible
         self.onSidebarWidthCommitted = onSidebarWidthCommitted
         self.onTopPaneHeightCommitted = onTopPaneHeightCommitted
@@ -1305,7 +1319,6 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                 maximum: maximumSidebarWidth
             )
 
-            let minimumTopPaneHeight: CGFloat = 220
             let minimumGitPaneHeight: CGFloat = 260
             let maximumTopPaneHeight = max(
                 minimumTopPaneHeight,
@@ -1326,7 +1339,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                             .frame(width: resolvedSidebarWidth)
                             .frame(maxHeight: .infinity)
                             .workbenchPaneChrome(
-                                background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
+                                background: hasWorkbenchBackground ? Color.clear : sidebarPaneBackground,
                                 surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
                                 roundsCorners: !hasWorkbenchBackground
                             )
@@ -1368,11 +1381,14 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                                 onSidebarWidthCommitted(finalWidth)
                             }
                         )
+                        .frame(maxHeight: .infinity)
                         .padding(.top, WorkbenchWorkspaceMetrics.paneInset)
                         .padding(
                             .bottom,
                             isBottomToolVisible ? 0 : WorkbenchWorkspaceMetrics.paneInset
                         )
+                        .contentShape(Rectangle())
+                        .zIndex(1)
                         .offset(
                             x: horizontalPaneInset
                                 + resolvedSidebarWidth
@@ -1420,7 +1436,10 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                             onTopPaneHeightCommitted(finalHeight)
                         }
                     )
+                    .frame(maxWidth: .infinity)
                     .padding(.horizontal, horizontalPaneInset)
+                    .contentShape(Rectangle())
+                    .zIndex(1)
                     .offset(
                         y: resolvedTopPaneHeight
                             + WorkbenchWorkspaceMetrics.paneSpacing / 2
