@@ -1,10 +1,21 @@
 import AppKit
 import SwiftUI
 
+private enum LitheContextMenuMetrics {
+    static let minimumWidth: CGFloat = 252
+    static let maximumWidth: CGFloat = 360
+    static let itemFont = NSFont.menuFont(ofSize: 12)
+    static let shortcutFont = NSFont.menuFont(ofSize: 11)
+    static let rowHeight: CGFloat = 26
+    static let separatorHeight: CGFloat = 11
+    static let verticalPadding: CGFloat = 12
+}
+
 struct LitheContextMenuItem: Identifiable {
     enum Kind {
         case action
         case separator
+        case submenu([LitheContextMenuItem])
     }
 
     enum Role {
@@ -51,28 +62,97 @@ struct LitheContextMenuItem: Identifiable {
             action: {}
         )
     }
+
+    static func submenu(
+        _ title: String,
+        systemImage: String? = nil,
+        items: [LitheContextMenuItem]
+    ) -> Self {
+        Self(
+            kind: .submenu(items),
+            title: title,
+            systemImage: systemImage,
+            shortcut: nil,
+            role: .standard,
+            isEnabled: true,
+            action: {}
+        )
+    }
 }
 
 private struct LitheContextMenuContent: View {
     let items: [LitheContextMenuItem]
     let width: CGFloat
     let dismiss: () -> Void
+    let submenuWidth: CGFloat
+    let submenuHeight: CGFloat
+    let onSubmenuVisibilityChanged: (Bool) -> Void
+    @State private var openSubmenuID: UUID?
+
+    private var openSubmenuItems: [LitheContextMenuItem]? {
+        guard let openSubmenuID else { return nil }
+        guard case .submenu(let items) = self.items.first(where: { $0.id == openSubmenuID })?.kind else {
+            return nil
+        }
+        return items
+    }
 
     var body: some View {
+        HStack(spacing: 0) {
+            menuColumn(
+                items,
+                width: width,
+                onSubmenuHover: { item, hovering in
+                    guard hovering else { return }
+                    openSubmenuID = item.id
+                }
+            )
+
+            if let openSubmenuItems {
+                menuColumn(openSubmenuItems, width: submenuWidth)
+            }
+        }
+        .frame(
+            width: width + (openSubmenuItems == nil ? 0 : submenuWidth),
+            height: max(
+                Self.menuHeight(for: items),
+                openSubmenuItems == nil ? 0 : submenuHeight
+            )
+        )
+        .onHover { isHovering in
+            if !isHovering {
+                openSubmenuID = nil
+            }
+        }
+        .onChange(of: openSubmenuID) { submenuID in
+            onSubmenuVisibilityChanged(submenuID != nil)
+        }
+    }
+
+    @ViewBuilder
+    private func menuColumn(
+        _ items: [LitheContextMenuItem],
+        width: CGFloat,
+        onSubmenuHover: ((LitheContextMenuItem, Bool) -> Void)? = nil
+    ) -> some View {
         VStack(spacing: 0) {
             ForEach(items) { item in
                 switch item.kind {
                 case .action:
-                    LitheContextMenuRow(item: item) {
+                    LitheContextMenuRow(item: item, action: {
                         dismiss()
                         item.action()
-                    }
+                    })
                 case .separator:
                     Rectangle()
                         .fill(LitheTheme.divider)
                         .frame(height: 1)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 5)
+                case .submenu:
+                    LitheContextMenuRow(item: item) { hovering in
+                        onSubmenuHover?(item, hovering)
+                    }
                 }
             }
         }
@@ -83,15 +163,47 @@ private struct LitheContextMenuContent: View {
                 .fill(LitheTheme.contextMenuBackground)
         }
     }
+
+    private static func menuHeight(for items: [LitheContextMenuItem]) -> CGFloat {
+        items.reduce(LitheContextMenuMetrics.verticalPadding) { height, item in
+            switch item.kind {
+            case .separator:
+                height + LitheContextMenuMetrics.separatorHeight
+            case .action, .submenu:
+                height + LitheContextMenuMetrics.rowHeight
+            }
+        }
+    }
 }
 
 private struct LitheContextMenuRow: View {
     let item: LitheContextMenuItem
-    let action: () -> Void
+    let action: (() -> Void)?
+    let onSubmenuHover: ((Bool) -> Void)?
     @State private var isHovering = false
 
+    init(item: LitheContextMenuItem, action: @escaping () -> Void) {
+        self.item = item
+        self.action = action
+        self.onSubmenuHover = nil
+    }
+
+    init(item: LitheContextMenuItem, onSubmenuHover: @escaping (Bool) -> Void) {
+        self.item = item
+        self.action = nil
+        self.onSubmenuHover = onSubmenuHover
+    }
+
+    private var submenuItems: [LitheContextMenuItem]? {
+        guard case .submenu(let items) = item.kind else { return nil }
+        return items
+    }
+
     var body: some View {
-        Button(action: action) {
+        Button {
+            guard submenuItems == nil else { return }
+            action?()
+        } label: {
             HStack(spacing: 9) {
                 Group {
                     if let systemImage = item.systemImage {
@@ -107,20 +219,24 @@ private struct LitheContextMenuRow: View {
                 )
 
                 Text(LocalizedStringKey(item.title))
-                    .font(.system(size: 12, weight: .regular))
+                    .font(Font(LitheContextMenuMetrics.itemFont))
                     .foregroundStyle(isHovering ? LitheTheme.toolWindowSelectedText : LitheTheme.primaryText)
                     .lineLimit(1)
 
                 Spacer(minLength: 14)
 
-                if let shortcut = item.shortcut {
+                if submenuItems != nil {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(isHovering ? LitheTheme.toolWindowSelectedText : LitheTheme.secondaryText)
+                } else if let shortcut = item.shortcut {
                     Text(shortcut)
-                        .font(.system(size: 11, weight: .regular))
+                        .font(Font(LitheContextMenuMetrics.shortcutFont))
                         .foregroundStyle(isHovering ? LitheTheme.toolWindowSelectedText.opacity(0.78) : LitheTheme.tertiaryText)
                 }
             }
             .padding(.horizontal, 9)
-            .frame(height: 26)
+            .frame(height: LitheContextMenuMetrics.rowHeight)
             .contentShape(Rectangle())
             .background {
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
@@ -131,7 +247,10 @@ private struct LitheContextMenuRow: View {
         .buttonStyle(.plain)
         .disabled(!item.isEnabled)
         .opacity(item.isEnabled ? 1 : 0.45)
-        .onHover { isHovering = $0 }
+        .onHover { hovering in
+            isHovering = hovering
+            onSubmenuHover?(hovering)
+        }
     }
 }
 
@@ -144,7 +263,6 @@ private final class LitheContextMenuPanel: NSPanel {
 private final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
     static let shared = LitheContextMenuPresenter()
 
-    private let menuWidth: CGFloat = 252
     private var panel: LitheContextMenuPanel?
     private var localEventMonitor: Any?
     private var globalEventMonitor: Any?
@@ -158,16 +276,35 @@ private final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         dismiss()
         guard !items.isEmpty else { return }
 
-        let menuHeight = items.reduce(CGFloat(12)) { height, item in
-            height + (item.kind == .separator ? 11 : 26)
+        let menuWidth = Self.menuWidth(for: items)
+        let menuHeight = Self.menuHeight(for: items)
+        let submenuWidths = items.compactMap { item -> CGFloat? in
+            guard case .submenu(let submenuItems) = item.kind else { return nil }
+            return Self.menuWidth(for: submenuItems)
         }
+        let submenuHeights = items.compactMap { item -> CGFloat? in
+            guard case .submenu(let submenuItems) = item.kind else { return nil }
+            return Self.menuHeight(for: submenuItems)
+        }
+        let submenuWidth = submenuWidths.max() ?? 0
+        let submenuHeight = submenuHeights.max() ?? 0
         let content = LitheContextMenuContent(
             items: items,
             width: menuWidth,
-            dismiss: { [weak self] in self?.dismiss() }
+            dismiss: { [weak self] in self?.dismiss() },
+            submenuWidth: submenuWidth,
+            submenuHeight: submenuHeight,
+            onSubmenuVisibilityChanged: { [weak self] isVisible in
+                self?.resizeMenu(
+                    isSubmenuVisible: isVisible,
+                    rootWidth: menuWidth,
+                    rootHeight: menuHeight,
+                    submenuWidth: submenuWidth,
+                    submenuHeight: submenuHeight
+                )
+            }
         )
         .environment(\.locale, locale)
-        .frame(width: menuWidth, height: menuHeight)
 
         let panel = LitheContextMenuPanel(
             contentRect: NSRect(x: 0, y: 0, width: menuWidth, height: menuHeight),
@@ -201,6 +338,61 @@ private final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         installEventMonitors()
         panel.orderFrontRegardless()
         panel.makeKey()
+    }
+
+    private func resizeMenu(
+        isSubmenuVisible: Bool,
+        rootWidth: CGFloat,
+        rootHeight: CGFloat,
+        submenuWidth: CGFloat,
+        submenuHeight: CGFloat
+    ) {
+        guard let panel else { return }
+        let width = rootWidth + (isSubmenuVisible ? submenuWidth : 0)
+        let height = max(rootHeight, isSubmenuVisible ? submenuHeight : 0)
+        var frame = panel.frame
+        frame.origin.y += frame.height - height
+        frame.size = NSSize(width: width, height: height)
+        panel.setFrame(frame, display: true)
+    }
+
+    fileprivate static func menuWidth(for items: [LitheContextMenuItem]) -> CGFloat {
+        let widestItem = items.reduce(CGFloat.zero) { width, item in
+            guard case .action = item.kind else {
+                guard case .submenu = item.kind else { return width }
+                return max(width, menuItemWidth(item))
+            }
+            return max(width, menuItemWidth(item))
+        }
+        let contentWidth = widestItem + 67
+        return min(
+            max(contentWidth, LitheContextMenuMetrics.minimumWidth),
+            LitheContextMenuMetrics.maximumWidth
+        )
+    }
+
+    fileprivate static func menuHeight(for items: [LitheContextMenuItem]) -> CGFloat {
+        items.reduce(LitheContextMenuMetrics.verticalPadding) { height, item in
+            switch item.kind {
+            case .separator:
+                height + LitheContextMenuMetrics.separatorHeight
+            case .action, .submenu:
+                height + LitheContextMenuMetrics.rowHeight
+            }
+        }
+    }
+
+    private static func menuItemWidth(_ item: LitheContextMenuItem) -> CGFloat {
+        let titleWidth = (item.title as NSString).size(
+            withAttributes: [.font: LitheContextMenuMetrics.itemFont]
+        ).width
+        let shortcutWidth = item.shortcut.map {
+            ($0 as NSString).size(
+                withAttributes: [.font: LitheContextMenuMetrics.shortcutFont]
+            ).width
+        } ?? 0
+        let shortcutSpacing: CGFloat = item.shortcut == nil ? 0 : 18
+        return titleWidth + shortcutWidth + shortcutSpacing
     }
 
     func dismiss() {

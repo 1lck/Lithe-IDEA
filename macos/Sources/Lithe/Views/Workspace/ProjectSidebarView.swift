@@ -459,12 +459,14 @@ private struct FileNodeRow: View {
         }
 
         items += [
-            .action("New File…") {
-                actions.requestCreateFile(node.url)
-            },
-            .action("New Directory…") {
-                actions.requestCreateDirectory(node.url)
-            },
+            .submenu("New", items: [
+                .action("New File…") {
+                    actions.requestCreateFile(node.url)
+                },
+                .action("New Directory…") {
+                    actions.requestCreateDirectory(node.url)
+                }
+            ]),
             .separator
         ]
 
