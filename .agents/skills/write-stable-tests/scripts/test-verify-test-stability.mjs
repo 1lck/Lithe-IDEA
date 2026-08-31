@@ -339,6 +339,76 @@ try {
     })),
     [{ name: "runBeforeTheSnapshot()", status: "timeout" }],
   );
+
+  const interleavedReportPath = path.join(swiftFragmentRoot, "swift-interleaved.json");
+  const scheduledTimers = new Map();
+  let nextTimerID = 0;
+  let interleavedChildTerminated = false;
+  await assert.rejects(
+    runSwiftTestsWithTiming(
+      {
+        warnMs: 50,
+        maxMs: 200,
+        suiteTimeoutMs: 500,
+        report: interleavedReportPath,
+        command: "swift",
+        commandArguments: ["test"],
+      },
+      {
+        setTimeoutImpl: (callback) => {
+          const timerID = ++nextTimerID;
+          scheduledTimers.set(timerID, callback);
+          return timerID;
+        },
+        clearTimeoutImpl: (timerID) => {
+          assert.equal(scheduledTimers.delete(timerID), true);
+        },
+        runProcessImpl: async ({ onSpawn, onStdoutLine }) => {
+          onSpawn({
+            terminate: async () => {
+              interleavedChildTerminated = true;
+              return true;
+            },
+          });
+          onStdoutLine('◇ Suite "Interleaved tests" started.');
+          onStdoutLine("◇ Test firstTest() started.");
+          onStdoutLine("◇ Test secondTest() started.");
+          const firstTimer = 1;
+          const secondTimer = 2;
+          assert.deepEqual([...scheduledTimers.keys()], [firstTimer, secondTimer]);
+
+          onStdoutLine("✔ Test secondTest() passed after 0.001 seconds.");
+          assert.equal(scheduledTimers.has(secondTimer), false);
+          assert.equal(scheduledTimers.has(firstTimer), true);
+
+          const firstTimeout = scheduledTimers.get(firstTimer);
+          scheduledTimers.delete(firstTimer);
+          firstTimeout();
+          assert.equal(interleavedChildTerminated, true);
+          return {
+            code: null,
+            signal: "SIGTERM",
+            timedOut: false,
+            terminationConfirmed: true,
+            durationMs: 200,
+            stdout: "",
+            stderr: "",
+          };
+        },
+      },
+    ),
+    /Swift test exceeded 200ms: firstTest\(\)/,
+  );
+  assert.deepEqual(
+    JSON.parse(readFileSync(interleavedReportPath, "utf8")).tests.map(({ name, status }) => ({
+      name,
+      status,
+    })),
+    [
+      { name: "secondTest()", status: "passed" },
+      { name: "firstTest()", status: "timeout" },
+    ],
+  );
 } finally {
   rmSync(swiftFragmentRoot, { recursive: true, force: true });
 }

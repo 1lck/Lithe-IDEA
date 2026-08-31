@@ -109,19 +109,20 @@ export async function run(
   const records = [];
   let currentSuite = null;
   let timedOutTest = null;
-  let testTimer = null;
-  let timedTest = null;
   let terminateChild = () => {};
 
-  const clearTestTimer = () => {
-    if (testTimer !== null) clearTimeoutImpl(testTimer);
-    testTimer = null;
-    timedTest = null;
+  const clearTestTimer = (name) => {
+    const activeTest = active.get(name);
+    if (!activeTest || activeTest.timer === null) return;
+    clearTimeoutImpl(activeTest.timer);
+    activeTest.timer = null;
   };
 
   const recordPartialLine = (line) => {
-    if (!timedTest || !isSwiftTestCompletionFragment(line, timedTest.name)) return;
-    clearTestTimer();
+    const matchingTests = [...active.keys()].filter((name) =>
+      isSwiftTestCompletionFragment(line, name),
+    );
+    if (matchingTests.length === 1) clearTestTimer(matchingTests[0]);
   };
 
   const recordLine = (line, stream) => {
@@ -132,24 +133,25 @@ export async function run(
     const event = parseSwiftTimingLine(line);
     if (!event) return;
     if (event.event === "started") {
-      const startedAt = performance.now();
-      active.set(event.name, { startedAt, suite: currentSuite });
-      clearTestTimer();
-      timedTest = { name: event.name, suite: currentSuite };
-      const scheduledTest = timedTest;
-      testTimer = setTimeoutImpl(() => {
-        if (timedTest !== scheduledTest) return;
-        timedOutTest = scheduledTest;
-        testTimer = null;
-        timedTest = null;
-        terminateChild();
+      clearTestTimer(event.name);
+      const activeTest = {
+        startedAt: performance.now(),
+        suite: currentSuite,
+        timer: null,
+      };
+      active.set(event.name, activeTest);
+      activeTest.timer = setTimeoutImpl(() => {
+        if (active.get(event.name) !== activeTest || timedOutTest) return;
+        timedOutTest = { name: event.name, suite: activeTest.suite };
+        activeTest.timer = null;
+        void terminateChild();
       }, options.maxMs);
       return;
     }
 
     const activeTest = active.get(event.name);
+    clearTestTimer(event.name);
     active.delete(event.name);
-    clearTestTimer();
     records.push({
       name: event.name,
       ...(activeTest?.suite ? { suite: activeTest.suite } : {}),
@@ -178,7 +180,7 @@ export async function run(
   });
 
   const result = await childPromise;
-  clearTestTimer();
+  for (const name of active.keys()) clearTestTimer(name);
   await new Promise((resolve, reject) => {
     log.once("error", reject);
     log.end(resolve);
