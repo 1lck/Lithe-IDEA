@@ -42,6 +42,7 @@ export function mapCoreConfiguration(value: CoreResolvedConfiguration): RunConfi
     jvmArguments: maven?.jvmArguments ?? [],
     programArguments: maven?.programArguments ?? value.args ?? [],
     profiles: maven?.profiles ?? [],
+    mavenSkipTests: maven?.skipTests ?? null,
     javaHomePath: java?.homePath ?? "",
     mavenExecutablePath: java?.mavenExecutablePath ?? "",
     mavenJavaHomePath: java?.mavenJavaHomePath ?? "",

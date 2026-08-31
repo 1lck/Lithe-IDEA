@@ -1,11 +1,12 @@
 import type { JavaImplementationMarker } from "./java-navigation-models";
 import type { LspDocumentAvailability } from "./lsp-client";
 import type { LspDocumentTarget } from "./lsp-document-target";
+import type { WorkspaceLaunchScope } from "@/features/workspace/types/workspace-launch-scope";
 
 export interface JavaNavigationMarkerClient {
   ensureDocumentReady(
     target: LspDocumentTarget,
-    workspaceRoot: string,
+    scope: WorkspaceLaunchScope,
     content: string,
     feature?: string,
   ): Promise<LspDocumentAvailability>;
@@ -15,7 +16,7 @@ export interface JavaNavigationMarkerClient {
 interface LoadJavaNavigationMarkersOptions {
   client: JavaNavigationMarkerClient;
   target: LspDocumentTarget;
-  workspaceRoot: string;
+  workspaceScope: WorkspaceLaunchScope;
   content: string;
 }
 
@@ -27,9 +28,9 @@ interface LoadJavaNavigationMarkersOptions {
 export async function loadJavaNavigationMarkers({
   client,
   target,
-  workspaceRoot,
+  workspaceScope,
   content,
 }: LoadJavaNavigationMarkersOptions): Promise<JavaImplementationMarker[]> {
-  await client.ensureDocumentReady(target, workspaceRoot, content, "codeLens");
+  await client.ensureDocumentReady(target, workspaceScope, content, "codeLens");
   return client.getJavaNavigationMarkers(target);
 }
