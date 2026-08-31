@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { toast } from "sonner";
 import type { EditorContent } from "@/features/panes/types/pane-content.types";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
+import { saveWorkspaceBeforeLaunch } from "../services/save-workspace-before-launch";
 import { getBufferById } from "../utils/buffer-index";
 import { useBufferStore } from "./buffer.store";
 import { useEditorAppStore } from "./editor-app.store";
@@ -52,6 +53,11 @@ beforeEach(() => {
   workspaceRuntimeRegistry.resetForTests();
   workspaceRuntimeRegistry.ensureWorkspace({ id: WORKSPACE_A, name: "Workspace A" }, "ready");
   workspaceRuntimeRegistry.ensureWorkspace({ id: WORKSPACE_B, name: "Workspace B" }, "ready");
+});
+
+afterEach(() => {
+  useEditorAppStore.getStore(WORKSPACE_A).getState().actions.cleanup();
+  useEditorAppStore.getStore(WORKSPACE_B).getState().actions.cleanup();
 });
 
 describe("workspace-scoped editor actions", () => {
@@ -173,6 +179,73 @@ describe("workspace-scoped editor actions", () => {
       expect(getEditorBuffer(WORKSPACE_A, "settings").isDirty).toBe(true);
       expect(saveFailureToast).toHaveBeenCalledTimes(1);
       expect(saveFailureToast.mock.calls[0]?.[0]).toContain("settings.txt");
+    } finally {
+      saveFailureToast.mockRestore();
+      expectedParseError.mockRestore();
+    }
+  });
+
+  test("saves only the target workspace before an external launch", async () => {
+    setWorkspaceBuffers(WORKSPACE_A, [editorBuffer("a", "A edited", { isDirty: true })], "a");
+    setWorkspaceBuffers(WORKSPACE_B, [editorBuffer("b", "B edited", { isDirty: true })], "b");
+
+    await saveWorkspaceBeforeLaunch(WORKSPACE_A);
+
+    expect(getEditorBuffer(WORKSPACE_A, "a").isDirty).toBe(false);
+    expect(getEditorBuffer(WORKSPACE_B, "b").isDirty).toBe(true);
+  });
+
+  test("waits for an active auto-save before checking external launch readiness", async () => {
+    setWorkspaceBuffers(WORKSPACE_A, [editorBuffer("a", "A edited", { isDirty: true })], "a");
+    const bufferActions = useBufferStore.getStore(WORKSPACE_A).getState().actions;
+    bufferActions.applyDocumentLifecycle("a", {
+      status: "saving",
+      revision: 1,
+      savedRevision: 0,
+      saveRevision: 1,
+      operationId: "auto-save-a",
+    });
+
+    const launchSaveState: { value: "pending" | "resolved" | "rejected" } = {
+      value: "pending",
+    };
+    const launchSave = saveWorkspaceBeforeLaunch(WORKSPACE_A).then(
+      () => {
+        launchSaveState.value = "resolved";
+      },
+      () => {
+        launchSaveState.value = "rejected";
+      },
+    );
+    await Promise.resolve();
+    expect(launchSaveState.value).toBe("pending");
+
+    bufferActions.recordSuccessfulBufferSave("a", "A edited", {
+      status: "clean",
+      revision: 1,
+    });
+    await launchSave;
+
+    expect(launchSaveState.value).toBe("resolved");
+  }, 1_000);
+
+  test("rejects an external launch when a workspace file remains unsaved", async () => {
+    const saveFailureToast = spyOn(toast, "error").mockImplementation(() => "test-toast");
+    const expectedParseError = spyOn(console, "error").mockImplementation(() => undefined);
+    setWorkspaceBuffers(
+      WORKSPACE_A,
+      [
+        editorBuffer("settings", "not valid json", {
+          isDirty: true,
+          path: "settings://user-settings.json",
+        }),
+      ],
+      "settings",
+    );
+
+    try {
+      await expect(saveWorkspaceBeforeLaunch(WORKSPACE_A)).rejects.toThrow("settings.txt");
+      expect(getEditorBuffer(WORKSPACE_A, "settings").isDirty).toBe(true);
     } finally {
       saveFailureToast.mockRestore();
       expectedParseError.mockRestore();

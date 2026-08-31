@@ -32,6 +32,7 @@ import { InlineEditPopover } from "@/features/editor/inline-edit/inline-edit-pop
 import { useInlineEdit } from "@/features/editor/inline-edit/use-inline-edit";
 import { useInlineEditToolbarStore } from "@/features/editor/stores/inline-edit-toolbar.store";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { useGitBlame } from "@/features/git/hooks/use-git-blame";
 import { keymapRegistry } from "@/features/keymaps/utils/registry";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
@@ -272,6 +273,7 @@ export function MonacoEditor({
     javaMarkerRefreshRevision(state.lspStatus),
   );
   const inlineGitBlameEnabled = useSettingsStore((state) => state.settings.enableInlineGitBlame);
+  const workspaceId = useActiveWorkspaceId();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
   const workspaceFolders = useFileSystemStore((state) => state.workspaceFolders);
   const vimModeEnabled = useSettingsStore((state) => state.settings.vimMode);
@@ -795,7 +797,7 @@ export function MonacoEditor({
       editor,
       model,
       documentTarget,
-      workspaceRoot: rootFolderPath,
+      workspaceScope: rootFolderPath ? { workspaceId, root: rootFolderPath } : undefined,
       enabled: enableExpensiveServices,
     });
     let definitionClickIntent = 0;
@@ -1127,6 +1129,7 @@ export function MonacoEditor({
     renderIndentGuides,
     renderWhitespace,
     rootFolderPath,
+    workspaceId,
     scrollable,
     scheduleInlineGitBlameRender,
     selectEntireModel,
@@ -1371,7 +1374,7 @@ export function MonacoEditor({
         const markers = await loadJavaNavigationMarkers({
           client: lspClient,
           target: documentTarget,
-          workspaceRoot: rootFolderPath,
+          workspaceScope: { workspaceId, root: rootFolderPath },
           content: model.getValue(),
         });
         if (isDisposed()) {
@@ -1450,6 +1453,7 @@ export function MonacoEditor({
     javaMarkerRevision,
     monacoLanguageId,
     rootFolderPath,
+    workspaceId,
   ]);
 
   useEffect(() => {

@@ -23,7 +23,11 @@ describe("run configuration mapping", () => {
       execution: "service",
       source: "generated",
       extensions: {
-        maven: { module: ".", mainClass: "com.example.demo.DemoApplication" },
+        maven: {
+          module: ".",
+          mainClass: "com.example.demo.DemoApplication",
+          skipTests: false,
+        },
       },
     });
 
@@ -31,6 +35,7 @@ describe("run configuration mapping", () => {
     expect(configuration.execution).toBe("service");
     expect(configuration.mainClass).toBe("com.example.demo.DemoApplication");
     expect(configuration.modulePath).toBeUndefined();
+    expect(configuration.mavenSkipTests).toBe(false);
   });
 
   test("groups runnable configurations and hides Current File", () => {
