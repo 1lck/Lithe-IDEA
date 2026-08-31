@@ -3,6 +3,47 @@ import LitheCoreContracts
 import LitheExecutionModule
 import LitheModuleAPI
 
+/// One opening of one workspace.
+///
+/// The path alone repeats when the same project is closed and reopened, so a
+/// task that started before the reopen would still compare equal to the current
+/// workspace. Pairing the path with the opening's generation is what lets such a
+/// task be recognized as belonging to a session that is over.
+struct WorkspaceIdentity: Equatable {
+    let url: URL
+    let generation: Int
+}
+
+/// An action deferred until the run feature holds the current workspace snapshot.
+///
+/// The opening it was deferred for is part of the value so a snapshot applied for
+/// a different workspace — or for a later opening of the same one — cannot resume
+/// it. Direct launch entry points also keep the concrete configuration (or the
+/// all-services intent) so resume can re-issue the same action the UI asked for.
+struct PendingRunAction: Equatable {
+    enum Kind: Equatable {
+        case run
+        case debug
+        case startConfiguration(RunConfiguration)
+        case runAllServices
+        case restart
+    }
+
+    let kind: Kind
+    let identity: WorkspaceIdentity
+}
+
+/// Result of bringing the run feature up to a specific opening's snapshot.
+///
+/// Distinguishing "still waiting on this opening" from "this entry task is
+/// stale" is what stops an await that outlived a project switch or a reopen from
+/// re-recording the old action against the current pending slot.
+private enum RunProjectReadiness: Equatable {
+    case ready
+    case waitingForSnapshot(identity: WorkspaceIdentity)
+    case stale
+}
+
 @MainActor
 extension AppModel {
     func toggleSpringEndpoints() {
@@ -33,7 +74,7 @@ extension AppModel {
             guard let self else { return }
             guard await activateExecutionModule() != nil else { return }
             if let workspaceURL {
-                await loadProjectServices(at: workspaceURL, files: projectFiles)
+                await loadProjectServicesForAppliedSnapshot(at: workspaceURL)
             }
         }
         isTestsVisible = false
@@ -56,7 +97,7 @@ extension AppModel {
         Task { [weak self] in
             guard let self, await activateExecutionModule() != nil,
                   let workspaceURL else { return }
-            await loadProjectServices(at: workspaceURL, files: projectFiles)
+            await loadProjectServicesForAppliedSnapshot(at: workspaceURL)
         }
         isTestsVisible = false
         isGitLogVisible = false
@@ -70,7 +111,7 @@ extension AppModel {
             guard let self else { return }
             let capability = await self.activateExecutionModule()
             if capability?.mavenFeature.project == nil {
-                await self.loadProjectServices(at: workspaceURL, files: self.projectFiles)
+                await self.loadProjectServicesForAppliedSnapshot(at: workspaceURL)
             }
         }
     }
@@ -149,6 +190,30 @@ extension AppModel {
         runFeatureIfActive?.select(configuration)
     }
 
+    /// The single entry point for identification.
+    ///
+    /// Routing it through here is what keeps the run service from scanning a
+    /// superseded snapshot: the service can only compare its own state, so the
+    /// caller has to bring it up to the current snapshot first. When that fails,
+    /// generation must stop — the service may still hold an older `.ready`
+    /// inventory, and scanning it would overwrite `generated.json` with stale
+    /// entry points.
+    func generateRunConfigurations() async {
+        guard let identity = currentWorkspaceIdentity else { return }
+        guard let runFeature = await activateExecutionModule()?.runFeature else { return }
+        guard isCurrentWorkspace(identity) else { return }
+        switch await ensureRunProjectReady(runFeature, for: identity) {
+        case .ready:
+            await runFeature.generateRunConfigurations()
+        case .waitingForSnapshot:
+            // Report the pending workspace through the generation state when the
+            // snapshot has not arrived, which the run panel surfaces as a notice.
+            runFeature.reportGenerationProjectNotReady()
+        case .stale:
+            return
+        }
+    }
+
     func openRunConfiguration(relativePath: String?) {
         guard let workspaceURL else { return }
         let url = workspaceURL.appendingPathComponent(relativePath ?? ".lithe/run/generated.json")
@@ -160,8 +225,195 @@ extension AppModel {
         Task { [weak self] in await self?.runSelectedConfigurationAfterActivation() }
     }
 
+    /// Loads project services for the scan currently applied to the workspace.
+    ///
+    /// Callers that only want "whatever the workspace has now" use this so the
+    /// file list and its identity are captured in a single read.
+    func loadProjectServicesForAppliedSnapshot(at workspaceURL: URL) async {
+        let applied = workspaceFeature.appliedSnapshot
+        await loadProjectServices(
+            at: workspaceURL,
+            files: applied?.files ?? [],
+            snapshotID: applied?.id
+        )
+    }
+
+    /// Loads build-system and run state at the workspace boundary. The generic
+    /// run lifecycle is intentionally not owned by JavaFeatureModel.
+    ///
+    /// Spring indexing is scheduled rather than awaited. It scales with the
+    /// number of Java sources, and run configurations, test discovery, and the
+    /// Git refresh that follows this call must not wait for it.
+    ///
+    /// `files` and `snapshotID` must describe the same scan; the caller captures
+    /// them together. `resumesDeferredRunAction` is set only by the workspace
+    /// snapshot callback, because a deferred Run waits for a snapshot and
+    /// resuming from any other load would either re-enter through
+    /// `ensureRunProjectReady` or fire the action from an unrelated reload.
+    func loadProjectServices(
+        at workspaceURL: URL,
+        files: [URL],
+        snapshotID: UUID?,
+        resumesDeferredRunAction: Bool = false
+    ) async {
+        let target = workspaceURL.standardizedFileURL
+        // The caller established that this load belongs to the current opening,
+        // so the identity is captured here and re-checked after every await.
+        guard let identity = currentWorkspaceIdentity, identity.url == target else { return }
+        prepareJavaLanguageServerForWorkspaceIfNeeded(
+            at: target,
+            files: files
+        )
+        springFeature.scheduleLoad(
+            workspaceURL: target,
+            files: files,
+            textOverrides: Dictionary(uniqueKeysWithValues: openDocuments.map {
+                ($0.url.standardizedFileURL, $0.text)
+            })
+        )
+        guard let execution = await activateExecutionModule() else { return }
+        // Module activation suspends; a project switch or a reopen must not let
+        // this load write the captured inventory into the new opening's run
+        // service.
+        guard isCurrentWorkspace(identity) else { return }
+        execution.tests.discover(workspaceURL: target, files: files)
+        // `files` and `snapshotID` are captured together by the caller. Reading
+        // the applied snapshot here instead would pair this file list with a
+        // newer scan's identity, which the readiness comparison cannot detect.
+        await execution.projectDevelopment.loadProject(
+            at: target,
+            files: files,
+            snapshotID: snapshotID
+        )
+        guard isCurrentWorkspace(identity) else { return }
+        guard resumesDeferredRunAction else { return }
+        resumeDeferredRunAction(
+            execution.runFeature,
+            identity: identity,
+            snapshotID: snapshotID
+        )
+    }
+
+    /// The opening an entry task captures before its first await.
+    var currentWorkspaceIdentity: WorkspaceIdentity? {
+        guard let url = workspaceURL?.standardizedFileURL else { return nil }
+        return WorkspaceIdentity(url: url, generation: workspaceFeature.workspaceGeneration)
+    }
+
+    private func isCurrentWorkspace(_ identity: WorkspaceIdentity) -> Bool {
+        currentWorkspaceIdentity == identity
+    }
+
+    /// Brings the run feature up to the snapshot for a captured opening.
+    ///
+    /// Entry tasks capture the opening before any await so a project switch — or
+    /// a close and reopen of the same path — can be reported as `.stale` instead
+    /// of being re-deferred against whatever is current when the load finishes.
+    ///
+    /// When a newer snapshot is published but the run service still holds an
+    /// older `.ready` inventory for this workspace, the snapshot callback owns
+    /// the transition. Loading from the entry path would race that callback and
+    /// let Restart proceed from a half-applied refresh.
+    ///
+    /// When the run service is not already ready for this workspace, the entry
+    /// path applies the published scan itself (open-before-run, prune, tool
+    /// window) so readiness does not wait on a callback that may never arrive.
+    private func ensureRunProjectReady(
+        _ runFeature: RunFeatureModel,
+        for identity: WorkspaceIdentity
+    ) async -> RunProjectReadiness {
+        guard isCurrentWorkspace(identity) else { return .stale }
+        let target = identity.url
+        // One read, so the file list and the identity describe the same scan.
+        let applied = workspaceFeature.appliedSnapshot
+        if runFeature.isProjectReady(for: target, snapshotID: applied?.id) { return .ready }
+        if applied != nil, runFeature.hasReadyInventory(for: target) {
+            return .waitingForSnapshot(identity: identity)
+        }
+        // No matching ready inventory: bind provisionally, or apply the
+        // published scan when one already exists.
+        await loadProjectServices(
+            at: target,
+            files: applied?.files ?? [],
+            snapshotID: applied?.id
+        )
+        // A snapshot may land and be fully consumed while this load is in
+        // flight, including its deferred-run resume with nothing pending yet.
+        // Comparing against the pre-await capture would then treat a ready
+        // project as not ready, defer the action, and leave it stranded.
+        guard isCurrentWorkspace(identity) else { return .stale }
+        let current = workspaceFeature.appliedSnapshot
+        if runFeature.isProjectReady(for: target, snapshotID: current?.id) {
+            return .ready
+        }
+        return .waitingForSnapshot(identity: identity)
+    }
+
+    /// Continues an action that arrived before the snapshot did. The workspace
+    /// rebuild always finishes by applying a snapshot, so recording the intent is
+    /// enough to resume without polling or waiting.
+    ///
+    /// A load for one opening must not clear a pending action that belongs to
+    /// another: openProject already cleared the old pending on the switch, and a
+    /// stale callback arriving later would otherwise wipe the newly recorded
+    /// intent.
+    /// `snapshotID` is the scan this load just applied, not whatever the
+    /// workspace holds now. Reading the current identity here would compare the
+    /// run feature against a scan it has not consumed.
+    private func resumeDeferredRunAction(
+        _ runFeature: RunFeatureModel,
+        identity: WorkspaceIdentity,
+        snapshotID: UUID?
+    ) {
+        guard let action = pendingRunAction else { return }
+        guard action.identity == identity else { return }
+        guard runFeature.isProjectReady(for: identity.url, snapshotID: snapshotID) else {
+            return
+        }
+        setPendingRunAction(nil)
+        switch action.kind {
+        case .run: runSelectedConfiguration()
+        case .debug: startDebugging()
+        case .startConfiguration(let configuration): startRunConfiguration(configuration)
+        case .runAllServices: runAllServiceConfigurations()
+        case .restart: restartSelectedRun()
+        }
+    }
+
+    /// Records an action for the opening the entry task captured, not whatever
+    /// workspace happens to be current after an await.
+    private func clearPendingRunAction(for identity: WorkspaceIdentity) {
+        guard pendingRunAction?.identity == identity else { return }
+        setPendingRunAction(nil)
+    }
+
+    private func setPendingRunAction(_ action: PendingRunAction?) {
+        pendingRunAction = action
+        // pendingRunAction is not @Published; relay so tests and any UI that
+        // observes AppModel learn about defer/resume without a feature load.
+        scheduleObjectWillChangeRelay()
+    }
+
+    private func deferRunAction(_ kind: PendingRunAction.Kind, for identity: WorkspaceIdentity) {
+        guard isCurrentWorkspace(identity) else { return }
+        setPendingRunAction(PendingRunAction(kind: kind, identity: identity))
+    }
+
     private func runSelectedConfigurationAfterActivation() async {
+        guard let identity = currentWorkspaceIdentity else { return }
         guard let runFeature = await activateExecutionModule()?.runFeature else { return }
+        guard isCurrentWorkspace(identity) else { return }
+        switch await ensureRunProjectReady(runFeature, for: identity) {
+        case .ready:
+            clearPendingRunAction(for: identity)
+        case .waitingForSnapshot(let waitingIdentity):
+            // Launching from a provisional inventory resolves toolchains without
+            // the Maven project, so wait for the snapshot instead of running.
+            deferRunAction(.run, for: waitingIdentity)
+            return
+        case .stale:
+            return
+        }
         guard runFeature.configurationStatus == .ready else {
             runFeature.requestRunConfigurationGeneration(intent: .run)
             return
@@ -174,6 +426,7 @@ extension AppModel {
         )) {
             return
         }
+        guard isCurrentWorkspace(identity) else { return }
         if configuration.usesCurrentEditorFile,
            let activeDocument,
            activeDocument.isDirty {
@@ -186,6 +439,7 @@ extension AppModel {
                 return
             }
         }
+        guard isCurrentWorkspace(identity) else { return }
         runFeature.runSelected(currentFileURL: activeDocument?.url)
         isRunVisible = true
         isGitLogVisible = false
@@ -198,8 +452,20 @@ extension AppModel {
     func restartSelectedRun() {
         isRunVisible = true
         Task { [weak self] in
-            guard let self,
-                  let runFeature = await activateExecutionModule()?.runFeature else { return }
+            guard let self else { return }
+            guard let identity = currentWorkspaceIdentity else { return }
+            guard let runFeature = await activateExecutionModule()?.runFeature else { return }
+            guard isCurrentWorkspace(identity) else { return }
+            guard runFeature.lastConfiguration != nil else { return }
+            switch await ensureRunProjectReady(runFeature, for: identity) {
+            case .ready:
+                clearPendingRunAction(for: identity)
+            case .waitingForSnapshot(let waitingIdentity):
+                deferRunAction(.restart, for: waitingIdentity)
+                return
+            case .stale:
+                return
+            }
             guard let configuration = runFeature.lastConfiguration else { return }
             if !(await activateLanguageRunExtensionIfNeeded(
                 for: configuration,
@@ -208,33 +474,63 @@ extension AppModel {
             )) {
                 return
             }
+            guard isCurrentWorkspace(identity) else { return }
             runFeature.restart()
         }
     }
 
     func startRunConfiguration(_ configuration: RunConfiguration) {
         Task { [weak self] in
-            guard let self,
-                  let runFeature = await activateExecutionModule()?.runFeature,
-                  await activateLanguageRunExtensionIfNeeded(
-                      for: configuration,
-                      currentFileURL: activeDocument?.url,
-                      runFeature: runFeature
-                  ) else { return }
+            guard let self else { return }
+            guard let identity = currentWorkspaceIdentity else { return }
+            guard let runFeature = await activateExecutionModule()?.runFeature else { return }
+            guard isCurrentWorkspace(identity) else { return }
+            switch await ensureRunProjectReady(runFeature, for: identity) {
+            case .ready:
+                clearPendingRunAction(for: identity)
+            case .waitingForSnapshot(let waitingIdentity):
+                // Direct play buttons reach here without going through
+                // `runSelectedConfiguration`, so they need the same readiness
+                // gate and must remember which configuration to resume — bound
+                // to the opening this task started for, not whatever is current
+                // after an await.
+                deferRunAction(.startConfiguration(configuration), for: waitingIdentity)
+                return
+            case .stale:
+                return
+            }
+            guard await activateLanguageRunExtensionIfNeeded(
+                for: configuration,
+                currentFileURL: activeDocument?.url,
+                runFeature: runFeature
+            ) else { return }
+            guard isCurrentWorkspace(identity) else { return }
             runFeature.startConfiguration(configuration)
         }
     }
 
     func runAllServiceConfigurations() {
         Task { [weak self] in
-            guard let self,
-                  let runFeature = await activateExecutionModule()?.runFeature else { return }
+            guard let self else { return }
+            guard let identity = currentWorkspaceIdentity else { return }
+            guard let runFeature = await activateExecutionModule()?.runFeature else { return }
+            guard isCurrentWorkspace(identity) else { return }
+            switch await ensureRunProjectReady(runFeature, for: identity) {
+            case .ready:
+                clearPendingRunAction(for: identity)
+            case .waitingForSnapshot(let waitingIdentity):
+                deferRunAction(.runAllServices, for: waitingIdentity)
+                return
+            case .stale:
+                return
+            }
             for configuration in runFeature.configurations where configuration.execution == .service {
                 guard await activateLanguageRunExtensionIfNeeded(
                     for: configuration,
                     currentFileURL: nil,
                     runFeature: runFeature
                 ) else { return }
+                guard isCurrentWorkspace(identity) else { return }
             }
             runFeature.runAllServices()
         }
@@ -311,7 +607,7 @@ extension AppModel {
             guard let self else { return }
             guard await activateExecutionModule() != nil else { return }
             if let workspaceURL {
-                await loadProjectServices(at: workspaceURL, files: projectFiles)
+                await loadProjectServicesForAppliedSnapshot(at: workspaceURL)
             }
             _ = await activateDebugModule()
         }
@@ -329,9 +625,20 @@ extension AppModel {
     }
 
     private func startDebuggingAfterActivation() async {
+        guard let identity = currentWorkspaceIdentity else { return }
         guard let execution = await activateExecutionModule(),
               let debug = await activateDebugModule() else { return }
+        guard isCurrentWorkspace(identity) else { return }
         let runFeature = execution.runFeature
+        switch await ensureRunProjectReady(runFeature, for: identity) {
+        case .ready:
+            clearPendingRunAction(for: identity)
+        case .waitingForSnapshot(let waitingIdentity):
+            deferRunAction(.debug, for: waitingIdentity)
+            return
+        case .stale:
+            return
+        }
         let debugFeature = debug.javaFeature
         javaFeature.configureRuntime(
             mavenFeature: execution.mavenFeature,

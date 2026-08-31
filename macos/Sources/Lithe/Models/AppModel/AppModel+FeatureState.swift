@@ -9,6 +9,10 @@ extension AppModel {
     var isIndexingSpring: Bool { springFeature.isIndexing }
     var rootNode: FileNode? { workspaceFeature.rootNode }
     var projectFiles: [URL] { workspaceFeature.projectFiles }
+    /// Identifies the scan `projectFiles` came from, and is `nil` until one has
+    /// been applied. Callers that also need the file list read
+    /// `workspaceFeature.appliedSnapshot` once instead of combining the two.
+    var workspaceSnapshotID: UUID? { workspaceFeature.appliedSnapshot?.id }
     var javaEnvironmentReport: JavaEnvironmentReport? {
         runtimeFeature.javaEnvironmentReport
     }

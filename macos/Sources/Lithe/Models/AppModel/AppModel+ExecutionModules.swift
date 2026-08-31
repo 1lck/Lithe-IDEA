@@ -26,6 +26,11 @@ extension AppModel {
     }
 
     func activateExecutionModule() async -> ExecutionFeatureAccess? {
+        // Run and Debug activate on demand, so they can arrive while the previous
+        // session's module graph is still being torn down. Activating first would
+        // hand back a run feature that teardown releases moments later, and the
+        // deferred action waiting on it would never be resumed.
+        await awaitModuleRuntimeShutdown()
         if let mavenFeature = mavenFeatureIfActive,
            let runFeature = runFeatureIfActive,
            let tests = languageTestServiceIfActive,
@@ -54,6 +59,7 @@ extension AppModel {
     }
 
     func activateDebugModule() async -> DebugFeatureAccess? {
+        await awaitModuleRuntimeShutdown()
         if let javaFeature = debugFeatureIfActive,
            let genericFeature = genericDebugFeatureIfActive {
             return DebugFeatureAccess(javaFeature: javaFeature, genericFeature: genericFeature)

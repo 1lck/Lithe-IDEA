@@ -207,12 +207,33 @@ package final class RunFeatureModel: ObservableObject {
         service.clearOutput()
     }
 
+    package var projectLoadState: ProjectLoadState { service.projectLoadState }
+
+    package func isProjectReady(for workspace: URL, snapshotID: UUID?) -> Bool {
+        service.isProjectReady(for: workspace, snapshotID: snapshotID)
+    }
+
+    package func hasReadyInventory(for workspace: URL) -> Bool {
+        service.hasReadyInventory(for: workspace)
+    }
+
+    package func reportGenerationProjectNotReady() {
+        isGenerationConfirmationPresented = false
+        service.reportGenerationProjectNotReady()
+    }
+
     package func loadProject(
         at workspaceURL: URL,
         files: [URL],
-        mavenProject: MavenProject?
+        mavenProject: MavenProject?,
+        snapshotID: UUID? = nil
     ) async {
-        await service.loadProject(at: workspaceURL, files: files, mavenProject: mavenProject)
+        await service.loadProject(
+            at: workspaceURL,
+            files: files,
+            mavenProject: mavenProject,
+            snapshotID: snapshotID
+        )
     }
 
     package func generateRunConfigurations() async {
@@ -257,7 +278,11 @@ package final class ProjectDevelopmentFeatureModel {
         self.runFeature = runFeature
     }
 
-    package func loadProject(at workspaceURL: URL, files: [URL]) async {
+    package func isRunProjectReady(for workspace: URL, snapshotID: UUID?) -> Bool {
+        runFeature.isProjectReady(for: workspace, snapshotID: snapshotID)
+    }
+
+    package func loadProject(at workspaceURL: URL, files: [URL], snapshotID: UUID? = nil) async {
         // Maven is one build-system Provider, not a workspace prerequisite.
         // Avoid scanning every project as Maven; non-Maven ecosystems should
         // reach the generic run pipeline without paying for Java discovery.
@@ -272,7 +297,8 @@ package final class ProjectDevelopmentFeatureModel {
         await runFeature.loadProject(
             at: workspaceURL,
             files: files,
-            mavenProject: mavenFeature.project
+            mavenProject: mavenFeature.project,
+            snapshotID: snapshotID
         )
     }
 }

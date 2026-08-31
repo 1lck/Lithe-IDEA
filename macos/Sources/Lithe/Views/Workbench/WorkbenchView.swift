@@ -1011,7 +1011,9 @@ struct WorkbenchView: View {
         guard let runFeature = model.runFeatureIfActive else { return }
         let intent = runFeature.generationIntent
         Task {
-            await runFeature.generateRunConfigurations()
+            // Routed through AppModel so the run service is brought up to the
+            // current workspace snapshot before it scans anything.
+            await model.generateRunConfigurations()
             guard runFeature.configurationStatus == .ready else { return }
             switch intent {
             case .identifyOnly:

@@ -42,7 +42,7 @@ extension LitheWorkspaceModule.WorkspaceFeatureModel {
         reloadProjectServices: @escaping @MainActor @Sendable () async -> Void,
         refreshGit: @escaping @MainActor @Sendable () async -> Void,
         updateHistoryVisibilityRules: @escaping @MainActor @Sendable (FileVisibilityRules) async -> Void,
-        onSnapshotLoaded: @escaping @MainActor @Sendable (WorkspaceSnapshot, Bool) async -> Void
+        onSnapshotLoaded: @escaping @MainActor @Sendable (URL, WorkspaceSnapshot, Bool) async -> Void
     ) {
         configureProjection(
             documentsProvider: {
