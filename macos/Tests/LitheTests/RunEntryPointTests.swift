@@ -418,7 +418,7 @@ struct RunEntryPointTests {
         runConfigurations.release(2)
         let deferredForB = await awaitLoadDrivenChange(on: model) {
             model.pendingRunAction?.kind == .startConfiguration(configurationB)
-                && model.pendingRunAction?.workspace == workspaceB.root.standardizedFileURL
+                && model.pendingRunAction?.identity.url == workspaceB.root.standardizedFileURL
         }
         #expect(deferredForB, "B should record its own deferred direct start")
 
@@ -434,8 +434,79 @@ struct RunEntryPointTests {
         )
         #expect(
             model.pendingRunAction?.kind == .startConfiguration(configurationB)
-                && model.pendingRunAction?.workspace == workspaceB.root.standardizedFileURL,
+                && model.pendingRunAction?.identity.url == workspaceB.root.standardizedFileURL,
             "B's pending action must survive the stale A task finishing"
+        )
+    }
+
+    /// Reopening the same path starts a new session while the URL stays the same,
+    /// so only the opening's generation separates the two. An entry task from the
+    /// previous opening must be discarded — otherwise it finds the new opening's
+    /// snapshot already applied, reads that as "ready", and launches its own
+    /// configuration into a session the user has replaced.
+    @Test
+    func directStartFromAnEarlierOpeningOfTheSameWorkspaceIsDiscarded() async throws {
+        let workspace = try JavaWorkspaceFixture()
+        defer { workspace.remove() }
+
+        // The first opening never gets a snapshot, so the direct start takes the
+        // pre-snapshot path and suspends in its own load; the second opening
+        // scans normally.
+        let workspaceOperations = UnavailableThenReadyWorkspaceOperations(snapshot: workspace.snapshot)
+        let runConfigurations = InspectionGatedRunConfigurationOperations()
+        defer { runConfigurations.releaseAll() }
+        // This test does not coordinate on the watch configuration, and the real
+        // provider would run Git twice for the two openings.
+        let watchContext = GatedGitWatchContextProvider()
+        watchContext.releaseAll()
+        let model = makeAppModel(
+            workspaceOperations: workspaceOperations,
+            runConfigurationOperations: runConfigurations,
+            gitWatchContextProvider: watchContext
+        )
+        let earlierConfiguration = ReadyRunConfigurationOperations.entryPoint
+
+        model.openProjectDirectly(workspace.root)
+        model.startRunConfiguration(earlierConfiguration)
+        #expect(
+            await runConfigurations.inspectionEntered(1),
+            "the direct start never began its own load"
+        )
+
+        // Reopen the same path and let this opening reach a fully loaded state.
+        model.openProjectDirectly(workspace.root)
+        #expect(model.pendingRunAction == nil, "reopening must clear the previous pending")
+        #expect(
+            await runConfigurations.inspectionEntered(2),
+            "the reopened project never loaded its own snapshot"
+        )
+        runConfigurations.release(2)
+        let readyForCurrentOpening = await awaitLoadDrivenChange(on: model) {
+            model.runFeatureIfActive?.isProjectReady(
+                for: workspace.root,
+                snapshotID: model.workspaceSnapshotID
+            ) == true
+        }
+        #expect(readyForCurrentOpening, "the reopened project never became ready")
+        let currentSnapshotID = model.workspaceSnapshotID
+
+        // The earlier opening's task finishes last. Its captured URL still
+        // matches, so only the generation can reject it.
+        runConfigurations.release(1)
+        #expect(
+            await runConfigurations.launchPlanNotRequested(within: .seconds(1)),
+            "a task from the previous opening must not launch into the current one"
+        )
+        #expect(
+            model.pendingRunAction == nil,
+            "a discarded task must not record a pending action either"
+        )
+        #expect(
+            model.runFeatureIfActive?.isProjectReady(
+                for: workspace.root,
+                snapshotID: currentSnapshotID
+            ) == true,
+            "the current opening's inventory must survive the discarded task"
         )
     }
 
@@ -671,6 +742,43 @@ private final class SequencedGatedWorkspaceOperations: WorkspaceOperations, @unc
     }
 }
 
+/// Reports "the project folder could not be scanned yet" for the first scan and
+/// a real snapshot afterwards.
+///
+/// A reopen test needs the first opening to sit before any applied snapshot while
+/// the second opening loads normally. Reporting the first scan as unavailable
+/// reaches that state without suspending a scan, which would occupy a thread of
+/// the pool the workspace feature scans on for the whole test.
+private final class UnavailableThenReadyWorkspaceOperations: WorkspaceOperations, @unchecked Sendable {
+    private let lock = NSLock()
+    private let preparedSnapshot: WorkspaceSnapshot
+    private var scanCount = 0
+
+    init(snapshot: WorkspaceSnapshot) {
+        preparedSnapshot = snapshot
+    }
+
+    func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? {
+        lock.lock()
+        let ordinal = scanCount
+        scanCount += 1
+        lock.unlock()
+        return ordinal == 0 ? nil : preparedSnapshot
+    }
+
+    func readFile(at rootURL: URL, relativePath: String) -> String? {
+        try? String(contentsOf: rootURL.appendingPathComponent(relativePath), encoding: .utf8)
+    }
+
+    func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool {
+        (try? text.write(
+            to: rootURL.appendingPathComponent(relativePath),
+            atomically: true,
+            encoding: .utf8
+        )) != nil
+    }
+}
+
 /// Holds each workspace root's snapshot behind its own gate so a test can keep
 /// an old project's scan suspended while a new project opens.
 private final class MultiRootGatedWorkspaceOperations: WorkspaceOperations, @unchecked Sendable {
@@ -844,6 +952,12 @@ private final class InspectionGatedRunConfigurationOperations: RunConfigurationO
     /// deadline spans a whole snapshot-driven load, like the gates above.
     func launchPlanRequested(_ ordinal: Int) async -> Bool {
         await launchPlanRequests[ordinal - 1].waitUntilOpen(timeout: .seconds(30))
+    }
+
+    /// Asserting that no launch happens needs a short deadline: the whole wait is
+    /// paid on the passing path, so it must not carry a load-sized one.
+    func launchPlanNotRequested(within duration: Duration) async -> Bool {
+        await !launchPlanRequests[0].waitUntilOpen(timeout: duration)
     }
 
     var resolveCallCount: Int {

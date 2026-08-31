@@ -19,6 +19,14 @@ package final class WorkspaceFeatureModel: ObservableObject {
     @Published package private(set) var appliedSnapshot: WorkspaceSnapshot?
 
     package var projectFiles: [URL] { appliedSnapshot?.files ?? [] }
+
+    /// Counts openings of a workspace, so consumers can tell one opening apart
+    /// from the next even when both use the same path.
+    ///
+    /// A URL alone repeats when the same project is closed and reopened: a task
+    /// that started before the reopen would still compare equal and be treated
+    /// as current. Every open and every reset advances this instead.
+    @Published package private(set) var workspaceGeneration = 0
     @Published package private(set) var isLoadingWorkspace = false
     @Published package private(set) var isRefreshingWorkspace = false
     @Published package private(set) var loadErrorMessage: String?
@@ -167,6 +175,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     }
 
     package func reset() {
+        workspaceGeneration += 1
         if let workspaceURL {
             scheduleSearchIndexInvalidation(at: workspaceURL, rules: visibilityRules)
         }
@@ -208,6 +217,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     }
 
     package func beginWorkspace(at url: URL, visibilityRules: FileVisibilityRules) {
+        workspaceGeneration += 1
         workspaceURL = url.standardizedFileURL
         self.visibilityRules = visibilityRules
         hasRestoredWorkspaceSession = false
@@ -339,10 +349,16 @@ package final class WorkspaceFeatureModel: ObservableObject {
         refreshTask?.cancel()
         pendingExternalPaths.removeAll()
         externalRefreshGeneration += 1
+        // A refresh belongs to the opening that started it. Comparing the path
+        // alone would let a refresh that outlives a close/reopen of the same
+        // project publish its snapshot into the new opening.
+        let generation = workspaceGeneration
         _ = await rebuild(
             at: workspaceURL,
             rules: visibilityRules,
-            isCurrent: { [weak self] in self?.workspaceURL == workspaceURL }
+            isCurrent: { [weak self] in
+                self?.workspaceURL == workspaceURL && self?.workspaceGeneration == generation
+            }
         )
     }
 

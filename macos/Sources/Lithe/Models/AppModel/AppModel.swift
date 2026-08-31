@@ -960,11 +960,18 @@ final class AppModel: ObservableObject, Identifiable {
         pendingProjectItemDeletion = nil
         recentProjects = recentProjectsStore.record(normalizedURL, in: recentProjects)
 
+        // The rebuild belongs to this opening. Reopening the same path advances
+        // the generation, so a rebuild left over from the previous opening stops
+        // instead of publishing its snapshot into this one.
+        let generation = workspaceFeature.workspaceGeneration
         Task {
             _ = await workspaceFeature.rebuild(
                 at: normalizedURL,
                 rules: visibilityRules,
-                isCurrent: { [weak self] in self?.workspaceURL == normalizedURL }
+                isCurrent: { [weak self] in
+                    self?.workspaceURL == normalizedURL
+                        && self?.workspaceFeature.workspaceGeneration == generation
+                }
             )
         }
     }
