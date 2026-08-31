@@ -625,8 +625,12 @@ package final class WorkspaceFeatureModel: ObservableObject {
 
     private func updateWatchConfiguration(forceRebuild: Bool = false) async {
         guard let workspaceURL else { return }
+        // The same path can be closed and reopened while the Git context is
+        // being resolved. Keep the watcher tied to the opening that requested it.
+        let generation = workspaceGeneration
         let context = await gitWatchContextProvider.watchContext(for: workspaceURL)
-        guard self.workspaceURL == workspaceURL else { return }
+        guard self.workspaceURL == workspaceURL,
+              self.workspaceGeneration == generation else { return }
         let configuration = DirectoryWatchConfiguration(
             workspaceRoot: workspaceURL,
             gitContext: context
