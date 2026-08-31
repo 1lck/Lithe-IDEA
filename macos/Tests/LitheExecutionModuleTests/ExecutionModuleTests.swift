@@ -8,6 +8,59 @@ import Testing
 @MainActor
 struct ExecutionModuleTests {
     @Test
+    func configuredServerPortUsesArgumentsEnvironmentResourcesAndFrameworkDefault() async throws {
+        let root = URL(fileURLWithPath: "/workspace/service-port", isDirectory: true)
+        let properties = root.appendingPathComponent("src/main/resources/application.properties")
+        let configuration = RunConfiguration(
+            id: "spring:api",
+            name: "API",
+            kind: .springBoot,
+            modulePath: ".",
+            mainClass: "example.Application"
+        )
+
+        let argumentService = makeRunService(
+            configuration: configuration,
+            options: RunOptions(
+                vmArguments: "-Dserver.port=18081",
+                programArguments: "--server.port=18082",
+                environment: ["SERVER_PORT": "18083"]
+            ),
+            fileAccess: TestRunFileAccess(contents: [properties: "server.port=18084"]),
+            serverPortParser: FixedServerPortParser(port: 18084)
+        )
+        await argumentService.loadProject(at: root, files: [properties], mavenProject: nil)
+        #expect(argumentService.configuredServerPort(for: configuration) == 18082)
+
+        let environmentService = makeRunService(
+            configuration: configuration,
+            options: RunOptions(environment: ["SERVER_PORT": "18083"]),
+            fileAccess: TestRunFileAccess(contents: [properties: "server.port=18084"]),
+            serverPortParser: FixedServerPortParser(port: 18084)
+        )
+        await environmentService.loadProject(at: root, files: [properties], mavenProject: nil)
+        #expect(environmentService.configuredServerPort(for: configuration) == 18083)
+
+        let resourceService = makeRunService(
+            configuration: configuration,
+            options: RunOptions(),
+            fileAccess: TestRunFileAccess(contents: [properties: "server.port=18084"]),
+            serverPortParser: FixedServerPortParser(port: 18084)
+        )
+        await resourceService.loadProject(at: root, files: [properties], mavenProject: nil)
+        #expect(resourceService.configuredServerPort(for: configuration) == 18084)
+
+        let defaultService = makeRunService(
+            configuration: configuration,
+            options: RunOptions(),
+            fileAccess: TestRunFileAccess(),
+            serverPortParser: FixedServerPortParser(port: nil)
+        )
+        await defaultService.loadProject(at: root, files: [], mavenProject: nil)
+        #expect(defaultService.configuredServerPort(for: configuration) == 8080)
+    }
+
+    @Test
     func disabledExecutionDoesNotConstructGraph() async throws {
         let recorder = Recorder()
         let runtime = ModuleRuntime()
@@ -213,6 +266,30 @@ struct ExecutionModuleTests {
     }
 }
 
+@MainActor
+private func makeRunService(
+    configuration: RunConfiguration,
+    options: RunOptions,
+    fileAccess: TestRunFileAccess,
+    serverPortParser: FixedServerPortParser
+) -> RunService {
+    RunService(
+        runtime: TestRuntime(),
+        process: TestStreamingProcess(),
+        processFactory: { TestStreamingProcess() },
+        fileAccess: fileAccess,
+        preferences: TestRunPreferences(),
+        serverPortParser: serverPortParser,
+        runConfigurationOperations: SingleRunConfigurationOperations(
+            configuration: configuration,
+            options: options
+        ),
+        executableResolver: TestExecutableResolver(),
+        languageProviderCatalog: .compatibilityFallback,
+        languageRunProviders: .standard(catalog: .compatibilityFallback)
+    )
+}
+
 @MainActor private final class Recorder {
     var factoryCalls = 0
     var graphCalls = 0
@@ -284,8 +361,16 @@ private struct TestMavenOperations: MavenProjectOperations {
 }
 
 private struct TestRunFileAccess: RunFileAccess {
+    let contents: [URL: String]
+
+    init(contents: [URL: String] = [:]) {
+        self.contents = contents
+    }
+
     func isDirectory(at url: URL) -> Bool { false }
-    func readData(from url: URL) throws -> Data { Data() }
+    func readData(from url: URL) throws -> Data {
+        Data((contents[url.standardizedFileURL] ?? "").utf8)
+    }
 }
 
 @MainActor
@@ -298,6 +383,41 @@ private final class TestRunPreferences: RunPreferenceStore {
 
 private struct TestServerPortParser: RunServerPortParsing {
     func serverPort(content: String, fileExtension: String) -> Int? { nil }
+}
+
+private struct FixedServerPortParser: RunServerPortParsing {
+    let port: Int?
+    func serverPort(content _: String, fileExtension _: String) -> Int? { port }
+}
+
+private struct SingleRunConfigurationOperations: RunConfigurationOperations {
+    let configuration: RunConfiguration
+    let options: RunOptions
+
+    func inspect(at _: URL) -> ProjectRunConfigurationInspection {
+        ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
+    }
+    func generate(at _: URL, files _: [URL], modulePaths _: [String]) throws -> RunConfigurationGenerationResult {
+        RunConfigurationGenerationResult(entryCount: 1)
+    }
+    func resolve(at _: URL, toolchainCandidates _: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
+        RunConfigurationResolution(
+            configurations: [EffectiveRunConfiguration(configuration: configuration, options: options)],
+            diagnostics: [],
+            defaultConfigurationID: configuration.id
+        )
+    }
+    func launchPlan(
+        at _: URL,
+        configurationID _: String,
+        currentFile _: String?,
+        classPath _: String?,
+        debugPort _: Int?
+    ) throws -> SharedLaunchPlan {
+        throw RunConfigurationOperationFailure(message: "Not required by the port resolution test")
+    }
+    func createConfiguration(_ draft: RunConfigurationDraft, at _: URL) throws -> String { draft.name }
+    func migrateLegacySettings(at _: URL, configurationIDs _: [String]) throws {}
 }
 
 @MainActor

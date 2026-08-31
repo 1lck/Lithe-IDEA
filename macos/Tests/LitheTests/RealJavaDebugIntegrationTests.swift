@@ -51,9 +51,23 @@ struct RealJavaDebugIntegrationTests {
             "src/main/java/com/example/demo/user/UserService.java"
         )
         let serviceSource = try String(contentsOf: serviceURL, encoding: .utf8)
-        let breakpointLine = try #require(Self.line(
+        let serviceBreakpointLine = try #require(Self.line(
             containing: "return repository.findAll();",
             in: serviceSource
+        ))
+        let serviceConstructorLine = try #require(Self.line(
+            containing: "this.repository = repository;",
+            in: serviceSource
+        ))
+        let controllerSource = try String(contentsOf: rootURL.appendingPathComponent(
+            "src/main/java/com/example/demo/user/UserController.java"
+        ), encoding: .utf8)
+        let controllerURL = rootURL.appendingPathComponent(
+            "src/main/java/com/example/demo/user/UserController.java"
+        )
+        let controllerBreakpointLine = try #require(Self.line(
+            containing: "return service.listUsers();",
+            in: controllerSource
         ))
 
         let core = RustCoreBridge()
@@ -154,7 +168,32 @@ struct RealJavaDebugIntegrationTests {
                 logs: Self.languageServerLogSummary(languageManager.languageServerLogs)
             )
         }
-        feature.toggleBreakpoint(fileURL: serviceURL, line: breakpointLine)
+        // Start at the controller call so the real integration test exercises
+        // both Java step-into and step-out, not only a step-over at a leaf line.
+        feature.toggleBreakpoint(fileURL: controllerURL, line: controllerBreakpointLine)
+        feature.toggleBreakpoint(fileURL: serviceURL, line: serviceBreakpointLine)
+        feature.toggleBreakpoint(fileURL: serviceURL, line: serviceConstructorLine)
+        // Verify the Java adapter receives and honors the condition field,
+        // rather than only exercising an unconditional source breakpoint.
+        feature.updateBreakpoint(
+            fileURL: controllerURL,
+            line: controllerBreakpointLine,
+            enabled: true,
+            condition: "true",
+            hitCondition: "1",
+            logMessage: nil
+        )
+        // A logpoint must emit a Debug Console message without stopping the
+        // application. Keep it on the constructor so it is exercised during
+        // Spring Boot startup before the HTTP request breakpoint.
+        feature.updateBreakpoint(
+            fileURL: serviceURL,
+            line: serviceConstructorLine,
+            enabled: true,
+            condition: nil,
+            hitCondition: nil,
+            logMessage: "entered UserService constructor"
+        )
         var arguments: [String: ToolingJSONValue] = [
             "mainClass": .string(target.mainClass),
             "cwd": .string(rootURL.path),
@@ -184,13 +223,31 @@ struct RealJavaDebugIntegrationTests {
             feature.state == .running
         }, "Java Debug Server did not reach the running state. Output:\n\(feature.output)")
         #expect(await Self.waitUntil(timeout: .seconds(120)) {
-            feature.breakpoints.first?.verified == true
-        }, "The Java breakpoint was not verified. Output:\n\(feature.output)")
+            feature.breakpoints.count == 3 && feature.breakpoints.allSatisfy(\.verified)
+        }, "The Java breakpoints were not verified. Output:\n\(feature.output)")
+        #expect(
+            protocolTrace.entries.contains { $0.contains("\"condition\":\"true\"") },
+            "The Java condition breakpoint was not sent to the adapter."
+        )
+        #expect(
+            protocolTrace.entries.contains { $0.contains("\"hitCondition\":\"1\"") },
+            "The Java hit-count breakpoint was not sent to the adapter."
+        )
+        #expect(
+            protocolTrace.entries.contains {
+                $0.contains("\"logMessage\":\"entered UserService constructor\"")
+            },
+            "The Java logpoint was not sent to the adapter."
+        )
         guard await Self.waitForSpringServer(port: springPort, timeout: .seconds(120)) else {
             throw RealJavaDebugIntegrationError.springServerDidNotStart(
                 "expectedPort=\(springPort)\n" + Self.debugSnapshot(feature, protocolTrace: protocolTrace)
             )
         }
+        #expect(
+            feature.output.contains("entered UserService constructor"),
+            "The Java logpoint did not produce a Debug Console message."
+        )
 
         var request = URLRequest(
             url: URL(string: "http://127.0.0.1:\(springPort)/api/users")!
@@ -206,8 +263,8 @@ struct RealJavaDebugIntegrationTests {
         }
         guard await Self.waitUntil(timeout: .seconds(30), condition: {
             feature.selectedFrame?.sourceURL?.standardizedFileURL
-                == serviceURL.standardizedFileURL
-                && feature.selectedFrame?.line == breakpointLine
+                == controllerURL.standardizedFileURL
+                && feature.selectedFrame?.line == controllerBreakpointLine
         }) else {
             throw RealJavaDebugIntegrationError.stoppedFrameUnavailable(
                 Self.debugSnapshot(feature, protocolTrace: protocolTrace)
@@ -216,15 +273,53 @@ struct RealJavaDebugIntegrationTests {
         #expect(await Self.waitUntil(timeout: .seconds(30)) {
             !feature.variables.isEmpty
         }, "No variables were loaded for the stopped Java frame.")
+        // Exercise the same frame-scoped evaluation path used by the Debug
+        // console and inline inspection, not only the variables request.
+        let outputBeforeEvaluation = feature.output
+        feature.evaluate("service")
+        #expect(await Self.waitUntil(timeout: .seconds(30)) {
+            feature.output.count > outputBeforeEvaluation.count
+                && feature.output.contains("service =")
+        }, "The stopped Java frame did not evaluate the service expression.")
 
-        let stoppedFrame = try #require(feature.selectedFrame)
+        feature.execute(.stepIn)
+        #expect(await Self.waitUntil(timeout: .seconds(30)) {
+            feature.state == .paused
+                && feature.selectedFrame?.sourceURL?.standardizedFileURL
+                    == serviceURL.standardizedFileURL
+                && feature.selectedFrame?.line == serviceBreakpointLine
+        }, "Step into did not enter UserService.listUsers().\n\(Self.debugSnapshot(feature, protocolTrace: protocolTrace))")
+
+        feature.execute(.stepOut)
+        #expect(await Self.waitUntil(timeout: .seconds(30)) {
+            feature.state == .paused
+                && feature.selectedFrame?.sourceURL?.standardizedFileURL
+                    == controllerURL.standardizedFileURL
+                && feature.selectedFrame?.line == controllerBreakpointLine
+        }, "Step out did not return to UserController.list().\n\(Self.debugSnapshot(feature, protocolTrace: protocolTrace))")
+
+        let frameBeforeStepOver = try #require(feature.selectedFrame)
         feature.execute(.next)
         #expect(await Self.waitUntil(timeout: .seconds(30)) {
-            feature.state == .paused && feature.selectedFrame != stoppedFrame
-        }, "Step over did not reach the next Java frame.")
+            feature.state == .paused && feature.selectedFrame?.id != frameBeforeStepOver.id
+        }, "Step over did not reach the next Java source position.\n\(Self.debugSnapshot(feature, protocolTrace: protocolTrace))")
         feature.execute(.continueExecution)
+        guard await Self.waitUntil(timeout: .seconds(10), condition: {
+            feature.state == .running || feature.state == .terminated
+        }) else {
+            throw RealJavaDebugIntegrationError.debuggerDidNotResume(
+                "Continue did not leave the paused state.\n" + Self.debugSnapshot(feature, protocolTrace: protocolTrace)
+            )
+        }
 
-        let response = try await Self.value(of: try #require(requestTask), timeout: .seconds(60))
+        let response: (Data, URLResponse)
+        do {
+            response = try await Self.value(of: try #require(requestTask), timeout: .seconds(60))
+        } catch {
+            throw RealJavaDebugIntegrationError.debuggerDidNotResume(
+                "(error)\n" + Self.debugSnapshot(feature, protocolTrace: protocolTrace)
+            )
+        }
         let httpResponse = try #require(response.1 as? HTTPURLResponse)
         #expect(httpResponse.statusCode == 200)
         let body = String(decoding: response.0, as: UTF8.self)
@@ -456,16 +551,19 @@ struct RealJavaDebugIntegrationTests {
             "\($0.title) enabled=\($0.enabled) verified=\($0.verified) message=\($0.message ?? "nil")"
         }.joined(separator: "\n")
         let threadSummary = feature.threads.map { "\($0.id):\($0.name)" }.joined(separator: ", ")
+        let recentTrace = protocolTrace.entries.suffix(40).joined(separator: "\n")
         return """
         state=\(feature.state)
         stoppedReason=\(feature.stoppedReason ?? "nil")
+        selectedThreadID=\(feature.selectedThreadID.map(String.init) ?? "nil")
+        selectedFrame=\(feature.selectedFrame.map { "\($0.name) @ \($0.line)" } ?? "nil")
         threads=\(threadSummary)
         breakpoints:
         \(breakpointSummary)
         output:
         \(feature.output)
-        DAP trace:
-        \(protocolTrace.entries.joined(separator: "\n"))
+        Recent DAP trace:
+        \(recentTrace)
         """
     }
 
@@ -760,6 +858,7 @@ private enum RealJavaDebugIntegrationError: Error {
     case languageToolingFailed(message: String, logs: String)
     case springServerDidNotStart(String)
     case debuggerDidNotPause(String)
+    case debuggerDidNotResume(String)
     case stoppedFrameUnavailable(String)
     case invalidFixture(String)
 }

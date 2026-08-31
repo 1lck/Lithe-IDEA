@@ -99,6 +99,10 @@ package final class RunFeatureModel: ObservableObject {
         service.options(for: configuration)
     }
 
+    package func configuredServerPort(for configuration: RunConfiguration) -> Int? {
+        service.configuredServerPort(for: configuration)
+    }
+
     package func source(for configuration: RunConfiguration) -> RunConfigurationSource {
         service.source(for: configuration)
     }

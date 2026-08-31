@@ -10,6 +10,16 @@ import Testing
 @MainActor
 struct RunConfigurationIntegrationTests {
     @Test
+    func portConflictTitleIncludesTheActualPortAndConfigurations() {
+        let conflict = RunPortConflict(
+            port: 18080,
+            configurationNames: ["api", "worker"]
+        )
+
+        #expect(conflict.title == "Port 18080 is used by api, worker")
+    }
+
+    @Test
     func javaBreakpointLocationPreflightRejectsNonExecutableLines() {
         let source = """
         package demo;
@@ -28,6 +38,26 @@ struct RunConfigurationIntegrationTests {
         #expect(!DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 5))
         #expect(DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 7))
         #expect(!DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 8))
+    }
+
+    @Test
+    func javaBreakpointLocationPreflightRejectsTypeDeclarationsWithAnyModifierOrder() {
+        let source = """
+        public final class Main {
+            private static interface Nested {
+                void run();
+            }
+            protected abstract record Value(String text) { }
+            static enum Kind { ONE }
+            void execute() { }
+        }
+        """
+
+        #expect(!DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 1))
+        #expect(!DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 2))
+        #expect(!DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 5))
+        #expect(!DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 6))
+        #expect(DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 7))
     }
 
     @Test
@@ -373,6 +403,159 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func selectedSpringBootConfigurationResolvesItsMainSourceWithoutAnOpenJavaEditor() throws {
+        let root = URL(fileURLWithPath: "/workspace/demo", isDirectory: true)
+        let readme = root.appendingPathComponent("README.md")
+        let application = root.appendingPathComponent(
+            "src/main/java/com/example/demo/DemoApplication.java"
+        )
+        let controller = root.appendingPathComponent(
+            "src/main/java/com/example/demo/user/UserController.java"
+        )
+        let configuration = RunConfiguration(
+            id: "spring-boot:demo",
+            name: "DemoApplication",
+            kind: .springBoot,
+            execution: .service,
+            modulePath: nil,
+            mainClass: "com.example.demo.DemoApplication"
+        )
+
+        let source = DebugLaunchSourceResolver().resolve(
+            configuration: configuration,
+            activeDocumentURL: readme,
+            projectFiles: [controller, application, readme],
+            workspaceURL: root
+        )
+
+        #expect(source == application)
+    }
+
+    @Test
+    func selectedJavaConfigurationUsesItsModuleToDisambiguateDuplicateMainClasses() throws {
+        let root = URL(fileURLWithPath: "/workspace/multi-module", isDirectory: true)
+        let first = root.appendingPathComponent("first/src/main/java/com/acme/Main.java")
+        let second = root.appendingPathComponent("second/src/main/java/com/acme/Main.java")
+        let configuration = RunConfiguration(
+            id: "java-main:second",
+            name: "Second Main",
+            kind: .javaMain,
+            execution: .application,
+            modulePath: "second",
+            mainClass: "com.acme.Main"
+        )
+
+        let source = DebugLaunchSourceResolver().resolve(
+            configuration: configuration,
+            activeDocumentURL: first,
+            projectFiles: [first, second],
+            workspaceURL: root
+        )
+
+        #expect(source == second)
+    }
+
+    @Test
+    func currentFileDebugStillUsesTheActiveEditorDocument() throws {
+        let root = URL(fileURLWithPath: "/workspace/current-file", isDirectory: true)
+        let current = root.appendingPathComponent("src/main/java/com/acme/Main.java")
+        let other = root.appendingPathComponent("src/main/java/com/acme/Other.java")
+
+        let source = DebugLaunchSourceResolver().resolve(
+            configuration: .currentFile,
+            activeDocumentURL: current,
+            projectFiles: [other],
+            workspaceURL: root
+        )
+
+        #expect(source == current)
+    }
+
+    @Test
+    func debugFallsBackFromNonLaunchableCurrentJavaFileToSpringBootConfiguration() {
+        let current = RunConfiguration(
+            id: "current-file",
+            name: "Current File",
+            kind: .currentFile,
+            execution: .application,
+            modulePath: nil,
+            mainClass: nil
+        )
+        let springBoot = RunConfiguration(
+            id: "spring-boot:demo",
+            name: "DemoApplication",
+            kind: .springBoot,
+            execution: .service,
+            modulePath: nil,
+            mainClass: "com.example.demo.DemoApplication"
+        )
+
+        let selected = DebugLaunchSourceResolver().configurationForDebug(
+            selected: current,
+            activeDocumentText: "@Repository class UserRepository { }",
+            configurations: [current, springBoot]
+        )
+
+        #expect(selected.id == springBoot.id)
+    }
+
+    @Test
+    func debugFallsBackWhenCurrentEditorTextIsUnavailable() {
+        let current = RunConfiguration(
+            id: "current-file",
+            name: "Current File",
+            kind: .currentFile,
+            execution: .application,
+            modulePath: nil,
+            mainClass: nil
+        )
+        let springBoot = RunConfiguration(
+            id: "spring-boot:demo",
+            name: "DemoApplication",
+            kind: .springBoot,
+            execution: .service,
+            modulePath: nil,
+            mainClass: "com.example.demo.DemoApplication"
+        )
+
+        let selected = DebugLaunchSourceResolver().configurationForDebug(
+            selected: current,
+            activeDocumentText: nil,
+            configurations: [current, springBoot]
+        )
+
+        #expect(selected.id == springBoot.id)
+    }
+
+    @Test
+    func debugKeepsCurrentJavaFileWhenItHasAMainMethod() {
+        let current = RunConfiguration(
+            id: "current-file",
+            name: "Current File",
+            kind: .currentFile,
+            execution: .application,
+            modulePath: nil,
+            mainClass: nil
+        )
+        let springBoot = RunConfiguration(
+            id: "spring-boot:demo",
+            name: "DemoApplication",
+            kind: .springBoot,
+            execution: .service,
+            modulePath: nil,
+            mainClass: "com.example.demo.DemoApplication"
+        )
+
+        let selected = DebugLaunchSourceResolver().configurationForDebug(
+            selected: current,
+            activeDocumentText: "public static void main(String[] args) { }",
+            configurations: [current, springBoot]
+        )
+
+        #expect(selected.id == current.id)
+    }
+
+    @Test
     func javaTestDebugLaunchUsesTheSharedRustConfiguration() throws {
         let core = RustCoreBridge()
         guard core.isAvailable else { return }
@@ -542,6 +725,49 @@ struct RunConfigurationIntegrationTests {
 
         #expect(manager.provider(for: source)?.id == "java")
         #expect(manager.activeAdapterIDs.isEmpty)
+    }
+
+    @Test
+    func restoredJavaBreakpointInAnotherSourceIsSentWhenDebugStarts() throws {
+        let root = URL(fileURLWithPath: "/tmp/restored-java-debug", isDirectory: true)
+        let launchSource = root.appendingPathComponent("src/main/java/demo/DemoApplication.java")
+        let breakpointSource = root.appendingPathComponent("src/main/java/demo/UserController.java")
+        let persistence = RestoredBreakpointPersistence(snapshot: DebugBreakpointSnapshot(
+            breakpoints: [PersistedDebugBreakpoint(
+                relativePath: "src/main/java/demo/UserController.java",
+                line: 23
+            )]
+        ))
+        var adapter: TestDebugAdapterSession?
+        let manager = DebugAdapterSessionManager(
+            providers: LanguageProviderCatalog.standard.debugProviders,
+            makeSession: { _, _ in
+                let value = TestDebugAdapterSession()
+                adapter = value
+                return value
+            }
+        )
+        let feature = GenericDebugFeatureModel(
+            sessions: manager,
+            breakpointPersistence: persistence
+        )
+        feature.openWorkspace(at: root)
+
+        let started = feature.start(
+            fileURL: launchSource,
+            rootURL: root,
+            configuration: DebugLaunchConfiguration(
+                name: "DemoApplication",
+                request: .launch,
+                arguments: [:]
+            )
+        )
+
+        #expect(started)
+        let update = try #require(adapter?.breakpointUpdates.first(where: {
+            $0.0 == breakpointSource.standardizedFileURL
+        }))
+        #expect(update.1 == [DebugSourceBreakpoint(line: 23)])
     }
 
     @Test
@@ -5014,6 +5240,20 @@ private final class TestDebugAdapterSession: DebugAdapterControllingSession {
         frameID: Int?,
         completion: @escaping (Result<DebugVariable, Error>) -> Void
     ) {}
+}
+
+private final class RestoredBreakpointPersistence: DebugBreakpointPersisting, @unchecked Sendable {
+    private let snapshot: DebugBreakpointSnapshot
+
+    init(snapshot: DebugBreakpointSnapshot) {
+        self.snapshot = snapshot
+    }
+
+    func loadBreakpoints(for workspaceURL: URL) throws -> DebugBreakpointSnapshot? {
+        snapshot
+    }
+
+    func saveBreakpoints(_ snapshot: DebugBreakpointSnapshot, for workspaceURL: URL) throws {}
 }
 
 @MainActor

@@ -127,6 +127,28 @@ extension AppModel {
         )
     }
 
+    /// Reveals a stopped debugger frame without adding every step to the
+    /// user's editor back/forward history. Debug stepping is transient
+    /// inspection, unlike an explicit navigation from build output or a link.
+    func revealDebugLocation(url: URL, line: Int, column: Int?) {
+        let normalizedURL = url.standardizedFileURL
+        guard workspaceFeature.fileExists(at: normalizedURL) else {
+            showNotification("The stopped source file is no longer available: \(url.lastPathComponent)")
+            return
+        }
+        navigate(
+            to: EditorNavigationLocation(
+                url: normalizedURL,
+                line: max(0, line - 1),
+                utf16Column: max(0, (column ?? 1) - 1),
+                isReadOnly: false,
+                displayPath: nil,
+                virtualProviderID: nil
+            ),
+            recordsHistory: false
+        )
+    }
+
     func toggleProblems() {
         isProblemsVisible.toggle()
         guard isProblemsVisible else { return }
@@ -341,6 +363,18 @@ extension AppModel {
         Task { [weak self] in await self?.startDebuggingAfterActivation() }
     }
 
+    func startOrRestartDebugging() {
+        guard let feature = genericDebugFeatureIfActive,
+              feature.isSessionActive else {
+            startDebugging()
+            return
+        }
+        showDebugToolWindow()
+        if feature.canRestart {
+            feature.execute(.restart)
+        }
+    }
+
     func attachJavaDebugger(host: String, port: Int) {
         Task { [weak self] in
             await self?.attachJavaDebuggerAfterActivation(host: host, port: port)
@@ -385,19 +419,57 @@ extension AppModel {
     }
 
     private func startDebuggingAfterActivation() async {
-        guard await activateExecutionModule() != nil,
-              await activateDebugModule() != nil else { return }
-        if let document = activeDocument,
-           languageProviderCatalog.provider(for: document.url)?
-               .capabilities.contains(.debugAdapter) == true {
-            startGenericDebugging(document)
+        guard let runFeature = await activateExecutionModule()?.runFeature,
+              await activateDebugModule() != nil,
+              let workspaceURL else { return }
+        guard runFeature.configurationStatus == .ready else {
+            runFeature.requestRunConfigurationGeneration(intent: .debug)
             return
         }
-        let language = activeDocument.flatMap {
-            languageProviderCatalog.provider(for: $0.url)?.displayName
-        } ?? "This file type"
-        showNotification("\(language) debugging is not available on this machine")
-        isDebugVisible = true
+        guard let selectedConfiguration = runFeature.selectedConfiguration else {
+            showNotification("Choose a Run configuration before starting Debug")
+            return
+        }
+        let configuration = DebugLaunchSourceResolver().configurationForDebug(
+            selected: selectedConfiguration,
+            activeDocumentText: activeDocument?.text,
+            configurations: runFeature.configurations
+        )
+        runFeature.select(configuration)
+
+        let sourceURL: URL
+        if configuration.usesCurrentEditorFile {
+            guard let document = activeDocument else {
+                showNotification("Open a source file or choose a project Run configuration")
+                return
+            }
+            sourceURL = document.url
+        } else if configuration.kind.capabilities.contains(.jdwpDebug) {
+            guard let resolved = DebugLaunchSourceResolver().resolve(
+                configuration: configuration,
+                activeDocumentURL: activeDocument?.url,
+                projectFiles: projectFiles,
+                workspaceURL: workspaceURL
+            ) else {
+                showNotification("Could not find the Java source for \(configuration.name)")
+                return
+            }
+            sourceURL = resolved
+        } else {
+            showNotification("\(configuration.name) does not support Debug yet")
+            return
+        }
+
+        guard languageProviderCatalog.provider(for: sourceURL)?
+            .capabilities.contains(.debugAdapter) == true else {
+            showNotification("Debug support is not available for \(sourceURL.lastPathComponent)")
+            isDebugVisible = true
+            return
+        }
+        let document = openDocuments.first {
+            $0.url.standardizedFileURL == sourceURL.standardizedFileURL
+        }
+        await startGenericDebuggingAfterActivation(fileURL: sourceURL, document: document)
     }
 
     func toggleTests() {
@@ -689,8 +761,17 @@ extension AppModel {
     }
 
     func handleDebugSessionStateChange(_ state: DebugAdapterState) {
+        // A Java launch may request an integrated terminal before the adapter
+        // reaches `running`. Once the debug session is live, the debugger is
+        // the primary tool window, matching IDEA's launch behavior; the
+        // terminal session remains available as a separate session tab.
+        if state == .launching || state == .running {
+            showDebugToolWindow()
+            return
+        }
         if state == .paused {
             showDebugToolWindow()
+            platformUI.activateApplication()
             return
         }
         guard state == .terminated || state == .failed else { return }
@@ -876,13 +957,12 @@ extension AppModel {
         }
     }
 
-    private func startGenericDebugging(_ document: EditorDocument) {
-        Task { [weak self] in await self?.startGenericDebuggingAfterActivation(document) }
-    }
-
-    private func startGenericDebuggingAfterActivation(_ document: EditorDocument) async {
+    private func startGenericDebuggingAfterActivation(
+        fileURL: URL,
+        document: EditorDocument?
+    ) async {
         guard let workspaceURL,
-              let provider = languageProviderCatalog.provider(for: document.url),
+              let provider = languageProviderCatalog.provider(for: fileURL),
               let runFeature = await activateExecutionModule()?.runFeature,
               let genericDebugFeature = await activateDebugModule()?.genericFeature else {
             showNotification("No language provider is available for this file")
@@ -894,7 +974,7 @@ extension AppModel {
         if let selectedConfiguration = runFeature.selectedConfiguration {
             runFeature.select(selectedConfiguration)
         }
-        if document.isDirty {
+        if let document, document.isDirty {
             do {
                 let previousText = document.savedText
                 try saveDocument(document)
@@ -904,13 +984,26 @@ extension AppModel {
                 return
             }
         }
+        // Reject an occupied service port before asking JDT LS to resolve the
+        // launch target. A failed preflight therefore creates no language
+        // service, Debug Adapter, terminal, or Java child process.
+        if provider.id == "java",
+           let selectedConfiguration = runFeature.selectedConfiguration,
+           let port = runFeature.configuredServerPort(for: selectedConfiguration),
+           !debugPortAvailabilityChecker.isPortAvailable(port) {
+            showNotification(
+                "Port \(port) is already in use. Stop the process using it or change server.port in the Run configuration."
+            )
+            isDebugVisible = true
+            return
+        }
         let configuration: DebugLaunchConfiguration
         do {
             let javaTarget: JavaDebugLaunchTarget?
             if provider.id == "java" {
                 let sessions = try await languageSessionsForWorkspaceMaintenance()
                 javaTarget = try await sessions.resolveJavaDebugLaunchTarget(
-                    fileURL: document.url,
+                    fileURL: fileURL,
                     rootURL: workspaceURL
                 )
             } else {
@@ -918,7 +1011,7 @@ extension AppModel {
             }
             configuration = try debugLaunchConfigurationResolver.resolve(
                 provider: provider,
-                documentURL: document.url,
+                documentURL: fileURL,
                 workspaceURL: workspaceURL,
                 configurations: runFeature.configurations,
                 selectedConfiguration: runFeature.selectedConfiguration,
@@ -930,7 +1023,7 @@ extension AppModel {
             return
         }
         guard genericDebugFeature.start(
-            fileURL: document.url,
+            fileURL: fileURL,
             rootURL: workspaceURL,
             configuration: configuration
         ) else {

@@ -149,6 +149,7 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
 
     private var selectedShellPath: String?
     private var suppressNextTermination = false
+    private let stoppedChildProcessReaper = MacStoppedChildProcessReaper()
 
     var isRunning: Bool {
         view.process.running
@@ -296,9 +297,12 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
     }
 
     func stop() {
-        guard view.process.running else { return }
+        guard let processID else { return }
         suppressNextTermination = true
-        view.terminate()
+        if view.process.running {
+            view.terminate()
+        }
+        stoppedChildProcessReaper.reapWhenExited(processID)
     }
 
     func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}

@@ -233,6 +233,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     @Published public private(set) var scopes: [DebugScope] = []
     @Published public private(set) var selectedScopeID: Int?
     @Published public private(set) var variables: [DebugVariable] = []
+    @Published public private(set) var automaticVariables: [DebugVariable] = []
     @Published public private(set) var variableChildren: [String: [DebugVariable]] = [:]
     @Published public private(set) var expandedVariableIDs: Set<String> = []
     @Published public private(set) var loadingVariableIDs: Set<String> = []
@@ -250,10 +251,16 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     @Published public private(set) var javaSteppingFilters: DebugSteppingFilters?
     @Published public private(set) var consoleHistory: [String] = []
     @Published public private(set) var areFilteredStackFramesExpanded = false
+    /// Prevents overlapping execution requests while the adapter is still
+    /// acknowledging the previous step/continue operation.
+    @Published public private(set) var isExecutionRequestPending = false
 
     /// Delivers the selected stopped frame to the host editor for source
     /// navigation. The Debug module does not own editor presentation.
     public var onStoppedLocation: ((URL, Int, Int) -> Void)?
+    /// Lets the host derive source-referenced expressions after the selected
+    /// frame has completed its inspection-state reset.
+    public var onAutomaticVariableInspectionRequest: ((DebugStackFrame) -> Void)?
     /// Lets the host activate its native Terminal module without coupling
     /// Debug to a platform process or presentation implementation.
     public var onRunInTerminalRequest: DebugRunInTerminalRequestHandler? {
@@ -293,8 +300,12 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     private let maximumConsoleHistoryEntries = 100
     private let maximumOutputCharacters = 400_000
     private let variablePageSize = 100
+    private let maximumAutomaticVariables = 8
     private var watchGeneration = 0
     private var inspectionGeneration = 0
+    private var automaticExpressionOrder: [String] = []
+    private var automaticExpressionResults: [String: DebugVariable] = [:]
+    private var automaticExpressionFrameID: Int?
     private static let rootVariablePageID = "__lithe_debug_root_variables__"
     private var debuggeeOutputNormalizer = GenericDebugOutputNormalizer()
 
@@ -317,6 +328,12 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             if self.activeSessionID == sessionID {
                 self.providerID = providerID
                 self.state = state
+                if state != .paused {
+                    self.isExecutionRequestPending = false
+                }
+                if state == .running {
+                    self.clearStoppedInspection()
+                }
                 self.saveActiveSessionSnapshot()
             } else {
                 self.updateInactiveSessionState(
@@ -349,7 +366,10 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
 
     public var canControl: Bool { state == .running || state == .paused }
     public var canRestart: Bool {
-        canControl && capabilities.supportsRestartRequest
+        // Some Java adapters (notably older JDT LS builds) do not advertise
+        // DAP `restart`. We can still provide the IDEA-style rerun action by
+        // relaunching the exact saved request after stopping this session.
+        canControl && (capabilities.supportsRestartRequest || lastStartRequest != nil)
     }
     public var canTerminate: Bool {
         canControl && capabilities.supportsTerminateRequest
@@ -362,7 +382,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     }
     public var visibleVariableRows: [GenericDebugVariableRow] {
         var rows: [GenericDebugVariableRow] = []
-        appendVisibleVariables(variables, parentPath: "root", depth: 0, to: &rows)
+        appendVisibleVariables(presentedVariables, parentPath: "root", depth: 0, to: &rows)
         appendVariableLoadMoreRow(
             parentVariableID: nil,
             parentPath: "root",
@@ -370,6 +390,17 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             to: &rows
         )
         return rows
+    }
+    /// Root-scope values plus source-referenced expressions evaluated for the
+    /// selected frame, matching the compact variable list used by Java IDEs.
+    public var presentedVariables: [DebugVariable] {
+        var knownNames = Set<String>()
+        var result: [DebugVariable] = []
+        for variable in variables + automaticVariables {
+            guard knownNames.insert(variable.name).inserted else { continue }
+            result.append(variable)
+        }
+        return result
     }
     public var visibleStackFrameRows: [GenericDebugStackFrameRow] {
         guard javaSteppingFilters?.hideFilteredStackFrames == true,
@@ -463,6 +494,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         guard sessions.select(sessionID: sessionID) else { return false }
         activeSessionID = sessionID
         providerID = summary.providerID
+        isExecutionRequestPending = false
         onSessionSelectionChanged?(sessionID)
         publishConsoleHistory(for: sessionID)
         restoreSessionSnapshot(sessionID, summary: summary)
@@ -510,6 +542,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         debuggeeOutputNormalizer.reset()
         errorMessage = nil
         stoppedReason = nil
+        isExecutionRequestPending = false
         exceptionInfo = nil
         threads = []
         stoppedThreadIDs = []
@@ -517,6 +550,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         scopes = []
         selectedScopeID = nil
         resetVariableTree()
+        resetAutomaticVariables()
         invalidateWatchResults()
         capabilities = .unknown
         selectedThreadID = nil
@@ -524,12 +558,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         stoppedFrame = nil
         selectedFrame = nil
         do {
-            if requestedBreakpointsByFile[request.fileURL] != nil {
-                try sessions.setBreakpoints(
-                    effectiveBreakpoints(for: request.fileURL),
-                    in: request.fileURL
-                )
-            }
+            try synchronizeRequestedBreakpoints(for: providerID)
             if !dataBreakpoints.isEmpty {
                 try sessions.setDataBreakpoints(coreDataBreakpoints, for: request.fileURL)
             }
@@ -604,6 +633,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         onSessionSelectionChanged?(nil)
         consoleHistory = []
         state = .idle
+        isExecutionRequestPending = false
         stoppedReason = nil
         exceptionInfo = nil
         selectedThreadID = nil
@@ -617,6 +647,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         scopes = []
         selectedScopeID = nil
         resetVariableTree()
+        resetAutomaticVariables()
         invalidateWatchResults()
         capabilities = .unknown
         activeFileURL = nil
@@ -634,6 +665,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         consoleHistoryCursorBySession.removeAll()
         consoleHistoryDraftBySession.removeAll()
         state = .idle
+        isExecutionRequestPending = false
         stoppedReason = nil
         exceptionInfo = nil
         selectedThreadID = nil
@@ -647,6 +679,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         scopes = []
         selectedScopeID = nil
         resetVariableTree()
+        resetAutomaticVariables()
         invalidateWatchResults()
         capabilities = .unknown
         activeFileURL = nil
@@ -1007,7 +1040,19 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     }
 
     public func execute(_ command: DebugExecutionCommand) {
+        if command == .restart,
+           !capabilities.supportsRestartRequest,
+           lastStartRequest != nil {
+            _ = retry()
+            return
+        }
         guard let session = activeSession else { return }
+        guard !isExecutionRequestPending else { return }
+        if command == .continueExecution || command == .pause ||
+            command == .next || command == .stepIn || command == .stepOut ||
+            command == .stepBack || command == .goto {
+            isExecutionRequestPending = true
+        }
         session.execute(command, threadID: selectedThreadID)
     }
 
@@ -1048,9 +1093,11 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
 
     public func executeThread(_ command: DebugExecutionCommand, thread: DebugThread) {
         guard capabilities.supportsSingleThreadExecutionRequests,
+              !isExecutionRequestPending,
               (command == .continueExecution && state == .paused)
                 || (command == .pause && state == .running),
               let session = activeSession else { return }
+        isExecutionRequestPending = true
         session.execute(
             command,
             threadID: thread.id,
@@ -1132,6 +1179,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         scopes = []
         selectedScopeID = nil
         resetVariableTree()
+        resetAutomaticVariables()
         invalidateWatchResults()
         guard let session = activeSession else { return }
         session.requestStackTrace(threadID: thread.id) { [weak self] result in
@@ -1142,8 +1190,9 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             case .success(let frames):
                 self.stackFrames = frames
                 self.areFilteredStackFramesExpanded = false
-                self.selectedFrameID = frames.first?.id
-                if let frame = frames.first {
+                let preferredFrame = self.preferredStoppedFrame(in: frames)
+                self.selectedFrameID = preferredFrame?.id
+                if let frame = preferredFrame {
                     self.selectFrame(frame, generation: generation)
                 } else {
                     self.selectedFrame = nil
@@ -1164,8 +1213,10 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         scopes = []
         selectedScopeID = nil
         resetVariableTree()
+        resetAutomaticVariables()
         invalidateWatchResults()
         publishStoppedLocation(frame)
+        onAutomaticVariableInspectionRequest?(frame)
         refreshWatches()
         guard let session = activeSession else { return }
         session.requestScopes(frameID: frame.id) { [weak self] result in
@@ -1211,6 +1262,104 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             frameID: selectedFrameID,
             generation: inspectionGeneration
         )
+    }
+
+    /// Evaluates identifiers referenced by the paused source line so fields
+    /// such as Java's `service` appear beside locals and as editor inlays.
+    public func requestAutomaticVariables(_ expressions: [String]) {
+        guard state == .paused,
+              let frameID = selectedFrameID,
+              let session = activeSession else { return }
+        var knownExpressions = Set<String>()
+        var orderedExpressions: [String] = []
+        for rawExpression in expressions {
+            let expression = rawExpression.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !expression.isEmpty,
+                  knownExpressions.insert(expression).inserted else { continue }
+            orderedExpressions.append(expression)
+            if orderedExpressions.count == maximumAutomaticVariables { break }
+        }
+        guard automaticExpressionFrameID != frameID
+                || automaticExpressionOrder != orderedExpressions else { return }
+
+        automaticExpressionFrameID = frameID
+        automaticExpressionOrder = orderedExpressions
+        automaticExpressionResults = [:]
+        automaticVariables = []
+        guard !orderedExpressions.isEmpty else { return }
+
+        let generation = inspectionGeneration
+        for expression in orderedExpressions {
+            evaluateAutomaticVariable(
+                expression,
+                evaluatedExpression: expression,
+                allowsJavaFieldFallback: true,
+                orderedExpressions: orderedExpressions,
+                frameID: frameID,
+                generation: generation,
+                session: session
+            )
+        }
+    }
+
+    private func evaluateAutomaticVariable(
+        _ expression: String,
+        evaluatedExpression: String,
+        allowsJavaFieldFallback: Bool,
+        orderedExpressions: [String],
+        frameID: Int,
+        generation: Int,
+        session: any DebugAdapterControllingSession
+    ) {
+        session.evaluate(evaluatedExpression, frameID: frameID) { [weak self] result in
+            guard let self,
+                  self.state == .paused,
+                  self.inspectionGeneration == generation,
+                  self.selectedFrameID == frameID,
+                  self.automaticExpressionFrameID == frameID,
+                  self.automaticExpressionOrder == orderedExpressions else { return }
+            switch result {
+            case .success(let variable):
+                let displayName = expression.split(separator: ".").last.map(String.init)
+                    ?? expression
+                self.automaticExpressionResults[expression] = DebugVariable(
+                    id: variable.id,
+                    name: displayName,
+                    value: variable.value,
+                    type: variable.type,
+                    evaluateName: variable.evaluateName ?? evaluatedExpression,
+                    variablesReference: variable.variablesReference,
+                    containerReference: variable.containerReference,
+                    namedVariables: variable.namedVariables,
+                    indexedVariables: variable.indexedVariables
+                )
+                self.publishAutomaticVariables(orderedExpressions)
+            case .failure:
+                if allowsJavaFieldFallback,
+                   self.providerID == "java",
+                   !expression.contains(".") {
+                    self.evaluateAutomaticVariable(
+                        expression,
+                        evaluatedExpression: "this.\(expression)",
+                        allowsJavaFieldFallback: false,
+                        orderedExpressions: orderedExpressions,
+                        frameID: frameID,
+                        generation: generation,
+                        session: session
+                    )
+                } else {
+                    // Source-driven evaluation is speculative. Invalid
+                    // candidates should not flood the user's Debug Console.
+                    self.publishAutomaticVariables(orderedExpressions)
+                }
+            }
+        }
+    }
+
+    private func publishAutomaticVariables(_ orderedExpressions: [String]) {
+        automaticVariables = orderedExpressions.compactMap {
+            automaticExpressionResults[$0]
+        }
     }
 
     private func loadVariables(
@@ -1450,6 +1599,9 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         let normalized = debuggeeOutputNormalizer.normalize(rawOutput)
         guard !normalized.isEmpty else { return }
         append(normalized)
+        if let diagnostic = launchDiagnostic(in: normalized) {
+            errorMessage = diagnostic
+        }
     }
 
     private func resetInspectionState() {
@@ -1464,8 +1616,15 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         stackFrames = []
         areFilteredStackFramesExpanded = false
         scopes = []
+        selectedScopeID = nil
         resetVariableTree()
+        resetAutomaticVariables()
         invalidateWatchResults()
+    }
+
+    private func clearStoppedInspection() {
+        invalidateInspectionRequests()
+        resetInspectionState()
     }
 
     private func saveActiveSessionSnapshot() {
@@ -1637,6 +1796,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         case .output(_, let text):
             append(text)
         case .stopped(let reason, let threadID, let description):
+            isExecutionRequestPending = false
             let generation = beginInspectionTransition()
             if let threadID {
                 stoppedThreadIDs.insert(threadID)
@@ -1653,6 +1813,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             areFilteredStackFramesExpanded = false
             scopes = []
             resetVariableTree()
+            resetAutomaticVariables()
             invalidateWatchResults()
             if reason == "exception", let threadID {
                 loadExceptionInfo(threadID: threadID, generation: generation)
@@ -1663,40 +1824,16 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                 shouldLoadExceptionInfo: reason == "exception" && threadID == nil
             )
         case .continued(let threadID):
+            isExecutionRequestPending = false
             if let threadID {
                 stoppedThreadIDs.remove(threadID)
             } else {
                 stoppedThreadIDs = []
             }
-            invalidateInspectionRequests()
-            stoppedReason = nil
-            exceptionInfo = nil
-            selectedThreadID = nil
-            selectedFrameID = nil
-            stoppedFrame = nil
-            selectedFrame = nil
-            threads = []
-            stoppedThreadIDs = []
-            stackFrames = []
-            areFilteredStackFramesExpanded = false
-            scopes = []
-            resetVariableTree()
-            invalidateWatchResults()
+            clearStoppedInspection()
         case .terminated(let exitCode):
-            invalidateInspectionRequests()
-            stoppedReason = nil
-            exceptionInfo = nil
-            selectedThreadID = nil
-            selectedFrameID = nil
-            stoppedFrame = nil
-            selectedFrame = nil
-            threads = []
-            stoppedThreadIDs = []
-            stackFrames = []
-            areFilteredStackFramesExpanded = false
-            scopes = []
-            resetVariableTree()
-            invalidateWatchResults()
+            isExecutionRequestPending = false
+            clearStoppedInspection()
             if let exitCode { append("Debug session exited with code \(exitCode).\n") }
         case .breakpoint(let resolved):
             if let dataID = resolved.dataID,
@@ -1763,8 +1900,9 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             case .success(let frames):
                 self.stackFrames = frames
                 self.areFilteredStackFramesExpanded = false
-                self.selectedFrameID = frames.first?.id
-                if let frame = frames.first {
+                let preferredFrame = self.preferredStoppedFrame(in: frames)
+                self.selectedFrameID = preferredFrame?.id
+                if let frame = preferredFrame {
                     self.selectFrame(frame, generation: generation)
                 } else {
                     self.selectedFrame = nil
@@ -1773,6 +1911,16 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                 self.record(error)
             }
         }
+    }
+
+    /// Prefer a source-backed, unfiltered frame after a stop so Java's
+    /// synthetic reflection and method-handle frames do not become the user's
+    /// initial inspection location. The full stack remains available and can
+    /// still be expanded from the filtered-frame group.
+    private func preferredStoppedFrame(in frames: [DebugStackFrame]) -> DebugStackFrame? {
+        frames.first(where: { !$0.isFiltered && $0.sourceURL != nil })
+            ?? frames.first(where: { !$0.isFiltered })
+            ?? frames.first
     }
 
     private func loadExceptionInfo(threadID: Int, generation: Int) {
@@ -1960,6 +2108,14 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             .sorted {
                 ($0.line, $0.column ?? 0) < ($1.line, $1.column ?? 0)
             }
+    }
+
+    private func synchronizeRequestedBreakpoints(for providerID: String?) throws {
+        guard let providerID else { return }
+        for fileURL in requestedBreakpointsByFile.keys.sorted(by: { $0.path < $1.path })
+        where sessionsProviderID(for: fileURL) == providerID {
+            try sessions.setBreakpoints(effectiveBreakpoints(for: fileURL), in: fileURL)
+        }
     }
 
     private func synchronizeBreakpoints(for fileURL: URL) {
@@ -2202,6 +2358,13 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         loadingVariablePageIDs = []
     }
 
+    private func resetAutomaticVariables() {
+        automaticVariables = []
+        automaticExpressionOrder = []
+        automaticExpressionResults = [:]
+        automaticExpressionFrameID = nil
+    }
+
     private func replaceVariable(_ replacement: DebugVariable) {
         if let index = variables.firstIndex(where: { $0.id == replacement.id }) {
             variables[index] = replacement
@@ -2285,6 +2448,20 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             output.removeFirst(output.count - maximumOutputCharacters)
         }
         saveActiveSessionSnapshot()
+    }
+
+    private func launchDiagnostic(in output: String) -> String? {
+        let pattern = #"(?i)\bport\s+(\d{1,5})\s+was already in use\b"#
+        guard let expression = try? NSRegularExpression(pattern: pattern),
+              let match = expression.firstMatch(
+                  in: output,
+                  range: NSRange(output.startIndex..., in: output)
+              ),
+              let portRange = Range(match.range(at: 1), in: output) else {
+            return nil
+        }
+        let port = output[portRange]
+        return "Port \(port) is already in use. Stop the process using it or change server.port in the Run configuration."
     }
 
     private func append(_ text: String, to output: inout String) {

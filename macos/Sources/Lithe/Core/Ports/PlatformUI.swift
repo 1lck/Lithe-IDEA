@@ -4,6 +4,7 @@ import Foundation
 /// Implementations may use AppKit, Qt, or another native UI toolkit.
 @MainActor
 protocol PlatformUI: AnyObject {
+    func activateApplication()
     func chooseDirectory(title: String, prompt: String) -> URL?
     func chooseFile(title: String, prompt: String) -> URL?
     func revealInFileBrowser(_ url: URL)
@@ -13,6 +14,7 @@ protocol PlatformUI: AnyObject {
 }
 
 extension PlatformUI {
+    func activateApplication() {}
     func startAccessingProject(_ url: URL) -> Bool { false }
     func stopAccessingProject(_ url: URL) {}
 }

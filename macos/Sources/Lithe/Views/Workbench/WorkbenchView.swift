@@ -522,8 +522,12 @@ struct WorkbenchView: View {
 
             Spacer(minLength: 22)
 
-            debugConfigurationPicker
+            runConfigurationPicker
+            runLaunchButton
             debugLaunchButton
+            if hasActiveExecution {
+                stopExecutionButton
+            }
 
             backgroundPickerButton
 
@@ -541,35 +545,89 @@ struct WorkbenchView: View {
         }
     }
 
+    private var runLaunchButton: some View {
+        Button {
+            if model.runFeatureIfActive?.isRunning == true {
+                model.restartSelectedRun()
+            } else {
+                model.runSelectedConfiguration()
+            }
+        } label: {
+            LitheIDEAIcon(
+                resourcePath: model.runFeatureIfActive?.isRunning == true
+                    ? "debugger/rerun.svg"
+                    : "debugger/run.svg",
+                size: 16,
+                fallbackSystemImage: model.runFeatureIfActive?.isRunning == true
+                    ? "arrow.clockwise"
+                    : "play.fill",
+                preservesOriginalColors: true
+            )
+                .frame(width: 28, height: 28)
+                .litheRowHover(isActive: false, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
+        }
+        .buttonStyle(.plain)
+        .lithePointer()
+        .help(model.runFeatureIfActive?.isRunning == true ? "Rerun selected configuration" : "Run selected configuration")
+        .accessibilityLabel(model.runFeatureIfActive?.isRunning == true ? "Rerun selected configuration" : "Run selected configuration")
+        .accessibilityIdentifier("run-selected-run-configuration")
+    }
+
     private var debugLaunchButton: some View {
         Button {
-            model.startDebugging()
+            model.startOrRestartDebugging()
         } label: {
-            HStack(spacing: 5) {
-                LitheIDEAIcon(
-                    resourcePath: "toolwindows/toolWindowDebugger.svg",
-                    size: 16,
-                    fallbackSystemImage: "ladybug.fill"
-                )
-                if let configuration = model.runFeatureIfActive?.selectedConfiguration {
-                    Text(configuration.name)
-                        .font(.system(size: 11.5, weight: .medium))
-                        .lineLimit(1)
-                }
-            }
-            .padding(.horizontal, 8)
-            .frame(height: 30)
+            LitheIDEAIcon(
+                resourcePath: isDebugSessionActive
+                    ? "debugger/restartDebug.svg"
+                    : "debugger/debug.svg",
+                size: 16,
+                fallbackSystemImage: "ladybug.fill",
+                preservesOriginalColors: true
+            )
+            .frame(width: 28, height: 28)
             .litheRowHover(isActive: false, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
         }
         .buttonStyle(.plain)
         .lithePointer()
-        .foregroundStyle(LitheTheme.success)
-        .help("Debug selected run configuration")
-        .accessibilityLabel("Debug selected run configuration")
+        .help(isDebugSessionActive ? "Rerun or show Debug session" : "Debug selected run configuration")
+        .accessibilityLabel(isDebugSessionActive ? "Rerun or show Debug session" : "Debug selected run configuration")
         .accessibilityIdentifier("debug-selected-run-configuration")
     }
 
-    private var debugConfigurationPicker: some View {
+    private var stopExecutionButton: some View {
+        Button {
+            if isDebugSessionActive {
+                model.stopDebugging()
+            } else {
+                model.stopSelectedRun()
+            }
+        } label: {
+            LitheIDEAIcon(
+                resourcePath: "debugger/stop.svg",
+                size: 16,
+                fallbackSystemImage: "stop.fill",
+                preservesOriginalColors: true
+            )
+                .frame(width: 28, height: 28)
+                .litheRowHover(isActive: false, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
+        }
+        .buttonStyle(.plain)
+        .lithePointer()
+        .help("Stop active execution")
+        .accessibilityLabel("Stop active execution")
+        .accessibilityIdentifier("stop-active-execution")
+    }
+
+    private var isDebugSessionActive: Bool {
+        model.genericDebugFeatureIfActive?.isSessionActive == true
+    }
+
+    private var hasActiveExecution: Bool {
+        isDebugSessionActive || model.runFeatureIfActive?.isRunning == true
+    }
+
+    private var runConfigurationPicker: some View {
         Menu {
             if let runFeature = model.runFeatureIfActive,
                !runFeature.configurations.isEmpty {
@@ -594,11 +652,11 @@ struct WorkbenchView: View {
             }
         } label: {
             HStack(spacing: 5) {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .bold))
                 Text(model.runFeatureIfActive?.selectedConfiguration?.name ?? "Current File")
                     .font(.system(size: 11.5, weight: .medium))
                     .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
             }
             .foregroundStyle(LitheTheme.primaryText)
             .padding(.horizontal, 8)

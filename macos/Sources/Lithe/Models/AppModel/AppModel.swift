@@ -158,6 +158,7 @@ final class AppModel: ObservableObject, Identifiable {
     let runtimeFeature: RuntimeSettingsFeatureModel
     let languageToolingFeature: LanguageToolingFeatureModel
     let debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver
+    let debugPortAvailabilityChecker: any DebugPortAvailabilityChecking
     let workspaceFeature: WorkspaceFeatureModel
     let githubFeature: GitHubFeatureModel
     let discourseCommunityFeature: DiscourseCommunityFeatureModel
@@ -364,6 +365,7 @@ final class AppModel: ObservableObject, Identifiable {
             sessionsProvider: { nil }
         )
         debugLaunchConfigurationResolver = services.debugLaunchConfigurationResolver
+        debugPortAvailabilityChecker = services.debugPortAvailabilityChecker
         documentFeature = DocumentFeatureModel(
             operations: services.workspaceOperations,
             documentLifecycleDecider: services.documentLifecycleDecider,

@@ -30,6 +30,17 @@ struct DebugModuleTests {
     }
 
     @Test
+    func springPortConflictOutputProducesAnActionableDiagnostic() {
+        let manager = DebugAdapterSessionManager(providers: []) { _, _ in nil }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+
+        feature.appendDebuggeeOutput("Web server failed to start. Port 8080 was already in use.\n")
+
+        #expect(feature.errorMessage == "Port 8080 is already in use. Stop the process using it or change server.port in the Run configuration.")
+        #expect(feature.output.contains("Port 8080 was already in use."))
+    }
+
+    @Test
     func staleSessionCallbacksCannotOverwriteAReplacementSession() throws {
         let descriptor = DebugProviderDescriptor(
             id: "java",
@@ -1087,6 +1098,69 @@ struct DebugModuleTests {
     }
 
     @Test
+    func restartFallsBackToRelaunchWhenAdapterDoesNotAdvertiseRestart() throws {
+        let session = DeferredInspectionDebugSession()
+        let descriptor = DebugProviderDescriptor(
+            id: "java",
+            displayName: "Java",
+            fileExtensions: ["java"]
+        )
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        let root = URL(fileURLWithPath: "/tmp/java-debug-restart-fallback", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.java")
+        let configuration = DebugLaunchConfiguration(
+            name: "Restart Main",
+            request: .launch,
+            arguments: ["mainClass": .string("example.Main")]
+        )
+
+        #expect(feature.start(fileURL: source, rootURL: root, configuration: configuration))
+        #expect(feature.state == .paused)
+        #expect(!feature.capabilities.supportsRestartRequest)
+        #expect(feature.canRestart)
+
+        feature.execute(.restart)
+
+        #expect(session.startCount == 2)
+        #expect(session.launchConfigurations == [configuration, configuration])
+        feature.stop()
+    }
+
+    @Test
+    func executionControlsIgnoreOverlappingRequestsUntilSessionLeavesPausedState() throws {
+        let session = DeferredInspectionDebugSession()
+        let descriptor = DebugProviderDescriptor(
+            id: "java",
+            displayName: "Java",
+            fileExtensions: ["java"]
+        )
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        let root = URL(fileURLWithPath: "/tmp/java-debug-execution-lock", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.java")
+        let configuration = DebugLaunchConfiguration(
+            name: "Execution lock",
+            request: .launch,
+            arguments: ["mainClass": .string("example.Main")]
+        )
+
+        #expect(feature.start(fileURL: source, rootURL: root, configuration: configuration))
+        feature.execute(.continueExecution)
+        feature.execute(.continueExecution)
+        #expect(session.executionCommands == [.continueExecution])
+        #expect(feature.isExecutionRequestPending)
+
+        session.transition(to: .running)
+        #expect(!feature.isExecutionRequestPending)
+        session.transition(to: .paused)
+        feature.execute(.continueExecution)
+        #expect(session.executionCommands == [.continueExecution, .continueExecution])
+
+        feature.stop()
+    }
+
+    @Test
     func filteredStackFramesCollapseByConsecutiveRunsAndRestoreOrder() {
         let session = DeferredInspectionDebugSession()
         let descriptor = DebugProviderDescriptor(
@@ -1178,6 +1252,56 @@ struct DebugModuleTests {
         #expect(feature.visibleStackFrameRows.map(\.id) == [
             "frame-1", "filtered-2", "frame-4", "filtered-5"
         ])
+    }
+
+    @Test
+    func stoppedStackPrefersTheFirstSourceBackedUnfilteredFrame() throws {
+        let session = DeferredInspectionDebugSession()
+        let descriptor = DebugProviderDescriptor(
+            id: "java",
+            displayName: "Java",
+            fileExtensions: ["java"]
+        )
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        let root = URL(fileURLWithPath: "/tmp/java-preferred-frame", isDirectory: true)
+        let source = root.appendingPathComponent("src/UserService.java")
+        #expect(feature.start(
+            fileURL: source,
+            rootURL: root,
+            configuration: DebugLaunchConfiguration(
+                name: "Main",
+                request: .launch,
+                arguments: ["mainClass": .string("example.Main")]
+            )
+        ))
+        defer { feature.stop() }
+
+        // Java adapters can report a synthetic method-handle frame above the
+        // actual application frame. The initial inspection must land on the
+        // application source while retaining the synthetic frame in the list.
+        feature.selectThread(DebugThread(id: 7, name: "http-worker"))
+        let synthetic = DebugStackFrame(
+            id: 1,
+            name: "java.lang.invoke.MethodHandle.invokeVirtual",
+            sourceURL: nil,
+            line: 1,
+            column: 1,
+            isFiltered: true
+        )
+        let application = DebugStackFrame(
+            id: 2,
+            name: "example.UserService.listUsers",
+            sourceURL: source,
+            line: 18,
+            column: 5
+        )
+        session.completeStackTrace(at: 0, with: [synthetic, application])
+
+        #expect(feature.stackFrames.map(\.id) == [1, 2])
+        #expect(feature.selectedFrameID == 2)
+        #expect(feature.selectedFrame?.sourceURL == source)
+        #expect(session.scopeFrameIDs == [2])
     }
 
     @Test
@@ -1308,6 +1432,108 @@ struct DebugModuleTests {
         #expect(feature.selectedFrameID == nil)
         #expect(feature.stackFrames.isEmpty)
         #expect(feature.scopes.isEmpty)
+    }
+
+    @Test
+    func runningStateClearsStoppedInspectionBeforeContinuedEvent() throws {
+        let session = DeferredInspectionDebugSession()
+        let feature = makeDeferredFeature(
+            session: session,
+            rootPath: "/tmp/java-running-inspection-reset"
+        )
+        defer { feature.stop() }
+        let thread = DebugThread(id: 7, name: "http-worker")
+        let frame = DebugStackFrame(
+            id: 70,
+            name: "UserController.list()",
+            sourceURL: URL(fileURLWithPath: "/tmp/java-running-inspection-reset/src/UserController.java"),
+            line: 23,
+            column: 1
+        )
+        let service = DebugVariable(
+            id: "service",
+            name: "service",
+            value: "UserService@72",
+            type: "UserService",
+            evaluateName: "service",
+            variablesReference: 0
+        )
+
+        feature.selectThread(thread)
+        session.completeStackTrace(at: 0, with: [frame])
+        session.completeScopes(
+            at: 0,
+            with: [DebugScope(id: 700, name: "Locals", variablesReference: 700, expensive: false)]
+        )
+        session.completeVariables(at: 0, with: [service])
+        feature.requestAutomaticVariables(["service"])
+        session.completeEvaluation(at: 0, with: .success(service))
+
+        #expect(feature.selectedThreadID == thread.id)
+        #expect(feature.selectedFrameID == frame.id)
+        #expect(feature.selectedScopeID == 700)
+        #expect(feature.presentedVariables == [service])
+
+        // The adapter commonly confirms the request before sending its
+        // continued event. Running state must not expose the old pause.
+        session.transition(to: .running)
+
+        #expect(feature.state == .running)
+        #expect(feature.selectedThreadID == nil)
+        #expect(feature.selectedFrameID == nil)
+        #expect(feature.selectedScopeID == nil)
+        #expect(feature.stackFrames.isEmpty)
+        #expect(feature.scopes.isEmpty)
+        #expect(feature.variables.isEmpty)
+        #expect(feature.automaticVariables.isEmpty)
+        #expect(feature.presentedVariables.isEmpty)
+    }
+
+    @Test
+    func automaticVariableInspectionRunsAfterFrameResetAndFallsBackToJavaField() {
+        let session = DeferredInspectionDebugSession()
+        let feature = makeDeferredFeature(
+            session: session,
+            rootPath: "/tmp/java-automatic-variable-inspection"
+        )
+        defer { feature.stop() }
+        let frame = DebugStackFrame(
+            id: 31,
+            name: "UserController.list()",
+            sourceURL: URL(fileURLWithPath: "/tmp/java-automatic-variable-inspection/src/UserController.java"),
+            line: 23,
+            column: 1
+        )
+        var requestedFrameID: Int?
+        feature.onAutomaticVariableInspectionRequest = { selectedFrame in
+            requestedFrameID = selectedFrame.id
+            feature.requestAutomaticVariables(["service"])
+        }
+
+        #expect(feature.state == .paused)
+        #expect(feature.providerID == "java")
+        feature.selectFrame(frame)
+        #expect(requestedFrameID == frame.id)
+        #expect(session.evaluateExpressions == ["service"])
+        #expect(session.evaluateFrameIDs == [frame.id])
+
+        guard session.evaluateExpressions.count == 1 else { return }
+        session.completeEvaluation(at: 0, with: .failure(DeferredDebugSessionError.launchFailed))
+        #expect(session.evaluateExpressions == ["service", "this.service"])
+
+        let service = DebugVariable(
+            id: "service",
+            name: "this.service",
+            value: "UserService@72",
+            type: "UserService",
+            evaluateName: "this.service",
+            variablesReference: 72
+        )
+        guard session.evaluateExpressions.count == 2 else { return }
+        session.completeEvaluation(at: 1, with: .success(service))
+
+        #expect(feature.automaticVariables.map(\.name) == ["service"])
+        #expect(feature.automaticVariables.map(\.value) == ["UserService@72"])
     }
 
     @Test
@@ -2721,6 +2947,7 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
     private(set) var startCount = 0
     private(set) var launchConfigurations: [DebugLaunchConfiguration] = []
     private(set) var breakpointUpdates: [[DebugSourceBreakpoint]] = []
+    private(set) var executionCommands: [DebugExecutionCommand] = []
     var failNextLaunch = false
     var onStateChange: ((DebugAdapterState) -> Void)?
     var onEvent: ((DebugAdapterEvent) -> Void)?
@@ -2745,6 +2972,11 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
         threadID: Int,
         completion: (Result<DebugExceptionInfo, Error>) -> Void
     )] = []
+    private var evaluateRequests: [(
+        expression: String,
+        frameID: Int?,
+        completion: (Result<DebugVariable, Error>) -> Void
+    )] = []
 
     var stackTraceThreadIDs: [Int] { stackTraceRequests.map(\.threadID) }
     var scopeFrameIDs: [Int] { scopeRequests.map(\.frameID) }
@@ -2760,6 +2992,8 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
         }
     }
     var exceptionInfoThreadIDs: [Int] { exceptionInfoRequests.map(\.threadID) }
+    var evaluateExpressions: [String] { evaluateRequests.map(\.expression) }
+    var evaluateFrameIDs: [Int?] { evaluateRequests.map(\.frameID) }
 
     init(capabilities: DebugAdapterCapabilities = .unknown) {
         self.capabilities = capabilities
@@ -2792,10 +3026,17 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
         onStateChange?(.failed)
     }
 
+    func transition(to state: DebugAdapterState) {
+        self.state = state
+        onStateChange?(state)
+    }
+
     func setBreakpoints(_ breakpoints: [DebugSourceBreakpoint], in _: URL) {
         breakpointUpdates.append(breakpoints)
     }
-    func execute(_: DebugExecutionCommand, threadID _: Int?) {}
+    func execute(_ command: DebugExecutionCommand, threadID _: Int?) {
+        executionCommands.append(command)
+    }
     func requestThreads(_: @escaping (Result<[DebugThread], Error>) -> Void) {}
 
     func requestExceptionInfo(
@@ -2843,10 +3084,12 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
     }
 
     func evaluate(
-        _: String,
-        frameID _: Int?,
-        completion _: @escaping (Result<DebugVariable, Error>) -> Void
-    ) {}
+        _ expression: String,
+        frameID: Int?,
+        completion: @escaping (Result<DebugVariable, Error>) -> Void
+    ) {
+        evaluateRequests.append((expression, frameID, completion))
+    }
 
     // This double deliberately delivers responses after cancellation to model
     // adapters and callback queues that cannot retract an already-sent result.
@@ -2874,6 +3117,10 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
 
     func completeExceptionInfo(at index: Int, with info: DebugExceptionInfo) {
         exceptionInfoRequests[index].completion(.success(info))
+    }
+
+    func completeEvaluation(at index: Int, with result: Result<DebugVariable, Error>) {
+        evaluateRequests[index].completion(result)
     }
 }
 

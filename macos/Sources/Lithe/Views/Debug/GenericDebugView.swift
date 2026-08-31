@@ -88,8 +88,6 @@ struct GenericDebugView: View {
         switch selectedContent {
         case .debugger:
             inspector
-        case .breakpoints:
-            DebugBreakpointManagerView(feature: feature)
         case .console:
             debugConsole
         }
@@ -101,95 +99,112 @@ struct GenericDebugView: View {
                 Button {
                     selectedContent = content
                 } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: content.systemImage)
-                            .font(.system(size: 10, weight: .medium))
-                        Text(content.title)
-                            .font(.system(size: 11, weight: .medium))
-                    }
+                    Text(content.title)
+                        .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(
                         selectedContent == content
                             ? LitheTheme.primaryText
                             : LitheTheme.secondaryText
                     )
-                    .padding(.horizontal, 12)
-                    .frame(height: 29)
-                    .overlay(alignment: .bottom) {
+                    .padding(.horizontal, 11)
+                    .frame(height: 25)
+                    .background(
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(selectedContent == content
+                                ? LitheTheme.selection
+                                : Color.clear)
+                    )
+                    .overlay {
                         if selectedContent == content {
-                            Rectangle()
-                                .fill(LitheTheme.accent)
-                                .frame(height: 2)
+                            RoundedRectangle(cornerRadius: 5)
+                                .stroke(LitheTheme.accent.opacity(0.65), lineWidth: 1)
                         }
                     }
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .lithePointer()
             }
             Spacer(minLength: 0)
-            if feature.state == .paused {
-                Label(feature.stoppedReason ?? "Paused", systemImage: "pause.circle.fill")
-                    .font(.system(size: 10.5, weight: .medium))
-                    .foregroundStyle(LitheTheme.warning)
-                    .lineLimit(1)
-                    .padding(.trailing, 10)
-            }
         }
+        .padding(.horizontal, 8)
+        .frame(height: 32)
         .litheWorkbenchSurface(LitheTheme.toolHeader)
     }
 
     private var header: some View {
-        LitheToolWindowHeader(
-            title: "Debug",
-            systemImage: "ladybug",
-            ideaAssetPath: "toolwindows/toolWindowDebugger.svg",
-            subtitle: feature.state.title,
-            onMinimize: { model.isDebugVisible = false }
-        ) {
-            if let providerID = feature.providerID {
-                Text(providerID.uppercased())
-                    .font(.system(size: 10.5, weight: .semibold))
-                    .foregroundStyle(LitheTheme.secondaryText)
-            }
-            if let targetTitle = feature.targetTitle {
-                Text(targetTitle)
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .lineLimit(1)
+        HStack(spacing: 10) {
+            Text("Debug")
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(LitheTheme.toolWindowText)
+            if let sessionTitle = debugSessionTitle {
+                debugSessionTab(sessionTitle)
             }
             if feature.sessionSummaries.count > 1 {
                 sessionPicker
             }
-            Spacer()
-            Button { model.showDebugBreakpointManager() } label: {
-                Image(systemName: "list.bullet.rectangle")
+            if !feature.isSessionActive {
+                debugConfigurationPicker
+            }
+            Spacer(minLength: 8)
+            debugOptionsMenu
+            Button { model.isDebugVisible = false } label: {
+                Image(systemName: "minus")
             }
             .litheIconButton()
-            .help("View breakpoints (⌘⇧F8)")
-            .accessibilityLabel("View breakpoints")
-            Button { feature.toggleBreakpointMute() } label: {
-                Image(systemName: feature.areBreakpointsMuted ? "eye.slash" : "eye")
-            }
-            .litheIconButton()
-            .disabled(feature.breakpoints.isEmpty)
-            .help(feature.areBreakpointsMuted ? "Enable breakpoints" : "Mute breakpoints")
-            .accessibilityLabel(feature.areBreakpointsMuted ? "Enable breakpoints" : "Mute breakpoints")
-            if feature.javaSteppingFilters != nil {
-                Button { isJavaSteppingSettingsPresented = true } label: {
-                    Image(systemName: "line.3.horizontal.decrease.circle")
+            .help("Hide Debug tool window")
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, 7)
+        .frame(height: DebugToolbarPresentation.sessionHeaderHeight)
+        .litheWorkbenchSurface(LitheTheme.toolHeader)
+    }
+
+    private var debugSessionTitle: String? {
+        if let targetTitle = feature.targetTitle, !targetTitle.isEmpty {
+            return targetTitle
+        }
+        if let providerID = feature.providerID, !providerID.isEmpty {
+            return providerID.uppercased()
+        }
+        if let selectedConfiguration = model.runFeatureIfActive?.selectedConfiguration,
+           !selectedConfiguration.name.isEmpty {
+            return selectedConfiguration.name
+        }
+        return nil
+    }
+
+    private func debugSessionTab(_ title: String) -> some View {
+        HStack(spacing: 6) {
+            LitheIDEAIcon(
+                resourcePath: "debugger/debug.svg",
+                size: 14,
+                fallbackSystemImage: "ladybug.fill",
+                preservesOriginalColors: true
+            )
+            Text(title)
+                .font(.system(size: 11.5, weight: .medium))
+                .lineLimit(1)
+            if feature.isSessionActive {
+                Button(action: stopActiveDebugSession) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .frame(width: 16, height: 16)
                 }
-                .litheIconButton()
-                .disabled(feature.isSessionActive)
-                .help("Java stepping filters")
+                .buttonStyle(.plain)
+                .lithePointer()
+                .help("Stop debug session")
             }
-            Button { isJavaAttachPresented = true } label: {
-                Image(systemName: "link")
-            }
-            .litheIconButton()
-            .disabled(feature.isSessionActive)
-            .help("Connect to running JVM")
-            controlButton("trash", help: "Clear output", disabled: false) {
-                feature.clearOutput()
-            }
+        }
+        .foregroundStyle(LitheTheme.primaryText)
+        .padding(.leading, 8)
+        .padding(.trailing, feature.isSessionActive ? 4 : 8)
+        .frame(height: 25)
+        .background(RoundedRectangle(cornerRadius: 5).fill(LitheTheme.selection))
+        .overlay {
+            RoundedRectangle(cornerRadius: 5)
+                .stroke(LitheTheme.accent.opacity(0.7), lineWidth: 1)
         }
     }
 
@@ -224,7 +239,12 @@ struct GenericDebugView: View {
                 }
             }
         } label: {
-            Image(systemName: "square.stack.3d.up")
+            LitheIDEAIcon(
+                resourcePath: "debugger/threads.svg",
+                size: 14,
+                fallbackSystemImage: "square.stack.3d.up",
+                preservesOriginalColors: true
+            )
         }
         .litheIconButton()
         .help("Debug sessions")
@@ -241,175 +261,335 @@ struct GenericDebugView: View {
         return "\(summary.providerDisplayName) · \(rootName)"
     }
 
-    private var debugToolbar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 3) {
-                toolbarGroup {
+    /// Keeps the Debug entry point visibly tied to the same Run configuration
+    /// used by the Run tool window. IDEA exposes this choice next to the
+    /// debugger session rather than hiding it behind a second, unrelated
+    /// launch flow.
+    private var debugConfigurationPicker: some View {
+        Menu {
+            if let runFeature = model.runFeatureIfActive,
+               !runFeature.configurations.isEmpty {
+                ForEach(runFeature.configurations) { configuration in
                     Button {
-                        if feature.isSessionActive {
-                            if feature.canTerminate {
-                                feature.execute(.terminate)
-                            } else {
-                                model.stopDebugging()
-                            }
-                        } else if feature.canRetry {
-                            _ = feature.retry()
-                        } else {
-                            model.startDebugging()
-                        }
+                        model.selectRunConfiguration(configuration)
                     } label: {
-                        Image(systemName: feature.isSessionActive ? "stop.fill" : feature.canRetry ? "arrow.clockwise" : "play.fill")
-                    }
-                    .litheIconButton()
-                    .foregroundStyle(feature.isSessionActive ? LitheTheme.warning : LitheTheme.success)
-                    .help(
-                        feature.isSessionActive
-                            ? "Stop debugging"
-                            : feature.canRetry ? "Retry debugging" : "Start debugging"
-                    )
-
-                    controlButton(
-                        feature.state == .running ? "pause.fill" : "play.fill",
-                        help: feature.state == .running ? "Pause" : "Resume",
-                        disabled: !feature.canControl
-                    ) {
-                        feature.execute(feature.state == .running ? .pause : .continueExecution)
-                    }
-                }
-
-                toolbarDivider
-
-                toolbarGroup {
-                    controlButton("arrow.right.to.line", help: "Step over", disabled: feature.state != .paused) {
-                        feature.execute(.next)
-                    }
-                    controlButton("arrow.down.to.line", help: "Step into", disabled: feature.state != .paused) {
-                        feature.execute(.stepIn)
-                    }
-                    if feature.capabilities.supportsStepInTargetsRequest {
-                        smartStepButton
-                    }
-                    controlButton("arrow.up.to.line", help: "Step out", disabled: feature.state != .paused) {
-                        feature.execute(.stepOut)
-                    }
-                    if feature.capabilities.supportsStepBack {
-                        controlButton("arrow.uturn.backward", help: "Step back", disabled: !feature.canStepBack) {
-                            feature.execute(.stepBack)
-                        }
-                    }
-                }
-
-                if feature.capabilities.supportsRestartRequest {
-                    toolbarDivider
-                    controlButton("arrow.clockwise", help: "Rerun", disabled: !feature.canRestart) {
-                        feature.execute(.restart)
-                    }
-                }
-
-                Spacer(minLength: 8)
-
-                if let frame = feature.selectedFrame {
-                    HStack(spacing: 5) {
-                        Image(systemName: feature.state == .paused ? "pause.circle.fill" : "circle")
-                            .foregroundStyle(feature.state == .paused ? LitheTheme.warning : LitheTheme.secondaryText)
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(feature.state == .paused ? "Paused" : feature.state.title)
-                                .font(.system(size: 10, weight: .semibold))
-                            if let sourceURL = frame.sourceURL {
-                                Text("\(sourceURL.lastPathComponent):\(frame.line)")
-                                    .font(.system(size: 9.5, design: .monospaced))
-                                    .foregroundStyle(LitheTheme.secondaryText)
-                                    .lineLimit(1)
+                        HStack(spacing: 7) {
+                            RunConfigurationIcon(kind: configuration.kind, size: 14)
+                            Text(configuration.name)
+                            if configuration.id == runFeature.selectedConfiguration?.id {
+                                Spacer(minLength: 8)
+                                Image(systemName: "checkmark")
                             }
                         }
                     }
-                    .foregroundStyle(LitheTheme.primaryText)
-                    .padding(.horizontal, 7)
-                    .help(frame.name)
-                } else {
-                    Text(feature.state.title)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .padding(.horizontal, 7)
                 }
-            }
-            .padding(.horizontal, 8)
-            .frame(minHeight: 34)
-        }
-        .litheWorkbenchSurface(LitheTheme.toolHeader)
-    }
-
-    @ViewBuilder
-    private var smartStepButton: some View {
-        Button {
-            feature.requestSmartStepInto { result in
-                guard case .success(let targets) = result else { return }
-                if targets.count == 1, let target = targets.first {
-                    feature.smartStepInto(target)
-                } else {
-                    smartStepTargets = targets
-                    isSmartStepPickerPresented = true
+            } else {
+                Button("Current File") {
+                    model.selectRunConfiguration(.currentFile)
                 }
             }
         } label: {
-            Image(systemName: "arrow.down.right.and.arrow.up.left")
+            HStack(spacing: 5) {
+                RunConfigurationIcon(
+                    kind: model.runFeatureIfActive?.selectedConfiguration?.kind ?? .currentFile,
+                    size: 13
+                )
+                Text(model.runFeatureIfActive?.selectedConfiguration?.name ?? "Current File")
+                    .font(.system(size: 11, weight: .medium))
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+            }
+            .foregroundStyle(LitheTheme.primaryText)
+            .padding(.horizontal, 8)
+            .frame(maxWidth: 210, minHeight: 25)
+            .background(RoundedRectangle(cornerRadius: 5).fill(LitheTheme.selection.opacity(0.72)))
+            .contentShape(Rectangle())
         }
-        .litheIconButton()
-        .disabled(feature.state != .paused || feature.selectedFrameID == nil)
-        .help("Smart step into")
-        .popover(isPresented: $isSmartStepPickerPresented, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Choose Step Target")
-                    .font(.system(size: 11, weight: .semibold))
-                    .padding(.horizontal, 8)
-                    .padding(.top, 6)
-                if smartStepTargets.isEmpty {
-                    Text("No callable target at this location")
-                        .font(LitheTheme.smallFont)
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .padding(8)
-                } else {
-                    ForEach(smartStepTargets) { target in
-                        Button(target.label) {
-                            feature.smartStepInto(target)
-                            isSmartStepPickerPresented = false
-                        }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 11, design: .monospaced))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
+        .menuStyle(.borderlessButton)
+        .fixedSize(horizontal: true, vertical: false)
+        .help("Select the Run configuration used by Debug")
+        .accessibilityLabel("Debug run configuration")
+        .accessibilityIdentifier("debug-run-configuration-picker")
+    }
+
+    private var debugToolbar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 2) {
+                ForEach(DebugToolbarPresentation.primaryActions) { action in
+                    debugToolbarActionButton(action)
+                    if DebugToolbarPresentation.separatorsAfter.contains(action) {
+                        toolbarDivider
                     }
                 }
+                debugOptionsMenu
+                debugExecutionStatus
+                Spacer(minLength: 8)
             }
-            .frame(minWidth: 230)
-            .padding(.vertical, 4)
+            .padding(.horizontal, 8)
+            .frame(height: DebugToolbarPresentation.toolbarHeight)
+        }
+        .litheWorkbenchSurface(LitheTheme.toolHeader)
+        .popover(isPresented: $isSmartStepPickerPresented, arrowEdge: .bottom) {
+            smartStepPicker
         }
     }
 
-    private func toolbarGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        HStack(spacing: 1, content: content)
-            .padding(2)
-            .background(LitheTheme.inputBackground.opacity(0.6))
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+    private func debugToolbarActionButton(_ action: DebugToolbarActionID) -> some View {
+        let isDisabled = isDebugToolbarActionDisabled(action)
+        return Button {
+            performDebugToolbarAction(action)
+        } label: {
+            LitheIDEAIcon(
+                resourcePath: DebugToolbarPresentation.ideaAssetPath(
+                    for: action,
+                    isSessionActive: feature.isSessionActive
+                ),
+                size: DebugToolbarPresentation.iconSize,
+                fallbackSystemImage: DebugToolbarPresentation.fallbackSystemImage(for: action),
+                preservesOriginalColors: true
+            )
+            .frame(width: DebugToolbarPresentation.iconSize, height: DebugToolbarPresentation.iconSize)
+        }
+        .litheIconButton()
+        .frame(width: 32, height: 30)
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.36 : 1)
+        .help(debugToolbarActionHelp(action))
+        .accessibilityLabel(debugToolbarActionHelp(action))
+        .accessibilityIdentifier("debug-toolbar-\(action.rawValue)")
+    }
+
+    private func performDebugToolbarAction(_ action: DebugToolbarActionID) {
+        switch action {
+        case .restartOrStart:
+            if feature.isSessionActive {
+                feature.execute(.restart)
+            } else if feature.canRetry {
+                _ = feature.retry()
+            } else {
+                model.startDebugging()
+            }
+        case .stop:
+            stopActiveDebugSession()
+        case .resume:
+            feature.execute(.continueExecution)
+        case .pause:
+            feature.execute(.pause)
+        case .stepOver:
+            feature.execute(.next)
+        case .stepInto:
+            feature.execute(.stepIn)
+        case .stepOut:
+            feature.execute(.stepOut)
+        case .viewBreakpoints:
+            model.showDebugBreakpointManager()
+        case .muteBreakpoints:
+            feature.toggleBreakpointMute()
+        }
+    }
+
+    private func isDebugToolbarActionDisabled(_ action: DebugToolbarActionID) -> Bool {
+        switch action {
+        case .restartOrStart:
+            feature.isSessionActive && !feature.canRestart
+        case .stop:
+            !feature.isSessionActive
+        case .resume:
+            feature.state != .paused || feature.isExecutionRequestPending
+        case .pause:
+            feature.state != .running || feature.isExecutionRequestPending
+        case .stepOver, .stepInto, .stepOut:
+            // DAP step requests require a concrete stopped thread. Keep the
+            // toolbar disabled during the short inspection window after a
+            // stop event instead of sending a no-op request with no thread.
+            feature.state != .paused || feature.selectedThreadID == nil
+                || feature.isExecutionRequestPending
+        case .viewBreakpoints:
+            model.workspaceURL == nil
+        case .muteBreakpoints:
+            feature.breakpoints.isEmpty
+        }
+    }
+
+    private func debugToolbarActionHelp(_ action: DebugToolbarActionID) -> String {
+        let title: String
+        switch action {
+        case .restartOrStart:
+            title = feature.isSessionActive ? "Rerun" : feature.canRetry ? "Retry debugging" : "Start debugging"
+        case .stop: title = "Stop debugging"
+        case .resume: title = "Resume"
+        case .pause: title = "Pause"
+        case .stepOver: title = "Step over"
+        case .stepInto: title = "Step into"
+        case .stepOut: title = "Step out"
+        case .viewBreakpoints: title = "View breakpoints"
+        case .muteBreakpoints:
+            title = feature.areBreakpointsMuted ? "Enable breakpoints" : "Mute breakpoints"
+        }
+        guard let commandID = debugToolbarCommandID(for: action),
+              let shortcut = model.keyboardShortcutFeature.displayText(for: commandID),
+              !shortcut.isEmpty else {
+            return title
+        }
+            return "\(title) (\(shortcut))"
+    }
+
+    private func debugToolbarCommandID(for action: DebugToolbarActionID) -> String? {
+        switch action {
+        case .restartOrStart: "debug"
+        case .stop: "stop-debug"
+        case .resume: "debug-resume"
+        case .pause: nil
+        case .stepOver: "debug-step-over"
+        case .stepInto: "debug-step-into"
+        case .stepOut: "debug-step-out"
+        case .viewBreakpoints: "view-breakpoints"
+        case .muteBreakpoints: nil
+        }
+    }
+
+    private func stopActiveDebugSession() {
+        if feature.canTerminate {
+            feature.execute(.terminate)
+        } else {
+            model.stopDebugging()
+        }
     }
 
     private var toolbarDivider: some View {
         Rectangle()
             .fill(LitheTheme.divider)
-            .frame(width: 1, height: 20)
-            .padding(.horizontal, 4)
+            .frame(width: 1, height: 18)
+            .padding(.horizontal, 3)
     }
 
-    private func controlButton(
-        _ image: String,
-        help: String,
-        disabled: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) { Image(systemName: image) }
-            .litheIconButton()
-            .disabled(disabled)
-            .help(help)
+    private var debugExecutionStatus: some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(debugStatusColor)
+                .frame(width: 6, height: 6)
+            Text(debugStatusText)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .lineLimit(1)
+            if let frame = feature.selectedFrame,
+               let sourceURL = frame.sourceURL {
+                Button {
+                    model.revealDebugLocation(
+                        url: sourceURL,
+                        line: frame.line,
+                        column: frame.column
+                    )
+                } label: {
+                    Text("· \(sourceURL.lastPathComponent):\(frame.line)")
+                        .font(.system(size: 9.5, design: .monospaced))
+                        .foregroundStyle(LitheTheme.secondaryText.opacity(0.82))
+                        .lineLimit(1)
+                }
+                .buttonStyle(.plain)
+                .help("Reveal stopped location in editor")
+                .accessibilityLabel("Reveal stopped location in editor")
+            }
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 22)
+        .background(
+            Capsule()
+                .fill(LitheTheme.selection.opacity(0.58))
+        )
+        .help(debugStatusText)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(debugStatusText)
+    }
+
+    private var debugStatusText: String {
+        DebugToolbarPresentation.statusText(
+            for: feature.state,
+            stoppedReason: feature.stoppedReason
+        )
+    }
+
+    private var debugStatusColor: Color {
+        switch feature.state {
+        case .paused: return LitheTheme.warning
+        case .failed: return LitheTheme.error
+        case .terminated, .idle: return LitheTheme.secondaryText
+        default: return LitheTheme.success
+        }
+    }
+
+    private var debugOptionsMenu: some View {
+        Menu {
+            if feature.capabilities.supportsStepInTargetsRequest {
+                Button("Smart Step Into") { requestSmartStepInto() }
+                    .disabled(feature.state != .paused || feature.selectedFrameID == nil)
+            }
+            if feature.capabilities.supportsStepBack {
+                Button("Step Back") { feature.execute(.stepBack) }
+                    .disabled(!feature.canStepBack)
+            }
+            if feature.javaSteppingFilters != nil {
+                Button("Java Stepping Filters…") {
+                    isJavaSteppingSettingsPresented = true
+                }
+                .disabled(feature.isSessionActive)
+            }
+            Divider()
+            Button("Connect to Running JVM…") { isJavaAttachPresented = true }
+                .disabled(feature.isSessionActive)
+            Button("Clear Console") { feature.clearOutput() }
+                .disabled(feature.output.isEmpty)
+        } label: {
+            LitheIDEAIcon(
+                resourcePath: "actions/moreVertical.svg",
+                size: 15,
+                fallbackSystemImage: "ellipsis"
+            )
+        }
+        .litheIconButton()
+        .help("More Debug actions")
+        .accessibilityLabel("More Debug actions")
+    }
+
+    private func requestSmartStepInto() {
+        feature.requestSmartStepInto { result in
+            guard case .success(let targets) = result else { return }
+            if targets.count == 1, let target = targets.first {
+                feature.smartStepInto(target)
+            } else {
+                smartStepTargets = targets
+                isSmartStepPickerPresented = true
+            }
+        }
+    }
+
+    private var smartStepPicker: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Choose Step Target")
+                .font(.system(size: 11, weight: .semibold))
+                .padding(.horizontal, 8)
+                .padding(.top, 6)
+            if smartStepTargets.isEmpty {
+                Text("No callable target at this location")
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .padding(8)
+            } else {
+                ForEach(smartStepTargets) { target in
+                    Button(target.label) {
+                        feature.smartStepInto(target)
+                        isSmartStepPickerPresented = false
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11, design: .monospaced))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+        .frame(minWidth: 230)
+        .padding(.vertical, 4)
     }
 
     private var inspector: some View {
@@ -424,127 +604,99 @@ struct GenericDebugView: View {
     }
 
     private var executionInspector: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                sectionHeader("Threads", count: feature.threads.count)
-                if feature.threads.isEmpty {
-                    Button("Load threads") { feature.inspectThreads() }
-                        .buttonStyle(.plain)
-                        .font(LitheTheme.smallFont)
-                        .foregroundStyle(LitheTheme.accent)
-                        .padding(10)
-                } else {
-                    ForEach(feature.threads) { thread in
-                        rowButton(selected: feature.selectedThreadID == thread.id) {
-                            feature.selectThread(thread)
-                        } label: {
-                            Image(systemName: threadIcon(thread))
-                                .foregroundStyle(threadColor(thread))
-                            Text(thread.name).lineLimit(1)
-                        }
-                        .contextMenu {
-                            Button("Copy Thread Name") {
-                                copyToPasteboard(thread.name)
-                            }
-                            if feature.capabilities.supportsSingleThreadExecutionRequests {
-                                Divider()
-                                Button(feature.state == .paused ? "Resume Thread" : "Pause Thread") {
-                                    feature.executeThread(
-                                        feature.state == .paused ? .continueExecution : .pause,
-                                        thread: thread
-                                    )
-                                }
-                                .disabled(feature.state != .paused && feature.state != .running)
-                            }
-                        }
-                    }
-                }
-
-                divider
-                sectionHeader("Call Stack", count: feature.stackFrames.count)
-                if feature.stackFrames.isEmpty {
-                    placeholder("Pause the process to inspect frames")
-                } else {
-                    if feature.areFilteredStackFramesExpanded,
-                       feature.hiddenStackFrameCount > 0 {
-                        Button {
-                            feature.collapseFilteredStackFrames()
-                        } label: {
-                            Label("Collapse filtered frames", systemImage: "rectangle.compress.vertical")
-                                .font(LitheTheme.smallFont)
-                                .foregroundStyle(LitheTheme.secondaryText)
-                                .padding(.horizontal, 10)
-                                .frame(minHeight: 27)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    ForEach(feature.visibleStackFrameRows) { row in
-                        if let frame = row.frame {
-                            rowButton(selected: feature.selectedFrameID == frame.id) {
-                                feature.selectFrame(frame)
-                                if let sourceURL = frame.sourceURL {
-                                    model.openSourceLocation(
-                                        url: sourceURL,
-                                        line: frame.line,
-                                        column: frame.column
-                                    )
-                                }
-                            } label: {
-                                Image(systemName: frame.isFiltered
-                                    ? "ellipsis"
-                                    : feature.selectedFrameID == frame.id
-                                        ? "pause.fill"
-                                        : "chevron.right")
-                                    .foregroundStyle(
-                                        feature.selectedFrameID == frame.id
-                                            ? LitheTheme.warning
-                                            : LitheTheme.secondaryText
-                                    )
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(frame.name).lineLimit(1)
-                                    if let sourceURL = frame.sourceURL {
-                                        Text("\(sourceURL.lastPathComponent):\(frame.line)")
-                                            .font(.system(size: 9.5, design: .monospaced))
-                                            .foregroundStyle(LitheTheme.secondaryText)
-                                    }
-                                }
-                            }
-                            .opacity(frame.isFiltered ? 0.58 : 1)
-                            .contextMenu {
-                                Button("Copy Method Name") {
-                                    copyToPasteboard(frame.name)
-                                }
-                                if let sourceURL = frame.sourceURL {
-                                    Divider()
-                                    Button("Copy Source Location") {
-                                        copyToPasteboard(
-                                            "\(sourceURL.path):\(frame.line):\(frame.column)"
-                                        )
-                                    }
-                                    Button("Copy Relative Location") {
-                                        copyToPasteboard(
-                                            "\(sourceURL.lastPathComponent):\(frame.line):\(frame.column)"
-                                        )
-                                    }
-                                }
-                            }
-                        } else {
+        VStack(spacing: 0) {
+            threadPicker
+            divider
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if feature.stackFrames.isEmpty {
+                        placeholder("Pause the process to inspect frames")
+                    } else {
+                        if feature.areFilteredStackFramesExpanded,
+                           feature.hiddenStackFrameCount > 0 {
                             Button {
-                                feature.expandFilteredStackFrames()
+                                feature.collapseFilteredStackFrames()
                             } label: {
-                                Label(
-                                    "\(row.hiddenFrameCount) filtered frames",
-                                    systemImage: "ellipsis.circle"
-                                )
-                                .font(LitheTheme.smallFont)
-                                .foregroundStyle(LitheTheme.secondaryText)
-                                .padding(.horizontal, 10)
-                                .frame(minHeight: 27)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                                Label("Collapse filtered frames", systemImage: "rectangle.compress.vertical")
+                                    .font(LitheTheme.smallFont)
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                                    .padding(.horizontal, 10)
+                                    .frame(minHeight: 27)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                             }
                             .buttonStyle(.plain)
-                            .help("Show JDK, proxy, and framework frames")
+                        }
+                        ForEach(feature.visibleStackFrameRows) { row in
+                            if let frame = row.frame {
+                                rowButton(selected: feature.selectedFrameID == frame.id) {
+                                    feature.selectFrame(frame)
+                                    if let sourceURL = frame.sourceURL {
+                                        model.revealDebugLocation(
+                                            url: sourceURL,
+                                            line: frame.line,
+                                            column: frame.column
+                                        )
+                                    }
+                                } label: {
+                                    if frame.isFiltered {
+                                        Image(systemName: "ellipsis")
+                                            .foregroundStyle(LitheTheme.secondaryText)
+                                    } else if feature.selectedFrameID == frame.id {
+                                        LitheIDEAIcon(
+                                            resourcePath: "debugger/frame.svg",
+                                            size: 14,
+                                            fallbackSystemImage: "pause.fill",
+                                            preservesOriginalColors: true
+                                        )
+                                    } else {
+                                        Image(systemName: "chevron.right")
+                                            .foregroundStyle(LitheTheme.secondaryText)
+                                    }
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(frame.name).lineLimit(1)
+                                        if let sourceURL = frame.sourceURL {
+                                            Text("\(sourceURL.lastPathComponent):\(frame.line)")
+                                                .font(.system(size: 9.5, design: .monospaced))
+                                                .foregroundStyle(LitheTheme.secondaryText)
+                                        }
+                                    }
+                                }
+                                .opacity(frame.isFiltered ? 0.58 : 1)
+                                .contextMenu {
+                                    Button("Copy Method Name") {
+                                        copyToPasteboard(frame.name)
+                                    }
+                                    if let sourceURL = frame.sourceURL {
+                                        Divider()
+                                        Button("Copy Source Location") {
+                                            copyToPasteboard(
+                                                "\(sourceURL.path):\(frame.line):\(frame.column)"
+                                            )
+                                        }
+                                        Button("Copy Relative Location") {
+                                            copyToPasteboard(
+                                                "\(sourceURL.lastPathComponent):\(frame.line):\(frame.column)"
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                Button {
+                                    feature.expandFilteredStackFrames()
+                                } label: {
+                                    Label(
+                                        "\(row.hiddenFrameCount) hidden frames",
+                                        systemImage: "ellipsis.circle"
+                                    )
+                                    .font(LitheTheme.smallFont)
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                                    .padding(.horizontal, 10)
+                                    .frame(minHeight: 27)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .buttonStyle(.plain)
+                                .help("Show JDK, proxy, and framework frames")
+                            }
                         }
                     }
                 }
@@ -554,19 +706,94 @@ struct GenericDebugView: View {
         .litheWorkbenchSurface(LitheTheme.sidebar)
     }
 
+    private var threadPicker: some View {
+        Menu {
+            if feature.threads.isEmpty {
+                Button("Load threads") { feature.inspectThreads() }
+            } else {
+                ForEach(feature.threads) { thread in
+                    Button {
+                        feature.selectThread(thread)
+                    } label: {
+                        HStack(spacing: 7) {
+                            LitheIDEAIcon(
+                                resourcePath: threadIconResourcePath(thread),
+                                size: 14,
+                                fallbackSystemImage: threadIcon(thread),
+                                preservesOriginalColors: true
+                            )
+                            Text(thread.name)
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 7) {
+                if let thread = selectedThread {
+                    LitheIDEAIcon(
+                        resourcePath: threadIconResourcePath(thread),
+                        size: 14,
+                        fallbackSystemImage: threadIcon(thread),
+                        preservesOriginalColors: true
+                    )
+                    Text(thread.name)
+                        .lineLimit(1)
+                    Text(feature.state == .paused ? "Paused" : feature.state.title)
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                } else {
+                    LitheIDEAIcon(
+                        resourcePath: "debugger/threadSuspended.svg",
+                        size: 14,
+                        fallbackSystemImage: "circle.dotted",
+                        preservesOriginalColors: true
+                    )
+                    Text(feature.threads.isEmpty ? "Load threads" : "Select thread")
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+            .font(.system(size: 10.5, weight: .medium))
+            .foregroundStyle(LitheTheme.primaryText)
+            .padding(.horizontal, 9)
+            .frame(height: 28)
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .accessibilityLabel("Debugger thread")
+        .contextMenu {
+            if let thread = selectedThread {
+                Button("Copy Thread Name") { copyToPasteboard(thread.name) }
+                if feature.capabilities.supportsSingleThreadExecutionRequests {
+                    Button(feature.state == .paused ? "Resume Thread" : "Pause Thread") {
+                        feature.executeThread(
+                            feature.state == .paused ? .continueExecution : .pause,
+                            thread: thread
+                        )
+                    }
+                    .disabled(feature.state != .paused && feature.state != .running)
+                }
+            }
+        }
+    }
+
+    private var selectedThread: DebugThread? {
+        feature.threads.first { $0.id == feature.selectedThreadID }
+    }
+
     private var dataInspector: some View {
         VStack(spacing: 0) {
+            evaluateRow
+            divider
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if let exceptionInfo = feature.exceptionInfo {
                         exceptionInspector(exceptionInfo)
                         divider
                     }
-                    if !feature.scopes.isEmpty {
-                        scopePicker
-                        divider
-                    }
-                    sectionHeader("Variables", count: feature.variables.count)
+                    variablesHeader
                     if feature.visibleVariableRows.isEmpty {
                         placeholder("Select a stack frame to inspect variables")
                     } else {
@@ -574,9 +801,16 @@ struct GenericDebugView: View {
                             switch row.content {
                             case .variable(let variable):
                                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                    Image(systemName: variableSymbol(variable))
-                                        .font(.system(size: variable.isExpandable ? 8 : 4))
+                                    Image(systemName: variableDisclosureSymbol(variable))
+                                        .font(.system(size: 8, weight: .semibold))
                                         .foregroundStyle(LitheTheme.secondaryText)
+                                        .frame(width: 9)
+                                        .opacity(variable.isExpandable ? 1 : 0)
+                                    LitheIDEAIcon(
+                                        resourcePath: variableIconResourcePath(variable),
+                                        size: 13,
+                                        fallbackSystemImage: "circle.fill"
+                                    )
                                     Text(variable.name)
                                         .font(.system(size: 10.5, design: .monospaced))
                                     Text("=")
@@ -586,7 +820,7 @@ struct GenericDebugView: View {
                                         .foregroundStyle(LitheTheme.accent)
                                         .lineLimit(2)
                                     if let type = variable.type, !type.isEmpty {
-                                        Text(": (type)")
+                                        Text(": \(type)")
                                             .font(.system(size: 9.5, design: .monospaced))
                                             .foregroundStyle(LitheTheme.secondaryText)
                                             .lineLimit(1)
@@ -643,9 +877,11 @@ struct GenericDebugView: View {
                     } else {
                         ForEach(feature.watches) { watch in
                             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                Image(systemName: "eye")
-                                    .font(.system(size: 9))
-                                    .foregroundStyle(LitheTheme.secondaryText)
+                                LitheIDEAIcon(
+                                    resourcePath: "debugger/watch.svg",
+                                    size: 13,
+                                    fallbackSystemImage: "eye"
+                                )
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(watch.expression)
                                         .font(.system(size: 10.5, design: .monospaced))
@@ -690,40 +926,57 @@ struct GenericDebugView: View {
                     }
                 }
             }
-            divider
-            evaluateRow
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .litheWorkbenchSurface(LitheTheme.sidebar)
     }
 
-    private var scopePicker: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            sectionHeader("Scopes", count: feature.scopes.count)
-            ForEach(feature.scopes) { scope in
-                Button {
-                    feature.selectScope(scope)
-                } label: {
-                    HStack(spacing: 7) {
-                        Image(systemName: feature.selectedScopeID == scope.id ? "circle.inset.filled" : "circle")
-                            .font(.system(size: 9))
-                        Text(scope.name)
-                            .font(.system(size: 10.5))
-                        if scope.expensive {
-                            Text("expensive")
-                                .font(.system(size: 9))
-                                .foregroundStyle(LitheTheme.secondaryText)
+    private var variablesHeader: some View {
+        HStack(spacing: 7) {
+            Text("Variables")
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(LitheTheme.secondaryText)
+            Text(String(feature.presentedVariables.count))
+                .font(.system(size: 9.5, design: .monospaced))
+                .foregroundStyle(LitheTheme.secondaryText)
+            Spacer(minLength: 0)
+            if !feature.scopes.isEmpty {
+                Menu {
+                    ForEach(feature.scopes) { scope in
+                        Button {
+                            feature.selectScope(scope)
+                        } label: {
+                            Label(
+                                scope.name,
+                                systemImage: feature.selectedScopeID == scope.id
+                                    ? "checkmark"
+                                    : "circle"
+                            )
                         }
-                        Spacer(minLength: 0)
                     }
-                    .foregroundStyle(feature.selectedScopeID == scope.id ? LitheTheme.accent : LitheTheme.primaryText)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .contentShape(Rectangle())
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(selectedScopeName)
+                            .lineLimit(1)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 8, weight: .semibold))
+                    }
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
                 }
-                .buttonStyle(.plain)
+                .menuStyle(.borderlessButton)
+                .accessibilityLabel("Variable scope")
             }
         }
+        .padding(.horizontal, 10)
+        .frame(height: 27)
+        .litheWorkbenchSurface(LitheTheme.toolHeader)
+    }
+
+    private var selectedScopeName: String {
+        feature.scopes.first { $0.id == feature.selectedScopeID }?.name
+            ?? feature.scopes.first?.name
+            ?? "Scope"
     }
 
     private func copyToPasteboard(_ value: String) {
@@ -812,21 +1065,37 @@ struct GenericDebugView: View {
 
     private var evaluateRow: some View {
         HStack(spacing: 6) {
-            Image(systemName: "function")
-                .foregroundStyle(LitheTheme.secondaryText)
+            LitheIDEAIcon(
+                resourcePath: "debugger/evaluateExpression.svg",
+                size: 16,
+                fallbackSystemImage: "function",
+                preservesOriginalColors: true
+            )
             TextField("Evaluate expression", text: $evaluateExpression)
                 .textFieldStyle(.plain)
                 .font(.system(size: 11, design: .monospaced))
                 .onSubmit { addWatchExpression() }
             Button { addWatchExpression() } label: {
-                Image(systemName: "plus.circle")
+                LitheIDEAIcon(
+                    resourcePath: "actions/add.svg",
+                    size: 14,
+                    fallbackSystemImage: "plus.circle",
+                    preservesOriginalColors: true
+                )
             }
             .litheIconButton()
             .help("Add watch")
             Button { feature.evaluate(evaluateExpression) } label: {
-                Image(systemName: "arrow.right.circle")
+                LitheIDEAIcon(
+                    resourcePath: "actions/execute.svg",
+                    size: 14,
+                    fallbackSystemImage: "arrow.right.circle",
+                    preservesOriginalColors: true
+                )
             }
             .litheIconButton()
+            .disabled(feature.state != .paused || evaluateExpression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .help("Evaluate expression")
         }
         .padding(.horizontal, 10)
         .frame(height: 32)
@@ -842,7 +1111,12 @@ struct GenericDebugView: View {
                 .font(.system(size: 9.5, design: .monospaced))
                 .foregroundStyle(LitheTheme.secondaryText)
             Button { feature.refreshWatches() } label: {
-                Image(systemName: "arrow.clockwise")
+                LitheIDEAIcon(
+                    resourcePath: "actions/refresh.svg",
+                    size: 13,
+                    fallbackSystemImage: "arrow.clockwise",
+                    preservesOriginalColors: true
+                )
             }
             .buttonStyle(.plain)
             .disabled(feature.state != .paused || feature.watches.isEmpty)
@@ -874,9 +1148,35 @@ struct GenericDebugView: View {
                                 .foregroundStyle(LitheTheme.warning)
                         }
                         if let errorMessage = feature.errorMessage {
-                            Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                                .font(.system(size: 11.5))
-                                .foregroundStyle(LitheTheme.error)
+                            VStack(alignment: .leading, spacing: 8) {
+                                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                                    .font(.system(size: 11.5))
+                                    .foregroundStyle(LitheTheme.error)
+
+                                HStack(spacing: 8) {
+                                    if feature.canRetry {
+                                        Button {
+                                            _ = feature.retry()
+                                        } label: {
+                                            Label("Retry Debug", systemImage: "arrow.clockwise")
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                        .accessibilityIdentifier("debug-error-retry")
+                                    }
+
+                                    if !model.isRunVisible {
+                                        Button {
+                                            model.toggleRun()
+                                        } label: {
+                                            Label("Open Run Configuration", systemImage: "slider.horizontal.3")
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                        .accessibilityIdentifier("debug-error-open-run-configuration")
+                                    }
+                                }
+                            }
                         }
                         Text(feature.output.isEmpty ? "Waiting for Debug Adapter output…" : feature.output)
                             .font(.system(size: 12, design: .monospaced))
@@ -921,7 +1221,12 @@ struct GenericDebugView: View {
                 .disabled(feature.state != .paused)
                 .onSubmit { evaluateConsoleExpression() }
             Button { evaluateConsoleExpression() } label: {
-                Image(systemName: "arrow.right.circle.fill")
+                LitheIDEAIcon(
+                    resourcePath: "debugger/evaluateExpression.svg",
+                    size: 15,
+                    fallbackSystemImage: "arrow.right.circle.fill",
+                    preservesOriginalColors: true
+                )
             }
             .litheIconButton()
             .disabled(feature.state != .paused || consoleExpression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -961,7 +1266,12 @@ struct GenericDebugView: View {
                 .disabled(!model.isDebugStandardInputAvailable)
                 .onSubmit { sendProgramInput() }
             Button { sendProgramInput() } label: {
-                Image(systemName: "paperplane.fill")
+                LitheIDEAIcon(
+                    resourcePath: "debugger/run.svg",
+                    size: 15,
+                    fallbackSystemImage: "paperplane.fill",
+                    preservesOriginalColors: true
+                )
             }
             .litheIconButton()
             .disabled(!model.isDebugStandardInputAvailable || programInput.isEmpty)
@@ -980,12 +1290,16 @@ struct GenericDebugView: View {
 
     private var emptyState: some View {
         VStack(spacing: 10) {
-            LitheSystemIcon(systemImage: "ladybug")
-                .font(.system(size: 30, weight: .light))
-                .foregroundStyle(LitheTheme.secondaryText)
-            Text("Debug the current \(currentLanguageName) file")
+            LitheIDEAIcon(
+                resourcePath: "debugger/debug.svg",
+                size: 32,
+                fallbackSystemImage: "ladybug",
+                preservesOriginalColors: true
+            )
+            .frame(width: 36, height: 36)
+            Text(emptyStateTitle)
                 .font(.system(size: 13, weight: .medium))
-            Text("The Debug Adapter starts only when this action is used.")
+            Text(emptyStateSubtitle)
                 .font(LitheTheme.smallFont)
                 .foregroundStyle(LitheTheme.secondaryText)
             Button("Start Debugging") { model.startDebugging() }
@@ -1010,6 +1324,21 @@ struct GenericDebugView: View {
         return descriptor.displayName
     }
 
+    private var emptyStateTitle: String {
+        if let configuration = model.runFeatureIfActive?.selectedConfiguration,
+           !configuration.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Debug \(configuration.name)"
+        }
+        return "Debug the current \(currentLanguageName) file"
+    }
+
+    private var emptyStateSubtitle: String {
+        if model.runFeatureIfActive?.selectedConfiguration != nil {
+            return "Uses the selected Run configuration and its project toolchain."
+        }
+        return "The Debug Adapter starts only when this action is used."
+    }
+
     private func sectionHeader(_ title: String, count: Int) -> some View {
         HStack {
             Text(LocalizedStringKey(title))
@@ -1025,10 +1354,15 @@ struct GenericDebugView: View {
         .litheWorkbenchSurface(LitheTheme.toolHeader)
     }
 
-    private func variableSymbol(_ variable: DebugVariable) -> String {
-        guard variable.isExpandable else { return "circle.fill" }
+    private func variableDisclosureSymbol(_ variable: DebugVariable) -> String {
         if feature.isVariableLoading(variable) { return "hourglass" }
         return feature.isVariableExpanded(variable) ? "chevron.down" : "chevron.right"
+    }
+
+    private func variableIconResourcePath(_ variable: DebugVariable) -> String {
+        feature.automaticVariables.contains(where: { $0.id == variable.id })
+            ? "debugger/watch.svg"
+            : variable.name == "this" ? "nodes/variable.svg" : "nodes/field.svg"
     }
 
     private func threadIcon(_ thread: DebugThread) -> String {
@@ -1038,6 +1372,16 @@ struct GenericDebugView: View {
                 : "pause.circle"
         }
         return "play.circle"
+    }
+
+    private func threadIconResourcePath(_ thread: DebugThread) -> String {
+        if feature.selectedThreadID == thread.id,
+           feature.stoppedThreadIDs.contains(thread.id) {
+            return "debugger/threadCurrent.svg"
+        }
+        return feature.stoppedThreadIDs.contains(thread.id)
+            ? "debugger/threadSuspended.svg"
+            : "debugger/threadRunning.svg"
     }
 
     private func threadColor(_ thread: DebugThread) -> Color {
@@ -1060,8 +1404,12 @@ struct GenericDebugView: View {
                 if isLoading {
                     ProgressView().controlSize(.mini)
                 } else {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.system(size: 9))
+                    LitheIDEAIcon(
+                        resourcePath: "actions/more.svg",
+                        size: 12,
+                        fallbackSystemImage: "ellipsis.circle",
+                        preservesOriginalColors: true
+                    )
                 }
                 Text(isLoading ? "Loading…" : "Load \(nextCount) more")
                     .font(LitheTheme.smallFont)
@@ -1225,7 +1573,15 @@ struct DebugBreakpointManagerView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .litheWorkbenchSurface(LitheTheme.sidebar)
         .sheet(item: $editingBreakpoint) { breakpoint in
-            BreakpointEditorView(breakpoint: breakpoint) {
+            BreakpointEditorView(
+                breakpoint: breakpoint,
+                supportsCondition: !feature.capabilities.negotiated
+                    || feature.capabilities.supportsConditionalBreakpoints,
+                supportsHitCondition: !feature.capabilities.negotiated
+                    || feature.capabilities.supportsHitConditionalBreakpoints,
+                supportsLogMessage: !feature.capabilities.negotiated
+                    || feature.capabilities.supportsLogPoints
+            ) {
                 feature.updateBreakpoint(
                     fileURL: breakpoint.fileURL,
                     line: breakpoint.line,
@@ -1299,7 +1655,15 @@ struct DebugBreakpointManagerView: View {
                 }
                 .disabled(feature.breakpoints.isEmpty)
             } label: {
-                Image(systemName: feature.areBreakpointsMuted ? "speaker.slash.fill" : "ellipsis")
+                LitheIDEAIcon(
+                    resourcePath: feature.areBreakpointsMuted
+                        ? "debugger/muteBreakpoints.svg"
+                        : "actions/moreVertical.svg",
+                    size: 14,
+                    fallbackSystemImage: feature.areBreakpointsMuted
+                        ? "speaker.slash.fill" : "ellipsis",
+                    preservesOriginalColors: true
+                )
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
@@ -1339,9 +1703,23 @@ struct DebugBreakpointManagerView: View {
             Button {
                 feature.setBreakpointEnabled(breakpoint, enabled: !breakpoint.enabled)
             } label: {
-                Image(systemName: breakpointSymbol(breakpoint))
-                    .font(.system(size: 9))
-                    .foregroundStyle(breakpointColor(breakpoint))
+                if breakpoint.isLogpoint {
+                    Image(systemName: breakpointSymbol(breakpoint))
+                        .font(.system(size: 9))
+                        .foregroundStyle(breakpointColor(breakpoint))
+                } else {
+                    let asset = LitheIcons.debuggerBreakpointAssetPath(
+                        enabled: breakpoint.enabled,
+                        verified: breakpoint.verified,
+                        muted: feature.areBreakpointsMuted
+                    )
+                    LitheIDEAIcon(
+                        resourcePath: asset,
+                        size: 13,
+                        fallbackSystemImage: breakpointSymbol(breakpoint),
+                        preservesOriginalColors: true
+                    )
+                }
             }
             .buttonStyle(.plain)
             .help(breakpoint.enabled ? "Disable breakpoint" : "Enable breakpoint")
@@ -1512,13 +1890,12 @@ struct DebugBreakpointManagerView: View {
             Button {
                 feature.setDataBreakpointEnabled(breakpoint, enabled: !breakpoint.enabled)
             } label: {
-                Image(systemName: "eye.circle.fill")
-                    .font(.system(size: 10))
-                    .foregroundStyle(
-                        breakpoint.enabled
-                            ? (breakpoint.verified ? LitheTheme.error : LitheTheme.warning)
-                            : LitheTheme.secondaryText
-                    )
+                LitheIDEAIcon(
+                    resourcePath: "nodes/field.svg",
+                    size: 13,
+                    fallbackSystemImage: "eye.circle.fill",
+                    preservesOriginalColors: true
+                )
             }
             .buttonStyle(.plain)
             .accessibilityLabel(
@@ -1639,24 +2016,14 @@ struct DebugBreakpointManagerView: View {
 
 private enum DebugContent: CaseIterable, Identifiable {
     case debugger
-    case breakpoints
     case console
 
     var id: Self { self }
 
     var title: LocalizedStringKey {
         switch self {
-        case .debugger: "Debugger"
-        case .breakpoints: "Breakpoints"
+        case .debugger: "Threads & Variables"
         case .console: "Console"
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .debugger: "ladybug"
-        case .breakpoints: "circle.fill"
-        case .console: "terminal"
         }
     }
 }
@@ -1980,6 +2347,9 @@ private struct ExceptionBreakpointEditorView: View {
 struct BreakpointEditorView: View {
     @Environment(\.dismiss) private var dismiss
     let breakpoint: GenericDebugBreakpoint
+    let supportsCondition: Bool
+    let supportsHitCondition: Bool
+    let supportsLogMessage: Bool
     let onSave: (BreakpointEditorValue) -> Void
     @State private var enabled: Bool
     @State private var condition: String
@@ -1988,9 +2358,15 @@ struct BreakpointEditorView: View {
 
     init(
         breakpoint: GenericDebugBreakpoint,
+        supportsCondition: Bool = true,
+        supportsHitCondition: Bool = true,
+        supportsLogMessage: Bool = true,
         onSave: @escaping (BreakpointEditorValue) -> Void
     ) {
         self.breakpoint = breakpoint
+        self.supportsCondition = supportsCondition
+        self.supportsHitCondition = supportsHitCondition
+        self.supportsLogMessage = supportsLogMessage
         self.onSave = onSave
         _enabled = State(initialValue: breakpoint.enabled)
         _condition = State(initialValue: breakpoint.condition ?? "")
@@ -2013,9 +2389,24 @@ struct BreakpointEditorView: View {
                     .toggleStyle(.checkbox)
             }
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
-                editorRow("Condition", text: $condition)
-                editorRow("Hit count", text: $hitCondition)
-                editorRow("Log message", text: $logMessage)
+                editorRow(
+                    "Condition",
+                    text: $condition,
+                    isSupported: supportsCondition,
+                    help: "The active debug adapter does not support conditional breakpoints."
+                )
+                editorRow(
+                    "Hit count",
+                    text: $hitCondition,
+                    isSupported: supportsHitCondition,
+                    help: "The active debug adapter does not support hit-count breakpoints."
+                )
+                editorRow(
+                    "Log message",
+                    text: $logMessage,
+                    isSupported: supportsLogMessage,
+                    help: "The active debug adapter does not support logpoints."
+                )
             }
             Spacer(minLength: 0)
             HStack {
@@ -2025,9 +2416,9 @@ struct BreakpointEditorView: View {
                 Button("Save") {
                     onSave(BreakpointEditorValue(
                         enabled: enabled,
-                        condition: optional(condition),
-                        hitCondition: optional(hitCondition),
-                        logMessage: optional(logMessage)
+                        condition: supportsCondition ? optional(condition) : nil,
+                        hitCondition: supportsHitCondition ? optional(hitCondition) : nil,
+                        logMessage: supportsLogMessage ? optional(logMessage) : nil
                     ))
                     dismiss()
                 }
@@ -2039,7 +2430,12 @@ struct BreakpointEditorView: View {
         .litheWorkbenchSurface(LitheTheme.editor)
     }
 
-    private func editorRow(_ title: String, text: Binding<String>) -> some View {
+    private func editorRow(
+        _ title: String,
+        text: Binding<String>,
+        isSupported: Bool,
+        help: String
+    ) -> some View {
         GridRow {
             Text(title)
                 .font(.system(size: 11))
@@ -2048,7 +2444,10 @@ struct BreakpointEditorView: View {
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 11, design: .monospaced))
                 .frame(minWidth: 300)
+                .disabled(!isSupported)
+                .help(isSupported ? title : help)
         }
+        .opacity(isSupported ? 1 : 0.55)
     }
 
     private func optional(_ value: String) -> String? {

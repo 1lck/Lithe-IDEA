@@ -960,6 +960,8 @@
 "Toggle Run" = "切换运行窗口";
 "Show or hide run output" = "显示或隐藏运行输出";
 "Toggle Debug" = "切换调试窗口";
+"Toggle Line Breakpoint" = "切换行断点";
+"Add or remove a breakpoint at the caret" = "在光标所在行添加或移除断点";
 "Show or hide the Debug tool window" = "显示或隐藏调试工具窗口";
 "Search text across the workspace" = "搜索整个工作区的文本";
 "Find in File" = "在文件中查找";

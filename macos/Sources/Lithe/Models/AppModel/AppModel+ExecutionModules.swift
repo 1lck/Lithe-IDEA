@@ -51,7 +51,7 @@ extension AppModel {
 
     func activateDebugModule() async -> DebugFeatureAccess? {
         if let genericFeature = genericDebugFeatureIfActive {
-            configureDebugRunInTerminalHandler(genericFeature)
+            configureDebugHostHandlers(genericFeature)
             if let workspaceURL { genericFeature.openWorkspace(at: workspaceURL) }
             return DebugFeatureAccess(genericFeature: genericFeature)
         }
@@ -59,11 +59,8 @@ extension AppModel {
             let value = try await services.moduleRuntime.activateCapability(.debugWorkspace)
             guard let capability = value as? LitheDebugModule.DebugModuleCapability,
                   let genericFeature = capability.genericFeature as? GenericDebugFeatureModel else { return nil }
-            configureDebugRunInTerminalHandler(genericFeature)
+            configureDebugHostHandlers(genericFeature)
             cacheModuleCapability(capability, id: .debugWorkspace, moduleID: .debug)
-            genericFeature.onStoppedLocation = { [weak self] url, line, column in
-                self?.openSourceLocation(url: url, line: line, column: column)
-            }
             if let workspaceURL { genericFeature.openWorkspace(at: workspaceURL) }
             observeModuleFeature(.debug, observation: genericFeature.objectWillChange.sink { [weak self] _ in
                 self?.scheduleObjectWillChangeRelay()
@@ -78,6 +75,49 @@ extension AppModel {
             showNotification(error.localizedDescription)
             return nil
         }
+    }
+
+    private func configureDebugHostHandlers(_ feature: GenericDebugFeatureModel) {
+        feature.onStoppedLocation = { [weak self] url, line, column in
+            self?.revealDebugLocation(url: url, line: line, column: column)
+        }
+        feature.onAutomaticVariableInspectionRequest = { [weak self, weak feature] frame in
+            guard let self, let feature else { return }
+            requestAutomaticDebugVariables(for: frame, feature: feature)
+        }
+        configureDebugRunInTerminalHandler(feature)
+    }
+
+    private func requestAutomaticDebugVariables(
+        for frame: DebugStackFrame,
+        feature: GenericDebugFeatureModel
+    ) {
+        guard feature.providerID == "java",
+              let sourceURL = frame.sourceURL?.standardizedFileURL,
+              let source = debugSourceText(at: sourceURL) else {
+            feature.requestAutomaticVariables([])
+            return
+        }
+        let expressions = DebugAutomaticExpressionProjection.javaExpressions(
+            forLine: max(0, frame.line - 1),
+            in: source as NSString
+        )
+        feature.requestAutomaticVariables(expressions)
+    }
+
+    private func debugSourceText(at sourceURL: URL) -> String? {
+        if let document = openDocuments.first(where: {
+            $0.url.standardizedFileURL == sourceURL
+        }) {
+            return document.text
+        }
+        guard let metadata = services.fileStorage.metadata(for: sourceURL),
+              metadata.isRegularFile,
+              let byteCount = metadata.byteCount,
+              byteCount <= 2_000_000,
+              let data = try? services.fileStorage.readData(from: sourceURL, options: []),
+              let source = String(data: data, encoding: .utf8) else { return nil }
+        return source
     }
 
     private func configureDebugRunInTerminalHandler(_ feature: GenericDebugFeatureModel) {

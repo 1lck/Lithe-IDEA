@@ -167,6 +167,33 @@ enum LitheIcons {
         ideaAssetPathsBySystemImage[systemImage]
     }
 
+    /// Returns the IntelliJ dark-theme sibling for an imported SVG path.
+    /// The caller still falls back to the base asset because not every
+    /// IntelliJ catalog entry ships a dedicated dark variant.
+    static func darkIdeaAssetPath(for resourcePath: String) -> String {
+        let path = resourcePath as NSString
+        let directory = path.deletingLastPathComponent
+        let filename = path.lastPathComponent as NSString
+        let resourceName = filename.deletingPathExtension
+        let darkFilename = "\(resourceName)_dark.\(filename.pathExtension)"
+        return directory.isEmpty ? darkFilename : "\(directory)/\(darkFilename)"
+    }
+
+    /// Maps the editor gutter breakpoint state to the matching IntelliJ
+    /// debugger glyph. The catalog keeps the red set/verified marks and the
+    /// muted/disabled state visually distinct, just like IDEA's gutter.
+    static func debuggerBreakpointAssetPath(
+        enabled: Bool,
+        verified: Bool,
+        muted: Bool
+    ) -> String {
+        if muted { return "debugger/db_muted_breakpoint.svg" }
+        if !enabled { return "debugger/db_disabled_breakpoint.svg" }
+        return verified
+            ? "debugger/db_verified_breakpoint.svg"
+            : "debugger/db_set_breakpoint.svg"
+    }
+
     /// src/main/java、src/test/kotlin 之类的源码根。资源根同样按这个布局
     /// 判断，避免把任意一个叫 resources 的目录标成资源根。
     static func isSourceRootDirectory(_ url: URL) -> Bool {
@@ -521,17 +548,27 @@ struct LitheIcon: View {
 /// A small SwiftUI bridge for the imported IntelliJ SVG catalog.
 /// `fallbackSystemImage` keeps the UI usable in an unbundled debug preview.
 struct LitheIDEAIcon: View {
+    @Environment(\.colorScheme) private var colorScheme
     let resourcePath: String
     var size: CGFloat = 14
     var fallbackSystemImage: String?
+    var preservesOriginalColors = false
 
     var body: some View {
-        if let image = LitheIcons.ideaImage(resourcePath: resourcePath) {
-            Image(nsImage: image)
-                .renderingMode(.template)
-                .resizable()
-                .interpolation(.high)
-                .frame(width: size, height: size)
+        if let image = resolvedImage {
+            if preservesOriginalColors {
+                Image(nsImage: image)
+                    .renderingMode(.original)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: size, height: size)
+            } else {
+                Image(nsImage: image)
+                    .renderingMode(.template)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: size, height: size)
+            }
         } else if let fallbackSystemImage {
             Image(systemName: fallbackSystemImage)
                 .font(.system(size: size, weight: .medium))
@@ -539,6 +576,16 @@ struct LitheIDEAIcon: View {
         } else {
             Color.clear.frame(width: size, height: size)
         }
+    }
+
+    private var resolvedImage: NSImage? {
+        if colorScheme == .dark,
+           let darkImage = LitheIcons.ideaImage(
+               resourcePath: LitheIcons.darkIdeaAssetPath(for: resourcePath)
+           ) {
+            return darkImage
+        }
+        return LitheIcons.ideaImage(resourcePath: resourcePath)
     }
 }
 

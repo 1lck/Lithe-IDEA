@@ -287,6 +287,13 @@ package final class RunService: ObservableObject {
         optionsByConfigurationID[configuration.id] ?? RunOptions()
     }
 
+    /// Returns the service port explicitly configured for this run target, or
+    /// a Spring-style framework's conventional 8080 default when no override exists.
+    package func configuredServerPort(for configuration: RunConfiguration) -> Int? {
+        configuredPort(for: configuration)
+            ?? (configuration.kind.mavenFramework != nil ? 8080 : nil)
+    }
+
     package func source(for configuration: RunConfiguration) -> RunConfigurationSource {
         effectiveSourcesByConfigurationID[configuration.id] ?? .generated
     }

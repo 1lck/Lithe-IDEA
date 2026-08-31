@@ -324,7 +324,11 @@ package final class LanguageToolingSessionManager: ObservableObject,
         let selected: JavaDebugLaunchTarget
         if exactMatches.count == 1 {
             selected = exactMatches[0].target
-        } else if targets.count == 1 {
+        } else if targets.count == 1, targets[0].filePath == nil {
+            // Older JDT LS builds may omit filePath when the workspace has a
+            // single launch target. If a path is present, do not silently use
+            // another class for the current editor file: that turns a
+            // Spring-dependent source into an invalid bare-java launch.
             selected = targets[0].target
         } else {
             let message = exactMatches.isEmpty

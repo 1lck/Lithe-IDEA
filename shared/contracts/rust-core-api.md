@@ -415,6 +415,8 @@ fields inside a supplied value are empty or false, so future adapters never
 inherit Java policy accidentally. Java class
 patterns support `$JDK`, `$Libraries`, and adapter-compatible wildcards. Other
 adapters default to an unfiltered policy until their integration defines one.
+Java defaults include both `$JDK` and `$Libraries`, matching the IDE convention
+of collapsing platform and dependency frames while retaining project frames.
 The portable cases are in
 `shared/fixtures/debug/stepping-filters-v1.json`.
 

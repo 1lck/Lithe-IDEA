@@ -2409,6 +2409,9 @@ mod tests {
         })
         .unwrap();
         assert!(defaults.class_name_filters.contains(&"$JDK".to_string()));
+        assert!(defaults
+            .class_name_filters
+            .contains(&"$Libraries".to_string()));
         assert!(defaults.skip_synthetics);
         assert!(!defaults.skip_constructors);
 

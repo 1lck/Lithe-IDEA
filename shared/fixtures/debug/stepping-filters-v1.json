@@ -9,6 +9,7 @@
       "expected": {
         "classNameFilters": [
           "$JDK",
+          "$Libraries",
           "com.ibm.ws.*",
           "com.springsource.loaded.*",
           "com.sun.proxy.*",

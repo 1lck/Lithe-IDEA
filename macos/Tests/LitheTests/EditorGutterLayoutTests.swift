@@ -42,6 +42,30 @@ struct EditorGutterLayoutTests {
         #expect(!values[0].value.contains("\n"))
     }
 
+    @Test
+    func javaAutomaticDebugExpressionsKeepReceiversAndSkipMethods() {
+        let source = "return service.listUsers();" as NSString
+
+        let expressions = DebugAutomaticExpressionProjection.javaExpressions(
+            forLine: 0,
+            in: source
+        )
+
+        #expect(expressions == ["service"])
+    }
+
+    @Test
+    func javaAutomaticDebugExpressionsAreBoundedAndSourceOrdered() {
+        let source = "a + b + c + d + e + f + g + h + i + j" as NSString
+
+        let expressions = DebugAutomaticExpressionProjection.javaExpressions(
+            forLine: 0,
+            in: source
+        )
+
+        #expect(expressions == ["a", "b", "c", "d", "e", "f", "g", "h"])
+    }
+
     @MainActor
     @Test
     func inlineDebugValueOverlayUsesOnlyRemainingEditorWidth() throws {
@@ -111,6 +135,23 @@ struct EditorGutterLayoutTests {
 
         gutter.editDebugBreakpointFromMenu()
         #expect(editedLine == 6)
+    }
+
+    @MainActor
+    @Test
+    func emptyExecutableLineContextMenuOffersSettingABreakpoint() throws {
+        let gutter = LineNumberGutterView(frame: NSRect(x: 0, y: 0, width: 80, height: 200))
+        var toggledLine: Int?
+        gutter.updateDebugBreakpointLines(
+            [:],
+            onToggle: { toggledLine = $0 },
+            canAdd: { $0 == 4 }
+        )
+
+        let menu = try #require(gutter.debugBreakpointContextMenu(forLine: 4))
+        #expect(menu.items.map(\.title) == ["Set Breakpoint"])
+        gutter.addDebugBreakpointFromMenu()
+        #expect(toggledLine == 4)
     }
 
     @MainActor
@@ -381,11 +422,23 @@ struct EditorGutterLayoutTests {
     @Test
     func columnsHaveDistinctHitTargets() {
         let layout = EditorGutterLayout(lineNumberTextWidth: 24)
-        #expect(layout.hitTarget(at: 6, hasGitChange: false) == .breakpoint)
+        #expect(layout.hitTarget(at: 6, hasGitChange: false) == .lineNumber)
         #expect(layout.hitTarget(at: 22, hasGitChange: false) == .lineNumber)
+        #expect(layout.hitTarget(at: 34, hasGitChange: false) == .breakpoint)
         #expect(layout.hitTarget(at: 48, hasGitChange: false) == .implementation)
         #expect(layout.hitTarget(at: 68, hasGitChange: false) == .fold)
         #expect(layout.hitTarget(at: 78, hasGitChange: true) == .gitChange)
+    }
+
+    @Test
+    func breakpointInteractionIncludesMarkerAndLineNumberColumns() {
+        let layout = EditorGutterLayout(lineNumberTextWidth: 24)
+
+        #expect(layout.breakpointInteractionRange.contains(6))
+        #expect(layout.breakpointInteractionRange.contains(22))
+        #expect(layout.breakpointInteractionRange.contains(34))
+        #expect(!layout.breakpointInteractionRange.contains(48))
+        #expect(EditorDebugBreakpointAppearance.markerSize == 14)
     }
 
     @Test
@@ -428,7 +481,8 @@ struct EditorGutterLayoutTests {
     func lineNumberColumnExpandsWithoutOverlappingFollowingColumns() {
         let layout = EditorGutterLayout(lineNumberTextWidth: 34)
         #expect(layout.lineNumberRange.upperBound - layout.lineNumberRange.lowerBound == 37)
-        #expect(layout.lineNumberRange.upperBound == layout.implementationRange.lowerBound)
+        #expect(layout.lineNumberRange.upperBound == layout.breakpointRange.lowerBound)
+        #expect(layout.breakpointRange.upperBound == layout.implementationRange.lowerBound)
         #expect(layout.implementationRange.upperBound == layout.foldRange.lowerBound)
         #expect(layout.foldRange.upperBound == layout.gitChangeRange.lowerBound)
         #expect(layout.gitChangeRange.upperBound == layout.width)

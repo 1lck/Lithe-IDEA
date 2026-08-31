@@ -63,6 +63,7 @@ enum LitheActionRegistry {
             action("debug-step-over", model: model) { model.stepOverDebugging() },
             action("debug-step-into", model: model) { model.stepIntoDebugging() },
             action("debug-step-out", model: model) { model.stepOutDebugging() },
+            action("toggle-breakpoint", model: model) { model.toggleDebugBreakpointAtCaret() },
             action("view-breakpoints", model: model) { model.showDebugBreakpointManager() },
             action("open-project", model: model) { model.chooseProject() },
             action("close-project", model: model) { model.closeProject() },

@@ -125,6 +125,7 @@ impl Default for DebugSteppingFilters {
 fn default_java_class_name_filters() -> Vec<String> {
     [
         "$JDK",
+        "$Libraries",
         "com.ibm.ws.*",
         "com.springsource.loaded.*",
         "com.sun.proxy.*",

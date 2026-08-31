@@ -20,6 +20,7 @@ final class AppServices {
     /// Metadata-only provider catalog; providers are activated on demand.
     let languageProviderCatalog: LanguageProviderCatalog
     let debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver
+    let debugPortAvailabilityChecker: any DebugPortAvailabilityChecking
     let javaTestDebugLaunchService: JavaTestDebugLaunchService
     let debugBreakpointPersistence: (any DebugBreakpointPersisting)?
     let workspaceOperations: any WorkspaceOperations
@@ -55,6 +56,7 @@ final class AppServices {
         languageProviderCatalogSource: any LanguageProviderCatalogSource,
         languageProviderCatalogSnapshot: LanguageProviderCatalogSnapshot? = nil,
         debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver? = nil,
+        debugPortAvailabilityChecker: (any DebugPortAvailabilityChecking)? = nil,
         javaTestResultServerFactory: @escaping @MainActor () -> any JavaTestResultServing,
         debugBreakpointPersistence: (any DebugBreakpointPersisting)? = nil,
         workspaceOperations: any WorkspaceOperations,
@@ -93,6 +95,8 @@ final class AppServices {
         self.languageProviderCatalog = resolvedCatalog
         self.debugLaunchConfigurationResolver = debugLaunchConfigurationResolver
             ?? DebugLaunchConfigurationResolver(fileStorage: fileStorage)
+        self.debugPortAvailabilityChecker = debugPortAvailabilityChecker
+            ?? AlwaysAvailableDebugPortChecker()
         self.javaTestDebugLaunchService = JavaTestDebugLaunchService(
             configurationResolver: self.debugLaunchConfigurationResolver,
             resultServerFactory: javaTestResultServerFactory

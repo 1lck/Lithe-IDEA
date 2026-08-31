@@ -53,7 +53,8 @@ final class MacServiceContainer {
         moduleLaunchMode: ModuleLaunchMode = .normal,
         moduleStore providedModuleStore: MacModuleConfigurationStore? = nil,
         pluginRuntimeRecovery: MacPluginRuntimeRecoveryCoordinator? = nil,
-        authorizationCallbackRouter providedAuthorizationCallbackRouter: MacExternalAuthorizationCallbackRouter? = nil
+        authorizationCallbackRouter providedAuthorizationCallbackRouter: MacExternalAuthorizationCallbackRouter? = nil,
+        platformUI providedPlatformUI: (any PlatformUI)? = nil
     ) {
         let authorizationCallbackRouter = providedAuthorizationCallbackRouter
             ?? MacExternalAuthorizationCallbackRouter()
@@ -89,7 +90,7 @@ final class MacServiceContainer {
             secureStore: MacKeychainSecureStore(service: "app.lithe.desktop.github"),
             git: MacGitHubGitOperations(core: rustCore)
         )
-        let platformUI = MacPlatformUI()
+        let platformUI = providedPlatformUI ?? MacPlatformUI()
         let discourseCommunityService = DiscourseCommunityService(
             core: rustCore,
             credentialStore: MacKeychainSecureStore(service: "app.lithe.desktop.linux-do"),
@@ -505,6 +506,7 @@ final class MacServiceContainer {
                 fileStorage: fileStorage,
                 javaTestLaunchResolver: rustCore
             ),
+            debugPortAvailabilityChecker: MacDebugPortAvailabilityChecker(),
             javaTestResultServerFactory: { MacJavaTestResultServer() },
             debugBreakpointPersistence: debugBreakpointStore,
             workspaceOperations: workspaceOperations,

@@ -277,6 +277,45 @@ struct LanguageIntelligenceModuleTests {
     }
 
     @Test
+    func javaDebugLaunchTargetDoesNotBorrowAnotherFileWhenJdtlsReportsItsPath() async throws {
+        let root = URL(fileURLWithPath: "/workspace/java-debug", isDirectory: true)
+        let source = root.appendingPathComponent("service/src/main/java/example/UserService.java")
+        let otherMain = root.appendingPathComponent("service/src/main/java/example/Main.java")
+        let descriptor = try #require(
+            LanguageProviderCatalog.compatibilityFallback.provider(for: source)
+        )
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(
+            catalog: .compatibilityFallback,
+            runtimes: [WorkspaceStateLanguageProviderRuntime(
+                descriptor: descriptor,
+                session: session
+            )]
+        )
+        let task = Task {
+            try await manager.resolveJavaDebugLaunchTarget(fileURL: source, rootURL: root)
+        }
+        defer { task.cancel() }
+
+        try await session.waitUntilStarted()
+        session.publish(.ready)
+        _ = try await session.waitForExecuteCommand()
+        session.completeExecuteReturningValue(.success(.array([
+            .object([
+                "mainClass": .string("service/example.Main"),
+                "projectName": .string("service"),
+                "filePath": .string(otherMain.path),
+            ])
+        ])))
+
+        await #expect(throws: LanguageToolingSessionError.toolingUnavailable(
+            "No Java main method was found in UserService.java."
+        )) {
+            try await task.value
+        }
+    }
+
+    @Test
     func javaTestDiscoveryProjectsSortedClassesAndMethodsForTheTestsTree() async throws {
         let root = URL(fileURLWithPath: "/workspace/java-tests", isDirectory: true)
         let source = root.appendingPathComponent(

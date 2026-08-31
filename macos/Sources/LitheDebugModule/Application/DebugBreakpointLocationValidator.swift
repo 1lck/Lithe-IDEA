@@ -18,6 +18,7 @@ public enum DebugBreakpointLocationValidator {
             guard index + 1 == line else { continue }
             guard !code.isEmpty,
                   !code.hasPrefix("@"),
+                  !isJavaTypeDeclaration(code),
                   !Self.nonExecutableOnlyLines.contains(code) else { return false }
             return code.contains(where: { $0.isLetter || $0.isNumber || $0 == "_" })
         }
@@ -27,6 +28,24 @@ public enum DebugBreakpointLocationValidator {
     private static let nonExecutableOnlyLines: Set<String> = [
         "{", "}", "(", ")", "[", "]", ";", ",", ":"
     ]
+
+    /// Type declarations do not represent a Java execution location. Modifiers
+    /// are parsed as tokens so declarations such as `public final class` and
+    /// `private static interface` are treated the same as their short forms.
+    private static func isJavaTypeDeclaration(_ code: String) -> Bool {
+        let tokens = code.split(whereSeparator: { $0 == " " || $0 == "\t" })
+        guard !tokens.isEmpty else { return false }
+        let modifiers: Set<Substring> = [
+            "public", "private", "protected", "abstract", "final", "static", "sealed", "non-sealed", "strictfp"
+        ]
+        var index = 0
+        while index < tokens.count, modifiers.contains(tokens[index]) {
+            index += 1
+        }
+        guard index < tokens.count else { return false }
+        if tokens[index] == "@interface" { return true }
+        return ["class", "interface", "enum", "record"].contains(tokens[index])
+    }
 
     private static func codeWithoutJavaCommentsAndStrings(
         _ line: String,

@@ -144,14 +144,38 @@ struct JavaTestDebugLaunchServiceTests {
         )
         let resultServer = TestJavaTestResultServer(port: 43_128)
         model.javaTestWorkflowState.resultServer = resultServer
+        model.isTerminalVisible = true
 
         model.handleDebugSessionStateChange(.running)
         #expect(resultServer.stopCount == 0)
         #expect(model.javaTestWorkflowState.resultServer != nil)
+        #expect(model.isDebugVisible)
+        #expect(!model.isTerminalVisible)
 
         model.handleDebugSessionStateChange(.terminated)
         #expect(resultServer.stopCount == 1)
         #expect(model.javaTestWorkflowState.resultServer == nil)
+    }
+
+    @Test
+    func pausedDebugStateShowsDebuggerAndActivatesApplication() {
+        let store = JavaTestDebugStore()
+        let settings = AppSettings(store: store)
+        let platformUI = DebugActivationPlatformUI()
+        let model = AppModel(
+            settings: settings,
+            services: MacServiceContainer(
+                store: store,
+                settings: settings,
+                moduleLaunchMode: .safeMode,
+                platformUI: platformUI
+            ).services
+        )
+
+        model.handleDebugSessionStateChange(.paused)
+
+        #expect(model.isDebugVisible)
+        #expect(platformUI.activationCount == 1)
     }
 
     private func javaTestTarget(fileURL: URL) -> JavaTestDebugLaunchTarget {
@@ -168,6 +192,22 @@ struct JavaTestDebugLaunchServiceTests {
             programArguments: ["-port", "-1"]
         )
     }
+}
+
+@MainActor
+private final class DebugActivationPlatformUI: PlatformUI {
+    private(set) var activationCount = 0
+
+    func activateApplication() {
+        activationCount += 1
+    }
+
+    func chooseDirectory(title: String, prompt: String) -> URL? { nil }
+    func chooseFile(title: String, prompt: String) -> URL? { nil }
+    func revealInFileBrowser(_ url: URL) {}
+    func open(_ url: URL) {}
+    func copyToClipboard(_ value: String) {}
+    func markdownImageFromClipboard() -> MarkdownImageSource? { nil }
 }
 
 @MainActor
