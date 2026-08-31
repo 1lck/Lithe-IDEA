@@ -6,10 +6,10 @@ import Testing
 @Suite("Git reference operations", .serialized)
 struct GitReferenceOperationsTests {
     @Test
-    func remoteReferenceWorkflowsUseCompleteIdentityThroughRustCore() throws {
-        let fixture = try GitReferenceFixture()
+    func remoteReferenceWorkflowsUseCompleteIdentityThroughRustCore() async throws {
+        let fixture = try await GitReferenceFixture()
         let repository = fixture.repository
-        let mainName = try fixture.git(["branch", "--show-current"])
+        let mainName = try await fixture.git(["branch", "--show-current"])
         let mainReference = GitReference(
             fullName: "refs/heads/\(mainName)",
             shortName: mainName,
@@ -18,12 +18,12 @@ struct GitReferenceOperationsTests {
             upstreamShortName: nil
         )
 
-        try fixture.git(["switch", "-q", "-c", "feature"])
+        try await fixture.git(["switch", "-q", "-c", "feature"])
         try Data("feature\n".utf8).write(to: repository.appendingPathComponent("tracked.txt"))
-        try fixture.git(["commit", "-qam", "feature"])
-        try fixture.git(["update-ref", "refs/remotes/origin/feature", "refs/heads/feature"])
-        try fixture.git(["switch", "-q", mainName])
-        try fixture.git(["branch", "-D", "feature"])
+        try await fixture.git(["commit", "-qam", "feature"])
+        try await fixture.git(["update-ref", "refs/remotes/origin/feature", "refs/heads/feature"])
+        try await fixture.git(["switch", "-q", mainName])
+        try await fixture.git(["branch", "-D", "feature"])
 
         let remoteReference = GitReference(
             fullName: "refs/remotes/origin/feature",
@@ -43,9 +43,9 @@ struct GitReferenceOperationsTests {
 
         let checkoutAndRebase = operations.checkoutAndRebase(remoteReference, at: repository)
         #expect(checkoutAndRebase?.exitCode == 0)
-        #expect(try fixture.git(["branch", "--show-current"]) == "feature")
+        #expect(try await fixture.git(["branch", "--show-current"]) == "feature")
 
-        try fixture.git(["switch", "-q", mainName])
+        try await fixture.git(["switch", "-q", mainName])
         let pull = operations.pullRemoteReference(
             remoteReference,
             strategy: .merge,
@@ -59,18 +59,18 @@ struct GitReferenceOperationsTests {
 private final class GitReferenceFixture {
     let repository: URL
 
-    init() throws {
+    init() async throws {
         repository = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-git-reference-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: repository, withIntermediateDirectories: true)
-        try git(["init", "-q"])
-        try git(["config", "user.email", "tests@lithe.local"])
-        try git(["config", "user.name", "Lithe Tests"])
-        try git(["config", "core.autocrlf", "false"])
-        try git(["remote", "add", "origin", "."])
+        try await git(["init", "-q"])
+        try await git(["config", "user.email", "tests@lithe.local"])
+        try await git(["config", "user.name", "Lithe Tests"])
+        try await git(["config", "core.autocrlf", "false"])
+        try await git(["remote", "add", "origin", "."])
         try Data("main\n".utf8).write(to: repository.appendingPathComponent("tracked.txt"))
-        try git(["add", "tracked.txt"])
-        try git(["commit", "-qm", "initial"])
+        try await git(["add", "tracked.txt"])
+        try await git(["commit", "-qm", "initial"])
     }
 
     deinit {
@@ -78,26 +78,19 @@ private final class GitReferenceFixture {
     }
 
     @discardableResult
-    func git(_ arguments: [String]) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = arguments
-        process.currentDirectoryURL = repository
-        let standardOutput = Pipe()
-        let standardError = Pipe()
-        process.standardOutput = standardOutput
-        process.standardError = standardError
-        try process.run()
-        process.waitUntilExit()
-        let output = standardOutput.fileHandleForReading.readDataToEndOfFile()
-        let error = standardError.fileHandleForReading.readDataToEndOfFile()
-        guard process.terminationStatus == 0 else {
+    func git(_ arguments: [String]) async throws -> String {
+        let result = try await TestProcess.run(
+            executableURL: URL(fileURLWithPath: "/usr/bin/git"),
+            arguments: arguments,
+            currentDirectoryURL: repository
+        )
+        guard result.terminationStatus == 0 else {
             throw GitReferenceFixtureError.commandFailed(
                 arguments,
-                String(decoding: error, as: UTF8.self)
+                String(decoding: result.output, as: UTF8.self)
             )
         }
-        return String(decoding: output, as: UTF8.self)
+        return String(decoding: result.output, as: UTF8.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
