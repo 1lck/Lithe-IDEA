@@ -4509,8 +4509,10 @@ private actor SequencedGitWatchContextProvider: GitWatchContextProviding {
 private final class TestTerminalTransport: TerminalTransport {
     let nativeView: AnyObject = NSView(frame: .zero)
     var isRunning = false
+    var processID: Int32? { isRunning ? 1234 : nil }
     var shellName = "Shell"
     var onTermination: ((Int32?) -> Void)?
+    var onOutput: ((Data) -> Void)?
     var onTitle: ((String) -> Void)?
     var onDirectoryUpdate: ((String?) -> Void)?
     var onLink: ((String, [String: String]) -> Void)?
@@ -4529,6 +4531,16 @@ private final class TestTerminalTransport: TerminalTransport {
         startRequests.append(shellPath)
         shellName = URL(fileURLWithPath: shellPath).lastPathComponent
         isRunning = true
+    }
+
+    func startProcess(
+        _ launch: TerminalProcessLaunch,
+        environment: [String: String]
+    ) throws -> Int32 {
+        startRequests.append(launch.executablePath)
+        shellName = URL(fileURLWithPath: launch.executablePath).lastPathComponent
+        isRunning = true
+        return 1234
     }
 
     func send(_ input: Data) throws {}

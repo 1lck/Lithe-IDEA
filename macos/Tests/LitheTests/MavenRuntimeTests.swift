@@ -354,7 +354,6 @@ private struct ProjectRelativeRuntimeLocator: RuntimeLocator {
     func systemMavenExecutable() -> URL? { nil }
     func mavenExecutable(forHomePath path: String) -> URL? { nil }
     func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? { nil }
-    func systemJDBExecutable() -> URL? { nil }
     func javaLanguageServerExecutable() -> URL? { nil }
 }
 
@@ -404,7 +403,6 @@ private final class BlockingRuntimeLocator: RuntimeLocator, @unchecked Sendable 
     func systemMavenExecutable() -> URL? { nil }
     func mavenExecutable(forHomePath path: String) -> URL? { nil }
     func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? { nil }
-    func systemJDBExecutable() -> URL? { nil }
     func javaLanguageServerExecutable() -> URL? { nil }
 }
 

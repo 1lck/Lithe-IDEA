@@ -41,6 +41,19 @@ public final class TerminalFeatureModel: ObservableObject {
     }
 
     @discardableResult
+    public func createProcessSession(
+        _ launch: TerminalProcessLaunch,
+        onOutput: ((String) -> Void)? = nil
+    ) throws -> (session: TerminalSession, processID: Int32) {
+        let session = TerminalSession(transport: terminalFactory())
+        session.onOutput = onOutput
+        let processID = try session.startProcess(launch)
+        terminalSessions.append(session)
+        activeTerminalSessionID = session.id
+        return (session, processID)
+    }
+
+    @discardableResult
     public func selectSession(_ session: TerminalSession) -> Bool {
         guard terminalSessions.contains(where: { $0.id == session.id }) else { return false }
         activeTerminalSessionID = session.id
@@ -60,6 +73,18 @@ public final class TerminalFeatureModel: ObservableObject {
 
     public func restartActiveSession() { activeTerminalSession?.restart() }
     public func restartActiveSession(using shellPath: String) { activeTerminalSession?.restart(using: shellPath) }
+
+    /// Sends UTF-8 input to a specific terminal session when its PTY is live.
+    /// The session ID keeps callers from accidentally writing to whichever
+    /// terminal happens to be selected in the UI.
+    @discardableResult
+    public func sendInput(_ input: String, to sessionID: UUID) -> Bool {
+        guard let session = terminalSessions.first(where: { $0.id == sessionID }),
+              session.isRunning,
+              session.isReady else { return false }
+        session.sendInput(input)
+        return true
+    }
 
     public func stopAllSessions() {
         terminalSessions.forEach { $0.stop() }

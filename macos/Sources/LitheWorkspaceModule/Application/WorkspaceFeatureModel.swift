@@ -11,22 +11,10 @@ package enum WorkspaceRebuildResult: Sendable {
 /// Owns the workspace snapshot and delegates scanning and text reads to Core.
 @MainActor
 package final class WorkspaceFeatureModel: ObservableObject {
+    package private(set) var workspaceGeneration = 0
+    package private(set) var appliedSnapshot: WorkspaceSnapshot?
     @Published package private(set) var rootNode: FileNode?
-    /// The scan currently applied to the workspace, or `nil` before one is.
-    ///
-    /// Consumers that scan the file inventory read this once so the file list and
-    /// its identity always come from the same scan.
-    @Published package private(set) var appliedSnapshot: WorkspaceSnapshot?
-
-    package var projectFiles: [URL] { appliedSnapshot?.files ?? [] }
-
-    /// Counts openings of a workspace, so consumers can tell one opening apart
-    /// from the next even when both use the same path.
-    ///
-    /// A URL alone repeats when the same project is closed and reopened: a task
-    /// that started before the reopen would still compare equal and be treated
-    /// as current. Every open and every reset advances this instead.
-    @Published package private(set) var workspaceGeneration = 0
+    @Published package private(set) var projectFiles: [URL] = []
     @Published package private(set) var isLoadingWorkspace = false
     @Published package private(set) var isRefreshingWorkspace = false
     @Published package private(set) var loadErrorMessage: String?
@@ -74,7 +62,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     private var reloadProjectServices: (@MainActor () async -> Void)?
     private var refreshGit: (@MainActor () async -> Void)?
     private var updateHistoryVisibilityRules: (@MainActor (FileVisibilityRules) async -> Void)?
-    private var onSnapshotLoaded: (@MainActor (URL, WorkspaceSnapshot, Bool) async -> Void)?
+    private var onSnapshotLoaded: (@MainActor (WorkspaceSnapshot, Bool) async -> Void)?
     private var warmSearchIndex: (@MainActor (URL, FileVisibilityRules) -> Void)?
     private var updateSearchIndex: (@MainActor (URL, [String], FileVisibilityRules) async -> Void)?
     private var invalidateSearchIndex: (@MainActor (URL, FileVisibilityRules) -> Void)?
@@ -110,7 +98,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         reloadProjectServices: @escaping @MainActor () async -> Void,
         refreshGit: @escaping @MainActor () async -> Void,
         updateHistoryVisibilityRules: @escaping @MainActor (FileVisibilityRules) async -> Void,
-        onSnapshotLoaded: @escaping @MainActor (URL, WorkspaceSnapshot, Bool) async -> Void,
+        onSnapshotLoaded: @escaping @MainActor (WorkspaceSnapshot, Bool) async -> Void,
         warmSearchIndex: @escaping @MainActor (URL, FileVisibilityRules) -> Void,
         updateSearchIndex: @escaping @MainActor (URL, [String], FileVisibilityRules) async -> Void,
         invalidateSearchIndex: @escaping @MainActor (URL, FileVisibilityRules) -> Void
@@ -175,7 +163,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     }
 
     package func reset() {
-        workspaceGeneration += 1
+        workspaceGeneration &+= 1
         if let workspaceURL {
             scheduleSearchIndexInvalidation(at: workspaceURL, rules: visibilityRules)
         }
@@ -198,6 +186,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         workspaceURL = nil
         hasRestoredWorkspaceSession = false
         rootNode = nil
+        projectFiles = []
         appliedSnapshot = nil
         isLoadingWorkspace = false
         isRefreshingWorkspace = false
@@ -217,7 +206,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     }
 
     package func beginWorkspace(at url: URL, visibilityRules: FileVisibilityRules) {
-        workspaceGeneration += 1
+        workspaceGeneration &+= 1
         workspaceURL = url.standardizedFileURL
         self.visibilityRules = visibilityRules
         hasRestoredWorkspaceSession = false
@@ -309,6 +298,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }
         loadErrorMessage = nil
         rootNode = snapshot.root
+        projectFiles = snapshot.files
         appliedSnapshot = snapshot
         scheduleSearchIndexWarm(at: workspaceURL, rules: rules)
 
@@ -320,9 +310,6 @@ package final class WorkspaceFeatureModel: ObservableObject {
             isRefreshingWorkspace = false
         }
 
-        // Session restore and watch setup can suspend. A project switch in that
-        // window must not let this rebuild keep mutating the new workspace or
-        // deliver this scan under the new root's identity.
         if !hasRestoredWorkspaceSession {
             if let restoreSession, let session = workspaceSessionStore.load(for: workspaceURL) {
                 await restoreSession(session, snapshot.files)
@@ -333,9 +320,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         guard isCurrent() else { return .stale }
         await updateWatchConfiguration()
         guard isCurrent() else { return .stale }
-        // Pass the rebuild's workspace with the snapshot so the callback never
-        // re-reads a global URL that may already belong to a different project.
-        await onSnapshotLoaded?(workspaceURL, snapshot, isInitialLoad)
+        await onSnapshotLoaded?(snapshot, isInitialLoad)
         guard isCurrent() else { return .stale }
         await requestGitRefreshNow()
         if pendingFullRescan || pendingWatchRootsChanged {
@@ -349,9 +334,6 @@ package final class WorkspaceFeatureModel: ObservableObject {
         refreshTask?.cancel()
         pendingExternalPaths.removeAll()
         externalRefreshGeneration += 1
-        // A refresh belongs to the opening that started it. Comparing the path
-        // alone would let a refresh that outlives a close/reopen of the same
-        // project publish its snapshot into the new opening.
         let generation = workspaceGeneration
         _ = await rebuild(
             at: workspaceURL,
@@ -625,8 +607,6 @@ package final class WorkspaceFeatureModel: ObservableObject {
 
     private func updateWatchConfiguration(forceRebuild: Bool = false) async {
         guard let workspaceURL else { return }
-        // The same path can be closed and reopened while the Git context is
-        // being resolved. Keep the watcher tied to the opening that requested it.
         let generation = workspaceGeneration
         let context = await gitWatchContextProvider.watchContext(for: workspaceURL)
         guard self.workspaceURL == workspaceURL,
@@ -862,18 +842,8 @@ package final class WorkspaceFeatureModel: ObservableObject {
     }
 
     private func removeProjectItemFromSnapshot(_ targetURL: URL) {
+        projectFiles.removeAll { urlContains(targetURL, child: $0) }
         rootNode = rootNode.flatMap { removingProjectItem(targetURL, from: $0) }
-        // Dropping files changes the inventory, so the result is a new scan and
-        // needs a new identity. Reusing the old one would let a consumer treat a
-        // shortened inventory as the scan it had already accepted.
-        //
-        // The pruned tree is carried over too, so the applied snapshot never
-        // disagrees with `rootNode` about what the workspace contains.
-        guard let applied = appliedSnapshot else { return }
-        appliedSnapshot = WorkspaceSnapshot(
-            root: rootNode ?? applied.root,
-            files: applied.files.filter { !urlContains(targetURL, child: $0) }
-        )
     }
 
     private func removingProjectItem(_ targetURL: URL, from node: FileNode) -> FileNode? {

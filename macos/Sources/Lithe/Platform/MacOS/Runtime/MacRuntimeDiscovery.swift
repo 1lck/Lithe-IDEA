@@ -15,16 +15,6 @@ enum MacRuntimeDiscovery {
         return RuntimeDiscoveryResult(javaRuntimes: javaRuntimes, mavenRuntimes: mavenRuntimes)
     }
 
-    static func systemJDBExecutable() -> URL? {
-        [
-            "/opt/homebrew/bin/jdb",
-            "/usr/local/bin/jdb",
-            "/usr/bin/jdb"
-        ]
-        .map(URL.init(fileURLWithPath:))
-        .first(where: { FileManager.default.isExecutableFile(atPath: $0.path) })
-    }
-
     static func systemMavenExecutable(environment: [String: String]) -> URL? {
         discoverMavenExecutables(environment: environment).first
     }

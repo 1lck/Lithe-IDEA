@@ -6,7 +6,6 @@ import LitheExecutionModule
 @MainActor
 extension AppModel {
     struct DebugFeatureAccess {
-        let javaFeature: JavaDebugFeatureModel
         let genericFeature: GenericDebugFeatureModel
     }
     struct ExecutionFeatureAccess {
@@ -18,19 +17,11 @@ extension AppModel {
 
     var mavenFeatureIfActive: MavenFeatureModel? { executionCapability?.mavenFeature }
     var runFeatureIfActive: RunFeatureModel? { executionCapability?.runFeature }
-    var debugFeatureIfActive: JavaDebugFeatureModel? {
-        debugCapability?.javaFeature as? JavaDebugFeatureModel
-    }
     var genericDebugFeatureIfActive: GenericDebugFeatureModel? {
         debugCapability?.genericFeature as? GenericDebugFeatureModel
     }
 
     func activateExecutionModule() async -> ExecutionFeatureAccess? {
-        // Run and Debug activate on demand, so they can arrive while the previous
-        // session's module graph is still being torn down. Activating first would
-        // hand back a run feature that teardown releases moments later, and the
-        // deferred action waiting on it would never be resumed.
-        await awaitModuleRuntimeShutdown()
         if let mavenFeature = mavenFeatureIfActive,
            let runFeature = runFeatureIfActive,
            let tests = languageTestServiceIfActive,
@@ -59,28 +50,117 @@ extension AppModel {
     }
 
     func activateDebugModule() async -> DebugFeatureAccess? {
-        await awaitModuleRuntimeShutdown()
-        if let javaFeature = debugFeatureIfActive,
-           let genericFeature = genericDebugFeatureIfActive {
-            return DebugFeatureAccess(javaFeature: javaFeature, genericFeature: genericFeature)
+        if let genericFeature = genericDebugFeatureIfActive {
+            configureDebugHostHandlers(genericFeature)
+            if let workspaceURL { genericFeature.openWorkspace(at: workspaceURL) }
+            return DebugFeatureAccess(genericFeature: genericFeature)
         }
         do {
             let value = try await services.moduleRuntime.activateCapability(.debugWorkspace)
             guard let capability = value as? LitheDebugModule.DebugModuleCapability,
-                  let javaFeature = capability.javaFeature as? JavaDebugFeatureModel,
                   let genericFeature = capability.genericFeature as? GenericDebugFeatureModel else { return nil }
+            configureDebugHostHandlers(genericFeature)
             cacheModuleCapability(capability, id: .debugWorkspace, moduleID: .debug)
-            self.javaFeature.configureRuntime(
-                mavenFeature: mavenFeatureIfActive,
-                debugFeature: javaFeature
-            )
-            observeModuleFeature(.debug, observation: javaFeature.objectWillChange.sink { [weak self] _ in
+            if let workspaceURL { genericFeature.openWorkspace(at: workspaceURL) }
+            observeModuleFeature(.debug, observation: genericFeature.objectWillChange.sink { [weak self] _ in
                 self?.scheduleObjectWillChangeRelay()
             })
-            return DebugFeatureAccess(javaFeature: javaFeature, genericFeature: genericFeature)
+            observeModuleFeature(.debug, observation: genericFeature.$state
+                .removeDuplicates()
+                .sink { [weak self] state in
+                    self?.handleDebugSessionStateChange(state)
+                })
+            return DebugFeatureAccess(genericFeature: genericFeature)
         } catch {
             showNotification(error.localizedDescription)
             return nil
+        }
+    }
+
+    private func configureDebugHostHandlers(_ feature: GenericDebugFeatureModel) {
+        feature.onStoppedLocation = { [weak self] url, line, column in
+            self?.revealDebugLocation(url: url, line: line, column: column)
+        }
+        feature.onAutomaticVariableInspectionRequest = { [weak self, weak feature] frame in
+            guard let self, let feature else { return }
+            requestAutomaticDebugVariables(for: frame, feature: feature)
+        }
+        configureDebugRunInTerminalHandler(feature)
+    }
+
+    private func requestAutomaticDebugVariables(
+        for frame: DebugStackFrame,
+        feature: GenericDebugFeatureModel
+    ) {
+        guard feature.providerID == "java",
+              let sourceURL = frame.sourceURL?.standardizedFileURL,
+              let source = debugSourceText(at: sourceURL) else {
+            feature.requestAutomaticVariables([])
+            return
+        }
+        let expressions = DebugAutomaticExpressionProjection.javaExpressions(
+            forLine: max(0, frame.line - 1),
+            in: source as NSString
+        )
+        feature.requestAutomaticVariables(expressions)
+    }
+
+    private func debugSourceText(at sourceURL: URL) -> String? {
+        if let document = openDocuments.first(where: {
+            $0.url.standardizedFileURL == sourceURL
+        }) {
+            return document.text
+        }
+        guard let metadata = services.fileStorage.metadata(for: sourceURL),
+              metadata.isRegularFile,
+              let byteCount = metadata.byteCount,
+              byteCount <= 2_000_000,
+              let data = try? services.fileStorage.readData(from: sourceURL, options: []),
+              let source = String(data: data, encoding: .utf8) else { return nil }
+        return source
+    }
+
+    private func configureDebugRunInTerminalHandler(_ feature: GenericDebugFeatureModel) {
+        feature.onSessionSelectionChanged = { [weak self] debugSessionID in
+            guard let self else { return }
+            self.activeDebugTerminalSessionID = debugSessionID.flatMap {
+                self.activeDebugTerminalSessionIDsByDebugSession[$0]
+            }
+        }
+        feature.onSessionStopped = { [weak self] debugSessionID in
+            self?.stopDebugTerminalProcesses(for: debugSessionID)
+        }
+        feature.onSessionRunInTerminalRequest = { [weak self] debugSessionID, request, completion in
+            guard let self else {
+                completion(.failure(DebugAdapterCapabilityError.unsupported("run in terminal")))
+                return
+            }
+            handleDebugRunInTerminalRequest(
+                request,
+                debugSessionID: debugSessionID,
+                completion: completion
+            )
+        }
+        feature.onRunInTerminalRequest = { [weak self] request, completion in
+            guard let self else {
+                completion(.failure(DebugAdapterCapabilityError.unsupported("run in terminal")))
+                return
+            }
+            handleDebugRunInTerminalRequest(request, debugSessionID: nil, completion: completion)
+        }
+    }
+
+    func restoreDebugBreakpoints(for workspaceURL: URL) async {
+        guard self.workspaceURL == workspaceURL,
+              let persistence = services.debugBreakpointPersistence else { return }
+        do {
+            guard let snapshot = try persistence.loadBreakpoints(for: workspaceURL),
+                  snapshot.version == DebugBreakpointSnapshot.currentVersion,
+                  !snapshot.breakpoints.isEmpty,
+                  self.workspaceURL == workspaceURL else { return }
+            _ = await activateDebugModule()
+        } catch {
+            showNotification(error.localizedDescription)
         }
     }
 }

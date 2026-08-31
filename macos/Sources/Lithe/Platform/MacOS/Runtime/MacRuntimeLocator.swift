@@ -68,10 +68,6 @@ struct MacRuntimeLocator: RuntimeLocator {
         MacRuntimeDiscovery.probeMaven(executableURL)
     }
 
-    func systemJDBExecutable() -> URL? {
-        MacRuntimeDiscovery.systemJDBExecutable()
-    }
-
     /// Returns the bundled JDK matching the current process architecture.
     /// Universal apps carry separate runtimes because a JDK contains native
     /// libraries throughout its installation. Single-architecture and legacy

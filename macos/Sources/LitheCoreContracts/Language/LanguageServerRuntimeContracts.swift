@@ -34,15 +34,34 @@ package struct JDTLSLaunchResources: Equatable, Sendable {
     package let launcherJarURL: URL
     package let configurationDirectoryURL: URL
     package let lombokAgentURL: URL
+    /// Ordered OSGi bundles contributed by Java tooling extensions. The Java
+    /// Debug Server remains first for compatibility with older Rust cores.
+    package let javaExtensionBundleURLs: [URL]
+    /// Standalone TestNG runner used only when a TestNG debug launch is requested.
+    package let javaTestRunnerURL: URL?
 
     package init(
         launcherJarURL: URL,
         configurationDirectoryURL: URL,
-        lombokAgentURL: URL
+        lombokAgentURL: URL,
+        javaDebugBundleURL: URL? = nil,
+        javaExtensionBundleURLs: [URL] = [],
+        javaTestRunnerURL: URL? = nil
     ) {
         self.launcherJarURL = launcherJarURL.standardizedFileURL
         self.configurationDirectoryURL = configurationDirectoryURL.standardizedFileURL
         self.lombokAgentURL = lombokAgentURL.standardizedFileURL
+        var seen = Set<String>()
+        self.javaExtensionBundleURLs = ([javaDebugBundleURL].compactMap { $0 } + javaExtensionBundleURLs)
+            .map(\.standardizedFileURL)
+            .filter { seen.insert($0.path).inserted }
+        self.javaTestRunnerURL = javaTestRunnerURL?.standardizedFileURL
+    }
+
+    package var javaDebugBundleURL: URL? {
+        javaExtensionBundleURLs.first {
+            $0.lastPathComponent.hasPrefix("com.microsoft.java.debug.plugin-")
+        }
     }
 }
 

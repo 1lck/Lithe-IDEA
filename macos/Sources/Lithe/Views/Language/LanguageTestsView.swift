@@ -139,7 +139,9 @@ struct LanguageTestsView: View {
     }
 
     private var testCount: Int {
-        service.itemsByProviderID.values.reduce(0) { $0 + $1.count }
+        service.itemsByProviderID.values.reduce(0) { count, items in
+            count + itemCount(items)
+        }
     }
 
     private var selectedItem: LanguageTestItem? {
@@ -206,7 +208,7 @@ struct LanguageTestsView: View {
                     Text(descriptor.displayName)
                         .lineLimit(1)
                     Spacer(minLength: 0)
-                    Text(String(items.count))
+                    Text(String(itemCount(items)))
                         .font(.system(size: 10))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
@@ -233,16 +235,16 @@ struct LanguageTestsView: View {
             selectedItemID = item.id
         } label: {
             HStack(spacing: 7) {
-                Image(systemName: item.kind == .workspace ? "square.stack.3d.up" : "doc.text.magnifyingglass")
+                Image(systemName: testItemIcon(item))
                     .font(.system(size: 11))
-                    .foregroundStyle(item.kind == .workspace ? LitheTheme.accent : LitheTheme.secondaryText)
+                    .foregroundStyle(item.depth > 0 ? LitheTheme.accent : LitheTheme.secondaryText)
                     .frame(width: 16)
                 Text(item.label)
                     .font(.system(size: 11.5))
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
-            .padding(.leading, 25)
+            .padding(.leading, 25 + CGFloat(item.depth * 14))
             .padding(.trailing, 6)
             .frame(height: 26)
             .contentShape(Rectangle())
@@ -301,7 +303,7 @@ struct LanguageTestsView: View {
     private func testDetail(_ item: LanguageTestItem) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                Image(systemName: item.kind == .workspace ? "square.stack.3d.up" : "doc.text.magnifyingglass")
+                Image(systemName: testItemIcon(item))
                     .font(.system(size: 20))
                     .foregroundStyle(LitheTheme.accent)
                     .frame(width: 34, height: 34)
@@ -324,6 +326,17 @@ struct LanguageTestsView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .disabled(service.isRunning)
+
+                if item.providerID == "java", item.kind != .workspace {
+                    Button {
+                        model.debugTest(providerID: item.providerID, scope: scope(for: item))
+                    } label: {
+                        Label("Debug", systemImage: "ladybug.fill")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(service.isRunning)
+                }
             }
 
             Rectangle()
@@ -335,7 +348,7 @@ struct LanguageTestsView: View {
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(width: 90, alignment: .trailing)
-                Text(item.kind == .workspace ? "Workspace" : (item.fileURL?.path ?? item.label))
+                Text(scopeDescription(item))
                     .font(.system(size: 11.5, design: .monospaced))
                     .textSelection(.enabled)
                     .lineLimit(1)
@@ -368,7 +381,34 @@ struct LanguageTestsView: View {
         case .file:
             return .file(item.fileURL ?? model.workspaceURL ?? URL(fileURLWithPath: "."))
         case .testCase:
-            return .testCase(identifier: item.label, fileURL: item.fileURL)
+            return .testCase(
+                identifier: item.testIdentifier ?? item.label,
+                fileURL: item.fileURL
+            )
+        }
+    }
+
+    private func itemCount(_ items: [LanguageTestItem]) -> Int {
+        let exactTests = items.filter { $0.kind == .testCase }.count
+        return exactTests > 0 ? exactTests : items.filter { $0.kind != .workspace }.count
+    }
+
+    private func testItemIcon(_ item: LanguageTestItem) -> String {
+        switch item.kind {
+        case .workspace: "square.stack.3d.up"
+        case .file: "doc.text.magnifyingglass"
+        case .testCase: item.depth > 1 ? "function" : "cube"
+        }
+    }
+
+    private func scopeDescription(_ item: LanguageTestItem) -> String {
+        switch item.kind {
+        case .workspace:
+            return "Workspace"
+        case .file:
+            return item.fileURL?.path ?? item.label
+        case .testCase:
+            return item.testIdentifier ?? item.label
         }
     }
 

@@ -16,9 +16,15 @@ final class MacRawProcessSession: RawProcessSession, @unchecked Sendable {
     private var errorPipe: Pipe?
     private var timeoutTask: Task<Void, Never>?
     private var activeOperationID: String?
+    // A stop followed immediately by a new start can leave the old
+    // termination callback queued on the process-source queue.  Keep a
+    // generation token so that callback cannot clear or report the new run.
+    private var processGeneration = UUID()
 
     func start(_ request: ProcessRequest) throws {
         stop()
+        processGeneration = UUID()
+        let currentGeneration = processGeneration
         activeOperationID = request.operationID
         onStateChange?(ProcessLifecycleEvent(
             operationID: request.operationID,
@@ -64,7 +70,9 @@ final class MacRawProcessSession: RawProcessSession, @unchecked Sendable {
             self.onError?(data)
         }
         process.terminationHandler = { [weak self] terminatedProcess in
-            guard let self, self.process === terminatedProcess else { return }
+            guard let self,
+                  self.process === terminatedProcess,
+                  self.processGeneration == currentGeneration else { return }
             self.outputPipe?.fileHandleForReading.readabilityHandler = nil
             self.errorPipe?.fileHandleForReading.readabilityHandler = nil
             self.process = nil
@@ -146,6 +154,8 @@ final class MacRawProcessSession: RawProcessSession, @unchecked Sendable {
         closePipes()
         process = nil
         activeOperationID = nil
+        // Invalidate callbacks that may still be queued for the stopped run.
+        processGeneration = UUID()
     }
 
     private func closePipes() {

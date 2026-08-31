@@ -57,7 +57,8 @@ final class MacServiceContainer {
         gitWatchContextProvider providedGitWatchContextProvider: (any GitWatchContextProviding)? = nil,
         runExecutableResolver providedRunExecutableResolver: (any RunExecutableResolving)? = nil,
         pluginRuntimeRecovery: MacPluginRuntimeRecoveryCoordinator? = nil,
-        authorizationCallbackRouter providedAuthorizationCallbackRouter: MacExternalAuthorizationCallbackRouter? = nil
+        authorizationCallbackRouter providedAuthorizationCallbackRouter: MacExternalAuthorizationCallbackRouter? = nil,
+        platformUI providedPlatformUI: (any PlatformUI)? = nil
     ) {
         let authorizationCallbackRouter = providedAuthorizationCallbackRouter
             ?? MacExternalAuthorizationCallbackRouter()
@@ -77,10 +78,8 @@ final class MacServiceContainer {
             preferences: store
         )
         self.runConfigurationStore = runConfigurationStore
-        // Only the run-configuration boundary is overridable. The concrete store
-        // stays available for callers that need the macOS adapter itself.
-        let runConfigurationOperations: any RunConfigurationOperations =
-            providedRunConfigurationOperations ?? runConfigurationStore
+        let debugBreakpointStore = MacDebugBreakpointStore(store: store)
+        let debugSteppingFilterStore = MacDebugSteppingFilterStore(store: store)
         let fileOperations = MacWorkspaceFileOperations()
         let processRunner = MacProcessRunner()
         let secureStore = MacLocalSecretStore()
@@ -95,7 +94,7 @@ final class MacServiceContainer {
             secureStore: MacKeychainSecureStore(service: "app.lithe.desktop.github"),
             git: MacGitHubGitOperations(core: rustCore)
         )
-        let platformUI = MacPlatformUI()
+        let platformUI = providedPlatformUI ?? MacPlatformUI()
         let discourseCommunityService = DiscourseCommunityService(
             core: rustCore,
             credentialStore: MacKeychainSecureStore(service: "app.lithe.desktop.linux-do"),
@@ -309,16 +308,11 @@ final class MacServiceContainer {
         do {
             try moduleRegistry.register(ModuleFactory(manifest: ExecutionModule.moduleManifest, contributions: ExecutionModule.moduleContributions) {
                 ExecutionModule(makeGraph: {
-                    // Toolchain discovery inspects installed JDKs through
-                    // processes, so it is overridable for the same reason the
-                    // other ports here are: a caller that does not exercise
-                    // toolchain resolution should not depend on the machine.
-                    let executableResolver: any RunExecutableResolving = providedRunExecutableResolver
-                        ?? RunExecutableResolver(
-                            runtimeService: runtimeService,
-                            toolchainRegistry: runToolchainRegistry,
-                            metadataResolver: ProcessRunToolchainMetadataResolver(processRunner: processRunner)
-                        )
+                    let executableResolver = providedRunExecutableResolver ?? RunExecutableResolver(
+                        runtimeService: runtimeService,
+                        toolchainRegistry: runToolchainRegistry,
+                        metadataResolver: ProcessRunToolchainMetadataResolver(processRunner: processRunner)
+                    )
                     let graph = ExecutionFeatureGraph(
                         maven: MavenService(
                             runtimeService: runtimeService,
@@ -333,7 +327,7 @@ final class MacServiceContainer {
                             fileAccess: MacRunFileAccess(storage: fileStorage),
                             preferences: MacRunPreferenceStore(store: store),
                             serverPortParser: javaMavenOperations,
-                            runConfigurationOperations: runConfigurationOperations,
+                            runConfigurationOperations: providedRunConfigurationOperations ?? runConfigurationStore,
                             executableResolver: executableResolver,
                             languageProviderCatalog: languagePackRegistry.catalog,
                             languageRunProviders: languagePackRegistry.runProviders,
@@ -353,6 +347,26 @@ final class MacServiceContainer {
             try moduleRegistry.register(ModuleFactory(manifest: DebugModule.moduleManifest, contributions: DebugModule.moduleContributions) {
                 DebugModule(makeGraph: {
                     let debugFactories: [String: () -> (any DebugAdapterSession)?] = [
+                        "java": {
+                            CoreDebugAdapterProtocolSession(
+                                adapterID: "java",
+                                transport: MacJavaDebugAdapterTransport(
+                                    portResolver: { rootURL in
+                                        guard let capability = try await moduleRuntime
+                                            .activateCapability(.languageIntelligence)
+                                            as? LanguageIntelligenceCapability else {
+                                            throw MacJavaDebugAdapterTransport.TransportError
+                                                .languageIntelligenceUnavailable
+                                        }
+                                        return try await capability.sessions.startJavaDebugServer(
+                                            rootURL: rootURL
+                                        )
+                                    }
+                                ),
+                                core: rustCore,
+                                deadlineScheduler: MacDebugOperationDeadlineScheduler()
+                            )
+                        },
                         "go": {
                             guard let executable = runtimeService.executableOnPath("dlv") else { return nil }
                             return DebugAdapterProtocolSession(
@@ -403,14 +417,11 @@ final class MacServiceContainer {
                         }
                     )
                     let graph = DebugFeatureGraph(
-                        java: JavaDebugService(
-                            runtimeService: runtimeService,
-                            processFactory: { MacStreamingProcess(processRegistry: processRegistry, moduleID: .debug) },
-                            fileStorage: fileStorage,
-                            javaMavenOperations: javaMavenOperations,
-                            runConfigurationOperations: runConfigurationOperations
-                        ),
-                        adapterSessions: adapterSessions
+                        adapterSessions: adapterSessions,
+                        breakpointPersistence: debugBreakpointStore,
+                        breakpointRelocator: rustCore,
+                        steppingFilterResolver: rustCore,
+                        steppingFilterPersistence: debugSteppingFilterStore
                     )
                     return graph
                 })
@@ -419,12 +430,12 @@ final class MacServiceContainer {
             preconditionFailure("Invalid execution/debug module graph: \(error.localizedDescription)")
         }
         let gitOperations = RustGitOperations(core: rustCore)
-        let rustWorkspaceOperations = RustWorkspaceOperations(core: rustCore)
-        // Only the workspace snapshot boundary is overridable. Search and local
-        // history need the concrete Rust operations, which carry their own
-        // capabilities beyond WorkspaceOperations.
-        let workspaceOperations: any WorkspaceOperations =
-            providedWorkspaceOperations ?? rustWorkspaceOperations
+        let defaultWorkspaceOperations = RustWorkspaceOperations(core: rustCore)
+        let workspaceOperations: any WorkspaceOperations = providedWorkspaceOperations ?? defaultWorkspaceOperations
+        let searchOperations: any SearchOperations =
+            (providedWorkspaceOperations as? any SearchOperations) ?? defaultWorkspaceOperations
+        let gitWatchContextProvider: any GitWatchContextProviding =
+            providedGitWatchContextProvider ?? RustGitWatchContextProvider(core: rustCore)
         let localHistoryOperations = RustLocalHistoryOperations(core: rustCore)
         let markdownRenderer = RustMarkdownRendering(core: rustCore)
         let markdownImageImporter = MarkdownImageImportService(storage: fileStorage)
@@ -436,11 +447,11 @@ final class MacServiceContainer {
                 )
             })
             try moduleRegistry.register(ModuleFactory(manifest: SearchModule.moduleManifest, contributions: SearchModule.moduleContributions) {
-                SearchModule(operations: rustWorkspaceOperations)
+                SearchModule(operations: searchOperations)
             })
             try moduleRegistry.register(ModuleFactory(manifest: HistoryModule.moduleManifest, contributions: HistoryModule.moduleContributions) {
                 HistoryModule(
-                    workspaceAccess: MacLocalHistoryWorkspaceAccess(workspaceOperations: rustWorkspaceOperations, fileOperations: fileOperations),
+                    workspaceAccess: MacLocalHistoryWorkspaceAccess(workspaceOperations: workspaceOperations, fileOperations: fileOperations),
                     storage: MacLocalHistoryStorage(storage: fileStorage),
                     operations: localHistoryOperations
                 )
@@ -501,6 +512,13 @@ final class MacServiceContainer {
             pluginCatalog: pluginCatalog,
             languageProviderCatalogSource: languageProviderCatalogSource,
             languageProviderCatalogSnapshot: languageProviderCatalogSnapshot,
+            debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver(
+                fileStorage: fileStorage,
+                javaTestLaunchResolver: rustCore
+            ),
+            debugPortAvailabilityChecker: MacDebugPortAvailabilityChecker(),
+            javaTestResultServerFactory: { MacJavaTestResultServer() },
+            debugBreakpointPersistence: debugBreakpointStore,
             workspaceOperations: workspaceOperations,
             documentLifecycleDecider: RustDocumentLifecycleDecider(core: rustCore),
             javaMavenOperations: javaMavenOperations,
@@ -511,8 +529,7 @@ final class MacServiceContainer {
             fileOperations: fileOperations,
             binaryFileViewerRegistry: binaryFileViewerRegistry,
             projectRuntimeService: runtimeService,
-            gitWatchContextProvider: providedGitWatchContextProvider
-                ?? RustGitWatchContextProvider(core: rustCore),
+            gitWatchContextProvider: gitWatchContextProvider,
             githubService: githubService,
             secureStore: secureStore,
             databaseSecureStore: databaseSecureStore,

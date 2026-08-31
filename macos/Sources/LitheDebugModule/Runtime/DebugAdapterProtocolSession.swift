@@ -6,6 +6,8 @@ public enum DebugAdapterProtocolError: LocalizedError {
     case stopped
     case invalidResponse(String)
     case requestFailed(command: String, message: String)
+    case cancelled(String)
+    case timedOut(String)
 
     public var errorDescription: String? {
         switch self {
@@ -17,6 +19,10 @@ public enum DebugAdapterProtocolError: LocalizedError {
             "The Debug Adapter returned an invalid \(command) response."
         case .requestFailed(let command, let message):
             "\(command) failed: \(message)"
+        case .cancelled(let command):
+            "\(command) was cancelled."
+        case .timedOut(let command):
+            "\(command) timed out."
         }
     }
 }
@@ -35,9 +41,13 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
     private var nextSequence = 1
     private var responseHandlers: [Int: ResponseHandler] = [:]
     private var breakpointsBySource: [URL: [DebugSourceBreakpoint]] = [:]
+    private var exceptionBreakpoints: [DebugExceptionBreakpoint] = []
+    private var functionBreakpoints: [DebugFunctionBreakpoint] = []
+    private var dataBreakpoints: [DebugDataBreakpoint] = []
     private var didReceiveInitializedEvent = false
     private var supportsConfigurationDone = false
     private var pendingLaunch: DebugLaunchConfiguration?
+    private var activeRequestKind: DebugRequestKind?
     private var childSessions: [DebugAdapterProtocolSession] = []
     private weak var activeChildSession: DebugAdapterProtocolSession?
 
@@ -49,6 +59,7 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
     }
     public var onStateChange: ((DebugAdapterState) -> Void)?
     public var onEvent: ((DebugAdapterEvent) -> Void)?
+    public private(set) var capabilities: DebugAdapterCapabilities = .unknown
 
     public init(adapterID: String, transport: any DebugAdapterTransport) {
         self.adapterID = adapterID
@@ -73,6 +84,7 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
         do {
             try transport.start(rootURL: rootURL.standardizedFileURL)
         } catch {
+            reportFailure(error, context: "Debug Adapter failed to start")
             state = .failed
             throw error
         }
@@ -95,13 +107,16 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
             switch result {
             case .success(let response):
                 let body = response["body"] as? [String: Any]
-                self.supportsConfigurationDone = body?["supportsConfigurationDoneRequest"] as? Bool ?? false
+                self.capabilities = Self.parseCapabilities(body ?? [:])
+                self.supportsConfigurationDone = self.capabilities.supportsConfigurationDone
+                self.onEvent?(.capabilities(self.capabilities))
                 self.state = .ready
                 if let pendingLaunch = self.pendingLaunch {
                     self.pendingLaunch = nil
                     self.performLaunch(pendingLaunch)
                 }
-            case .failure:
+            case .failure(let error):
+                self.reportFailure(error, context: "Debug Adapter initialization failed")
                 self.state = .failed
             }
         }
@@ -125,16 +140,55 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
         if requestArguments["cwd"] == nil, let rootURL {
             requestArguments["cwd"] = rootURL.path
         }
+        activeRequestKind = configuration.request
         state = .launching
         sendRequest(command: configuration.request.rawValue, arguments: requestArguments) { [weak self] result in
             guard let self else { return }
             switch result {
             case .success:
                 if self.state == .launching { self.state = .running }
-            case .failure:
+            case .failure(let error):
+                self.reportFailure(error, context: "Debug launch failed")
                 self.state = .failed
             }
         }
+    }
+
+    private static func parseCapabilities(_ body: [String: Any]) -> DebugAdapterCapabilities {
+        let filters = (body["exceptionBreakpointFilters"] as? [[String: Any]] ?? [])
+            .compactMap { value -> DebugExceptionBreakpointFilter? in
+                guard let filter = value["filter"] as? String, !filter.isEmpty,
+                      let label = value["label"] as? String, !label.isEmpty else { return nil }
+                return DebugExceptionBreakpointFilter(
+                    filter: filter,
+                    label: label,
+                    description: value["description"] as? String,
+                    isDefault: value["default"] as? Bool ?? false,
+                    supportsCondition: value["supportsCondition"] as? Bool ?? false,
+                    conditionDescription: value["conditionDescription"] as? String
+                )
+            }
+        return DebugAdapterCapabilities(
+            negotiated: true,
+            supportsConfigurationDone: body["supportsConfigurationDoneRequest"] as? Bool ?? false,
+            supportsConditionalBreakpoints: body["supportsConditionalBreakpoints"] as? Bool ?? false,
+            supportsHitConditionalBreakpoints: body["supportsHitConditionalBreakpoints"] as? Bool ?? false,
+            supportsLogPoints: body["supportsLogPoints"] as? Bool ?? false,
+            supportsFunctionBreakpoints: body["supportsFunctionBreakpoints"] as? Bool ?? false,
+            supportsDataBreakpoints: body["supportsDataBreakpoints"] as? Bool ?? false,
+            supportsExceptionOptions: body["supportsExceptionOptions"] as? Bool ?? false,
+            supportsExceptionFilterOptions: body["supportsExceptionFilterOptions"] as? Bool ?? false,
+            supportsSetVariable: body["supportsSetVariable"] as? Bool ?? false,
+            supportsCancelRequest: body["supportsCancelRequest"] as? Bool ?? false,
+            supportsSingleThreadExecutionRequests:
+                body["supportsSingleThreadExecutionRequests"] as? Bool ?? false,
+            supportsRestartRequest: body["supportsRestartRequest"] as? Bool ?? false,
+            supportsTerminateRequest: body["supportsTerminateRequest"] as? Bool ?? false,
+            supportsStepBack: body["supportsStepBack"] as? Bool ?? false,
+            supportsStepInTargetsRequest: body["supportsStepInTargetsRequest"] as? Bool ?? false,
+            supportsGotoTargetsRequest: body["supportsGotoTargetsRequest"] as? Bool ?? false,
+            exceptionBreakpointFilters: filters
+        )
     }
 
     public func setBreakpoints(_ breakpoints: [DebugSourceBreakpoint], in fileURL: URL) {
@@ -145,20 +199,117 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
         sendBreakpoints(for: normalizedURL)
     }
 
-    public func execute(_ command: DebugExecutionCommand, threadID: Int?) {
+    public func setExceptionBreakpoints(_ breakpoints: [DebugExceptionBreakpoint]) {
+        exceptionBreakpoints = breakpoints.sorted { $0.filter < $1.filter }
+        childSessions.forEach { $0.setExceptionBreakpoints(breakpoints) }
+        guard didReceiveInitializedEvent else { return }
+        sendExceptionBreakpoints()
+    }
+
+    public func setFunctionBreakpoints(_ breakpoints: [DebugFunctionBreakpoint]) {
+        functionBreakpoints = breakpoints.sorted { $0.name < $1.name }
+        childSessions.forEach { $0.setFunctionBreakpoints(breakpoints) }
+        guard didReceiveInitializedEvent, capabilities.supportsFunctionBreakpoints else { return }
+        sendFunctionBreakpoints()
+    }
+
+    public func setDataBreakpoints(_ breakpoints: [DebugDataBreakpoint]) {
+        dataBreakpoints = breakpoints.sorted {
+            ($0.dataID, $0.accessType ?? "") < ($1.dataID, $1.accessType ?? "")
+        }
+        childSessions.forEach { $0.setDataBreakpoints(breakpoints) }
+        guard didReceiveInitializedEvent, capabilities.supportsDataBreakpoints else { return }
+        sendDataBreakpoints()
+    }
+
+    public func requestDataBreakpointInfo(
+        name: String,
+        variablesReference: Int?,
+        frameID: Int?,
+        completion: @escaping (Result<DebugDataBreakpointInfo, Error>) -> Void
+    ) {
         if let activeChildSession {
-            activeChildSession.execute(command, threadID: threadID)
+            activeChildSession.requestDataBreakpointInfo(
+                name: name,
+                variablesReference: variablesReference,
+                frameID: frameID,
+                completion: completion
+            )
+            return
+        }
+        guard capabilities.supportsDataBreakpoints else {
+            completion(.failure(DebugAdapterCapabilityError.unsupported("data breakpoints")))
+            return
+        }
+        var arguments: [String: Any] = ["name": name]
+        if let variablesReference { arguments["variablesReference"] = variablesReference }
+        if let frameID { arguments["frameId"] = frameID }
+        sendRequest(command: "dataBreakpointInfo", arguments: arguments) { result in
+            completion(result.flatMap { response in
+                guard let body = response["body"] as? [String: Any],
+                      let description = body["description"] as? String else {
+                    return .failure(DebugAdapterProtocolError.invalidResponse("dataBreakpointInfo"))
+                }
+                return .success(DebugDataBreakpointInfo(
+                    dataID: body["dataId"] as? String,
+                    description: description,
+                    accessTypes: body["accessTypes"] as? [String] ?? [],
+                    canPersist: body["canPersist"] as? Bool ?? false
+                ))
+            })
+        }
+    }
+
+    public func execute(_ command: DebugExecutionCommand, threadID: Int?) {
+        execute(command, threadID: threadID, targetID: nil, singleThread: false)
+    }
+
+    public func execute(_ command: DebugExecutionCommand, threadID: Int?, targetID: Int?) {
+        execute(command, threadID: threadID, targetID: targetID, singleThread: false)
+    }
+
+    public func execute(
+        _ command: DebugExecutionCommand,
+        threadID: Int?,
+        targetID: Int?,
+        singleThread: Bool
+    ) {
+        if let activeChildSession {
+            activeChildSession.execute(
+                command,
+                threadID: threadID,
+                targetID: targetID,
+                singleThread: singleThread
+            )
             return
         }
         guard transport.isRunning else { return }
+        if command == .stepBack, !capabilities.supportsStepBack { return }
+        if command == .goto, !capabilities.supportsGotoTargetsRequest { return }
+        if command == .restart, !capabilities.supportsRestartRequest { return }
+        if command == .terminate, !capabilities.supportsTerminateRequest { return }
+        if singleThread, !capabilities.supportsSingleThreadExecutionRequests { return }
+        if [.next, .stepIn, .stepOut, .stepBack, .goto].contains(command), state != .paused { return }
+        if command == .pause, state != .running { return }
+        if command == .continueExecution, state != .paused { return }
         var arguments: [String: Any] = [:]
-        if let threadID { arguments["threadId"] = threadID }
-        if command == .continueExecution || command == .next || command == .stepIn || command == .stepOut {
-            arguments["singleThread"] = false
+        if command != .restart, command != .terminate, let threadID {
+            arguments["threadId"] = threadID
+        }
+        if let targetID, command == .stepIn || command == .goto {
+            arguments["targetId"] = targetID
+        }
+        if command == .continueExecution || command == .next || command == .stepIn
+            || command == .stepOut || command == .stepBack || command == .goto
+            || command == .pause {
+            arguments["singleThread"] = singleThread
         }
         sendRequest(command: command.rawValue, arguments: arguments) { [weak self] result in
-            if case .success = result, command != .pause {
-                self?.state = .running
+            if case .success = result {
+                if command != .pause, command != .terminate,
+                   !(singleThread && command == .continueExecution) {
+                    self?.state = .running
+                }
             }
         }
     }
@@ -218,18 +369,96 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
         reference: Int,
         completion: @escaping (Result<[DebugVariable], Error>) -> Void
     ) {
+        requestVariables(
+            reference: reference,
+            filter: nil,
+            start: nil,
+            count: nil,
+            completion: completion
+        )
+    }
+
+    public func requestVariables(
+        reference: Int,
+        filter: DebugVariableFilter?,
+        start: Int?,
+        count: Int?,
+        completion: @escaping (Result<[DebugVariable], Error>) -> Void
+    ) {
         if let activeChildSession {
-            activeChildSession.requestVariables(reference: reference, completion: completion)
+            activeChildSession.requestVariables(
+                reference: reference,
+                filter: filter,
+                start: start,
+                count: count,
+                completion: completion
+            )
             return
         }
-        sendRequest(command: "variables", arguments: ["variablesReference": reference]) { result in
+        var arguments: [String: Any] = ["variablesReference": reference]
+        if let filter { arguments["filter"] = filter.rawValue }
+        if let start { arguments["start"] = start }
+        if let count { arguments["count"] = count }
+        sendRequest(command: "variables", arguments: arguments) { result in
             completion(result.flatMap { response in
                 guard let values = (response["body"] as? [String: Any])?["variables"] as? [[String: Any]] else {
                     return .failure(DebugAdapterProtocolError.invalidResponse("variables"))
                 }
                 return .success(values.enumerated().compactMap { index, value in
-                    Self.parseVariable(value, fallbackID: "\(reference):\(index)")
+                    Self.parseVariable(
+                        value,
+                        fallbackID: [
+                            String(reference),
+                            filter?.rawValue ?? "all",
+                            String((start ?? 0) + index)
+                        ].joined(separator: ":"),
+                        containerReference: reference
+                    )
                 })
+            })
+        }
+    }
+
+    public func setVariable(
+        variablesReference: Int,
+        name: String,
+        value: String,
+        completion: @escaping (Result<DebugVariable, Error>) -> Void
+    ) {
+        if let activeChildSession {
+            activeChildSession.setVariable(
+                variablesReference: variablesReference,
+                name: name,
+                value: value,
+                completion: completion
+            )
+            return
+        }
+        guard capabilities.supportsSetVariable else {
+            completion(.failure(DebugAdapterCapabilityError.unsupported("variable mutation")))
+            return
+        }
+        sendRequest(command: "setVariable", arguments: [
+            "variablesReference": variablesReference,
+            "name": name,
+            "value": value
+        ]) { result in
+            completion(result.flatMap { response in
+                guard let body = response["body"] as? [String: Any],
+                      let resolvedValue = body["value"] as? String else {
+                    return .failure(DebugAdapterProtocolError.invalidResponse("setVariable"))
+                }
+                return .success(DebugVariable(
+                    id: "\(variablesReference):\(name)",
+                    name: name,
+                    value: resolvedValue,
+                    type: body["type"] as? String,
+                    evaluateName: nil,
+                    variablesReference: body["variablesReference"] as? Int ?? 0,
+                    containerReference: variablesReference,
+                    namedVariables: body["namedVariables"] as? Int ?? 0,
+                    indexedVariables: body["indexedVariables"] as? Int ?? 0
+                ))
             })
         }
     }
@@ -257,8 +486,63 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
                     value: value,
                     type: body["type"] as? String,
                     evaluateName: expression,
-                    variablesReference: body["variablesReference"] as? Int ?? 0
+                    variablesReference: body["variablesReference"] as? Int ?? 0,
+                    namedVariables: body["namedVariables"] as? Int ?? 0,
+                    indexedVariables: body["indexedVariables"] as? Int ?? 0
                 ))
+            })
+        }
+    }
+
+    public func requestStepInTargets(
+        frameID: Int,
+        completion: @escaping (Result<[DebugStepInTarget], Error>) -> Void
+    ) {
+        if let activeChildSession {
+            activeChildSession.requestStepInTargets(frameID: frameID, completion: completion)
+            return
+        }
+        guard capabilities.supportsStepInTargetsRequest else {
+            completion(.failure(DebugAdapterCapabilityError.unsupported("smart step into")))
+            return
+        }
+        sendRequest(command: "stepInTargets", arguments: ["frameId": frameID]) { result in
+            completion(result.flatMap { response in
+                guard let values = (response["body"] as? [String: Any])?["targets"] as? [[String: Any]] else {
+                    return .failure(DebugAdapterProtocolError.invalidResponse("stepInTargets"))
+                }
+                return .success(values.compactMap(Self.parseStepInTarget))
+            })
+        }
+    }
+
+    public func requestGotoTargets(
+        fileURL: URL,
+        line: Int,
+        column: Int?,
+        completion: @escaping (Result<[DebugGotoTarget], Error>) -> Void
+    ) {
+        if let activeChildSession {
+            activeChildSession.requestGotoTargets(
+                fileURL: fileURL,
+                line: line,
+                column: column,
+                completion: completion
+            )
+            return
+        }
+        guard capabilities.supportsGotoTargetsRequest else {
+            completion(.failure(DebugAdapterCapabilityError.unsupported("run to cursor")))
+            return
+        }
+        var arguments: [String: Any] = ["source": ["path": fileURL.path], "line": line]
+        if let column { arguments["column"] = column }
+        sendRequest(command: "gotoTargets", arguments: arguments) { result in
+            completion(result.flatMap { response in
+                guard let values = (response["body"] as? [String: Any])?["targets"] as? [[String: Any]] else {
+                    return .failure(DebugAdapterProtocolError.invalidResponse("gotoTargets"))
+                }
+                return .success(values.compactMap(Self.parseGotoTarget))
             })
         }
     }
@@ -271,7 +555,7 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
         if transport.isRunning {
             sendRequest(command: "disconnect", arguments: [
                 "restart": false,
-                "terminateDebuggee": true
+                "terminateDebuggee": activeRequestKind == .launch
             ]) { _ in }
         }
         transport.stop()
@@ -281,11 +565,17 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
     }
 
     private func sendBreakpoints(for fileURL: URL) {
-        let breakpoints = breakpointsBySource[fileURL] ?? []
+        let breakpoints = (breakpointsBySource[fileURL] ?? []).filter(\.enabled)
         let values: [[String: Any]] = breakpoints.map { breakpoint in
             var value: [String: Any] = ["line": breakpoint.line]
             if let column = breakpoint.column { value["column"] = column }
             if let condition = breakpoint.condition, !condition.isEmpty { value["condition"] = condition }
+            if let hitCondition = breakpoint.hitCondition, !hitCondition.isEmpty {
+                value["hitCondition"] = hitCondition
+            }
+            if let logMessage = breakpoint.logMessage, !logMessage.isEmpty {
+                value["logMessage"] = logMessage
+            }
             return value
         }
         sendRequest(command: "setBreakpoints", arguments: [
@@ -298,7 +588,92 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
             else { return }
             for (index, value) in returned.enumerated() {
                 let fallback = breakpoints.indices.contains(index) ? breakpoints[index].line : nil
-                if let parsed = Self.parseBreakpoint(value, fallbackLine: fallback, sourceURL: fileURL, index: index) {
+                if let parsed = Self.parseBreakpoint(
+                    value,
+                    fallbackLine: fallback,
+                    sourceURL: fileURL,
+                    functionName: nil,
+                    index: index
+                ) {
+                    self.onEvent?(.breakpoint(parsed))
+                }
+            }
+        }
+    }
+
+    private func sendExceptionBreakpoints() {
+        let active = exceptionBreakpoints.filter(\.enabled)
+        var arguments: [String: Any] = ["filters": active.map(\.filter)]
+        if capabilities.supportsExceptionFilterOptions {
+            let options = active.compactMap { breakpoint -> [String: Any]? in
+                guard let condition = breakpoint.condition, !condition.isEmpty else { return nil }
+                return ["filterId": breakpoint.filter, "condition": condition]
+            }
+            if !options.isEmpty { arguments["filterOptions"] = options }
+        }
+        sendRequest(command: "setExceptionBreakpoints", arguments: arguments) { _ in }
+    }
+
+    private func sendFunctionBreakpoints() {
+        let active = functionBreakpoints.filter(\.enabled)
+        let values: [[String: Any]] = active.map { breakpoint in
+            var value: [String: Any] = ["name": breakpoint.name]
+            if let condition = breakpoint.condition, !condition.isEmpty {
+                value["condition"] = condition
+            }
+            if let hitCondition = breakpoint.hitCondition, !hitCondition.isEmpty {
+                value["hitCondition"] = hitCondition
+            }
+            return value
+        }
+        sendRequest(command: "setFunctionBreakpoints", arguments: ["breakpoints": values]) { [weak self] result in
+            guard let self, case .success(let response) = result,
+                  let returned = (response["body"] as? [String: Any])?["breakpoints"] as? [[String: Any]]
+            else { return }
+            for (index, value) in returned.enumerated() {
+                let functionName = active.indices.contains(index) ? active[index].name : nil
+                if let parsed = Self.parseBreakpoint(
+                    value,
+                    fallbackLine: nil,
+                    sourceURL: nil,
+                    functionName: functionName,
+                    index: index
+                ) {
+                    self.onEvent?(.breakpoint(parsed))
+                }
+            }
+        }
+    }
+
+    private func sendDataBreakpoints() {
+        let active = dataBreakpoints.filter(\.enabled)
+        let values: [[String: Any]] = active.map { breakpoint in
+            var value: [String: Any] = ["dataId": breakpoint.dataID]
+            if let accessType = breakpoint.accessType, !accessType.isEmpty {
+                value["accessType"] = accessType
+            }
+            if let condition = breakpoint.condition, !condition.isEmpty {
+                value["condition"] = condition
+            }
+            if let hitCondition = breakpoint.hitCondition, !hitCondition.isEmpty {
+                value["hitCondition"] = hitCondition
+            }
+            return value
+        }
+        sendRequest(command: "setDataBreakpoints", arguments: ["breakpoints": values]) { [weak self] result in
+            guard let self, case .success(let response) = result,
+                  let returned = (response["body"] as? [String: Any])?["breakpoints"] as? [[String: Any]]
+            else { return }
+            for (index, value) in returned.enumerated() {
+                let dataID = active.indices.contains(index) ? active[index].dataID : nil
+                if let parsed = Self.parseBreakpoint(
+                    value,
+                    fallbackLine: nil,
+                    sourceURL: nil,
+                    functionName: nil,
+                    dataID: dataID,
+                    index: index
+                ) {
                     self.onEvent?(.breakpoint(parsed))
                 }
             }
@@ -416,6 +791,13 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
         case "initialized":
             didReceiveInitializedEvent = true
             onEvent?(.initialized)
+            sendExceptionBreakpoints()
+            if capabilities.supportsFunctionBreakpoints {
+                sendFunctionBreakpoints()
+            }
+            if capabilities.supportsDataBreakpoints {
+                sendDataBreakpoints()
+            }
             for source in breakpointsBySource.keys.sorted(by: { $0.path < $1.path }) {
                 sendBreakpoints(for: source)
             }
@@ -440,7 +822,14 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
             onEvent?(.terminated(exitCode: body["exitCode"] as? Int))
         case "breakpoint":
             if let value = body["breakpoint"] as? [String: Any],
-               let breakpoint = Self.parseBreakpoint(value, fallbackLine: nil, sourceURL: nil, index: 0) {
+               let breakpoint = Self.parseBreakpoint(
+                   value,
+                   fallbackLine: nil,
+                   sourceURL: nil,
+                   functionName: nil,
+                   dataID: nil,
+                   index: 0
+               ) {
                 onEvent?(.breakpoint(breakpoint))
             }
         default: break
@@ -482,11 +871,14 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
             arguments: childArguments
         )
         let child = DebugAdapterProtocolSession(adapterID: adapterID, transport: childTransport)
+        child.setExceptionBreakpoints(exceptionBreakpoints)
+        child.setFunctionBreakpoints(functionBreakpoints)
+        child.setDataBreakpoints(dataBreakpoints)
         for (source, breakpoints) in breakpointsBySource {
             child.setBreakpoints(breakpoints, in: source)
         }
         child.onStateChange = { [weak self, weak child] childState in
-            guard let self else { return }
+            guard let self, let child else { return }
             switch childState {
             case .paused:
                 self.activeChildSession = child
@@ -495,9 +887,10 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
                 self.activeChildSession = child
                 self.state = .running
             case .failed:
+                self.removeFinishedChild(child)
                 self.state = .failed
             case .terminated:
-                if self.activeChildSession === child { self.activeChildSession = nil }
+                self.removeFinishedChild(child)
                 self.state = .terminated
             default:
                 break
@@ -543,6 +936,20 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
         }
     }
 
+    private func removeFinishedChild(_ child: DebugAdapterProtocolSession) {
+        childSessions.removeAll { $0 === child }
+        if activeChildSession === child {
+            activeChildSession = nil
+        }
+    }
+
+    private func reportFailure(_ error: Error, context: String) {
+        onEvent?(.output(
+            category: "stderr",
+            output: "\(context): \(error.localizedDescription)\n"
+        ))
+    }
+
     private func failPendingRequests(_ error: Error) {
         let handlers = responseHandlers.values
         responseHandlers = [:]
@@ -555,7 +962,9 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
         responseHandlers = [:]
         didReceiveInitializedEvent = false
         supportsConfigurationDone = false
+        capabilities = .unknown
         pendingLaunch = nil
+        activeRequestKind = nil
         activeChildSession = nil
         childSessions = []
         if !keepingState { state = .idle }
@@ -587,11 +996,17 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
             id: value["presentationHint"] as? Int ?? reference * 1_000 + offset,
             name: name,
             variablesReference: reference,
-            expensive: value["expensive"] as? Bool ?? false
+            expensive: value["expensive"] as? Bool ?? false,
+            namedVariables: value["namedVariables"] as? Int ?? 0,
+            indexedVariables: value["indexedVariables"] as? Int ?? 0
         )
     }
 
-    private static func parseVariable(_ value: [String: Any], fallbackID: String) -> DebugVariable? {
+    private static func parseVariable(
+        _ value: [String: Any],
+        fallbackID: String,
+        containerReference: Int? = nil
+    ) -> DebugVariable? {
         guard let name = value["name"] as? String,
               let rendered = value["value"] as? String else { return nil }
         return DebugVariable(
@@ -600,7 +1015,37 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
             value: rendered,
             type: value["type"] as? String,
             evaluateName: value["evaluateName"] as? String,
-            variablesReference: value["variablesReference"] as? Int ?? 0
+            variablesReference: value["variablesReference"] as? Int ?? 0,
+            containerReference: containerReference,
+            namedVariables: value["namedVariables"] as? Int ?? 0,
+            indexedVariables: value["indexedVariables"] as? Int ?? 0
+        )
+    }
+
+    private static func parseStepInTarget(_ value: [String: Any]) -> DebugStepInTarget? {
+        guard let id = value["id"] as? Int, let label = value["label"] as? String else { return nil }
+        return DebugStepInTarget(
+            id: id,
+            label: label,
+            line: value["line"] as? Int,
+            column: value["column"] as? Int,
+            endLine: value["endLine"] as? Int,
+            endColumn: value["endColumn"] as? Int
+        )
+    }
+
+    private static func parseGotoTarget(_ value: [String: Any]) -> DebugGotoTarget? {
+        guard let id = value["id"] as? Int,
+              let label = value["label"] as? String,
+              let line = value["line"] as? Int else { return nil }
+        return DebugGotoTarget(
+            id: id,
+            label: label,
+            line: line,
+            column: value["column"] as? Int,
+            endLine: value["endLine"] as? Int,
+            endColumn: value["endColumn"] as? Int,
+            instructionPointerReference: value["instructionPointerReference"] as? String
         )
     }
 
@@ -608,6 +1053,8 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
         _ value: [String: Any],
         fallbackLine: Int?,
         sourceURL: URL?,
+        functionName: String?,
+        dataID: String? = nil,
         index: Int
     ) -> DebugBreakpoint? {
         let line = value["line"] as? Int ?? fallbackLine
@@ -618,7 +1065,9 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
             message: value["message"] as? String,
             sourceURL: source,
             line: line,
-            column: value["column"] as? Int
+            column: value["column"] as? Int,
+            functionName: functionName,
+            dataID: dataID
         )
     }
 

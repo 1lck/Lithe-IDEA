@@ -101,6 +101,17 @@ package final class LanguageTestService: ObservableObject {
         itemsByProviderID = discovered
     }
 
+    package func replaceDiscoveredItems(
+        _ items: [LanguageTestItem],
+        providerID: String
+    ) {
+        if items.isEmpty {
+            itemsByProviderID[providerID] = nil
+        } else {
+            itemsByProviderID[providerID] = items
+        }
+    }
+
     @discardableResult
     package func run(
         providerID: String,
