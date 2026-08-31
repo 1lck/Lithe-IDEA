@@ -1827,6 +1827,88 @@ fn git_history_returns_references_and_commit_graph_fields() {
 }
 
 #[test]
+fn git_history_reports_tracking_counts_for_a_noncurrent_local_branch() {
+    struct RemoveOnDrop(std::path::PathBuf);
+
+    impl Drop for RemoveOnDrop {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    let root = temporary_root("git-history-tracking-counts");
+    let _cleanup = RemoveOnDrop(root.clone());
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q", "-b", "main"]).status.success());
+    assert!(run(&[
+        "remote",
+        "add",
+        "origin",
+        "https://example.invalid/repository.git",
+    ])
+    .status
+    .success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    fs::write(root.join("story.txt"), "base\n").expect("test file should be writable");
+    assert!(run(&["add", "story.txt"]).status.success());
+    assert!(run(&["commit", "-qm", "base"]).status.success());
+    assert!(run(&["branch", "feature"]).status.success());
+
+    assert!(run(&["checkout", "-q", "feature"]).status.success());
+    fs::write(root.join("story.txt"), "local\n").expect("test file should be writable");
+    assert!(run(&["commit", "-qam", "local feature"]).status.success());
+
+    assert!(run(&["checkout", "-q", "main"]).status.success());
+    assert!(run(&["checkout", "-qb", "remote-feature"]).status.success());
+    fs::write(root.join("story.txt"), "remote\n").expect("test file should be writable");
+    assert!(run(&["commit", "-qam", "remote feature"]).status.success());
+    let remote_commit = git_text(&root, &["rev-parse", "HEAD"]);
+    assert!(run(&["checkout", "-q", "main"]).status.success());
+    assert!(
+        run(&["update-ref", "refs/remotes/origin/feature", &remote_commit,])
+            .status
+            .success()
+    );
+    assert!(run(&["branch", "-D", "remote-feature"]).status.success());
+    assert!(
+        run(&["branch", "--set-upstream-to=origin/feature", "feature",])
+            .status
+            .success()
+    );
+
+    let request = serde_json::json!({
+        "id": "history-tracking-counts",
+        "command": "git.history",
+        "payload": {"root": root, "limit": 10}
+    });
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&request).expect("history request should encode"),
+    ))
+    .expect("history response should be JSON");
+    assert_eq!(response["ok"], true, "{response:?}");
+    let feature = response["data"]["references"]
+        .as_array()
+        .expect("references should be an array")
+        .iter()
+        .find(|reference| reference["shortName"] == "feature")
+        .expect("feature reference should be returned");
+    assert_eq!(feature["isCurrent"], false);
+    assert_eq!(feature["upstreamShortName"], "origin/feature");
+    assert_eq!(feature["ahead"], 1);
+    assert_eq!(feature["behind"], 1);
+}
+
+#[test]
 fn git_history_returns_bounded_recent_checkout_order_and_stable_fallback() {
     struct RemoveOnDrop(std::path::PathBuf);
 

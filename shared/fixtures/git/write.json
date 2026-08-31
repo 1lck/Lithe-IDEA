@@ -65,6 +65,18 @@
       }
     },
     {
+      "operation": "push",
+      "payload": {
+        "gitReference": {
+          "fullName": "refs/heads/feature/core",
+          "shortName": "feature/core",
+          "kind": "local"
+        },
+        "force": true,
+        "pushTags": "reachable"
+      }
+    },
+    {
       "operation": "pull",
       "payload": {
         "gitReference": {
@@ -116,6 +128,14 @@
           "shortName": "feature/core",
           "kind": "local"
         }
+      },
+      "errorCode": "invalid_request"
+    },
+    {
+      "operation": "push",
+      "payload": {
+        "reference": "refs/heads/main",
+        "pushTags": "invalid"
       },
       "errorCode": "invalid_request"
     }

@@ -1116,11 +1116,13 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
         showPath={false}
         showDefaultActions={false}
         extraLeftContent={
-          <div className="ui-text-sm flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap text-subtle-foreground">
+          <div className="ui-text-sm flex min-w-0 w-full items-center gap-2 overflow-hidden whitespace-nowrap text-subtle-foreground">
             {isWorkingTree && selectedDiffFile ? (
               <>
                 <FileText className="shrink-0 text-subtle-foreground" />
-                <span className="shrink-0 font-semibold text-foreground">{selectedFileName}</span>
+                <span className="min-w-0 truncate font-semibold text-foreground">
+                  {selectedFileName}
+                </span>
                 <span
                   className={cn(
                     "rounded-md px-1.5 py-0.5 font-semibold tracking-wide",
@@ -1241,22 +1243,22 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
 
       {isWorkingTree && selectedDiffFile ? (
         <>
-          <div className="flex min-h-10 items-center gap-2 border-border/70 border-b bg-surface/40 px-2.5">
+          <div className="flex min-h-10 min-w-0 items-center gap-2 overflow-hidden border-border/70 border-b bg-surface/40 px-2.5">
             <button
               type="button"
               onClick={() => setIsFindVisible(true)}
               className={cn(
-                "ui-text-sm flex h-7 min-w-44 items-center gap-2 rounded-md border border-border/70 bg-background px-2.5 text-left text-subtle-foreground",
+                "ui-text-sm flex h-7 min-w-0 max-w-44 flex-1 basis-28 items-center gap-2 rounded-md border border-border/70 bg-background px-2.5 text-left text-subtle-foreground",
                 "hover:bg-accent/50 hover:text-foreground",
               )}
             >
               <Search className="shrink-0" />
-              <span className="flex-1">{t("git.diff.search")}</span>
+              <span className="min-w-0 flex-1 truncate">{t("git.diff.search")}</span>
             </button>
 
-            <div className="h-5 w-px bg-border/70" />
+            <div className="h-5 w-px shrink-0 bg-border/70" />
 
-            <div className="flex items-center rounded-md bg-accent/45 p-0.5">
+            <div className="flex shrink-0 items-center rounded-md bg-accent/45 p-0.5">
               <button
                 type="button"
                 onClick={() => setViewMode("unified")}
@@ -1288,7 +1290,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
               type="button"
               onClick={() => setShowWhitespace((current) => !current)}
               className={cn(
-                "ui-text-sm h-7 rounded-md px-2 text-subtle-foreground hover:bg-accent/60 hover:text-foreground",
+                "ui-text-sm h-7 shrink-0 rounded-md px-2 text-subtle-foreground hover:bg-accent/60 hover:text-foreground",
                 showWhitespace && "bg-accent text-foreground",
               )}
               aria-pressed={showWhitespace}

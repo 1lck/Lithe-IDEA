@@ -27,19 +27,10 @@ import { formatRelativeDate } from "@/utils/date";
 import { matchesSearchQuery } from "@/utils/search-match";
 import { cn } from "@/utils/cn";
 import { useTranslation } from "@/i18n/locale-provider";
-import { showChoiceDialog, showConfirmDialog, showPromptDialog } from "@/ui/dialog";
-import { toast } from "sonner";
 import type { GitCommit } from "../types/git.types";
 import { useGitStore } from "../stores/git.store";
 import { getGitAuthorAvatarUrl } from "../utils/git-author-avatar";
-import {
-  cherryPickCommit,
-  deleteCommit,
-  editCommitMessage,
-  resetToCommit,
-  squashCommits,
-  type GitResetMode,
-} from "../api/git-commits-api";
+import { useGitHistoryMutations } from "../hooks/use-git-history-mutations";
 import {
   isContiguousGitHistorySelection,
   resolveGitHistoryContextSelection,
@@ -169,9 +160,20 @@ const GitCommitHistory = ({
   const selectionAnchorRef = useRef<string | null>(null);
   const contextMenu = useDropdownMenu<{ commitHashes: string[] }>();
   const [selectedCommitHashes, setSelectedCommitHashes] = useState<Set<string>>(new Set());
-  const [isMutatingHistory, setIsMutatingHistory] = useState(false);
   const [historySearchQuery, setHistorySearchQuery] = useState("");
   const [historySearchScope, setHistorySearchScope] = useState<HistorySearchScope>("all");
+  const clearHistorySelection = useCallback(() => {
+    setSelectedCommitHashes(new Set());
+    selectionAnchorRef.current = null;
+  }, []);
+  const {
+    isMutatingHistory,
+    editMessage,
+    removeCommit,
+    squashSelectedCommits,
+    resetBranchToCommit,
+    cherryPickSelectedCommit,
+  } = useGitHistoryMutations({ repoPath, onCompleted: clearHistorySelection });
 
   const filteredCommits = useMemo(() => {
     const query = historySearchQuery.trim();
@@ -244,109 +246,6 @@ const GitCommitHistory = ({
   );
   const contextSelectionIsContiguous = isContiguousGitHistorySelection(commits, contextSelection);
 
-  const runHistoryAction = async (action: () => Promise<void>) => {
-    setIsMutatingHistory(true);
-    try {
-      await action();
-      setSelectedCommitHashes(new Set());
-      selectionAnchorRef.current = null;
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : typeof error === "object" && error && "message" in error
-            ? String(error.message)
-            : String(error);
-      toast.error(message || t("git.historyMutationFailed"));
-    } finally {
-      setIsMutatingHistory(false);
-    }
-  };
-
-  const handleEditCommitMessage = async (commit: GitCommit) => {
-    if (!repoPath) return;
-    const message = await showPromptDialog(
-      t("git.editCommitMessagePrompt", { hash: commit.shortHash }),
-      {
-        title: t("git.editCommitMessage"),
-        confirmLabel: t("git.saveCommitMessage"),
-        defaultValue: commit.message,
-      },
-    );
-    if (!message?.trim() || message.trim() === commit.message) return;
-    await runHistoryAction(() => editCommitMessage(repoPath, commit.hash, message.trim()));
-  };
-
-  const handleDeleteCommit = async (commit: GitCommit) => {
-    if (
-      !repoPath ||
-      !(await showConfirmDialog(
-        t("git.deleteCommitConfirm", { hash: commit.shortHash, message: commit.message }),
-        {
-          title: t("git.deleteCommit"),
-          confirmLabel: t("git.deleteCommit"),
-        },
-      ))
-    ) {
-      return;
-    }
-    await runHistoryAction(() => deleteCommit(repoPath, commit.hash));
-  };
-
-  const handleSquashCommits = async () => {
-    if (!repoPath || !contextSelectionIsContiguous || contextMenuCommits.length < 2) return;
-    const oldestCommit = contextMenuCommits[contextMenuCommits.length - 1];
-    const message = await showPromptDialog(
-      t("git.squashCommitsPrompt", { count: contextMenuCommits.length }),
-      {
-        title: t("git.squashCommits"),
-        confirmLabel: t("git.squash"),
-        defaultValue: oldestCommit.message,
-      },
-    );
-    if (!message?.trim()) return;
-    await runHistoryAction(() =>
-      squashCommits(
-        repoPath,
-        contextMenuCommits.map((commit) => commit.hash),
-        message.trim(),
-      ),
-    );
-  };
-
-  const handleResetToCommit = async (commit: GitCommit) => {
-    if (!repoPath) return;
-    const mode = await showChoiceDialog<GitResetMode>(
-      t("git.resetToCommitPrompt", { hash: commit.shortHash }),
-      {
-        title: t("git.resetToCommit"),
-        choices: [
-          { value: "soft", label: t("git.resetSoft") },
-          { value: "mixed", label: t("git.resetMixed"), variant: "accent" },
-          { value: "hard", label: t("git.resetHard"), variant: "danger" },
-        ],
-      },
-    );
-    if (!mode) return;
-    await runHistoryAction(() => resetToCommit(repoPath, commit.hash, mode));
-  };
-
-  const handleCherryPickCommit = async (commit: GitCommit) => {
-    if (
-      !repoPath ||
-      !(await showConfirmDialog(
-        t("git.cherryPickCommitConfirm", { hash: commit.shortHash, message: commit.message }),
-        {
-          title: t("git.cherryPickCommit"),
-          confirmLabel: t("git.cherryPickCommit"),
-        },
-      ))
-    ) {
-      return;
-    }
-    await runHistoryAction(() => cherryPickCommit(repoPath, commit.hash));
-  };
-
   const contextMenuItems: MenuItem[] = (() => {
     if (contextMenuCommits.length > 1) {
       return [
@@ -355,7 +254,7 @@ const GitCommitHistory = ({
           label: t("git.squashCommits"),
           icon: <Squash />,
           disabled: isMutatingHistory || !contextSelectionIsContiguous,
-          onClick: () => void handleSquashCommits(),
+          onClick: () => void squashSelectedCommits(contextMenuCommits),
         },
       ];
     }
@@ -368,7 +267,7 @@ const GitCommitHistory = ({
         label: t("git.editCommitMessage"),
         icon: <Edit />,
         disabled: isMutatingHistory,
-        onClick: () => void handleEditCommitMessage(commit),
+        onClick: () => void editMessage(commit),
       },
       {
         id: "delete-commit",
@@ -376,21 +275,21 @@ const GitCommitHistory = ({
         icon: <Trash />,
         className: "text-destructive",
         disabled: isMutatingHistory,
-        onClick: () => void handleDeleteCommit(commit),
+        onClick: () => void removeCommit(commit),
       },
       {
         id: "reset-to-commit",
         label: t("git.resetToCommit"),
         icon: <Reset />,
         disabled: isMutatingHistory,
-        onClick: () => void handleResetToCommit(commit),
+        onClick: () => void resetBranchToCommit(commit),
       },
       {
         id: "cherry-pick-commit",
         label: t("git.cherryPickCommit"),
         icon: <CherryPick />,
         disabled: isMutatingHistory || commits[0]?.hash === commit.hash,
-        onClick: () => void handleCherryPickCommit(commit),
+        onClick: () => void cherryPickSelectedCommit(commit),
       },
     ];
   })();

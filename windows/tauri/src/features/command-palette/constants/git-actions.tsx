@@ -29,7 +29,7 @@ interface GitActionsParams {
     stageAllFiles: (path: string) => Promise<boolean>;
     unstageAllFiles: (path: string) => Promise<boolean>;
     commitChanges: (path: string, message: string) => Promise<boolean>;
-    pushChanges: (path: string) => Promise<GitRemoteActionResult>;
+    showGitPushDialog: (path: string) => Promise<boolean>;
     pullChanges: (path: string) => Promise<GitRemoteActionResult>;
     fetchChanges: (path: string) => Promise<GitRemoteActionResult>;
     discardAllChanges: (path: string) => Promise<boolean>;
@@ -352,27 +352,14 @@ export const createGitActions = (params: GitActionsParams): Action[] => {
       description: "Push changes to remote",
       icon: <ArrowUp />,
       category: "Git",
-      action: async () => {
+      action: () => {
         if (!repoPath) {
           showToast({ message: t("git.noRepositoryOpen"), type: "error" });
           onClose();
           return;
         }
-        try {
-          showToast({ message: t("git.pushingChanges"), type: "info" });
-          const result = await gitOperations.pushChanges(repoPath);
-          if (result.success) {
-            showToast({ message: t("git.changesPushed"), type: "success" });
-          } else {
-            showToast({
-              message: result.error || "Failed to push changes",
-              type: "error",
-            });
-          }
-        } catch (error) {
-          showToast({ message: t("git.operationError", { error: String(error) }), type: "error" });
-        }
         onClose();
+        void gitOperations.showGitPushDialog(repoPath);
       },
     },
     {

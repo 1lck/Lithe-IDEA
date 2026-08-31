@@ -393,6 +393,10 @@ pub struct GitReferenceResponse {
     pub kind: String,
     pub is_current: bool,
     pub upstream_short_name: Option<String>,
+    /// Commits present only on this local branch compared with its upstream.
+    pub ahead: usize,
+    /// Commits present only on this local branch's upstream.
+    pub behind: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -420,6 +424,24 @@ pub struct GitHistoryResponse {
     pub has_more: bool,
     pub user_name: Option<String>,
     pub user_email: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Resolved destination and bounded commits for one branch push.
+pub struct GitPushPreviewResponse {
+    /// Local branch that will be sent to the remote.
+    pub local_branch: String,
+    /// Remote selected from the branch upstream or repository defaults.
+    pub remote: String,
+    /// Branch name created or updated on the remote.
+    pub remote_branch: String,
+    /// Configured upstream short name, or `None` before first publication.
+    pub upstream: Option<String>,
+    /// Commits reachable from the local branch but not its resolved remote base.
+    pub commits: Vec<GitCommitResponse>,
+    /// Whether more commits exist beyond the bounded preview.
+    pub has_more: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

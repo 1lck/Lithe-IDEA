@@ -8,8 +8,8 @@ use crate::protocol::{
     GitCommitLookupResponse, GitCommitResponse, GitComparisonResponse, GitConflictMarkerResponse,
     GitDiffHunkResponse, GitDiffResponse, GitDiffRowResponse, GitFileResponse, GitFilesResponse,
     GitHistoryResponse, GitIntegrationPreflightResponse, GitOperationStateResponse,
-    GitPullPreflightResponse, GitReferenceResponse, GitStashResponse, GitStashesResponse,
-    GitStatusResponse, GitWatchContextResponse,
+    GitPullPreflightResponse, GitPushPreviewResponse, GitReferenceResponse, GitStashResponse,
+    GitStashesResponse, GitStatusResponse, GitWatchContextResponse,
 };
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
@@ -26,6 +26,7 @@ use std::time::Duration;
 const RECENT_BRANCH_LIMIT: usize = 5;
 const RECENT_BRANCH_REFLOG_LIMIT: &str = "100";
 const DEFAULT_BRANCH_FALLBACKS: [&str; 2] = ["main", "master"];
+const DEFAULT_PUSH_PREVIEW_LIMIT: usize = 500;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -271,8 +272,25 @@ pub struct GitWriteRequest {
     pub amend: bool,
     #[serde(default)]
     pub force: bool,
+    /// Tag scope for push: `none`, `all`, or `reachable`.
+    #[serde(default)]
+    pub push_tags: Option<String>,
     #[serde(default)]
     pub auto_stash: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Request to resolve the exact destination and commits for a branch push.
+pub struct GitPushPreviewRequest {
+    pub root: String,
+    #[serde(default)]
+    pub reference: Option<String>,
+    /// Preferred complete local branch identity.
+    #[serde(default)]
+    pub git_reference: Option<GitReferenceRequest>,
+    #[serde(default = "default_push_preview_limit")]
+    pub limit: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -418,6 +436,10 @@ fn default_review_context_lines() -> usize {
 
 fn default_history_limit() -> usize {
     300
+}
+
+fn default_push_preview_limit() -> usize {
+    DEFAULT_PUSH_PREVIEW_LIMIT
 }
 
 /// Executes an argument-based Git command after validating the workspace root.
@@ -677,7 +699,12 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
         }
         "push" => {
             let reference = optional_write_request_reference(&root, &request)?;
-            return push(&root, reference.as_deref());
+            return push(
+                &root,
+                reference.as_deref(),
+                request.force,
+                request.push_tags.as_deref(),
+            );
         }
         "checkout" => return checkout(&root, request),
         "checkoutRevision" => {
@@ -1063,18 +1090,36 @@ pub fn history(request: GitHistoryRequest) -> Result<GitHistoryResponse, CoreErr
     let root = validate_root(&request.root)?;
     let user_name = git_config_value(&root, "user.name");
     let user_email = git_config_value(&root, "user.email");
-    let reference_output = readonly_command(GitCommandRequest {
+    let reference_arguments = vec![
+        "for-each-ref".to_string(),
+        "--sort=refname".to_string(),
+        "--format=%(refname)\t%(refname:short)\t%(HEAD)\t%(upstream:short)\t%(upstream)\t%(ahead-behind:@{upstream})"
+            .to_string(),
+        "refs/heads".to_string(),
+    ];
+    let mut reference_output = readonly_command(GitCommandRequest {
         root: root.clone(),
-        arguments: vec![
-            "for-each-ref".to_string(),
-            "--sort=refname".to_string(),
-            "--format=%(refname)\t%(refname:short)\t%(HEAD)\t%(upstream:short)".to_string(),
-            "refs/heads".to_string(),
-            "refs/remotes".to_string(),
-            "refs/tags".to_string(),
-        ],
+        arguments: reference_arguments,
         input: None,
     })?;
+    let mut has_embedded_tracking_counts = reference_output.exit_code == 0;
+    if !has_embedded_tracking_counts {
+        // Git versions predating the numeric ahead-behind atom still receive
+        // correct counts, while current versions keep history loading to one
+        // reference process even in repositories with many local branches.
+        reference_output = readonly_command(GitCommandRequest {
+            root: root.clone(),
+            arguments: vec![
+                "for-each-ref".to_string(),
+                "--sort=refname".to_string(),
+                "--format=%(refname)\t%(refname:short)\t%(HEAD)\t%(upstream:short)\t%(upstream)"
+                    .to_string(),
+                "refs/heads".to_string(),
+            ],
+            input: None,
+        })?;
+        has_embedded_tracking_counts = false;
+    }
     if reference_output.exit_code != 0 {
         return Err(
             CoreError::new(ErrorCode::ProcessFailed, "Git references failed")
@@ -1082,25 +1127,83 @@ pub fn history(request: GitHistoryRequest) -> Result<GitHistoryResponse, CoreErr
         );
     }
 
-    let references = reference_output
+    let mut parsed_references = reference_output
         .output
         .lines()
         .filter_map(parse_reference)
         .collect::<Vec<_>>();
+    if !has_embedded_tracking_counts {
+        for parsed in &mut parsed_references {
+            if parsed.response.kind != "local" {
+                continue;
+            }
+            let Some(upstream_full_name) = parsed.upstream_full_name.as_deref() else {
+                continue;
+            };
+            (parsed.response.ahead, parsed.response.behind) =
+                reference_tracking_counts(&root, &parsed.response.full_name, upstream_full_name);
+        }
+    }
+    let nonlocal_reference_output = readonly_command(GitCommandRequest {
+        root: root.clone(),
+        arguments: vec![
+            "for-each-ref".to_string(),
+            "--sort=refname".to_string(),
+            "--format=%(refname)\t%(refname:short)\t%(HEAD)\t%(upstream:short)\t%(upstream)"
+                .to_string(),
+            "refs/remotes".to_string(),
+            "refs/tags".to_string(),
+        ],
+        input: None,
+    })?;
+    if nonlocal_reference_output.exit_code != 0 {
+        return Err(
+            CoreError::new(ErrorCode::ProcessFailed, "Git references failed")
+                .with_details(nonlocal_reference_output.output),
+        );
+    }
+    parsed_references.extend(
+        nonlocal_reference_output
+            .output
+            .lines()
+            .filter_map(parse_reference),
+    );
+    let references = parsed_references
+        .into_iter()
+        .map(|parsed| parsed.response)
+        .collect::<Vec<_>>();
     let recent_references = recent_local_references(&root, &references, RECENT_BRANCH_LIMIT);
 
-    let mut arguments = vec!["log".to_string()];
-    if let Some(reference) = request.reference {
+    let selectors = if let Some(reference) = request.reference {
         if reference.starts_with('-') || reference.contains('\0') {
             return Err(CoreError::new(
                 ErrorCode::InvalidRequest,
                 "Invalid Git reference",
             ));
         }
-        arguments.push(reference);
+        vec![reference]
     } else {
-        arguments.push("--all".to_string());
-    }
+        vec!["--all".to_string()]
+    };
+    let (commits, has_more) = read_commit_log(&root, selectors, limit, "Git history failed")?;
+    Ok(GitHistoryResponse {
+        references,
+        recent_references,
+        commits,
+        has_more,
+        user_name,
+        user_email,
+    })
+}
+
+fn read_commit_log(
+    root: &str,
+    selectors: Vec<String>,
+    limit: usize,
+    failure_message: &str,
+) -> Result<(Vec<GitCommitResponse>, bool), CoreError> {
+    let mut arguments = vec!["log".to_string()];
+    arguments.extend(selectors);
     arguments.extend([
         "--topo-order".to_string(),
         "--decorate=short".to_string(),
@@ -1110,15 +1213,13 @@ pub fn history(request: GitHistoryRequest) -> Result<GitHistoryResponse, CoreErr
         "--pretty=format:%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%ad%x1f%s%x1f%D".to_string(),
     ]);
     let commit_output = readonly_command(GitCommandRequest {
-        root,
+        root: root.to_string(),
         arguments,
         input: None,
     })?;
     if commit_output.exit_code != 0 {
-        return Err(
-            CoreError::new(ErrorCode::ProcessFailed, "Git history failed")
-                .with_details(commit_output.output),
-        );
+        return Err(CoreError::new(ErrorCode::ProcessFailed, failure_message)
+            .with_details(commit_output.output));
     }
 
     let all_commits = commit_output
@@ -1127,14 +1228,7 @@ pub fn history(request: GitHistoryRequest) -> Result<GitHistoryResponse, CoreErr
         .filter_map(parse_commit)
         .collect::<Vec<_>>();
     let has_more = all_commits.len() > limit;
-    Ok(GitHistoryResponse {
-        references,
-        recent_references,
-        commits: all_commits.into_iter().take(limit).collect(),
-        has_more,
-        user_name,
-        user_email,
-    })
+    Ok((all_commits.into_iter().take(limit).collect(), has_more))
 }
 
 /// Builds a bounded MRU list from Git's own checkout history.
@@ -2072,14 +2166,8 @@ fn validated_git_reference(
         return Err(invalid_git_reference());
     }
     if reference.kind == "remote" {
-        let (remote, branch) = reference
-            .short_name
-            .split_once('/')
-            .filter(|(remote, branch)| {
-                !remote.is_empty() && !branch.is_empty() && *branch != "HEAD"
-            })
-            .ok_or_else(invalid_git_reference)?;
-        if remote.starts_with('-') || branch.starts_with('-') {
+        let (_, branch) = mutations::remote_branch_components(root, &reference.full_name)?;
+        if branch == "HEAD" {
             return Err(invalid_git_reference());
         }
     }
@@ -3079,40 +3167,142 @@ fn find_stash_reference(root: &str, message: &str) -> Result<Option<String>, Cor
     }))
 }
 
-fn push(root: &str, reference: Option<&str>) -> Result<GitCommandResponse, CoreError> {
-    let current = current_branch(root)?;
-    let branch = match reference {
-        Some(reference) => local_branch_name(&validated_reference(Some(reference))?)?,
-        None => current.clone(),
+#[derive(Clone)]
+struct PushTarget {
+    local_branch: String,
+    remote: String,
+    remote_branch: String,
+    upstream: Option<String>,
+}
+
+/// Resolves the remote destination and commits that a subsequent push will use.
+pub fn push_preview(request: GitPushPreviewRequest) -> Result<GitPushPreviewResponse, CoreError> {
+    let root = validate_root(&request.root)?;
+    let reference = if let Some(reference) = request.git_reference.as_ref() {
+        let reference = validated_git_reference(&root, reference)?;
+        if reference.kind != "local" {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Only local branches can be pushed",
+            ));
+        }
+        Some(reference.full_name)
+    } else {
+        request
+            .reference
+            .as_deref()
+            .map(|reference| validated_reference(Some(reference)))
+            .transpose()?
     };
-    let upstream = execute_git(
+    let target = resolve_push_target(&root, reference.as_deref())?;
+    let limit = request.limit.clamp(1, 5_000);
+    let local_reference = format!("refs/heads/{}", target.local_branch);
+    let selectors = if let Some(upstream) = target.upstream.as_ref() {
+        vec![format!("{upstream}..{local_reference}")]
+    } else {
+        // A branch without an upstream may still be based on another remote branch.
+        // Excluding every commit reachable from the selected remote keeps the preview
+        // focused on commits that publication would introduce.
+        vec![
+            local_reference,
+            "--not".to_string(),
+            format!("--remotes={}", target.remote),
+        ]
+    };
+    let (commits, has_more) = read_commit_log(&root, selectors, limit, "Git push preview failed")?;
+
+    Ok(GitPushPreviewResponse {
+        local_branch: target.local_branch,
+        remote: target.remote,
+        remote_branch: target.remote_branch,
+        upstream: target.upstream,
+        commits,
+        has_more,
+    })
+}
+
+fn push(
+    root: &str,
+    reference: Option<&str>,
+    force: bool,
+    push_tags: Option<&str>,
+) -> Result<GitCommandResponse, CoreError> {
+    let tag_argument = match push_tags.unwrap_or("none") {
+        "none" => None,
+        "all" => Some("--tags"),
+        "reachable" => Some("--follow-tags"),
+        _ => {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Unsupported Git push tag scope",
+            ))
+        }
+    };
+    let target = resolve_push_target(root, reference)?;
+    let mut arguments = vec!["push".to_string()];
+    if force {
+        // A lease refuses to overwrite a remote update the local repository has not seen.
+        arguments.push("--force-with-lease".into());
+    }
+    if let Some(tag_argument) = tag_argument {
+        arguments.push(tag_argument.into());
+    }
+    if target.upstream.is_none() {
+        arguments.push("--set-upstream".into());
+    }
+    arguments.extend([
+        target.remote,
+        format!(
+            "refs/heads/{}:refs/heads/{}",
+            target.local_branch, target.remote_branch
+        ),
+    ]);
+    execute_git(root, &arguments, None)
+}
+
+fn resolve_push_target(root: &str, reference: Option<&str>) -> Result<PushTarget, CoreError> {
+    let local_branch = match reference {
+        Some(reference) => local_branch_name(&validated_reference(Some(reference))?)?,
+        None => current_branch(root)?,
+    };
+    let upstream = execute_git_readonly(
         root,
         &[
             "rev-parse".into(),
             "--abbrev-ref".into(),
-            format!("{branch}@{{upstream}}"),
+            format!("{local_branch}@{{upstream}}"),
         ],
         None,
     )?;
     if upstream.exit_code == 0 {
-        let tracking_name = upstream.output.trim();
-        if branch == current {
-            return execute_git(root, &["push".into()], None);
-        }
-        if let Some((remote, remote_branch)) = tracking_name.split_once('/') {
-            return execute_git(
-                root,
-                &[
-                    "push".into(),
-                    remote.to_string(),
-                    format!("{branch}:{remote_branch}"),
-                ],
-                None,
-            );
-        }
+        let upstream = upstream.output.trim();
+        let upstream_reference = format!("refs/remotes/{upstream}");
+        let (remote, remote_branch) =
+            mutations::remote_branch_components(root, &upstream_reference)?;
+        return Ok(PushTarget {
+            local_branch,
+            remote,
+            remote_branch,
+            upstream: Some(upstream.to_string()),
+        });
     }
 
-    let remotes = execute_git(root, &["remote".into()], None)?;
+    Ok(PushTarget {
+        remote: default_push_remote(root)?,
+        remote_branch: local_branch.clone(),
+        local_branch,
+        upstream: None,
+    })
+}
+
+fn default_push_remote(root: &str) -> Result<String, CoreError> {
+    let remotes = execute_git_readonly(root, &["remote".into()], None)?;
+    if remotes.exit_code != 0 {
+        return Err(
+            CoreError::new(ErrorCode::ProcessFailed, "Could not list Git remotes")
+                .with_details(remotes.output),
+        );
+    }
     let remote = remotes
         .output
         .lines()
@@ -3124,23 +3314,24 @@ fn push(root: &str, reference: Option<&str>) -> Result<GitCommandResponse, CoreE
                 .lines()
                 .map(str::trim)
                 .find(|remote| !remote.is_empty())
-        });
-    match remote {
-        Some(remote) => execute_git(
-            root,
-            &[
-                "push".into(),
-                "--set-upstream".into(),
-                remote.to_string(),
-                branch,
-            ],
-            None,
-        ),
-        None => Err(CoreError::new(
+        })
+        .ok_or_else(|| CoreError::new(ErrorCode::InvalidRequest, "No Git remote is configured"))?;
+    validate_push_component(remote)?;
+    Ok(remote.to_string())
+}
+
+fn validate_push_component(value: &str) -> Result<(), CoreError> {
+    if value.is_empty()
+        || value.starts_with('-')
+        || value.contains(['\0', '\n', '\r'])
+        || value.chars().any(char::is_whitespace)
+    {
+        return Err(CoreError::new(
             ErrorCode::InvalidRequest,
-            "No Git remote is configured",
-        )),
+            "Invalid Git push destination",
+        ));
     }
+    Ok(())
 }
 
 fn publish_branch(root: &str, name: Option<&str>) -> Result<GitCommandResponse, CoreError> {
@@ -3294,9 +3485,7 @@ fn switch_validated_reference(
             execute_git(root, &base, None)
         }
         "remote" => {
-            let (_, local_name) = reference.short_name.split_once('/').ok_or_else(|| {
-                CoreError::new(ErrorCode::InvalidRequest, "Invalid remote branch name")
-            })?;
+            let (_, local_name) = mutations::remote_branch_components(root, &reference.full_name)?;
             if current_branch(root)? == local_name {
                 return Err(CoreError::new(
                     ErrorCode::InvalidRequest,
@@ -3315,11 +3504,11 @@ fn switch_validated_reference(
                 None,
             )?;
             if existing.exit_code == 0 {
-                base.push(local_name.to_string());
+                base.push(local_name);
             } else {
                 base.push("--track".into());
                 base.push("-c".into());
-                base.push(local_name.to_string());
+                base.push(local_name);
                 base.push(reference.full_name.clone());
             }
             execute_git(root, &base, None)
@@ -3331,7 +3520,13 @@ fn switch_validated_reference(
     }
 }
 
-fn parse_reference(line: &str) -> Option<GitReferenceResponse> {
+/// Parsed reference plus the full upstream identity used by compatibility counting.
+struct ParsedGitReference {
+    response: GitReferenceResponse,
+    upstream_full_name: Option<String>,
+}
+
+fn parse_reference(line: &str) -> Option<ParsedGitReference> {
     let columns = line.split('\t').collect::<Vec<_>>();
     if columns.len() < 4 || columns[1].ends_with("/HEAD") {
         return None;
@@ -3343,13 +3538,54 @@ fn parse_reference(line: &str) -> Option<GitReferenceResponse> {
     } else {
         "tag"
     };
-    Some(GitReferenceResponse {
-        full_name: columns[0].to_string(),
-        short_name: columns[1].to_string(),
-        kind: kind.to_string(),
-        is_current: columns[2].trim() == "*",
-        upstream_short_name: (!columns[3].is_empty()).then(|| columns[3].to_string()),
+    let upstream_short_name = (!columns[3].is_empty()).then(|| columns[3].to_string());
+    let (ahead, behind) = if kind == "local" && upstream_short_name.is_some() {
+        parse_ahead_behind_counts(columns.get(5).copied().unwrap_or_default())
+    } else {
+        (0, 0)
+    };
+    Some(ParsedGitReference {
+        response: GitReferenceResponse {
+            full_name: columns[0].to_string(),
+            short_name: columns[1].to_string(),
+            kind: kind.to_string(),
+            is_current: columns[2].trim() == "*",
+            upstream_short_name,
+            ahead,
+            behind,
+        },
+        upstream_full_name: columns
+            .get(4)
+            .filter(|value| !value.is_empty())
+            .map(|value| (*value).to_string()),
     })
+}
+
+fn parse_ahead_behind_counts(value: &str) -> (usize, usize) {
+    let mut values = value
+        .split_whitespace()
+        .filter_map(|value| value.parse::<usize>().ok());
+    (values.next().unwrap_or(0), values.next().unwrap_or(0))
+}
+
+fn reference_tracking_counts(root: &str, local: &str, upstream: &str) -> (usize, usize) {
+    let Ok(output) = readonly_command(GitCommandRequest {
+        root: root.to_string(),
+        arguments: vec![
+            "rev-list".to_string(),
+            "--left-right".to_string(),
+            "--count".to_string(),
+            format!("{upstream}...{local}"),
+        ],
+        input: None,
+    }) else {
+        return (0, 0);
+    };
+    if output.exit_code != 0 {
+        return (0, 0);
+    }
+    let (behind, ahead) = parse_ahead_behind_counts(&output.output);
+    (ahead, behind)
 }
 
 fn parse_commit(line: &str) -> Option<GitCommitResponse> {
@@ -4086,7 +4322,8 @@ mod tests {
         GitCommandInvocation, GitCommandResponse, GitProcessOutput, MAX_ALIGNMENT_CELLS,
     };
     use crate::protocol::{
-        CoreError, ErrorCode, GitCommitResponse, GitHistoryResponse, GitReferenceResponse,
+        CoreError, ErrorCode, GitCommitResponse, GitHistoryResponse, GitPushPreviewResponse,
+        GitReferenceResponse,
     };
     use serde_json::Value;
 
@@ -4340,6 +4577,8 @@ mod tests {
             kind: "local".into(),
             is_current: true,
             upstream_short_name: None,
+            ahead: 0,
+            behind: 0,
         };
         let main = GitReferenceResponse {
             full_name: "refs/heads/main".into(),
@@ -4347,6 +4586,8 @@ mod tests {
             kind: "local".into(),
             is_current: false,
             upstream_short_name: Some("origin/main".into()),
+            ahead: 2,
+            behind: 1,
         };
         let response = GitHistoryResponse {
             references: vec![feature.clone(), main.clone()],
@@ -4368,6 +4609,37 @@ mod tests {
 
         assert_eq!(
             serde_json::to_value(response).expect("Git history response should serialize"),
+            fixture
+        );
+    }
+
+    #[test]
+    fn push_preview_response_matches_shared_fixture() {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/fixtures/git/push-preview-v1.json"
+        )))
+        .expect("Git push preview fixture should be valid JSON");
+        let response = GitPushPreviewResponse {
+            local_branch: "feature/core".into(),
+            remote: "origin".into(),
+            remote_branch: "feature/core".into(),
+            upstream: Some("origin/feature/core".into()),
+            commits: vec![GitCommitResponse {
+                hash: "2222222222222222222222222222222222222222".into(),
+                short_hash: "2222222".into(),
+                parent_hashes: vec!["1111111111111111111111111111111111111111".into()],
+                author_name: "Lithe Developer".into(),
+                author_email: "developer@lithe.local".into(),
+                date: "2026/08/31 10:30".into(),
+                subject: "Add push preview".into(),
+                decorations: "HEAD -> feature/core".into(),
+            }],
+            has_more: false,
+        };
+
+        assert_eq!(
+            serde_json::to_value(response).expect("Git push preview should serialize"),
             fixture
         );
     }

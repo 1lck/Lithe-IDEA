@@ -6,6 +6,7 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { getCommitFiles } from "../../api/git-commits-api";
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
 import type { GitCommit, GitCommitFile } from "../../types/git.types";
+import { aggregateGitCommitFiles } from "../../utils/git-commit-file-aggregation";
 import { GitCommitFileTree } from "./git-commit-file-tree";
 
 type FilesLoadState = "idle" | "loading" | "ready" | "failed";
@@ -13,14 +14,17 @@ type FilesLoadState = "idle" | "loading" | "ready" | "failed";
 export function GitCommitInspector({
   repoPath,
   commit,
+  commits,
   onOpenDiff,
 }: {
   repoPath: string | null;
   commit: GitCommit | null;
+  commits: readonly GitCommit[];
   onOpenDiff: (commit: GitCommit, filePath?: string) => void;
 }) {
   const { t } = useTranslation();
   const [files, setFiles] = useState<GitCommitFile[]>([]);
+  const [commitByPath, setCommitByPath] = useState<Map<string, GitCommit>>(new Map());
   const [loadState, setLoadState] = useState<FilesLoadState>("idle");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const requestIdRef = useRef(0);
@@ -30,27 +34,40 @@ export function GitCommitInspector({
   useEffect(() => {
     const requestId = ++requestIdRef.current;
     setFiles([]);
+    setCommitByPath(new Map());
     setSelectedPath(null);
-    if (!repoPath || !commit) {
+    if (!repoPath || commits.length === 0) {
       setLoadState("idle");
       return;
     }
 
     setLoadState("loading");
-    void getCommitFiles(repoPath, commit.hash).then((result) => {
+    void Promise.all(
+      commits.map(async (selectedCommit) => ({
+        commit: selectedCommit,
+        files: await getCommitFiles(repoPath, selectedCommit.hash),
+      })),
+    ).then((results) => {
       if (requestId !== requestIdRef.current) return;
-      if (!result) {
+      if (results.some((result) => result.files === null)) {
         setLoadState("failed");
         return;
       }
-      setFiles(result);
+      const aggregated = aggregateGitCommitFiles(
+        results.map((result) => ({
+          commit: result.commit,
+          files: result.files ?? [],
+        })),
+      );
+      setFiles(aggregated.files);
+      setCommitByPath(aggregated.commitByPath);
       setLoadState("ready");
     });
 
     return () => {
       requestIdRef.current += 1;
     };
-  }, [commit, repoPath]);
+  }, [commits, repoPath]);
 
   return (
     <div className="h-full min-h-0 bg-surface/35 font-sans ui-text-sm select-none">
@@ -74,7 +91,7 @@ export function GitCommitInspector({
                 type="button"
                 variant="ghost"
                 size="icon-xs"
-                disabled={!commit}
+                disabled={!commit || commits.length > 1}
                 onClick={() => commit && onOpenDiff(commit)}
                 tooltip={t("git.log.openCommitDiff")}
                 aria-label={t("git.log.openCommitDiff")}
@@ -103,7 +120,10 @@ export function GitCommitInspector({
                 files={files}
                 selectedPath={selectedPath}
                 onSelect={setSelectedPath}
-                onOpen={(path) => onOpenDiff(commit, path)}
+                onOpen={(path) => {
+                  const sourceCommit = commitByPath.get(path) ?? commit;
+                  if (sourceCommit) onOpenDiff(sourceCommit, path);
+                }}
               />
             )}
           </div>

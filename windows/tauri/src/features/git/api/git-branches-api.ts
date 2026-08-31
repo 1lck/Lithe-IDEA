@@ -8,6 +8,7 @@ import {
 } from "./git-repo-api";
 import type { GitReference } from "../types/git.types";
 import { referencePayload, type GitReferenceInput } from "./git-reference-payload";
+import { executeGitPush } from "./git-push-api";
 
 export interface CheckoutResult {
   success: boolean;
@@ -176,17 +177,7 @@ export const renameBranch = async (
 };
 
 export const pushBranch = async (repoPath: string, branchName: string): Promise<void> => {
-  const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
-  await tauriInvoke("git.write", {
-    repoPath: resolvedRepoPath,
-    operation: "push",
-    reference: localBranchReference(branchName),
-  });
-  emitGitChanged({
-    repoPath: resolvedRepoPath,
-    scopes: ["history", "refs", "remotes"],
-    source: "push-branch",
-  });
+  await executeGitPush(repoPath, { reference: localBranchReference(branchName) });
 };
 
 export const setBranchUpstream = async (

@@ -107,6 +107,26 @@ function adaptDiff(command: string, args: JsonRecord | undefined, value: unknown
   return diffs;
 }
 
+function adaptDiffStats(args: JsonRecord | undefined, value: unknown): unknown {
+  const data = asRecord(value);
+  if (!Array.isArray(data.files)) {
+    // Older Core builds returned a structured patch for this compatibility
+    // command. Keep accepting that shape during rolling upgrades.
+    return adaptDiff("git_status_diff_stats", args, value);
+  }
+
+  const requestStaged = Boolean(asRecord(args).staged);
+  return data.files.map((entry: unknown) => {
+    const file = asRecord(entry);
+    return {
+      file_path: String(file.path ?? ""),
+      staged: typeof file.staged === "boolean" ? file.staged : requestStaged,
+      additions: Number(file.additions ?? 0),
+      deletions: Number(file.deletions ?? 0),
+    };
+  });
+}
+
 export function adaptCoreResult<T>(
   command: string,
   args: JsonRecord | undefined,
@@ -137,6 +157,8 @@ export function adaptCoreResult<T>(
               kind: reference.kind,
               isCurrent: Boolean(reference.isCurrent),
               upstreamShortName: reference.upstreamShortName ?? undefined,
+              ahead: typeof reference.ahead === "number" ? reference.ahead : 0,
+              behind: typeof reference.behind === "number" ? reference.behind : 0,
             }))
           : [],
         recentReferences: Array.isArray(data.recentReferences)
@@ -146,6 +168,8 @@ export function adaptCoreResult<T>(
               kind: reference.kind,
               isCurrent: Boolean(reference.isCurrent),
               upstreamShortName: reference.upstreamShortName ?? undefined,
+              ahead: typeof reference.ahead === "number" ? reference.ahead : 0,
+              behind: typeof reference.behind === "number" ? reference.behind : 0,
             }))
           : [],
         commits: Array.isArray(data.commits)
@@ -193,12 +217,13 @@ export function adaptCoreResult<T>(
       } as T;
     }
     case "git_diff_file":
-    case "git_status_diff_stats":
     case "git_commit_diff":
     case "git_ref_diff":
     case "git_working_tree_ref_diff":
     case "git_stash_diff":
       return adaptDiff(command, args, value) as T;
+    case "git_status_diff_stats":
+      return adaptDiffStats(args, value) as T;
     case "git_discover_repo":
       return String(data.output ?? "").trim() as T;
     case "git_get_remotes": {

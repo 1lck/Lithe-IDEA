@@ -1,5 +1,5 @@
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
-import type { GitDiff, GitDiffStat } from "../types/git.types";
+import type { GitDiff, GitDiffStat, GitReference } from "../types/git.types";
 import { registerGitCacheInvalidator } from "../runtime/git-cache-registry";
 import { runGitRead } from "../runtime/git-read-coordinator";
 import { gitDiffCache } from "../utils/git-diff-cache";
@@ -8,6 +8,7 @@ import {
   resolveRepositoryForFile,
   resolveRepositoryPath,
 } from "./git-repo-api";
+import { referencePayload, toCoreGitReference } from "./git-reference-payload";
 
 interface MultiFileDiffCacheEntry {
   diffs: GitDiff[];
@@ -353,23 +354,62 @@ export const getRefDiff = async (
   }
 };
 
-export const getReferenceWorkingTreeDiff = async (
+export const getTypedReferenceDiff = async (
   repoPath: string,
-  reference: string,
+  baseReference: GitReference,
+  targetReference: GitReference,
 ): Promise<GitDiff[] | null> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPath(repoPath);
     if (!resolvedRepoPath) return null;
-    return await runGitRead(resolvedRepoPath, `reference-worktree-diff:${reference}`, () =>
-      tauriInvoke<GitDiff[]>("git_reference_worktree_diff", {
+    const cacheKey = `${resolvedRepoPath}:${baseReference.fullName}:${targetReference.fullName}`;
+    const cached = getMultiFileDiffCacheEntry(refDiffCache, cacheKey);
+    if (cached) return cached;
+
+    const generation = getRepositoryCacheGeneration(resolvedRepoPath);
+    const diffs = await runGitRead(
+      resolvedRepoPath,
+      `typed-ref-diff:${baseReference.fullName}:${targetReference.fullName}`,
+      () =>
+        tauriInvoke<GitDiff[]>("git_ref_diff", {
+          repoPath: resolvedRepoPath,
+          gitReference: toCoreGitReference(baseReference),
+          targetGitReference: toCoreGitReference(targetReference),
+          pathspecs: ["."],
+        }),
+    );
+    if (generation !== getRepositoryCacheGeneration(resolvedRepoPath)) {
+      return getTypedReferenceDiff(resolvedRepoPath, baseReference, targetReference);
+    }
+    setMultiFileDiffCacheEntry(refDiffCache, cacheKey, diffs);
+    return diffs;
+  } catch (error) {
+    if (!isNotGitRepositoryError(error)) {
+      console.error("Failed to compare Git references:", error);
+    }
+    return null;
+  }
+};
+
+export const getWorkingTreeRefDiff = async (
+  repoPath: string,
+  reference: GitReference | string,
+): Promise<GitDiff[] | null> => {
+  try {
+    const resolvedRepoPath = await resolveRepositoryPath(repoPath);
+    if (!resolvedRepoPath) return null;
+    const fullName = typeof reference === "string" ? reference : reference.fullName;
+    return await runGitRead(resolvedRepoPath, `working-tree-ref-diff:${fullName}`, () =>
+      tauriInvoke<GitDiff[]>("git_working_tree_ref_diff", {
         repoPath: resolvedRepoPath,
-        reference,
+        ...referencePayload(reference),
       }),
     );
   } catch (error) {
-    if (isNotGitRepositoryError(error)) return null;
-    console.error("Failed to compare reference with working tree:", error);
-    throw error;
+    if (!isNotGitRepositoryError(error)) {
+      console.error("Failed to compare reference with the working tree:", error);
+    }
+    return null;
   }
 };
 

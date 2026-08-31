@@ -145,6 +145,7 @@ stable error code and a user-facing message:
 | `git.diff` | Produce a structured working-tree, index, reference, or commit patch |
 | `git.apply` | Apply or check a patch in `stage`, `unstage`, `discard`, or Shelf restore mode |
 | `git.history` | Return deterministic refs, recent local branches, commits, parent hashes, decorations, and pagination state |
+| `git.pushPreview` | Resolve a local branch push destination and the bounded commits not present on that remote base |
 | `git.commit` | Return one structured commit by revision |
 | `git.commitFiles` | Return files changed by one commit |
 | `git.comparison` | Return files changed between a reference and the working tree |
@@ -248,7 +249,7 @@ response retains the invocation trace and includes the failure as
 `stashApply`, `stashPop`, `stashDrop`, `operationContinue`, `operationAbort`, and
 `operationSkip`. Optional fields are `paths`, `reference`, `referenceKind`,
 `gitReference`, `revision`, `revisions`, `name`, `message`, `remote`, `destination`, `mode`,
-`includeUntracked`, `checkout`, and `amend`.
+`includeUntracked`, `checkout`, `amend`, `force`, and `pushTags`.
 
 The core validates pathspecs, revisions, branch names, references, reset modes,
 stash references, and operation-specific required fields before invoking Git.
@@ -275,6 +276,15 @@ before any Git subprocess use the standard `invalid_request` error envelope.
 and checks out that branch at a detached HEAD when needed, then pushes it with
 an upstream. If the push fails, the local branch is intentionally retained so
 the user can fix credentials or connectivity and retry without losing commits.
+
+`git.pushPreview` accepts `root`, an optional complete local `gitReference` or
+legacy `reference`, and an optional bounded `limit`. It returns `localBranch`,
+`remote`, `remoteBranch`, nullable `upstream`, `commits`, and `hasMore` using
+`shared/fixtures/git/push-preview-v1.json`. A branch without an upstream uses
+`origin`, or the first configured remote, and previews commits not reachable
+from that remote. The `push` mutation resolves the same destination. `force`
+uses `--force-with-lease`; `pushTags` accepts `none`, `all`, or `reachable` and
+maps to no tag option, `--tags`, or `--follow-tags` respectively.
 
 New reference-based workflows send `gitReference` as `{ "fullName": string,
 "shortName": string, "kind": "local" | "remote" | "tag" }`. Core verifies
@@ -388,6 +398,9 @@ and the optional effective `userName` and `userEmail` from repository Git
 configuration. Commit parents are explicit so clients can render merge
 topology without re-parsing Git output. The identity fields let clients
 implement a stable `me` filter without guessing from recent commits.
+Each local reference with an upstream also returns numeric `ahead` and `behind`
+counts against that fetched remote-tracking reference. References without an
+upstream, remote references, and tags return zero for both fields.
 
 `git.commit` accepts `root` and a revision, returning one `commit` object.
 `git.blame` accepts `root` and a workspace-relative `path`; its line numbers

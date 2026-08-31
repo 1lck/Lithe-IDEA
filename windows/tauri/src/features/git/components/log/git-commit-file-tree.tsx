@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ThemedFileIcon } from "@/extensions/icon-themes/components/themed-file-icon";
 import {
   useFileTreePresentation,
@@ -14,15 +14,10 @@ import {
   type PathTreeNode,
 } from "@/features/sidebar/lib/path-tree";
 import { useTranslation } from "@/i18n/locale-provider";
+import { bindScrollContainerWheel } from "@/ui/scroll-container-wheel";
 import { cn } from "@/utils/cn";
 import type { GitCommitFile } from "../../types/git.types";
-
-function statusClassName(status: string) {
-  if (status.startsWith("A")) return "text-emerald-400";
-  if (status.startsWith("D")) return "text-red-400";
-  if (status.startsWith("R")) return "text-amber-400";
-  return "text-sky-400";
-}
+import { getCommitFileStatusColorClassName } from "../../utils/git-file-status-visuals";
 
 function FileNode({
   node,
@@ -102,6 +97,7 @@ function FileNode({
   }
 
   const file = node.item;
+  const statusColorClassName = getCommitFileStatusColorClassName(file.status);
   return (
     <SidebarTreeRow
       depth={depth}
@@ -112,7 +108,7 @@ function FileNode({
       active={selectedPath === node.path}
       onClick={() => onSelect(node.path)}
       onDoubleClick={() => onOpen(node.path)}
-      label={node.name}
+      label={<span className={statusColorClassName}>{node.name}</span>}
       leading={
         presentation.showIcons ? (
           <ThemedFileIcon
@@ -123,7 +119,7 @@ function FileNode({
         ) : null
       }
       trailing={
-        <span className={cn("pr-1 font-mono text-[10px]", statusClassName(file.status))}>
+        <span className={cn("pr-1 font-mono text-[10px]", statusColorClassName)}>
           {file.status}
         </span>
       }
@@ -147,6 +143,7 @@ export function GitCommitFileTree({
 }) {
   const { t } = useTranslation();
   const presentation = useFileTreePresentation();
+  const scrollRef = useRef<HTMLDivElement>(null);
   const tree = useMemo(
     () =>
       buildPathTree(files, {
@@ -165,8 +162,16 @@ export function GitCommitFileTree({
     });
   };
 
+  useLayoutEffect(() => {
+    const element = scrollRef.current;
+    if (!element) return;
+    return bindScrollContainerWheel(element);
+  }, []);
+
   return (
     <SidebarTree
+      ref={scrollRef}
+      data-scroll-container=""
       label={t("git.log.commitFiles")}
       className="file-tree-container min-h-0 flex-1 overflow-auto p-1.5"
       style={

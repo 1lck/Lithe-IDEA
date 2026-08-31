@@ -1,0 +1,19 @@
+{
+  "localBranch": "feature/core",
+  "remote": "origin",
+  "remoteBranch": "feature/core",
+  "upstream": "origin/feature/core",
+  "commits": [
+    {
+      "hash": "2222222222222222222222222222222222222222",
+      "shortHash": "2222222",
+      "parentHashes": ["1111111111111111111111111111111111111111"],
+      "authorName": "Lithe Developer",
+      "authorEmail": "developer@lithe.local",
+      "date": "2026/08/31 10:30",
+      "subject": "Add push preview",
+      "decorations": "HEAD -> feature/core"
+    }
+  ],
+  "hasMore": false
+}

@@ -6,6 +6,7 @@ import { runGitRead } from "../runtime/git-read-coordinator";
 import { getBranches } from "./git-branches-api";
 import { getGitHistory } from "./git-commits-api";
 import { getOperationState } from "./git-integration-api";
+import { executeGitPush } from "./git-push-api";
 import { getGitStatus } from "./git-status-api";
 import {
   isNotGitRepositoryError,
@@ -90,16 +91,10 @@ export const deleteRemoteBranch = async (
 export const pushChanges = async (
   repoPath: string,
   branch?: string,
-  remote: string = "origin",
+  _remote: string = "origin",
 ): Promise<GitRemoteActionResult> => {
   try {
-    const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
-    await tauriInvoke("git_push", { repoPath: resolvedRepoPath, branch, remote });
-    emitGitChanged({
-      repoPath: resolvedRepoPath,
-      scopes: ["refs", "remotes"],
-      source: "push",
-    });
+    await executeGitPush(repoPath, { reference: branch });
     return { success: true };
   } catch (error) {
     console.error("Failed to push changes:", error);

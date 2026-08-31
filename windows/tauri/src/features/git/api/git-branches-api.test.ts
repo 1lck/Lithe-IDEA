@@ -99,6 +99,8 @@ describe("Git branch reference mutations", () => {
       repoPath: "C:/repo",
       operation: "push",
       reference: "refs/heads/feature/new",
+      force: false,
+      pushTags: "none",
     });
   });
 

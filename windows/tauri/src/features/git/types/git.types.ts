@@ -31,11 +31,24 @@ export interface GitReference {
   kind: GitReferenceKind;
   isCurrent: boolean;
   upstreamShortName?: string;
+  ahead?: number;
+  behind?: number;
 }
 
 export interface GitHistorySnapshot {
   references: GitReference[];
   recentReferences: GitReference[];
+  commits: GitCommit[];
+  hasMore: boolean;
+}
+
+export type GitPushTagScope = "none" | "all" | "reachable";
+
+export interface GitPushPreview {
+  localBranch: string;
+  remote: string;
+  remoteBranch: string;
+  upstream: string | null;
   commits: GitCommit[];
   hasMore: boolean;
 }

@@ -13,6 +13,7 @@ import {
   traceWindowOpenAfterFrame,
 } from "@/features/window/utils/window-open-diagnostics";
 import { NotificationRecorder } from "@/features/notifications/components/notification-recorder";
+import { GitPushDialogHost } from "@/features/git/components/git-push-dialog";
 
 import { MainLayout } from "./features/layout/components/main-layout";
 import { ZoomIndicator } from "./features/window/components/zoom-indicator";
@@ -80,6 +81,7 @@ function WorkbenchApp() {
             </div>
             <ZoomIndicator />
             <LogFallbackNotification />
+            <GitPushDialogHost />
             <Toaster />
             <NotificationRecorder />
           </div>

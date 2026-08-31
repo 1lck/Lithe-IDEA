@@ -15,7 +15,6 @@ import { ButtonGroup, ButtonGroupSeparator } from "@/ui/button-group";
 import { Dropdown, type MenuItem } from "@/ui/dropdown";
 import { SidebarComposerBody } from "@/ui/sidebar";
 import Textarea from "@/ui/textarea";
-import { toast } from "sonner";
 import { cn } from "@/utils/cn";
 import {
   InlineEditError,
@@ -23,7 +22,7 @@ import {
 } from "@/features/editor/services/editor-inline-edit-service";
 import { commitSelectedChanges, getGitLog } from "../api/git-commits-api";
 import { getConflictMarkerPaths } from "../api/git-integration-api";
-import { pushChanges, type GitRemoteActionResult } from "../api/git-remotes-api";
+import { showGitPushDialog } from "../services/git-push-dialog-service";
 import { loadWorkingTreeFileDiff } from "../services/working-tree-file-diff";
 import { useGitBlameStore } from "../stores/git-blame.store";
 import { useGitStore } from "../stores/git.store";
@@ -199,9 +198,7 @@ const GitCommitPanel = ({
   focusRequest = 0,
 }: GitCommitPanelProps) => {
   const { t } = useTranslation();
-  const aiAutocompleteProvider = useSettingsStore(
-    (state) => state.settings.aiAutocompleteProvider,
-  );
+  const aiAutocompleteProvider = useSettingsStore((state) => state.settings.aiAutocompleteProvider);
   const aiAutocompleteModelId = useSettingsStore((state) =>
     state.settings.aiAutocompleteProvider === "custom"
       ? state.settings.aiAutocompleteCustomModelId
@@ -211,9 +208,11 @@ const GitCommitPanel = ({
   const [isGenerating, setIsGenerating] = useState(false);
   const [commitMessageMode, setCommitMessageMode] = useState<CommitMessageMode>("title");
   const [isGenerateModeMenuOpen, setIsGenerateModeMenuOpen] = useState(false);
+  const [isCommitActionMenuOpen, setIsCommitActionMenuOpen] = useState(false);
   const [remoteAction, setRemoteAction] = useState<"push" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const generateMenuAnchorRef = useRef<HTMLDivElement>(null);
+  const commitMenuAnchorRef = useRef<HTMLDivElement>(null);
   const commitTextareaRef = useRef<HTMLTextAreaElement>(null);
   const selectedFilesCount = selectedFiles.length;
 
@@ -250,22 +249,20 @@ const GitCommitPanel = ({
         selectedFiles,
         existingDraftHint,
       });
-      const { editedText } = await requestInlineEdit(
-        {
-          provider: aiAutocompleteProvider,
-          customProviderScope: "autocomplete",
-          model: aiAutocompleteModelId,
-          beforeSelection: "",
-          selectedText,
-          afterSelection: "",
-          instruction:
-            commitMessageMode === "title"
-              ? "Generate a concise Git commit subject from the selected changes. Return exactly one subject line and nothing else. Keep it under 72 characters when possible. Infer and match the repository's style from recent commit subjects. Do not force conventional commit format unless the recent commits clearly use it."
-              : "Generate a Git commit message from the selected changes. Return a subject line and a short body only when the body adds useful context. Keep the subject under 72 characters when possible. Infer and match the repository's style from recent commit subjects. Do not force conventional commit format unless the recent commits clearly use it.",
-          filePath: getRepoLabel(repoPath),
-          languageId: "git-commit",
-        },
-      );
+      const { editedText } = await requestInlineEdit({
+        provider: aiAutocompleteProvider,
+        customProviderScope: "autocomplete",
+        model: aiAutocompleteModelId,
+        beforeSelection: "",
+        selectedText,
+        afterSelection: "",
+        instruction:
+          commitMessageMode === "title"
+            ? "Generate a concise Git commit subject from the selected changes. Return exactly one subject line and nothing else. Keep it under 72 characters when possible. Infer and match the repository's style from recent commit subjects. Do not force conventional commit format unless the recent commits clearly use it."
+            : "Generate a Git commit message from the selected changes. Return a subject line and a short body only when the body adds useful context. Keep the subject under 72 characters when possible. Infer and match the repository's style from recent commit subjects. Do not force conventional commit format unless the recent commits clearly use it.",
+        filePath: getRepoLabel(repoPath),
+        languageId: "git-commit",
+      });
 
       const message = normalizeGeneratedCommitMessage(editedText, commitMessageMode);
       if (!message) {
@@ -285,8 +282,12 @@ const GitCommitPanel = ({
     }
   };
 
-  const handleCommit = async () => {
-    if (!repoPath || !commitMessage.trim() || selectedFilesCount === 0) return;
+  const handleCommit = async (pushAfterCommit = false) => {
+    if (selectedFilesCount === 0) {
+      setError(t("git.selectFilesToCommit"));
+      return;
+    }
+    if (!repoPath || !commitMessage.trim()) return;
 
     // A conflicted merge/rebase must be resolved before the merge commit can
     // be finalized; guard here so Git's raw refusal never reaches the user.
@@ -324,6 +325,16 @@ const GitCommitPanel = ({
       if (success) {
         useGitBlameStore.getState().actions.clearAllBlame();
         onCommitMessageChange("");
+        if (pushAfterCommit) {
+          setRemoteAction("push");
+          try {
+            await showGitPushDialog(repoPath);
+          } catch (pushError) {
+            setError(pushError instanceof Error ? pushError.message : t("git.pushFailed"));
+          } finally {
+            setRemoteAction(null);
+          }
+        }
         onCommitSuccess?.();
       } else {
         setError(t("git.commitChangesFailed"));
@@ -335,36 +346,14 @@ const GitCommitPanel = ({
     }
   };
 
-  const handlePush = async (run: () => Promise<GitRemoteActionResult>) => {
+  const handlePush = async () => {
     if (!repoPath) return;
 
-    let toastId: string | number | null = null;
     setRemoteAction("push");
     setError(null);
 
     try {
-      toastId = toast.info(t("git.pushingChanges"), {
-        duration: 0,
-      });
-
-      const result = await run();
-      if (result.success) {
-        toast.dismiss(toastId);
-        toast.success(t("git.pushedChanges"));
-        onCommitSuccess?.();
-        return;
-      }
-
-      const errorMessage = result.error || t("git.pushFailed");
-      toast.dismiss(toastId);
-      toast.error(errorMessage);
-      setError(errorMessage);
-    } catch (remoteError) {
-      const errorMessage =
-        remoteError instanceof Error ? remoteError.message : t("git.pushFailed");
-      if (toastId) toast.dismiss(toastId);
-      toast.error(errorMessage);
-      setError(errorMessage);
+      if (await showGitPushDialog(repoPath)) onCommitSuccess?.();
     } finally {
       setRemoteAction(null);
     }
@@ -378,7 +367,7 @@ const GitCommitPanel = ({
   };
 
   const isCommitDisabled =
-    !commitMessage.trim() || selectedFilesCount === 0 || isCommitting || isGenerating;
+    isCommitting || isGenerating || (selectedFilesCount > 0 && !commitMessage.trim());
   const isGenerateDisabled = selectedFilesCount === 0 || isGenerating || isCommitting;
   const hasRemoteChanges = ahead > 0 || behind > 0;
   const isRemoteActionLoading = remoteAction !== null;
@@ -396,6 +385,18 @@ const GitCommitPanel = ({
       label: t("git.commitMessageTitleAndBody"),
       icon: commitMessageMode === "body" ? <Check /> : undefined,
       onClick: () => setCommitMessageMode("body"),
+    },
+  ];
+  const commitActionItems: MenuItem[] = [
+    {
+      id: "commit-and-push",
+      label: t("git.commitAndPush"),
+      icon: <ArrowUp />,
+      disabled: isCommitDisabled || isRemoteActionLoading || isPulling,
+      onClick: () => {
+        setIsCommitActionMenuOpen(false);
+        void handleCommit(true);
+      },
     },
   ];
 
@@ -446,7 +447,7 @@ const GitCommitPanel = ({
               {ahead > 0 && (
                 <Button
                   type="button"
-                  onClick={() => void handlePush(() => pushChanges(repoPath!))}
+                  onClick={() => void handlePush()}
                   disabled={!repoPath || isRemoteActionLoading || isPulling}
                   variant="ghost"
                   size="xs"
@@ -514,21 +515,50 @@ const GitCommitPanel = ({
             className="min-w-37.5"
           />
 
-          <Button
-            type="button"
-            onClick={() => void handleCommit()}
-            disabled={isCommitDisabled}
-            variant="ghost"
-            size="xs"
-            className={cn(
-              composerButtonClassName,
-              isCommitDisabled
-                ? "cursor-not-allowed text-subtle-foreground opacity-50"
-                : "text-primary hover:bg-primary/8 hover:text-primary/80",
-            )}
-          >
-            {isCommitting ? t("git.committing") : t("git.commit")}
-          </Button>
+          <ButtonGroup ref={commitMenuAnchorRef}>
+            <Button
+              type="button"
+              onClick={() => void handleCommit()}
+              disabled={isCommitDisabled}
+              variant="ghost"
+              size="xs"
+              className={cn(
+                composerButtonClassName,
+                isCommitDisabled
+                  ? "cursor-not-allowed text-subtle-foreground opacity-50"
+                  : "text-primary hover:bg-primary/8 hover:text-primary/80",
+              )}
+            >
+              {isCommitting ? t("git.committing") : t("git.commit")}
+            </Button>
+            <ButtonGroupSeparator />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => setIsCommitActionMenuOpen((open) => !open)}
+              disabled={isCommitDisabled || isRemoteActionLoading || isPulling}
+              active={isCommitActionMenuOpen}
+              className={cn(
+                composerButtonClassName,
+                "px-1 text-primary hover:bg-primary/8 hover:text-primary/80",
+              )}
+              tooltip={t("git.chooseCommitAction")}
+              aria-label={t("git.chooseCommitAction")}
+              aria-haspopup="menu"
+              aria-expanded={isCommitActionMenuOpen}
+            >
+              <ChevronDown />
+            </Button>
+          </ButtonGroup>
+          <Dropdown
+            isOpen={isCommitActionMenuOpen}
+            anchorRef={commitMenuAnchorRef}
+            anchorAlign="end"
+            onClose={() => setIsCommitActionMenuOpen(false)}
+            items={commitActionItems}
+            className="min-w-37.5"
+          />
         </div>
       </div>
     </>
