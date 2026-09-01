@@ -1,5 +1,10 @@
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
-import type { GitCommit, GitCommitFile, GitHistorySnapshot } from "../types/git.types";
+import type {
+  GitCommit,
+  GitCommitFile,
+  GitHistorySnapshot,
+  GitOperationWarning,
+} from "../types/git.types";
 import { emitGitChanged } from "../events/git-events";
 import { runGitRead } from "../runtime/git-read-coordinator";
 import {
@@ -11,6 +16,7 @@ import {
 interface GitWriteResult {
   output?: string;
   exitCode?: number;
+  warnings?: GitOperationWarning[];
 }
 
 export type GitResetMode = "soft" | "mixed" | "hard";
@@ -19,7 +25,7 @@ const runHistoryMutation = async (
   repoPath: string,
   source: string,
   payload: Record<string, unknown>,
-): Promise<void> => {
+): Promise<GitOperationWarning[]> => {
   const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
   try {
     const result = await tauriInvoke<GitWriteResult>("git.write", {
@@ -29,6 +35,7 @@ const runHistoryMutation = async (
     if (typeof result?.exitCode === "number" && result.exitCode !== 0) {
       throw new Error(result.output?.trim() || "Git history operation failed");
     }
+    return result?.warnings ?? [];
   } finally {
     // A rejected rewrite can leave conflicts or sequencer state behind.
     emitGitChanged({
@@ -59,16 +66,15 @@ export const commitSelectedChanges = async (
   repoPath: string,
   message: string,
   filePaths: string[],
-): Promise<boolean> => {
+): Promise<GitOperationWarning[]> => {
   const uniqueFilePaths = [...new Set(filePaths)];
-  if (uniqueFilePaths.length === 0) return false;
+  if (uniqueFilePaths.length === 0) return [];
 
-  await runHistoryMutation(repoPath, "commit", {
+  return runHistoryMutation(repoPath, "commit", {
     operation: "commit",
     message,
     paths: uniqueFilePaths,
   });
-  return true;
 };
 
 export const getGitHistory = async (
@@ -132,13 +138,13 @@ export const editCommitMessage = (
     operation: "editCommitMessage",
     revision,
     message,
-  });
+  }).then(() => undefined);
 
 export const deleteCommit = (repoPath: string, revision: string): Promise<void> =>
   runHistoryMutation(repoPath, "delete-commit", {
     operation: "deleteCommit",
     revision,
-  });
+  }).then(() => undefined);
 
 export const squashCommits = (
   repoPath: string,
@@ -149,7 +155,7 @@ export const squashCommits = (
     operation: "squashCommits",
     revisions,
     message,
-  });
+  }).then(() => undefined);
 
 export const resetToCommit = (
   repoPath: string,
@@ -160,10 +166,10 @@ export const resetToCommit = (
     operation: "reset",
     revision,
     mode: `--${mode}`,
-  });
+  }).then(() => undefined);
 
 export const cherryPickCommit = (repoPath: string, revision: string): Promise<void> =>
   runHistoryMutation(repoPath, "cherry-pick-commit", {
     operation: "cherryPick",
     revision,
-  });
+  }).then(() => undefined);

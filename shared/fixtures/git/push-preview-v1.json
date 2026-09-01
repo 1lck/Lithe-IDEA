@@ -5,6 +5,12 @@
   "remoteBranch": "feature/core",
   "remoteTrackingOid": "1111111111111111111111111111111111111111",
   "upstream": "origin/feature/core",
+  "tags": [
+    {
+      "fullName": "refs/tags/v1.0.0",
+      "objectId": "3333333333333333333333333333333333333333"
+    }
+  ],
   "commits": [
     {
       "hash": "2222222222222222222222222222222222222222",

@@ -2251,6 +2251,12 @@ const catalogs = {
     "git.stashAndSwitchSuccess": "Changes stashed and branch switched successfully",
     "git.stashAndSwitchFailed": "Failed to switch branch after stashing",
     "git.stashFailed": "Failed to stash changes",
+    "git.log.autoStashCleanupFailed":
+      "Pull completed and local changes were restored, but the temporary stash could not be removed.",
+    "git.log.autoStashDeferredByConflicts":
+      "Pull stopped with {count} conflicted file(s). Local changes remain in Stashes and can be restored after the Git operation is finished.",
+    "git.log.autoStashRestoreConflicts":
+      "Pull completed, but restoring local changes caused {count} conflicted file(s). {stash} was kept for recovery.",
     "git.switchingTo": "Switching to {branch}",
     "git.mergeSuccess": "Merged {branch} successfully.",
     "git.conflictedFile":
@@ -2282,6 +2288,9 @@ const catalogs = {
     "git.commitChanges": "Commit Changes",
     "git.changesCommitted": "Changes committed successfully",
     "git.commitChangesFailed": "Failed to commit changes",
+    "git.finishOperationBeforeCommit": "Finish or abort the current Git operation before committing.",
+    "git.commitIndexReconcileFailed":
+      "The commit succeeded, but the staging area could not be refreshed.",
     "git.aiCommitEmptyMessage": "AI returned an empty commit message.",
     "git.generateCommitMessageFailed": "Failed to generate commit message.",
     "git.resolveConflictsFirst": "Resolve the conflicts first: {paths}",
@@ -2521,6 +2530,8 @@ const catalogs = {
     "git.log.newWorktreeBranchPrompt":
       "Enter the new local branch name for a worktree based on '{branch}'.",
     "git.log.chooseWorktreeDirectory": "Choose Worktree Directory",
+    "git.log.worktreeUpstreamConfigurationFailed":
+      "The worktree was created, but its branch upstream could not be configured.",
     "git.log.updateBranch": "Update",
     "git.log.trackingBranch": "Tracking Branch",
     "git.log.stopTrackingBranch": "Stop Tracking Branch",
@@ -3814,6 +3825,8 @@ const catalogs = {
     "git.pushDialog.noChangedFiles": "This commit has no changed files.",
     "git.pushDialog.moreCommits": "More commits are not shown in this bounded preview.",
     "git.pushDialog.newUpstream": "New upstream",
+    "git.pushDialog.upstreamConfigurationFailed":
+      "Push succeeded, but the branch upstream could not be configured.",
     "git.pushDialog.pushTags": "Push tags:",
     "git.pushDialog.tagsAll": "All",
     "git.pushDialog.tagsReachable": "Reachable",
@@ -6138,6 +6151,11 @@ const catalogs = {
     "git.stashAndSwitchSuccess": "已贮藏更改并成功切换分支",
     "git.stashAndSwitchFailed": "贮藏后切换分支失败",
     "git.stashFailed": "贮藏更改失败",
+    "git.log.autoStashCleanupFailed": "拉取及本地更改恢复已完成，但无法删除临时贮藏。",
+    "git.log.autoStashDeferredByConflicts":
+      "拉取因 {count} 个文件冲突而停止。本地改动仍保留在贮藏中，请完成 Git 操作后再恢复。",
+    "git.log.autoStashRestoreConflicts":
+      "拉取已完成，但恢复本地改动时产生了 {count} 个文件冲突；已保留 {stash} 以便恢复。",
     "git.switchingTo": "正在切换到 {branch}",
     "git.mergeSuccess": "已成功合并 {branch}。",
     "git.conflictedFile": "已停止，有 {count} 个冲突文件。请在更改列表中解决后继续。",
@@ -6164,6 +6182,8 @@ const catalogs = {
     "git.commitChanges": "提交更改",
     "git.changesCommitted": "更改已提交",
     "git.commitChangesFailed": "提交更改失败",
+    "git.finishOperationBeforeCommit": "请先完成或中止当前 Git 操作，再提交文件。",
+    "git.commitIndexReconcileFailed": "提交已成功，但暂存区未能刷新。",
     "git.aiCommitEmptyMessage": "AI 返回了空提交说明。",
     "git.generateCommitMessageFailed": "生成提交说明失败。",
     "git.resolveConflictsFirst": "请先解决冲突：{paths}",
@@ -6395,6 +6415,7 @@ const catalogs = {
     "git.log.newWorktreeFrom": "从“{branch}”新建工作树...",
     "git.log.newWorktreeBranchPrompt": "输入基于“{branch}”创建工作树时使用的新本地分支名称。",
     "git.log.chooseWorktreeDirectory": "选择工作树目录",
+    "git.log.worktreeUpstreamConfigurationFailed": "工作树已创建，但无法配置其分支上游。",
     "git.log.updateBranch": "更新",
     "git.log.trackingBranch": "跟踪的分支",
     "git.log.stopTrackingBranch": "停止跟踪分支",
@@ -7655,6 +7676,7 @@ const catalogs = {
     "git.pushDialog.noChangedFiles": "此提交没有变更文件。",
     "git.pushDialog.moreCommits": "有更多提交未显示在当前有界预览中。",
     "git.pushDialog.newUpstream": "新建上游",
+    "git.pushDialog.upstreamConfigurationFailed": "推送已成功，但无法配置分支上游。",
     "git.pushDialog.pushTags": "推送标签：",
     "git.pushDialog.tagsAll": "所有",
     "git.pushDialog.tagsReachable": "可达标签",

@@ -102,6 +102,7 @@ fn push_expectation(preview: &Value) -> Value {
         "remote": preview["data"]["remote"],
         "remoteBranch": preview["data"]["remoteBranch"],
         "remoteTrackingOid": preview["data"]["remoteTrackingOid"],
+        "tags": preview["data"]["tags"],
     })
 }
 
@@ -114,7 +115,11 @@ fn push_preview_and_write_share_destination_and_safe_options() {
     require_git(&repository, &["commit", "-q", "-am", "second"]);
     require_git(&repository, &["tag", "-a", "v1", "-m", "version one"]);
 
-    let preview = core("git.pushPreview", &repository, json!({}));
+    let preview = core(
+        "git.pushPreview",
+        &repository,
+        json!({ "pushTags": "reachable" }),
+    );
     assert_eq!(preview["ok"], true, "response: {preview}");
     assert_eq!(preview["data"]["localBranch"], "main");
     assert_eq!(preview["data"]["remote"], "origin");
@@ -152,7 +157,7 @@ fn push_preview_and_write_share_destination_and_safe_options() {
         .iter()
         .any(|argument| argument.starts_with("--force-with-lease=refs/heads/main:")));
     assert!(!arguments.contains(&"--force"));
-    assert!(arguments.contains(&"--follow-tags"));
+    assert!(!arguments.contains(&"--follow-tags"));
     let reviewed_refspec = format!(
         "{}:refs/heads/main",
         preview["data"]["localHead"]
@@ -160,6 +165,16 @@ fn push_preview_and_write_share_destination_and_safe_options() {
             .expect("preview should contain the local head")
     );
     assert!(arguments.contains(&reviewed_refspec.as_str()));
+    let reviewed_tag_refspec = format!(
+        "{}:{}",
+        preview["data"]["tags"][0]["objectId"]
+            .as_str()
+            .expect("preview should contain the tag object"),
+        preview["data"]["tags"][0]["fullName"]
+            .as_str()
+            .expect("preview should contain the tag reference")
+    );
+    assert!(arguments.contains(&reviewed_tag_refspec.as_str()));
 
     let local_head = git(&repository, &["rev-parse", "HEAD"]);
     let remote_head = git(&remote, &["rev-parse", "refs/heads/main"]);

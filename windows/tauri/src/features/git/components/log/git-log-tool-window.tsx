@@ -20,7 +20,6 @@ import {
   setBranchUpstream,
   unsetBranchUpstream,
 } from "../../api/git-branches-api";
-import { createStash, getStashes, popStash } from "../../api/git-stash-api";
 import {
   checkoutAndRebase,
   mergeBranch,
@@ -174,9 +173,27 @@ export function GitLogToolWindow() {
   };
 
   const reportIntegration = (outcome: IntegrationOutcome, success: string) => {
-    if (outcome.status === "clean") toast.success(success);
+    if (outcome.status === "clean") {
+      toast.success(success);
+      if (outcome.warnings?.some((warning) => warning.code === "git_stash_drop_failed")) {
+        toast.warning(t("git.log.autoStashCleanupFailed"));
+      }
+    }
     else if (outcome.status === "conflicts") {
-      toast.warning(t("git.log.operationConflicts", { count: outcome.conflictedPaths.length }));
+      if (outcome.stashRestore) {
+        toast.warning(
+          t("git.log.autoStashRestoreConflicts", {
+            count: outcome.conflictedPaths.length,
+            stash: outcome.stashRestore.stashReference,
+          }),
+        );
+      } else if (outcome.deferredAutoStash) {
+        toast.warning(
+          t("git.log.autoStashDeferredByConflicts", { count: outcome.conflictedPaths.length }),
+        );
+      } else {
+        toast.warning(t("git.log.operationConflicts", { count: outcome.conflictedPaths.length }));
+      }
     } else if (outcome.status === "stopped") toast.warning(t("git.log.operationStopped"));
     else if (outcome.status === "blocked") {
       toast.error(t("git.log.operationBlocked", { paths: outcome.blockingPaths.join(", ") }));
@@ -247,27 +264,19 @@ export function GitLogToolWindow() {
             { title: t("git.stashChanges") },
           );
           if (save) {
-            const before = await getStashes(repoPath);
-            if (!(await createStash(repoPath, "Lithe auto-stash before pull", true))) {
-              toast.error(t("git.stashFailed"));
-            } else {
-              const retry = await pullRemoteReference(
-                repoPath,
-                reference,
-                action === "pullRebaseIntoCurrent" ? "rebase" : "merge",
-              );
-              reportIntegration(
-                retry,
-                t("git.log.actionSucceeded", {
-                  action: t(`git.log.action.${action}`),
-                  reference: reference.shortName,
-                }),
-              );
-              if (retry.status === "clean") {
-                const after = await getStashes(repoPath);
-                if (after.length > before.length) await popStash(repoPath, after[0].index);
-              }
-            }
+            const retry = await pullRemoteReference(
+              repoPath,
+              reference,
+              action === "pullRebaseIntoCurrent" ? "rebase" : "merge",
+              true,
+            );
+            reportIntegration(
+              retry,
+              t("git.log.actionSucceeded", {
+                action: t(`git.log.action.${action}`),
+                reference: reference.shortName,
+              }),
+            );
           }
         } else {
           reportIntegration(
@@ -279,9 +288,12 @@ export function GitLogToolWindow() {
           );
         }
       }
-      await refresh();
     } finally {
-      setIsReferenceOperating(false);
+      try {
+        await refresh();
+      } finally {
+        setIsReferenceOperating(false);
+      }
     }
   };
 
@@ -326,15 +338,17 @@ export function GitLogToolWindow() {
       title: t("git.log.chooseWorktreeDirectory"),
     });
     if (!selectedPath || Array.isArray(selectedPath)) return;
-    await runReferenceMutation(t("git.worktrees"), () =>
-      addWorktreeFromReference(
+    await runReferenceMutation(t("git.worktrees"), async () => {
+      const warnings = await addWorktreeFromReference(
         repoPath,
         selectedPath,
         branchName.trim(),
-        reference.fullName,
-        reference.kind === "remote" ? reference.shortName : undefined,
-      ),
-    );
+        reference,
+      );
+      if (warnings.some((warning) => warning.code === "git_worktree_upstream_configuration_failed")) {
+        toast.warning(t("git.log.worktreeUpstreamConfigurationFailed"));
+      }
+    });
   };
 
   const checkoutAndUpdateReference = async (reference: GitReference) => {
@@ -418,7 +432,7 @@ export function GitLogToolWindow() {
     if (!repoPath) return;
     await runReferenceMutation(t("git.log.trackingBranch"), () =>
       upstream
-        ? setBranchUpstream(repoPath, branch.shortName, upstream.shortName)
+        ? setBranchUpstream(repoPath, branch.shortName, upstream)
         : unsetBranchUpstream(repoPath, branch.shortName),
     );
   };

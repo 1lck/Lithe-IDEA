@@ -442,10 +442,22 @@ pub struct GitPushPreviewResponse {
     pub remote_tracking_oid: Option<String>,
     /// Configured upstream short name, or `None` before first publication.
     pub upstream: Option<String>,
+    /// Exact tag references and object IDs included in this reviewed push.
+    pub tags: Vec<GitPushTagResponse>,
     /// Commits reachable from the local branch but not its resolved remote base.
     pub commits: Vec<GitCommitResponse>,
     /// Whether more commits exist beyond the bounded preview.
     pub has_more: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// One immutable tag snapshot included in a reviewed push.
+pub struct GitPushTagResponse {
+    /// Fully qualified tag reference under `refs/tags/`.
+    pub full_name: String,
+    /// Tag object ID observed while the preview was created.
+    pub object_id: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

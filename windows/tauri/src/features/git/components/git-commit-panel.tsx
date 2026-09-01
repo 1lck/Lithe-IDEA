@@ -8,6 +8,7 @@ import {
 } from "@/ui/icons";
 import type React from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
@@ -119,7 +120,12 @@ async function buildCommitMessageContext({
     getGitLog(repoPath, MAX_RECENT_COMMITS_FOR_AI_CONTEXT),
     Promise.all(
       diffFilesForContext.map((file) =>
-        getWorkingTreePathDiff(repoPath, file.path, file.status === "untracked"),
+        getWorkingTreePathDiff(
+          repoPath,
+          file.path,
+          file.status === "untracked",
+          file.originalPath,
+        ),
       ),
     ),
   ]);
@@ -219,6 +225,7 @@ const GitCommitPanel = ({
   const commitMenuAnchorRef = useRef<HTMLDivElement>(null);
   const commitTextareaRef = useRef<HTMLTextAreaElement>(null);
   const selectedFilesCount = selectedFiles.length;
+  const operationState = useGitStore((state) => state.operationState);
 
   useEffect(() => {
     if (focusRequest <= 0) return;
@@ -295,9 +302,14 @@ const GitCommitPanel = ({
 
     // A conflicted merge/rebase must be resolved before the merge commit can
     // be finalized; guard here so Git's raw refusal never reaches the user.
-    const conflictedPaths = useGitStore.getState().operationState?.conflictedPaths ?? [];
-    if (conflictedPaths.length > 0) {
+    const activeOperation = useGitStore.getState().operationState;
+    const conflictedPaths = activeOperation?.conflictedPaths ?? [];
+    if (activeOperation && conflictedPaths.length > 0) {
       setError(t("git.resolveConflictsFirst", { paths: conflictedPaths.join(", ") }));
+      return;
+    }
+    if (activeOperation) {
+      setError(t("git.finishOperationBeforeCommit"));
       return;
     }
 
@@ -305,28 +317,31 @@ const GitCommitPanel = ({
     setError(null);
 
     try {
-      const success = await commitSelectedChanges(
+      const warnings = await commitSelectedChanges(
         repoPath,
         commitMessage.trim(),
         resolveGitFileMutationPaths(selectedFiles),
       );
-      if (success) {
-        useGitBlameStore.getState().actions.clearAllBlame();
-        onCommitMessageChange("");
-        if (pushAfterCommit) {
-          setRemoteAction("push");
-          try {
-            await showGitPushDialog(repoPath);
-          } catch (pushError) {
-            setError(pushError instanceof Error ? pushError.message : t("git.pushFailed"));
-          } finally {
-            setRemoteAction(null);
-          }
-        }
-        onCommitSuccess?.();
-      } else {
-        setError(t("git.commitChangesFailed"));
+      useGitBlameStore.getState().actions.clearAllBlame();
+      onCommitMessageChange("");
+      for (const warning of warnings) {
+        toast.warning(
+          warning.code === "git_index_reconcile_failed"
+            ? t("git.commitIndexReconcileFailed")
+            : warning.message,
+        );
       }
+      if (pushAfterCommit) {
+        setRemoteAction("push");
+        try {
+          await showGitPushDialog(repoPath);
+        } catch (pushError) {
+          setError(pushError instanceof Error ? pushError.message : t("git.pushFailed"));
+        } finally {
+          setRemoteAction(null);
+        }
+      }
+      onCommitSuccess?.();
     } catch (error) {
       setError(
         error instanceof Error
@@ -361,7 +376,11 @@ const GitCommitPanel = ({
   };
 
   const isCommitDisabled =
-    selectedFilesCount === 0 || !commitMessage.trim() || isCommitting || isGenerating;
+    selectedFilesCount === 0 ||
+    !commitMessage.trim() ||
+    Boolean(operationState) ||
+    isCommitting ||
+    isGenerating;
   const isGenerateDisabled = selectedFilesCount === 0 || isGenerating || isCommitting;
   const hasRemoteChanges = ahead > 0 || behind > 0;
   const isRemoteActionLoading = remoteAction !== null;

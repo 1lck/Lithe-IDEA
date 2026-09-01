@@ -6,6 +6,11 @@ static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
 #[tauri::command]
 pub async fn platform_invoke(command: String, args: Value) -> Result<Value, String> {
+    let preserve_stash_restore = command == "git_pull"
+        && args
+            .get("autoStash")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
     let operation_id = args
         .get("operationId")
         .and_then(Value::as_str)
@@ -30,7 +35,7 @@ pub async fn platform_invoke(command: String, args: Value) -> Result<Value, Stri
 
     if envelope.get("ok").and_then(Value::as_bool) == Some(true) {
         let data = envelope.get("data").cloned().unwrap_or(Value::Null);
-        if let Some(error) = command_data_error(&data) {
+        if let Some(error) = command_data_error(&data, preserve_stash_restore) {
             return Err(error);
         }
         return Ok(data);
@@ -46,7 +51,7 @@ pub async fn platform_invoke(command: String, args: Value) -> Result<Value, Stri
 
 /// Converts logical Git command failures carried in a successful Core envelope
 /// into the error shape expected by the existing Windows compatibility API.
-fn command_data_error(data: &Value) -> Option<String> {
+fn command_data_error(data: &Value, preserve_stash_restore: bool) -> Option<String> {
     if let Some(error) = data.get("operationError") {
         let message = error
             .get("message")
@@ -66,6 +71,9 @@ fn command_data_error(data: &Value) -> Option<String> {
     }
 
     if let Some(stash_restore) = data.get("stashRestore") {
+        if preserve_stash_restore {
+            return None;
+        }
         let paths = stash_restore
             .get("conflictedPaths")
             .and_then(Value::as_array)
@@ -141,7 +149,10 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
             "git.write"
         }
         "git_diff_file" | "git_status_diff_stats" => {
-            if let Some(path) = payload.remove("filePath") {
+            if let Some(paths) = payload.remove("filePaths") {
+                payload.insert("pathspecs".into(), paths);
+                payload.remove("filePath");
+            } else if let Some(path) = payload.remove("filePath") {
                 payload.insert("pathspecs".into(), Value::Array(vec![path]));
             } else {
                 // The shared core rejects empty pathspecs; a request without a
@@ -181,6 +192,7 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
         "git_working_tree_ref_diff" => {
             preserve_typed_or_legacy_reference(&mut payload, "reference", false)?;
             payload.insert("pathspecs".into(), json!(["."]));
+            payload.insert("untracked".into(), json!(true));
             "git.diff"
         }
         "git_reference_worktree_diff" => {
@@ -280,6 +292,7 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
         }
         "git_conflict_markers" => "git.conflictMarkers",
         "git_create_stash" => {
+            move_field(&mut payload, "files", "paths");
             payload.insert("operation".into(), json!("stashPush"));
             "git.write"
         }
@@ -635,7 +648,7 @@ mod tests {
             }
         });
         assert_eq!(
-            command_data_error(&operation_error).as_deref(),
+            command_data_error(&operation_error, false).as_deref(),
             Some("Invalid Git reference: branch names cannot contain spaces")
         );
 
@@ -647,9 +660,10 @@ mod tests {
             }
         });
         assert_eq!(
-            command_data_error(&stash_conflict).as_deref(),
+            command_data_error(&stash_conflict, false).as_deref(),
             Some("Git stash restore has conflicts: README.md, src/main.rs")
         );
+        assert_eq!(command_data_error(&stash_conflict, true), None);
     }
 
     #[test]
@@ -1049,7 +1063,8 @@ mod tests {
             json!({
                 "root": "C:/work",
                 "reference": "refs/remotes/origin/main",
-                "pathspecs": ["."]
+                "pathspecs": ["."],
+                "untracked": true
             })
         );
     }
@@ -1073,7 +1088,8 @@ mod tests {
             json!({
                 "root": "C:/work",
                 "gitReference": reference,
-                "pathspecs": ["."]
+                "pathspecs": ["."],
+                "untracked": true
             })
         );
     }

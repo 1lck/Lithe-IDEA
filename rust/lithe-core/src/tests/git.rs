@@ -84,6 +84,75 @@ fn git_status_preserves_both_paths_of_a_staged_rename() {
 }
 
 #[test]
+fn git_diff_worktree_snapshot_matches_selected_path_commit_semantics() {
+    let root = git_write_repository("git-diff-worktree-snapshot");
+    let run = |arguments: &[&str]| history_git(&root, arguments);
+    fs::write(root.join("recreated.txt"), "base\n").expect("file should be writable");
+    fs::write(root.join("partial.txt"), "one\nbase\n").expect("file should be writable");
+    assert!(run(&["add", "--all"]).status.success());
+    assert!(run(&["commit", "-qm", "initial"]).status.success());
+
+    assert!(run(&["rm", "--cached", "-q", "--", "recreated.txt"])
+        .status
+        .success());
+    fs::write(root.join("recreated.txt"), "changed\n").expect("file should be writable");
+    fs::write(root.join("partial.txt"), "staged\nbase\n").expect("file should be writable");
+    assert!(run(&["add", "--", "partial.txt"]).status.success());
+    fs::write(root.join("partial.txt"), "staged\nworktree\n").expect("file should be writable");
+    let cached_before = run(&["diff", "--cached", "--binary"]).stdout;
+
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&serde_json::json!({
+            "id": "git-diff-worktree-snapshot",
+            "command": "git.diff",
+            "payload": {
+                "root": root,
+                "pathspecs": ["recreated.txt", "partial.txt"],
+                "worktreeSnapshot": true
+            }
+        }))
+        .expect("Git snapshot request should encode"),
+    ))
+    .expect("Git snapshot response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response:?}");
+    let patch = response["data"]["patch"]
+        .as_str()
+        .expect("Git snapshot should return a patch");
+    assert!(patch.contains("-one"), "{patch}");
+    assert!(patch.contains("+staged"), "{patch}");
+    assert!(patch.contains("-base"), "{patch}");
+    assert!(patch.contains("+worktree"), "{patch}");
+    assert!(patch.contains("+changed"), "{patch}");
+    assert!(!patch.contains("deleted file mode"), "{patch}");
+    assert_eq!(run(&["diff", "--cached", "--binary"]).stdout, cached_before);
+
+    let reference_response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&serde_json::json!({
+            "id": "git-diff-reference-with-untracked",
+            "command": "git.diff",
+            "payload": {
+                "root": root,
+                "pathspecs": ["recreated.txt"],
+                "reference": "HEAD",
+                "untracked": true
+            }
+        }))
+        .expect("Git reference diff request should encode"),
+    ))
+    .expect("Git reference diff response should be JSON");
+    assert_eq!(reference_response["ok"], true, "{reference_response:?}");
+    assert!(
+        reference_response["data"]["patch"]
+            .as_str()
+            .is_some_and(|patch| patch.contains("+changed")),
+        "{reference_response:?}"
+    );
+
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
 fn git_status_does_not_refresh_the_index() {
     let root = temporary_root("git-status-index");
     fs::create_dir_all(&root).expect("temporary repository should be creatable");
@@ -495,7 +564,7 @@ fn git_write_preserves_real_index_changes_made_by_a_failing_hook() {
     let hook = root.join(".git/hooks/pre-commit");
     fs::write(
         &hook,
-        "#!/bin/sh\nunset GIT_INDEX_FILE\ngit add -- hook-staged.txt\nexit 1\n",
+        "#!/bin/sh\nunset GIT_DIR GIT_COMMON_DIR GIT_WORK_TREE GIT_INDEX_FILE\ngit add -- hook-staged.txt\nexit 1\n",
     )
     .expect("hook should be writable");
     #[cfg(unix)]
@@ -781,6 +850,31 @@ fn git_write_deletes_a_local_commit_and_replays_later_changes() {
         fs::read_to_string(root.join("kept.txt")).expect("kept file should remain"),
         "keep\n"
     );
+    assert_eq!(git_text(&root, &["status", "--porcelain"]), "");
+
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
+fn git_write_deletes_a_local_commit_and_preserves_a_later_empty_commit() {
+    let root = history_rewrite_repository("git-delete-before-empty-commit");
+    commit_history_file(&root, "base.txt", "base\n", "base");
+    commit_history_file(&root, "dropped.txt", "drop\n", "drop this commit");
+    let target = git_text(&root, &["rev-parse", "HEAD"]);
+    assert!(
+        history_git(&root, &["commit", "--allow-empty", "-qm", "keep empty"])
+            .status
+            .success()
+    );
+
+    let response = history_write(
+        &root,
+        serde_json::json!({"operation": "deleteCommit", "revision": target}),
+    );
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(response["data"]["exitCode"], 0, "{response:?}");
+    assert_eq!(git_text(&root, &["log", "--format=%s"]), "keep empty\nbase");
+    assert!(!root.join("dropped.txt").exists());
     assert_eq!(git_text(&root, &["status", "--porcelain"]), "");
 
     fs::remove_dir_all(root).expect("temporary repository should be removable");
@@ -1127,6 +1221,58 @@ fn git_write_executes_branch_pull_and_stash_mutations() {
     assert_eq!(
         fs::read_to_string(root.join("example.txt")).expect("file should be readable"),
         "working tree\n"
+    );
+
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
+fn git_write_sets_upstream_from_the_complete_remote_reference() {
+    let root = git_write_repository("git-write-complete-upstream");
+    commit_history_file(&root, "base.txt", "base\n", "initial");
+    let current = git_text(&root, &["branch", "--show-current"]);
+    assert!(history_git(
+        &root,
+        &[
+            "remote",
+            "add",
+            "team/origin",
+            "https://example.invalid/team/repository.git"
+        ]
+    )
+    .status
+    .success());
+    assert!(history_git(
+        &root,
+        &["update-ref", "refs/remotes/team/origin/feature/foo", "HEAD"]
+    )
+    .status
+    .success());
+    assert!(history_git(&root, &["branch", "team/origin/feature/foo"])
+        .status
+        .success());
+
+    let response = git_write_request(
+        &root,
+        "setUpstream",
+        serde_json::json!({
+            "name": current,
+            "gitReference": {
+                "fullName": "refs/remotes/team/origin/feature/foo",
+                "shortName": "team/origin/feature/foo",
+                "kind": "remote"
+            }
+        }),
+    );
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(response["data"]["exitCode"], 0, "{response:?}");
+    assert_eq!(
+        git_text(&root, &["config", &format!("branch.{current}.remote")]),
+        "team/origin"
+    );
+    assert_eq!(
+        git_text(&root, &["config", &format!("branch.{current}.merge")]),
+        "refs/heads/feature/foo"
     );
 
     fs::remove_dir_all(root).expect("temporary repository should be removable");

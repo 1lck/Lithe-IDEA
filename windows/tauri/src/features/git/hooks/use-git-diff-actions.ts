@@ -18,10 +18,22 @@ import {
   type WorkingTreeDiffScope,
 } from "../services/working-tree-diff-loader";
 import type { MultiFileDiff } from "../types/git-diff.types";
-import type { GitCommit, GitDiff, GitFile, GitReference } from "../types/git.types";
+import type {
+  GitCommit,
+  GitDiff,
+  GitFile,
+  GitReference,
+} from "../types/git.types";
+import { mapGitReadsInBatches } from "../utils/git-async-batch";
 import { aggregateSelectedCommitDiffs } from "../utils/git-commit-selection-diff";
-import { createRequestGeneration, type RequestGeneration } from "../utils/request-generation";
-import { createCommitDiffBuffer, createMultiFileDiff } from "../utils/multi-file-diff";
+import {
+  createRequestGeneration,
+  type RequestGeneration,
+} from "../utils/request-generation";
+import {
+  createCommitDiffBuffer,
+  createMultiFileDiff,
+} from "../utils/multi-file-diff";
 import { createSingleFileWorkingTreeDiff } from "../utils/working-tree-multi-diff";
 
 const WORKING_TREE_TITLES: Record<WorkingTreeDiffScope, string> = {
@@ -44,10 +56,22 @@ function openDiffBuffer(
   activateMainEditorPane();
   return useBufferStore
     .getState()
-    .actions.openBuffer(virtualPath, displayName, "", false, undefined, true, true, diffData);
+    .actions.openBuffer(
+      virtualPath,
+      displayName,
+      "",
+      false,
+      undefined,
+      true,
+      true,
+      diffData,
+    );
 }
 
-function normalizeDisplayedFilePath(filePath: string, side: "old" | "new"): string {
+function normalizeDisplayedFilePath(
+  filePath: string,
+  side: "old" | "new",
+): string {
   let actualFilePath = filePath;
   if (filePath.includes(" -> ")) {
     const [oldPath, newPath] = filePath.split(" -> ");
@@ -55,7 +79,9 @@ function normalizeDisplayedFilePath(filePath: string, side: "old" | "new"): stri
   }
 
   const trimmed = actualFilePath.trim();
-  return trimmed.startsWith('"') && trimmed.endsWith('"') ? trimmed.slice(1, -1) : trimmed;
+  return trimmed.startsWith('"') && trimmed.endsWith('"')
+    ? trimmed.slice(1, -1)
+    : trimmed;
 }
 
 export function useGitDiffActions({
@@ -71,7 +97,10 @@ export function useGitDiffActions({
   activeRepoPath: string | null;
   onFileSelect?: (path: string, isDir: boolean) => void;
   gitFileByPath: Map<string, GitFile>;
-  workingTreeDiffEntriesByScope: Record<WorkingTreeDiffScope, WorkingTreeDiffEntry[]>;
+  workingTreeDiffEntriesByScope: Record<
+    WorkingTreeDiffScope,
+    WorkingTreeDiffEntry[]
+  >;
   commitByHash: Map<string, GitCommit>;
   currentBranch?: string;
   currentReference?: GitReference;
@@ -100,7 +129,10 @@ export function useGitDiffActions({
       } catch (error) {
         console.error("Error opening file:", error);
         await showAlertDialog(
-          t("git.diff.openFileFailed", { file: filePath, error: String(error) }),
+          t("git.diff.openFileFailed", {
+            file: filePath,
+            error: String(error),
+          }),
           t("files.open"),
         );
       }
@@ -114,7 +146,10 @@ export function useGitDiffActions({
       const requestId = latestFileDiffRequest.begin();
 
       try {
-        const actualFilePath = normalizeDisplayedFilePath(filePath, staged ? "new" : "old");
+        const actualFilePath = normalizeDisplayedFilePath(
+          filePath,
+          staged ? "new" : "old",
+        );
         const file = gitFileByPath.get(actualFilePath);
         if (file) {
           const fileKey = `${staged ? "staged" : "unstaged"}:${actualFilePath}`;
@@ -136,12 +171,17 @@ export function useGitDiffActions({
               label: t("git.indexing"),
             },
           };
-          const bufferId = openDiffBuffer("diff://working-tree/all-files", title, loadingDiff);
+          const bufferId = openDiffBuffer(
+            "diff://working-tree/all-files",
+            title,
+            loadingDiff,
+          );
           void (async () => {
             const diff = await getWorkingTreePathDiff(
               activeRepoPath,
               actualFilePath,
               file.status === "untracked",
+              file.originalPath,
             );
             if (
               !latestFileDiffRequest.isCurrent(requestId) ||
@@ -156,7 +196,8 @@ export function useGitDiffActions({
               indexingLabel: t("git.indexing"),
               diffEntries: [],
               initialDiffs:
-                diff && (diff.lines.length > 0 || diff.is_image || diff.is_binary)
+                diff &&
+                (diff.lines.length > 0 || diff.is_image || diff.is_binary)
                   ? [{ fileKey, diff }]
                   : [],
               initialProcessed: 1,
@@ -173,7 +214,10 @@ export function useGitDiffActions({
         ) {
           return;
         }
-        if (!diff || (diff.lines.length === 0 && !diff.is_image && !diff.is_binary)) {
+        if (
+          !diff ||
+          (diff.lines.length === 0 && !diff.is_image && !diff.is_binary)
+        ) {
           await openOriginalFile(actualFilePath);
           return;
         }
@@ -186,7 +230,11 @@ export function useGitDiffActions({
           title: t(WORKING_TREE_TITLES.all),
         });
 
-        openDiffBuffer("diff://working-tree/all-files", t(WORKING_TREE_TITLES.all), selectedDiff);
+        openDiffBuffer(
+          "diff://working-tree/all-files",
+          t(WORKING_TREE_TITLES.all),
+          selectedDiff,
+        );
       } catch (error) {
         if (
           !latestFileDiffRequest.isCurrent(requestId) ||
@@ -196,7 +244,10 @@ export function useGitDiffActions({
         }
         console.error("Error getting file diff:", error);
         await showAlertDialog(
-          t("git.diff.getFileDiffFailed", { file: filePath, error: String(error) }),
+          t("git.diff.getFileDiffFailed", {
+            file: filePath,
+            error: String(error),
+          }),
           t("git.diff.title"),
         );
       }
@@ -216,7 +267,10 @@ export function useGitDiffActions({
             )
           : workingTreeDiffEntriesByScope[scope];
         if (diffEntries.length === 0) {
-          await showAlertDialog(t(WORKING_TREE_EMPTY_LABELS[scope]), t("git.diff.title"));
+          await showAlertDialog(
+            t(WORKING_TREE_EMPTY_LABELS[scope]),
+            t("git.diff.title"),
+          );
           return;
         }
 
@@ -237,7 +291,11 @@ export function useGitDiffActions({
             label: t("git.indexing"),
           },
         };
-        const bufferId = openDiffBuffer(`diff://working-tree/${scope}`, title, multiDiff);
+        const bufferId = openDiffBuffer(
+          `diff://working-tree/${scope}`,
+          title,
+          multiDiff,
+        );
 
         void loadWorkingTreeDiffsProgressively({
           repoPath: activeRepoPath,
@@ -245,6 +303,7 @@ export function useGitDiffActions({
           title,
           indexingLabel: t("git.indexing"),
           diffEntries,
+          wholePathSnapshot: scope === "all",
         });
       } catch (error) {
         console.error("Error getting working tree diff:", error);
@@ -286,7 +345,10 @@ export function useGitDiffActions({
       } catch (error) {
         console.error("Error getting commit diff:", error);
         await showAlertDialog(
-          t("git.diff.getCommitDiffFailed", { commit: commitHash, error: String(error) }),
+          t("git.diff.getCommitDiffFailed", {
+            commit: commitHash,
+            error: String(error),
+          }),
           t("git.diff.title"),
         );
       } finally {
@@ -311,7 +373,10 @@ export function useGitDiffActions({
         const diffs = await getRefDiff(activeRepoPath, baseRef, targetRef);
         if (!diffs?.length) {
           await showAlertDialog(
-            t("git.diff.noChangesBetween", { base: oldestLabel, target: newestLabel }),
+            t("git.diff.noChangesBetween", {
+              base: oldestLabel,
+              target: newestLabel,
+            }),
             t("git.diff.title"),
           );
           return;
@@ -355,24 +420,30 @@ export function useGitDiffActions({
       if (!activeRepoPath || commits.length === 0) return;
       setIsLoadingCommitDiff(true);
       try {
-        const results = await Promise.all(
-          commits.map(async (commit) => ({
-            commit,
-            diffs: await getCommitDiff(activeRepoPath, commit.hash),
-          })),
-        );
+        const results = await mapGitReadsInBatches(commits, async (commit) => ({
+          commit,
+          diffs: await getCommitDiff(activeRepoPath, commit.hash),
+        }));
         if (results.some((result) => result.diffs === null)) {
           throw new Error(t("git.log.unableToLoadFiles"));
         }
         const aggregate = aggregateSelectedCommitDiffs(
-          results.map((result) => ({ commit: result.commit, diffs: result.diffs ?? [] })),
+          results.map((result) => ({
+            commit: result.commit,
+            diffs: result.diffs ?? [],
+          })),
         );
         if (aggregate.diffs.length === 0) {
-          await showAlertDialog(t("git.diff.noChangesInSelectedCommits"), t("git.diff.title"));
+          await showAlertDialog(
+            t("git.diff.noChangesInSelectedCommits"),
+            t("git.diff.title"),
+          );
           return;
         }
 
-        const title = t("git.diff.selectedCommitsTitle", { count: commits.length });
+        const title = t("git.diff.selectedCommitsTitle", {
+          count: commits.length,
+        });
         const selectionKey = commits.map((commit) => commit.hash).join(",");
         const diffData = createMultiFileDiff({
           title,
@@ -409,7 +480,10 @@ export function useGitDiffActions({
       try {
         const diffs = await getStashDiff(activeRepoPath, stashIndex);
         if (!diffs?.length) {
-          await showAlertDialog(t("git.diff.noChangesInStash"), t("git.diff.title"));
+          await showAlertDialog(
+            t("git.diff.noChangesInStash"),
+            t("git.diff.title"),
+          );
           return;
         }
 
@@ -446,7 +520,10 @@ export function useGitDiffActions({
         const diffs = await getRefDiff(activeRepoPath, baseRef, targetRef);
         if (!diffs?.length) {
           await showAlertDialog(
-            t("git.diff.noChangesBetween", { base: baseRef, target: targetRef }),
+            t("git.diff.noChangesBetween", {
+              base: baseRef,
+              target: targetRef,
+            }),
             t("git.diff.title"),
           );
           return;
@@ -481,7 +558,8 @@ export function useGitDiffActions({
   const viewBranchDiff = useCallback(
     async (baseBranch: GitReference | string) => {
       const targetBranch = currentBranch ?? "HEAD";
-      const baseName = typeof baseBranch === "string" ? baseBranch : baseBranch.fullName;
+      const baseName =
+        typeof baseBranch === "string" ? baseBranch : baseBranch.fullName;
       if (!activeRepoPath || !baseName || baseName === targetBranch) return;
 
       const title = `${baseName}..${targetBranch}`;
@@ -489,10 +567,17 @@ export function useGitDiffActions({
       try {
         const diffs =
           typeof baseBranch !== "string" && currentReference
-            ? await getTypedReferenceDiff(activeRepoPath, baseBranch, currentReference)
+            ? await getTypedReferenceDiff(
+                activeRepoPath,
+                baseBranch,
+                currentReference,
+              )
             : await getRefDiff(activeRepoPath, baseName, targetBranch);
         if (!diffs?.length) {
-          await showAlertDialog(`No changes between ${baseName} and ${targetBranch}.`, "Git Diff");
+          await showAlertDialog(
+            `No changes between ${baseName} and ${targetBranch}.`,
+            "Git Diff",
+          );
           return;
         }
 
@@ -534,8 +619,11 @@ export function useGitDiffActions({
           );
           return;
         }
-        const fullName = typeof reference === "string" ? reference : reference.fullName;
-        const title = t("git.log.workingTreeComparisonTitle", { branch: displayName });
+        const fullName =
+          typeof reference === "string" ? reference : reference.fullName;
+        const title = t("git.log.workingTreeComparisonTitle", {
+          branch: displayName,
+        });
         openDiffBuffer(
           `diff://working-tree-ref/${encodeURIComponent(fullName)}/all-files`,
           `${title} (${diffs.length} files)`,
@@ -547,7 +635,10 @@ export function useGitDiffActions({
           }),
         );
       } catch (error) {
-        console.error("Error comparing reference with the working tree:", error);
+        console.error(
+          "Error comparing reference with the working tree:",
+          error,
+        );
         await showAlertDialog(
           t("git.log.workingTreeComparisonFailed", {
             branch: displayName,

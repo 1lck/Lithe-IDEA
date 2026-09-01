@@ -247,19 +247,23 @@ response retains the invocation trace and includes the failure as
 `git.write` accepts a typed mutation request. Its required `operation` values are
 `stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `ignore`, `exclude`, `cherryPick`, `revert`,
 `reset`, `editCommitMessage`, `deleteCommit`, `squashCommits`, `createBranch`, `publishBranch`,
-`renameBranch`, `deleteBranch`, `merge`, `rebase`,
+`renameBranch`, `setUpstream`, `unsetUpstream`, `deleteBranch`, `merge`, `rebase`, `createWorktree`,
 `fetch`, `pull`, `push`, `checkout`, `checkoutAndRebase`, `checkoutRevision`, `clone`, `stashPush`,
 `stashApply`, `stashPop`, `stashDrop`, `deleteRemoteBranch`, `operationContinue`,
 `operationAbort`, and `operationSkip`. Optional fields are `paths`, `reference`, `referenceKind`,
 `gitReference`, `revision`, `revisions`, `name`, `message`, `remote`, `destination`, `mode`,
-`includeUntracked`, `checkout`, `amend`, `force`, and `pushTags`.
+`includeUntracked`, `checkout`, `amend`, `force`, `pushTags`, `expectedPush`, and `autoStash`.
 
 The core validates pathspecs, revisions, branch names, references, reset modes,
 stash references, and operation-specific required fields before invoking Git.
 Successful process launch returns `{ "arguments": string[], "output": string,
 "stdout": string, "stderr": string, "exitCode": number, "invocations":
 GitCommandInvocation[], "operationError": CoreError?, "stashRestore":
-GitStashRestore? }` even when Git exits non-zero. The top-level process fields
+GitStashRestore?, "warnings": GitOperationWarning[] }` even when Git exits non-zero.
+`GitOperationWarning` is `{ "code": string, "message": string, "details"?: string }`
+and reports a non-fatal follow-up failure after the requested mutation already
+succeeded. Platform clients must retain the successful operation outcome while
+presenting the warning. The top-level process fields
 always describe the final subprocess, and `output` is that subprocess's
 `stdout` followed by `stderr`. `invocations` records every Git subprocess for
 composite operations such as `discardAll` and Smart Checkout in execution
@@ -281,9 +285,9 @@ an upstream. If the push fails, the local branch is intentionally retained so
 the user can fix credentials or connectivity and retry without losing commits.
 
 `git.pushPreview` accepts `root`, an optional complete local `gitReference` or
-legacy `reference`, and an optional bounded `limit`. It returns `localBranch`,
+legacy `reference`, an optional bounded `limit`, and `pushTags`. It returns `localBranch`,
 `localHead`, `remote`, `remoteBranch`, nullable `remoteTrackingOid`, nullable
-`upstream`, `commits`, and `hasMore` using
+`upstream`, exact reviewed `tags`, `commits`, and `hasMore` using
 `shared/fixtures/git/push-preview-v1.json`. The push destination follows
 `branch.<name>.pushRemote`, then `remote.pushDefault`, the configured upstream
 remote, `branch.<name>.remote`, and finally `origin` or the first configured
@@ -291,7 +295,8 @@ remote. A destination without a fetched tracking reference previews commits not
 reachable from that remote. A reviewed `push` mutation sends these resolved fields
 back as `expectedPush`; Core rejects a stale local tip, destination, or tracking OID
 before starting Git. `force` binds `--force-with-lease` to the reviewed destination
-OID when `expectedPush` is present; `pushTags` accepts `none`, `all`, or `reachable`
+OID when `expectedPush` is present, and Core also validates the reviewed tag
+identities; `pushTags` accepts `none`, `all`, or `reachable`
 and maps to no tag option, `--tags`, or `--follow-tags` respectively. Legacy push
 callers may omit `expectedPush`. A reviewed push uses the preview's immutable
 `localHead` OID as the refspec source, so a repository change after validation
@@ -333,6 +338,11 @@ reconcile only the selected paths, preserving unrelated staging created while
 the operation ran. Selected paths used to prepare and reconcile the snapshot
 are passed to Git over NUL-delimited stdin with `--pathspec-from-file`, avoiding
 platform command-line limits and preserving rename source/destination identity.
+`git.diff` accepts `worktreeSnapshot: true` to review that same complete
+working-tree snapshot against `HEAD` through an isolated temporary index. This
+mode includes staged, unstaged, untracked, deleted, and same-path recreated
+files without reading or mutating the real index and cannot be combined with
+other diff reference modes.
 A `commit` request without `paths` retains
 the legacy behavior of committing the existing index. `ignore` appends root-anchored patterns to the
 repository's top-level `.gitignore`; `exclude` appends the same patterns to the

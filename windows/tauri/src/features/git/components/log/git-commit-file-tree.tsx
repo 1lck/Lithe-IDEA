@@ -19,6 +19,11 @@ import { cn } from "@/utils/cn";
 import type { GitCommitFile } from "../../types/git.types";
 import { getCommitFileStatusColorClassName } from "../../utils/git-file-status-visuals";
 
+export function countCommitFileTreeLeaves(node: PathTreeNode<GitCommitFile>): number {
+  if (node.type === "leaf") return 1;
+  return node.children.reduce((count, child) => count + countCommitFileTreeLeaves(child), 0);
+}
+
 function FileNode({
   node,
   depth,
@@ -70,7 +75,7 @@ function FileNode({
           }
           trailing={
             <span className="pr-1 text-subtle-foreground tabular-nums">
-              {branch.children.length}
+              {countCommitFileTreeLeaves(branch)}
             </span>
           }
           title={branch.path}

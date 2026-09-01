@@ -3,6 +3,10 @@ export interface GitFile {
   originalPath?: string;
   status: "modified" | "added" | "deleted" | "untracked" | "renamed";
   staged: boolean;
+  /** Raw porcelain XY status retained for whole-path commit review semantics. */
+  rawStatus?: string;
+  /** Whether the worktree differs from the index for this path. */
+  worktree?: boolean;
 }
 
 export interface GitStatus {
@@ -51,6 +55,18 @@ export interface GitPushExpectation {
   remote: string;
   remoteBranch: string;
   remoteTrackingOid: string | null;
+  tags: GitPushTagSnapshot[];
+}
+
+export interface GitPushTagSnapshot {
+  fullName: string;
+  objectId: string;
+}
+
+export interface GitOperationWarning {
+  code: string;
+  message: string;
+  details?: string;
 }
 
 export interface GitPushPreview extends GitPushExpectation {

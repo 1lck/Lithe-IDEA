@@ -8,8 +8,8 @@ use crate::protocol::{
     GitCommitLookupResponse, GitCommitResponse, GitComparisonResponse, GitConflictMarkerResponse,
     GitDiffHunkResponse, GitDiffResponse, GitDiffRowResponse, GitFileResponse, GitFilesResponse,
     GitHistoryResponse, GitIntegrationPreflightResponse, GitOperationStateResponse,
-    GitPullPreflightResponse, GitPushPreviewResponse, GitReferenceResponse, GitStashResponse,
-    GitStashesResponse, GitStatusResponse, GitWatchContextResponse,
+    GitPullPreflightResponse, GitPushPreviewResponse, GitPushTagResponse, GitReferenceResponse,
+    GitStashResponse, GitStashesResponse, GitStatusResponse, GitWatchContextResponse,
 };
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
@@ -29,6 +29,7 @@ const RECENT_BRANCH_REFLOG_LIMIT: &str = "100";
 const DEFAULT_BRANCH_FALLBACKS: [&str; 2] = ["main", "master"];
 const DEFAULT_PUSH_PREVIEW_LIMIT: usize = 500;
 static TEMPORARY_INDEX_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+static AUTO_STASH_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -123,6 +124,32 @@ pub struct GitCommandResponse {
     /// output.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stash_restore: Option<GitStashRestoreResponse>,
+    /// Non-fatal follow-up failures after the requested repository mutation succeeded.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<GitOperationWarning>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Stable non-fatal outcome emitted after a Git mutation has already succeeded.
+pub struct GitOperationWarning {
+    /// Machine-readable warning category interpreted by platform presentation.
+    pub code: String,
+    /// Safe English fallback for clients without a localized presentation.
+    pub message: String,
+    /// Optional Git diagnostic retained for troubleshooting.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<String>,
+}
+
+impl GitOperationWarning {
+    fn new(code: &str, message: &str, details: Option<String>) -> Self {
+        Self {
+            code: code.to_string(),
+            message: message.to_string(),
+            details,
+        }
+    }
 }
 
 /// Raw Git process streams kept separate for machine-readable consumers.
@@ -152,6 +179,7 @@ impl GitProcessOutput {
             invocations: vec![invocation],
             operation_error: None,
             stash_restore: None,
+            warnings: Vec::new(),
         }
     }
 }
@@ -191,6 +219,12 @@ fn with_git_invocation_trace(
 }
 
 fn synchronize_final_invocation(response: &mut GitCommandResponse) {
+    if response.exit_code == 0 && !response.warnings.is_empty() {
+        // The mutation already succeeded and a later reconciliation step only
+        // produced a warning. Keep the authoritative success summary while the
+        // failed follow-up remains available in `invocations` and `warnings`.
+        return;
+    }
     let Some(final_invocation) = response.invocations.last() else {
         return;
     };
@@ -247,6 +281,19 @@ pub struct GitPushExpectationRequest {
     /// Locally observed destination OID, or `None` when the remote branch was absent.
     #[serde(default)]
     pub remote_tracking_oid: Option<String>,
+    /// Exact reviewed tags that may be sent with the branch.
+    #[serde(default)]
+    pub tags: Vec<GitPushTagExpectationRequest>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// One tag identity copied from a push preview into the mutation request.
+pub struct GitPushTagExpectationRequest {
+    /// Fully qualified tag reference under `refs/tags/`.
+    pub full_name: String,
+    /// Tag object ID observed while the preview was created.
+    pub object_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -301,45 +348,102 @@ pub struct GitWriteRequest {
     pub auto_stash: bool,
 }
 
-/// Isolated index used to prepare and commit selected working-tree paths.
-struct TemporaryGitIndex {
-    path: PathBuf,
+/// Isolated Git administration directory used to commit a reviewed snapshot.
+struct TemporaryGitCommitContext {
+    directory: PathBuf,
+    index_path: PathBuf,
+    temporary_reference: Option<String>,
 }
 
-impl TemporaryGitIndex {
-    fn prepare(root: &str) -> Result<Self, CoreError> {
-        let index = git_path(root, "index")?;
-        let directory = index.parent().ok_or_else(|| {
-            CoreError::new(
-                ErrorCode::Unknown,
-                "Could not locate the Git index directory",
-            )
-        })?;
-        let path = loop {
+impl TemporaryGitCommitContext {
+    fn prepare(root: &str, head: Option<&str>) -> Result<Self, CoreError> {
+        let common_directory = git_resolved_path(
+            root,
+            &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+            "Git common directory",
+        )?;
+        let (directory, sequence) = loop {
             let sequence = TEMPORARY_INDEX_SEQUENCE.fetch_add(1, Ordering::Relaxed);
             let candidate =
-                directory.join(format!("lithe-index-{}-{sequence}", std::process::id()));
+                common_directory.join(format!("lithe-commit-{}-{sequence}", std::process::id()));
             if !candidate.exists() {
-                break candidate;
+                break (candidate, sequence);
             }
         };
-        Ok(Self { path })
+        std::fs::create_dir(&directory).map_err(|error| {
+            CoreError::new(
+                ErrorCode::Unknown,
+                "Could not create an isolated Git commit context",
+            )
+            .with_details(error.to_string())
+        })?;
+        let temporary_reference = head.is_none().then(|| {
+            format!(
+                "refs/lithe/selected-commit-{}-{sequence}",
+                std::process::id()
+            )
+        });
+        let head_contents = head.map(|head| format!("{head}\n")).unwrap_or_else(|| {
+            format!(
+                "ref: {}\n",
+                temporary_reference
+                    .as_deref()
+                    .expect("an unborn repository needs a temporary reference")
+            )
+        });
+        std::fs::write(directory.join("HEAD"), head_contents).map_err(|error| {
+            CoreError::new(
+                ErrorCode::Unknown,
+                "Could not initialize an isolated Git commit context",
+            )
+            .with_details(error.to_string())
+        })?;
+        let index_path = directory.join("index");
+        Ok(Self {
+            directory,
+            index_path,
+            temporary_reference,
+        })
     }
 
-    fn environment(&self) -> Vec<(String, String)> {
-        vec![(
-            "GIT_INDEX_FILE".to_string(),
-            self.path.to_string_lossy().into_owned(),
-        )]
+    fn environment(&self, root: &str, common_directory: &Path) -> Vec<(String, String)> {
+        vec![
+            (
+                "GIT_DIR".to_string(),
+                self.directory.to_string_lossy().into_owned(),
+            ),
+            (
+                "GIT_COMMON_DIR".to_string(),
+                common_directory.to_string_lossy().into_owned(),
+            ),
+            ("GIT_WORK_TREE".to_string(), root.to_string()),
+            (
+                "GIT_INDEX_FILE".to_string(),
+                self.index_path.to_string_lossy().into_owned(),
+            ),
+        ]
+    }
+
+    fn cleanup_reference(&self, root: &str) -> Result<(), CoreError> {
+        let Some(reference) = self.temporary_reference.as_ref() else {
+            return Ok(());
+        };
+        let arguments = vec!["update-ref".into(), "-d".into(), reference.clone()];
+        let removed = capture_git_with_options(root, &arguments, None, false)?;
+        if removed.exit_code != 0 {
+            return Err(CoreError::new(
+                ErrorCode::ProcessFailed,
+                "Could not remove temporary Git reference",
+            )
+            .with_details(String::from_utf8_lossy(&removed.stderr)));
+        }
+        Ok(())
     }
 }
 
-impl Drop for TemporaryGitIndex {
+impl Drop for TemporaryGitCommitContext {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
-        let mut lock_path = self.path.as_os_str().to_os_string();
-        lock_path.push(".lock");
-        let _ = std::fs::remove_file(PathBuf::from(lock_path));
+        let _ = std::fs::remove_dir_all(&self.directory);
     }
 }
 
@@ -355,6 +459,9 @@ pub struct GitPushPreviewRequest {
     pub git_reference: Option<GitReferenceRequest>,
     #[serde(default = "default_push_preview_limit")]
     pub limit: usize,
+    /// Tag scope to resolve into an immutable preview: `none`, `all`, or `reachable`.
+    #[serde(default)]
+    pub push_tags: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -381,6 +488,10 @@ pub struct GitDiffRequest {
     pub staged: bool,
     #[serde(default)]
     pub untracked: bool,
+    /// Compare HEAD with the complete worktree state that a selected-path
+    /// commit would stage, independently of the real index.
+    #[serde(default)]
+    pub worktree_snapshot: bool,
     #[serde(default = "default_review_context_lines")]
     pub context_lines: usize,
     #[serde(default)]
@@ -535,28 +646,34 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
     match request.operation.as_str() {
         "stage" => {
             let paths = validate_paths(&request.paths)?;
-            arguments = ["add", "-A", "--"]
-                .into_iter()
-                .map(String::from)
-                .chain(paths)
-                .collect();
+            arguments = vec![
+                "add".into(),
+                "-A".into(),
+                "--pathspec-from-file=-".into(),
+                "--pathspec-file-nul".into(),
+            ];
+            return execute_git(&root, &arguments, Some(nul_pathspec_input(&paths)));
         }
         "unstage" => {
             let paths = validate_paths(&request.paths)?;
-            let restore_arguments = ["restore", "--staged", "--"]
-                .into_iter()
-                .map(String::from)
-                .chain(paths.clone())
-                .collect::<Vec<_>>();
-            let restore = execute_git(&root, &restore_arguments, None)?;
+            let pathspec_input = nul_pathspec_input(&paths);
+            let restore_arguments = vec![
+                "restore".into(),
+                "--staged".into(),
+                "--pathspec-from-file=-".into(),
+                "--pathspec-file-nul".into(),
+            ];
+            let restore = execute_git(&root, &restore_arguments, Some(pathspec_input.clone()))?;
             if restore.exit_code == 0 {
                 return Ok(restore);
             }
-            arguments = ["reset", "HEAD", "--"]
-                .into_iter()
-                .map(String::from)
-                .chain(paths)
-                .collect();
+            arguments = vec![
+                "reset".into(),
+                "HEAD".into(),
+                "--pathspec-from-file=-".into(),
+                "--pathspec-file-nul".into(),
+            ];
+            return execute_git(&root, &arguments, Some(pathspec_input));
         }
         "discard" => {
             let paths = validate_paths(&request.paths)?;
@@ -676,6 +793,29 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
                 vec!["branch".into(), "-m".into(), reference, name]
             };
         }
+        "setUpstream" => {
+            let branch = validated_branch_name(&root, request.name.as_deref())?;
+            let upstream = request
+                .git_reference
+                .as_ref()
+                .ok_or_else(invalid_git_reference)
+                .and_then(|reference| validated_git_reference(&root, reference))?;
+            if upstream.kind != "remote" {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "A branch upstream must be a remote Git reference",
+                ));
+            }
+            arguments = vec![
+                "branch".into(),
+                format!("--set-upstream-to={}", upstream.full_name),
+                branch,
+            ];
+        }
+        "unsetUpstream" => {
+            let branch = validated_branch_name(&root, request.name.as_deref())?;
+            arguments = vec!["branch".into(), "--unset-upstream".into(), branch];
+        }
         "deleteBranch" => {
             let reference = write_request_reference(&root, &request)?;
             let branch = local_branch_name(&reference)?;
@@ -708,6 +848,7 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
             arguments = vec!["rebase".into(), reference];
         }
         "checkoutAndRebase" => return mutations::checkout_and_rebase(&root, request),
+        "createWorktree" => return create_worktree(&root, &request),
         "fetch" => arguments = vec!["fetch".into(), "--all".into(), "--prune".into()],
         // Strategy comes from the caller because only the user can decide whether a
         // divergent history should be merged or replayed. Absent a choice we stay on
@@ -747,6 +888,9 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
             if let Some(reference) = explicit_reference {
                 let (remote, branch) = mutations::remote_branch_components(&root, &reference)?;
                 arguments.extend(["--".into(), remote, branch]);
+            }
+            if request.auto_stash {
+                return pull_with_auto_stash(&root, &arguments);
             }
         }
         "deleteRemoteBranch" => {
@@ -807,6 +951,14 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
             }
             if let Some(message) = request.message.filter(|value| !value.trim().is_empty()) {
                 arguments.extend(["-m".into(), message]);
+            }
+            if !request.paths.is_empty() {
+                let paths = validate_paths(&request.paths)?;
+                arguments.extend([
+                    "--pathspec-from-file=-".into(),
+                    "--pathspec-file-nul".into(),
+                ]);
+                return execute_git(&root, &arguments, Some(nul_pathspec_input(&paths)));
             }
         }
         "operationContinue" | "operationAbort" | "operationSkip" => {
@@ -1006,6 +1158,22 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
     }
 
     let root = validate_root(&request.root)?;
+    if request.worktree_snapshot {
+        if request.reference.is_some()
+            || request.empty_tree_base
+            || request.git_reference.is_some()
+            || request.target_git_reference.is_some()
+            || request.commit.is_some()
+            || request.staged
+            || request.untracked
+        {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Git worktree snapshot diff cannot combine other diff modes",
+            ));
+        }
+        return worktree_snapshot_diff(&root, &request);
+    }
     let reference = if request.empty_tree_base {
         if request.git_reference.is_some()
             || request.target_git_reference.is_some()
@@ -1039,7 +1207,7 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
         ));
     }
 
-    let include_untracked_with_reference = request.reference.is_some() && request.untracked;
+    let include_untracked_with_reference = reference.is_some() && request.untracked;
     let mut arguments = if let Some(commit) = request.commit {
         validate_revision(&commit)?;
         vec![
@@ -1081,48 +1249,159 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
     if request.untracked && !include_untracked_with_reference {
         arguments.push(null_device().to_string());
     }
-    arguments.extend(request.pathspecs);
+    arguments.extend(request.pathspecs.clone());
 
     let root = validate_root(&request.root)?;
     let mut output = capture_git_with_options(&root, &arguments, None, true)?;
     if include_untracked_with_reference {
-        let status = readonly_command(GitCommandRequest {
+        let untracked_paths = readonly_command(GitCommandRequest {
             root: root.clone(),
             arguments: vec![
-                "status".into(),
-                "--porcelain".into(),
-                "--untracked-files=all".into(),
-            ],
+                "ls-files".into(),
+                "--others".into(),
+                "--exclude-standard".into(),
+                "-z".into(),
+                "--".into(),
+            ]
+            .into_iter()
+            .chain(request.pathspecs.clone())
+            .collect(),
             input: None,
         })?;
-        if status.exit_code != 0 {
-            return Err(
-                CoreError::new(ErrorCode::ProcessFailed, "Git status failed")
-                    .with_details(status.output),
-            );
+        if untracked_paths.exit_code != 0 {
+            return Err(CoreError::new(
+                ErrorCode::ProcessFailed,
+                "Git untracked file lookup failed",
+            )
+            .with_details(untracked_paths.output));
         }
-        for line in status.output.lines().filter(|line| line.starts_with("?? ")) {
-            let path = line[3..].trim();
+        for path in untracked_paths.stdout.split('\0') {
             if path.is_empty() || !is_safe_pathspec(path) {
                 continue;
             }
-            let untracked = capture_git_with_options(
-                &root,
-                &[
-                    "diff".into(),
-                    "--no-ext-diff".into(),
-                    "--binary".into(),
-                    "--no-index".into(),
-                    "--".into(),
-                    null_device().into(),
-                    path.into(),
-                ],
-                None,
-                true,
-            )?;
+            let mut untracked_arguments = vec![
+                "diff".into(),
+                "--no-ext-diff".into(),
+                "--binary".into(),
+                "--no-index".into(),
+                format!("--unified={}", request.context_lines),
+            ];
+            if request.ignore_all_whitespace {
+                untracked_arguments.push("--ignore-all-space".into());
+            }
+            untracked_arguments.extend(["--".into(), null_device().into(), path.into()]);
+            let untracked = capture_git_with_options(&root, &untracked_arguments, None, true)?;
             output.stdout.extend(untracked.stdout);
             output.stderr.extend(untracked.stderr);
         }
+    }
+    Ok(structured_diff_from_output(output))
+}
+
+fn worktree_snapshot_diff(
+    root: &str,
+    request: &GitDiffRequest,
+) -> Result<GitDiffResponse, CoreError> {
+    let head = execute_git_readonly(
+        root,
+        &[
+            "rev-parse".into(),
+            "--verify".into(),
+            "--quiet".into(),
+            "HEAD".into(),
+        ],
+        None,
+    )?;
+    if head.exit_code > 1 {
+        return Err(
+            CoreError::new(ErrorCode::ProcessFailed, "Could not resolve Git HEAD")
+                .with_details(head.output),
+        );
+    }
+    let head = (head.exit_code == 0).then(|| head.stdout.trim().to_string());
+    let common_directory = git_resolved_path(
+        root,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        "Git common directory",
+    )?;
+    let temporary_context = TemporaryGitCommitContext::prepare(root, head.as_deref())?;
+    let environment = temporary_context.environment(root, &common_directory);
+    let initialize_arguments = if let Some(head) = head.as_ref() {
+        vec!["read-tree".to_string(), head.clone()]
+    } else {
+        vec!["read-tree".to_string(), "--empty".to_string()]
+    };
+    let initialized =
+        execute_git_with_environment(root, &initialize_arguments, None, true, &environment)?;
+    if initialized.exit_code != 0 {
+        return Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Could not prepare Git snapshot diff",
+        )
+        .with_details(initialized.output));
+    }
+
+    let mut arguments = vec![
+        "diff-files".to_string(),
+        "--no-ext-diff".to_string(),
+        "--binary".to_string(),
+        format!("--unified={}", request.context_lines),
+    ];
+    if request.ignore_all_whitespace {
+        arguments.push("--ignore-all-space".to_string());
+    }
+    arguments.push("--".to_string());
+    arguments.extend(request.pathspecs.clone());
+    let mut output = capture_git_with_environment(root, &arguments, None, true, &environment)?;
+    if output.exit_code != 0 {
+        return Err(
+            CoreError::new(ErrorCode::ProcessFailed, "Git snapshot diff failed")
+                .with_details(String::from_utf8_lossy(&output.stderr)),
+        );
+    }
+
+    let untracked_arguments = vec![
+        "ls-files".into(),
+        "--others".into(),
+        "--exclude-standard".into(),
+        "-z".into(),
+        "--".into(),
+    ]
+    .into_iter()
+    .chain(request.pathspecs.clone())
+    .collect::<Vec<_>>();
+    let untracked =
+        capture_git_with_environment(root, &untracked_arguments, None, true, &environment)?;
+    if untracked.exit_code != 0 {
+        return Err(
+            CoreError::new(ErrorCode::ProcessFailed, "Git snapshot file lookup failed")
+                .with_details(String::from_utf8_lossy(&untracked.stderr)),
+        );
+    }
+    for path in untracked
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter(|path| !path.is_empty())
+    {
+        let path = String::from_utf8_lossy(path).to_string();
+        if !is_safe_pathspec(&path) {
+            continue;
+        }
+        let mut untracked_arguments = vec![
+            "diff".into(),
+            "--no-ext-diff".into(),
+            "--binary".into(),
+            "--no-index".into(),
+            format!("--unified={}", request.context_lines),
+        ];
+        if request.ignore_all_whitespace {
+            untracked_arguments.push("--ignore-all-space".into());
+        }
+        untracked_arguments.extend(["--".into(), null_device().into(), path]);
+        let added =
+            capture_git_with_environment(root, &untracked_arguments, None, true, &environment)?;
+        output.stdout.extend(added.stdout);
+        output.stderr.extend(added.stderr);
     }
     Ok(structured_diff_from_output(output))
 }
@@ -1779,11 +2058,29 @@ fn commit_selected_paths(
     message: String,
     amend: bool,
 ) -> Result<GitCommandResponse, CoreError> {
-    // Hooks and signers see the selected snapshot without exposing preparation
-    // changes to the user's real index on any failure path.
-    let temporary_index = TemporaryGitIndex::prepare(root)?;
-    let environment = temporary_index.environment();
-    let pathspec_input = nul_pathspec_input(&paths);
+    let operation = operation_state(GitOperationStateRequest {
+        root: root.to_string(),
+    })?;
+    if !operation.kind.is_empty() {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Finish or abort the current Git operation before committing selected files",
+        ));
+    }
+
+    let branch = execute_git_readonly(
+        root,
+        &["symbolic-ref".into(), "--quiet".into(), "HEAD".into()],
+        None,
+    )?;
+    let branch_reference = branch.stdout.trim();
+    if branch.exit_code != 0 || !branch_reference.starts_with("refs/heads/") {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Selected files can only be committed on a local branch",
+        ));
+    }
+
     let head = execute_git_readonly(
         root,
         &[
@@ -1797,8 +2094,27 @@ fn commit_selected_paths(
     if head.exit_code > 1 {
         return Ok(head);
     }
-    let initialize_arguments = if head.exit_code == 0 {
-        vec!["read-tree".to_string(), head.stdout.trim().to_string()]
+    let original_head = (head.exit_code == 0).then(|| head.stdout.trim().to_string());
+    if amend && original_head.is_none() {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "An initial commit cannot be amended",
+        ));
+    }
+
+    // Git's own commit command still runs hooks and signing, but its HEAD and
+    // index live in an isolated administration directory. The reviewed branch
+    // is updated only after the resulting snapshot passes validation.
+    let common_directory = git_resolved_path(
+        root,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        "Git common directory",
+    )?;
+    let temporary_context = TemporaryGitCommitContext::prepare(root, original_head.as_deref())?;
+    let environment = temporary_context.environment(root, &common_directory);
+    let pathspec_input = nul_pathspec_input(&paths);
+    let initialize_arguments = if let Some(head) = original_head.as_ref() {
+        vec!["read-tree".to_string(), head.clone()]
     } else {
         vec!["read-tree".to_string(), "--empty".to_string()]
     };
@@ -1824,6 +2140,8 @@ fn commit_selected_paths(
         return Ok(staged);
     }
 
+    let allowed_paths = staged_changed_paths(root, &environment)?;
+
     let marker_paths = staged_conflict_marker_paths_with_environment(root, &environment, true)?;
     if !marker_paths.is_empty() {
         return Err(CoreError::new(
@@ -1843,9 +2161,60 @@ fn commit_selected_paths(
         return Ok(committed);
     }
 
+    let committed_head = execute_git_with_environment(
+        root,
+        &["rev-parse".into(), "--verify".into(), "HEAD".into()],
+        None,
+        true,
+        &environment,
+    )?;
+    if committed_head.exit_code != 0 {
+        let _ = temporary_context.cleanup_reference(root);
+        return Ok(committed_head);
+    }
+    let committed_head = committed_head.stdout.trim().to_string();
+    let committed_paths = commit_changed_paths(root, original_head.as_deref(), &committed_head)?;
+    let unexpected_paths = committed_paths
+        .difference(&allowed_paths)
+        .cloned()
+        .collect::<Vec<_>>();
+    if !unexpected_paths.is_empty() {
+        let _ = temporary_context.cleanup_reference(root);
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "A Git hook added files outside the selected commit",
+        )
+        .with_details(unexpected_paths.join(", ")));
+    }
+
+    let expected_old = match original_head.as_ref() {
+        Some(head) => head.clone(),
+        None => null_object_id(root)?,
+    };
+    let updated = execute_git(
+        root,
+        &[
+            "update-ref".into(),
+            "-m".into(),
+            if amend {
+                "commit (amend): selected files".into()
+            } else {
+                "commit: selected files".into()
+            },
+            branch_reference.to_string(),
+            committed_head,
+            expected_old,
+        ],
+        None,
+    )?;
+    if updated.exit_code != 0 {
+        let _ = temporary_context.cleanup_reference(root);
+        return Ok(updated);
+    }
+
     // Reconcile only committed paths in the real index. Unrelated staging that
     // another Git process created while hooks ran remains intact.
-    execute_git(
+    let mut reconciled = execute_git(
         root,
         &[
             "reset".to_string(),
@@ -1855,7 +2224,111 @@ fn commit_selected_paths(
             "--pathspec-file-nul".to_string(),
         ],
         Some(pathspec_input),
-    )
+    )?;
+    if reconciled.exit_code != 0 {
+        reconciled.warnings.push(GitOperationWarning::new(
+            "git_index_reconcile_failed",
+            "The commit succeeded, but the Git index could not be reconciled",
+            Some(reconciled.output.clone()),
+        ));
+        reconciled.exit_code = 0;
+    }
+    if let Err(error) = temporary_context.cleanup_reference(root) {
+        reconciled.warnings.push(GitOperationWarning::new(
+            "git_temporary_reference_cleanup_failed",
+            "The commit succeeded, but its temporary Git reference could not be removed",
+            error.details,
+        ));
+    }
+    Ok(reconciled)
+}
+
+fn staged_changed_paths(
+    root: &str,
+    environment: &[(String, String)],
+) -> Result<HashSet<String>, CoreError> {
+    let changed = execute_git_with_environment(
+        root,
+        &[
+            "diff".into(),
+            "--cached".into(),
+            "--name-only".into(),
+            "-z".into(),
+        ],
+        None,
+        true,
+        environment,
+    )?;
+    if changed.exit_code != 0 {
+        return Err(
+            CoreError::new(ErrorCode::ProcessFailed, "Git staged diff failed")
+                .with_details(changed.output),
+        );
+    }
+    Ok(changed
+        .stdout
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
+fn commit_changed_paths(
+    root: &str,
+    original_head: Option<&str>,
+    committed_head: &str,
+) -> Result<HashSet<String>, CoreError> {
+    let arguments = if let Some(original_head) = original_head {
+        vec![
+            "diff".into(),
+            "--name-only".into(),
+            "-z".into(),
+            original_head.into(),
+            committed_head.into(),
+        ]
+    } else {
+        vec![
+            "diff-tree".into(),
+            "--root".into(),
+            "--no-commit-id".into(),
+            "--name-only".into(),
+            "-z".into(),
+            committed_head.into(),
+        ]
+    };
+    let changed = execute_git_readonly(root, &arguments, None)?;
+    if changed.exit_code != 0 {
+        return Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Could not validate the selected commit",
+        )
+        .with_details(changed.output));
+    }
+    Ok(changed
+        .stdout
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
+fn null_object_id(root: &str) -> Result<String, CoreError> {
+    let format = execute_git_readonly(
+        root,
+        &["rev-parse".into(), "--show-object-format".into()],
+        None,
+    )?;
+    if format.exit_code != 0 {
+        return Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Could not determine Git object format",
+        )
+        .with_details(format.output));
+    }
+    Ok(match format.stdout.trim() {
+        "sha256" => "0".repeat(64),
+        _ => "0".repeat(40),
+    })
 }
 
 /// How an operation decides whether a dirty working tree is in its way.
@@ -2696,6 +3169,7 @@ fn successful_git_result() -> GitCommandResponse {
         invocations: Vec::new(),
         operation_error: None,
         stash_restore: None,
+        warnings: Vec::new(),
     }
 }
 
@@ -2703,6 +3177,8 @@ fn successful_git_result() -> GitCommandResponse {
 /// an editor or losing author and committer attribution.
 #[derive(Clone)]
 struct RewriteCommit {
+    /// Original commit object used to derive the patch during history replay.
+    hash: String,
     tree: String,
     parents: Vec<String>,
     author_name: String,
@@ -2765,26 +3241,41 @@ fn delete_commit(root: &str, revision: &str) -> Result<GitCommandResponse, CoreE
         )
     })?;
 
-    if target == context.original_head {
-        return execute_git(
+    let mut rewritten_head = parent.clone();
+    for commit in commits.iter().skip(1) {
+        let mut replayed_commit = commit.clone();
+        replayed_commit.tree = replay_commit_tree(root, commit, &rewritten_head)?;
+        rewritten_head = write_commit_tree(
             root,
-            &["reset".into(), "--hard".into(), parent.clone()],
-            None,
-        );
+            &replayed_commit,
+            Some(&rewritten_head),
+            &commit.message,
+        )?;
     }
 
-    execute_git(
+    let updated =
+        update_history_reference(root, &context, &rewritten_head, "lithe: delete commit")?;
+    if updated.exit_code != 0 {
+        return Ok(updated);
+    }
+
+    // The branch move is CAS-protected above. A merge reset refreshes the clean
+    // index and worktree but refuses to overwrite edits created concurrently
+    // after the initial clean-tree check.
+    let mut refreshed = execute_git(
         root,
-        &[
-            "-c".into(),
-            "core.editor=true".into(),
-            "rebase".into(),
-            "--onto".into(),
-            parent.clone(),
-            target,
-        ],
+        &["reset".into(), "--merge".into(), "HEAD".into()],
         None,
-    )
+    )?;
+    if refreshed.exit_code != 0 {
+        refreshed.warnings.push(GitOperationWarning::new(
+            "git_worktree_refresh_failed",
+            "The commit was deleted, but the working tree could not be refreshed",
+            Some(refreshed.output.clone()),
+        ));
+        refreshed.exit_code = 0;
+    }
+    Ok(refreshed)
 }
 
 fn squash_commits(
@@ -3059,6 +3550,7 @@ fn read_rewrite_commit(root: &str, hash: &str) -> Result<RewriteCommit, CoreErro
         ));
     }
     Ok(RewriteCommit {
+        hash: hash.to_string(),
         tree: fields[0].to_string(),
         parents: fields[1].split_whitespace().map(String::from).collect(),
         author_name: fields[2].to_string(),
@@ -3069,6 +3561,100 @@ fn read_rewrite_commit(root: &str, hash: &str) -> Result<RewriteCommit, CoreErro
         committer_date: fields[7].to_string(),
         message: fields[8].to_string(),
     })
+}
+
+fn replay_commit_tree(
+    root: &str,
+    commit: &RewriteCommit,
+    rewritten_parent: &str,
+) -> Result<String, CoreError> {
+    let original_parent = commit.parents.first().ok_or_else(|| {
+        CoreError::new(
+            ErrorCode::InvalidRequest,
+            "A root commit cannot be replayed after deleting its parent",
+        )
+    })?;
+    let patch_arguments = vec![
+        "diff-tree".to_string(),
+        "--binary".to_string(),
+        "--full-index".to_string(),
+        "--no-ext-diff".to_string(),
+        "--no-renames".to_string(),
+        "--no-commit-id".to_string(),
+        "-p".to_string(),
+        original_parent.clone(),
+        commit.hash.clone(),
+    ];
+    let patch = execute_git_readonly(root, &patch_arguments, None)?;
+    if patch.exit_code != 0 {
+        return Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Could not read changes after the deleted commit",
+        )
+        .with_details(patch.output));
+    }
+
+    let common_directory = git_resolved_path(
+        root,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        "Git common directory",
+    )?;
+    let temporary_context = TemporaryGitCommitContext::prepare(root, Some(rewritten_parent))?;
+    let environment = temporary_context.environment(root, &common_directory);
+    let initialized = execute_git_with_environment(
+        root,
+        &["read-tree".to_string(), rewritten_parent.to_string()],
+        None,
+        false,
+        &environment,
+    )?;
+    if initialized.exit_code != 0 {
+        return Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Could not initialize history replay",
+        )
+        .with_details(initialized.output));
+    }
+
+    if !patch.stdout.is_empty() {
+        let applied = execute_git_with_environment(
+            root,
+            &[
+                "apply".to_string(),
+                "--cached".to_string(),
+                "--whitespace=nowarn".to_string(),
+                "-".to_string(),
+            ],
+            Some(patch.stdout),
+            false,
+            &environment,
+        )?;
+        if applied.exit_code != 0 {
+            return Err(CoreError::new(
+                ErrorCode::ProcessFailed,
+                "Could not replay changes after the deleted commit",
+            )
+            .with_details(applied.output));
+        }
+    }
+
+    let tree =
+        execute_git_with_environment(root, &["write-tree".to_string()], None, false, &environment)?;
+    if tree.exit_code != 0 {
+        return Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Could not write replayed Git tree",
+        )
+        .with_details(tree.output));
+    }
+    let tree_hash = tree.stdout.trim();
+    if tree_hash.is_empty() {
+        return Err(CoreError::new(
+            ErrorCode::ParseFailed,
+            "Git did not return a replayed tree identifier",
+        ));
+    }
+    Ok(tree_hash.to_string())
 }
 
 fn write_commit_tree(
@@ -3251,6 +3837,7 @@ fn failed_git_result(error: CoreError) -> GitCommandResponse {
         invocations: Vec::new(),
         operation_error: Some(error),
         stash_restore: None,
+        warnings: Vec::new(),
     }
 }
 
@@ -3352,6 +3939,133 @@ fn apply_stash(root: &str, reference: &str) -> Result<GitCommandResponse, CoreEr
     Ok(result)
 }
 
+fn pull_with_auto_stash(
+    root: &str,
+    pull_arguments: &[String],
+) -> Result<GitCommandResponse, CoreError> {
+    let status = execute_git_readonly(
+        root,
+        &[
+            "status".into(),
+            "--porcelain=v1".into(),
+            "-z".into(),
+            "--untracked-files=all".into(),
+        ],
+        None,
+    )?;
+    if status.exit_code != 0 {
+        return Ok(status);
+    }
+    if status.stdout.is_empty() {
+        return execute_git(root, pull_arguments, None);
+    }
+
+    let stash_marker = format!(
+        "lithe: auto-stash before pull:{}:{}",
+        std::process::id(),
+        AUTO_STASH_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    );
+    let stashed = execute_git(
+        root,
+        &[
+            "stash".into(),
+            "push".into(),
+            "--include-untracked".into(),
+            "--message".into(),
+            stash_marker.clone(),
+        ],
+        None,
+    )?;
+    if stashed.exit_code != 0 {
+        return Ok(stashed);
+    }
+    let stash_oid = find_stash_oid_by_message(root, &stash_marker)?.ok_or_else(|| {
+        CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Pull created a temporary stash but could not identify it",
+        )
+    })?;
+
+    let pulled = execute_git(root, pull_arguments, None)?;
+    if pulled.exit_code != 0 {
+        return Ok(pulled);
+    }
+
+    let mut restored = execute_git(
+        root,
+        &["stash".into(), "apply".into(), stash_oid.clone()],
+        None,
+    )?;
+    let conflicted_paths = conflicted_paths(root)?;
+    let stash_reference = stash_reference_for_oid(root, &stash_oid)?;
+    if restored.exit_code != 0 || !conflicted_paths.is_empty() {
+        restored.exit_code = 1;
+        restored.stash_restore = Some(GitStashRestoreResponse {
+            stash_reference: stash_reference.unwrap_or(stash_oid),
+            conflicted_paths,
+        });
+        return Ok(restored);
+    }
+
+    let Some(stash_reference) = stash_reference else {
+        restored.warnings.push(GitOperationWarning::new(
+            "git_stash_drop_failed",
+            "The pull and stash restore succeeded, but the saved stash could not be located for removal",
+            None,
+        ));
+        return Ok(restored);
+    };
+    let dropped = execute_git(
+        root,
+        &["stash".into(), "drop".into(), stash_reference],
+        None,
+    )?;
+    if dropped.exit_code != 0 {
+        restored.warnings.push(GitOperationWarning::new(
+            "git_stash_drop_failed",
+            "The pull and stash restore succeeded, but the saved stash could not be removed",
+            Some(dropped.output),
+        ));
+    }
+    Ok(restored)
+}
+
+fn find_stash_oid_by_message(root: &str, message: &str) -> Result<Option<String>, CoreError> {
+    let list = execute_git_readonly(
+        root,
+        &["stash".into(), "list".into(), "--format=%H%x09%gs".into()],
+        None,
+    )?;
+    if list.exit_code != 0 {
+        return Err(
+            CoreError::new(ErrorCode::ProcessFailed, "Could not inspect Git stashes")
+                .with_details(list.output),
+        );
+    }
+    Ok(list.stdout.lines().find_map(|line| {
+        let (oid, subject) = line.split_once('\t')?;
+        subject.contains(message).then(|| oid.to_string())
+    }))
+}
+
+fn stash_reference_for_oid(root: &str, oid: &str) -> Result<Option<String>, CoreError> {
+    let list = execute_git_readonly(
+        root,
+        &["stash".into(), "list".into(), "--format=%gd%x09%H".into()],
+        None,
+    )?;
+    if list.exit_code != 0 {
+        return Err(
+            CoreError::new(ErrorCode::ProcessFailed, "Could not inspect Git stashes")
+                .with_details(list.output),
+        );
+    }
+    Ok(list.stdout.lines().find_map(|line| {
+        let (reference, commit) = line.split_once('\t')?;
+        (commit == oid).then(|| reference.to_string())
+    }))
+}
+
 fn conflicted_paths(root: &str) -> Result<Vec<String>, CoreError> {
     let response = execute_git(
         root,
@@ -3442,6 +4156,11 @@ pub fn push_preview(request: GitPushPreviewRequest) -> Result<GitPushPreviewResp
     let limit = request.limit.clamp(1, 5_000);
     let local_reference = format!("refs/heads/{}", target.local_branch);
     let local_head = resolve_commit_revision(&root, &local_reference)?;
+    let tags = resolve_push_tags(
+        &root,
+        request.push_tags.as_deref().unwrap_or("none"),
+        &local_head,
+    )?;
     let remote_tracking_oid = target
         .comparison_reference
         .as_deref()
@@ -3468,6 +4187,7 @@ pub fn push_preview(request: GitPushPreviewRequest) -> Result<GitPushPreviewResp
         remote_branch: target.remote_branch,
         remote_tracking_oid,
         upstream: target.upstream,
+        tags,
         commits,
         has_more,
     })
@@ -3480,7 +4200,8 @@ fn push(
     push_tags: Option<&str>,
     expected_push: Option<&GitPushExpectationRequest>,
 ) -> Result<GitCommandResponse, CoreError> {
-    let tag_argument = match push_tags.unwrap_or("none") {
+    let tag_scope = push_tags.unwrap_or("none");
+    let tag_argument = match tag_scope {
         "none" => None,
         "all" => Some("--tags"),
         "reachable" => Some("--follow-tags"),
@@ -3494,7 +4215,7 @@ fn push(
     let target = resolve_push_target(root, reference)?;
     let should_set_upstream = target.upstream.is_none();
     if let Some(expected_push) = expected_push {
-        validate_push_expectation(root, &target, expected_push)?;
+        validate_push_expectation(root, &target, tag_scope, expected_push)?;
     }
     let mut arguments = vec!["push".to_string()];
     if force {
@@ -3508,8 +4229,10 @@ fn push(
             None => "--force-with-lease".into(),
         });
     }
-    if let Some(tag_argument) = tag_argument {
-        arguments.push(tag_argument.into());
+    if expected_push.is_none() {
+        if let Some(tag_argument) = tag_argument {
+            arguments.push(tag_argument.into());
+        }
     }
     if should_set_upstream && expected_push.is_none() {
         arguments.push("--set-upstream".into());
@@ -3524,20 +4247,113 @@ fn push(
         remote.clone(),
         format!("{source}:refs/heads/{remote_branch}"),
     ]);
+    if let Some(expected) = expected_push {
+        arguments.extend(
+            expected
+                .tags
+                .iter()
+                .map(|tag| format!("{}:{}", tag.object_id, tag.full_name)),
+        );
+    }
     let pushed = execute_git(root, &arguments, None)?;
     if pushed.exit_code != 0 || !should_set_upstream || expected_push.is_none() {
         return Ok(pushed);
     }
 
-    execute_git(
+    if let Some(configuration) =
+        configure_branch_upstream(root, &local_branch, &remote, &remote_branch)?
+    {
+        return Ok(push_with_upstream_warning(pushed, configuration));
+    }
+    Ok(pushed)
+}
+
+fn push_with_upstream_warning(
+    mut pushed: GitCommandResponse,
+    configuration: GitCommandResponse,
+) -> GitCommandResponse {
+    pushed.warnings.push(GitOperationWarning::new(
+        "git_upstream_configuration_failed",
+        "The push succeeded, but the branch upstream could not be configured",
+        Some(configuration.output),
+    ));
+    pushed
+}
+
+fn create_worktree(root: &str, request: &GitWriteRequest) -> Result<GitCommandResponse, CoreError> {
+    let branch = validated_branch_name(root, request.name.as_deref())?;
+    let destination = required_text(request.destination.as_deref(), "worktree destination")?;
+    if destination.starts_with('-') || destination.contains(['\0', '\n', '\r']) {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Invalid Git worktree destination",
+        ));
+    }
+    let reference = request
+        .git_reference
+        .as_ref()
+        .ok_or_else(invalid_git_reference)
+        .and_then(|reference| validated_git_reference(root, reference))?;
+    let mut created = execute_git(
         root,
         &[
-            "branch".to_string(),
-            format!("--set-upstream-to={remote}/{remote_branch}"),
-            local_branch,
+            "worktree".into(),
+            "add".into(),
+            "-b".into(),
+            branch.clone(),
+            "--".into(),
+            destination,
+            reference.full_name.clone(),
         ],
         None,
-    )
+    )?;
+    if created.exit_code != 0 || reference.kind != "remote" {
+        return Ok(created);
+    }
+    let (remote, remote_branch) = mutations::remote_branch_components(root, &reference.full_name)?;
+    if let Some(configuration) = configure_branch_upstream(root, &branch, &remote, &remote_branch)?
+    {
+        created.warnings.push(GitOperationWarning::new(
+            "git_worktree_upstream_configuration_failed",
+            "The worktree was created, but its branch upstream could not be configured",
+            Some(configuration.output),
+        ));
+    }
+    Ok(created)
+}
+
+fn configure_branch_upstream(
+    root: &str,
+    local_branch: &str,
+    remote: &str,
+    remote_branch: &str,
+) -> Result<Option<GitCommandResponse>, CoreError> {
+    let remote_config = execute_git(
+        root,
+        &[
+            "config".to_string(),
+            "--local".to_string(),
+            "--replace-all".to_string(),
+            format!("branch.{local_branch}.remote"),
+            remote.to_string(),
+        ],
+        None,
+    )?;
+    if remote_config.exit_code != 0 {
+        return Ok(Some(remote_config));
+    }
+    let merge_config = execute_git(
+        root,
+        &[
+            "config".to_string(),
+            "--local".to_string(),
+            "--replace-all".to_string(),
+            format!("branch.{local_branch}.merge"),
+            format!("refs/heads/{remote_branch}"),
+        ],
+        None,
+    )?;
+    Ok((merge_config.exit_code != 0).then_some(merge_config))
 }
 
 fn nul_pathspec_input(paths: &[String]) -> String {
@@ -3573,6 +4389,7 @@ fn empty_tree_oid(root: &str) -> Result<String, CoreError> {
 fn validate_push_expectation(
     root: &str,
     target: &PushTarget,
+    tag_scope: &str,
     expected: &GitPushExpectationRequest,
 ) -> Result<(), CoreError> {
     let local_reference = format!("refs/heads/{}", target.local_branch);
@@ -3582,11 +4399,22 @@ fn validate_push_expectation(
         .as_deref()
         .map(|reference| resolve_commit_revision(root, reference))
         .transpose()?;
+    let tags = resolve_push_tags(root, tag_scope, &local_head)?;
+    let expected_tags = expected
+        .tags
+        .iter()
+        .map(|tag| (&tag.full_name, &tag.object_id))
+        .collect::<Vec<_>>();
+    let actual_tags = tags
+        .iter()
+        .map(|tag| (&tag.full_name, &tag.object_id))
+        .collect::<Vec<_>>();
     if expected.local_branch != target.local_branch
         || expected.local_head != local_head
         || expected.remote != target.remote
         || expected.remote_branch != target.remote_branch
         || expected.remote_tracking_oid != remote_tracking_oid
+        || expected_tags != actual_tags
     {
         return Err(CoreError::new(
             ErrorCode::InvalidRequest,
@@ -3594,6 +4422,79 @@ fn validate_push_expectation(
         ));
     }
     Ok(())
+}
+
+fn resolve_push_tags(
+    root: &str,
+    scope: &str,
+    local_head: &str,
+) -> Result<Vec<GitPushTagResponse>, CoreError> {
+    if scope == "none" {
+        return Ok(Vec::new());
+    }
+    if !matches!(scope, "all" | "reachable") {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Unsupported Git push tag scope",
+        ));
+    }
+    let listed = execute_git_readonly(
+        root,
+        &[
+            "for-each-ref".into(),
+            "--sort=refname".into(),
+            "--format=%(refname)%09%(objectname)%09%(objecttype)%09%(*objectname)".into(),
+            "refs/tags".into(),
+        ],
+        None,
+    )?;
+    if listed.exit_code != 0 {
+        return Err(
+            CoreError::new(ErrorCode::ProcessFailed, "Could not inspect Git tags")
+                .with_details(listed.output),
+        );
+    }
+
+    let mut tags = Vec::new();
+    for line in listed.stdout.lines() {
+        let columns = line.split('\t').collect::<Vec<_>>();
+        if columns.len() != 4 || !columns[0].starts_with("refs/tags/") || columns[1].is_empty() {
+            return Err(CoreError::new(
+                ErrorCode::ParseFailed,
+                "Could not decode Git tag metadata",
+            ));
+        }
+        if scope == "reachable" {
+            if columns[2] != "tag" || columns[3].is_empty() {
+                continue;
+            }
+            let reachable = execute_git_readonly(
+                root,
+                &[
+                    "merge-base".into(),
+                    "--is-ancestor".into(),
+                    columns[3].into(),
+                    local_head.into(),
+                ],
+                None,
+            )?;
+            if reachable.exit_code == 1 {
+                continue;
+            }
+            if reachable.exit_code != 0 {
+                return Err(CoreError::new(
+                    ErrorCode::ProcessFailed,
+                    "Could not inspect Git tag reachability",
+                )
+                .with_details(reachable.output));
+            }
+        }
+        tags.push(GitPushTagResponse {
+            full_name: columns[0].to_string(),
+            object_id: columns[1].to_string(),
+        });
+    }
+    Ok(tags)
 }
 
 fn resolve_push_target(root: &str, reference: Option<&str>) -> Result<PushTarget, CoreError> {
@@ -3968,6 +4869,12 @@ fn parse_reference(line: &str) -> Option<ParsedGitReference> {
     } else {
         "tag"
     };
+    let short_name = match kind {
+        "local" => columns[0].strip_prefix("refs/heads/"),
+        "remote" => columns[0].strip_prefix("refs/remotes/"),
+        "tag" => columns[0].strip_prefix("refs/tags/"),
+        _ => None,
+    }?;
     let upstream_short_name = (!columns[3].is_empty()).then(|| columns[3].to_string());
     let (ahead, behind) = if kind == "local" && upstream_short_name.is_some() {
         parse_ahead_behind_counts(columns.get(5).copied().unwrap_or_default())
@@ -3977,7 +4884,10 @@ fn parse_reference(line: &str) -> Option<ParsedGitReference> {
     Some(ParsedGitReference {
         response: GitReferenceResponse {
             full_name: columns[0].to_string(),
-            short_name: columns[1].to_string(),
+            // `%(refname:short)` deliberately adds `heads/` or `tags/` when
+            // namespaces collide. The typed contract keeps identity in
+            // `fullName` and always exposes the namespace-relative short name.
+            short_name: short_name.to_string(),
             kind: kind.to_string(),
             is_current: columns[2].trim() == "*",
             upstream_short_name,
@@ -4711,6 +5621,12 @@ fn parse_status(output: &[u8]) -> Vec<GitChange> {
         }
         let x = bytes[0] as char;
         let y = bytes[1] as char;
+        // The commit checkbox represents the final worktree snapshot. A path
+        // added only to the index and then deleted is identical to HEAD.
+        if x == 'A' && y == 'D' {
+            index += 1;
+            continue;
+        }
         let path = record[3..].to_string();
         let mut original_path = None;
         if (matches!(x, 'R' | 'C') || matches!(y, 'R' | 'C')) && index + 1 < records.len() {
@@ -4752,7 +5668,7 @@ mod tests {
     };
     use crate::protocol::{
         CoreError, ErrorCode, GitCommitResponse, GitHistoryResponse, GitPushPreviewResponse,
-        GitReferenceResponse,
+        GitPushTagResponse, GitReferenceResponse,
     };
     use serde_json::Value;
 
@@ -4807,6 +5723,7 @@ mod tests {
             ],
             operation_error: None,
             stash_restore: None,
+            warnings: Vec::new(),
         };
 
         super::synchronize_final_invocation(&mut response);
@@ -4985,6 +5902,7 @@ mod tests {
             ],
             operation_error: None,
             stash_restore: None,
+            warnings: Vec::new(),
         };
 
         assert_eq!(
@@ -5056,6 +5974,10 @@ mod tests {
             remote_branch: "feature/core".into(),
             remote_tracking_oid: Some("1111111111111111111111111111111111111111".into()),
             upstream: Some("origin/feature/core".into()),
+            tags: vec![GitPushTagResponse {
+                full_name: "refs/tags/v1.0.0".into(),
+                object_id: "3333333333333333333333333333333333333333".into(),
+            }],
             commits: vec![GitCommitResponse {
                 hash: "2222222222222222222222222222222222222222".into(),
                 short_hash: "2222222".into(),
@@ -5111,6 +6033,7 @@ mod tests {
                 "Invalid Git reference",
             )),
             stash_restore: None,
+            warnings: Vec::new(),
         };
 
         assert_eq!(

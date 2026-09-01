@@ -30,7 +30,10 @@ struct RustGitOperations: GitOperations, Sendable {
                     stashReference: $0.stashReference,
                     conflictedPaths: $0.conflictedPaths
                 )
-            }
+            },
+            warnings: response.warnings?.map {
+                GitOperationWarning(code: $0.code, message: $0.message, details: $0.details)
+            } ?? []
         )
     }
 

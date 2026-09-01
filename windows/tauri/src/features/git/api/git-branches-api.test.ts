@@ -105,15 +105,28 @@ describe("Git branch reference mutations", () => {
   });
 
   test("sets and unsets the selected branch upstream", async () => {
-    await setBranchUpstream("C:/repo", "main", "origin/main");
+    const upstream = {
+      fullName: "refs/remotes/origin/main",
+      shortName: "origin/main",
+      kind: "remote" as const,
+      isCurrent: false,
+    };
+    await setBranchUpstream("C:/repo", "main", upstream);
     await unsetBranchUpstream("C:/repo", "main");
-    expect(invoke).toHaveBeenCalledWith("git.command", {
+    expect(invoke).toHaveBeenCalledWith("git.write", {
       repoPath: "C:/repo",
-      arguments: ["branch", "--set-upstream-to", "origin/main", "main"],
+      operation: "setUpstream",
+      name: "main",
+      gitReference: {
+        fullName: upstream.fullName,
+        shortName: upstream.shortName,
+        kind: upstream.kind,
+      },
     });
-    expect(invoke).toHaveBeenCalledWith("git.command", {
+    expect(invoke).toHaveBeenCalledWith("git.write", {
       repoPath: "C:/repo",
-      arguments: ["branch", "--unset-upstream", "main"],
+      operation: "unsetUpstream",
+      name: "main",
     });
   });
 });

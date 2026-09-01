@@ -2,6 +2,7 @@ import { invoke as tauriInvoke } from "@/platform/tauri-core";
 import { emitGitChanged } from "../events/git-events";
 import type {
   GitCommit,
+  GitOperationWarning,
   GitPushExpectation,
   GitPushPreview,
   GitPushTagScope,
@@ -53,11 +54,13 @@ const toGitCommit = (commit: CoreGitCommit): GitCommit => ({
 export const getGitPushPreview = async (
   repoPath: string,
   reference?: GitReferenceInput,
+  pushTags: GitPushTagScope = "none",
 ): Promise<GitPushPreview> => {
   const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
   const preview = await tauriInvoke<CoreGitPushPreview>("git.pushPreview", {
     repoPath: resolvedRepoPath,
     ...pushReferencePayload(reference),
+    pushTags,
   });
   return {
     ...preview,
@@ -68,9 +71,9 @@ export const getGitPushPreview = async (
 export const executeGitPush = async (
   repoPath: string,
   options: GitPushOptions = {},
-): Promise<void> => {
+): Promise<GitOperationWarning[]> => {
   const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
-  await tauriInvoke("git.write", {
+  const result = await tauriInvoke<{ warnings?: GitOperationWarning[] } | null>("git.write", {
     repoPath: resolvedRepoPath,
     operation: "push",
     ...pushReferencePayload(options.reference),
@@ -83,4 +86,5 @@ export const executeGitPush = async (
     scopes: ["history", "refs", "remotes"],
     source: options.force ? "force-push" : "push",
   });
+  return result?.warnings ?? [];
 };

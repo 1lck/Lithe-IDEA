@@ -20,7 +20,10 @@ const commitDiffCache = new Map<string, MultiFileDiffCacheEntry>();
 const stashDiffCache = new Map<string, MultiFileDiffCacheEntry>();
 const refDiffCache = new Map<string, MultiFileDiffCacheEntry>();
 const inFlightFileDiffRequests = new Map<string, Promise<GitDiff | null>>();
-const inFlightStatusDiffStatsRequests = new Map<string, Promise<GitDiffStat[]>>();
+const inFlightStatusDiffStatsRequests = new Map<
+  string,
+  Promise<GitDiffStat[]>
+>();
 const repositoryCacheGenerations = new Map<string, number>();
 
 const getRepositoryCacheGeneration = (repoPath: string): number => {
@@ -68,7 +71,10 @@ const setMultiFileDiffCacheEntry = (
   });
 };
 
-export function invalidateGitDiffData(repoPath?: string, filePath?: string): void {
+export function invalidateGitDiffData(
+  repoPath?: string,
+  filePath?: string,
+): void {
   if (!repoPath) {
     if (filePath) {
       gitDiffCache.invalidateFile(filePath);
@@ -89,7 +95,10 @@ export function invalidateGitDiffData(repoPath?: string, filePath?: string): voi
     return;
   }
 
-  repositoryCacheGenerations.set(repoPath, getRepositoryCacheGeneration(repoPath) + 1);
+  repositoryCacheGenerations.set(
+    repoPath,
+    getRepositoryCacheGeneration(repoPath) + 1,
+  );
   gitDiffCache.invalidate(repoPath, filePath);
   if (filePath) {
     gitDiffCache.invalidateFile(filePath);
@@ -157,12 +166,22 @@ export const getFileDiff = async (
       return null;
     }
 
-    const cached = gitDiffCache.get(resolved.repoPath, resolved.filePath, staged, content);
+    const cached = gitDiffCache.get(
+      resolved.repoPath,
+      resolved.filePath,
+      staged,
+      content,
+    );
     if (cached) {
       return cached;
     }
 
-    const requestKey = getFileDiffRequestKey(resolved.repoPath, resolved.filePath, staged, content);
+    const requestKey = getFileDiffRequestKey(
+      resolved.repoPath,
+      resolved.filePath,
+      staged,
+      content,
+    );
     const existingRequest = inFlightFileDiffRequests.get(requestKey);
     if (existingRequest) {
       return existingRequest;
@@ -176,11 +195,23 @@ export const getFileDiff = async (
     })
       .then((diff) => {
         if (generation !== gitDiffCache.getGeneration(resolved.repoPath)) {
-          return getFileDiff(resolved.repoPath, resolved.filePath, staged, content);
+          return getFileDiff(
+            resolved.repoPath,
+            resolved.filePath,
+            staged,
+            content,
+          );
         }
 
         if (diff) {
-          gitDiffCache.set(resolved.repoPath, resolved.filePath, staged, diff, content, generation);
+          gitDiffCache.set(
+            resolved.repoPath,
+            resolved.filePath,
+            staged,
+            diff,
+            content,
+            generation,
+          );
         }
 
         return diff;
@@ -210,22 +241,26 @@ export const getFileDiff = async (
 export const getWorkingTreePathDiff = async (
   repoPath: string,
   filePath: string,
-  untracked = false,
+  _untracked = false,
+  originalPath?: string,
 ): Promise<GitDiff | null> => {
-  if (untracked) {
-    return getUntrackedFileDiff(repoPath, filePath);
-  }
-
   try {
     const resolved = await resolveRepositoryForFile(repoPath, filePath);
     if (!resolved) return null;
 
-    return await runGitRead(resolved.repoPath, `working-tree-path-diff:${resolved.filePath}`, () =>
-      tauriInvoke<GitDiff>("git_diff_file", {
-        repoPath: resolved.repoPath,
-        filePath: resolved.filePath,
-        reference: "HEAD",
-      }),
+    const filePaths = [
+      ...new Set([originalPath, resolved.filePath].filter(Boolean) as string[]),
+    ];
+    return await runGitRead(
+      resolved.repoPath,
+      `working-tree-path-diff:${resolved.filePath}`,
+      () =>
+        tauriInvoke<GitDiff>("git_diff_file", {
+          repoPath: resolved.repoPath,
+          filePath: resolved.filePath,
+          ...(filePaths.length > 1 ? { filePaths } : {}),
+          worktreeSnapshot: true,
+        }),
     );
   } catch (error) {
     if (!isNotGitRepositoryError(error) && !isNoDiffFoundError(error)) {
@@ -243,12 +278,15 @@ export const getUntrackedFileDiff = async (
     const resolved = await resolveRepositoryForFile(repoPath, filePath);
     if (!resolved) return null;
 
-    return await runGitRead(resolved.repoPath, `untracked-diff:${resolved.filePath}`, () =>
-      tauriInvoke<GitDiff>("git_diff_file", {
-        repoPath: resolved.repoPath,
-        filePath: resolved.filePath,
-        untracked: true,
-      }),
+    return await runGitRead(
+      resolved.repoPath,
+      `untracked-diff:${resolved.filePath}`,
+      () =>
+        tauriInvoke<GitDiff>("git_diff_file", {
+          repoPath: resolved.repoPath,
+          filePath: resolved.filePath,
+          untracked: true,
+        }),
     );
   } catch (error) {
     if (!isNotGitRepositoryError(error) && !isNoDiffFoundError(error)) {
@@ -258,14 +296,17 @@ export const getUntrackedFileDiff = async (
   }
 };
 
-export const getStatusDiffStats = async (repoPath: string): Promise<GitDiffStat[]> => {
+export const getStatusDiffStats = async (
+  repoPath: string,
+): Promise<GitDiffStat[]> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPath(repoPath);
     if (!resolvedRepoPath) {
       return [];
     }
 
-    const existingRequest = inFlightStatusDiffStatsRequests.get(resolvedRepoPath);
+    const existingRequest =
+      inFlightStatusDiffStatsRequests.get(resolvedRepoPath);
     if (existingRequest) {
       return existingRequest;
     }
@@ -325,11 +366,14 @@ export const getCommitDiff = async (
     }
 
     const generation = getRepositoryCacheGeneration(resolvedRepoPath);
-    const diffs = await runGitRead(resolvedRepoPath, `commit-diff:${commitHash}`, () =>
-      tauriInvoke<GitDiff[]>("git_commit_diff", {
-        repoPath: resolvedRepoPath,
-        commitHash,
-      }),
+    const diffs = await runGitRead(
+      resolvedRepoPath,
+      `commit-diff:${commitHash}`,
+      () =>
+        tauriInvoke<GitDiff[]>("git_commit_diff", {
+          repoPath: resolvedRepoPath,
+          commitHash,
+        }),
     );
     if (generation !== getRepositoryCacheGeneration(resolvedRepoPath)) {
       return getCommitDiff(resolvedRepoPath, commitHash);
@@ -362,12 +406,15 @@ export const getRefDiff = async (
     }
 
     const generation = getRepositoryCacheGeneration(resolvedRepoPath);
-    const diffs = await runGitRead(resolvedRepoPath, `ref-diff:${baseRef}:${targetRef}`, () =>
-      tauriInvoke<GitDiff[]>("git_ref_diff", {
-        repoPath: resolvedRepoPath,
-        baseRef,
-        targetRef,
-      }),
+    const diffs = await runGitRead(
+      resolvedRepoPath,
+      `ref-diff:${baseRef}:${targetRef}`,
+      () =>
+        tauriInvoke<GitDiff[]>("git_ref_diff", {
+          repoPath: resolvedRepoPath,
+          baseRef,
+          targetRef,
+        }),
     );
     if (generation !== getRepositoryCacheGeneration(resolvedRepoPath)) {
       return getRefDiff(resolvedRepoPath, baseRef, targetRef);
@@ -407,7 +454,11 @@ export const getTypedReferenceDiff = async (
         }),
     );
     if (generation !== getRepositoryCacheGeneration(resolvedRepoPath)) {
-      return getTypedReferenceDiff(resolvedRepoPath, baseReference, targetReference);
+      return getTypedReferenceDiff(
+        resolvedRepoPath,
+        baseReference,
+        targetReference,
+      );
     }
     setMultiFileDiffCacheEntry(refDiffCache, cacheKey, diffs);
     return diffs;
@@ -426,16 +477,23 @@ export const getWorkingTreeRefDiff = async (
   try {
     const resolvedRepoPath = await resolveRepositoryPath(repoPath);
     if (!resolvedRepoPath) return null;
-    const fullName = typeof reference === "string" ? reference : reference.fullName;
-    return await runGitRead(resolvedRepoPath, `working-tree-ref-diff:${fullName}`, () =>
-      tauriInvoke<GitDiff[]>("git_working_tree_ref_diff", {
-        repoPath: resolvedRepoPath,
-        ...referencePayload(reference),
-      }),
+    const fullName =
+      typeof reference === "string" ? reference : reference.fullName;
+    return await runGitRead(
+      resolvedRepoPath,
+      `working-tree-ref-diff:${fullName}`,
+      () =>
+        tauriInvoke<GitDiff[]>("git_working_tree_ref_diff", {
+          repoPath: resolvedRepoPath,
+          ...referencePayload(reference),
+        }),
     );
   } catch (error) {
     if (!isNotGitRepositoryError(error)) {
-      console.error("Failed to compare reference with the working tree:", error);
+      console.error(
+        "Failed to compare reference with the working tree:",
+        error,
+      );
     }
     return null;
   }
@@ -458,11 +516,14 @@ export const getStashDiff = async (
     }
 
     const generation = getRepositoryCacheGeneration(resolvedRepoPath);
-    const diffs = await runGitRead(resolvedRepoPath, `stash-diff:${stashIndex}`, () =>
-      tauriInvoke<GitDiff[]>("git_stash_diff", {
-        repoPath: resolvedRepoPath,
-        stashIndex,
-      }),
+    const diffs = await runGitRead(
+      resolvedRepoPath,
+      `stash-diff:${stashIndex}`,
+      () =>
+        tauriInvoke<GitDiff[]>("git_stash_diff", {
+          repoPath: resolvedRepoPath,
+          stashIndex,
+        }),
     );
     if (generation !== getRepositoryCacheGeneration(resolvedRepoPath)) {
       return getStashDiff(resolvedRepoPath, stashIndex);

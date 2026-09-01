@@ -1,5 +1,5 @@
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
-import type { GitWorktree } from "../types/git.types";
+import type { GitOperationWarning, GitReference, GitWorktree } from "../types/git.types";
 import { emitGitChanged } from "../events/git-events";
 import { runGitRead } from "../runtime/git-read-coordinator";
 import {
@@ -56,25 +56,29 @@ export const addWorktreeFromReference = async (
   repoPath: string,
   path: string,
   branchName: string,
-  reference: string,
-  upstreamShortName?: string,
-): Promise<void> => {
+  reference: GitReference,
+): Promise<GitOperationWarning[]> => {
   const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
-  await tauriInvoke("git.command", {
-    repoPath: resolvedRepoPath,
-    arguments: ["worktree", "add", "-b", branchName, "--", path, reference],
-  });
-  if (upstreamShortName) {
-    await tauriInvoke("git.command", {
+  try {
+    const result = await tauriInvoke<{ warnings?: GitOperationWarning[] } | null>("git.write", {
       repoPath: resolvedRepoPath,
-      arguments: ["branch", "--set-upstream-to", upstreamShortName, branchName],
+      operation: "createWorktree",
+      destination: path,
+      name: branchName,
+      gitReference: {
+        fullName: reference.fullName,
+        shortName: reference.shortName,
+        kind: reference.kind,
+      },
+    });
+    return result?.warnings ?? [];
+  } finally {
+    emitGitChanged({
+      repoPath: resolvedRepoPath,
+      scopes: ["repository", "history", "refs"],
+      source: "add-reference-worktree",
     });
   }
-  emitGitChanged({
-    repoPath: resolvedRepoPath,
-    scopes: ["repository", "history", "refs"],
-    source: "add-reference-worktree",
-  });
 };
 
 export const removeWorktree = async (

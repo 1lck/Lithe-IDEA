@@ -183,12 +183,14 @@ export const pushBranch = async (repoPath: string, branchName: string): Promise<
 export const setBranchUpstream = async (
   repoPath: string,
   branchName: string,
-  upstreamShortName: string,
+  upstream: GitReferenceInput,
 ): Promise<void> => {
   const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
-  await tauriInvoke("git.command", {
+  await tauriInvoke("git.write", {
     repoPath: resolvedRepoPath,
-    arguments: ["branch", "--set-upstream-to", upstreamShortName, branchName],
+    operation: "setUpstream",
+    name: branchName,
+    ...referencePayload(upstream),
   });
   emitGitChanged({
     repoPath: resolvedRepoPath,
@@ -202,9 +204,10 @@ export const unsetBranchUpstream = async (
   branchName: string,
 ): Promise<void> => {
   const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
-  await tauriInvoke("git.command", {
+  await tauriInvoke("git.write", {
     repoPath: resolvedRepoPath,
-    arguments: ["branch", "--unset-upstream", branchName],
+    operation: "unsetUpstream",
+    name: branchName,
   });
   emitGitChanged({
     repoPath: resolvedRepoPath,

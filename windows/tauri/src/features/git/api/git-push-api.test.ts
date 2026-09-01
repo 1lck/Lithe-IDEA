@@ -10,6 +10,7 @@ const invoke = mock(async (command: string): Promise<unknown> => {
       remote: "origin",
       remoteBranch: "feature/push",
       remoteTrackingOid: "1111111111111111111111111111111111111111",
+      tags: [],
       upstream: "origin/feature/push",
       commits: [
         {
@@ -55,6 +56,7 @@ describe("Git push API", () => {
         shortName: "feature/push",
         kind: "local",
       },
+      pushTags: "none",
     });
     expect(preview.commits[0]).toMatchObject({
       message: "Preview push",
@@ -70,6 +72,7 @@ describe("Git push API", () => {
       remote: "origin",
       remoteBranch: "feature/push",
       remoteTrackingOid: "1111111111111111111111111111111111111111",
+      tags: [],
     };
     await executeGitPush("C:/repo", {
       reference: "feature/push",

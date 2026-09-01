@@ -115,7 +115,11 @@ function GitPushDialog({
     setPreviewError(null);
     setPushError(null);
     try {
-      const nextPreview = await getGitPushPreview(request.repoPath, request.reference);
+      const nextPreview = await getGitPushPreview(
+        request.repoPath,
+        request.reference,
+        pushTags ? tagScope : "none",
+      );
       setPreview(nextPreview);
       setSelectedCommitHash(nextPreview.commits[0]?.hash ?? null);
       setLoadState("ready");
@@ -125,7 +129,7 @@ function GitPushDialog({
       setPreviewError(error instanceof Error ? error.message : String(error));
       setLoadState("failed");
     }
-  }, [request.reference, request.repoPath]);
+  }, [pushTags, request.reference, request.repoPath, tagScope]);
 
   useEffect(() => {
     void loadPreview();
@@ -161,7 +165,7 @@ function GitPushDialog({
     () => preview?.commits.find((commit) => commit.hash === selectedCommitHash) ?? null,
     [preview?.commits, selectedCommitHash],
   );
-  const canPush = Boolean(preview && (preview.commits.length > 0 || pushTags));
+  const canPush = Boolean(preview && (preview.commits.length > 0 || preview.tags.length > 0));
   const tagOptions = [
     { value: "all", label: t("git.pushDialog.tagsAll") },
     { value: "reachable", label: t("git.pushDialog.tagsReachable") },
@@ -172,7 +176,7 @@ function GitPushDialog({
     setIsPushing(true);
     setPushError(null);
     try {
-      await executeGitPush(request.repoPath, {
+      const warnings = await executeGitPush(request.repoPath, {
         reference: request.reference,
         expectedPush: {
           localBranch: preview.localBranch,
@@ -180,11 +184,19 @@ function GitPushDialog({
           remote: preview.remote,
           remoteBranch: preview.remoteBranch,
           remoteTrackingOid: preview.remoteTrackingOid,
+          tags: preview.tags,
         },
         force,
         pushTags: pushTags ? tagScope : "none",
       });
       toast.success(t("git.pushedChanges"));
+      for (const warning of warnings) {
+        toast.warning(
+          warning.code === "git_upstream_configuration_failed"
+            ? t("git.pushDialog.upstreamConfigurationFailed")
+            : warning.message,
+        );
+      }
       onComplete(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : t("git.pushFailed");

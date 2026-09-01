@@ -50,12 +50,27 @@ export function selectedCommitsInHistoryOrder<T extends { hash: string }>(
 }
 
 export function isContiguousGitHistorySelection(
-  commits: readonly { hash: string }[],
+  commits: readonly { hash: string; parentHashes: readonly string[]; decorations?: string }[],
   selectedCommitHashes: ReadonlySet<string>,
 ): boolean {
   if (selectedCommitHashes.size < 2) return false;
-  const indices = commits.flatMap((commit, index) =>
-    selectedCommitHashes.has(commit.hash) ? [index] : [],
+  const commitByHash = new Map(commits.map((commit) => [commit.hash, commit]));
+  const currentHead = commits.find((commit) =>
+    (commit.decorations ?? "")
+      .split(",")
+      .map((decoration) => decoration.trim())
+      .some((decoration) => decoration === "HEAD" || decoration.startsWith("HEAD -> ")),
+  );
+  if (!currentHead) return false;
+
+  const firstParentChain: string[] = [];
+  let current: (typeof commits)[number] | undefined = currentHead;
+  while (current) {
+    firstParentChain.push(current.hash);
+    current = current.parentHashes[0] ? commitByHash.get(current.parentHashes[0]) : undefined;
+  }
+  const indices = firstParentChain.flatMap((hash, index) =>
+    selectedCommitHashes.has(hash) ? [index] : [],
   );
   return (
     indices.length === selectedCommitHashes.size &&

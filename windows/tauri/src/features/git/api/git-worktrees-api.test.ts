@@ -24,30 +24,24 @@ describe("Git reference worktrees", () => {
       "C:/repo",
       "D:/worktrees/orders",
       "feature/orders-worktree",
-      "refs/remotes/origin/feature/orders",
-      "origin/feature/orders",
+      {
+        fullName: "refs/remotes/origin/feature/orders",
+        shortName: "origin/feature/orders",
+        kind: "remote",
+        isCurrent: false,
+      },
     );
 
-    expect(invoke).toHaveBeenCalledWith("git.command", {
+    expect(invoke).toHaveBeenCalledWith("git.write", {
       repoPath: "C:/repo",
-      arguments: [
-        "worktree",
-        "add",
-        "-b",
-        "feature/orders-worktree",
-        "--",
-        "D:/worktrees/orders",
-        "refs/remotes/origin/feature/orders",
-      ],
-    });
-    expect(invoke).toHaveBeenCalledWith("git.command", {
-      repoPath: "C:/repo",
-      arguments: [
-        "branch",
-        "--set-upstream-to",
-        "origin/feature/orders",
-        "feature/orders-worktree",
-      ],
+      operation: "createWorktree",
+      destination: "D:/worktrees/orders",
+      name: "feature/orders-worktree",
+      gitReference: {
+        fullName: "refs/remotes/origin/feature/orders",
+        shortName: "origin/feature/orders",
+        kind: "remote",
+      },
     });
     expect(emitGitChanged).toHaveBeenLastCalledWith({
       repoPath: "C:/repo",

@@ -20,12 +20,18 @@ beforeEach(() => {
 
 describe("Git status batch mutations", () => {
   const expectSingleGitWrite = () => {
-    expect(invoke.mock.calls.filter(([command]) => command === "git.write")).toHaveLength(1);
+    expect(
+      invoke.mock.calls.filter(([command]) => command === "git.write"),
+    ).toHaveLength(1);
   };
 
   test("stages a directory selection with one shared Core invocation", async () => {
     await expect(
-      setFilesStaged("C:/repo", ["src/first.ts", "src/second.ts", "src/first.ts"], true),
+      setFilesStaged(
+        "C:/repo",
+        ["src/first.ts", "src/second.ts", "src/first.ts"],
+        true,
+      ),
     ).resolves.toBe(true);
 
     expectSingleGitWrite();
@@ -37,9 +43,9 @@ describe("Git status batch mutations", () => {
   });
 
   test("unstages every selected path with one shared Core invocation", async () => {
-    await expect(setFilesStaged("C:/repo", ["src/first.ts", "src/second.ts"], false)).resolves.toBe(
-      true,
-    );
+    await expect(
+      setFilesStaged("C:/repo", ["src/first.ts", "src/second.ts"], false),
+    ).resolves.toBe(true);
 
     expectSingleGitWrite();
     expect(invoke).toHaveBeenLastCalledWith("git.write", {
@@ -63,7 +69,9 @@ describe("Git status batch mutations", () => {
   });
 
   test("adds selected paths to the repository gitignore", async () => {
-    await expect(addPathsToGitignore("C:/repo", ["generated/", "local.env"])).resolves.toBe(true);
+    await expect(
+      addPathsToGitignore("C:/repo", ["generated/", "local.env"]),
+    ).resolves.toBe(true);
 
     expectSingleGitWrite();
     expect(invoke).toHaveBeenLastCalledWith("git.write", {
@@ -74,7 +82,9 @@ describe("Git status batch mutations", () => {
   });
 
   test("adds selected paths to the local Git exclude file", async () => {
-    await expect(addPathsToLocalGitExclude("C:/repo", ["generated/"])).resolves.toBe(true);
+    await expect(
+      addPathsToLocalGitExclude("C:/repo", ["generated/"]),
+    ).resolves.toBe(true);
 
     expectSingleGitWrite();
     expect(invoke).toHaveBeenLastCalledWith("git.write", {
@@ -94,7 +104,7 @@ describe("Git status review diffs", () => {
     expect(invoke).toHaveBeenLastCalledWith("git_diff_file", {
       repoPath: "C:/repo",
       filePath: "src/partially-staged.ts",
-      reference: "HEAD",
+      worktreeSnapshot: true,
     });
   });
 });

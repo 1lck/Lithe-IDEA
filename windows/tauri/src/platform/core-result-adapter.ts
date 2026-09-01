@@ -14,9 +14,14 @@ function withoutTrailingCarriageReturn(value: string): string {
 
 function normalizeStatus(status: string, untracked: boolean): string {
   if (untracked || status.includes("?")) return "untracked";
-  if (status.includes("A")) return "added";
-  if (status.includes("D")) return "deleted";
-  if (status.includes("R")) return "renamed";
+  const indexStatus = status[0] ?? " ";
+  const worktreeStatus = status[1] ?? " ";
+  if (indexStatus === "A") return "added";
+  if (worktreeStatus === "D" || indexStatus === "D") return "deleted";
+  if ([indexStatus, worktreeStatus].some((value) => value === "R" || value === "C")) {
+    return "renamed";
+  }
+  if (worktreeStatus === "A") return "added";
   return "modified";
 }
 
@@ -141,14 +146,18 @@ export function adaptCoreResult<T>(
         ahead: data.ahead ?? 0,
         behind: data.behind ?? 0,
         files: Array.isArray(data.changes)
-          ? data.changes.map((change: JsonRecord) => ({
+          ? data.changes
+              .filter((change: JsonRecord) => String(change.status ?? "") !== "AD")
+              .map((change: JsonRecord) => ({
               path: change.path,
               ...(typeof change.originalPath === "string"
                 ? { originalPath: change.originalPath }
                 : {}),
               status: normalizeStatus(String(change.status ?? ""), Boolean(change.untracked)),
               staged: Boolean(change.staged),
-            }))
+              rawStatus: String(change.status ?? ""),
+              worktree: Boolean(change.worktree),
+              }))
           : [],
       } as T;
     case "git_log":

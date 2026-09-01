@@ -7,6 +7,7 @@ import { getCommitFiles } from "../../api/git-commits-api";
 import { getRefDiff } from "../../api/git-diff-api";
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
 import type { GitCommit, GitCommitFile } from "../../types/git.types";
+import { mapGitReadsInBatches } from "../../utils/git-async-batch";
 import {
   aggregateSelectedCommitFileRows,
   gitDiffsToCommitFiles,
@@ -66,10 +67,8 @@ export function GitCommitInspector({
           diffs ? gitDiffsToCommitFiles(diffs) : null,
         );
       }
-      return Promise.all(
-        selectionDiff.commits.map((selectedCommit) =>
-          getCommitFiles(repoPath, selectedCommit.hash).then((files) => ({ files })),
-        ),
+      return mapGitReadsInBatches(selectionDiff.commits, (selectedCommit) =>
+        getCommitFiles(repoPath, selectedCommit.hash).then((files) => ({ files })),
       ).then((results) =>
         results.some((result) => result.files === null)
           ? null

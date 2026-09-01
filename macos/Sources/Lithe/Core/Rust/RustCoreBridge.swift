@@ -818,6 +818,12 @@ struct RustCoreBridge: Sendable {
             let conflictedPaths: [String]
         }
 
+        struct Warning: Decodable, Sendable {
+            let code: String
+            let message: String
+            let details: String?
+        }
+
         let arguments: [String]?
         let output: String
         let stdout: String?
@@ -826,6 +832,7 @@ struct RustCoreBridge: Sendable {
         let invocations: [Invocation]?
         let operationError: OperationError?
         let stashRestore: StashRestore?
+        let warnings: [Warning]?
     }
 
     struct GitDiffPayload: Decodable, Sendable {
