@@ -62,7 +62,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     private var reloadProjectServices: (@MainActor () async -> Void)?
     private var refreshGit: (@MainActor () async -> Void)?
     private var updateHistoryVisibilityRules: (@MainActor (FileVisibilityRules) async -> Void)?
-    private var onSnapshotLoaded: (@MainActor (WorkspaceSnapshot, Bool) async -> Void)?
+    private var onSnapshotLoaded: (@MainActor (URL, WorkspaceSnapshot, Bool) async -> Void)?
     private var warmSearchIndex: (@MainActor (URL, FileVisibilityRules) -> Void)?
     private var updateSearchIndex: (@MainActor (URL, [String], FileVisibilityRules) async -> Void)?
     private var invalidateSearchIndex: (@MainActor (URL, FileVisibilityRules) -> Void)?
@@ -98,7 +98,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         reloadProjectServices: @escaping @MainActor () async -> Void,
         refreshGit: @escaping @MainActor () async -> Void,
         updateHistoryVisibilityRules: @escaping @MainActor (FileVisibilityRules) async -> Void,
-        onSnapshotLoaded: @escaping @MainActor (WorkspaceSnapshot, Bool) async -> Void,
+        onSnapshotLoaded: @escaping @MainActor (URL, WorkspaceSnapshot, Bool) async -> Void,
         warmSearchIndex: @escaping @MainActor (URL, FileVisibilityRules) -> Void,
         updateSearchIndex: @escaping @MainActor (URL, [String], FileVisibilityRules) async -> Void,
         invalidateSearchIndex: @escaping @MainActor (URL, FileVisibilityRules) -> Void
@@ -320,7 +320,9 @@ package final class WorkspaceFeatureModel: ObservableObject {
         guard isCurrent() else { return .stale }
         await updateWatchConfiguration()
         guard isCurrent() else { return .stale }
-        await onSnapshotLoaded?(snapshot, isInitialLoad)
+        // Carry the rebuild's workspace with the snapshot so a project switch
+        // cannot pair this inventory with a newer global workspace URL.
+        await onSnapshotLoaded?(workspaceURL, snapshot, isInitialLoad)
         guard isCurrent() else { return .stale }
         await requestGitRefreshNow()
         if pendingFullRescan || pendingWatchRootsChanged {

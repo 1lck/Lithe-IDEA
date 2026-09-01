@@ -22,6 +22,9 @@ extension AppModel {
     }
 
     func activateExecutionModule() async -> ExecutionFeatureAccess? {
+        // Run and Debug can activate immediately after a project switch. Join
+        // teardown first so it cannot release the capability we are returning.
+        await awaitModuleRuntimeShutdown()
         if let mavenFeature = mavenFeatureIfActive,
            let runFeature = runFeatureIfActive,
            let tests = languageTestServiceIfActive,
@@ -50,6 +53,7 @@ extension AppModel {
     }
 
     func activateDebugModule() async -> DebugFeatureAccess? {
+        await awaitModuleRuntimeShutdown()
         if let genericFeature = genericDebugFeatureIfActive {
             configureDebugHostHandlers(genericFeature)
             if let workspaceURL { genericFeature.openWorkspace(at: workspaceURL) }

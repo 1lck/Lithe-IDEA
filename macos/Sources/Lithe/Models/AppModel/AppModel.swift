@@ -485,7 +485,7 @@ final class AppModel: ObservableObject, Identifiable {
             },
             reloadProjectServices: { [weak self] in
                 guard let self, let workspaceURL = self.workspaceURL else { return }
-                await self.loadProjectServices(at: workspaceURL, files: self.projectFiles)
+                await self.loadProjectServicesForAppliedSnapshot(at: workspaceURL)
             },
             refreshGit: { [weak self] in
                 guard let feature = self?.gitFeatureIfActive else { return }
@@ -495,10 +495,17 @@ final class AppModel: ObservableObject, Identifiable {
                 guard let feature = await self?.activateHistoryModule() else { return }
                 await feature.updateVisibilityRules(rules.localHistoryRules)
             },
-            onSnapshotLoaded: { [weak self] snapshot, isInitialLoad in
-                guard let self, let workspaceURL = self.workspaceURL else { return }
+            onSnapshotLoaded: { [weak self] workspaceURL, snapshot, isInitialLoad in
+                guard let self else { return }
                 // WorkspaceFeatureModel requests the single Git refresh after this callback.
-                await self.loadProjectServices(at: workspaceURL, files: snapshot.files)
+                // The rebuild already rejected a stale workspace and carries its
+                // URL with the snapshot, so the file list and identity stay paired.
+                await self.loadProjectServices(
+                    at: workspaceURL,
+                    files: snapshot.files,
+                    snapshotID: snapshot.id,
+                    resumesDeferredRunAction: true
+                )
                 if isInitialLoad {
                     self.projectHistoryFeatureIfActive?.seed(files: snapshot.files)
                 }
@@ -696,9 +703,6 @@ final class AppModel: ObservableObject, Identifiable {
 
     func shutdownProjectSession() async {
         shortcutDetector?.stop()
-        Task { [weak self] in
-            await self?.services.moduleRuntime.shutdownAll()
-        }
         cancelJavaTestWorkflows()
         languageToolingSessionsIfActive?.stopAll()
         languageTestServiceIfActive?.stop()
@@ -711,22 +715,31 @@ final class AppModel: ObservableObject, Identifiable {
         await shutdownModuleRuntime()
     }
 
+    /// Records teardown synchronously so a following on-demand activation can
+    /// join it before the runtime releases the newly activated capability.
+    private func beginModuleRuntimeShutdown() {
+        guard moduleRuntimeShutdownTask == nil else { return }
+        let moduleRuntime = services.moduleRuntime
+        moduleRuntimeShutdownTask = Task { @MainActor [weak self] in
+            await moduleRuntime.shutdownAll()
+            guard let self else { return }
+            self.moduleRuntimeShutdownTask = nil
+            self.clearModuleBindings(for: .database)
+        }
+    }
+
     /// Shuts down this session's module graph once, even when multiple
     /// lifecycle paths request cleanup at the same time.
     private func shutdownModuleRuntime() async {
-        if let moduleRuntimeShutdownTask {
-            await moduleRuntimeShutdownTask.value
-            return
-        }
+        beginModuleRuntimeShutdown()
+        await moduleRuntimeShutdownTask?.value
+    }
 
-        let moduleRuntime = services.moduleRuntime
-        let shutdownTask = Task { @MainActor in
-            await moduleRuntime.shutdownAll()
+    /// Waits for every teardown already registered for this session.
+    func awaitModuleRuntimeShutdown() async {
+        while let shutdownTask = moduleRuntimeShutdownTask {
+            await shutdownTask.value
         }
-        moduleRuntimeShutdownTask = shutdownTask
-        await shutdownTask.value
-        moduleRuntimeShutdownTask = nil
-        clearModuleBindings(for: .database)
     }
 
     private func reloadJavaRuntimeServices() {
@@ -743,28 +756,9 @@ final class AppModel: ObservableObject, Identifiable {
             }
             Task { [weak self] in
                 guard let self else { return }
-                await self.loadProjectServices(at: workspaceURL, files: self.projectFiles)
+                await self.loadProjectServicesForAppliedSnapshot(at: workspaceURL)
             }
         }
-    }
-
-    /// Loads build-system and run state at the workspace boundary. The generic
-    /// run lifecycle is intentionally not owned by JavaFeatureModel.
-    func loadProjectServices(at workspaceURL: URL, files: [URL]) async {
-        prepareJavaLanguageServerForWorkspaceIfNeeded(
-            at: workspaceURL,
-            files: files
-        )
-        await springFeature.load(
-            workspaceURL: workspaceURL,
-            files: files,
-            textOverrides: Dictionary(uniqueKeysWithValues: openDocuments.map {
-                ($0.url.standardizedFileURL, $0.text)
-            })
-        )
-        guard let execution = await activateExecutionModule() else { return }
-        execution.tests.discover(workspaceURL: workspaceURL, files: files)
-        await execution.projectDevelopment.loadProject(at: workspaceURL, files: files)
     }
 
     var projectName: String {
@@ -909,10 +903,7 @@ final class AppModel: ObservableObject, Identifiable {
 
     func openProjectDirectly(_ url: URL) {
         let normalizedURL = url.standardizedFileURL
-        Task { [weak self] in
-            guard let self else { return }
-            await self.shutdownModuleRuntime()
-        }
+        beginModuleRuntimeShutdown()
         if let previousWorkspaceURL = workspaceURL {
             workspaceFeature.persistWorkspaceSession(for: previousWorkspaceURL)
         }
@@ -996,10 +987,7 @@ final class AppModel: ObservableObject, Identifiable {
 
     private func performCloseProject() {
         cancelJavaLanguageServerPreparation()
-        Task { [weak self] in
-            guard let self else { return }
-            await self.shutdownModuleRuntime()
-        }
+        beginModuleRuntimeShutdown()
         if let workspaceURL {
             workspaceFeature.persistWorkspaceSession(for: workspaceURL)
         }
