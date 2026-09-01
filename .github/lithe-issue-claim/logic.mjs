@@ -35,6 +35,10 @@ export function isActiveClaim(claim, release) {
   return Boolean(claim && (!release || release.login !== claim.login || new Date(release.isoDate) <= new Date(claim.isoDate)));
 }
 
+export function releaseMatchesClaim(release, claim) {
+  return Boolean(release && claim && release.login === claim.login && new Date(release.isoDate) > new Date(claim.isoDate));
+}
+
 export function parseMarker(body, prefix) {
   const match = (body ?? '').match(new RegExp(`${prefix.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}([^: >]+):([^ >]+)`));
   return match ? { login: match[1], isoDate: match[2] } : null;

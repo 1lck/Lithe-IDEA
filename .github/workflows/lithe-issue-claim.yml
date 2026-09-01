@@ -37,16 +37,25 @@ jobs:
             if (!command) return;
             const login = context.payload.comment.user.login;
             const issue = (await github.rest.issues.get({ owner, repo, issue_number })).data;
-            const assignee = issue.assignees?.[0]?.login;
+            let assignee = issue.assignees?.[0]?.login;
             const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
             const trusted = (c) => c.user?.type === 'Bot' && c.user?.login === 'github-actions[bot]';
             const recordedClaim = [...comments].reverse().filter(trusted).map((c) => logic.parseMarker(c.body, logic.CLAIM_MARKER)).find(Boolean);
-            const recordedRelease = [...comments].reverse().filter(trusted).map((c) => logic.parseMarker(c.body, logic.RELEASE_MARKER)).find(Boolean);
+            const recordedRelease = [...comments].reverse().filter(trusted).map((c) => logic.parseMarker(c.body, logic.RELEASE_MARKER)).find((release) => logic.releaseMatchesClaim(release, recordedClaim));
             const activeClaim = logic.isActiveClaim(recordedClaim, recordedRelease) ? recordedClaim : null;
             const maintainer = logic.isMaintainer(context.payload.comment.author_association);
             const comment = async (body) => github.rest.issues.createComment({ owner, repo, issue_number, body });
             if (command === '/assign') {
               if (assignee === login) return comment(`@${login} 已经认领了这个 Issue。`);
+              if (assignee && recordedClaim?.login === assignee && !activeClaim) {
+                try {
+                  await github.rest.issues.removeAssignees({ owner, repo, issue_number, assignees: [assignee] });
+                  assignee = null;
+                } catch (error) {
+                  core.warning(`Unable to clear released assignee ${assignee}: ${error.message}`);
+                  return comment('认领没有完成：当前 Issue 的旧负责人状态尚未清理，请稍后重试或联系维护者。');
+                }
+              }
               if (assignee) return comment(`这个 Issue 当前由 @${assignee} 负责，不能抢占。`);
               if (activeClaim?.login === login) return comment(`@${login} 已经登记认领了这个 Issue。`);
               if (activeClaim && activeClaim.login !== login) return comment(`这个 Issue 当前由 @${activeClaim.login} 负责，不能抢占。`);
@@ -110,7 +119,7 @@ jobs:
                 await github.rest.issues.removeLabel({ owner, repo, issue_number: issue.number, name: logic.CLAIM_LABEL }).catch(() => {});
                 continue;
               }
-              const release = [...comments].reverse().filter(trusted).map((c) => logic.parseMarker(c.body, logic.RELEASE_MARKER)).find(Boolean);
+              const release = [...comments].reverse().filter(trusted).map((c) => logic.parseMarker(c.body, logic.RELEASE_MARKER)).find((candidate) => logic.releaseMatchesClaim(candidate, claim));
               if (!logic.isActiveClaim(claim, release)) continue;
               const official = issue.assignees?.some((a) => a.login === claim.login);
               const progressDate = logic.latestProgressDate(comments, claim.login, claim.isoDate);
@@ -123,15 +132,22 @@ jobs:
                 await github.rest.issues.addLabels({ owner, repo, issue_number: issue.number, labels: [logic.STALE_LABEL] });
                 await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: `${logic.warningMarker(claim.login, new Date().toISOString())}\n@${claim.login} 已认领此 Issue 30 天，但暂未看到进展。请在 7 天内更新进度或使用 /unassign 释放。` });
               } else if (status === 'release') {
-                const current = (await github.rest.issues.get({ owner, repo, issue_number: issue.number })).data;
-                const stillOwned = current.assignees?.some((a) => a.login === claim.login);
                 const latestComments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: issue.number, per_page: 100 });
                 const latestClaim = [...latestComments].reverse().filter(trusted).map((c) => logic.parseMarker(c.body, logic.CLAIM_MARKER)).find(Boolean);
                 if (latestClaim?.login !== claim.login || latestClaim?.isoDate !== claim.isoDate) continue;
                 const releaseBody = `${logic.releaseMarker(claim.login, new Date().toISOString())}\n@${claim.login} 已连续 7 天未更新进度，认领已自动释放，其他贡献者可以继续申请。`;
-                const existingRelease = latestComments.some((c) => trusted(c) && c.body?.includes(logic.RELEASE_MARKER));
+                const existingRelease = latestComments.filter(trusted).map((c) => logic.parseMarker(c.body, logic.RELEASE_MARKER)).some((release) => logic.releaseMatchesClaim(release, claim));
                 if (!existingRelease) await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: releaseBody });
-                if (stillOwned) await github.rest.issues.removeAssignees({ owner, repo, issue_number: issue.number, assignees: [claim.login] }).catch((error) => core.warning(`Unable to remove stale assignee: ${error.message}`));
+                const current = (await github.rest.issues.get({ owner, repo, issue_number: issue.number })).data;
+                const stillOwned = current.assignees?.some((a) => a.login === claim.login);
+                if (stillOwned) {
+                  try {
+                    await github.rest.issues.removeAssignees({ owner, repo, issue_number: issue.number, assignees: [claim.login] });
+                  } catch (error) {
+                    core.warning(`Unable to remove stale assignee: ${error.message}`);
+                    continue;
+                  }
+                }
                 await github.rest.issues.removeLabel({ owner, repo, issue_number: issue.number, name: logic.CLAIM_LABEL }).catch(() => {});
                 await github.rest.issues.removeLabel({ owner, repo, issue_number: issue.number, name: logic.STALE_LABEL }).catch(() => {});
               }
