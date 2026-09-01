@@ -11,14 +11,8 @@ struct KeyboardShortcutTests {
         #expect(commands.count == 39)
         #expect(Set(commands.map(\.id)).count == commands.count)
 
-        let owners = commands.flatMap { command in
-            command.defaultBindings.map { (binding: $0, commandID: command.id) }
-        }
-        for (index, owner) in owners.enumerated() {
-            #expect(!owners.dropFirst(index + 1).contains {
-                $0.binding == owner.binding && $0.commandID != owner.commandID
-            })
-        }
+        let bindings = commands.flatMap(\.defaultBindings)
+        #expect(Set(bindings).count == bindings.count)
     }
 
     @Test
