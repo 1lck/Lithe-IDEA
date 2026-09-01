@@ -29,6 +29,7 @@ const nativeCommands = new Set([
   "debug_send_request",
   "debug_start_session",
   "debug_stop_session",
+  "debug_stop_workspace_sessions",
   "get_secure_secret",
   "frontend_trace",
   "get_application_memory_usage",

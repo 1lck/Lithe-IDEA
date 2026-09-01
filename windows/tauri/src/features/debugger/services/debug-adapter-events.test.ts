@@ -8,10 +8,11 @@ const sendDebugAdapterRequest = mock(
     return { sessionId: "session-1", operationId: `debug-op-${operationCounter}` };
   },
 );
+const stopDebugAdapterSession = mock(async (_sessionId: string): Promise<void> => {});
 const subscribeDebuggerEvents = mock(async () => () => {});
 
 type DebuggerEventHandlers = {
-  onMessage?: (payload: DebugProtocolMessage) => void;
+  onMessage?: (payload: DebugProtocolMessage) => void | Promise<void>;
   onOutput?: (payload: unknown) => void;
   onSessionEnded?: (payload: unknown) => void;
 };
@@ -20,6 +21,7 @@ let capturedHandlers: DebuggerEventHandlers = {};
 
 mock.module("@/features/debugger/services/debug-adapter-service", () => ({
   sendDebugAdapterRequest,
+  stopDebugAdapterSession,
   subscribeDebuggerEvents: async (handlers: DebuggerEventHandlers) => {
     capturedHandlers = handlers;
     return () => {};
@@ -29,18 +31,15 @@ mock.module("@/features/debugger/services/debug-adapter-service", () => ({
 const { initializeDebuggerEventBridge } = await import("./debug-adapter-events");
 const { useDebuggerStore } = await import("../stores/debugger.store");
 
-const flush = async () => {
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  await new Promise((resolve) => setTimeout(resolve, 0));
-};
-
-const emitMessage = (sessionId: string, message: unknown) => {
+// The bridge returns the awaited event-handling promise, so tests await the
+// full cascade without real timers (write-stable-tests gate).
+const emitMessage = (sessionId: string, message: unknown) =>
   capturedHandlers.onMessage?.({ sessionId, message });
-};
 
 beforeEach(() => {
   operationCounter = 0;
   sendDebugAdapterRequest.mockClear();
+  stopDebugAdapterSession.mockClear();
   useDebuggerStore.setState({
     pendingRequests: {},
     threads: [],
@@ -54,19 +53,22 @@ beforeEach(() => {
   });
 });
 
-test("stopped events pause the session and cascade into stack trace requests", async () => {
-  await initializeDebuggerEventBridge();
+const startSession = (id: string) => {
   useDebuggerStore.getState().actions.startSession({
-    id: "session-1",
+    id,
     name: "Demo",
     configId: "generated-bun",
     command: "bun",
     startedAt: 1,
     status: "running",
   });
+};
 
-  emitMessage("session-1", { type: "stopped", reason: "breakpoint", threadId: 3 });
-  await flush();
+test("stopped events pause the session and cascade into stack trace requests", async () => {
+  await initializeDebuggerEventBridge();
+  startSession("session-1");
+
+  await emitMessage("session-1", { type: "stopped", reason: "breakpoint", threadId: 3 });
 
   const state = useDebuggerStore.getState();
   expect(state.activeSession?.status).toBe("paused");
@@ -86,16 +88,16 @@ test("stopped events pause the session and cascade into stack trace requests", a
 
 test("normalized thread results fill the thread list and cascade further", async () => {
   await initializeDebuggerEventBridge();
+  startSession("session-1");
   useDebuggerStore.getState().actions.registerAdapterRequest("threads-op", {
     command: "threads",
   });
 
-  emitMessage("session-1", {
+  await emitMessage("session-1", {
     type: "operationCompleted",
     operationId: "threads-op",
     result: { kind: "threads", threads: [{ id: 1, name: "main" }] },
   });
-  await flush();
 
   const state = useDebuggerStore.getState();
   expect(state.threads).toEqual([{ id: 1, name: "main" }]);
@@ -111,12 +113,13 @@ test("normalized thread results fill the thread list and cascade further", async
 
 test("evaluate results land in watch results for the correlated expression", async () => {
   await initializeDebuggerEventBridge();
+  startSession("session-1");
   useDebuggerStore.getState().actions.registerAdapterRequest("debug-op-1", {
     command: "evaluate",
     expressionId: "watch-1",
   });
 
-  emitMessage("session-1", {
+  await emitMessage("session-1", {
     type: "operationCompleted",
     operationId: "debug-op-1",
     result: {
@@ -124,7 +127,6 @@ test("evaluate results land in watch results for the correlated expression", asy
       variable: { name: "", value: "42", type: "number", variablesReference: 0 },
     },
   });
-  await flush();
 
   const result = useDebuggerStore.getState().watchResults["watch-1"];
   expect(result?.value).toBe("42");
@@ -134,19 +136,19 @@ test("evaluate results land in watch results for the correlated expression", asy
 
 test("failed evaluate operations surface an actionable watch error", async () => {
   await initializeDebuggerEventBridge();
+  startSession("session-1");
   useDebuggerStore.getState().actions.registerAdapterRequest("debug-op-1", {
     command: "evaluate",
     expressionId: "watch-2",
   });
 
-  emitMessage("session-1", {
+  await emitMessage("session-1", {
     type: "operationFailed",
     operationId: "debug-op-1",
     command: "evaluate",
     code: "adapterRejected",
     message: "Expression could not be evaluated.",
   });
-  await flush();
 
   const result = useDebuggerStore.getState().watchResults["watch-2"];
   expect(result?.error).toBe("Expression could not be evaluated.");
@@ -156,8 +158,7 @@ test("failed evaluate operations surface an actionable watch error", async () =>
 test("normalized output events reach the debug console", async () => {
   await initializeDebuggerEventBridge();
 
-  emitMessage("session-1", { type: "output", category: "stderr", output: "boom" });
-  await flush();
+  await emitMessage("session-1", { type: "output", category: "stderr", output: "boom" });
 
   expect(useDebuggerStore.getState().adapterOutput).toEqual([
     { sessionId: "session-1", stream: "stderr", data: "boom" },
@@ -166,17 +167,47 @@ test("normalized output events reach the debug console", async () => {
 
 test("terminated events end only the matching session", async () => {
   await initializeDebuggerEventBridge();
-  useDebuggerStore.getState().actions.startSession({
-    id: "session-1",
-    name: "Demo",
-    configId: "generated-bun",
-    command: "bun",
-    startedAt: 1,
-    status: "running",
-  });
+  startSession("session-1");
 
-  emitMessage("session-1", { type: "terminated", exitCode: 0 });
-  await flush();
+  await emitMessage("session-1", { type: "terminated", exitCode: 0 });
 
   expect(useDebuggerStore.getState().activeSession?.status).toBe("idle");
+});
+
+test("stale events from a previous session cannot modify a restarted session", async () => {
+  await initializeDebuggerEventBridge();
+  startSession("session-1");
+  await emitMessage("session-1", { type: "stopped", reason: "breakpoint", threadId: 3 });
+  expect(useDebuggerStore.getState().activeSession?.status).toBe("paused");
+
+  startSession("session-2");
+  const requestCountAfterRestart = sendDebugAdapterRequest.mock.calls.length;
+
+  await emitMessage("session-1", {
+    type: "operationCompleted",
+    operationId: "stale-stack-op",
+    result: { kind: "stackTrace", stackFrames: [{ id: 7, name: "old", line: 1, column: 1 }] },
+  });
+  await emitMessage("session-1", { type: "stopped", reason: "breakpoint", threadId: 99 });
+
+  const state = useDebuggerStore.getState();
+  expect(state.activeSession?.id).toBe("session-2");
+  expect(state.activeSession?.status).toBe("running");
+  expect(state.stoppedState).toBeNull();
+  expect(state.stackFrames).toEqual([]);
+  expect(sendDebugAdapterRequest.mock.calls.length).toBe(requestCountAfterRestart);
+});
+
+test("failed states end the session and request native teardown", async () => {
+  await initializeDebuggerEventBridge();
+  startSession("session-1");
+
+  await emitMessage("session-1", { type: "stateChanged", state: "failed" });
+
+  const state = useDebuggerStore.getState();
+  expect(state.activeSession?.status).toBe("idle");
+  expect(state.adapterOutput).toEqual([
+    { sessionId: "session-1", stream: "stderr", data: "The debug session failed.\n" },
+  ]);
+  expect(stopDebugAdapterSession).toHaveBeenCalledWith("session-1");
 });

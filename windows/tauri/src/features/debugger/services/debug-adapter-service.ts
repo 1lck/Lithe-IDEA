@@ -12,7 +12,7 @@ import type {
 } from "@/features/debugger/types/debugger.types";
 
 interface DebuggerEventHandlers {
-  onMessage?: (payload: DebugProtocolMessage) => void;
+  onMessage?: (payload: DebugProtocolMessage) => void | Promise<void>;
   onOutput?: (payload: DebugProcessOutput) => void;
   onSessionEnded?: (payload: DebugSessionEnded) => void;
 }
@@ -42,6 +42,7 @@ export async function stopDebugAdapterSession(sessionId: string): Promise<void> 
 export async function startDebugLaunchSession(
   config: DebugLaunchConfig,
   breakpoints: DebugBreakpoint[],
+  workspacePath?: string,
 ): Promise<DebugAdapterSessionInfo> {
   if (!config.adapterCommand) {
     throw new Error("Debug configuration is missing adapterCommand");
@@ -52,6 +53,7 @@ export async function startDebugLaunchSession(
     args: config.adapterArgs ?? [],
     cwd: config.cwd,
     env: config.env,
+    workspacePath,
   });
 
   // Rust Core owns DAP initialization and the configurationDone handshake;

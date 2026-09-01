@@ -1,5 +1,6 @@
 import {
   sendDebugAdapterRequest,
+  stopDebugAdapterSession,
   subscribeDebuggerEvents,
 } from "@/features/debugger/services/debug-adapter-service";
 import { useDebuggerStore } from "@/features/debugger/stores/debugger.store";
@@ -22,7 +23,7 @@ export function initializeDebuggerEventBridge(): Promise<void> {
   pendingSubscription = subscribeDebuggerEvents({
     onMessage: (message) => {
       useDebuggerStore.getState().actions.recordAdapterMessage(message);
-      void handleDebugProtocolMessage(message);
+      return handleDebugProtocolMessage(message);
     },
     onOutput: (output) => useDebuggerStore.getState().actions.recordAdapterOutput(output),
     onSessionEnded: (event) => useDebuggerStore.getState().actions.recordSessionEnded(event),
@@ -43,9 +44,16 @@ async function handleDebugProtocolMessage(payload: DebugProtocolMessage) {
   const event = asRecord(payload.message);
   if (!event) return;
 
+  // Stale state and result events from a stopped session must not mutate the
+  // store after a fast Stop/Restart; per-session log output is still kept.
+  const activeSessionId = useDebuggerStore.getState().activeSession?.id;
+  if (event.type !== "output" && payload.sessionId !== activeSessionId) {
+    return;
+  }
+
   switch (event.type) {
     case "stateChanged":
-      handleStateChanged(event);
+      handleStateChanged(payload.sessionId, event);
       return;
     case "stopped":
       await handleStopped(payload.sessionId, event);
@@ -71,12 +79,29 @@ async function handleDebugProtocolMessage(payload: DebugProtocolMessage) {
   }
 }
 
-function handleStateChanged(event: Record<string, unknown>) {
+function handleStateChanged(sessionId: string, event: Record<string, unknown>) {
   const state = typeof event.state === "string" ? event.state : "";
   if (state === "paused") {
     useDebuggerStore.getState().actions.setSessionStatus("paused");
   } else if (state === "running") {
     useDebuggerStore.getState().actions.setSessionStatus("running");
+  } else if (state === "failed") {
+    const message =
+      typeof event.message === "string" && event.message
+        ? event.message
+        : "The debug session failed.";
+    useDebuggerStore.getState().actions.recordAdapterOutput({
+      sessionId,
+      stream: "stderr",
+      data: `${message}\n`,
+    });
+    useDebuggerStore.getState().actions.recordSessionEnded({
+      sessionId,
+      reason: "failed",
+    });
+    void stopDebugAdapterSession(sessionId).catch((error) => {
+      console.error("Failed to stop the debug session after a failure:", error);
+    });
   }
 }
 

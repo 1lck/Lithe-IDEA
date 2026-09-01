@@ -77,6 +77,7 @@ fn main() {
             debug::debug_start_session,
             debug::debug_send_request,
             debug::debug_stop_session,
+            debug::debug_stop_workspace_sessions,
             platform::platform_invoke,
             memory::get_application_memory_usage,
             terminal::begin_frontend_terminal_session,

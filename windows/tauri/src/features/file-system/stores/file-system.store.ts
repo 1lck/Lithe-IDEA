@@ -3085,6 +3085,11 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
               workspaceId: projectId,
               root: path,
             });
+            await invoke("debug_stop_workspace_sessions", {
+              workspacePath: path,
+            }).catch((error) => {
+              console.error("Failed to stop debug sessions for the project:", error);
+            });
             const terminalSessions = useTerminalStore.getStore(projectId).getState().sessions;
             await Promise.all(
               [...terminalSessions.values()].map(async (session) => {

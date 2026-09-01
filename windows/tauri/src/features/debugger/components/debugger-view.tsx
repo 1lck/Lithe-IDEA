@@ -223,7 +223,11 @@ export default function DebuggerView() {
     setStartError(null);
     if (resolvedSelectedConfig.adapterCommand) {
       try {
-        const adapterSession = await startDebugLaunchSession(resolvedSelectedConfig, breakpoints);
+        const adapterSession = await startDebugLaunchSession(
+          resolvedSelectedConfig,
+          breakpoints,
+          rootFolderPath,
+        );
         debuggerActions.startSession({
           id: adapterSession.id,
           name: resolvedSelectedConfig.name,

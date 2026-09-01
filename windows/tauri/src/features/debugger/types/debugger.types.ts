@@ -47,6 +47,8 @@ export interface DebugAdapterLaunch {
   args?: string[];
   cwd?: string;
   env?: Record<string, string>;
+  /** Project root that owns this session; used to reap adapters on close. */
+  workspacePath?: string;
 }
 
 export interface DebugAdapterSessionInfo {

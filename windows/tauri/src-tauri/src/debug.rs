@@ -46,6 +46,9 @@ impl Default for DebugAdapterManager {
 
 struct AdapterSession {
     pid: u32,
+    /// Workspace root that owns this session, used to reap adapters when the
+    /// owning project closes without touching sessions of other projects.
+    workspace: String,
     /// Shared so adapter stdout readers can write Core-produced frames while
     /// Tauri commands write request frames; the mutex prevents interleaving.
     stdin: Arc<Mutex<ChildStdin>>,
@@ -66,6 +69,8 @@ pub struct DebugAdapterLaunch {
     pub cwd: Option<String>,
     #[serde(default)]
     pub env: HashMap<String, String>,
+    #[serde(default)]
+    pub workspace_path: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -140,6 +145,13 @@ pub async fn debug_start_session(
         .as_deref()
         .filter(|cwd| !cwd.trim().is_empty())
         .unwrap_or(".");
+    let workspace = launch
+        .workspace_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|workspace| !workspace.is_empty())
+        .unwrap_or("")
+        .to_string();
 
     let update = execute_core_async(
         "debug.createSession".to_string(),
@@ -166,6 +178,24 @@ pub async fn debug_start_session(
         return Err(error);
     }
     emit_update_events(&app, &session_id, &update);
+    if update_state_failed(&update) {
+        let message = session_failure_message(&update);
+        let _ = child.kill();
+        let _ = execute_core_async(
+            "debug.destroySession".to_string(),
+            json!({ "sessionId": session_id }),
+        )
+        .await;
+        let _ = app.emit(
+            "debugger_output",
+            json!({ "sessionId": session_id, "stream": "stderr", "data": format!("{message}\n") }),
+        );
+        let _ = app.emit(
+            "debugger_session_ended",
+            json!({ "sessionId": session_id, "reason": "failed" }),
+        );
+        return Err(message);
+    }
 
     {
         let mut current = sessions().lock().map_err(|_| {
@@ -177,6 +207,7 @@ pub async fn debug_start_session(
             session_id.clone(),
             AdapterSession {
                 pid,
+                workspace,
                 stdin: stdin.clone(),
             },
         );
@@ -228,13 +259,27 @@ pub async fn debug_send_request(
         &request.command,
         &request.arguments,
         &operation_id,
-    )?;
-    let update = execute_core_async(core_command, payload).await?;
+    )
+    .map_err(|error| {
+        // The facade owns the adapter process; an unmapped request must not
+        // leave a live adapter or shared session behind.
+        fail_session(&app, &request.session_id, pid, &error);
+        error
+    })?;
+    let update = execute_core_async(core_command, payload).await.map_err(|error| {
+        fail_session(&app, &request.session_id, pid, &error);
+        error
+    })?;
     if let Err(error) = write_outbound_frames(&stdin, &update) {
         fail_session(&app, &request.session_id, pid, &error);
         return Err(error);
     }
     emit_update_events(&app, &request.session_id, &update);
+    if update_state_failed(&update) {
+        let message = session_failure_message(&update);
+        fail_session(&app, &request.session_id, pid, &message);
+        return Err(message);
+    }
     Ok(DebugCommandResult {
         session_id: request.session_id,
         operation_id,
@@ -246,6 +291,19 @@ pub async fn debug_send_request(
 #[tauri::command]
 pub async fn debug_stop_session(app: AppHandle, session_id: String) -> Result<(), String> {
     stop_session(&app, &session_id).await
+}
+
+/// Stops every adapter session owned by one workspace. Project close and
+/// workspace switches call this so adapters never outlive their project.
+#[tauri::command]
+pub async fn debug_stop_workspace_sessions(
+    app: AppHandle,
+    workspace_path: String,
+) -> Result<(), String> {
+    for session_id in matching_workspace_sessions(&workspace_path) {
+        stop_session(&app, &session_id).await?;
+    }
+    Ok(())
 }
 
 async fn stop_session(app: &AppHandle, session_id: &str) -> Result<(), String> {
@@ -326,11 +384,11 @@ fn translate_request(
 ) -> Result<(String, Value), String> {
     let arguments = arguments.as_object().cloned().unwrap_or_default();
     let (core_command, payload) = match command {
-        "launch" => {
+        "launch" | "attach" => {
             let request_kind = arguments
                 .get("request")
                 .and_then(Value::as_str)
-                .unwrap_or("launch");
+                .unwrap_or(command);
             if !matches!(request_kind, "launch" | "attach") {
                 return Err(format!("Unsupported debug launch request: {request_kind}"));
             }
@@ -468,6 +526,54 @@ fn required_argument(arguments: &Map<String, Value>, field: &str) -> Result<Valu
         .ok_or_else(|| format!("Debug {field} is required."))
 }
 
+fn update_state_failed(update: &Value) -> bool {
+    update.get("state").and_then(Value::as_str) == Some("failed")
+}
+
+/// Derives an actionable message from the failed update's events.
+fn session_failure_message(update: &Value) -> String {
+    if let Some(events) = update.get("events").and_then(Value::as_array) {
+        for event in events {
+            if event.get("type").and_then(Value::as_str) == Some("operationFailed") {
+                if let Some(message) = event.get("message").and_then(Value::as_str) {
+                    if !message.trim().is_empty() {
+                        return message.to_string();
+                    }
+                }
+            }
+        }
+    }
+    "The debug session failed to start or continue.".to_string()
+}
+
+/// Returns the ids of sessions owned by the given workspace path.
+fn matching_workspace_sessions(workspace_path: &str) -> Vec<String> {
+    let wanted = normalize_workspace(workspace_path);
+    if wanted.is_empty() {
+        return Vec::new();
+    }
+    let Ok(current) = sessions().lock() else {
+        return Vec::new();
+    };
+    current
+        .iter()
+        .filter(|(_, session)| session_owned_by(&session.workspace, &wanted))
+        .map(|(session_id, _)| session_id.clone())
+        .collect()
+}
+
+fn session_owned_by(session_workspace: &str, normalized_wanted: &str) -> bool {
+    normalize_workspace(session_workspace) == normalized_wanted
+}
+
+fn normalize_workspace(workspace_path: &str) -> String {
+    workspace_path
+        .trim()
+        .trim_end_matches(['/', '\\'])
+        .replace('\\', "/")
+        .to_lowercase()
+}
+
 /// Reduces one shared `debug.*` request and returns the serialized update.
 fn execute_core_sync(command: &str, payload: Value) -> Result<Value, String> {
     let operation_id = format!("core-{}", OPERATION_COUNTER.fetch_add(1, Ordering::Relaxed));
@@ -558,7 +664,19 @@ fn spawn_stdout_reader<T: Read + Send + 'static>(
         let mut buffer = [0_u8; 4096];
         loop {
             match stream.read(&mut buffer) {
-                Ok(0) => break,
+                Ok(0) => {
+                    if is_current_session(&session_id, pid) {
+                        fail_session(
+                            &app,
+                            &session_id,
+                            pid,
+                            &format!(
+                                "Debug adapter {pid} (session {session_id}) closed its output stream unexpectedly."
+                            ),
+                        );
+                    }
+                    break;
+                }
                 Ok(count) => {
                     if !is_current_session(&session_id, pid) {
                         break;
@@ -594,7 +712,19 @@ fn spawn_stdout_reader<T: Read + Send + 'static>(
                         }
                     }
                 }
-                Err(_) => break,
+                Err(error) => {
+                    if is_current_session(&session_id, pid) {
+                        fail_session(
+                            &app,
+                            &session_id,
+                            pid,
+                            &format!(
+                                "Debug adapter {pid} (session {session_id}) output read failed: {error}"
+                            ),
+                        );
+                    }
+                    break;
+                }
             }
         }
     })
@@ -780,6 +910,62 @@ mod tests {
         .unwrap();
         assert_eq!(payload["configuration"]["request"], "attach");
         assert_eq!(payload["configuration"]["arguments"]["port"], 9229);
+    }
+
+    #[test]
+    fn facade_accepts_attach_as_the_request_command() {
+        let (command, payload) = translate_request(
+            "session-1",
+            "attach",
+            &json!({ "name": "Attach", "port": 9229, "type": "node" }),
+            "op-attach",
+        )
+        .unwrap();
+        assert_eq!(command, "debug.launch");
+        assert_eq!(payload["configuration"]["request"], "attach");
+        assert_eq!(payload["configuration"]["arguments"]["port"], 9229);
+        assert_eq!(payload["configuration"]["name"], "Attach");
+    }
+
+    #[test]
+    fn workspace_ownership_matching_ignores_trailing_separators_and_case() {
+        assert!(session_owned_by(
+            "C:/work/project-a",
+            &normalize_workspace("C:\\Work\\Project-A\\")
+        ));
+        assert!(!session_owned_by(
+            "C:/work/project-b",
+            &normalize_workspace("C:/work/project-a")
+        ));
+        assert!(!session_owned_by("", &normalize_workspace("C:/work/project-a")));
+    }
+
+    #[test]
+    fn failed_updates_expose_the_adapter_message() {
+        let update = json!({
+            "state": "failed",
+            "events": [
+                {
+                    "type": "operationFailed",
+                    "operationId": "op-1",
+                    "command": "launch",
+                    "code": "adapterRejected",
+                    "message": "The adapter rejected the launch configuration.",
+                }
+            ]
+        });
+        assert!(update_state_failed(&update));
+        assert_eq!(
+            session_failure_message(&update),
+            "The adapter rejected the launch configuration."
+        );
+
+        let running = json!({ "state": "running", "events": [] });
+        assert!(!update_state_failed(&running));
+        assert_eq!(
+            session_failure_message(&running),
+            "The debug session failed to start or continue."
+        );
     }
 
     #[test]
