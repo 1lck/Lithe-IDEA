@@ -279,14 +279,18 @@ the user can fix credentials or connectivity and retry without losing commits.
 
 `git.pushPreview` accepts `root`, an optional complete local `gitReference` or
 legacy `reference`, and an optional bounded `limit`. It returns `localBranch`,
-`remote`, `remoteBranch`, nullable `upstream`, `commits`, and `hasMore` using
+`localHead`, `remote`, `remoteBranch`, nullable `remoteTrackingOid`, nullable
+`upstream`, `commits`, and `hasMore` using
 `shared/fixtures/git/push-preview-v1.json`. The push destination follows
 `branch.<name>.pushRemote`, then `remote.pushDefault`, the configured upstream
 remote, `branch.<name>.remote`, and finally `origin` or the first configured
 remote. A destination without a fetched tracking reference previews commits not
-reachable from that remote. The `push` mutation resolves the same destination. `force`
-uses `--force-with-lease`; `pushTags` accepts `none`, `all`, or `reachable` and
-maps to no tag option, `--tags`, or `--follow-tags` respectively.
+reachable from that remote. A reviewed `push` mutation sends these resolved fields
+back as `expectedPush`; Core rejects a stale local tip, destination, or tracking OID
+before starting Git. `force` binds `--force-with-lease` to the reviewed destination
+OID when `expectedPush` is present; `pushTags` accepts `none`, `all`, or `reachable`
+and maps to no tag option, `--tags`, or `--follow-tags` respectively. Legacy push
+callers may omit `expectedPush`.
 
 New reference-based workflows send `gitReference` as `{ "fullName": string,
 "shortName": string, "kind": "local" | "remote" | "tag" }`. Core verifies

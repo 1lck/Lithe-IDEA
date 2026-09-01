@@ -3,7 +3,7 @@ import type { MouseEvent as ReactMouseEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/ui/button";
-import { showChoiceDialog, showConfirmDialog, showPromptDialog } from "@/ui/dialog";
+import { showConfirmDialog, showPromptDialog } from "@/ui/dialog";
 import { Dropdown, useDropdownMenu } from "@/ui/dropdown";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/ui/resizable";
 import { tryWriteClipboardText } from "@/utils/clipboard";
@@ -28,17 +28,13 @@ import {
   rebaseOntoBranch,
   type IntegrationOutcome,
 } from "../../api/git-integration-api";
-import {
-  deleteRemoteBranch,
-  executePullChanges,
-  fetchChanges,
-  getPullPreflight,
-} from "../../api/git-remotes-api";
+import { deleteRemoteBranch } from "../../api/git-remotes-api";
 import { addWorktreeFromReference } from "../../api/git-worktrees-api";
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
 import { useRepositoryStore } from "../../stores/git-repository.store";
 import type { GitCommit, GitFile, GitReference } from "../../types/git.types";
 import { useGitHistoryMutations } from "../../hooks/use-git-history-mutations";
+import { useGitPullWorkflow } from "../../hooks/use-git-pull-workflow";
 import {
   resolveGitHistoryContextSelection,
   selectedCommitsInHistoryOrder,
@@ -88,10 +84,12 @@ export function GitLogToolWindow() {
     refresh,
     loadMore,
   } = useGitLogController(repoPath);
+  const pullWorkflow = useGitPullWorkflow({ repoPath: repoPath ?? "", refresh });
   const [selectedCommit, setSelectedCommit] = useState<GitCommit | null>(null);
   const [selectedCommitHashes, setSelectedCommitHashes] = useState<Set<string>>(new Set());
   const [isReferenceOperating, setIsReferenceOperating] = useState(false);
   const [showRemoteManager, setShowRemoteManager] = useState(false);
+  const isReferenceMutationPending = isReferenceOperating || pullWorkflow.isPulling;
   const emptyContextMenu = useDropdownMenu();
   const selectionAnchorRef = useRef<string | null>(null);
   const mainPanelLayout = useGitLogPreferencesStore.use.mainPanelLayout();
@@ -184,7 +182,7 @@ export function GitLogToolWindow() {
   };
 
   const runReferenceAction = async (reference: GitReference, action: DirectReferenceAction) => {
-    if (!repoPath || isReferenceOperating) return;
+    if (!repoPath || isReferenceMutationPending) return;
     if (action === "compareWithCurrent") {
       await viewBranchDiff(reference);
       return;
@@ -296,7 +294,7 @@ export function GitLogToolWindow() {
   };
 
   const runReferenceMutation = async (action: string, mutation: () => Promise<void>) => {
-    if (!repoPath || isReferenceOperating) return;
+    if (!repoPath || isReferenceMutationPending) return;
     setIsReferenceOperating(true);
     try {
       await mutation();
@@ -307,29 +305,6 @@ export function GitLogToolWindow() {
     } finally {
       setIsReferenceOperating(false);
     }
-  };
-
-  const pullCheckedOutBranch = async (): Promise<boolean> => {
-    if (!repoPath) return false;
-    const fetched = await fetchChanges(repoPath);
-    if (!fetched.success) throw new Error(fetched.error || t("git.fetchFailed"));
-    const preflight = await getPullPreflight(repoPath);
-    const strategy = preflight.diverged
-      ? await showChoiceDialog<"merge" | "rebase">(
-          t("git.pullDivergedMessage", { upstream: preflight.upstream ?? "upstream" }),
-          {
-            title: t("git.choosePullStrategy"),
-            choices: [
-              { value: "merge", label: t("git.merge") },
-              { value: "rebase", label: t("git.rebase"), variant: "accent" },
-            ],
-          },
-        )
-      : "ffOnly";
-    if (!strategy) return false;
-    const result = await executePullChanges(repoPath, strategy);
-    if (!result.success) throw new Error(result.error || t("git.operationFailed"));
-    return true;
   };
 
   const createWorktreeFromReference = async (reference: GitReference) => {
@@ -361,14 +336,13 @@ export function GitLogToolWindow() {
   };
 
   const checkoutAndUpdateReference = async (reference: GitReference) => {
-    if (!repoPath || isReferenceOperating || !reference.upstreamShortName) return;
+    if (!repoPath || isReferenceMutationPending || !reference.upstreamShortName) return;
     const action = t("git.log.checkoutAndUpdate");
     setIsReferenceOperating(true);
     try {
       const result = await checkoutGitReference(repoPath, reference);
       if (!result.success) throw new Error(result.message || t("git.operationFailed"));
-      if (await pullCheckedOutBranch()) toast.success(t("git.actionCompleted", { action }));
-      await refresh();
+      await pullWorkflow.pull();
     } catch (error) {
       toast.error(referenceActionErrorMessage(action, error));
     } finally {
@@ -416,12 +390,11 @@ export function GitLogToolWindow() {
   };
 
   const updateCurrentBranch = async () => {
-    if (!repoPath || isReferenceOperating) return;
+    if (!repoPath || isReferenceMutationPending) return;
     const action = t("git.log.updateBranch");
     setIsReferenceOperating(true);
     try {
-      if (await pullCheckedOutBranch()) toast.success(t("git.actionCompleted", { action }));
-      await refresh();
+      await pullWorkflow.pull();
     } catch (error) {
       toast.error(referenceActionErrorMessage(action, error));
     } finally {
@@ -430,7 +403,7 @@ export function GitLogToolWindow() {
   };
 
   const pushSelectedBranch = async (reference: GitReference) => {
-    if (!repoPath || isReferenceOperating) return;
+    if (!repoPath || isReferenceMutationPending) return;
     setIsReferenceOperating(true);
     try {
       if (await showGitPushDialog(repoPath, reference)) await refresh();
@@ -602,7 +575,7 @@ export function GitLogToolWindow() {
                 setSelectedCommit(null);
                 selectReference(reference);
               }}
-              isMutating={isReferenceOperating}
+              isMutating={isReferenceMutationPending}
               onReferenceAction={handleReferenceAction}
               onSetUpstream={(branch, upstream) => void setSelectedBranchUpstream(branch, upstream)}
               onManageRemotes={() => setShowRemoteManager(true)}

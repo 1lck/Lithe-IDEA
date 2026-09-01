@@ -72,6 +72,13 @@
           "shortName": "feature/core",
           "kind": "local"
         },
+        "expectedPush": {
+          "localBranch": "feature/core",
+          "localHead": "2222222222222222222222222222222222222222",
+          "remote": "origin",
+          "remoteBranch": "feature/core",
+          "remoteTrackingOid": "1111111111111111111111111111111111111111"
+        },
         "force": true,
         "pushTags": "reachable"
       }

@@ -168,12 +168,19 @@ function GitPushDialog({
   ];
 
   const performPush = async (force: boolean) => {
-    if (!canPush || isPushing) return;
+    if (!canPush || isPushing || !preview) return;
     setIsPushing(true);
     setPushError(null);
     try {
       await executeGitPush(request.repoPath, {
         reference: request.reference,
+        expectedPush: {
+          localBranch: preview.localBranch,
+          localHead: preview.localHead,
+          remote: preview.remote,
+          remoteBranch: preview.remoteBranch,
+          remoteTrackingOid: preview.remoteTrackingOid,
+        },
         force,
         pushTags: pushTags ? tagScope : "none",
       });

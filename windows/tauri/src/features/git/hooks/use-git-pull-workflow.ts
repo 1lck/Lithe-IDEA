@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { getGitPullWorkflow } from "../api/git-remotes-api";
 import { emitGitChanged } from "../events/git-events";
-import type { GitPullResult, PullStrategy } from "../types/git.types";
+import type { GitPullResult } from "../types/git.types";
 
 interface UseGitPullWorkflowOptions {
   repoPath: string;
@@ -16,7 +16,8 @@ const reportResult = (result: GitPullResult) => {
   } else if (result.status === "conflict") {
     toast.warning(result.message);
   } else if (result.status === "blocked") {
-    result.reason === "up-to-date" ? toast.info(result.message) : toast.warning(result.message);
+    if (result.reason === "up-to-date") toast.info(result.message);
+    else toast.warning(result.message);
   } else {
     toast.error(result.message);
   }
@@ -47,21 +48,8 @@ export function useGitPullWorkflow({ repoPath, refresh }: UseGitPullWorkflowOpti
     return result;
   }, [refresh, repoPath, workflow]);
 
-  const chooseStrategy = useCallback(
-    (strategy: Exclude<PullStrategy, "ffOnly"> | null) => workflow.chooseStrategy(strategy),
-    [workflow],
-  );
-
-  useEffect(
-    () => () => {
-      workflow.chooseStrategy(null);
-    },
-    [repoPath, workflow],
-  );
-
   return {
     ...snapshot,
     pull,
-    chooseStrategy,
   };
 }

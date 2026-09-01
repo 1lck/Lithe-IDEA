@@ -2,6 +2,7 @@ import { invoke as tauriInvoke } from "@/platform/tauri-core";
 import { emitGitChanged } from "../events/git-events";
 import type {
   GitCommit,
+  GitPushExpectation,
   GitPushPreview,
   GitPushTagScope,
 } from "../types/git.types";
@@ -25,6 +26,7 @@ interface CoreGitPushPreview extends Omit<GitPushPreview, "commits"> {
 
 export interface GitPushOptions {
   reference?: GitReferenceInput;
+  expectedPush?: GitPushExpectation;
   force?: boolean;
   pushTags?: GitPushTagScope;
 }
@@ -72,6 +74,7 @@ export const executeGitPush = async (
     repoPath: resolvedRepoPath,
     operation: "push",
     ...pushReferencePayload(options.reference),
+    ...(options.expectedPush ? { expectedPush: options.expectedPush } : {}),
     force: options.force ?? false,
     pushTags: options.pushTags ?? "none",
   });

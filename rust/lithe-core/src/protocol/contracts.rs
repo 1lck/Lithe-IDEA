@@ -432,10 +432,14 @@ pub struct GitHistoryResponse {
 pub struct GitPushPreviewResponse {
     /// Local branch that will be sent to the remote.
     pub local_branch: String,
+    /// Commit at the local branch tip when this preview was resolved.
+    pub local_head: String,
     /// Remote selected from the branch upstream or repository defaults.
     pub remote: String,
     /// Branch name created or updated on the remote.
     pub remote_branch: String,
+    /// Locally observed destination OID, or `None` before first publication.
+    pub remote_tracking_oid: Option<String>,
     /// Configured upstream short name, or `None` before first publication.
     pub upstream: Option<String>,
     /// Commits reachable from the local branch but not its resolved remote base.

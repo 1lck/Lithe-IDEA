@@ -6,8 +6,10 @@ const invoke = mock(async (command: string): Promise<unknown> => {
   if (command === "git.pushPreview") {
     return {
       localBranch: "feature/push",
+      localHead: "2222222222222222222222222222222222222222",
       remote: "origin",
       remoteBranch: "feature/push",
+      remoteTrackingOid: "1111111111111111111111111111111111111111",
       upstream: "origin/feature/push",
       commits: [
         {
@@ -62,8 +64,16 @@ describe("Git push API", () => {
   });
 
   test("executes force-with-lease intent and reachable tags through git.write", async () => {
+    const expectedPush = {
+      localBranch: "feature/push",
+      localHead: "2222222222222222222222222222222222222222",
+      remote: "origin",
+      remoteBranch: "feature/push",
+      remoteTrackingOid: "1111111111111111111111111111111111111111",
+    };
     await executeGitPush("C:/repo", {
       reference: "feature/push",
+      expectedPush,
       force: true,
       pushTags: "reachable",
     });
@@ -72,6 +82,7 @@ describe("Git push API", () => {
       repoPath: "C:/repo",
       operation: "push",
       reference: "refs/heads/feature/push",
+      expectedPush,
       force: true,
       pushTags: "reachable",
     });

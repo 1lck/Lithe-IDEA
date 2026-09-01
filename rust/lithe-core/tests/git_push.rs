@@ -95,6 +95,16 @@ fn add_bare_remote(fixture: &GitFixture, repository: &Path, name: &str) -> PathB
     remote
 }
 
+fn push_expectation(preview: &Value) -> Value {
+    json!({
+        "localBranch": preview["data"]["localBranch"],
+        "localHead": preview["data"]["localHead"],
+        "remote": preview["data"]["remote"],
+        "remoteBranch": preview["data"]["remoteBranch"],
+        "remoteTrackingOid": preview["data"]["remoteTrackingOid"],
+    })
+}
+
 #[test]
 fn push_preview_and_write_share_destination_and_safe_options() {
     let fixture = GitFixture::new();
@@ -110,6 +120,14 @@ fn push_preview_and_write_share_destination_and_safe_options() {
     assert_eq!(preview["data"]["remote"], "origin");
     assert_eq!(preview["data"]["remoteBranch"], "main");
     assert_eq!(preview["data"]["upstream"], "origin/main");
+    assert_eq!(
+        preview["data"]["localHead"],
+        String::from_utf8_lossy(&git(&repository, &["rev-parse", "HEAD"]).stdout).trim()
+    );
+    assert_eq!(
+        preview["data"]["remoteTrackingOid"],
+        String::from_utf8_lossy(&git(&repository, &["rev-parse", "origin/main"]).stdout).trim()
+    );
     assert_eq!(preview["data"]["commits"].as_array().map(Vec::len), Some(1));
     assert_eq!(preview["data"]["commits"][0]["subject"], "second");
 
@@ -118,6 +136,7 @@ fn push_preview_and_write_share_destination_and_safe_options() {
         &repository,
         json!({
             "operation": "push",
+            "expectedPush": push_expectation(&preview),
             "force": true,
             "pushTags": "reachable"
         }),
@@ -129,7 +148,9 @@ fn push_preview_and_write_share_destination_and_safe_options() {
         .iter()
         .filter_map(Value::as_str)
         .collect::<Vec<_>>();
-    assert!(arguments.contains(&"--force-with-lease"));
+    assert!(arguments
+        .iter()
+        .any(|argument| argument.starts_with("--force-with-lease=refs/heads/main:")));
     assert!(!arguments.contains(&"--force"));
     assert!(arguments.contains(&"--follow-tags"));
     assert!(arguments.contains(&"refs/heads/main:refs/heads/main"));
@@ -138,6 +159,83 @@ fn push_preview_and_write_share_destination_and_safe_options() {
     let remote_head = git(&remote, &["rev-parse", "refs/heads/main"]);
     assert_eq!(local_head.stdout, remote_head.stdout);
     require_git(&remote, &["show-ref", "--verify", "refs/tags/v1"]);
+}
+
+#[test]
+fn push_rejects_a_preview_after_the_local_head_changes() {
+    let fixture = GitFixture::new();
+    let (repository, remote) = initialize_repository(&fixture);
+    let preview = core("git.pushPreview", &repository, json!({}));
+    assert_eq!(preview["ok"], true, "response: {preview}");
+    let remote_before = git(&remote, &["rev-parse", "refs/heads/main"]).stdout;
+
+    fs::write(repository.join("after-preview.txt"), "changed\n")
+        .expect("fixture should be writable");
+    require_git(&repository, &["add", "after-preview.txt"]);
+    require_git(&repository, &["commit", "-q", "-m", "after preview"]);
+
+    let pushed = core(
+        "git.write",
+        &repository,
+        json!({
+            "operation": "push",
+            "expectedPush": push_expectation(&preview)
+        }),
+    );
+    assert_eq!(pushed["ok"], true, "response: {pushed}");
+    assert_eq!(
+        pushed["data"]["operationError"]["message"],
+        "Git push preview is stale; refresh and try again."
+    );
+    assert!(!pushed["data"]["invocations"]
+        .as_array()
+        .expect("invocations should be present")
+        .iter()
+        .any(|invocation| invocation["arguments"][0] == "push"));
+    assert_eq!(
+        git(&remote, &["rev-parse", "refs/heads/main"]).stdout,
+        remote_before
+    );
+}
+
+#[test]
+fn push_rejects_a_preview_after_the_configured_destination_changes() {
+    let fixture = GitFixture::new();
+    let (repository, origin) = initialize_repository(&fixture);
+    let fork = add_bare_remote(&fixture, &repository, "fork");
+    fs::write(repository.join("destination.txt"), "changed\n").expect("fixture should be writable");
+    require_git(&repository, &["add", "destination.txt"]);
+    require_git(&repository, &["commit", "-q", "-m", "destination change"]);
+    let preview = core("git.pushPreview", &repository, json!({}));
+    assert_eq!(preview["data"]["remote"], "origin");
+
+    require_git(&repository, &["config", "branch.main.pushRemote", "fork"]);
+    let pushed = core(
+        "git.write",
+        &repository,
+        json!({
+            "operation": "push",
+            "expectedPush": push_expectation(&preview)
+        }),
+    );
+
+    assert_eq!(pushed["ok"], true, "response: {pushed}");
+    assert_eq!(
+        pushed["data"]["operationError"]["message"],
+        "Git push preview is stale; refresh and try again."
+    );
+    assert!(!pushed["data"]["invocations"]
+        .as_array()
+        .expect("invocations should be present")
+        .iter()
+        .any(|invocation| invocation["arguments"][0] == "push"));
+    assert_ne!(
+        git(&origin, &["rev-parse", "refs/heads/main"]).stdout,
+        git(&repository, &["rev-parse", "HEAD"]).stdout
+    );
+    assert!(!git(&fork, &["show-ref", "--verify", "refs/heads/main"])
+        .status
+        .success());
 }
 
 #[test]

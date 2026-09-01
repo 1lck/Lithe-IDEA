@@ -44,10 +44,15 @@ export interface GitHistorySnapshot {
 
 export type GitPushTagScope = "none" | "all" | "reachable";
 
-export interface GitPushPreview {
+export interface GitPushExpectation {
   localBranch: string;
+  localHead: string;
   remote: string;
   remoteBranch: string;
+  remoteTrackingOid: string | null;
+}
+
+export interface GitPushPreview extends GitPushExpectation {
   upstream: string | null;
   commits: GitCommit[];
   hasMore: boolean;

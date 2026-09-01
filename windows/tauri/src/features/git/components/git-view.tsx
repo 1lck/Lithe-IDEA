@@ -55,7 +55,6 @@ import GitCommandSurface from "./git-command-surface";
 import GitRemoteManager from "./git-remote-manager";
 import GitTagManager from "./git-tag-manager";
 import GitOperationBanner from "./git-operation-banner";
-import GitPullStrategyDialog from "./git-pull-strategy-dialog";
 import GitStatusPanel from "./status/git-status-panel";
 
 interface GitViewProps {
@@ -785,10 +784,6 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
       </SidebarPanel>
 
       {renderGitActionsMenu({ hasGitRepo: !!gitStatus, onRefresh: refreshAfterAction })}
-      <GitPullStrategyDialog
-        preflight={pullWorkflow.pendingPreflight}
-        onSelect={pullWorkflow.chooseStrategy}
-      />
       <GitCommandSurface
         isOpen={showCommitDiffList}
         onClose={() => {

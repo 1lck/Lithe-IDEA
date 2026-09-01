@@ -230,6 +230,23 @@ pub struct GitReferenceRequest {
     pub kind: String,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Repository snapshot that a previously reviewed push preview was based on.
+pub struct GitPushExpectationRequest {
+    /// Local branch resolved when the preview was created.
+    pub local_branch: String,
+    /// Commit at the tip of the local branch when the preview was created.
+    pub local_head: String,
+    /// Push remote resolved from the repository configuration.
+    pub remote: String,
+    /// Destination branch name on the resolved remote.
+    pub remote_branch: String,
+    /// Locally observed destination OID, or `None` when the remote branch was absent.
+    #[serde(default)]
+    pub remote_tracking_oid: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Typed mutation request translated into a controlled Git invocation.
@@ -275,6 +292,9 @@ pub struct GitWriteRequest {
     /// Tag scope for push: `none`, `all`, or `reachable`.
     #[serde(default)]
     pub push_tags: Option<String>,
+    /// Optional reviewed preview snapshot that must still match before pushing.
+    #[serde(default)]
+    pub expected_push: Option<GitPushExpectationRequest>,
     #[serde(default)]
     pub auto_stash: bool,
 }
@@ -740,6 +760,7 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
                 reference.as_deref(),
                 request.force,
                 request.push_tags.as_deref(),
+                request.expected_push.as_ref(),
             );
         }
         "checkout" => return checkout(&root, request),
@@ -3335,6 +3356,12 @@ pub fn push_preview(request: GitPushPreviewRequest) -> Result<GitPushPreviewResp
     let target = resolve_push_target(&root, reference.as_deref())?;
     let limit = request.limit.clamp(1, 5_000);
     let local_reference = format!("refs/heads/{}", target.local_branch);
+    let local_head = resolve_commit_revision(&root, &local_reference)?;
+    let remote_tracking_oid = target
+        .comparison_reference
+        .as_deref()
+        .map(|reference| resolve_commit_revision(&root, reference))
+        .transpose()?;
     let selectors = if let Some(comparison_reference) = target.comparison_reference.as_ref() {
         vec![format!("{comparison_reference}..{local_reference}")]
     } else {
@@ -3351,8 +3378,10 @@ pub fn push_preview(request: GitPushPreviewRequest) -> Result<GitPushPreviewResp
 
     Ok(GitPushPreviewResponse {
         local_branch: target.local_branch,
+        local_head,
         remote: target.remote,
         remote_branch: target.remote_branch,
+        remote_tracking_oid,
         upstream: target.upstream,
         commits,
         has_more,
@@ -3364,6 +3393,7 @@ fn push(
     reference: Option<&str>,
     force: bool,
     push_tags: Option<&str>,
+    expected_push: Option<&GitPushExpectationRequest>,
 ) -> Result<GitCommandResponse, CoreError> {
     let tag_argument = match push_tags.unwrap_or("none") {
         "none" => None,
@@ -3377,10 +3407,20 @@ fn push(
         }
     };
     let target = resolve_push_target(root, reference)?;
+    if let Some(expected_push) = expected_push {
+        validate_push_expectation(root, &target, expected_push)?;
+    }
     let mut arguments = vec!["push".to_string()];
     if force {
-        // A lease refuses to overwrite a remote update the local repository has not seen.
-        arguments.push("--force-with-lease".into());
+        // Bind reviewed pushes to the observed remote OID so an unseen remote update is rejected.
+        arguments.push(match expected_push {
+            Some(expected) => format!(
+                "--force-with-lease=refs/heads/{}:{}",
+                target.remote_branch,
+                expected.remote_tracking_oid.as_deref().unwrap_or_default()
+            ),
+            None => "--force-with-lease".into(),
+        });
     }
     if let Some(tag_argument) = tag_argument {
         arguments.push(tag_argument.into());
@@ -3396,6 +3436,32 @@ fn push(
         ),
     ]);
     execute_git(root, &arguments, None)
+}
+
+fn validate_push_expectation(
+    root: &str,
+    target: &PushTarget,
+    expected: &GitPushExpectationRequest,
+) -> Result<(), CoreError> {
+    let local_reference = format!("refs/heads/{}", target.local_branch);
+    let local_head = resolve_commit_revision(root, &local_reference)?;
+    let remote_tracking_oid = target
+        .comparison_reference
+        .as_deref()
+        .map(|reference| resolve_commit_revision(root, reference))
+        .transpose()?;
+    if expected.local_branch != target.local_branch
+        || expected.local_head != local_head
+        || expected.remote != target.remote
+        || expected.remote_branch != target.remote_branch
+        || expected.remote_tracking_oid != remote_tracking_oid
+    {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Git push preview is stale; refresh and try again.",
+        ));
+    }
+    Ok(())
 }
 
 fn resolve_push_target(root: &str, reference: Option<&str>) -> Result<PushTarget, CoreError> {
@@ -4831,8 +4897,10 @@ mod tests {
         .expect("Git push preview fixture should be valid JSON");
         let response = GitPushPreviewResponse {
             local_branch: "feature/core".into(),
+            local_head: "2222222222222222222222222222222222222222".into(),
             remote: "origin".into(),
             remote_branch: "feature/core".into(),
+            remote_tracking_oid: Some("1111111111111111111111111111111111111111".into()),
             upstream: Some("origin/feature/core".into()),
             commits: vec![GitCommitResponse {
                 hash: "2222222222222222222222222222222222222222".into(),
