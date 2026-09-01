@@ -2474,6 +2474,14 @@ fn git_history_reports_tracking_counts_for_a_noncurrent_local_branch() {
     );
     assert!(run(&["branch", "-D", "remote-feature"]).status.success());
     assert!(
+        run(&["update-ref", "refs/remotes/origin/main", "refs/heads/main"])
+            .status
+            .success()
+    );
+    assert!(run(&["branch", "--set-upstream-to=origin/main", "main"])
+        .status
+        .success());
+    assert!(
         run(&["branch", "--set-upstream-to=origin/feature", "feature",])
             .status
             .success()

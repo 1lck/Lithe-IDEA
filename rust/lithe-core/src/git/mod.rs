@@ -1483,33 +1483,19 @@ pub fn history(request: GitHistoryRequest) -> Result<GitHistoryResponse, CoreErr
     let reference_arguments = vec![
         "for-each-ref".to_string(),
         "--sort=refname".to_string(),
-        "--format=%(refname)\t%(refname:short)\t%(HEAD)\t%(upstream:short)\t%(upstream)\t%(ahead-behind:@{upstream})"
+        "--format=%(refname)\t%(refname:short)\t%(HEAD)\t%(upstream:short)\t%(upstream)\t%(upstream:track,nobracket)"
             .to_string(),
         "refs/heads".to_string(),
     ];
-    let mut reference_output = readonly_command(GitCommandRequest {
-        root: root.clone(),
-        arguments: reference_arguments,
-        input: None,
-    })?;
-    let mut has_embedded_tracking_counts = reference_output.exit_code == 0;
-    if !has_embedded_tracking_counts {
-        // Git versions predating the numeric ahead-behind atom still receive
-        // correct counts, while current versions keep history loading to one
-        // reference process even in repositories with many local branches.
-        reference_output = readonly_command(GitCommandRequest {
-            root: root.clone(),
-            arguments: vec![
-                "for-each-ref".to_string(),
-                "--sort=refname".to_string(),
-                "--format=%(refname)\t%(refname:short)\t%(HEAD)\t%(upstream:short)\t%(upstream)"
-                    .to_string(),
-                "refs/heads".to_string(),
-            ],
-            input: None,
-        })?;
-        has_embedded_tracking_counts = false;
-    }
+    // `upstream:track` is evaluated independently for each enumerated branch.
+    // A fixed C locale keeps its machine-parsed labels deterministic.
+    let reference_output = execute_git_with_environment(
+        &root,
+        &reference_arguments,
+        None,
+        true,
+        &[("LC_ALL".to_string(), "C".to_string())],
+    )?;
     if reference_output.exit_code != 0 {
         return Err(
             CoreError::new(ErrorCode::ProcessFailed, "Git references failed")
@@ -1517,23 +1503,11 @@ pub fn history(request: GitHistoryRequest) -> Result<GitHistoryResponse, CoreErr
         );
     }
 
-    let mut parsed_references = reference_output
+    let mut references = reference_output
         .output
         .lines()
         .filter_map(parse_reference)
         .collect::<Vec<_>>();
-    if !has_embedded_tracking_counts {
-        for parsed in &mut parsed_references {
-            if parsed.response.kind != "local" {
-                continue;
-            }
-            let Some(upstream_full_name) = parsed.upstream_full_name.as_deref() else {
-                continue;
-            };
-            (parsed.response.ahead, parsed.response.behind) =
-                reference_tracking_counts(&root, &parsed.response.full_name, upstream_full_name);
-        }
-    }
     let nonlocal_reference_output = readonly_command(GitCommandRequest {
         root: root.clone(),
         arguments: vec![
@@ -1552,16 +1526,12 @@ pub fn history(request: GitHistoryRequest) -> Result<GitHistoryResponse, CoreErr
                 .with_details(nonlocal_reference_output.output),
         );
     }
-    parsed_references.extend(
+    references.extend(
         nonlocal_reference_output
             .output
             .lines()
             .filter_map(parse_reference),
     );
-    let references = parsed_references
-        .into_iter()
-        .map(|parsed| parsed.response)
-        .collect::<Vec<_>>();
     let recent_references = recent_local_references(&root, &references, RECENT_BRANCH_LIMIT);
 
     let selectors = if let Some(reference) = request.reference {
@@ -4840,13 +4810,7 @@ fn switch_validated_reference(
     }
 }
 
-/// Parsed reference plus the full upstream identity used by compatibility counting.
-struct ParsedGitReference {
-    response: GitReferenceResponse,
-    upstream_full_name: Option<String>,
-}
-
-fn parse_reference(line: &str) -> Option<ParsedGitReference> {
+fn parse_reference(line: &str) -> Option<GitReferenceResponse> {
     let columns = line.split('\t').collect::<Vec<_>>();
     if columns.len() < 4 || columns[1].ends_with("/HEAD") {
         return None;
@@ -4866,54 +4830,34 @@ fn parse_reference(line: &str) -> Option<ParsedGitReference> {
     }?;
     let upstream_short_name = (!columns[3].is_empty()).then(|| columns[3].to_string());
     let (ahead, behind) = if kind == "local" && upstream_short_name.is_some() {
-        parse_ahead_behind_counts(columns.get(5).copied().unwrap_or_default())
+        parse_tracking_counts(columns.get(5).copied().unwrap_or_default())
     } else {
         (0, 0)
     };
-    Some(ParsedGitReference {
-        response: GitReferenceResponse {
-            full_name: columns[0].to_string(),
-            // `%(refname:short)` deliberately adds `heads/` or `tags/` when
-            // namespaces collide. The typed contract keeps identity in
-            // `fullName` and always exposes the namespace-relative short name.
-            short_name: short_name.to_string(),
-            kind: kind.to_string(),
-            is_current: columns[2].trim() == "*",
-            upstream_short_name,
-            ahead,
-            behind,
-        },
-        upstream_full_name: columns
-            .get(4)
-            .filter(|value| !value.is_empty())
-            .map(|value| (*value).to_string()),
+    Some(GitReferenceResponse {
+        full_name: columns[0].to_string(),
+        // `%(refname:short)` deliberately adds `heads/` or `tags/` when
+        // namespaces collide. The typed contract keeps identity in
+        // `fullName` and always exposes the namespace-relative short name.
+        short_name: short_name.to_string(),
+        kind: kind.to_string(),
+        is_current: columns[2].trim() == "*",
+        upstream_short_name,
+        ahead,
+        behind,
     })
 }
 
-fn parse_ahead_behind_counts(value: &str) -> (usize, usize) {
-    let mut values = value
-        .split_whitespace()
-        .filter_map(|value| value.parse::<usize>().ok());
-    (values.next().unwrap_or(0), values.next().unwrap_or(0))
-}
-
-fn reference_tracking_counts(root: &str, local: &str, upstream: &str) -> (usize, usize) {
-    let Ok(output) = readonly_command(GitCommandRequest {
-        root: root.to_string(),
-        arguments: vec![
-            "rev-list".to_string(),
-            "--left-right".to_string(),
-            "--count".to_string(),
-            format!("{upstream}...{local}"),
-        ],
-        input: None,
-    }) else {
-        return (0, 0);
-    };
-    if output.exit_code != 0 {
-        return (0, 0);
+fn parse_tracking_counts(value: &str) -> (usize, usize) {
+    let mut ahead = 0;
+    let mut behind = 0;
+    for component in value.split(',').map(str::trim) {
+        if let Some(value) = component.strip_prefix("ahead ") {
+            ahead = value.parse().unwrap_or(0);
+        } else if let Some(value) = component.strip_prefix("behind ") {
+            behind = value.parse().unwrap_or(0);
+        }
     }
-    let (behind, ahead) = parse_ahead_behind_counts(&output.output);
     (ahead, behind)
 }
 

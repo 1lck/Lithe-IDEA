@@ -35,7 +35,11 @@ import {
   getGitReferenceActions,
   type GitReferenceAction,
 } from "../../utils/git-reference-actions";
-import { buildGitReferenceTree, type GitReferenceTreeNode } from "../../utils/git-reference-tree";
+import {
+  buildGitReferenceTree,
+  countGitReferencesByKind,
+  type GitReferenceTreeNode,
+} from "../../utils/git-reference-tree";
 import { GitTrackingCounts } from "../git-tracking-counts";
 
 const SECTION_KEYS: Array<{ kind: GitReferenceKind; titleKey: string }> = [
@@ -439,7 +443,9 @@ export function GitReferenceTree({
                   )}
                   <FolderIcon className="size-3.5 text-subtle-foreground" />
                   {t(titleKey)}
-                  <span className="ml-auto text-subtle-foreground tabular-nums">{nodes.length}</span>
+                  <span className="ml-auto text-subtle-foreground tabular-nums">
+                    {countGitReferencesByKind(references, kind)}
+                  </span>
                 </ContextMenuTrigger>
                 {kind === "remote" ? (
                   <ContextMenuContent>
