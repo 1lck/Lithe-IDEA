@@ -51,6 +51,7 @@ jobs:
                 try {
                   await github.rest.issues.removeAssignees({ owner, repo, issue_number, assignees: [assignee] });
                   assignee = null;
+                  await github.rest.issues.removeLabel({ owner, repo, issue_number, name: logic.STALE_LABEL }).catch(() => {});
                 } catch (error) {
                   core.warning(`Unable to clear released assignee ${assignee}: ${error.message}`);
                   return comment('认领没有完成：当前 Issue 的旧负责人状态尚未清理，请稍后重试或联系维护者。');
@@ -69,6 +70,7 @@ jobs:
               }
               const marker = logic.claimMarker(login, new Date().toISOString());
               try {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number, name: logic.STALE_LABEL }).catch(() => {});
                 await github.rest.issues.addLabels({ owner, repo, issue_number, labels: [logic.CLAIM_LABEL] });
                 await comment(`${marker}\n@${login} ${official ? '已认领这个 Issue。' : '已登记认领这个 Issue，等待维护者确认 GitHub 负责人字段。'}`);
               } catch (error) {
