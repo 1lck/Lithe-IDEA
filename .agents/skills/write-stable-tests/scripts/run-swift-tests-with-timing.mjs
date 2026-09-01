@@ -109,16 +109,62 @@ export async function run(options, { runProcessImpl = runProcess } = {}) {
   // guards against the runner producing no output at all.
   const stallTimeoutMs = options.stallTimeoutMs ?? 120000;
   // Best-effort thread-stack snapshot of the hung runner, taken before the
-  // SIGTERM destroys the evidence of where it was stuck.
+  // SIGTERM destroys the evidence of where it was stuck. The direct child is a
+  // shell wrapper, so walk its descendant tree: the genuinely hung process
+  // (swift-test or the testing helper, which detaches into its own process
+  // group) is a descendant, and the wrapper's stack would only show it waiting
+  // on its child.
   const captureStallSample = () => {
     if (process.platform !== "darwin" || !childPid) return;
-    const samplePath = options.report.replace(/\.json$/i, ".stall-sample.txt");
+    let treePids = [String(childPid)];
+    let processListing = "";
     try {
-      const sample = spawnSync("sample", [String(childPid), "2", "-file", samplePath], {
-        stdio: "ignore",
+      const everyProcess = spawnSync(
+        "ps",
+        ["-axo", "pid=,ppid=,pgid=,etime=,command="],
+        { encoding: "utf8", timeout: 5000 },
+      );
+      const rows = (everyProcess.stdout ?? "")
+        .split("\n")
+        .map((line) => {
+          const [pid, ppid] = line.trim().split(/\s+/);
+          return { pid, ppid, line };
+        })
+        .filter((row) => row.pid);
+      const wanted = new Set([String(childPid)]);
+      // Multiple passes handle arbitrary depth without recursion.
+      for (let pass = 0; pass < 10; pass += 1) {
+        const before = wanted.size;
+        for (const row of rows) if (wanted.has(row.ppid)) wanted.add(row.pid);
+        if (wanted.size === before) break;
+      }
+      const treeRows = rows.filter((row) => wanted.has(row.pid));
+      if (treeRows.length > 0) {
+        processListing = treeRows.map((row) => row.line).join("\n");
+        treePids = treeRows.map((row) => row.pid);
+      }
+    } catch {
+      // Fall back to sampling only the direct child.
+    }
+    const samplePath = options.report.replace(/\.json$/i, ".stall-sample.txt");
+    const sections = [
+      `Process tree under pid ${childPid} at stall (pid ppid pgid etime command):`,
+      processListing || "(process listing unavailable)",
+    ];
+    // Bound the diagnostics pass; each sample blocks for its full duration.
+    for (const pid of treePids.slice(0, 6)) {
+      const sample = spawnSync("sample", [pid, "2"], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
         timeout: 15000,
       });
-      if (sample.status === 0) stallSamplePath = samplePath;
+      if (sample.status === 0 && sample.stdout) {
+        sections.push(`===== sample of pid ${pid} =====`, sample.stdout);
+      }
+    }
+    try {
+      writeFileSync(samplePath, `${sections.join("\n\n")}\n`);
+      stallSamplePath = samplePath;
     } catch {
       // Sampling is diagnostics only; never let it break termination.
     }
