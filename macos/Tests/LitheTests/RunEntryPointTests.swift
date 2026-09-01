@@ -2,7 +2,8 @@ import Foundation
 import Testing
 @testable import Lithe
 
-private let runEntryPointWaitTimeout: Duration = .seconds(10)
+private let runEntryPointChangeWaitTimeout: DispatchTimeInterval = .seconds(10)
+private let runEntryPointGateWaitTimeout: Duration = .seconds(10)
 
 // Each test here opens a real workspace and builds a full service container, and
 // several of them coordinate on gates. Run in parallel they contend hard enough
@@ -629,7 +630,7 @@ private func awaitLoadDrivenChange(
     on model: AppModel,
     until isSatisfied: @escaping @MainActor @Sendable () -> Bool
 ) async -> Bool {
-    await awaitChange(on: model, timeout: runEntryPointWaitTimeout, until: isSatisfied)
+    await awaitChange(on: model, timeout: runEntryPointChangeWaitTimeout, until: isSatisfied)
 }
 
 /// A real workspace on disk holding one Java entry point, so generation runs
@@ -791,7 +792,7 @@ private final class ReadyRunConfigurationOperations: RunConfigurationOperations,
     /// project load, and toolchain resolution — so it matches the other
     /// cross-load gates in this file rather than a single publication.
     func launchPlanRequested(_ ordinal: Int) async -> Bool {
-        await launchPlanRequests[ordinal - 1].waitUntilOpen(timeout: runEntryPointWaitTimeout)
+        await launchPlanRequests[ordinal - 1].waitUntilOpen(timeout: runEntryPointGateWaitTimeout)
     }
 
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
@@ -888,7 +889,7 @@ private final class InspectionGatedRunConfigurationOperations: RunConfigurationO
     /// through the model and an `objectWillChange` wait could miss it. The
     /// deadline spans a whole snapshot-driven load, like the gates above.
     func launchPlanRequested(_ ordinal: Int) async -> Bool {
-        await launchPlanRequests[ordinal - 1].waitUntilOpen(timeout: runEntryPointWaitTimeout)
+        await launchPlanRequests[ordinal - 1].waitUntilOpen(timeout: runEntryPointGateWaitTimeout)
     }
 
     /// Asserting that no launch happens needs a short deadline: the whole wait is
@@ -999,7 +1000,7 @@ private final class GatedGitWatchContextProvider: GitWatchContextProviding, @unc
             }
         }
         entered[ordinal - 1].open()
-        _ = await releases[ordinal - 1].waitUntilOpen(timeout: runEntryPointWaitTimeout)
+        _ = await releases[ordinal - 1].waitUntilOpen(timeout: runEntryPointGateWaitTimeout)
         return nil
     }
 }
