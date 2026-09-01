@@ -120,7 +120,23 @@ jobs:
                 continue;
               }
               const release = [...comments].reverse().filter(trusted).map((c) => logic.parseMarker(c.body, logic.RELEASE_MARKER)).find((candidate) => logic.releaseMatchesClaim(candidate, claim));
-              if (!logic.isActiveClaim(claim, release)) continue;
+              if (!logic.isActiveClaim(claim, release)) {
+                const current = (await github.rest.issues.get({ owner, repo, issue_number: issue.number })).data;
+                const stillOwned = current.assignees?.some((a) => a.login === claim.login);
+                if (logic.needsReleaseRecovery(claim, release, current.assignees?.map((a) => a.login))) {
+                  try {
+                    await github.rest.issues.removeAssignees({ owner, repo, issue_number: issue.number, assignees: [claim.login] });
+                  } catch (error) {
+                    core.warning(`Unable to recover released assignee: ${error.message}`);
+                    continue;
+                  }
+                }
+                if (!stillOwned) {
+                  await github.rest.issues.removeLabel({ owner, repo, issue_number: issue.number, name: logic.CLAIM_LABEL }).catch(() => {});
+                  await github.rest.issues.removeLabel({ owner, repo, issue_number: issue.number, name: logic.STALE_LABEL }).catch(() => {});
+                }
+                continue;
+              }
               const official = issue.assignees?.some((a) => a.login === claim.login);
               const progressDate = logic.latestProgressDate(comments, claim.login, claim.isoDate);
               const activityDate = progressDate || claim.isoDate;

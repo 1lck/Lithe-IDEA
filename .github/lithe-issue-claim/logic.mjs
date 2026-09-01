@@ -39,6 +39,10 @@ export function releaseMatchesClaim(release, claim) {
   return Boolean(release && claim && release.login === claim.login && new Date(release.isoDate) > new Date(claim.isoDate));
 }
 
+export function needsReleaseRecovery(claim, release, assignees = []) {
+  return Boolean(releaseMatchesClaim(release, claim) && assignees.includes(claim.login));
+}
+
 export function parseMarker(body, prefix) {
   const match = (body ?? '').match(new RegExp(`${prefix.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}([^: >]+):([^ >]+)`));
   return match ? { login: match[1], isoDate: match[2] } : null;

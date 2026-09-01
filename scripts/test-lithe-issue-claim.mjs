@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  claimMarker, claimStatus, hasProgressSince, isActiveClaim, isMaintainer, isPullRequestIssue, latestProgressDate, parseCommand, parseMarker, releaseMarker, releaseMatchesClaim,
+  claimMarker, claimStatus, hasProgressSince, isActiveClaim, isMaintainer, isPullRequestIssue, latestProgressDate, needsReleaseRecovery, parseCommand, parseMarker, releaseMarker, releaseMatchesClaim,
 } from '../.github/lithe-issue-claim/logic.mjs';
 
 const now = new Date('2026-09-01T00:00:00Z');
@@ -55,4 +55,6 @@ test('a release tombstone allows a later claimant to take over', () => {
   const bobRelease = parseMarker(releaseMarker('bob', '2026-08-28T00:00:00Z'), '<!-- lithe-claim-release:');
   assert.equal(releaseMatchesClaim(bobRelease, bobClaim), true);
   assert.equal(isActiveClaim(bobClaim, bobRelease), false);
+  assert.equal(needsReleaseRecovery(bobClaim, bobRelease, ['bob']), true);
+  assert.equal(needsReleaseRecovery(bobClaim, bobRelease, []), false);
 });
