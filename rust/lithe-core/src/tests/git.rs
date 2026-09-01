@@ -1006,6 +1006,49 @@ fn git_write_records_the_deleted_branch_target() {
         head
     );
 
+    // A config lock can make metadata cleanup fail after the expected-OID ref
+    // deletion has already succeeded. The response must still carry recovery
+    // data so hosts can offer Restore alongside the cleanup warning.
+    assert!(run(&["branch", "feature/config-locked"]).status.success());
+    assert!(run(&[
+        "config",
+        "branch.feature/config-locked.description",
+        "temporary"
+    ])
+    .status
+    .success());
+    let config_lock = root.join(".git/config.lock");
+    fs::write(&config_lock, "locked\n").expect("config lock should be creatable");
+    let cleanup_warning = request(
+        "deleteBranch",
+        serde_json::json!({"reference": "refs/heads/feature/config-locked"}),
+    );
+    fs::remove_file(config_lock).expect("config lock should be removable");
+    assert_eq!(cleanup_warning["ok"], true, "{cleanup_warning:?}");
+    assert_eq!(
+        cleanup_warning["data"]["operationError"]["code"],
+        "process_failed"
+    );
+    assert_eq!(
+        cleanup_warning["data"]["branchDeletion"]["name"], "feature/config-locked",
+        "{cleanup_warning:?}"
+    );
+    assert_eq!(
+        cleanup_warning["data"]["branchDeletion"]["deletedTarget"],
+        head
+    );
+    assert_ne!(
+        run(&[
+            "show-ref",
+            "--verify",
+            "--quiet",
+            "refs/heads/feature/config-locked"
+        ])
+        .status
+        .code(),
+        Some(0)
+    );
+
     // Atomic deletion must retain the safety contract of `git branch -d` and
     // refuse a branch whose tip is not merged into its upstream or HEAD.
     assert!(run(&["switch", "-q", "feature/short-lived"])

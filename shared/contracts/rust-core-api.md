@@ -314,7 +314,10 @@ guard after checking the branch is fully merged and not checked out, then
 on success, carries a structured `branchDeletion` record —
 `{ "name": string, "deletedTarget": string }` — so hosts can offer to
 recreate the branch at its previous commit; a missing branch fails with
-`The branch '<name>' does not exist`.
+`The branch '<name>' does not exist`. If the ref deletion succeeds but branch
+configuration cleanup fails, the response contains both `branchDeletion` and
+`operationError`; hosts must preserve the Restore action while surfacing the
+cleanup diagnostic.
 
 `operationContinue`, `operationAbort`, and `operationSkip` inspect Git metadata
 to select the active merge, rebase, cherry-pick, or revert instead of accepting

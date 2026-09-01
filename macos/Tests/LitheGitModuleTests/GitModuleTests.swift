@@ -867,6 +867,44 @@ struct GitModuleTests {
     }
 
     @Test
+    func gitBranchConfigCleanupFailureKeepsTheRestorableDeletionRecord() async {
+        var notifications: [String] = []
+        let warning = "Deleted branch 'feature/short-lived' but could not remove its configuration"
+        let (feature, _) = makeTagTestFeature(
+            TestGitOperations(
+                snapshotValue: GitSnapshot(repositoryRoot: URL(fileURLWithPath: "/workspace"), branch: "main", changes: []),
+                deleteBranchResult: GitProcessResult(
+                    arguments: ["update-ref", "-d", "refs/heads/feature/short-lived"],
+                    output: warning,
+                    exitCode: 0,
+                    operationErrorMessage: warning,
+                    branchDeletion: GitBranchDeletion(
+                        name: "feature/short-lived",
+                        deletedTarget: "abc123def456"
+                    )
+                )
+            ),
+            onNotify: { notifications.append($0) }
+        )
+        await feature.refreshGit()
+        let reference = GitReference(
+            fullName: "refs/heads/feature/short-lived",
+            shortName: "feature/short-lived",
+            kind: .local,
+            isCurrent: false,
+            upstreamShortName: nil
+        )
+
+        await feature.deleteBranch(reference)
+
+        #expect(feature.recentlyDeletedBranch == GitBranchDeletion(
+            name: "feature/short-lived",
+            deletedTarget: "abc123def456"
+        ))
+        #expect(notifications == [warning])
+    }
+
+    @Test
     func gitBranchDeletionFailureClearsThePreviousRecoveryRecord() async {
         var notifications: [String] = []
         let results = GitProcessResultQueue([

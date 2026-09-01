@@ -1644,9 +1644,9 @@ package final class GitFeatureModel: ObservableObject {
         isPerformingBranchOperation = true
         let result = await withGitOperation { await service.deleteBranch(reference, at: gitRepositoryRoot) }
         isPerformingBranchOperation = false
-        if result.succeeded, let deletion = result.branchDeletion {
+        if let deletion = result.branchDeletion {
             recentlyDeletedBranch = deletion
-            notify?("Deleted branch \(deletion.name)")
+            notify?(result.succeeded ? "Deleted branch \(deletion.name)" : trimmedMessage(result))
         } else {
             recentlyDeletedBranch = nil
             notify?(result.succeeded ? "Deleted \(reference.shortName)" : trimmedMessage(result))

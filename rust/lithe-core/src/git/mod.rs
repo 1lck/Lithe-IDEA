@@ -2186,11 +2186,15 @@ fn delete_branch(root: &str, branch: &str) -> Result<GitCommandResponse, CoreErr
     ensure_branch_is_safely_deletable(root, branch, &reference, &target)?;
     let mut result = delete_ref_if_unchanged(root, &reference, &target)?;
     if result.exit_code == 0 {
-        remove_branch_config(root, branch)?;
         result.branch_deletion = Some(GitBranchDeletionResponse {
             name: branch.to_string(),
             deleted_target: target,
         });
+        if let Err(error) = remove_branch_config(root, branch) {
+            // The ref mutation already committed. Preserve recovery data and
+            // report configuration cleanup as a diagnosable partial success.
+            result.operation_error = Some(error);
+        }
     }
     Ok(result)
 }
