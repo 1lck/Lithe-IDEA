@@ -4,6 +4,7 @@ import type {
   DebugAdapterLaunch,
   DebugAdapterSessionInfo,
   DebugBreakpoint,
+  DebugCommandResult,
   DebugLaunchConfig,
   DebugProcessOutput,
   DebugProtocolMessage,
@@ -26,8 +27,8 @@ export async function sendDebugAdapterRequest(
   sessionId: string,
   command: string,
   argumentsPayload?: unknown,
-): Promise<number> {
-  return await invoke<number>("debug_send_request", {
+): Promise<DebugCommandResult> {
+  return await invoke<DebugCommandResult>("debug_send_request", {
     sessionId,
     command,
     arguments: argumentsPayload,
@@ -53,18 +54,8 @@ export async function startDebugLaunchSession(
     env: config.env,
   });
 
-  await sendDebugAdapterRequest(session.id, "initialize", {
-    adapterID: config.type ?? config.runtime,
-    pathFormat: "path",
-    linesStartAt1: true,
-    columnsStartAt1: true,
-    supportsVariableType: true,
-    supportsVariablePaging: true,
-    supportsRunInTerminalRequest: true,
-  });
-
-  await syncDebugBreakpoints(session.id, breakpoints);
-
+  // Rust Core owns DAP initialization and the configurationDone handshake;
+  // the host facade only queues the launch and breakpoint sets.
   await sendDebugAdapterRequest(session.id, config.request ?? "launch", {
     name: config.name,
     type: config.type ?? config.runtime,
@@ -75,7 +66,7 @@ export async function startDebugLaunchSession(
     env: config.env ?? {},
   });
 
-  await sendDebugAdapterRequest(session.id, "configurationDone");
+  await syncDebugBreakpoints(session.id, breakpoints);
 
   return session;
 }

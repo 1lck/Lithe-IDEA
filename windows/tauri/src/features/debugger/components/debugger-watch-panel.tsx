@@ -16,7 +16,7 @@ interface DebugWatchPanelProps {
   activeSessionId?: string;
   selectedFrameId: number | null;
   isPaused: boolean;
-  pendingRequests: Record<number, DebugRequestContext>;
+  pendingRequests: Record<string, DebugRequestContext>;
 }
 
 export function DebugWatchPanel({
@@ -46,12 +46,15 @@ export function DebugWatchPanel({
       if (!activeSessionId || !isPaused) return;
 
       try {
-        const seq = await sendDebugAdapterRequest(activeSessionId, "evaluate", {
+        const result = await sendDebugAdapterRequest(activeSessionId, "evaluate", {
           expression,
           frameId: selectedFrameId ?? undefined,
           context: "watch",
         });
-        debuggerActions.registerAdapterRequest(seq, { command: "evaluate", expressionId });
+        debuggerActions.registerAdapterRequest(result.operationId, {
+          command: "evaluate",
+          expressionId,
+        });
       } catch (error) {
         debuggerActions.setWatchResult({
           expressionId,

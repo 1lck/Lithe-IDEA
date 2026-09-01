@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod core;
+mod debug;
 mod file_events;
 mod host;
 mod logging;
@@ -63,6 +64,7 @@ fn main() {
             ));
             app.manage(host::FileClipboard::default());
             app.manage(run::RunProcessManager::default());
+            app.manage(debug::DebugAdapterManager::default());
             run::cleanup_legacy_appdata(app.handle());
             if let Some(window) = app.get_webview_window("main") {
                 host::apply_window_taskbar_icon(&window);
@@ -72,6 +74,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             core::core_execute,
             core::core_cancel,
+            debug::debug_start_session,
+            debug::debug_send_request,
+            debug::debug_stop_session,
             platform::platform_invoke,
             memory::get_application_memory_usage,
             terminal::begin_frontend_terminal_session,
@@ -135,6 +140,7 @@ fn main() {
 
     application.run(|app, event| {
         if matches!(event, tauri::RunEvent::Exit) {
+            debug::shutdown();
             if let Some(manager) = app.try_state::<Arc<logging::LogManager>>() {
                 manager.shutdown();
             }

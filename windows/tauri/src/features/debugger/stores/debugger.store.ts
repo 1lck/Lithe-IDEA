@@ -38,7 +38,7 @@ interface DebuggerState {
   scopes: DebugScope[];
   variablesByReference: Record<number, DebugVariable[]>;
   stoppedState: DebugStoppedState | null;
-  pendingRequests: Record<number, DebugRequestContext>;
+  pendingRequests: Record<string, DebugRequestContext>;
   actions: {
     hydrate: () => void;
     setWorkspaceConfigs: (configs: DebugLaunchConfig[]) => void;
@@ -59,8 +59,8 @@ interface DebuggerState {
     recordAdapterMessage: (message: DebugProtocolMessage) => void;
     recordAdapterOutput: (output: DebugProcessOutput) => void;
     recordSessionEnded: (event: DebugSessionEnded) => void;
-    registerAdapterRequest: (seq: number, context: DebugRequestContext) => void;
-    clearAdapterRequest: (seq: number) => void;
+    registerAdapterRequest: (operationId: string, context: DebugRequestContext) => void;
+    clearAdapterRequest: (operationId: string) => void;
     setThreads: (threads: DebugThread[]) => void;
     setStackFrames: (frames: DebugStackFrame[]) => void;
     selectStackFrame: (frameId: number | null) => void;
@@ -349,19 +349,19 @@ export const useDebuggerStore = createSelectors(
         }));
       },
 
-      registerAdapterRequest: (seq, context) => {
+      registerAdapterRequest: (operationId, context) => {
         set((state) => ({
           pendingRequests: {
             ...state.pendingRequests,
-            [seq]: context,
+            [operationId]: context,
           },
         }));
       },
 
-      clearAdapterRequest: (seq) => {
+      clearAdapterRequest: (operationId) => {
         set((state) => {
           const nextPendingRequests = { ...state.pendingRequests };
-          delete nextPendingRequests[seq];
+          delete nextPendingRequests[operationId];
           return { pendingRequests: nextPendingRequests };
         });
       },

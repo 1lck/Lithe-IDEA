@@ -56,6 +56,11 @@ export interface DebugAdapterSessionInfo {
   cwd?: string;
 }
 
+export interface DebugCommandResult {
+  sessionId: string;
+  operationId: string;
+}
+
 export interface DebugProtocolMessage {
   sessionId: string;
   message: unknown;

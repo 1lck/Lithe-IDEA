@@ -298,8 +298,8 @@ export default function DebuggerView() {
 
     if (activeSession?.id) {
       try {
-        const seq = await sendDebugAdapterRequest(activeSession.id, "scopes", { frameId });
-        debuggerActions.registerAdapterRequest(seq, { command: "scopes", frameId });
+        const result = await sendDebugAdapterRequest(activeSession.id, "scopes", { frameId });
+        debuggerActions.registerAdapterRequest(result.operationId, { command: "scopes", frameId });
       } catch {
         // Some adapters may not allow scope requests after the session moves on.
       }

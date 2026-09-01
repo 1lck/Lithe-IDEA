@@ -13,7 +13,7 @@ interface DebugVariablesPanelProps {
   selectedFrameId: number | null;
   scopes: DebugScope[];
   variablesByReference: Record<number, DebugVariable[]>;
-  pendingRequests: Record<number, DebugRequestContext>;
+  pendingRequests: Record<string, DebugRequestContext>;
 }
 
 export function DebugVariablesPanel({
@@ -56,10 +56,13 @@ export function DebugVariablesPanel({
     if (!shouldLoadChildren) return;
 
     try {
-      const seq = await sendDebugAdapterRequest(activeSessionId, "variables", {
+      const result = await sendDebugAdapterRequest(activeSessionId, "variables", {
         variablesReference,
       });
-      debuggerActions.registerAdapterRequest(seq, { command: "variables", variablesReference });
+      debuggerActions.registerAdapterRequest(result.operationId, {
+        command: "variables",
+        variablesReference,
+      });
     } catch {
       setExpandedVariableReferences((current) => {
         const next = new Set(current);
