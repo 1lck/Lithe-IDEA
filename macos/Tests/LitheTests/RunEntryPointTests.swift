@@ -28,6 +28,10 @@ struct RunEntryPointTests {
         let model = makeAppModel(workspaceOperations: operations)
 
         model.openProjectDirectly(workspace.root)
+        try #require(
+            await initialWorkspaceScanFinished(on: model, operations: operations),
+            "the initial provisional workspace scan never finished"
+        )
         model.runSelectedConfiguration()
 
         // The entry point binds the workspace so existing configuration is
@@ -70,6 +74,10 @@ struct RunEntryPointTests {
         let model = makeAppModel(workspaceOperations: operations)
 
         model.openProjectDirectly(workspace.root)
+        try #require(
+            await initialWorkspaceScanFinished(on: model, operations: operations),
+            "the initial provisional workspace scan never finished"
+        )
         model.runSelectedConfiguration()
 
         let deferred = await awaitLoadDrivenChange(on: model) { model.pendingRunAction?.kind == .run }
@@ -105,6 +113,10 @@ struct RunEntryPointTests {
         )
 
         model.openProjectDirectly(workspace.root)
+        try #require(
+            await initialWorkspaceScanFinished(on: model, operations: workspaceOperations),
+            "the initial provisional workspace scan never finished"
+        )
         model.runSelectedConfiguration()
 
         let deferred = await awaitLoadDrivenChange(on: model) { model.pendingRunAction?.kind == .run }
@@ -154,6 +166,10 @@ struct RunEntryPointTests {
         )
 
         model.openProjectDirectly(workspace.root)
+        try #require(
+            await initialWorkspaceScanFinished(on: model, operations: workspaceOperations),
+            "the initial provisional workspace scan never finished"
+        )
         model.runSelectedConfiguration()
 
         // The Run entry point starts its own load before any scan succeeded, so
@@ -205,6 +221,10 @@ struct RunEntryPointTests {
         let model = makeAppModel(workspaceOperations: operations)
 
         model.openProjectDirectly(workspace.root)
+        try #require(
+            await initialWorkspaceScanFinished(on: model, operations: operations),
+            "the initial provisional workspace scan never finished"
+        )
         model.startDebugging()
 
         let bound = await awaitLoadDrivenChange(on: model) {
@@ -263,6 +283,10 @@ struct RunEntryPointTests {
         let configuration = ReadyRunConfigurationOperations.entryPoint
 
         model.openProjectDirectly(workspace.root)
+        try #require(
+            await initialWorkspaceScanFinished(on: model, operations: workspaceOperations),
+            "the initial provisional workspace scan never finished"
+        )
         model.startRunConfiguration(configuration)
 
         let deferred = await awaitLoadDrivenChange(on: model) {
@@ -297,6 +321,10 @@ struct RunEntryPointTests {
         )
 
         model.openProjectDirectly(workspace.root)
+        try #require(
+            await initialWorkspaceScanFinished(on: model, operations: workspaceOperations),
+            "the initial provisional workspace scan never finished"
+        )
         model.runAllServiceConfigurations()
 
         let deferred = await awaitLoadDrivenChange(on: model) {
@@ -633,6 +661,20 @@ private func awaitLoadDrivenChange(
     await awaitChange(on: model, timeout: runEntryPointChangeWaitTimeout, until: isSatisfied)
 }
 
+/// Waits until opening has consumed its intentional `nil` snapshot. Without
+/// this boundary, a following `refreshCurrent()` can overlap the initial rebuild
+/// and correctly return without starting a second scan.
+@MainActor
+private func initialWorkspaceScanFinished(
+    on model: AppModel,
+    operations: SequencedWorkspaceOperations
+) async -> Bool {
+    guard await operations.snapshotRequested(1) else { return false }
+    return await awaitChange(on: model, timeout: .seconds(5)) {
+        !model.workspaceFeature.isLoadingWorkspace
+    }
+}
+
 /// A real workspace on disk holding one Java entry point, so generation runs
 /// through the shared Core instead of a stubbed result.
 @MainActor
@@ -702,15 +744,18 @@ private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecke
     private let lock = NSLock()
     private let snapshots: [WorkspaceSnapshot?]
     private let controlledSnapshot: WorkspaceSnapshot?
+    private let snapshotRequests: [TestGate]
     private var isControlledSnapshotAvailable: Bool
     private var scanCount = 0
 
     init(
         snapshots: [WorkspaceSnapshot?],
-        controlledSnapshot: WorkspaceSnapshot? = nil
+        controlledSnapshot: WorkspaceSnapshot? = nil,
+        requestCapacity: Int = 8
     ) {
         self.snapshots = snapshots
         self.controlledSnapshot = controlledSnapshot
+        snapshotRequests = (0..<requestCapacity).map { _ in TestGate() }
         isControlledSnapshotAvailable = false
     }
 
@@ -736,18 +781,28 @@ private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecke
         lock.unlock()
     }
 
+    func snapshotRequested(_ ordinal: Int) async -> Bool {
+        guard snapshotRequests.indices.contains(ordinal - 1) else { return false }
+        return await snapshotRequests[ordinal - 1].waitUntilOpen(timeout: .seconds(5))
+    }
+
     func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? {
         lock.lock()
-        if let controlledSnapshot {
-            let result = isControlledSnapshotAvailable ? controlledSnapshot : nil
-            lock.unlock()
-            return result
-        }
         let ordinal = scanCount
         scanCount += 1
+        let result: WorkspaceSnapshot?
+        if let controlledSnapshot {
+            result = isControlledSnapshotAvailable ? controlledSnapshot : nil
+        } else if ordinal < snapshots.count {
+            result = snapshots[ordinal]
+        } else {
+            result = nil
+        }
         lock.unlock()
-        guard ordinal < snapshots.count else { return nil }
-        return snapshots[ordinal]
+        if snapshotRequests.indices.contains(ordinal) {
+            snapshotRequests[ordinal].open()
+        }
+        return result
     }
 
     func readFile(at rootURL: URL, relativePath: String) -> String? {
