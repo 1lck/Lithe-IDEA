@@ -315,7 +315,6 @@ private struct LanguageServerToolTestRuntimeLocator: RuntimeLocator {
     func systemMavenExecutable() -> URL? { nil }
     func mavenExecutable(forHomePath _: String) -> URL? { nil }
     func mavenRuntime(at _: URL) -> MavenRuntimeCandidate? { nil }
-    func systemJDBExecutable() -> URL? { nil }
 }
 
 private struct LanguageServerToolTestDiscovery: RuntimeToolDiscovery {

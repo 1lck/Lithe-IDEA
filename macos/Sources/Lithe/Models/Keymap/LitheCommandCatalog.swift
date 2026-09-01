@@ -21,6 +21,12 @@ enum LitheCommandCatalog {
         command("debug", "Debug", "Start debugging", .run, "d", [.control]),
         command("stop-run", "Stop Run", "Stop the current run", .run),
         command("stop-debug", "Stop Debug", "Stop the current debug session", .run),
+        command("debug-resume", "Debug: Resume", "Resume the paused debug session", .run, "f9"),
+        command("debug-step-over", "Debug: Step Over", "Execute the next source line", .run, "f8"),
+        command("debug-step-into", "Debug: Step Into", "Enter the next function call", .run, "f7"),
+        command("debug-step-out", "Debug: Step Out", "Return from the current function", .run, "f8", [.shift]),
+        command("toggle-breakpoint", "Toggle Line Breakpoint", "Add or remove a breakpoint at the caret", .run, "f8", [.command]),
+        command("view-breakpoints", "View Breakpoints", "Manage all project breakpoints", .run, "f8", [.shift, .command]),
 
         LitheCommandDefinition(
             id: "search-everywhere",

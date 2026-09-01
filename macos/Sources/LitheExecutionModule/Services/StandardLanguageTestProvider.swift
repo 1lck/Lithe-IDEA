@@ -200,7 +200,7 @@ package struct StandardLanguageTestProvider: LanguageTestProvider {
         case .file(let url):
             return ["-Dtest=" + url.deletingPathExtension().lastPathComponent, "test"]
         case .testCase(let identifier, _):
-            return ["-Dtest=" + identifier, "test"]
+            return ["-Dtest=" + normalizedJavaTestIdentifier(identifier), "test"]
         }
     }
 
@@ -212,9 +212,16 @@ package struct StandardLanguageTestProvider: LanguageTestProvider {
         case .file(let url):
             arguments.append(contentsOf: ["--tests", try gradleSelector(for: url, root: root)])
         case .testCase(let identifier, _):
-            arguments.append(contentsOf: ["--tests", identifier])
+            arguments.append(contentsOf: [
+                "--tests",
+                normalizedJavaTestIdentifier(identifier).replacingOccurrences(of: "#", with: "."),
+            ])
         }
         return arguments
+    }
+
+    private func normalizedJavaTestIdentifier(_ identifier: String) -> String {
+        identifier.hasSuffix("()") ? String(identifier.dropLast(2)) : identifier
     }
 
     private func gradleSelector(for url: URL, root: URL) throws -> String {

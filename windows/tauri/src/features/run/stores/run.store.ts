@@ -1,6 +1,8 @@
 import { createStore } from "zustand/vanilla";
+import { saveWorkspaceBeforeLaunch } from "@/features/editor/services/save-workspace-before-launch";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
+import { mavenLaunchContextForWorkspace } from "@/features/maven/stores/maven.store";
 import {
   createLaunchPlan,
   generateRunConfiguration,
@@ -46,6 +48,7 @@ import {
   recoveryActionForError,
   recoveryPathFromMessage,
   selectedToolchainCandidates,
+  configurationUsesMaven,
 } from "../utils/run-configuration";
 import { editorSaveFailureMessage, runEditorSaveWorkflow } from "../services/run-editor-save";
 import { createOutputStamper, trimRunOutput, type OutputStamper } from "../utils/output-timestamper";
@@ -98,6 +101,24 @@ interface RunState {
     finishProcess: (sessionId: string, exitCode: number) => void;
   };
 }
+
+export interface RunStoreDependencies {
+  createLaunchPlan: typeof createLaunchPlan;
+  mavenLaunchContextForWorkspace: typeof mavenLaunchContextForWorkspace;
+  resolveRunLaunch: typeof resolveRunLaunch;
+  saveWorkspaceBeforeLaunch: typeof saveWorkspaceBeforeLaunch;
+  startRunProcess: typeof startRunProcess;
+  stopRunProcess: typeof stopRunProcess;
+}
+
+const defaultRunStoreDependencies: RunStoreDependencies = {
+  createLaunchPlan,
+  mavenLaunchContextForWorkspace,
+  resolveRunLaunch,
+  saveWorkspaceBeforeLaunch,
+  startRunProcess,
+  stopRunProcess,
+};
 
 interface ResolvedRunProject {
   configurations: RunConfiguration[];
@@ -162,6 +183,7 @@ function optionsFromConfiguration(configuration: RunConfiguration): RunOptions {
     javaHomePath: configuration.javaHomePath,
     mavenExecutablePath: configuration.mavenExecutablePath,
     mavenJavaHomePath: configuration.mavenJavaHomePath,
+    mavenSkipTests: configuration.mavenSkipTests,
     workingDirectoryPath: configuration.cwd,
     vmArguments: configuration.jvmArguments.join(" "),
     programArguments: configuration.programArguments.join(" "),
@@ -257,7 +279,10 @@ function readyRunState(
   };
 }
 
-export const createRunStore = () =>
+export const createRunStore = (
+  workspaceId = workspaceRuntimeRegistry.getActiveWorkspaceId(),
+  dependencies: RunStoreDependencies = defaultRunStoreDependencies,
+) =>
   createStore<RunState>()((set, get) => ({
     root: null,
     status: "missing",
@@ -400,18 +425,28 @@ export const createRunStore = () =>
         }
         const sessionId =
           configuration.execution === "service" ? configuration.id : PRIMARY_SESSION_ID;
-        bindRunSessionWorkspace(sessionId);
+        bindRunSessionWorkspace(sessionId, workspaceId);
         resetOutputStamper(sessionId);
-        await stopRunProcess(sessionId).catch(() => undefined);
+        await dependencies.stopRunProcess(sessionId).catch(() => undefined);
         try {
-          const plan = await createLaunchPlan(root, configuration.id, currentFile);
-          const resolved = await resolveRunLaunch({
+          await dependencies.saveWorkspaceBeforeLaunch(workspaceId);
+          const mavenContext = configurationUsesMaven(configuration)
+            ? await dependencies.mavenLaunchContextForWorkspace(root, [], workspaceId)
+            : null;
+          const plan = await dependencies.createLaunchPlan(
+            root,
+            configuration.id,
+            currentFile,
+            mavenContext,
+          );
+          const resolved = await dependencies.resolveRunLaunch({
             root,
             executable: plan.executable,
             workingDirectory: plan.workingDirectory,
             javaHomePath: configuration.javaHomePath,
-            mavenExecutablePath: configuration.mavenExecutablePath,
-            mavenJavaHomePath: configuration.mavenJavaHomePath,
+            mavenExecutablePath:
+              configuration.mavenExecutablePath || mavenContext?.mavenExecutablePath || "",
+            mavenJavaHomePath: configuration.mavenJavaHomePath || mavenContext?.javaHomePath || "",
             runtimeExecutablePaths: state.effectiveRuntimeExecutablePaths,
             environment: mergeLaunchEnvironment(configuration.env, plan),
           });
@@ -440,7 +475,7 @@ export const createRunStore = () =>
               ],
             }));
           }
-          await startRunProcess({
+          await dependencies.startRunProcess({
             sessionId,
             executable: resolved.executable,
             arguments: plan.arguments,
@@ -457,18 +492,27 @@ export const createRunStore = () =>
               primaryOutput: trimOutput(`${get().primaryOutput}${message}\n`),
             });
           } else {
-            set((current) => ({
-              sessions: current.sessions.map((session) =>
-                session.id === sessionId
-                  ? {
-                      ...session,
-                      isRunning: false,
-                      exitCode: 1,
-                      output: trimOutput(`${session.output}${message}\n`),
-                    }
-                  : session,
-              ),
-            }));
+            set((current) => {
+              const existingSession = current.sessions.find(
+                (session) => session.id === sessionId,
+              );
+              const failedSession: RunSession = {
+                id: sessionId,
+                configurationId: configuration.id,
+                title: configuration.name,
+                output: trimOutput(`${existingSession?.output ?? ""}${message}\n`),
+                isRunning: false,
+                exitCode: 1,
+              };
+              return {
+                selectedSessionId: sessionId,
+                sessions: existingSession
+                  ? current.sessions.map((session) =>
+                      session.id === sessionId ? failedSession : session,
+                    )
+                  : [...current.sessions, failedSession],
+              };
+            });
           }
         }
       },

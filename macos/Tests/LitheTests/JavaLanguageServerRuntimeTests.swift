@@ -94,7 +94,10 @@ struct JavaLanguageServerRuntimeTests {
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("lithe-jdtls-resolver-\(UUID().uuidString)", isDirectory: true)
         defer { try? fileManager.removeItem(at: root) }
-        for directory in ["bin", "plugins", "config_mac", "config_mac_arm", "lombok"] {
+        for directory in [
+            "bin", "plugins", "config_mac", "config_mac_arm", "lombok", "java-debug",
+            "java-test/extensions", "java-test/runner"
+        ] {
             try fileManager.createDirectory(
                 at: root.appendingPathComponent(directory, isDirectory: true),
                 withIntermediateDirectories: true
@@ -108,7 +111,13 @@ struct JavaLanguageServerRuntimeTests {
             executable,
             firstLauncher,
             root.appendingPathComponent("plugins/org.eclipse.equinox.launcher_2.0.0.jar"),
-            root.appendingPathComponent("lombok/lombok.jar")
+            root.appendingPathComponent("lombok/lombok.jar"),
+            root.appendingPathComponent("java-debug/com.microsoft.java.debug.plugin-0.53.1.jar"),
+            root.appendingPathComponent("java-test/extensions/org.opentest4j_1.2.0.jar"),
+            root.appendingPathComponent("java-test/extensions/com.microsoft.java.test.plugin-0.42.0.jar"),
+            root.appendingPathComponent(
+                "java-test/runner/com.microsoft.java.test.runner-jar-with-dependencies.jar"
+            )
         ] {
             try Data().write(to: file)
         }
@@ -125,6 +134,19 @@ struct JavaLanguageServerRuntimeTests {
         #expect(resources.configurationDirectoryURL.lastPathComponent == "config_mac")
         #endif
         #expect(resources.lombokAgentURL.lastPathComponent == "lombok.jar")
+        #expect(
+            resources.javaDebugBundleURL?.lastPathComponent
+                == "com.microsoft.java.debug.plugin-0.53.1.jar"
+        )
+        #expect(resources.javaExtensionBundleURLs.map(\.lastPathComponent) == [
+            "com.microsoft.java.debug.plugin-0.53.1.jar",
+            "com.microsoft.java.test.plugin-0.42.0.jar",
+            "org.opentest4j_1.2.0.jar"
+        ])
+        #expect(
+            resources.javaTestRunnerURL?.lastPathComponent
+                == "com.microsoft.java.test.runner-jar-with-dependencies.jar"
+        )
     }
 
     @Test
@@ -153,7 +175,9 @@ struct JavaLanguageServerRuntimeTests {
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("lithe-jdtls-architecture-\(UUID().uuidString)", isDirectory: true)
         defer { try? fileManager.removeItem(at: root) }
-        for directory in ["bin", "plugins", "lombok"] {
+        for directory in [
+            "bin", "plugins", "lombok", "java-debug", "java-test/extensions", "java-test/runner"
+        ] {
             try fileManager.createDirectory(
                 at: root.appendingPathComponent(directory, isDirectory: true),
                 withIntermediateDirectories: true
@@ -174,7 +198,12 @@ struct JavaLanguageServerRuntimeTests {
         for file in [
             root.appendingPathComponent("bin/jdtls"),
             root.appendingPathComponent("plugins/org.eclipse.equinox.launcher_1.0.0.jar"),
-            root.appendingPathComponent("lombok/lombok.jar")
+            root.appendingPathComponent("lombok/lombok.jar"),
+            root.appendingPathComponent("java-debug/com.microsoft.java.debug.plugin-0.53.1.jar"),
+            root.appendingPathComponent("java-test/extensions/com.microsoft.java.test.plugin-0.42.0.jar"),
+            root.appendingPathComponent(
+                "java-test/runner/com.microsoft.java.test.runner-jar-with-dependencies.jar"
+            )
         ] {
             try Data().write(to: file)
         }
@@ -347,7 +376,6 @@ private struct JavaLanguageServerTestRuntimeLocator: RuntimeLocator {
     func systemMavenExecutable() -> URL? { nil }
     func mavenExecutable(forHomePath path: String) -> URL? { nil }
     func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? { nil }
-    func systemJDBExecutable() -> URL? { nil }
     func bundledJdkHome() -> URL? {
         bundledHomePath.map { URL(fileURLWithPath: $0, isDirectory: true) }
     }

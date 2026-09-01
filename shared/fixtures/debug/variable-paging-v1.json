@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "request": {
+    "operationId": "variables-customers-100",
+    "variablesReference": 700,
+    "variableFilter": "indexed",
+    "start": 100,
+    "count": 2
+  },
+  "adapterResponse": {
+    "variables": [
+      {
+        "name": "[100]",
+        "value": "Customer@100",
+        "type": "example.Customer",
+        "evaluateName": "customers[100]",
+        "variablesReference": 701,
+        "namedVariables": 4,
+        "indexedVariables": 0
+      },
+      {
+        "name": "[101]",
+        "value": "Customer@101",
+        "type": "example.Customer",
+        "evaluateName": "customers[101]",
+        "variablesReference": 702,
+        "namedVariables": -3,
+        "indexedVariables": 5
+      }
+    ]
+  },
+  "expected": {
+    "kind": "variables",
+    "variables": [
+      {
+        "name": "[100]",
+        "value": "Customer@100",
+        "type": "example.Customer",
+        "evaluateName": "customers[100]",
+        "variablesReference": 701,
+        "namedVariables": 4,
+        "indexedVariables": 0
+      },
+      {
+        "name": "[101]",
+        "value": "Customer@101",
+        "type": "example.Customer",
+        "evaluateName": "customers[101]",
+        "variablesReference": 702,
+        "namedVariables": 0,
+        "indexedVariables": 5
+      }
+    ]
+  }
+}

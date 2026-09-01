@@ -22,6 +22,57 @@ struct TerminalModuleTests {
     }
 
     @Test
+    func managedProcessLaunchPreservesArgumentsEnvironmentAndProcessID() throws {
+        let transport = TestTransport()
+        let feature = TerminalFeatureModel(terminalFactory: { transport })
+        let launch = TerminalProcessLaunch(
+            title: "Debug Main",
+            executablePath: "/opt/jdk/bin/java",
+            arguments: ["-cp", "/workspace/classes", "example.Main"],
+            workingDirectory: "/workspace",
+            environmentChanges: [
+                TerminalEnvironmentChange(name: "JAVA_HOME", value: "/opt/jdk"),
+                TerminalEnvironmentChange(name: "REMOVE_ME", value: nil)
+            ]
+        )
+
+        let created = try feature.createProcessSession(launch)
+
+        #expect(created.processID == 1234)
+        #expect(created.session.isManagedProcess)
+        #expect(created.session.displayTitle == "Debug Main")
+        #expect(transport.processLaunches == [launch])
+        #expect(transport.processEnvironments.first?["JAVA_HOME"] == "/opt/jdk")
+        #expect(transport.processEnvironments.first?["REMOVE_ME"] == nil)
+        #expect(transport.processEnvironments.first?["TERM_PROGRAM"] == "Lithe")
+        created.session.restart()
+        #expect(transport.processLaunches.count == 1)
+
+        feature.stopAllSessions()
+        #expect(transport.stopCount == 1)
+    }
+
+    @Test
+    func managedProcessForwardsInputToItsOwnPTY() throws {
+        let transport = TestTransport()
+        let feature = TerminalFeatureModel(terminalFactory: { transport })
+        let launch = TerminalProcessLaunch(
+            title: "Debug Main",
+            executablePath: "/opt/jdk/bin/java",
+            arguments: ["example.Main"],
+            workingDirectory: "/workspace"
+        )
+        let created = try feature.createProcessSession(launch)
+
+        #expect(feature.sendInput("username\n", to: created.session.id))
+        #expect(transport.sentInputs == ["username\n"])
+
+        created.session.stop()
+        #expect(!feature.sendInput("late\n", to: created.session.id))
+        feature.stopAllSessions()
+    }
+
+    @Test
     func linkResolverKeepsExternalURLsAndResolvesLocations() {
         let workspace = URL(fileURLWithPath: "/tmp/lithe-terminal-module-test")
         let expected = workspace.appendingPathComponent("Sources/App.swift").standardizedFileURL
@@ -36,22 +87,66 @@ struct TerminalModuleTests {
             fileExists: { _ in false }
         ) == .external(URL(string: "https://example.com")!))
     }
+
+    @Test
+    func processOutputIsForwardedBeforeAndAfterProcessStart() throws {
+        let transport = TestTransport()
+        transport.outputOnStart = "early\n"
+        let feature = TerminalFeatureModel(terminalFactory: { transport })
+        var output: [String] = []
+
+        let created = try feature.createProcessSession(
+            TerminalProcessLaunch(
+                title: "Debug Main",
+                executablePath: "/usr/bin/java",
+                arguments: ["Main"],
+                workingDirectory: "/tmp"
+            ),
+            onOutput: { output.append($0) }
+        )
+        transport.emitOutput("late\n")
+
+        #expect(created.session.isRunning)
+        #expect(output == ["early\n", "late\n"])
+        feature.stopAllSessions()
+    }
 }
 
 @MainActor
 private final class TestTransport: TerminalTransport {
     let nativeView: AnyObject = NSObject()
     var isRunning = false
+    var processID: Int32? { isRunning ? 1234 : nil }
     var shellName = "Shell"
     var onTermination: ((Int32?) -> Void)?
+    var onOutput: ((Data) -> Void)?
     var onTitle: ((String) -> Void)?
     var onDirectoryUpdate: ((String?) -> Void)?
     var onLink: ((String, [String: String]) -> Void)?
     var stopCount = 0
+    var processLaunches: [TerminalProcessLaunch] = []
+    var processEnvironments: [[String: String]] = []
+    var sentInputs: [String] = []
+    var outputOnStart: String?
     func defaultShellPath() -> String { "/bin/zsh" }
-    func defaultEnvironment() -> [String: String] { [:] }
+    func defaultEnvironment() -> [String: String] { ["REMOVE_ME": "old"] }
     func start(workingDirectory: String, shellPath: String, environment: [String: String]) throws { isRunning = true }
-    func send(_ input: Data) throws {}
+    func startProcess(
+        _ launch: TerminalProcessLaunch,
+        environment: [String: String]
+    ) throws -> Int32 {
+        processLaunches.append(launch)
+        processEnvironments.append(environment)
+        isRunning = true
+        if let outputOnStart {
+            onOutput?(Data(outputOnStart.utf8))
+        }
+        return 1234
+    }
+    func emitOutput(_ value: String) { onOutput?(Data(value.utf8)) }
+    func send(_ input: Data) throws {
+        sentInputs.append(String(decoding: input, as: UTF8.self))
+    }
     func interrupt() throws {}
     func focus() {}
     func clear() {}

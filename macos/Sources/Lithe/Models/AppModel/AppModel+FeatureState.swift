@@ -4,15 +4,12 @@ import LitheLocalHistoryModule
 import LitheSearchModule
 
 extension AppModel {
+    var workspaceSnapshotID: UUID? { workspaceFeature.appliedSnapshot?.id }
     var springEndpoints: [SpringEndpoint] { springFeature.endpoints }
     var springBeans: [SpringBean] { springFeature.beans }
     var isIndexingSpring: Bool { springFeature.isIndexing }
     var rootNode: FileNode? { workspaceFeature.rootNode }
     var projectFiles: [URL] { workspaceFeature.projectFiles }
-    /// Identifies the scan `projectFiles` came from, and is `nil` until one has
-    /// been applied. Callers that also need the file list read
-    /// `workspaceFeature.appliedSnapshot` once instead of combining the two.
-    var workspaceSnapshotID: UUID? { workspaceFeature.appliedSnapshot?.id }
     var javaEnvironmentReport: JavaEnvironmentReport? {
         runtimeFeature.javaEnvironmentReport
     }
@@ -344,7 +341,7 @@ extension AppModel {
         switch id {
         case "open-project", "settings":
             true
-        case "save", "find-in-file", "replace-in-file", "go-to-line", "local-history", "reveal-in-finder":
+        case "save", "find-in-file", "replace-in-file", "go-to-line", "local-history", "reveal-in-finder", "toggle-breakpoint":
             activeDocument != nil
         case "find-next", "find-previous":
             isFindBarVisible && findMatchCount > 0
@@ -359,11 +356,13 @@ extension AppModel {
             supportsLanguageServerFeature(.references)
         case "go-to-implementation":
             supportsLanguageServerFeature(.implementation)
+        case "debug-resume", "debug-step-over", "debug-step-into", "debug-step-out":
+            genericDebugFeatureIfActive?.state == .paused
         case "close-project", "search-everywhere", "search-in-project",
              "replace-in-project", "project-local-history", "run", "debug",
              "stop-run", "stop-debug", "toggle-terminal", "toggle-problems",
              "toggle-maven", "toggle-git-log", "toggle-run", "toggle-tests",
-             "toggle-debug", "spring-endpoints":
+             "toggle-debug", "view-breakpoints", "spring-endpoints":
             workspaceURL != nil
         default:
             false

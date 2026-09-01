@@ -29,14 +29,14 @@ test("attaches the Java document before requesting gutter markers", async () => 
   const markers = await loadJavaNavigationMarkers({
     client: { ensureDocumentReady, getJavaNavigationMarkers },
     target,
-    workspaceRoot: "C:/work",
+    workspaceScope: { workspaceId: "workspace-a", root: "C:/work" },
     content: "interface Service {}",
   });
 
   expect(calls).toEqual(["ensureDocumentReady", "getJavaNavigationMarkers"]);
   expect(ensureDocumentReady).toHaveBeenCalledWith(
     target,
-    "C:/work",
+    { workspaceId: "workspace-a", root: "C:/work" },
     "interface Service {}",
     "codeLens",
   );

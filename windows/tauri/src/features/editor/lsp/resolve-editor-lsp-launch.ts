@@ -1,9 +1,10 @@
 import type { BackendLanguageToolConfigSet } from "@/extensions/registry/extension-store-runtime";
 import { isJavaSourcePath, JAVA_LANGUAGE_ID, JAVA_PROVIDER_ID } from "./built-in-language-support";
-import {
-  resolveJavaLspLaunch,
-  type JdtlsLaunchResources,
-} from "./java-lsp-host-api";
+import { resolveJavaLspLaunch, type JdtlsLaunchResources } from "./java-lsp-host-api";
+import type { MavenLaunchContext } from "@/features/maven/types/maven.types";
+import { mavenLaunchContextForWorkspace } from "@/features/maven/stores/maven.store";
+import type { WorkspaceLaunchScope } from "@/features/workspace/types/workspace-launch-scope";
+import { getRelativePath } from "@/utils/path-helpers";
 
 export interface EditorLspLaunch {
   providerId: string;
@@ -18,14 +19,34 @@ export interface EditorLspLaunch {
   environment?: Record<string, string>;
   /** Workspace structure digest forwarded to the Rust core. */
   workspaceFingerprint?: string | null;
+  mavenContext?: MavenLaunchContext | null;
 }
+
+export interface EditorLspLaunchDependencies {
+  resolveJavaLspLaunch: typeof resolveJavaLspLaunch;
+  mavenLaunchContextForWorkspace: typeof mavenLaunchContextForWorkspace;
+}
+
+const defaultDependencies: EditorLspLaunchDependencies = {
+  resolveJavaLspLaunch,
+  mavenLaunchContextForWorkspace,
+};
 
 export async function resolveEditorLspLaunch(
   filePath: string,
-  workspacePath: string,
+  scope: WorkspaceLaunchScope,
+  dependencies: EditorLspLaunchDependencies = defaultDependencies,
 ): Promise<EditorLspLaunch | null> {
+  const workspacePath = scope.root;
   if (isJavaSourcePath(filePath)) {
-    const launch = await resolveJavaLspLaunch(workspacePath);
+    const [launch, mavenContext] = await Promise.all([
+      dependencies.resolveJavaLspLaunch(workspacePath),
+      dependencies.mavenLaunchContextForWorkspace(
+        workspacePath,
+        [getRelativePath(filePath, workspacePath)],
+        scope.workspaceId,
+      ),
+    ]);
     const environment: Record<string, string> = {};
     if (launch.environment.JAVA_HOME) {
       environment.JAVA_HOME = launch.environment.JAVA_HOME;
@@ -40,6 +61,7 @@ export async function resolveEditorLspLaunch(
       cacheDirectory: launch.cacheDirectory,
       environment,
       workspaceFingerprint: launch.workspaceFingerprint,
+      mavenContext,
     };
   }
 

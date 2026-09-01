@@ -18,6 +18,7 @@ export type BottomPaneTab =
   | "references"
   | "buffers"
   | "run"
+  | "maven"
   | "gitLog";
 
 export interface QuickEditSelection {

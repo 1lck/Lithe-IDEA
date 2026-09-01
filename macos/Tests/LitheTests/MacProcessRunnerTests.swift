@@ -209,6 +209,23 @@ struct MacProcessRunnerTests {
         #expect(!processIsRunning(descendantPID))
     }
 
+    @Test
+    func stoppedChildProcessReaperCollectsAnExitedChild() async throws {
+        let processID = try spawnExitedTestChild()
+        defer { reapTestChildIfNecessary(processID) }
+        let reaped = TestGate()
+
+        MacStoppedChildProcessReaper().reapWhenExited(processID) {
+            reaped.open()
+        }
+
+        #expect(await reaped.waitUntilOpen())
+        var waitStatus: Int32 = 0
+        errno = 0
+        #expect(Darwin.waitpid(processID, &waitStatus, WNOHANG) == -1)
+        #expect(errno == ECHILD)
+    }
+
     private func terminationResistantRequest(operationID: String) -> ProcessRequest {
         ProcessRequest(
             operationID: operationID,
@@ -260,6 +277,46 @@ struct MacProcessRunnerTests {
         if processIsRunning(pid) {
             _ = Darwin.kill(pid, SIGKILL)
         }
+    }
+
+    private func reapTestChildIfNecessary(_ pid: pid_t) {
+        var waitStatus: Int32 = 0
+        var waitResult = Darwin.waitpid(pid, &waitStatus, WNOHANG)
+        guard waitResult == 0 else { return }
+        _ = Darwin.kill(pid, SIGKILL)
+        repeat {
+            waitResult = Darwin.waitpid(pid, &waitStatus, 0)
+        } while waitResult == -1 && errno == EINTR
+    }
+
+    private func spawnExitedTestChild() throws -> pid_t {
+        let executablePath = "/usr/bin/true"
+        var processID: pid_t = 0
+        var arguments = [strdup(executablePath), nil]
+        var environment = ProcessInfo.processInfo.environment
+            .sorted { $0.key < $1.key }
+            .map { strdup("\($0.key)=\($0.value)") }
+        environment.append(nil)
+        defer {
+            arguments.forEach { free($0) }
+            environment.forEach { free($0) }
+        }
+        let result = arguments.withUnsafeMutableBufferPointer { argumentBuffer in
+            environment.withUnsafeMutableBufferPointer { environmentBuffer in
+                Darwin.posix_spawn(
+                    &processID,
+                    executablePath,
+                    nil,
+                    nil,
+                    argumentBuffer.baseAddress,
+                    environmentBuffer.baseAddress
+                )
+            }
+        }
+        guard result == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: result) ?? .EIO)
+        }
+        return processID
     }
 }
 

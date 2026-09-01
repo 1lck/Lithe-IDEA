@@ -65,7 +65,9 @@ extension LitheWorkspaceModule.WorkspaceFeatureModel {
             reloadProjectServices: reloadProjectServices,
             refreshGit: refreshGit,
             updateHistoryVisibilityRules: updateHistoryVisibilityRules,
-            onSnapshotLoaded: onSnapshotLoaded,
+            onSnapshotLoaded: { snapshot, isInitialLoad in
+                await onSnapshotLoaded(snapshot.root.url, snapshot, isInitialLoad)
+            },
             warmSearchIndex: { _, _ in },
             updateSearchIndex: { _, _, _ in },
             invalidateSearchIndex: { _, _ in }

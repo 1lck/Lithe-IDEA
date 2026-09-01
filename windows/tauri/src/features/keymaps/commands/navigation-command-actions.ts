@@ -35,6 +35,8 @@ import {
 } from "@/features/spring/utils/spring-navigation";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useProjectStore } from "@/features/window/stores/project.store";
+import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
+import type { WorkspaceLaunchScope } from "@/features/workspace/types/workspace-launch-scope";
 import { createTranslator } from "@/i18n/locale";
 import { logger } from "@/features/editor/utils/logger";
 import { normalizePath } from "@/utils/path-helpers";
@@ -67,7 +69,7 @@ type LspNavigationClient = {
   ) => LspDocumentAvailability;
   ensureDocumentReady: (
     target: LspDocumentTargetInput,
-    workspacePath: string,
+    scope: WorkspaceLaunchScope,
     content: string,
     feature?: string,
   ) => Promise<LspDocumentAvailability>;
@@ -167,6 +169,10 @@ async function ensureNavigationLanguageServer(
   }
 
   const target = lspDocumentTargetForEditor(buffer);
+  const scope = {
+    workspaceId: workspaceRuntimeRegistry.getActiveWorkspaceId(),
+    root: workspacePath,
+  };
   toast.info(
     navigationBlockMessage(
       { reason: "preparing", languageId: block.languageId },
@@ -179,7 +185,7 @@ async function ensureNavigationLanguageServer(
   // here. Continuing after readiness would move the editor long after the user
   // has switched context.
   void lspClient
-    .ensureDocumentReady(target, workspacePath, buffer.content, feature)
+    .ensureDocumentReady(target, scope, buffer.content, feature)
     .catch((error) => {
       logger.warn("LSPNavigation", "Background document attachment failed", error);
     });
