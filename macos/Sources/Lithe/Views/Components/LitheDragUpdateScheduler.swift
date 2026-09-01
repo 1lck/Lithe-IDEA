@@ -6,6 +6,10 @@ import Foundation
 /// Uses `DispatchQueue.main.async` which, during `.eventTracking` mode, drains
 /// at the end of the current run-loop turn with zero added latency — unlike the
 /// 16ms `Task.sleep` pattern which adds a full frame of delay to every update.
+///
+/// `init` is `nonisolated` so that `@State` default-value initialisation —
+/// which Swift 6.2 treats as a nonisolated context — compiles without a
+/// diagnostic. All methods that access mutable state remain `@MainActor`.
 @MainActor
 final class LitheDragUpdateScheduler {
     enum Delivery {
@@ -20,7 +24,7 @@ final class LitheDragUpdateScheduler {
     private var pendingDelivery: (@MainActor () -> Void)?
     private let delivery: Delivery
 
-    init(delivery: Delivery = .mainRunLoopTurn) {
+    nonisolated init(delivery: Delivery = .mainRunLoopTurn) {
         self.delivery = delivery
     }
 
