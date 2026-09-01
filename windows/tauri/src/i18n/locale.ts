@@ -2530,8 +2530,6 @@ const catalogs = {
     "git.log.newWorktreeBranchPrompt":
       "Enter the new local branch name for a worktree based on '{branch}'.",
     "git.log.chooseWorktreeDirectory": "Choose Worktree Directory",
-    "git.log.worktreeUpstreamConfigurationFailed":
-      "The worktree was created, but its branch upstream could not be configured.",
     "git.log.updateBranch": "Update",
     "git.log.trackingBranch": "Tracking Branch",
     "git.log.stopTrackingBranch": "Stop Tracking Branch",
@@ -6415,7 +6413,6 @@ const catalogs = {
     "git.log.newWorktreeFrom": "从“{branch}”新建工作树...",
     "git.log.newWorktreeBranchPrompt": "输入基于“{branch}”创建工作树时使用的新本地分支名称。",
     "git.log.chooseWorktreeDirectory": "选择工作树目录",
-    "git.log.worktreeUpstreamConfigurationFailed": "工作树已创建，但无法配置其分支上游。",
     "git.log.updateBranch": "更新",
     "git.log.trackingBranch": "跟踪的分支",
     "git.log.stopTrackingBranch": "停止跟踪分支",

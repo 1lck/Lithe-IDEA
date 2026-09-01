@@ -19,17 +19,19 @@ beforeEach(() => {
 });
 
 describe("Git reference worktrees", () => {
+  const reference = {
+    fullName: "refs/remotes/origin/feature/orders",
+    shortName: "origin/feature/orders",
+    kind: "remote" as const,
+    isCurrent: false,
+  };
+
   test("creates a worktree branch from the selected remote reference and tracks it", async () => {
     await addWorktreeFromReference(
       "C:/repo",
       "D:/worktrees/orders",
       "feature/orders-worktree",
-      {
-        fullName: "refs/remotes/origin/feature/orders",
-        shortName: "origin/feature/orders",
-        kind: "remote",
-        isCurrent: false,
-      },
+      reference,
     );
 
     expect(invoke).toHaveBeenCalledWith("git.write", {
@@ -43,6 +45,28 @@ describe("Git reference worktrees", () => {
         kind: "remote",
       },
     });
+    expect(emitGitChanged).toHaveBeenLastCalledWith({
+      repoPath: "C:/repo",
+      scopes: ["repository", "history", "refs"],
+      source: "add-reference-worktree",
+    });
+  });
+
+  test("refreshes repository state when atomic worktree creation fails", async () => {
+    invoke.mockImplementation(async (command: string) => {
+      if (command === "git_discover_repo") return "C:/repo";
+      if (command === "git.write") throw new Error("worktree creation failed");
+      return null;
+    });
+
+    await expect(
+      addWorktreeFromReference(
+        "C:/repo",
+        "D:/worktrees/orders",
+        "feature/orders-worktree",
+        reference,
+      ),
+    ).rejects.toThrow("worktree creation failed");
     expect(emitGitChanged).toHaveBeenLastCalledWith({
       repoPath: "C:/repo",
       scopes: ["repository", "history", "refs"],

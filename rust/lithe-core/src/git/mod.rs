@@ -4294,32 +4294,21 @@ fn create_worktree(root: &str, request: &GitWriteRequest) -> Result<GitCommandRe
         .as_ref()
         .ok_or_else(invalid_git_reference)
         .and_then(|reference| validated_git_reference(root, reference))?;
-    let mut created = execute_git(
-        root,
-        &[
-            "worktree".into(),
-            "add".into(),
-            "-b".into(),
-            branch.clone(),
-            "--".into(),
-            destination,
-            reference.full_name.clone(),
-        ],
-        None,
-    )?;
-    if created.exit_code != 0 || reference.kind != "remote" {
-        return Ok(created);
+    let mut arguments = vec!["worktree".into(), "add".into()];
+    if reference.kind == "remote" {
+        // Let Git create the branch and its tracking configuration in one
+        // mutation. The complete ref keeps a same-named local branch from
+        // making the selected remote-tracking branch ambiguous.
+        arguments.push("--track".into());
     }
-    let (remote, remote_branch) = mutations::remote_branch_components(root, &reference.full_name)?;
-    if let Some(configuration) = configure_branch_upstream(root, &branch, &remote, &remote_branch)?
-    {
-        created.warnings.push(GitOperationWarning::new(
-            "git_worktree_upstream_configuration_failed",
-            "The worktree was created, but its branch upstream could not be configured",
-            Some(configuration.output),
-        ));
-    }
-    Ok(created)
+    arguments.extend([
+        "-b".into(),
+        branch,
+        "--".into(),
+        destination,
+        reference.full_name,
+    ]);
+    execute_git(root, &arguments, None)
 }
 
 fn configure_branch_upstream(

@@ -1279,6 +1279,91 @@ fn git_write_sets_upstream_from_the_complete_remote_reference() {
 }
 
 #[test]
+fn git_write_creates_a_tracked_worktree_from_an_unambiguous_complete_remote_reference() {
+    struct RemovePathsOnDrop(Vec<std::path::PathBuf>);
+
+    impl Drop for RemovePathsOnDrop {
+        fn drop(&mut self) {
+            for path in self.0.iter().rev() {
+                let _ = fs::remove_dir_all(path);
+            }
+        }
+    }
+
+    let root = git_write_repository("git-write-complete-worktree-reference");
+    let destination = root.with_extension("tracked-worktree");
+    let _cleanup = RemovePathsOnDrop(vec![root.clone(), destination.clone()]);
+    commit_history_file(&root, "base.txt", "base\n", "initial");
+    assert!(
+        history_git(&root, &["update-ref", "refs/remotes/origin/main", "HEAD"])
+            .status
+            .success()
+    );
+    assert!(history_git(&root, &["branch", "origin/main", "HEAD"])
+        .status
+        .success());
+
+    let response = git_write_request(
+        &root,
+        "createWorktree",
+        serde_json::json!({
+            "destination": destination,
+            "name": "feature/tracked-worktree",
+            "gitReference": {
+                "fullName": "refs/remotes/origin/main",
+                "shortName": "origin/main",
+                "kind": "remote"
+            }
+        }),
+    );
+
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(response["data"]["exitCode"], 0, "{response:?}");
+    let invocations = response["data"]["invocations"]
+        .as_array()
+        .expect("worktree invocations should be an array");
+    assert_eq!(
+        invocations
+            .iter()
+            .filter(|invocation| invocation["arguments"][0] == "worktree")
+            .count(),
+        1,
+        "{response:?}"
+    );
+    assert!(
+        invocations
+            .iter()
+            .all(|invocation| invocation["arguments"][0] != "config"),
+        "{response:?}"
+    );
+    assert_eq!(
+        response["data"]["arguments"],
+        serde_json::json!([
+            "worktree",
+            "add",
+            "--track",
+            "-b",
+            "feature/tracked-worktree",
+            "--",
+            destination,
+            "refs/remotes/origin/main"
+        ])
+    );
+    assert_eq!(
+        git_text(&root, &["config", "branch.feature/tracked-worktree.remote"]),
+        "origin"
+    );
+    assert_eq!(
+        git_text(&root, &["config", "branch.feature/tracked-worktree.merge"]),
+        "refs/heads/main"
+    );
+    assert_eq!(
+        git_text(&destination, &["branch", "--show-current"]),
+        "feature/tracked-worktree"
+    );
+}
+
+#[test]
 fn git_write_executes_checkout_preflight_clone_and_validation() {
     let root = git_write_repository("git-write-checkout-workflows");
     let run = |arguments: &[&str]| history_git(&root, arguments);

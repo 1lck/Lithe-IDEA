@@ -256,6 +256,12 @@ response retains the invocation trace and includes the failure as
 
 The core validates pathspecs, revisions, branch names, references, reset modes,
 stash references, and operation-specific required fields before invoking Git.
+`setUpstream` requires a typed remote `gitReference` and passes its complete
+`refs/remotes/*` identity to Git, so a same-named local branch cannot make the
+upstream ambiguous. `createWorktree` likewise requires a typed reference; for a
+remote reference Core executes one `git worktree add --track -b` mutation using
+the complete remote ref, so branch creation, checkout, and tracking setup do not
+form separate platform-visible success states.
 Successful process launch returns `{ "arguments": string[], "output": string,
 "stdout": string, "stderr": string, "exitCode": number, "invocations":
 GitCommandInvocation[], "operationError": CoreError?, "stashRestore":

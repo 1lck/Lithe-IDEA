@@ -1,5 +1,5 @@
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
-import type { GitOperationWarning, GitReference, GitWorktree } from "../types/git.types";
+import type { GitReference, GitWorktree } from "../types/git.types";
 import { emitGitChanged } from "../events/git-events";
 import { runGitRead } from "../runtime/git-read-coordinator";
 import {
@@ -57,10 +57,10 @@ export const addWorktreeFromReference = async (
   path: string,
   branchName: string,
   reference: GitReference,
-): Promise<GitOperationWarning[]> => {
+): Promise<void> => {
   const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
   try {
-    const result = await tauriInvoke<{ warnings?: GitOperationWarning[] } | null>("git.write", {
+    await tauriInvoke("git.write", {
       repoPath: resolvedRepoPath,
       operation: "createWorktree",
       destination: path,
@@ -71,7 +71,6 @@ export const addWorktreeFromReference = async (
         kind: reference.kind,
       },
     });
-    return result?.warnings ?? [];
   } finally {
     emitGitChanged({
       repoPath: resolvedRepoPath,

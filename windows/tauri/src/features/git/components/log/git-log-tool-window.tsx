@@ -339,15 +339,12 @@ export function GitLogToolWindow() {
     });
     if (!selectedPath || Array.isArray(selectedPath)) return;
     await runReferenceMutation(t("git.worktrees"), async () => {
-      const warnings = await addWorktreeFromReference(
+      await addWorktreeFromReference(
         repoPath,
         selectedPath,
         branchName.trim(),
         reference,
       );
-      if (warnings.some((warning) => warning.code === "git_worktree_upstream_configuration_failed")) {
-        toast.warning(t("git.log.worktreeUpstreamConfigurationFailed"));
-      }
     });
   };
 

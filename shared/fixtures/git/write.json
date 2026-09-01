@@ -23,6 +23,29 @@
       }
     },
     {
+      "operation": "setUpstream",
+      "payload": {
+        "name": "feature/core",
+        "gitReference": {
+          "fullName": "refs/remotes/origin/feature/core",
+          "shortName": "origin/feature/core",
+          "kind": "remote"
+        }
+      }
+    },
+    {
+      "operation": "createWorktree",
+      "payload": {
+        "destination": "../feature-core-worktree",
+        "name": "feature/core-worktree",
+        "gitReference": {
+          "fullName": "refs/remotes/origin/feature/core",
+          "shortName": "origin/feature/core",
+          "kind": "remote"
+        }
+      }
+    },
+    {
       "operation": "checkout",
       "payload": {
         "reference": "refs/heads/main",
