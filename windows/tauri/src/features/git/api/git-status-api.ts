@@ -1,7 +1,6 @@
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
 import { emitGitChanged } from "../events/git-events";
 import { registerGitCacheInvalidator } from "../runtime/git-cache-registry";
-import { runGitFileOperationBatch } from "../utils/git-operation-batch";
 import type { GitHunk, GitStatus } from "../types/git.types";
 import {
   isNotGitRepositoryError,
@@ -111,31 +110,26 @@ export const setFilesStaged = async (
   repoPath: string,
   filePaths: string[],
   staged: boolean,
-): Promise<Map<string, boolean>> => {
-  if (filePaths.length === 0) return new Map();
+): Promise<boolean> => {
+  const uniqueFilePaths = [...new Set(filePaths)];
+  if (uniqueFilePaths.length === 0) return true;
 
   try {
     const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
-    const command = staged ? "git_add" : "git_reset";
-    const results = await runGitFileOperationBatch(filePaths, async (filePath) => {
-      await tauriInvoke(command, { repoPath: resolvedRepoPath, filePath });
-      return true;
+    await tauriInvoke("git.write", {
+      repoPath: resolvedRepoPath,
+      operation: staged ? "stage" : "unstage",
+      paths: uniqueFilePaths,
     });
-
-    const changedFilePaths = Array.from(results)
-      .filter(([, success]) => success)
-      .map(([filePath]) => filePath);
-    if (changedFilePaths.length > 0) {
-      emitGitChanged({
-        repoPath: resolvedRepoPath,
-        scopes: ["working-tree"],
-        source: staged ? "stage-files" : "unstage-files",
-      });
-    }
-    return results;
+    emitGitChanged({
+      repoPath: resolvedRepoPath,
+      scopes: ["working-tree"],
+      source: staged ? "stage-files" : "unstage-files",
+    });
+    return true;
   } catch (error) {
     console.error(`Failed to ${staged ? "stage" : "unstage"} files:`, error);
-    return new Map(filePaths.map((filePath) => [filePath, false]));
+    return false;
   }
 };
 
@@ -237,6 +231,64 @@ export const discardFileChanges = async (repoPath: string, filePath: string): Pr
     return false;
   }
 };
+
+export const rollbackFilesChanges = async (
+  repoPath: string,
+  filePaths: string[],
+): Promise<void> => {
+  const uniqueFilePaths = [...new Set(filePaths)];
+  if (uniqueFilePaths.length === 0) return;
+
+  const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
+  await tauriInvoke("git.write", {
+    repoPath: resolvedRepoPath,
+    operation: "discardAll",
+    paths: uniqueFilePaths,
+  });
+  emitGitChanged({
+    repoPath: resolvedRepoPath,
+    scopes: ["working-tree"],
+    source: "rollback-files",
+  });
+};
+
+const addPathsToIgnoreFile = async (
+  repoPath: string,
+  filePaths: string[],
+  operation: "ignore" | "exclude",
+): Promise<boolean> => {
+  const uniqueFilePaths = [...new Set(filePaths)];
+  if (uniqueFilePaths.length === 0) return true;
+
+  try {
+    const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
+    await tauriInvoke("git.write", {
+      repoPath: resolvedRepoPath,
+      operation,
+      paths: uniqueFilePaths,
+    });
+    emitGitChanged({
+      repoPath: resolvedRepoPath,
+      scopes: ["working-tree"],
+      source: operation === "ignore" ? "add-to-gitignore" : "add-to-git-exclude",
+    });
+    return true;
+  } catch (error) {
+    console.error(
+      `Failed to add paths to ${operation === "ignore" ? ".gitignore" : ".git/info/exclude"}:`,
+      error,
+    );
+    return false;
+  }
+};
+
+export const addPathsToGitignore = (repoPath: string, filePaths: string[]): Promise<boolean> =>
+  addPathsToIgnoreFile(repoPath, filePaths, "ignore");
+
+export const addPathsToLocalGitExclude = (
+  repoPath: string,
+  filePaths: string[],
+): Promise<boolean> => addPathsToIgnoreFile(repoPath, filePaths, "exclude");
 
 export const initRepository = async (repoPath: string): Promise<boolean> => {
   try {

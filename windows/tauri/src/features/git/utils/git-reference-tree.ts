@@ -12,6 +12,13 @@ interface MutableReferenceNode extends GitReferenceTreeNode {
   children: MutableReferenceNode[];
 }
 
+export function countGitReferencesByKind(
+  references: GitReference[],
+  kind: GitReferenceKind,
+): number {
+  return references.filter((reference) => reference.kind === kind).length;
+}
+
 export function buildGitReferenceTree(
   references: GitReference[],
   kind: GitReferenceKind,

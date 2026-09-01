@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { mkdirSync, writeFileSync, createWriteStream } from "node:fs";
+import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeTestReportArtifacts } from "./generate-test-report.mjs";
@@ -65,6 +66,7 @@ function parseArguments(arguments_) {
   const options = {
     warnMs: 1000,
     maxMs: 15000,
+    stallTimeoutMs: 120000,
     suiteTimeoutMs: 600000,
     report: path.join(REPOSITORY_ROOT, ".artifacts/test-stability/macos-swift.json"),
     command: arguments_[separator + 1],
@@ -74,7 +76,9 @@ function parseArguments(arguments_) {
     const argument = arguments_[index];
     if (argument === "--warn-ms") options.warnMs = positiveInteger(arguments_[++index], "--warn-ms");
     else if (argument === "--max-ms") options.maxMs = positiveInteger(arguments_[++index], "--max-ms");
-    else if (argument === "--suite-timeout-ms") {
+    else if (argument === "--stall-timeout-ms") {
+      options.stallTimeoutMs = positiveInteger(arguments_[++index], "--stall-timeout-ms");
+    } else if (argument === "--suite-timeout-ms") {
       options.suiteTimeoutMs = positiveInteger(arguments_[++index], "--suite-timeout-ms");
     } else if (argument === "--report") options.report = path.resolve(arguments_[++index]);
     else throw new Error(`Unknown argument: ${argument}`);
@@ -90,34 +94,107 @@ export async function run(options, { runProcessImpl = runProcess } = {}) {
   const active = new Map();
   const records = [];
   let currentSuite = null;
-  let timedOutTest = null;
-  let testTimer = null;
+  let stalled = false;
+  let stallTimer = null;
   let terminateChild = () => {};
+  let childPid = null;
+  let lastOutputAt = null;
+  let lastTestEventAt = null;
+  let stallSamplePath = null;
+  // Killing the runner from a per-test timer is unsound: swift test writes to a
+  // block-buffered pipe, so a finish line can sit (or be split mid-line) in the
+  // child's buffer long after the test completed, and the timer would blame an
+  // innocent test. Instead, per-test budgets are enforced after the run from
+  // the durations swift-testing itself reports, and this stall watchdog only
+  // guards against the runner producing no output at all.
+  const stallTimeoutMs = options.stallTimeoutMs ?? 120000;
+  // Best-effort thread-stack snapshot of the hung runner, taken before the
+  // SIGTERM destroys the evidence of where it was stuck. The direct child is a
+  // shell wrapper, so walk its descendant tree: the genuinely hung process
+  // (swift-test or the testing helper, which detaches into its own process
+  // group) is a descendant, and the wrapper's stack would only show it waiting
+  // on its child.
+  const captureStallSample = () => {
+    if (process.platform !== "darwin" || !childPid) return;
+    let treePids = [String(childPid)];
+    let processListing = "";
+    try {
+      const everyProcess = spawnSync(
+        "ps",
+        ["-axo", "pid=,ppid=,pgid=,etime=,command="],
+        { encoding: "utf8", timeout: 5000 },
+      );
+      const rows = (everyProcess.stdout ?? "")
+        .split("\n")
+        .map((line) => {
+          const [pid, ppid] = line.trim().split(/\s+/);
+          return { pid, ppid, line };
+        })
+        .filter((row) => row.pid);
+      const wanted = new Set([String(childPid)]);
+      // Multiple passes handle arbitrary depth without recursion.
+      for (let pass = 0; pass < 10; pass += 1) {
+        const before = wanted.size;
+        for (const row of rows) if (wanted.has(row.ppid)) wanted.add(row.pid);
+        if (wanted.size === before) break;
+      }
+      const treeRows = rows.filter((row) => wanted.has(row.pid));
+      if (treeRows.length > 0) {
+        processListing = treeRows.map((row) => row.line).join("\n");
+        treePids = treeRows.map((row) => row.pid);
+      }
+    } catch {
+      // Fall back to sampling only the direct child.
+    }
+    const samplePath = options.report.replace(/\.json$/i, ".stall-sample.txt");
+    const sections = [
+      `Process tree under pid ${childPid} at stall (pid ppid pgid etime command):`,
+      processListing || "(process listing unavailable)",
+    ];
+    // Bound the diagnostics pass; each sample blocks for its full duration.
+    for (const pid of treePids.slice(0, 6)) {
+      const sample = spawnSync("sample", [pid, "2"], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: 15000,
+      });
+      if (sample.status === 0 && sample.stdout) {
+        sections.push(`===== sample of pid ${pid} =====`, sample.stdout);
+      }
+    }
+    try {
+      writeFileSync(samplePath, `${sections.join("\n\n")}\n`);
+      stallSamplePath = samplePath;
+    } catch {
+      // Sampling is diagnostics only; never let it break termination.
+    }
+  };
+  const armStallTimer = () => {
+    if (stallTimer) clearTimeout(stallTimer);
+    stallTimer = setTimeout(() => {
+      stalled = true;
+      captureStallSample();
+      terminateChild();
+    }, stallTimeoutMs);
+  };
 
   const recordLine = (line, stream) => {
-    log.write(`${stream}: ${line}\n`);
+    lastOutputAt = new Date().toISOString();
+    log.write(`${lastOutputAt} ${stream}: ${line}\n`);
+    armStallTimer();
     const suiteEvent = parseSwiftSuiteLine(line);
     if (suiteEvent?.event === "started") currentSuite = suiteEvent.name;
     else if (suiteEvent && suiteEvent.name === currentSuite) currentSuite = null;
     const event = parseSwiftTimingLine(line);
     if (!event) return;
+    lastTestEventAt = lastOutputAt;
     if (event.event === "started") {
-      const startedAt = performance.now();
-      active.set(event.name, { startedAt, suite: currentSuite });
-      if (testTimer) clearTimeout(testTimer);
-      testTimer = setTimeout(() => {
-        timedOutTest = { name: event.name, suite: currentSuite };
-        terminateChild();
-      }, options.maxMs);
+      active.set(event.name, { startedAt: performance.now(), suite: currentSuite });
       return;
     }
 
     const activeTest = active.get(event.name);
     active.delete(event.name);
-    if (testTimer) {
-      clearTimeout(testTimer);
-      testTimer = null;
-    }
     records.push({
       name: event.name,
       ...(activeTest?.suite ? { suite: activeTest.suite } : {}),
@@ -130,12 +207,14 @@ export async function run(options, { runProcessImpl = runProcess } = {}) {
   };
 
   const startedAt = new Date().toISOString();
+  armStallTimer();
   const childPromise = runProcessImpl({
     command: options.command,
     args: options.commandArguments,
     cwd: REPOSITORY_ROOT,
     timeoutMs: options.suiteTimeoutMs,
-    onSpawn: ({ terminate }) => {
+    onSpawn: ({ pid, terminate }) => {
+      childPid = pid ?? null;
       terminateChild = terminate;
     },
     onStdoutLine: (line) => recordLine(line, "stdout"),
@@ -144,30 +223,55 @@ export async function run(options, { runProcessImpl = runProcess } = {}) {
     streamStderr: true,
   });
 
-  const result = await childPromise;
-  if (testTimer) clearTimeout(testTimer);
-  await new Promise((resolve, reject) => {
-    log.once("error", reject);
-    log.end(resolve);
-  });
-
-  if (timedOutTest && !records.some((record) => record.name === timedOutTest.name)) {
-    records.push({
-      name: timedOutTest.name,
-      ...(timedOutTest.suite ? { suite: timedOutTest.suite } : {}),
-      status: "timeout",
-      durationMs: options.maxMs,
+  // Clear the watchdog and settle the log stream even when spawn fails and the
+  // await throws; a leaked ref'd timer would keep this process alive for the
+  // full timeout, and an unsettled stream emits an unhandled error event.
+  let result;
+  let logError = null;
+  try {
+    result = await childPromise;
+  } finally {
+    if (stallTimer) clearTimeout(stallTimer);
+    stallTimer = null;
+    await new Promise((resolve) => {
+      log.once("error", (error) => {
+        logError ??= error;
+        resolve();
+      });
+      log.end(resolve);
     });
   }
-  for (const [name, activeTest] of active) {
+  if (logError) throw logError;
+
+  // Tests still in `active` either never finished or had their finish line cut
+  // off in the killed child's stdio buffer; report them without asserting that
+  // any single one of them is the culprit.
+  const unfinished = [...active.entries()];
+  for (const [name, activeTest] of unfinished) {
     if (!records.some((record) => record.name === name)) {
       records.push({
         name,
         ...(activeTest.suite ? { suite: activeTest.suite } : {}),
-        status: result.timedOut ? "timeout" : "incomplete",
-        durationMs: options.maxMs,
+        status: result.timedOut || stalled ? "timeout" : "incomplete",
+        durationMs: Math.round(performance.now() - activeTest.startedAt),
       });
     }
+  }
+  if (stalled) {
+    const unfinishedNames = unfinished.map(([name]) => name);
+    records.push({
+      name: "Swift test runner stall",
+      suite: "Swift test runner",
+      status: "timeout",
+      durationMs: stallTimeoutMs,
+      details:
+        `The Swift runner produced no output for ${stallTimeoutMs}ms. ` +
+        (unfinishedNames.length > 0
+          ? `Tests without a reported result: ${unfinishedNames.join(", ")}. `
+          : "Every parsed test had reported a result; the runner likely hung during teardown or exit. ") +
+        `Last output at ${lastOutputAt ?? "never"}; last parsed test event at ${lastTestEventAt ?? "never"}.` +
+        (stallSamplePath ? ` Thread-stack sample of the hung runner: ${stallSamplePath}.` : ""),
+    });
   }
   if (result.timedOut && !records.some((record) => record.status === "timeout")) {
     records.push({
@@ -190,11 +294,14 @@ export async function run(options, { runProcessImpl = runProcess } = {}) {
     command: [options.command, ...options.commandArguments],
     warnMs: options.warnMs,
     maxMs: options.maxMs,
+    stallTimeoutMs,
     suiteTimeoutMs: options.suiteTimeoutMs,
     process: {
       exitCode: result.code,
       signal: result.signal,
       timedOut: result.timedOut,
+      stalled,
+      terminationConfirmed: result.terminationConfirmed,
       durationMs: Math.round(result.durationMs),
     },
     tests: records,
@@ -207,10 +314,16 @@ export async function run(options, { runProcessImpl = runProcess } = {}) {
     console.log(`SLOW ${record.durationMs}ms ${record.name}`);
   }
 
-  if (timedOutTest) {
-    throw new Error(`Swift test exceeded ${options.maxMs}ms: ${timedOutTest.name}`);
-  }
   if (result.timedOut) throw new Error(`Swift test suite exceeded ${options.suiteTimeoutMs}ms.`);
+  if (stalled) {
+    const unfinishedNames = unfinished.map(([name]) => name);
+    throw new Error(
+      `Swift test runner produced no output for ${stallTimeoutMs}ms` +
+        (unfinishedNames.length > 0
+          ? `; tests without a reported result: ${unfinishedNames.join(", ")}.`
+          : "; every parsed test had reported a result, so the runner likely hung during teardown or exit."),
+    );
+  }
   if (records.length === 0) throw new Error("The Swift runner did not report any individual test durations.");
   if (overBudget.length > 0) throw new Error(`${overBudget.length} Swift test(s) exceeded the local budget.`);
   if (result.code !== 0) throw new Error(`Swift test command exited with code ${result.code}.`);

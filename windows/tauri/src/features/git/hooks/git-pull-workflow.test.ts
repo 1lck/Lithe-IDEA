@@ -70,7 +70,7 @@ describe("GitPullWorkflow", () => {
     expect(result).toEqual({
       status: "failed",
       stage: "fetch",
-      message: "Fetch failed: offline",
+      error: "offline",
     });
     expect(preflightCalls).toBe(0);
     expect(harness.refreshCount()).toBe(1);
@@ -101,7 +101,7 @@ describe("GitPullWorkflow", () => {
     expect(result).toEqual({
       status: "failed",
       stage: "preflight",
-      message: "Pull safety check failed: Core unavailable",
+      error: "Core unavailable",
     });
     expect(harness.pullStrategies).toEqual([]);
     expect(harness.refreshCount()).toBe(1);
@@ -135,7 +135,6 @@ describe("GitPullWorkflow", () => {
     const result = await harness.workflow.run("C:/repo", harness.options);
 
     expect(result).toMatchObject({ status: "blocked", reason: "dirty" });
-    expect(result.message).toContain("Commit or stash");
     expect(harness.pullStrategies).toEqual([]);
   });
 
@@ -245,7 +244,7 @@ describe("GitPullWorkflow", () => {
     expect(result).toEqual({
       status: "failed",
       stage: "pull",
-      message: "Pull failed: authentication failed",
+      error: "authentication failed",
     });
     expect(operationStateCalls).toBe(1);
     expect(harness.refreshCount()).toBe(1);
@@ -263,7 +262,6 @@ describe("GitPullWorkflow", () => {
     expect(result).toEqual({
       status: "conflict",
       operation: mergeOperation,
-      message: "Merge stopped for conflict resolution.",
     });
     expect(harness.refreshCount()).toBe(1);
   });

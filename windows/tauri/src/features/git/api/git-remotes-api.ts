@@ -1,11 +1,19 @@
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
-import type { GitPullPreflight, GitRemote, PullStrategy } from "../types/git.types";
+import type {
+  GitPullPreflight,
+  GitPullResult,
+  GitReference,
+  GitRemote,
+  PullStrategy,
+} from "../types/git.types";
 import { emitGitChanged } from "../events/git-events";
 import { GitPullWorkflow } from "../hooks/git-pull-workflow";
 import { runGitRead } from "../runtime/git-read-coordinator";
 import { getBranches } from "./git-branches-api";
 import { getGitHistory } from "./git-commits-api";
 import { getOperationState } from "./git-integration-api";
+import { executeGitPush } from "./git-push-api";
+import { toCoreGitReference } from "./git-reference-payload";
 import { getGitStatus } from "./git-status-api";
 import {
   isNotGitRepositoryError,
@@ -16,6 +24,7 @@ import {
 export interface GitRemoteActionResult {
   success: boolean;
   error?: string;
+  pullResult?: GitPullResult;
 }
 
 export const getRemotes = async (repoPath: string): Promise<GitRemote[]> => {
@@ -70,19 +79,30 @@ export const removeRemote = async (repoPath: string, name: string): Promise<bool
   }
 };
 
+export const deleteRemoteBranch = async (
+  repoPath: string,
+  reference: GitReference,
+): Promise<void> => {
+  const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
+  await tauriInvoke("git.write", {
+    repoPath: resolvedRepoPath,
+    operation: "deleteRemoteBranch",
+    gitReference: toCoreGitReference(reference),
+  });
+  emitGitChanged({
+    repoPath: resolvedRepoPath,
+    scopes: ["history", "refs", "remotes"],
+    source: "delete-remote-branch",
+  });
+};
+
 export const pushChanges = async (
   repoPath: string,
   branch?: string,
-  remote: string = "origin",
+  _remote: string = "origin",
 ): Promise<GitRemoteActionResult> => {
   try {
-    const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
-    await tauriInvoke("git_push", { repoPath: resolvedRepoPath, branch, remote });
-    emitGitChanged({
-      repoPath: resolvedRepoPath,
-      scopes: ["refs", "remotes"],
-      source: "push",
-    });
+    await executeGitPush(repoPath, { reference: branch });
     return { success: true };
   } catch (error) {
     console.error("Failed to push changes:", error);
@@ -188,10 +208,8 @@ export const pullChanges = async (repoPath: string): Promise<GitRemoteActionResu
       ? { success: true }
       : {
           success: false,
-          error:
-            result.status === "cancelled"
-              ? "Branches have diverged. Open Source Control and choose Merge or Rebase."
-              : result.message,
+          ...(result.status === "failed" && result.error ? { error: result.error } : {}),
+          pullResult: result,
         };
   } finally {
     unsubscribe();
