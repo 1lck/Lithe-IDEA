@@ -1705,7 +1705,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                 }
 
                 if isBottomToolVisible, showsBottomToolMinimize {
-                    Button(action: onBottomToolMinimize) {
+                    Button(action: actions.onBottomToolMinimize) {
                         Image(systemName: "chevron.down")
                             .font(.system(size: 12, weight: .semibold))
                     }
@@ -1768,7 +1768,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                     maximum: maximumSidebarWidth
                 )
                 liveSidebarWidth = finalWidth
-                onSidebarWidthCommitted(finalWidth)
+                actions.onSidebarWidthCommitted(finalWidth)
             }
         )
         .padding(.top, WorkbenchWorkspaceMetrics.paneInset)
@@ -1806,7 +1806,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                     maximum: maximumTopPaneHeight
                 )
                 liveTopPaneHeight = finalHeight
-                onTopPaneHeightCommitted(finalHeight)
+                actions.onTopPaneHeightCommitted(finalHeight)
             }
         )
         .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)

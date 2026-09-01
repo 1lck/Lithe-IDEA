@@ -6,19 +6,19 @@ enum LitheSignpost {
         category: "Rendering"
     )
 
-    static func begin(_ name: StaticString) -> OSSignposter.IntervalState {
+    static func begin(_ name: StaticString) -> OSSignpostIntervalState {
         signposter.beginInterval(name)
     }
 
-    static func end(_ name: StaticString, _ state: OSSignposter.IntervalState) {
+    static func end(_ name: StaticString, _ state: OSSignpostIntervalState) {
         signposter.endInterval(name, state)
     }
 
     #if DEBUG
-    private static var bodyCounts: [StaticString: Int] = [:]
+    private static var bodyCounts: [String: Int] = [:]
 
     static func bodyEvaluated(_ view: StaticString) {
-        bodyCounts[view, default: 0] += 1
+        bodyCounts["\(view)", default: 0] += 1
     }
     #else
     @inlinable @inline(__always)

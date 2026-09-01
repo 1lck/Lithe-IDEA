@@ -11,6 +11,11 @@ struct GitLogView: View {
     @State private var tagsExpanded = true
     @State private var collapsedReferenceGroups: Set<String> = []
     @State private var collapsedFileGroups: Set<String> = []
+    @State private var localReferenceRows: [GitReferenceRow] = []
+    @State private var remoteReferenceRows: [GitReferenceRow] = []
+    @State private var tagReferenceRows: [GitReferenceRow] = []
+    @State private var currentReferenceCache = GitCurrentReferenceCache()
+    @State private var commitFileTreeItems: [GitCommitFileTreeItem] = []
     @State private var branchDialogRequest: GitBranchDialogRequest?
     @State private var pendingPushReference: GitReference?
     @State private var pendingCommitOperation: GitCommitOperationRequest?
@@ -1716,72 +1721,6 @@ enum GitLogDatePreset: String, CaseIterable, Identifiable, Hashable {
     }
 }
 
-private struct GitReferenceTreeNode: Identifiable {
-    let path: String
-    let name: String
-    let reference: GitReference?
-    let children: [GitReferenceTreeNode]
-
-    var id: String { path }
-
-    static func build(from references: [GitReference]) -> [GitReferenceTreeNode] {
-        let root = MutableGitReferenceTreeNode(name: "", path: "")
-
-        for reference in references {
-            let components = reference.shortName
-                .split(separator: "/")
-                .map(String.init)
-            guard !components.isEmpty else { continue }
-
-            var node = root
-            var pathComponents: [String] = []
-            for component in components {
-                pathComponents.append(component)
-                if node.children[component] == nil {
-                    node.children[component] = MutableGitReferenceTreeNode(
-                        name: component,
-                        path: pathComponents.joined(separator: "/")
-                    )
-                }
-                node = node.children[component]!
-            }
-            node.reference = reference
-        }
-
-        return makeNodes(from: root)
-    }
-
-    private static func makeNodes(from node: MutableGitReferenceTreeNode) -> [GitReferenceTreeNode] {
-        node.children.values
-            .map { child in
-                GitReferenceTreeNode(
-                    path: child.path,
-                    name: child.name,
-                    reference: child.reference,
-                    children: makeNodes(from: child)
-                )
-            }
-            .sorted { lhs, rhs in
-                if (lhs.reference != nil) != (rhs.reference != nil) {
-                    return lhs.reference != nil
-                }
-                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
-            }
-    }
-}
-
-private final class MutableGitReferenceTreeNode {
-    let name: String
-    let path: String
-    var reference: GitReference?
-    var children: [String: MutableGitReferenceTreeNode] = [:]
-
-    init(name: String, path: String) {
-        self.name = name
-        self.path = path
-    }
-}
-
 private enum GitCommitFileTreeItem: Identifiable {
     case folder(GitCommitFileTreeNode, depth: Int)
     case file(GitCommitFile, depth: Int)
@@ -2415,5 +2354,263 @@ struct GitCheckoutConflictDialog: View {
     private func resolve(_ strategy: GitCheckoutConflictStrategy) {
         onResolve(strategy)
         dismiss()
+    }
+}
+
+// MARK: - Git Reference Row Actions & View
+
+private struct GitReferenceRowActions {
+    let select: (GitReference) -> Void
+    let toggleGroup: (String) -> Void
+    let newBranch: (GitReference) -> Void
+    let renameBranch: (GitReference) -> Void
+    let showDiffWithWorkingTree: (GitReference) -> Void
+    let compareWithCurrent: (GitReference) -> Void
+    let compareWithSelectedSource: (GitReference) -> Void
+    let selectForCompare: (GitReference) -> Void
+    let comparisonSourceName: String?
+    let checkout: (GitReference) -> Void
+    let updateCurrentBranch: (GitReference) -> Void
+    let push: (GitReference) -> Void
+    let branchOperation: (GitBranchOperationKind, GitReference) -> Void
+}
+
+private struct GitReferenceRowView: View, Equatable {
+    let row: GitReferenceRow
+    let isSelected: Bool
+    let isPerformingBranchOperation: Bool
+    let currentReferenceID: String?
+    let comparisonSourceID: String?
+    let actions: GitReferenceRowActions
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.row == rhs.row
+            && lhs.isSelected == rhs.isSelected
+            && lhs.isPerformingBranchOperation == rhs.isPerformingBranchOperation
+            && lhs.currentReferenceID == rhs.currentReferenceID
+            && lhs.comparisonSourceID == rhs.comparisonSourceID
+    }
+
+    var body: some View {
+        switch row.content {
+        case .group(let key, let isCollapsed):
+            groupRow(key: key, isCollapsed: isCollapsed)
+        case .reference(let reference):
+            referenceRow(reference)
+        }
+    }
+
+    private func groupRow(key: String, isCollapsed: Bool) -> some View {
+        Button {
+            actions.toggleGroup(key)
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+                    .frame(width: 10)
+                Image(systemName: "folder")
+                    .font(.system(size: 12))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                Text(row.name)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(LitheTheme.primaryText)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+            }
+            .padding(.leading, CGFloat(row.depth * 16))
+            .padding(.trailing, 8)
+            .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+            .contentShape(Rectangle())
+            .litheRowHover(cornerRadius: 4)
+        }
+        .buttonStyle(.plain)
+        .lithePointer()
+    }
+
+    private func referenceRow(_ reference: GitReference) -> some View {
+        Button {
+            actions.select(reference)
+        } label: {
+            HStack(spacing: 7) {
+                LitheSystemIcon(systemImage: referenceIcon(reference), size: 14)
+                    .foregroundStyle(reference.kind == .tag ? LitheTheme.warning : LitheTheme.secondaryText)
+                    .frame(width: 16)
+                Text(row.name)
+                    .font(.system(size: 13))
+                    .foregroundStyle(LitheTheme.primaryText)
+                    .lineLimit(1)
+                if reference.isCurrent {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(LitheTheme.accent)
+                }
+                Spacer(minLength: 8)
+            }
+            .padding(.leading, CGFloat(row.depth * 16))
+            .padding(.trailing, 8)
+            .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .contentShape(Rectangle())
+            .litheRowHover(
+                isActive: isSelected,
+                cornerRadius: 4,
+                activeBackground: LitheTheme.subtleSelection
+            )
+        }
+        .buttonStyle(.plain)
+        .lithePointer()
+        .contextMenu {
+            Button("New Branch from '\(reference.shortName)'…") {
+                actions.newBranch(reference)
+            }
+
+            Button("Show Diff with Working Tree") {
+                actions.showDiffWithWorkingTree(reference)
+            }
+
+            if let currentReferenceID, currentReferenceID != reference.id {
+                Button("Compare with Current Branch") {
+                    actions.compareWithCurrent(reference)
+                }
+            }
+
+            if let comparisonSourceID, comparisonSourceID != reference.id,
+               let sourceName = actions.comparisonSourceName {
+                Button("Compare '\(sourceName)' with '\(reference.shortName)'") {
+                    actions.compareWithSelectedSource(reference)
+                }
+            } else {
+                Button("Select for Compare") {
+                    actions.selectForCompare(reference)
+                }
+            }
+
+            if !reference.isCurrent {
+                Divider()
+
+                Button("Checkout") {
+                    actions.checkout(reference)
+                }
+                .disabled(isPerformingBranchOperation)
+
+                if reference.kind != .tag {
+                    Button("Checkout and Rebase onto Current Branch") {
+                        actions.branchOperation(.checkoutAndRebase, reference)
+                    }
+                    .disabled(isPerformingBranchOperation)
+
+                    Button("Merge into Current Branch") {
+                        actions.branchOperation(.merge, reference)
+                    }
+                    .disabled(isPerformingBranchOperation)
+
+                    Button("Rebase Current Branch onto…") {
+                        actions.branchOperation(.rebase, reference)
+                    }
+                    .disabled(isPerformingBranchOperation)
+                }
+            }
+
+            if reference.kind == .remote {
+                Divider()
+
+                Button("Pull with Rebase") {
+                    actions.branchOperation(.pullRebase, reference)
+                }
+                .disabled(isPerformingBranchOperation)
+
+                Button("Pull with Merge") {
+                    actions.branchOperation(.pullMerge, reference)
+                }
+                .disabled(isPerformingBranchOperation)
+            }
+
+            if reference.kind == .local {
+                Divider()
+
+                Button("Update") {
+                    actions.updateCurrentBranch(reference)
+                }
+                .disabled(!reference.isCurrent || isPerformingBranchOperation)
+
+                Button("Push…") {
+                    actions.push(reference)
+                }
+                .disabled(isPerformingBranchOperation)
+
+                if !reference.isCurrent {
+                    Button("Delete Branch", role: .destructive) {
+                        actions.branchOperation(.delete, reference)
+                    }
+                    .disabled(isPerformingBranchOperation)
+                }
+
+                Divider()
+
+                Button("Rename…") {
+                    actions.renameBranch(reference)
+                }
+                .disabled(isPerformingBranchOperation)
+            }
+        }
+    }
+
+    private func referenceIcon(_ reference: GitReference) -> String {
+        switch reference.kind {
+        case .local: "point.3.connected.trianglepath.dotted"
+        case .remote: "cloud"
+        case .tag: "tag"
+        }
+    }
+}
+
+// MARK: - Git Log Three-Pane Layout
+
+private struct GitLogThreePaneLayout<ReferencePane: View, CommitPane: View, DetailPane: View>: View {
+    let availableWidth: CGFloat
+    private let referencePane: ReferencePane
+    private let commitPane: CommitPane
+    private let detailPane: DetailPane
+
+    init(
+        availableWidth: CGFloat,
+        @ViewBuilder referencePane: () -> ReferencePane,
+        @ViewBuilder commitPane: () -> CommitPane,
+        @ViewBuilder detailPane: () -> DetailPane
+    ) {
+        self.availableWidth = availableWidth
+        self.referencePane = referencePane()
+        self.commitPane = commitPane()
+        self.detailPane = detailPane()
+    }
+
+    private var referencePaneMaximum: CGFloat {
+        max(180, availableWidth * 0.35)
+    }
+
+    private var detailPaneMaximum: CGFloat {
+        max(250, availableWidth * 0.5)
+    }
+
+    var body: some View {
+        LitheSplitPaneView(
+            axis: .horizontal,
+            placement: .leading,
+            defaultSize: 220,
+            minimum: 180,
+            maximum: referencePaneMaximum,
+            sized: { referencePane },
+            flexible: {
+                LitheSplitPaneView(
+                    axis: .horizontal,
+                    placement: .trailing,
+                    defaultSize: 350,
+                    minimum: 250,
+                    maximum: detailPaneMaximum,
+                    sized: { detailPane },
+                    flexible: { commitPane }
+                )
+            }
+        )
     }
 }
