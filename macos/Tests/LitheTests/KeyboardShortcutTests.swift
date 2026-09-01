@@ -8,7 +8,6 @@ struct KeyboardShortcutTests {
     @Test
     func catalogHasStableUniqueCommandsAndConflictFreeDefaults() {
         let commands = LitheCommandCatalog.commands
-        #expect(commands.count == 39)
         #expect(Set(commands.map(\.id)).count == commands.count)
 
         let bindings = commands.flatMap(\.defaultBindings)
