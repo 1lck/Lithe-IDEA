@@ -13,6 +13,7 @@ struct ChangesSidebarView: View {
     @State private var selectedShelf: GitShelfEntry?
     @State private var pendingDropStash: GitStash?
     @State private var pendingDropShelf: GitShelfEntry?
+    @State private var sectionsCache = GitChangeSectionsCache()
 
     var body: some View {
         let _ = LitheSignpost.bodyEvaluated("ChangesSidebarView")
@@ -772,17 +773,25 @@ struct ChangesSidebarView: View {
         .padding(24)
     }
 
+    /// All four sections come from one pass over `gitChanges`; see
+    /// `GitChangeSectionsCache`.
+    private var changeSections: GitChangeSectionsCache.Sections {
+        sectionsCache.sections(
+            changes: model.gitChanges,
+            conflictFilterPaths: model.gitConflictFilterPaths
+        )
+    }
+
     private var trackedChanges: [GitChange] {
-        displayedChanges.filter { $0.kind != .added }
+        changeSections.tracked
     }
 
     private var addedChanges: [GitChange] {
-        displayedChanges.filter { $0.kind == .added }
+        changeSections.added
     }
 
     private var displayedChanges: [GitChange] {
-        guard !model.gitConflictFilterPaths.isEmpty else { return model.gitChanges }
-        return model.gitChanges.filter { model.gitConflictFilterPaths.contains($0.path) }
+        changeSections.displayed
     }
 
     private func isEffectivelyStaged(_ change: GitChange) -> Bool {
@@ -799,7 +808,7 @@ struct ChangesSidebarView: View {
     }
 
     private var stagedChanges: [GitChange] {
-        model.gitChanges.filter(\.isStaged)
+        changeSections.staged
     }
 
     private var canCommit: Bool {

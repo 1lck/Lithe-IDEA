@@ -15,7 +15,6 @@ struct GitLogView: View {
     @State private var remoteReferenceRows: [GitReferenceRow] = []
     @State private var tagReferenceRows: [GitReferenceRow] = []
     @State private var currentReferenceCache = GitCurrentReferenceCache()
-    @State private var commitFileTreeItems: [GitCommitFileTreeItem] = []
     @State private var branchDialogRequest: GitBranchDialogRequest?
     @State private var pendingPushReference: GitReference?
     @State private var pendingCommitOperation: GitCommitOperationRequest?
@@ -85,13 +84,19 @@ struct GitLogView: View {
             }
         }
         .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.sidebar)
-        .task(id: model.gitCommits) {
+        .task(id: model.gitCommitsVersion) {
             let commits = model.gitCommits
             let updatedLayout = await Task.detached(priority: .userInitiated) {
                 GitGraphLayoutService.layout(commits: commits)
             }.value
             guard model.gitCommits == commits else { return }
             graphLayout = updatedLayout
+        }
+        // The three section arrays are derived, not user state. Rebuilding them
+        // here rather than in `body` keeps the flattening off the render path
+        // while still reacting to both inputs it depends on.
+        .task(id: referenceRowsTaskIdentity) {
+            rebuildReferenceRows()
         }
         .task(id: gitLogFilterTaskIdentity) {
             do {
@@ -1562,8 +1567,39 @@ struct GitLogView: View {
         return components.suffix(2).joined(separator: "/")
     }
 
+    /// Asked for from many places in one body pass, so the linear scan is
+    /// memoized against the reference list it came from.
     private var currentReference: GitReference? {
-        model.gitReferences.first(where: \.isCurrent)
+        currentReferenceCache.reference(in: model.gitReferences)
+    }
+
+    /// Both inputs the flattened rows depend on. `gitReferences` is compared by
+    /// value because it is small and changes rarely; the collapse set changes
+    /// only on an explicit disclosure toggle.
+    private var referenceRowsTaskIdentity: GitReferenceRowsIdentity {
+        GitReferenceRowsIdentity(
+            references: model.gitReferences,
+            collapsedGroups: collapsedReferenceGroups
+        )
+    }
+
+    private func rebuildReferenceRows() {
+        let references = model.gitReferences
+        localReferenceRows = GitReferenceRowsBuilder.rows(
+            from: references.filter { $0.kind == .local },
+            kind: .local,
+            collapsedGroups: collapsedReferenceGroups
+        )
+        remoteReferenceRows = GitReferenceRowsBuilder.rows(
+            from: references.filter { $0.kind == .remote },
+            kind: .remote,
+            collapsedGroups: collapsedReferenceGroups
+        )
+        tagReferenceRows = GitReferenceRowsBuilder.rows(
+            from: references.filter { $0.kind == .tag },
+            kind: .tag,
+            collapsedGroups: collapsedReferenceGroups
+        )
     }
 
     private func referenceIcon(_ reference: GitReference) -> String {
@@ -2358,6 +2394,13 @@ struct GitCheckoutConflictDialog: View {
 }
 
 // MARK: - Git Reference Row Actions & View
+
+/// Combined `.task(id:)` key for the flattened reference rows, so the rows are
+/// rebuilt when either the references or the collapse state changes.
+private struct GitReferenceRowsIdentity: Equatable {
+    let references: [GitReference]
+    let collapsedGroups: Set<String>
+}
 
 private struct GitReferenceRowActions {
     let select: (GitReference) -> Void

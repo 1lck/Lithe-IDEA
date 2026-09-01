@@ -46,7 +46,7 @@ struct EditorAreaView: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @State private var hoveredTabID: UUID?
     @State private var tabDragState = EditorTabDragState.idle
-    @State private var editorTabFrames: [EditorTabItem: CGRect] = [:]
+    @State private var tabFrameStore = EditorTabFrameStore()
     @State private var tabDragStartFrames: [EditorTabItem: CGRect] = [:]
     @State private var tabDragOffsetX: CGFloat = 0
     @State private var tabReorderTarget: EditorTabReorderTarget?
@@ -215,7 +215,7 @@ struct EditorAreaView: View {
         .coordinateSpace(name: editorTabCoordinateSpaceName)
         .onPreferenceChange(EditorTabFramePreferenceKey.self) { frames in
             guard tabDragState.draggedItem == nil else { return }
-            editorTabFrames = frames
+            tabFrameStore.update(frames)
         }
         .clipped()
         .animation(tabAnimation, value: model.editorTabItems)
@@ -705,7 +705,7 @@ struct EditorAreaView: View {
     }
 
     private func beginTabDrag(_ item: EditorTabItem) {
-        tabDragStartFrames = editorTabFrames
+        tabDragStartFrames = tabFrameStore.frames
         tabDragOffsetX = 0
         tabReorderTarget = nil
         withAnimation(tabAnimation) {
@@ -808,11 +808,11 @@ struct EditorAreaView: View {
             EditorTabItem.terminal($0)
         }
         if let activeTerminalItem,
-           let sourceFrame = editorTabFrames[activeTerminalItem],
+           let sourceFrame = tabFrameStore[activeTerminalItem],
            sourceFrame.contains(location) {
             return nil
         }
-        let candidates = editorTabFrames.filter { item, _ in
+        let candidates = tabFrameStore.frames.filter { item, _ in
             item != tabDragState.draggedItem && item != activeTerminalItem
         }
         guard let nearest = candidates.min(by: { lhs, rhs in

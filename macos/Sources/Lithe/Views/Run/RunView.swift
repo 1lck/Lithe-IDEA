@@ -11,6 +11,10 @@ struct RunView: View {
     @AppStorage("lithe.run.configurationListCollapsed") private var isConfigurationListCollapsed = false
     @State private var liveConfigurationListWidth: CGFloat?
     @State private var configurationListDragStart: CGFloat = 230
+    /// Separate caches: the two raw strings change independently, and one box
+    /// memoizes a single raw value.
+    @State private var collapsedExecutionCache = RunConfigurationTokenCache()
+    @State private var pinnedConfigurationCache = RunConfigurationTokenCache()
     /// The configuration whose editor popover is open. Held separately from the list
     /// selection so opening an editor does not switch which log is shown.
     @State private var editingConfigurationID: String?
@@ -419,11 +423,11 @@ struct RunView: View {
     }
 
     private var collapsedExecutions: Set<String> {
-        Set(collapsedExecutionIDs.split(separator: ",").map(String.init))
+        collapsedExecutionCache.tokens(from: collapsedExecutionIDs, separator: ",")
     }
 
     private var pinnedConfigurationTokenSet: Set<String> {
-        Set(pinnedConfigurationTokens.split(separator: "\n").map(String.init))
+        pinnedConfigurationCache.tokens(from: pinnedConfigurationTokens, separator: "\n")
     }
 
     private func pinToken(for configuration: RunConfiguration) -> String {
