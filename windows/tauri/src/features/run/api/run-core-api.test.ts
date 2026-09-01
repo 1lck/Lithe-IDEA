@@ -8,7 +8,7 @@ const executeCore = mock(async () => ({
 
 mock.module("@/core/lithe-core-client", () => ({ executeCore }));
 
-const { saveRunConfigurationEditorChanges } = await import("./run-core-api");
+const { createLaunchPlan, saveRunConfigurationEditorChanges } = await import("./run-core-api");
 
 const emptyToolchain = {
   javaHomePath: "",
@@ -22,6 +22,32 @@ beforeEach(() => {
 });
 
 describe("saveRunConfigurationEditorChanges", () => {
+  test("forwards the shared Maven context when creating a launch plan", async () => {
+    const mavenContext = {
+      version: 1 as const,
+      reactorPath: "reactor",
+      profiles: ["dev"],
+      settingsPath: "C:/Users/example/.m2/settings.xml",
+      skipTests: true,
+      mavenExecutablePath: "D:/Tools/apache-maven",
+      javaHomePath: "C:/Java/jdk-21",
+    };
+
+    await createLaunchPlan("D:/fixture/project", "spring", undefined, mavenContext);
+
+    expect(executeCore).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: "runConfig.createLaunchPlan",
+        payload: {
+          root: "D:/fixture/project",
+          configurationId: "spring",
+          currentFile: undefined,
+          mavenContext,
+        },
+      }),
+    );
+  });
+
   test("sends project-relative working directory and toolchain paths in project scope", async () => {
     await saveRunConfigurationEditorChanges(
       "D:/fixture/project",
@@ -31,6 +57,7 @@ describe("saveRunConfigurationEditorChanges", () => {
         javaHomePath: "D:\\fixture\\project\\toolchains\\jdk",
         mavenExecutablePath: "D:/fixture/project/toolchains/maven/bin/mvn.cmd",
         mavenJavaHomePath: "D:/fixture/project/toolchains/maven-jdk",
+        mavenSkipTests: false,
         workingDirectoryPath: "D:/fixture/project/app",
         vmArguments: "-Xmx2g",
         programArguments: "--dev",
@@ -51,6 +78,7 @@ describe("saveRunConfigurationEditorChanges", () => {
           arguments: "--dev",
           environment: { APP_ENV: "dev" },
           mavenProfiles: [],
+          mavenSkipTests: false,
           javaHomePath: "toolchains/jdk",
           mavenExecutablePath: "toolchains/maven/bin/mvn.cmd",
           mavenJavaHomePath: "toolchains/maven-jdk",
@@ -83,6 +111,34 @@ describe("saveRunConfigurationEditorChanges", () => {
           javaHomePath: "C:/Program Files/Java/jdk-21",
           mavenExecutablePath: "D:/Tools/apache-maven",
           mavenJavaHomePath: "C:/Program Files/Java/jdk-17",
+        }),
+      }),
+    );
+  });
+
+  test("uses empty working directory and null test override to inherit project defaults", async () => {
+    await saveRunConfigurationEditorChanges(
+      "D:/fixture/project",
+      "spring",
+      "project",
+      {
+        javaHomePath: "",
+        mavenExecutablePath: "",
+        mavenJavaHomePath: "",
+        mavenSkipTests: null,
+        workingDirectoryPath: "",
+        vmArguments: "",
+        programArguments: "",
+        environment: {},
+      },
+      emptyToolchain,
+    );
+
+    expect(executeCore).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          workingDirectory: "",
+          mavenSkipTests: null,
         }),
       }),
     );

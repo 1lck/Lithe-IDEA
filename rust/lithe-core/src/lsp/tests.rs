@@ -1607,12 +1607,12 @@ fn client_core_shapes_feature_responses_for_swift_models() {
         message: r#"{
                 "jsonrpc": "2.0",
                 "id": "7",
-                "result": null
+                "result": 5005
             }"#
         .to_string(),
     })
     .unwrap();
-    assert_eq!(executed.events[0].result.as_ref().unwrap()["ok"], true);
+    assert_eq!(executed.events[0].result.as_ref().unwrap()["value"], 5005);
 }
 
 #[test]

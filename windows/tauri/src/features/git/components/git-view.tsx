@@ -7,7 +7,7 @@ import {
   DotsThreeIcon as MoreHorizontal,
   FolderSimpleStarIcon as FolderSimpleStar,
   GitBranchIcon as GitBranch,
-  ArrowClockwiseIcon as RefreshCw,
+  RefreshIcon as RefreshCw,
   TrashIcon as Trash2,
   UploadIcon as Upload,
 } from "@/ui/icons";

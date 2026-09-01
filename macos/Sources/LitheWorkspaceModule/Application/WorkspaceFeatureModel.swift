@@ -11,6 +11,8 @@ package enum WorkspaceRebuildResult: Sendable {
 /// Owns the workspace snapshot and delegates scanning and text reads to Core.
 @MainActor
 package final class WorkspaceFeatureModel: ObservableObject {
+    package private(set) var workspaceGeneration = 0
+    package private(set) var appliedSnapshot: WorkspaceSnapshot?
     @Published package private(set) var rootNode: FileNode?
     @Published package private(set) var projectFiles: [URL] = []
     @Published package private(set) var isLoadingWorkspace = false
@@ -161,6 +163,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     }
 
     package func reset() {
+        workspaceGeneration &+= 1
         if let workspaceURL {
             scheduleSearchIndexInvalidation(at: workspaceURL, rules: visibilityRules)
         }
@@ -184,6 +187,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         hasRestoredWorkspaceSession = false
         rootNode = nil
         projectFiles = []
+        appliedSnapshot = nil
         isLoadingWorkspace = false
         isRefreshingWorkspace = false
         loadErrorMessage = nil
@@ -202,6 +206,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     }
 
     package func beginWorkspace(at url: URL, visibilityRules: FileVisibilityRules) {
+        workspaceGeneration &+= 1
         workspaceURL = url.standardizedFileURL
         self.visibilityRules = visibilityRules
         hasRestoredWorkspaceSession = false
@@ -294,6 +299,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         loadErrorMessage = nil
         rootNode = snapshot.root
         projectFiles = snapshot.files
+        appliedSnapshot = snapshot
         scheduleSearchIndexWarm(at: workspaceURL, rules: rules)
 
         // The tree is usable as soon as the shared snapshot is ready. Service
@@ -308,10 +314,14 @@ package final class WorkspaceFeatureModel: ObservableObject {
             if let restoreSession, let session = workspaceSessionStore.load(for: workspaceURL) {
                 await restoreSession(session, snapshot.files)
             }
+            guard isCurrent() else { return .stale }
             hasRestoredWorkspaceSession = true
         }
+        guard isCurrent() else { return .stale }
         await updateWatchConfiguration()
+        guard isCurrent() else { return .stale }
         await onSnapshotLoaded?(snapshot, isInitialLoad)
+        guard isCurrent() else { return .stale }
         await requestGitRefreshNow()
         if pendingFullRescan || pendingWatchRootsChanged {
             scheduleRecovery()
@@ -324,10 +334,13 @@ package final class WorkspaceFeatureModel: ObservableObject {
         refreshTask?.cancel()
         pendingExternalPaths.removeAll()
         externalRefreshGeneration += 1
+        let generation = workspaceGeneration
         _ = await rebuild(
             at: workspaceURL,
             rules: visibilityRules,
-            isCurrent: { [weak self] in self?.workspaceURL == workspaceURL }
+            isCurrent: { [weak self] in
+                self?.workspaceURL == workspaceURL && self?.workspaceGeneration == generation
+            }
         )
     }
 
@@ -594,8 +607,10 @@ package final class WorkspaceFeatureModel: ObservableObject {
 
     private func updateWatchConfiguration(forceRebuild: Bool = false) async {
         guard let workspaceURL else { return }
+        let generation = workspaceGeneration
         let context = await gitWatchContextProvider.watchContext(for: workspaceURL)
-        guard self.workspaceURL == workspaceURL else { return }
+        guard self.workspaceURL == workspaceURL,
+              self.workspaceGeneration == generation else { return }
         let configuration = DirectoryWatchConfiguration(
             workspaceRoot: workspaceURL,
             gitContext: context

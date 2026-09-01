@@ -3,7 +3,13 @@ import { activateMainEditorPane } from "@/features/editor/stores/buffer-pane-syn
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { showAlertDialog } from "@/ui/dialog";
-import { getCommitDiff, getFileDiff, getRefDiff, getStashDiff } from "../api/git-diff-api";
+import {
+  getCommitDiff,
+  getFileDiff,
+  getReferenceWorkingTreeDiff,
+  getRefDiff,
+  getStashDiff,
+} from "../api/git-diff-api";
 import {
   loadWorkingTreeDiffsProgressively,
   type WorkingTreeDiffEntry,
@@ -375,6 +381,42 @@ export function useGitDiffActions({
     [activeRepoPath, currentBranch, onBranchDiffOpened],
   );
 
+  const viewReferenceWorkingTreeDiff = useCallback(
+    async (reference: string) => {
+      if (!activeRepoPath) return;
+      const title = `${reference}..WORKTREE`;
+      setIsLoadingBranchDiff(true);
+      try {
+        const diffs = await getReferenceWorkingTreeDiff(activeRepoPath, reference);
+        if (!diffs?.length) {
+          await showAlertDialog(
+            t("git.diff.noChangesBetween", { base: reference, target: "WORKTREE" }),
+            t("git.diff.title"),
+          );
+          return;
+        }
+        openDiffBuffer(
+          `diff://reference/${encodeURIComponent(reference)}/working-tree`,
+          `${title} (${diffs.length} files)`,
+          createMultiFileDiff({
+            title,
+            repoPath: activeRepoPath,
+            commitHash: title,
+            diffs,
+          }),
+        );
+      } catch (error) {
+        await showAlertDialog(
+          t("git.diff.getWorkingTreeDiffFailed", { error: String(error) }),
+          t("git.diff.title"),
+        );
+      } finally {
+        setIsLoadingBranchDiff(false);
+      }
+    },
+    [activeRepoPath, t],
+  );
+
   return {
     isLoadingCommitDiff,
     isLoadingBranchDiff,
@@ -385,5 +427,6 @@ export function useGitDiffActions({
     viewStashDiff,
     viewTagComparison,
     viewBranchDiff,
+    viewReferenceWorkingTreeDiff,
   };
 }

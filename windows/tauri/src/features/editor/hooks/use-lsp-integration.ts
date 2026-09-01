@@ -12,6 +12,8 @@ import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { getSourceEditorBufferByPath } from "@/features/editor/utils/buffer-index";
 import { logger } from "@/features/editor/utils/logger";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
+import { workspaceScopeMatchesRoot } from "@/features/workspace/types/workspace-launch-scope";
 import { getDirName } from "@/utils/path-helpers";
 
 interface UseLspIntegrationOptions {
@@ -67,6 +69,7 @@ export const useLspIntegration = ({
   contentRevision = 0,
 }: UseLspIntegrationOptions) => {
   const lspClient = useMemo(() => LspClient.getInstance(), []);
+  const workspaceId = useActiveWorkspaceId();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
   const installedExtensions = useExtensionStore.use.installedExtensions();
   const activeFilePath = enabled ? filePath : undefined;
@@ -83,6 +86,17 @@ export const useLspIntegration = ({
     const workspacePath = rootFolderPath || getDirName(filePath);
     if (!workspacePath) {
       logger.warn("LspIntegration", `Could not determine workspace path for ${filePath}`);
+      return;
+    }
+    const scope = { workspaceId, root: workspacePath };
+    if (
+      rootFolderPath &&
+      !workspaceScopeMatchesRoot(
+        scope,
+        useFileSystemStore.getStore(workspaceId).getState().rootFolderPath,
+      )
+    ) {
+      logger.warn("LspIntegration", `Ignoring stale workspace scope for ${filePath}`);
       return;
     }
 
@@ -141,7 +155,7 @@ export const useLspIntegration = ({
     const initializeLsp = async () => {
       try {
         logger.debug("LspIntegration", `Starting LSP for ${filePath} in ${workspacePath}`);
-        const attachment = await lspClient.startForFile(filePath, workspacePath);
+        const attachment = await lspClient.startForFile(filePath, scope);
         if (attachment.kind !== "attached") {
           owner.state = { phase: "stopped" };
           if (documentOwnersRef.current.get(filePath) === owner) {
@@ -183,7 +197,7 @@ export const useLspIntegration = ({
       cancelInitialization();
       cleanupDocument();
     };
-  }, [enabled, filePath, isLspSupported, lspClient, rootFolderPath]);
+  }, [enabled, filePath, isLspSupported, lspClient, rootFolderPath, workspaceId]);
 
   useEffect(() => {
     if (!enabled || !filePath || !isLspSupported) return;

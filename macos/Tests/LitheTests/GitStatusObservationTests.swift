@@ -563,7 +563,7 @@ private func makeObservationModel(recorder: GitObservationRecorder) -> Workspace
             recorder.gitRefreshCount += 1
         },
         updateHistoryVisibilityRules: { _ in },
-        onSnapshotLoaded: { _, _ in }
+        onSnapshotLoaded: { _, _, _ in }
     )
     return model
 }

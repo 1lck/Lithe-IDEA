@@ -4,6 +4,16 @@ set -euo pipefail
 ROOT_DIR="${0:A:h:h}"
 cd "$ROOT_DIR"
 
+java_debug_server_version="$(
+    /usr/bin/plutil -extract javaDebugServerVersion raw -o - third_party/jdtls/manifest.json
+)"
+java_debug_plugin_name="com.microsoft.java.debug.plugin-$java_debug_server_version.jar"
+java_test_extension_version="$(
+    /usr/bin/plutil -extract javaTestExtensionVersion raw -o - third_party/jdtls/manifest.json
+)"
+java_test_plugin_name="com.microsoft.java.test.plugin-$java_test_extension_version.jar"
+java_test_runner_name="com.microsoft.java.test.runner-jar-with-dependencies.jar"
+
 temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/lithe-package-verification.XXXXXX")
 trap 'rm -rf -- "$temporary_directory"' EXIT
 jdtls_root="$temporary_directory/jdtls"
@@ -22,7 +32,10 @@ mkdir -p \
     "$jdtls_root/config_mac" \
     "$jdtls_root/config_win" \
     "$jdtls_root/bin" \
-    "$jdtls_root/lombok"
+    "$jdtls_root/lombok" \
+    "$jdtls_root/java-debug" \
+    "$jdtls_root/java-test/extensions" \
+    "$jdtls_root/java-test/runner"
 cat > "$jdtls_root/bin/jdtls" <<'LAUNCHER'
 #!/bin/zsh
 java_agent_argument="-javaagent:../lombok/lombok.jar"
@@ -36,6 +49,33 @@ LAUNCHER
 : > "$jdtls_root/lombok/lombok.jar"
 : > "$jdtls_root/lombok/LICENSE-MIT.txt"
 : > "$jdtls_root/plugins/org.eclipse.equinox.launcher_1.0.0.jar"
+: > "$jdtls_root/java-debug/$java_debug_plugin_name"
+: > "$jdtls_root/java-debug/LICENSE-EPL-1.0.txt"
+java_test_extension_bundles=(
+    "junit-jupiter-api_5.9.3.jar"
+    "junit-jupiter-engine_5.9.3.jar"
+    "junit-jupiter-migrationsupport_5.9.3.jar"
+    "junit-jupiter-params_5.9.3.jar"
+    "junit-platform-commons_1.9.3.jar"
+    "junit-platform-engine_1.9.3.jar"
+    "junit-platform-launcher_1.9.3.jar"
+    "junit-platform-runner_1.9.3.jar"
+    "junit-platform-suite-api_1.9.3.jar"
+    "junit-platform-suite-commons_1.9.3.jar"
+    "junit-platform-suite-engine_1.9.3.jar"
+    "junit-vintage-engine_5.9.3.jar"
+    "org.apiguardian.api_1.1.2.jar"
+    "org.eclipse.jdt.junit4.runtime_1.3.0.v20220609-1843.jar"
+    "org.eclipse.jdt.junit5.runtime_1.1.100.v20220907-0450.jar"
+    "org.opentest4j_1.2.0.jar"
+    "org.jacoco.core_0.8.12.202403310830.jar"
+    "$java_test_plugin_name"
+)
+for bundle in "${java_test_extension_bundles[@]}"; do
+    : > "$jdtls_root/java-test/extensions/$bundle"
+done
+: > "$jdtls_root/java-test/runner/$java_test_runner_name"
+: > "$jdtls_root/java-test/LICENSE-MIT.txt"
 
 for missing_configuration in config_mac_arm config_mac; do
     broken_jdtls_root="$temporary_directory/jdtls-missing-$missing_configuration"
@@ -104,6 +144,11 @@ required_resources=(
     "$app_path/Contents/Resources/LanguageServers/jdtls/config_mac_arm"
     "$app_path/Contents/Resources/LanguageServers/jdtls/config_mac"
     "$app_path/Contents/Resources/LanguageServers/jdtls/lombok/lombok.jar"
+    "$app_path/Contents/Resources/LanguageServers/jdtls/java-debug/$java_debug_plugin_name"
+    "$app_path/Contents/Resources/LanguageServers/jdtls/java-debug/LICENSE-EPL-1.0.txt"
+    "$app_path/Contents/Resources/LanguageServers/jdtls/java-test/extensions/$java_test_plugin_name"
+    "$app_path/Contents/Resources/LanguageServers/jdtls/java-test/runner/$java_test_runner_name"
+    "$app_path/Contents/Resources/LanguageServers/jdtls/java-test/LICENSE-MIT.txt"
     "$app_path/Contents/Resources/LanguageServers/jdk-arm64/bin/java"
     "$app_path/Contents/Resources/LanguageServers/jdk-arm64/lib"
     "$app_path/Contents/Resources/LanguageServers/jdk-x86_64/bin/java"

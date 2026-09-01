@@ -38,6 +38,8 @@ const nativeCommands = new Set([
   "list_shells",
   "lsp_rebuild_java_index",
   "lsp_resolve_java_launch",
+  "maven_load_configuration",
+  "maven_write_configuration",
   "move_file",
   "open_log_directory",
   "open_file_external",

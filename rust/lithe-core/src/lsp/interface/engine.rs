@@ -13,10 +13,11 @@ use super::{
 };
 use crate::lsp::languages::jdt::{
     adapt_initialization_options, adapt_start, import_progress, initialized_notification,
-    is_structured_import_notification, is_virtual_source_uri, normalize_location, readiness_signal,
-    virtual_source_content, virtual_source_resolve_params, waits_for_service_ready,
-    workspace_configuration, JdtDirectLaunchResources, JdtReadinessSignal, JdtStartContext,
-    ProviderLocation, WorkspaceConfigurationItem,
+    is_structured_import_notification, is_virtual_source_uri, maven_profile_update_requests,
+    normalize_location, readiness_signal, virtual_source_content, virtual_source_resolve_params,
+    waits_for_service_ready, workspace_configuration, JdtDirectLaunchResources,
+    JdtMavenConfiguration, JdtReadinessSignal, JdtStartContext, ProviderLocation,
+    WorkspaceConfigurationItem,
 };
 use crate::lsp::languages::jdt_navigation::{JavaNavigationMarkerBatch, MAX_JAVA_NAVIGATION_TASKS};
 use crate::lsp::languages::jdt_progress::JavaPreparationDiagnostics;
@@ -87,6 +88,9 @@ pub struct StartServerRequest {
     /// reuse a stale project model. See `JdtStartContext::workspace_fingerprint`.
     #[serde(default)]
     pub workspace_fingerprint: Option<String>,
+    /// Project Maven context applied to JDT LS settings and imported modules.
+    #[serde(default)]
+    pub maven_context: Option<crate::project::MavenLaunchContextRequest>,
     #[serde(default = "default_initialize_timeout")]
     pub initialize_timeout_milliseconds: u64,
     /// Maximum silence while waiting for a provider-specific readiness signal.
@@ -111,6 +115,15 @@ pub struct JdtlsLaunchResources {
     pub configuration_directory: String,
     /// Lombok agent shipped with the selected JDT LS installation.
     pub lombok_agent_path: String,
+    /// Legacy Java Debug Server bundle retained for older platform clients.
+    #[serde(default)]
+    pub java_debug_bundle_path: Option<String>,
+    /// Ordered Java extension bundles loaded through JDT LS initialization.
+    ///
+    /// When the legacy Debug field is also present, Core loads it first and
+    /// removes duplicate paths while preserving the remaining caller order.
+    #[serde(default)]
+    pub java_extension_bundle_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -420,6 +433,8 @@ enum PendingKind {
     JavaNavigationMarkerResolve,
     /// Click-time Java parent or implementation resolution.
     JavaResolveNavigation,
+    /// JDT LS project setting update that applies selected Maven profiles.
+    JdtMavenProfiles,
     /// Shutdown handshake after which the engine sends `exit`.
     Shutdown,
 }
@@ -470,6 +485,7 @@ struct SessionState {
 struct RuntimeSession {
     id: String,
     provider_id: String,
+    jdt_maven_configuration: Option<JdtMavenConfiguration>,
     #[cfg(test)]
     root_uri: String,
     /// Serializes protocol-state commits with complete outbound message batches.
@@ -705,6 +721,40 @@ impl LspEngine {
             self.next_session_id.fetch_add(1, Ordering::Relaxed)
         );
         let workspace_root = PathBuf::from(&request.working_directory);
+        let jdt_maven_configuration = request
+            .maven_context
+            .clone()
+            .map(|context| {
+                crate::project::jdt_configuration(&request.working_directory, context).and_then(
+                    |configuration| {
+                        let project_uris = configuration
+                            .project_paths
+                            .iter()
+                            .map(|path| {
+                                let directory = if path == "." {
+                                    workspace_root.clone()
+                                } else {
+                                    workspace_root.join(path)
+                                };
+                                url::Url::from_directory_path(directory)
+                                    .map(|url| url.to_string())
+                                    .map_err(|_| {
+                                        CoreError::new(
+                                            ErrorCode::InvalidRequest,
+                                            "Maven project path cannot be represented as a URI",
+                                        )
+                                    })
+                            })
+                            .collect::<Result<Vec<_>, _>>()?;
+                        Ok(JdtMavenConfiguration {
+                            settings_path: configuration.settings_path,
+                            profiles: configuration.profiles,
+                            project_uris,
+                        })
+                    },
+                )
+            })
+            .transpose()?;
         let data_root = request
             .cache_directory
             .as_deref()
@@ -715,6 +765,23 @@ impl LspEngine {
             .as_deref()
             .map(PathBuf::from)
             .or_else(|| java_executable_from_environment(&request.environment));
+        let java_extension_bundle_paths = request
+            .jdtls_launch_resources
+            .as_ref()
+            .map(|resources| {
+                let mut paths = Vec::new();
+                if let Some(path) = &resources.java_debug_bundle_path {
+                    paths.push(PathBuf::from(path));
+                }
+                for path in &resources.java_extension_bundle_paths {
+                    let path = PathBuf::from(path);
+                    if !paths.contains(&path) {
+                        paths.push(path);
+                    }
+                }
+                paths
+            })
+            .unwrap_or_default();
         let adaptation = adapt_start(&JdtStartContext {
             provider_id: request.provider_id.clone(),
             workspace_root: workspace_root.clone(),
@@ -725,6 +792,10 @@ impl LspEngine {
                     launcher_jar_path: PathBuf::from(&resources.launcher_jar_path),
                     configuration_directory: PathBuf::from(&resources.configuration_directory),
                     lombok_agent_path: PathBuf::from(&resources.lombok_agent_path),
+                    java_debug_bundle_path: resources
+                        .java_debug_bundle_path
+                        .as_deref()
+                        .map(PathBuf::from),
                 }
             }),
             arguments: request.arguments.clone(),
@@ -771,6 +842,7 @@ impl LspEngine {
             initialization_options: adapt_initialization_options(
                 &request.provider_id,
                 request.initialization_options,
+                &java_extension_bundle_paths,
             ),
         })?;
         let request_id = (initialize.state.next_request_id - 1).to_string();
@@ -790,6 +862,7 @@ impl LspEngine {
         let session = Arc::new(RuntimeSession {
             id: session_id.clone(),
             provider_id: request.provider_id,
+            jdt_maven_configuration,
             #[cfg(test)]
             root_uri: request.root_uri,
             outbound_order: Mutex::new(()),
@@ -1673,7 +1746,9 @@ impl RuntimeSession {
         let mut ready_server_info = None;
         let mut fail_initialize: Option<(String, Option<String>)> = None;
         let mut service_ready = false;
+        let mut apply_maven_context = false;
         let mut fail_service_ready = None;
+        let mut fail_maven_context = None;
         {
             let mut state = self.lock_state()?;
             state.client = reduced.state;
@@ -1927,6 +2002,25 @@ impl RuntimeSession {
                         }
                     }
                 }
+                Some(PendingKind::JdtMavenProfiles) => {
+                    let server_error = value.get("error").map(Value::to_string);
+                    if let Some(detail) = server_error {
+                        fail_maven_context = Some(detail);
+                    } else if !state
+                        .pending
+                        .values()
+                        .any(|pending| pending.kind == PendingKind::JdtMavenProfiles)
+                    {
+                        service_ready = true;
+                        push_log_event(
+                            self,
+                            &mut state,
+                            "info",
+                            "Java language service applied Maven profiles",
+                            None,
+                        );
+                    }
+                }
                 Some(PendingKind::VirtualDocument) => {
                     if let Some(pending) = pending_before.as_ref() {
                         if let Some(operation_id) = &pending.operation_id {
@@ -2007,6 +2101,7 @@ impl RuntimeSession {
                 match readiness.as_ref() {
                     Some(JdtReadinessSignal::Ready) if state.client.initialized => {
                         service_ready = true;
+                        apply_maven_context = true;
                     }
                     Some(JdtReadinessSignal::Failed(detail)) => {
                         fail_service_ready = Some(detail.clone());
@@ -2075,8 +2170,21 @@ impl RuntimeSession {
             self.kill_process();
             return Ok(());
         }
+        if let Some(detail) = fail_maven_context {
+            self.fail(
+                "mavenContextFailed",
+                "serviceReady",
+                "JDT LS could not apply the selected Maven profiles.",
+                Some(detail),
+                None,
+            );
+            self.kill_process();
+            return Ok(());
+        }
         if flush_documents {
-            if let Some(notification) = initialized_notification(&self.provider_id) {
+            if let Some(notification) =
+                initialized_notification(&self.provider_id, self.jdt_maven_configuration.as_ref())
+            {
                 outbound.push(
                     json!({
                         "jsonrpc": "2.0",
@@ -2108,6 +2216,13 @@ impl RuntimeSession {
                 push_features_event(self, &mut state, capabilities);
             }
             return Ok(());
+        }
+        if apply_maven_context {
+            let (profile_requests, profiles_pending) = self.maven_profile_requests()?;
+            if profiles_pending {
+                service_ready = false;
+            }
+            outbound.extend(profile_requests);
         }
         self.send_messages_or_fail(&outbound_order, outbound, "serverResponse")?;
         if service_ready {
@@ -2162,7 +2277,11 @@ impl RuntimeSession {
                     .map(ToString::to_string),
             })
             .collect();
-        let Some(values) = workspace_configuration(&self.provider_id, &items) else {
+        let Some(values) = workspace_configuration(
+            &self.provider_id,
+            &items,
+            self.jdt_maven_configuration.as_ref(),
+        ) else {
             return Ok(None);
         };
         Ok(Some(
@@ -2181,6 +2300,52 @@ impl RuntimeSession {
         ))
     }
 
+    fn maven_profile_requests(&self) -> Result<(Vec<String>, bool), CoreError> {
+        let requests = maven_profile_update_requests(self.jdt_maven_configuration.as_ref());
+        if requests.is_empty() {
+            return Ok((Vec::new(), false));
+        }
+        let mut state = self.lock_state()?;
+        if state
+            .pending
+            .values()
+            .any(|pending| pending.kind == PendingKind::JdtMavenProfiles)
+        {
+            return Ok((Vec::new(), true));
+        }
+        let now = Instant::now();
+        let deadline = now + state.request_timeout;
+        let project_count = requests.len();
+        let mut messages = Vec::with_capacity(requests.len());
+        for params in requests {
+            let response =
+                allocate_raw_request(state.client.clone(), "workspace/executeCommand", params)?;
+            let request_id = (response.state.next_request_id - 1).to_string();
+            state.client = response.state;
+            state.pending.insert(
+                request_id,
+                PendingRequest {
+                    kind: PendingKind::JdtMavenProfiles,
+                    operation_id: None,
+                    method: "workspace/executeCommand".to_string(),
+                    document_uri: None,
+                    document_version: None,
+                    created_at: now,
+                    deadline,
+                },
+            );
+            messages.extend(response.messages);
+        }
+        push_log_event(
+            self,
+            &mut state,
+            "info",
+            "Applying Maven profiles to Java projects",
+            Some(format!("projectCount={project_count}")),
+        );
+        Ok((messages, true))
+    }
+
     fn flush_queued_documents(&self) -> Result<Vec<String>, CoreError> {
         let mut state = self.lock_state()?;
         flush_queued_documents_locked(&mut state)
@@ -2191,6 +2356,7 @@ impl RuntimeSession {
         let mut cancellations = Vec::new();
         let mut initialize_timeout = false;
         let mut service_ready_timeout = None;
+        let mut maven_context_timeout = false;
         let mut shutdown_timeout = false;
         if let Ok(mut state) = self.lock_state() {
             if state.lifecycle == LspLifecycleState::Initializing
@@ -2201,7 +2367,14 @@ impl RuntimeSession {
                 state.initialize_deadline = None;
                 initialize_timeout = true;
             }
-            if state.lifecycle == LspLifecycleState::Initializing && !initialize_timeout {
+            let applying_maven_context = state
+                .pending
+                .values()
+                .any(|pending| pending.kind == PendingKind::JdtMavenProfiles);
+            if state.lifecycle == LspLifecycleState::Initializing
+                && !initialize_timeout
+                && !applying_maven_context
+            {
                 service_ready_timeout = state
                     .java_preparation
                     .as_mut()
@@ -2253,6 +2426,21 @@ impl RuntimeSession {
                 }
                 cancellations.push(request_id);
             }
+            let expired_maven_requests: Vec<_> = state
+                .pending
+                .iter()
+                .filter(|(_, pending)| {
+                    pending.kind == PendingKind::JdtMavenProfiles && now >= pending.deadline
+                })
+                .map(|(id, _)| id.clone())
+                .collect();
+            if !expired_maven_requests.is_empty() {
+                maven_context_timeout = true;
+                for request_id in expired_maven_requests {
+                    state.pending.remove(&request_id);
+                    state.client.pending_requests.remove(&request_id);
+                }
+            }
             if state.lifecycle == LspLifecycleState::Stopping
                 && state
                     .shutdown_deadline
@@ -2286,6 +2474,15 @@ impl RuntimeSession {
                 "serviceReady",
                 "Java language service project import timed out.",
                 Some(detail),
+                None,
+            );
+            self.kill_process();
+        } else if maven_context_timeout {
+            self.fail(
+                "mavenContextTimeout",
+                "serviceReady",
+                "JDT LS timed out while applying the selected Maven profiles.",
+                None,
                 None,
             );
             self.kill_process();
@@ -2527,6 +2724,14 @@ fn validate_start_request(request: &StartServerRequest) -> Result<(), CoreError>
             || !is_valid_process_path(Some(&resources.launcher_jar_path))
             || !is_valid_process_path(Some(&resources.configuration_directory))
             || !is_valid_process_path(Some(&resources.lombok_agent_path))
+            || resources
+                .java_debug_bundle_path
+                .as_deref()
+                .is_some_and(|path| !is_valid_process_path(Some(path)))
+            || resources
+                .java_extension_bundle_paths
+                .iter()
+                .any(|path| !is_valid_process_path(Some(path)))
         {
             return Err(invalid_field("jdtlsLaunchResources/runtimeExecutablePath"));
         }
@@ -3287,6 +3492,7 @@ mod tests {
             jdtls_launch_resources: None,
             cache_directory: None,
             workspace_fingerprint: None,
+            maven_context: None,
             initialize_timeout_milliseconds: 10_000,
             service_ready_idle_timeout_milliseconds: 45_000,
             service_ready_absolute_timeout_milliseconds: 600_000,
@@ -3303,6 +3509,67 @@ mod tests {
         /// Events are drained by every poll, so the harness accumulates them and
         /// tests assert against the whole history.
         events: Vec<LspRuntimeEvent>,
+    }
+
+    struct TemporaryMavenWorkspace {
+        root: PathBuf,
+    }
+
+    impl TemporaryMavenWorkspace {
+        fn recursive(label: &str) -> Self {
+            static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+            let root = std::env::temp_dir().join(format!(
+                "lithe-lsp-{label}-{}-{}",
+                std::process::id(),
+                NEXT_ID.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(root.join("reactor/module-a/nested"))
+                .expect("recursive Maven fixture should be creatable");
+            std::fs::write(
+                root.join("reactor/pom.xml"),
+                r#"<project><artifactId>reactor</artifactId><packaging>pom</packaging><modules><module>module-a</module></modules></project>"#,
+            )
+            .expect("reactor pom should be writable");
+            std::fs::write(
+                root.join("reactor/module-a/pom.xml"),
+                r#"<project><artifactId>module-a</artifactId><packaging>pom</packaging><modules><module>nested</module></modules></project>"#,
+            )
+            .expect("module pom should be writable");
+            std::fs::write(
+                root.join("reactor/module-a/nested/pom.xml"),
+                r#"<project><artifactId>nested</artifactId></project>"#,
+            )
+            .expect("nested module pom should be writable");
+            Self { root }
+        }
+
+        fn configure(&self, request: &mut StartServerRequest) {
+            request.provider_id = "java".to_string();
+            request.root_uri = url::Url::from_directory_path(&self.root)
+                .expect("fixture root should convert to a URI")
+                .to_string();
+            request.working_directory = self.root.to_string_lossy().into_owned();
+            request.cache_directory = Some(self.root.join("cache").to_string_lossy().into_owned());
+            request.maven_context = Some(crate::project::MavenLaunchContextRequest {
+                version: 1,
+                reactor_path: "reactor".to_string(),
+                profiles: vec![
+                    "enterprise".to_string(),
+                    "dev".to_string(),
+                    "enterprise".to_string(),
+                ],
+                settings_path: Some("/local/settings.xml".to_string()),
+                skip_tests: true,
+                maven_executable_path: Some("/local/maven/bin/mvn".to_string()),
+                java_home_path: Some("/local/jdk".to_string()),
+            });
+        }
+    }
+
+    impl Drop for TemporaryMavenWorkspace {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
     }
 
     impl Harness {
@@ -3652,6 +3919,136 @@ mod tests {
             "params": { "type": "ServiceReady", "message": "ServiceReady" }
         }));
         harness.await_state(LspLifecycleState::Ready);
+    }
+
+    #[test]
+    fn java_applies_maven_settings_and_recursive_profiles_before_ready() {
+        let workspace = TemporaryMavenWorkspace::recursive("maven-context-ready");
+        let mut harness = Harness::start(|request| workspace.configure(request));
+        harness.server.complete_initialize(ready_capabilities());
+        assert!(harness
+            .server
+            .await_notification("workspace/didChangeConfiguration"));
+
+        let configuration = harness
+            .notification("workspace/didChangeConfiguration")
+            .expect("Java configuration notification should be sent");
+        assert_eq!(
+            configuration["params"]["settings"]["java"]["configuration"]["maven"]["userSettings"],
+            "/local/settings.xml"
+        );
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "method": "language/status",
+            "params": { "type": "ServiceReady" }
+        }));
+
+        let request_ids: Vec<_> = (0..3)
+            .map(|index| {
+                harness
+                    .server
+                    .await_request_at("workspace/executeCommand", index)
+                    .expect("every recursive Maven project should receive its profile update")
+            })
+            .collect();
+        let updates: Vec<_> = harness
+            .server
+            .messages()
+            .into_iter()
+            .filter(|message| {
+                message.get("method").and_then(Value::as_str) == Some("workspace/executeCommand")
+            })
+            .collect();
+        let expected_uris = ["reactor/", "reactor/module-a/", "reactor/module-a/nested/"];
+        assert_eq!(updates.len(), expected_uris.len());
+        for (update, expected_uri) in updates.iter().zip(expected_uris) {
+            let project_uri = update["params"]["arguments"][0]
+                .as_str()
+                .expect("the project URI should be a string");
+            assert!(
+                project_uri.ends_with(expected_uri),
+                "unexpected URI: {project_uri}"
+            );
+            assert_eq!(
+                update["params"]["arguments"][1]["org.eclipse.m2e.core.selectedProfiles"],
+                "dev,enterprise"
+            );
+        }
+
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "method": "language/status",
+            "params": { "type": "ServiceReady" }
+        }));
+        for request_id in &request_ids[..2] {
+            harness.server.send(json!({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": null
+            }));
+        }
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "method": "test/profile-response-barrier"
+        }));
+        harness
+            .await_event(|event| event.message.as_deref() == Some("test/profile-response-barrier"));
+        assert_eq!(
+            harness
+                .server
+                .messages()
+                .iter()
+                .filter(|message| {
+                    message.get("method").and_then(Value::as_str)
+                        == Some("workspace/executeCommand")
+                })
+                .count(),
+            3,
+            "a duplicate readiness notification must not enqueue duplicate profile updates"
+        );
+        assert_eq!(harness.snapshot().state, LspLifecycleState::Initializing);
+
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": request_ids[2],
+            "result": null
+        }));
+        harness.await_state(LspLifecycleState::Ready);
+    }
+
+    #[test]
+    fn java_profile_update_error_fails_instead_of_using_a_stale_model() {
+        let workspace = TemporaryMavenWorkspace::recursive("maven-context-failure");
+        let mut harness = Harness::start(|request| workspace.configure(request));
+        harness.server.complete_initialize(ready_capabilities());
+        assert!(harness.server.await_notification("initialized"));
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "method": "language/status",
+            "params": { "type": "ServiceReady" }
+        }));
+        let request_id = harness
+            .server
+            .await_request("workspace/executeCommand")
+            .expect("the Maven profile request should be sent");
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "error": { "code": -32603, "message": "Maven project update failed" }
+        }));
+        harness.await_state(LspLifecycleState::Failed);
+
+        let failure = harness
+            .events
+            .iter()
+            .find_map(|event| event.error.as_ref())
+            .expect("the Maven profile failure should be reported");
+        assert_eq!(failure.code, "mavenContextFailed");
+        assert_eq!(failure.stage, "serviceReady");
+        assert!(failure
+            .underlying_message
+            .as_deref()
+            .is_some_and(|detail| detail.contains("Maven project update failed")));
     }
 
     #[test]
@@ -4316,6 +4713,16 @@ mod tests {
             launcher_jar_path: "/opt/lithe/jdtls/plugins/equinox.jar".to_string(),
             configuration_directory: "/opt/lithe/jdtls/config_mac".to_string(),
             lombok_agent_path: "/opt/lithe/jdtls/lombok/lombok.jar".to_string(),
+            java_debug_bundle_path: Some(
+                "/opt/lithe/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar"
+                    .to_string(),
+            ),
+            java_extension_bundle_paths: vec![
+                "/opt/lithe/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar"
+                    .to_string(),
+                "/opt/lithe/jdtls/java-test/extensions/com.microsoft.java.test.plugin-0.42.0.jar"
+                    .to_string(),
+            ],
         });
         request.cache_directory = Some(cache.to_string_lossy().into_owned());
         engine
@@ -4879,8 +5286,20 @@ mod tests {
         let mut harness = Harness::start(|request| {
             request.provider_id = "java".to_string();
             request.cache_directory = Some(cache.to_string_lossy().into_owned());
+            request.runtime_executable_path = Some("/opt/lithe/jdk/bin/java".to_string());
+            request.jdtls_launch_resources = Some(JdtlsLaunchResources {
+                launcher_jar_path: "/opt/lithe/jdtls/plugins/equinox.jar".to_string(),
+                configuration_directory: "/opt/lithe/jdtls/config_mac".to_string(),
+                lombok_agent_path: "/opt/lithe/jdtls/lombok/lombok.jar".to_string(),
+                java_debug_bundle_path: Some("/plugins/java-debug.jar".to_string()),
+                java_extension_bundle_paths: vec![
+                    "/plugins/java-debug.jar".to_string(),
+                    "/plugins/java-test.jar".to_string(),
+                ],
+            });
             request.initialization_options = Some(json!({
-                "extendedClientCapabilities": { "customCapability": true }
+                "extendedClientCapabilities": { "customCapability": true },
+                "bundles": ["/plugins/catalog.jar"]
             }));
         });
         let initialize = harness
@@ -4898,6 +5317,14 @@ mod tests {
             initialize["params"]["initializationOptions"]["extendedClientCapabilities"]
                 ["customCapability"],
             true
+        );
+        assert_eq!(
+            initialize["params"]["initializationOptions"]["bundles"],
+            json!([
+                "/plugins/catalog.jar",
+                "/plugins/java-debug.jar",
+                "/plugins/java-test.jar"
+            ])
         );
 
         harness
@@ -5259,10 +5686,16 @@ public class Main {
         let source_path = source_directory.join("Main.java");
         std::fs::write(&source_path, source).expect("smoke source should be written");
 
-        let root_uri = url::Url::from_directory_path(&workspace)
+        let canonical_workspace = workspace
+            .canonicalize()
+            .expect("smoke workspace should canonicalize");
+        let canonical_source_path = source_path
+            .canonicalize()
+            .expect("smoke source should canonicalize");
+        let root_uri = url::Url::from_directory_path(&canonical_workspace)
             .expect("workspace should convert to a file URI")
             .to_string();
-        let source_uri = url::Url::from_file_path(&source_path)
+        let source_uri = url::Url::from_file_path(&canonical_source_path)
             .expect("source should convert to a file URI")
             .to_string();
         let engine = LspEngine::new();
@@ -5282,6 +5715,7 @@ public class Main {
                 jdtls_launch_resources: None,
                 cache_directory: Some(root.join("cache").to_string_lossy().into_owned()),
                 workspace_fingerprint: None,
+                maven_context: None,
                 initialize_timeout_milliseconds: 90_000,
                 service_ready_idle_timeout_milliseconds: 45_000,
                 service_ready_absolute_timeout_milliseconds: 600_000,
@@ -6008,6 +6442,7 @@ public class Main {
             jdtls_launch_resources: None,
             cache_directory: None,
             workspace_fingerprint: None,
+            maven_context: None,
             initialize_timeout_milliseconds: 1,
             service_ready_idle_timeout_milliseconds: 1,
             service_ready_absolute_timeout_milliseconds: 1,
@@ -6025,6 +6460,8 @@ public class Main {
             launcher_jar_path: "/jdtls/plugins/equinox.jar".to_string(),
             configuration_directory: "/jdtls/config_mac".to_string(),
             lombok_agent_path: "/jdtls/lombok/lombok.jar".to_string(),
+            java_debug_bundle_path: None,
+            java_extension_bundle_paths: Vec::new(),
         });
 
         assert!(validate_start_request(&request).is_err());
@@ -6055,6 +6492,13 @@ public class Main {
         assert_eq!(
             resources.configuration_directory,
             "/opt/lithe/jdtls/config_mac"
+        );
+        assert_eq!(
+            resources.java_extension_bundle_paths,
+            vec![
+                "/opt/lithe/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar",
+                "/opt/lithe/jdtls/java-test/extensions/com.microsoft.java.test.plugin-0.42.0.jar",
+            ]
         );
         assert_eq!(request.initialize_timeout_milliseconds, 30_000);
         assert_eq!(request.service_ready_idle_timeout_milliseconds, 45_000);

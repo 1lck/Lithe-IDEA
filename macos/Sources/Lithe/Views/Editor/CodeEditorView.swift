@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import LitheGitModule
+import LitheDebugModule
 
 struct CodeEditorPalette {
     private static let propertyRGB: (red: CGFloat, green: CGFloat, blue: CGFloat) = (79, 148, 250)
@@ -29,6 +30,12 @@ struct CodeEditorPalette {
     var selection: NSColor { themeColor(.accent).withAlphaComponent(isDark ? 0.42 : 0.24) }
     var selectionText: NSColor { themeColor(.primaryText) }
     var currentLine: NSColor { color(light: (0, 0, 0, 0.035), dark: (1, 1, 1, 0.035)) }
+    var executionLine: NSColor {
+        color(
+            light: (0.22, 0.52, 0.91, 0.24),
+            dark: (0.18, 0.43, 0.78, 0.72)
+        )
+    }
     var bracket: NSColor { color(light: (0.18, 0.43, 0.79, 0.19), dark: (0.72, 0.72, 0.72, 0.22)) }
     var symbol: NSColor { color(light: (0.18, 0.43, 0.79, 0.11), dark: (0.68, 0.68, 0.68, 0.14)) }
     var guide: NSColor { themeColor(.guide) }
@@ -106,6 +113,151 @@ enum EditorGutterHitTarget: Equatable {
     case gitChange
 }
 
+struct EditorDebugBreakpointState: Equatable {
+    let enabled: Bool
+    let verified: Bool
+}
+
+enum EditorDebugBreakpointAppearance {
+    static let markerSize: CGFloat = 14
+    static let enabledColor = NSColor(
+        srgbRed: 229.0 / 255.0,
+        green: 87.0 / 255.0,
+        blue: 101.0 / 255.0,
+        alpha: 1
+    )
+    static let verifiedCheckColor = NSColor(
+        srgbRed: 108.0 / 255.0,
+        green: 112.0 / 255.0,
+        blue: 126.0 / 255.0,
+        alpha: 1
+    )
+}
+
+struct EditorInlineDebugValue: Equatable {
+    let name: String
+    let value: String
+}
+
+enum EditorInlineDebugValueProjection {
+    static let maximumVisibleValues = 4
+    static let maximumValueCharacters = 80
+
+    static func values(
+        forLine line: Int,
+        in source: NSString,
+        variables: [EditorInlineDebugValue]
+    ) -> [EditorInlineDebugValue] {
+        guard let lineRange = lineRange(for: line, in: source) else { return [] }
+        let lineSource = source.substring(with: lineRange) as NSString
+        let candidates = Dictionary(
+            variables.map { ($0.name, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var matched: [(location: Int, value: EditorInlineDebugValue)] = []
+        for (name, variable) in candidates {
+            guard isIdentifier(name) else { continue }
+            var searchLocation = 0
+            while searchLocation < lineSource.length {
+                let range = lineSource.range(
+                    of: name,
+                    options: [],
+                    range: NSRange(
+                        location: searchLocation,
+                        length: lineSource.length - searchLocation
+                    )
+                )
+                guard range.location != NSNotFound else { break }
+                if hasIdentifierBoundaries(range: range, in: lineSource) {
+                    matched.append((range.location, normalized(variable)))
+                    break
+                }
+                searchLocation = NSMaxRange(range)
+            }
+        }
+        return matched
+            .sorted { ($0.location, $0.value.name) < ($1.location, $1.value.name) }
+            .prefix(maximumVisibleValues)
+            .map(\.value)
+    }
+
+    private static func normalized(_ value: EditorInlineDebugValue) -> EditorInlineDebugValue {
+        let singleLine = value.value
+            .replacingOccurrences(of: "\r", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+        guard singleLine.count > maximumValueCharacters else {
+            return EditorInlineDebugValue(name: value.name, value: singleLine)
+        }
+        return EditorInlineDebugValue(
+            name: value.name,
+            value: String(singleLine.prefix(maximumValueCharacters - 1)) + "…"
+        )
+    }
+
+    private static func isIdentifier(_ value: String) -> Bool {
+        guard let first = value.unicodeScalars.first,
+              CharacterSet.letters.union(CharacterSet(charactersIn: "_$")).contains(first)
+        else { return false }
+        let characters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_$"))
+        return value.unicodeScalars.dropFirst().allSatisfy(characters.contains)
+    }
+
+    private static func hasIdentifierBoundaries(range: NSRange, in source: NSString) -> Bool {
+        let characters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_$"))
+        func isIdentifierCharacter(at location: Int) -> Bool {
+            guard location >= 0,
+                  location < source.length,
+                  let scalar = UnicodeScalar(source.character(at: location)) else { return false }
+            return characters.contains(scalar)
+        }
+        return !isIdentifierCharacter(at: range.location - 1)
+            && !isIdentifierCharacter(at: NSMaxRange(range))
+    }
+
+    private static func lineRange(for line: Int, in source: NSString) -> NSRange? {
+        guard line >= 0, source.length > 0 else { return nil }
+        var location = 0
+        var currentLine = 0
+        while currentLine < line, location < source.length {
+            let range = source.lineRange(for: NSRange(location: location, length: 0))
+            let next = NSMaxRange(range)
+            guard next > location else { return nil }
+            location = next
+            currentLine += 1
+        }
+        guard currentLine == line, location < source.length else { return nil }
+        return source.lineRange(for: NSRange(location: location, length: 0))
+    }
+}
+
+enum EditorDebugBreakpointLocation {
+    static func productLine(forEditorLine line: Int) -> Int { line + 1 }
+}
+
+enum DebugHoverExpressionResolver {
+    static func expression(at location: Int, in source: NSString) -> (String, NSRange)? {
+        guard source.length > 0 else { return nil }
+        let characters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_$"))
+        let position = min(max(0, location), source.length - 1)
+        guard let scalar = UnicodeScalar(source.character(at: position)),
+              characters.contains(scalar) else { return nil }
+        var start = position
+        var end = position + 1
+        while start > 0,
+              let scalar = UnicodeScalar(source.character(at: start - 1)),
+              characters.contains(scalar) { start -= 1 }
+        while end < source.length,
+              let scalar = UnicodeScalar(source.character(at: end)),
+              characters.contains(scalar) { end += 1 }
+        let range = NSRange(location: start, length: end - start)
+        let value = source.substring(with: range)
+        guard value.first?.isLetter == true || value.first == "_" || value.first == "$" else {
+            return nil
+        }
+        return (value, range)
+    }
+}
+
 struct EditorLanguageFeatureTransition: Equatable {
     let refreshImplementationMarkers: Bool
     let clearImplementationMarkers: Bool
@@ -135,16 +287,21 @@ struct EditorGutterLayout: Equatable {
     let gitChangeRange: Range<CGFloat>
     let width: CGFloat
 
+    /// IDEA treats the line-number column and the adjacent breakpoint marker
+    /// column as one forgiving interaction target. The marker is still drawn
+    /// in `breakpointRange`, but users do not need to hit that narrow strip.
+    var breakpointInteractionRange: Range<CGFloat> {
+        lineNumberRange.lowerBound..<breakpointRange.upperBound
+    }
+
     init(lineNumberTextWidth: CGFloat) {
-        breakpointRange = 0..<14
         let requiredLineNumberWidth = max(
             Self.minimumLineNumberWidth,
             ceil(lineNumberTextWidth) + Self.lineNumberTrailingPadding
         )
-        lineNumberRange = breakpointRange.upperBound..<(
-            breakpointRange.upperBound + requiredLineNumberWidth
-        )
-        implementationRange = lineNumberRange.upperBound..<(lineNumberRange.upperBound + 20)
+        lineNumberRange = 0..<requiredLineNumberWidth
+        breakpointRange = lineNumberRange.upperBound..<(lineNumberRange.upperBound + 14)
+        implementationRange = breakpointRange.upperBound..<(breakpointRange.upperBound + 20)
         foldRange = implementationRange.upperBound..<(implementationRange.upperBound + 15)
         gitChangeRange = foldRange.upperBound..<(foldRange.upperBound + 3)
         width = gitChangeRange.upperBound
@@ -307,7 +464,6 @@ struct CodeEditorView: NSViewRepresentable {
     @EnvironmentObject private var diagnosticsStore: EditorDiagnosticsStore
     @EnvironmentObject private var settings: AppSettings
     @ObservedObject var document: EditorDocument
-    var debugService: JavaDebugFeatureModel?
     var shouldFocus = true
     var markdownScrollPosition: Binding<MarkdownScrollPosition>? = nil
     let viewportStore: EditorViewportStore
@@ -316,7 +472,6 @@ struct CodeEditorView: NSViewRepresentable {
         Coordinator(
             document: document,
             model: model,
-            debugService: debugService,
             markdownScrollPosition: markdownScrollPosition,
             viewportStore: viewportStore
         )
@@ -403,8 +558,19 @@ struct CodeEditorView: NSViewRepresentable {
         textView.onGoToImplementation = { [weak model] in model?.goToImplementation() }
         textView.onFindUsages = { [weak model] in model?.findReferences() }
         textView.onFindRequested = { [weak model] in model?.showFindBar() }
+        textView.onGoToLineRequested = { [weak model] in model?.showGoToLine() }
         textView.onFindNextRequested = { [weak model] in model?.navigateFind(offset: 1) }
         textView.onFindPreviousRequested = { [weak model] in model?.navigateFind(offset: -1) }
+        textView.onRunToCursor = { [weak model] line, column in
+            model?.runToCursor(
+                fileURL: document.url,
+                line: line + 1,
+                column: column + 1
+            )
+        }
+        textView.onDebugHover = { [weak model] expression, completion in
+            model?.requestDebugHover(expression: expression, completion: completion)
+        }
         textView.onFindStateChange = { [weak coordinator = context.coordinator] index, count in
             coordinator?.scheduleFindStateUpdate(currentIndex: index, count: count)
         }
@@ -468,6 +634,9 @@ struct CodeEditorView: NSViewRepresentable {
         }
         context.coordinator.attachMarkdownImagePasteMonitor(to: scrollView)
         context.coordinator.codeVisionOverlay = CodeVisionOverlayController(textView: textView)
+        context.coordinator.debugInlineValueOverlay = DebugInlineValueOverlayController(
+            textView: textView
+        )
         context.coordinator.isDarkAppearance = palette.isDark
         context.coordinator.colorTheme = settings.colorTheme
         context.coordinator.highlight()
@@ -479,6 +648,10 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.updateDiagnostics()
         context.coordinator.shouldFocus = shouldFocus
         context.coordinator.requestInitialFocusIfNeeded()
+        let debugFeature = model.genericDebugFeatureIfActive
+        textView.isRunToCursorEnabled = debugFeature?.state == .paused
+            && debugFeature?.capabilities.supportsGotoTargetsRequest == true
+        textView.isDebugHoverEnabled = debugFeature?.state == .paused
         context.coordinator.restoreViewportWhenReady()
         return container
     }
@@ -490,7 +663,6 @@ struct CodeEditorView: NSViewRepresentable {
             || context.coordinator.colorTheme != settings.colorTheme
         context.coordinator.document = document
         context.coordinator.model = model
-        context.coordinator.debugService = debugService
         context.coordinator.shouldFocus = shouldFocus
         context.coordinator.markdownScrollPosition = markdownScrollPosition
         container.displaysTransparentBackground = true
@@ -506,6 +678,13 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.isDarkAppearance = palette.isDark
         context.coordinator.colorTheme = settings.colorTheme
         context.coordinator.requestInitialFocusIfNeeded()
+
+        if let codeTextView = textView as? CodeTextView {
+            let debugFeature = model.genericDebugFeatureIfActive
+            codeTextView.isRunToCursorEnabled = debugFeature?.state == .paused
+                && debugFeature?.capabilities.supportsGotoTargetsRequest == true
+            codeTextView.isDebugHoverEnabled = debugFeature?.state == .paused
+        }
 
         let languageFeatures = model.languageToolingSessionsIfActive?.features(for: document.url) ?? []
         let fontSize = settings.editorFontSize
@@ -550,13 +729,17 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.updateDiagnostics()
         context.coordinator.applyNavigationTargetIfNeeded()
         if let codeTextView = textView as? CodeTextView {
+            codeTextView.documentID = document.id
             let findVisible = chrome.isFindBarVisible
             let findQuery = chrome.findBarQuery
+            let findOptions = chrome.findOptions
             if context.coordinator.lastFindVisible != findVisible
-                || context.coordinator.lastFindQuery != findQuery {
+                || context.coordinator.lastFindQuery != findQuery
+                || context.coordinator.lastFindOptions != findOptions {
                 context.coordinator.lastFindVisible = findVisible
                 context.coordinator.lastFindQuery = findQuery
-                codeTextView.syncFindState(isVisible: findVisible, query: findQuery)
+                context.coordinator.lastFindOptions = findOptions
+                codeTextView.syncFindState(isVisible: findVisible, query: findQuery, options: findOptions)
             }
         }
         context.coordinator.applySynchronizedMarkdownScrollIfNeeded(to: container.scrollView)
@@ -566,13 +749,13 @@ struct CodeEditorView: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         weak var document: EditorDocument?
         weak var model: AppModel?
-        weak var debugService: JavaDebugFeatureModel?
         let fileName: String
         let fileExtension: String
         weak var textView: NSTextView?
         weak var gutter: LineNumberGutterView?
         weak var container: EditorContainerView?
         var codeVisionOverlay: CodeVisionOverlayController?
+        var debugInlineValueOverlay: DebugInlineValueOverlayController?
         var isApplyingEditorChange = false
         var isDarkAppearance = true
         var colorTheme: AppColorTheme = .lithe
@@ -584,6 +767,7 @@ struct CodeEditorView: NSViewRepresentable {
         var implementationMarkers: [JavaImplementationMarker] = []
         var lastFindVisible = false
         var lastFindQuery = ""
+        var lastFindOptions = FindInFileOptions()
         private var pendingHighlightRange: NSRange?
         private var pendingReplacedRange: NSRange?
         private var pendingReplacement: String?
@@ -599,6 +783,10 @@ struct CodeEditorView: NSViewRepresentable {
         private var appliedLanguageFeatures: LanguageServerFeatureSet?
         private var appliedReadOnly: Bool?
         private var appliedCodeVisionHints: [JavaCodeVisionHint]?
+        private var appliedInlineDebugLine: Int?
+        private var appliedInlineDebugValues: [EditorInlineDebugValue] = []
+        private var requestedAutomaticDebugFrameID: Int?
+        private var requestedAutomaticDebugExpressions: [String] = []
         private var editorOverlayLayoutRevision = 0
         private var appliedEditorOverlayLayoutRevision = -1
         private var editorOverlayRelayoutTask: Task<Void, Never>?
@@ -606,6 +794,13 @@ struct CodeEditorView: NSViewRepresentable {
         private var appliedBlameVisible = false
         private var appliedBlameLines: [GitBlameLine] = []
         private var appliedDebugBreakpointLines = Set<Int>()
+        // `nil` forces the first editor refresh to install gutter callbacks,
+        // even when the document starts with no breakpoints.
+        private var appliedDebugBreakpointStates: [Int: EditorDebugBreakpointState]?
+        private var appliedDebugBreakpointMessages: [Int: String] = [:]
+        private var appliedRunToCursorEnabled = false
+        private var appliedBreakpointsMuted = false
+        private var appliedCurrentExecutionLine: Int?
         private var appliedGitMarkers: [GitLineChangeMarker]?
         private var appliedDiagnostics: [EditorDiagnostic] = []
         private var markdownImagePasteMonitor: Any?
@@ -622,13 +817,11 @@ struct CodeEditorView: NSViewRepresentable {
         init(
             document: EditorDocument,
             model: AppModel,
-            debugService: JavaDebugFeatureModel?,
             markdownScrollPosition: Binding<MarkdownScrollPosition>?,
             viewportStore: EditorViewportStore
         ) {
             self.document = document
             self.model = model
-            self.debugService = debugService
             self.markdownScrollPosition = markdownScrollPosition
             self.viewportStore = viewportStore
             fileName = document.url.lastPathComponent
@@ -891,6 +1084,7 @@ struct CodeEditorView: NSViewRepresentable {
             guard let textView else { return }
             guard document?.isReadOnly != true else { return }
             let codeTextView = textView as? CodeTextView
+            let previousSource = document?.text
             if let replacedRange = pendingReplacedRange, let replacement = pendingReplacement {
                 codeTextView?.applyLineIndexEdit(replacedRange: replacedRange, replacement: replacement)
             } else {
@@ -899,6 +1093,17 @@ struct CodeEditorView: NSViewRepresentable {
             gutter?.refreshLineNumberLayout()
             isApplyingEditorChange = true
             document?.applyLiveEditorText(textView.string)
+            if let document,
+               let previousSource,
+               let replacedRange = pendingReplacedRange,
+               let replacement = pendingReplacement {
+                model?.applyDebugSourceEdit(
+                    fileURL: document.url,
+                    previousSource: previousSource,
+                    replacedRange: replacedRange,
+                    replacement: replacement
+                )
+            }
             if let document {
                 scheduleDocumentChange(document)
             }
@@ -1124,7 +1329,7 @@ struct CodeEditorView: NSViewRepresentable {
                 try? await Task.sleep(for: .milliseconds(80))
                 guard !Task.isCancelled, let self, let textView = self.textView as? CodeTextView else { return }
                 if let model = self.model, model.isFindBarVisible, !model.findBarQuery.isEmpty {
-                    textView.updateFindMatches(query: model.findBarQuery)
+                    textView.updateFindMatches(query: model.findBarQuery, options: model.findOptions)
                 } else {
                     textView.updateEditorDecorations()
                 }
@@ -1228,32 +1433,167 @@ struct CodeEditorView: NSViewRepresentable {
                     onAuthor: { [weak model] in model?.showBlame(for: url) }
                 )
             }
+            let inlineDebugLine: Int?
+            let inlineDebugValues: [EditorInlineDebugValue]
+            if let feature = model.genericDebugFeatureIfActive,
+               feature.state == .paused,
+               feature.selectedFrame?.sourceURL?.standardizedFileURL == url,
+               let frame = feature.selectedFrame {
+                inlineDebugLine = max(0, frame.line - 1)
+                let source = (textView?.string ?? "") as NSString
+                let automaticExpressions = feature.providerID == "java"
+                    ? DebugAutomaticExpressionProjection.javaExpressions(
+                        forLine: inlineDebugLine ?? 0,
+                        in: source
+                    )
+                    : []
+                if requestedAutomaticDebugFrameID != frame.id
+                    || requestedAutomaticDebugExpressions != automaticExpressions {
+                    requestedAutomaticDebugFrameID = frame.id
+                    requestedAutomaticDebugExpressions = automaticExpressions
+                    Task { @MainActor [weak feature] in
+                        guard feature?.selectedFrameID == frame.id else { return }
+                        feature?.requestAutomaticVariables(automaticExpressions)
+                    }
+                }
+                inlineDebugValues = EditorInlineDebugValueProjection.values(
+                    forLine: inlineDebugLine ?? 0,
+                    in: source,
+                    variables: feature.presentedVariables.map {
+                        EditorInlineDebugValue(name: $0.name, value: $0.value)
+                    }
+                )
+            } else {
+                inlineDebugLine = nil
+                inlineDebugValues = []
+                requestedAutomaticDebugFrameID = nil
+                requestedAutomaticDebugExpressions = []
+            }
+            if appliedInlineDebugLine != inlineDebugLine
+                || appliedInlineDebugValues != inlineDebugValues
+                || overlayLayoutChanged {
+                appliedInlineDebugLine = inlineDebugLine
+                appliedInlineDebugValues = inlineDebugValues
+                debugInlineValueOverlay?.update(
+                    line: inlineDebugLine,
+                    values: inlineDebugValues
+                )
+            }
             appliedEditorOverlayLayoutRevision = editorOverlayLayoutRevision
 
             let isBlameVisible = model.blameVisibleURL == url
             let blameLines = model.gitBlameLines[url] ?? []
-            let javaBreakpointLines = debugService?.breakpoints.filter {
-                $0.fileURL.standardizedFileURL == url
-            }.map(\.line) ?? []
             let genericBreakpointLines = (model.genericDebugFeatureIfActive?.breakpoints ?? []).filter {
                 $0.fileURL.standardizedFileURL == url
             }.map(\.line)
-            let debugBreakpointLines = Set(javaBreakpointLines + genericBreakpointLines)
+            let debugBreakpointLines = Set(genericBreakpointLines)
+            let debugBreakpointStates = (model.genericDebugFeatureIfActive?.breakpoints ?? [])
+                .filter { $0.fileURL.standardizedFileURL == url }
+                .reduce(into: [Int: EditorDebugBreakpointState]()) { states, breakpoint in
+                    // A source line can carry multiple column breakpoints;
+                    // show it as confirmed when any adapter location is confirmed.
+                    let previous = states[breakpoint.line]
+                    states[breakpoint.line] = EditorDebugBreakpointState(
+                        enabled: previous?.enabled == true || breakpoint.enabled,
+                        verified: previous?.verified == true || breakpoint.verified
+                    )
+                }
+            let debugBreakpointMessages = Dictionary(
+                model.genericDebugFeatureIfActive?.breakpoints
+                    .filter { $0.fileURL.standardizedFileURL == url }
+                    .compactMap { breakpoint in
+                        breakpoint.message.map { (breakpoint.line, $0) }
+                    } ?? [],
+                uniquingKeysWith: { first, _ in first }
+            )
+            let currentExecutionLine: Int? = {
+                guard let frame = model.genericDebugFeatureIfActive?.selectedFrame,
+                      frame.sourceURL?.standardizedFileURL == url else { return nil }
+                return frame.line
+            }()
+            let isRunToCursorEnabled = model.genericDebugFeatureIfActive?.state == .paused
+                && model.genericDebugFeatureIfActive?.capabilities.supportsGotoTargetsRequest == true
+            let areBreakpointsMuted = model.genericDebugFeatureIfActive?.areBreakpointsMuted ?? false
             if appliedBlameVisible != isBlameVisible
                 || appliedBlameLines != blameLines
-                || appliedDebugBreakpointLines != debugBreakpointLines {
+                || appliedDebugBreakpointLines != debugBreakpointLines
+                || appliedDebugBreakpointStates != debugBreakpointStates
+                || appliedDebugBreakpointMessages != debugBreakpointMessages
+                || appliedRunToCursorEnabled != isRunToCursorEnabled
+                || appliedBreakpointsMuted != areBreakpointsMuted
+                || appliedCurrentExecutionLine != currentExecutionLine {
                 appliedBlameVisible = isBlameVisible
                 appliedBlameLines = blameLines
                 appliedDebugBreakpointLines = debugBreakpointLines
+                appliedDebugBreakpointStates = debugBreakpointStates
+                appliedDebugBreakpointMessages = debugBreakpointMessages
+                appliedRunToCursorEnabled = isRunToCursorEnabled
+                appliedBreakpointsMuted = areBreakpointsMuted
+                appliedCurrentExecutionLine = currentExecutionLine
                 container?.gutterWidthConstraint?.constant = isBlameVisible
                     ? EditorLayoutMetrics.blameMetadataWidth + standardGutterWidth
                     : standardGutterWidth
                 gutter?.update(blameLines: blameLines, isVisible: isBlameVisible) { [weak model] blame in
                     Task { await model?.showGitCommit(blame.commitHash) }
                 }
-                gutter?.updateDebugBreakpointLines(debugBreakpointLines) { [weak model] line in
-                    model?.toggleDebugBreakpoint(fileURL: url, line: line)
-                }
+                gutter?.updateDebugBreakpointLines(
+                    debugBreakpointStates,
+                    onToggle: { [weak model] line in
+                        model?.toggleDebugBreakpoint(
+                            fileURL: url,
+                            line: EditorDebugBreakpointLocation.productLine(forEditorLine: line)
+                        )
+                    },
+                    canAdd: { [weak textView, fileExtension] line in
+                        guard fileExtension.lowercased() == "java",
+                              let textView else { return false }
+                        return DebugBreakpointLocationValidator.isExecutableJavaLine(
+                            source: textView.string,
+                            line: EditorDebugBreakpointLocation.productLine(forEditorLine: line)
+                        )
+                    },
+                    onEdit: { [weak model] line in
+                        model?.editDebugBreakpoint(
+                            fileURL: url,
+                            line: EditorDebugBreakpointLocation.productLine(forEditorLine: line)
+                        )
+                    },
+                    onRemove: { [weak model] line in
+                        let productLine = EditorDebugBreakpointLocation.productLine(
+                            forEditorLine: line
+                        )
+                        guard let feature = model?.genericDebugFeatureIfActive,
+                              let breakpoint = feature.breakpoints.first(where: {
+                                  $0.fileURL.standardizedFileURL == url && $0.line == productLine
+                              }) else { return }
+                        feature.removeBreakpoint(breakpoint)
+                    },
+                    onSetEnabled: { [weak model] line, enabled in
+                        let productLine = EditorDebugBreakpointLocation.productLine(
+                            forEditorLine: line
+                        )
+                        guard let feature = model?.genericDebugFeatureIfActive,
+                              let breakpoint = feature.breakpoints.first(where: {
+                                  $0.fileURL.standardizedFileURL == url && $0.line == productLine
+                              }) else { return }
+                        feature.setBreakpointEnabled(breakpoint, enabled: enabled)
+                    },
+                    onToggleAll: { [weak model] in
+                        model?.genericDebugFeatureIfActive?.toggleBreakpointMute()
+                    },
+                    onRunToCursor: { [weak model] line in
+                        model?.runToCursor(
+                            fileURL: url,
+                            line: EditorDebugBreakpointLocation.productLine(forEditorLine: line),
+                            column: 1
+                        )
+                    },
+                    isRunToCursorEnabled: isRunToCursorEnabled,
+                    areBreakpointsMuted: areBreakpointsMuted
+                )
+                gutter?.updateDebugBreakpointMessages(debugBreakpointMessages)
+                gutter?.updateCurrentExecutionLine(currentExecutionLine)
+                (textView as? CodeTextView)?.updateCurrentExecutionLine(currentExecutionLine)
             }
         }
 
@@ -1331,17 +1671,14 @@ struct CodeEditorView: NSViewRepresentable {
             appliedNavigationTargetID = target.id
 
             let text = textView.string as NSString
-            var lineStart = 0
-            var currentLine = 0
-            while currentLine < target.line, lineStart < text.length {
-                let range = text.lineRange(for: NSRange(location: lineStart, length: 0))
-                lineStart = NSMaxRange(range)
-                currentLine += 1
-            }
-            let lineRange = text.lineRange(for: NSRange(location: min(lineStart, text.length), length: 0))
-            let location = min(NSMaxRange(lineRange), lineStart + target.utf16Column)
-            textView.setSelectedRange(NSRange(location: location, length: 0))
-            textView.scrollRangeToVisible(NSRange(location: location, length: 0))
+            let selection = GoToLineSelection.targetRange(
+                line: target.line,
+                utf16Column: target.utf16Column,
+                selectsWholeLine: target.selectsWholeLine,
+                in: text
+            )
+            textView.setSelectedRange(selection)
+            textView.scrollRangeToVisible(selection)
             textView.window?.makeFirstResponder(textView)
             scheduleCaretUpdate()
         }
@@ -1502,6 +1839,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     var onGoToImplementation: (() -> Void)?
     var onFindUsages: (() -> Void)?
     var onFindRequested: (() -> Void)?
+    var onGoToLineRequested: (() -> Void)?
     var onFindNextRequested: (() -> Void)?
     var onFindPreviousRequested: (() -> Void)?
     var onFindStateChange: ((Int, Int) -> Void)?
@@ -1511,16 +1849,32 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     var onRenameRequested: ((Int, Int, String) -> Void)?
     var onFormatRequested: (() -> Void)?
     var onCodeActionsRequested: ((Int, Int) -> Void)?
+    var onRunToCursor: ((Int, Int) -> Void)?
+    var isRunToCursorEnabled = false
+    var onDebugHover: ((String, @escaping (String?) -> Void) -> Void)?
+    var isDebugHoverEnabled = false {
+        didSet {
+            if !isDebugHoverEnabled { clearDebugHover() }
+        }
+    }
     var onPasteImage: (() -> Bool)?
 
     private var findMatchRanges: [NSRange] = []
     private var currentFindMatchIndex = 0
     private var lastReportedFindState: (index: Int, count: Int)?
+    private var findMatcher = FindInFileMatcher(query: "", options: .default)
+    /// 本视图绑定的文档标识；替换通知只在与之匹配时生效，防止分栏误伤。
+    var documentID: UUID?
     private var lastCaretBackgroundRanges: [NSRange] = []
     private var completionItemsByID: [String: LanguageServerCompletionItem] = [:]
     private var languageHoverPopover: NSPopover?
+    private var debugHoverPopover: NSPopover?
+    private var debugHoverWorkItem: DispatchWorkItem?
+    private var pendingDebugHover: (expression: String, range: NSRange)?
 
     private var currentLineColor = CodeEditorPalette.dark.currentLine
+    private var executionLineColor = CodeEditorPalette.dark.executionLine
+    private var currentExecutionLine: Int?
     private var bracketColor = CodeEditorPalette.dark.bracket
     private var symbolColor = CodeEditorPalette.dark.symbol
     private var guideColor = CodeEditorPalette.dark.guide
@@ -1567,6 +1921,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
             .foregroundColor: palette.selectionText
         ]
         currentLineColor = palette.currentLine
+        executionLineColor = palette.executionLine
         bracketColor = palette.bracket
         symbolColor = palette.symbol
         guideColor = palette.guide
@@ -1717,6 +2072,16 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
             clearFindHighlights()
             return
         }
+        let matcher = query == findMatcher.query
+            ? findMatcher
+            : FindInFileMatcher(query: query, options: findMatcher.options)
+        findMatcher = matcher
+        if matcher.options.regularExpression {
+            // 正则可能产生跨行匹配，编辑行附近的增量窗口覆盖不了，
+            // 直接整篇重算，避免无关位置编辑后丢失跨行匹配。
+            updateFindMatches(query: query, options: matcher.options)
+            return
+        }
         let source = string as NSString
         let delta = insertedLength - replacedRange.length
         let replacedEnd = NSMaxRange(replacedRange)
@@ -1727,34 +2092,26 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
             }
             return nil
         }
+        // 重算窗口 = 编辑所在行向两侧各扩一个字符：行边界处全词匹配的
+        // 边界字符可能落在相邻行，只有窗口覆盖该字符才能正确移除并重算。
         let safeLocation = min(replacedRange.location, max(0, source.length - 1))
         let lineRange = source.length == 0
             ? NSRange(location: 0, length: 0)
             : source.lineRange(for: NSRange(location: safeLocation, length: 0))
-        let searchEnd = min(source.length, max(NSMaxRange(lineRange), replacedRange.location + insertedLength))
+        let windowLocation = max(0, lineRange.location - 1)
+        let windowEnd = min(source.length, NSMaxRange(lineRange) + 1)
         let searchRange = NSRange(
-            location: lineRange.location,
-            length: max(0, searchEnd - lineRange.location)
+            location: windowLocation,
+            length: max(0, windowEnd - windowLocation)
         )
         findMatchRanges.removeAll { range in
             NSIntersectionRange(range, searchRange).length > 0
                 || (range.location >= searchRange.location && range.location < NSMaxRange(searchRange))
         }
-        if searchRange.length > 0, !query.isEmpty {
-            var cursor = searchRange
-            while cursor.length > 0 {
-                let found = source.range(
-                    of: query,
-                    options: [.caseInsensitive, .diacriticInsensitive],
-                    range: cursor
-                )
-                if found.location == NSNotFound { break }
-                findMatchRanges.append(found)
-                let nextLocation = NSMaxRange(found)
-                cursor = NSRange(location: nextLocation, length: NSMaxRange(searchRange) - nextLocation)
-            }
-            findMatchRanges.sort { $0.location < $1.location }
+        for found in matcher.matchRanges(in: source, range: searchRange) {
+            findMatchRanges.append(found)
         }
+        findMatchRanges.sort { $0.location < $1.location }
         currentFindMatchIndex = min(currentFindMatchIndex, max(0, findMatchRanges.count - 1))
         applyFindHighlights()
         reportFindState(
@@ -1899,25 +2256,13 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
     // MARK: - Find in file
 
-    /// 重新计算匹配范围并刷新高亮，用于 Find Bar 查询变化。
+    /// 重新计算匹配范围并刷新高亮，用于 Find Bar 查询或选项变化。
     /// 通过 updateEditorDecorations 统一重画，避免旧查询高亮残留。
-    func updateFindMatches(query: String) {
+    func updateFindMatches(query: String, options: FindInFileOptions) {
+        let matcher = FindInFileMatcher(query: query, options: options)
+        findMatcher = matcher
         let source = string as NSString
-        var newRanges: [NSRange] = []
-        if !query.isEmpty {
-            var searchRange = NSRange(location: 0, length: source.length)
-            while searchRange.length > 0 {
-                let found = source.range(
-                    of: query,
-                    options: [.caseInsensitive, .diacriticInsensitive],
-                    range: searchRange
-                )
-                if found.location == NSNotFound { break }
-                newRanges.append(found)
-                let nextLocation = NSMaxRange(found)
-                searchRange = NSRange(location: nextLocation, length: source.length - nextLocation)
-            }
-        }
+        let newRanges = matcher.matchRanges(in: source)
         let needsRefresh = !findMatchRanges.isEmpty || !newRanges.isEmpty
         let previousIndex = currentFindMatchIndex
         let previousRanges = findMatchRanges
@@ -1948,6 +2293,80 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         reportFindState(index: currentFindMatchIndex, count: total)
     }
 
+    /// 替换当前匹配并自动跳到下一处：通过 insertText 进入标准输入管线，
+    /// 撤销、委托回调与装饰刷新同手工编辑一致。
+    func replaceNextFindMatch(replacement: String) {
+        guard isEditable,
+              !findMatchRanges.isEmpty,
+              currentFindMatchIndex < findMatchRanges.count else { return }
+        let matchRange = findMatchRanges[currentFindMatchIndex]
+        let expanded = findMatcher.replacement(
+            for: string as NSString,
+            matchRange: matchRange,
+            template: replacement
+        )
+        let replacedRange = NSRange(location: matchRange.location, length: (expanded as NSString).length)
+        insertText(expanded, replacementRange: matchRange)
+        // 跳过替换文本自身新产生的匹配，避免与替换结果死循环
+        selectFindMatch(after: replacedRange)
+    }
+
+    /// 一次性替换全部匹配：shouldChangeText + NSTextStorage 批量替换 +
+    /// didChangeText 一步完成，形成单个撤销步骤；之后整篇重算匹配。
+    func replaceAllFindMatches(replacement: String) {
+        guard isEditable, !findMatchRanges.isEmpty else { return }
+        let source = string as NSString
+        let fullRange = NSRange(location: 0, length: source.length)
+        let rebuilt = rebuiltTextByReplacingMatches(with: replacement, in: source)
+        guard shouldChangeText(in: fullRange, replacementString: rebuilt) else { return }
+        textStorage?.replaceCharacters(in: fullRange, with: rebuilt)
+        didChangeText()
+        let length = (string as NSString).length
+        setSelectedRange(NSRange(location: min(selectedRange().location, length), length: 0))
+        updateFindMatches(query: findMatcher.query, options: findMatcher.options)
+    }
+
+    private func rebuiltTextByReplacingMatches(with template: String, in source: NSString) -> String {
+        let rebuilt = NSMutableString()
+        var cursor = 0
+        for range in findMatchRanges {
+            guard range.location >= cursor else { continue }
+            rebuilt.append(source.substring(with: NSRange(location: cursor, length: range.location - cursor)))
+            rebuilt.append(findMatcher.replacement(for: source, matchRange: range, template: template))
+            cursor = NSMaxRange(range)
+        }
+        if cursor < source.length {
+            rebuilt.append(source.substring(with: NSRange(location: cursor, length: source.length - cursor)))
+        }
+        return rebuilt as String
+    }
+
+    /// 选中替换区之后的第一个匹配；没有更靠后的匹配时从文档开头回绕，
+    /// 两种情况都跳过与替换区重叠的匹配。
+    private func selectFindMatch(after replacedRange: NSRange) {
+        if let next = findMatchRanges.firstIndex(where: { $0.location >= NSMaxRange(replacedRange) }) {
+            selectFindMatch(at: next)
+            return
+        }
+        if let wrapped = findMatchRanges.firstIndex(where: { !Self.overlapsFindRange($0, replacedRange) }) {
+            selectFindMatch(at: wrapped)
+        }
+    }
+
+    private static func overlapsFindRange(_ range: NSRange, _ other: NSRange) -> Bool {
+        NSIntersectionRange(range, other).length > 0
+            || (range.location >= other.location && range.location < NSMaxRange(other))
+    }
+
+    private func selectFindMatch(at index: Int) {
+        currentFindMatchIndex = index
+        applyFindHighlights()
+        let range = findMatchRanges[index]
+        scrollRangeToVisible(range)
+        setSelectedRange(range)
+        reportFindState(index: index, count: findMatchRanges.count)
+    }
+
     /// Publishes only meaningful find-state transitions so SwiftUI updates do
     /// not create a feedback loop through `updateNSView`.
     private func reportFindState(index: Int, count: Int) {
@@ -1968,9 +2387,9 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     }
 
     /// 文档或查询变化时同步 Find Bar 状态；Find Bar 关闭时仅清理已有高亮。
-    func syncFindState(isVisible: Bool, query: String) {
+    func syncFindState(isVisible: Bool, query: String, options: FindInFileOptions) {
         if isVisible {
-            updateFindMatches(query: query)
+            updateFindMatches(query: query, options: options)
         } else if !findMatchRanges.isEmpty {
             clearFindHighlights()
         }
@@ -2256,8 +2675,36 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
+        drawExecutionLineBackground(in: rect)
         drawCurrentLineBackground(in: rect)
         drawIndentGuides(in: rect)
+    }
+
+    func updateCurrentExecutionLine(_ line: Int?) {
+        let normalizedLine = line.map { max(0, $0 - 1) }
+        guard currentExecutionLine != normalizedLine else { return }
+        currentExecutionLine = normalizedLine
+        needsDisplay = true
+    }
+
+    private func drawExecutionLineBackground(in rect: NSRect) {
+        guard let currentExecutionLine,
+              let layoutManager,
+              layoutManager.numberOfGlyphs > 0,
+              let lineRect = lineFragmentRect(
+                  forLine: currentExecutionLine,
+                  in: string as NSString,
+                  layoutManager: layoutManager
+              ) else { return }
+        let executionRect = NSRect(
+            x: 0,
+            y: textContainerOrigin.y + lineRect.minY,
+            width: bounds.width,
+            height: lineRect.height
+        )
+        guard executionRect.intersects(rect) else { return }
+        executionLineColor.setFill()
+        executionRect.intersection(rect).fill()
     }
 
     private func drawCurrentLineBackground(in rect: NSRect) {
@@ -2516,18 +2963,24 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         let summaryRegion = foldSummaryRegion(at: point)
         updateFoldHover(to: summaryRegion?.id)
         if summaryRegion != nil {
+            clearDebugHover()
             NSCursor.pointingHand.set()
             return
         }
         if hitTest(point) is CodeVisionLinkButton {
+            clearDebugHover()
             NSCursor.pointingHand.set()
             return
         }
         if isLanguageNavigationEnabled,
            hasNavigationModifier(event.modifierFlags) {
             updateLinkHighlight(at: point)
-            if linkRange != nil { return }
+            if linkRange != nil {
+                clearDebugHover()
+                return
+            }
         }
+        updateDebugHover(at: point)
         NSCursor.iBeam.set()
     }
 
@@ -2560,12 +3013,14 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         super.mouseExited(with: event)
         updateFoldHover(to: nil)
         clearLinkHighlight()
+        clearDebugHover()
         NSCursor.arrow.set()
     }
 
     override func resignFirstResponder() -> Bool {
         updateFoldHover(to: nil)
         clearLinkHighlight()
+        clearDebugHover()
         return super.resignFirstResponder()
     }
 
@@ -2781,6 +3236,105 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         return (text, range)
     }
 
+    private func updateDebugHover(at point: NSPoint) {
+        guard isDebugHoverEnabled,
+              let characterIndex = characterIndex(at: point),
+              let resolved = DebugHoverExpressionResolver.expression(
+                  at: characterIndex,
+                  in: string as NSString
+              ),
+              let layoutManager,
+              let textContainer else {
+            clearDebugHover()
+            return
+        }
+        let glyphRange = layoutManager.glyphRange(
+            forCharacterRange: resolved.1,
+            actualCharacterRange: nil
+        )
+        let glyphRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        let containerPoint = NSPoint(
+            x: point.x - textContainerOrigin.x,
+            y: point.y - textContainerOrigin.y
+        )
+        guard glyphRect.insetBy(dx: -2, dy: -2).contains(containerPoint) else {
+            clearDebugHover()
+            return
+        }
+        if pendingDebugHover?.expression == resolved.0,
+           pendingDebugHover?.range == resolved.1 { return }
+        debugHoverWorkItem?.cancel()
+        debugHoverPopover?.close()
+        pendingDebugHover = (resolved.0, resolved.1)
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self,
+                  self.pendingDebugHover?.expression == resolved.0,
+                  self.pendingDebugHover?.range == resolved.1 else { return }
+            self.onDebugHover?(resolved.0) { [weak self] value in
+                guard let self,
+                      let value,
+                      self.pendingDebugHover?.expression == resolved.0,
+                      self.pendingDebugHover?.range == resolved.1 else { return }
+                self.presentDebugHover(value, range: resolved.1)
+            }
+        }
+        debugHoverWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: workItem)
+    }
+
+    private func presentDebugHover(_ value: String, range: NSRange) {
+        guard let layoutManager, let textContainer else { return }
+        let glyphRange = layoutManager.glyphRange(
+            forCharacterRange: range,
+            actualCharacterRange: nil
+        )
+        var anchor = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        anchor.origin.x += textContainerOrigin.x
+        anchor.origin.y += textContainerOrigin.y
+        let label = NSTextField(wrappingLabelWithString: value)
+        label.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        label.textColor = NSColor(white: 0.9, alpha: 1)
+        label.maximumNumberOfLines = 6
+        label.preferredMaxLayoutWidth = 420
+        let controller = NSViewController()
+        let container = NSView()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 10),
+            label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -10),
+            label.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
+            label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8)
+        ])
+        container.wantsLayer = true
+        container.layer?.backgroundColor = NSColor(
+            red: 0.105,
+            green: 0.11,
+            blue: 0.12,
+            alpha: 1
+        ).cgColor
+        controller.view = container
+        let fittingSize = label.fittingSize
+        controller.preferredContentSize = NSSize(
+            width: min(440, fittingSize.width + 20),
+            height: min(140, fittingSize.height + 16)
+        )
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        popover.contentViewController = controller
+        popover.show(relativeTo: anchor, of: self, preferredEdge: .maxY)
+        debugHoverPopover = popover
+    }
+
+    private func clearDebugHover() {
+        debugHoverWorkItem?.cancel()
+        debugHoverWorkItem = nil
+        pendingDebugHover = nil
+        debugHoverPopover?.close()
+        debugHoverPopover = nil
+    }
+
     private func enclosingCodeScope(at caret: Int, in source: NSString) -> NSRange? {
         var start: Int?
         var depth = 0
@@ -2831,7 +3385,26 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         }
 
         let menu = super.menu(for: event) ?? NSMenu()
+        let goToLineItem = NSMenuItem(
+            title: NSLocalizedString("Go to Line…", comment: "Context menu item that opens the go-to-line dialog"),
+            action: #selector(goToLineFromMenu),
+            keyEquivalent: ""
+        )
+        goToLineItem.target = self
+        menu.insertItem(goToLineItem, at: 0)
+        menu.insertItem(.separator(), at: 1)
         let languageItems = languageContextMenuItems()
+        if onRunToCursor != nil {
+            let runToCursor = NSMenuItem(
+                title: "Run to Cursor",
+                action: #selector(runToCursorFromMenu),
+                keyEquivalent: ""
+            )
+            runToCursor.target = self
+            runToCursor.isEnabled = isRunToCursorEnabled
+            menu.insertItem(.separator(), at: 0)
+            menu.insertItem(runToCursor, at: 0)
+        }
         guard !languageItems.isEmpty else { return menu }
         menu.insertItem(.separator(), at: 0)
         for item in languageItems.reversed() { menu.insertItem(item, at: 0) }
@@ -2857,8 +3430,17 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         return languageItems
     }
 
+    @objc private func runToCursorFromMenu() {
+        let position = languageServerPosition(at: selectedRange().location)
+        onRunToCursor?(position.line, position.utf16Column)
+    }
+
     @objc private func goToDefinitionFromMenu() {
         onGoToDefinition?()
+    }
+
+    @objc private func goToLineFromMenu() {
+        onGoToLineRequested?()
     }
 
     @objc private func showQuickDocumentationFromMenu() {
@@ -3056,6 +3638,18 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
             name: .litheFindDismiss,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleFindReplaceNext(_:)),
+            name: .litheFindReplaceNext,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleFindReplaceAll(_:)),
+            name: .litheFindReplaceAll,
+            object: nil
+        )
     }
 
     required init?(coder: NSCoder) {
@@ -3071,7 +3665,33 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
     @objc private func handleFindQueryChanged(_ notification: Notification) {
         let query = notification.userInfo?[FindNotificationKeys.query] as? String ?? ""
-        updateFindMatches(query: query)
+        let options = FindInFileOptions(
+            matchCase: notification.userInfo?[FindNotificationKeys.matchCase] as? Bool ?? false,
+            wholeWords: notification.userInfo?[FindNotificationKeys.wholeWords] as? Bool ?? false,
+            regularExpression: notification.userInfo?[FindNotificationKeys.regularExpression] as? Bool ?? false
+        )
+        updateFindMatches(query: query, options: options)
+    }
+
+    @objc private func handleFindReplaceNext(_ notification: Notification) {
+        guard isReplaceNotificationTarget(notification) else { return }
+        replaceNextFindMatch(
+            replacement: notification.userInfo?[FindNotificationKeys.replacement] as? String ?? ""
+        )
+    }
+
+    @objc private func handleFindReplaceAll(_ notification: Notification) {
+        guard isReplaceNotificationTarget(notification) else { return }
+        replaceAllFindMatches(
+            replacement: notification.userInfo?[FindNotificationKeys.replacement] as? String ?? ""
+        )
+    }
+
+    /// 替换通知只在绑定同一文档的编辑器上执行，避免分栏时误伤其他编辑器。
+    private func isReplaceNotificationTarget(_ notification: Notification) -> Bool {
+        guard let targetID = notification.userInfo?[FindNotificationKeys.documentID] as? UUID
+        else { return false }
+        return targetID == documentID
     }
 
     @objc private func handleFindNavigate(_ notification: Notification) {
@@ -3158,12 +3778,26 @@ final class LineNumberGutterView: NSView {
     private var implementationMarkers: [JavaImplementationMarker] = []
     private var onSelectImplementation: ((JavaImplementationMarker) -> Void)?
     private var debugBreakpointLines: Set<Int> = []
+    private var debugBreakpointStatesByLine: [Int: EditorDebugBreakpointState] = [:]
+    private var debugBreakpointMessagesByLine: [Int: String] = [:]
+    private var currentExecutionLine: Int?
     private var onToggleDebugBreakpoint: ((Int) -> Void)?
+    private var onEditDebugBreakpoint: ((Int) -> Void)?
+    private var onRemoveDebugBreakpoint: ((Int) -> Void)?
+    private var onSetDebugBreakpointEnabled: ((Int, Bool) -> Void)?
+    private var onToggleAllDebugBreakpoints: (() -> Void)?
+    private var onRunToCursor: ((Int) -> Void)?
+    private var canAddDebugBreakpoint: ((Int) -> Bool)?
+    private var isRunToCursorEnabled = false
+    private var areBreakpointsMuted = false
+    private var contextGutterLine: Int?
+    private var contextDebugBreakpointLine: Int?
     private var scrollRefreshScheduled = false
     private var hoveredFoldID: String?
     private var foldIndicatorOpacities: [String: CGFloat] = [:]
     private var foldIndicatorAnimationTimer: Timer?
     private var trackingArea: NSTrackingArea?
+    private var hoveredDebugBreakpointLine: Int?
     private var palette = CodeEditorPalette.dark
     private var gitLineChangeMarkersByLine: [Int: GitLineChangeMarker] = [:]
     private var onShowGitLineChange: ((GitLineChangeMarker) -> Void)?
@@ -3314,12 +3948,42 @@ final class LineNumberGutterView: NSView {
     }
 
     func updateDebugBreakpointLines(
-        _ lines: Set<Int>,
-        onToggle: @escaping (Int) -> Void
+        _ states: [Int: EditorDebugBreakpointState],
+        onToggle: @escaping (Int) -> Void,
+        canAdd: ((Int) -> Bool)? = nil,
+        onEdit: ((Int) -> Void)? = nil,
+        onRemove: ((Int) -> Void)? = nil,
+        onSetEnabled: ((Int, Bool) -> Void)? = nil,
+        onToggleAll: (() -> Void)? = nil,
+        onRunToCursor: ((Int) -> Void)? = nil,
+        isRunToCursorEnabled: Bool = false,
+        areBreakpointsMuted: Bool = false
     ) {
-        debugBreakpointLines = Set(lines.map { max(0, $0 - 1) })
+        debugBreakpointLines = Set(states.keys.map { max(0, $0 - 1) })
+        debugBreakpointStatesByLine = Dictionary(
+            uniqueKeysWithValues: states.map { (max(0, $0.key - 1), $0.value) }
+        )
         onToggleDebugBreakpoint = onToggle
+        canAddDebugBreakpoint = canAdd
+        onEditDebugBreakpoint = onEdit
+        onRemoveDebugBreakpoint = onRemove
+        onSetDebugBreakpointEnabled = onSetEnabled
+        onToggleAllDebugBreakpoints = onToggleAll
+        self.onRunToCursor = onRunToCursor
+        self.isRunToCursorEnabled = isRunToCursorEnabled
+        self.areBreakpointsMuted = areBreakpointsMuted
         needsDisplay = true
+    }
+
+    func updateCurrentExecutionLine(_ line: Int?) {
+        currentExecutionLine = line.map { max(0, $0 - 1) }
+        needsDisplay = true
+    }
+
+    func updateDebugBreakpointMessages(_ messages: [Int: String]) {
+        debugBreakpointMessagesByLine = messages.reduce(into: [:]) {
+            $0[max(0, $1.key - 1)] = $1.value
+        }
     }
 
     func updateGitLineChanges(
@@ -3534,13 +4198,33 @@ final class LineNumberGutterView: NSView {
                     height: lineRect.height
                 ).fill()
             }
+            if !isBlameVisible,
+               hoveredDebugBreakpointLine == lineNumber - 1 {
+                // Keep the hover affordance attached to the forgiving IDEA-style
+                // breakpoint hit target, not only to the 14 px marker column.
+                palette.foldHover.withAlphaComponent(0.7).setFill()
+                NSRect(
+                    x: editorGutterOriginX + gutterLayout.breakpointInteractionRange.lowerBound,
+                    y: y,
+                    width: EditorGutterLayout.width(of: gutterLayout.breakpointInteractionRange),
+                    height: lineRect.height
+                ).fill()
+            }
+            if currentExecutionLine == lineNumber - 1 {
+                palette.executionLine.setFill()
+                NSRect(x: 0, y: y, width: bounds.width, height: lineRect.height).fill()
+            }
             if isBlameVisible,
                let blame = blameByLine[lineNumber - 1],
                showsBlameMetadata(line: lineNumber - 1, firstVisibleLine: firstLine) {
                 drawBlame(blame, y: y, height: lineRect.height)
             }
-            if !isBlameVisible, debugBreakpointLines.contains(lineNumber - 1) {
-                drawDebugBreakpoint(y: y, height: lineRect.height)
+            if !isBlameVisible, let state = debugBreakpointStatesByLine[lineNumber - 1] {
+                drawDebugBreakpoint(y: y, height: lineRect.height, state: state)
+            } else if !isBlameVisible,
+                      hoveredDebugBreakpointLine == lineNumber - 1,
+                      canAddDebugBreakpoint?(lineNumber - 1) == true {
+                drawDebugBreakpointHover(y: y, height: lineRect.height)
             } else {
                 let markers = implementationMarkers.filter { $0.line == lineNumber - 1 }
                 for marker in markers {
@@ -3551,6 +4235,11 @@ final class LineNumberGutterView: NSView {
                         height: lineRect.height
                     )
                 }
+            }
+            // Draw the current execution marker after the breakpoint marker so
+            // a stopped frame remains visually dominant when both share a line.
+            if currentExecutionLine == lineNumber - 1 {
+                drawCurrentExecutionLine(y: y, height: lineRect.height)
             }
             if let marker = gitLineChangeMarkersByLine[lineNumber - 1] {
                 drawGitLineChange(marker, y: y, height: lineRect.height)
@@ -3619,9 +4308,18 @@ final class LineNumberGutterView: NSView {
     private func drawLineNumber(_ number: Int, y: CGFloat, height: CGFloat) {
         let label = String(number) as NSString
         let editorFont = textView?.font ?? LitheTheme.editorFont(size: 13)
+        let isExecutionLine = currentExecutionLine == number - 1
+        let isBreakpointLine = debugBreakpointStatesByLine[number - 1] != nil
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: EditorGutterLayout.lineNumberFont(for: editorFont),
-            .foregroundColor: palette.lineNumber
+            .font: isExecutionLine
+                ? LitheTheme.editorFont(
+                    size: max(8, editorFont.pointSize - 1),
+                    weight: .semibold
+                )
+                : EditorGutterLayout.lineNumberFont(for: editorFont),
+            .foregroundColor: isExecutionLine
+                ? palette.link
+                : (isBreakpointLine ? palette.text : palette.lineNumber)
         ]
         let size = label.size(withAttributes: attributes)
         let centeredY = y + max(0, (height - size.height) / 2)
@@ -3710,18 +4408,87 @@ final class LineNumberGutterView: NSView {
         path.stroke()
     }
 
-    private func drawDebugBreakpoint(y: CGFloat, height: CGFloat) {
-        let markerSize: CGFloat = 9
-        NSColor(red: 0.92, green: 0.28, blue: 0.30, alpha: 0.96).setFill()
-        NSBezierPath(
-            ovalIn: NSRect(
-                x: editorGutterOriginX + gutterLayout.breakpointRange.lowerBound
-                    + (EditorGutterLayout.width(of: gutterLayout.breakpointRange) - markerSize) / 2,
-                y: y + max(0, (height - markerSize) / 2),
-                width: markerSize,
-                height: markerSize
-            )
-        ).fill()
+    private func drawDebugBreakpoint(
+        y: CGFloat,
+        height: CGFloat,
+        state: EditorDebugBreakpointState
+    ) {
+        let markerSize = EditorDebugBreakpointAppearance.markerSize
+        let rect = NSRect(
+            x: editorGutterOriginX + gutterLayout.breakpointRange.lowerBound
+                + (EditorGutterLayout.width(of: gutterLayout.breakpointRange) - markerSize) / 2,
+            y: y + max(0, (height - markerSize) / 2),
+            width: markerSize,
+            height: markerSize
+        )
+        let breakpointAsset = LitheIcons.debuggerBreakpointAssetPath(
+            enabled: state.enabled,
+            verified: state.verified,
+            muted: areBreakpointsMuted
+        )
+        let themedAsset = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? LitheIcons.darkIdeaAssetPath(for: breakpointAsset)
+            : breakpointAsset
+        if let image = LitheIcons.ideaImage(resourcePath: themedAsset)
+            ?? LitheIcons.ideaImage(resourcePath: breakpointAsset) {
+            image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
+            return
+        }
+
+        // Keep a local fallback for an unbundled preview or a damaged asset.
+        let path = NSBezierPath(ovalIn: rect)
+        let isInactive = areBreakpointsMuted || !state.enabled
+        EditorDebugBreakpointAppearance.enabledColor
+            .withAlphaComponent(isInactive ? 0.42 : 1)
+            .setFill()
+        path.fill()
+    }
+
+    private func drawDebugBreakpointHover(y: CGFloat, height: CGFloat) {
+        let markerSize = EditorDebugBreakpointAppearance.markerSize
+        let rect = NSRect(
+            x: editorGutterOriginX + gutterLayout.breakpointRange.lowerBound
+                + (EditorGutterLayout.width(of: gutterLayout.breakpointRange) - markerSize) / 2,
+            y: y + max(0, (height - markerSize) / 2),
+            width: markerSize,
+            height: markerSize
+        )
+        let breakpointAsset = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? LitheIcons.darkIdeaAssetPath(for: "debugger/db_set_breakpoint.svg")
+            : "debugger/db_set_breakpoint.svg"
+        if let image = LitheIcons.ideaImage(resourcePath: breakpointAsset)
+            ?? LitheIcons.ideaImage(resourcePath: "debugger/db_set_breakpoint.svg") {
+            image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 0.82)
+        } else {
+            EditorDebugBreakpointAppearance.enabledColor.withAlphaComponent(0.82).setFill()
+            NSBezierPath(ovalIn: rect).fill()
+        }
+    }
+
+    private func drawCurrentExecutionLine(y: CGFloat, height: CGFloat) {
+        let markerSize: CGFloat = 14
+        let rect = NSRect(
+            // Keep the execution arrow in the right edge of the line-number
+            // column so a breakpoint on the same line remains visible. IDEA
+            // uses two distinct gutter signals for these states.
+            x: editorGutterOriginX + gutterLayout.lineNumberRange.upperBound - markerSize,
+            y: y + max(0, (height - markerSize) / 2),
+            width: markerSize,
+            height: markerSize
+        )
+        if let image = LitheIcons.ideaImage(resourcePath: "debugger/threadCurrent.svg") {
+            image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
+            return
+        }
+        let centerY = y + height / 2
+        let left = rect.minX + 2
+        let path = NSBezierPath()
+        path.move(to: NSPoint(x: left, y: centerY))
+        path.line(to: NSPoint(x: left + 10, y: centerY - 5))
+        path.line(to: NSPoint(x: left + 10, y: centerY + 5))
+        path.close()
+        NSColor(calibratedRed: 0.32, green: 0.64, blue: 1, alpha: 1).setFill()
+        path.fill()
     }
 
     private func drawGitLineChange(
@@ -3779,15 +4546,25 @@ final class LineNumberGutterView: NSView {
 
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
-        updateFoldHover(at: convert(event.locationInWindow, from: nil))
+        let point = convert(event.locationInWindow, from: nil)
+        updateFoldHover(at: point)
+        updateBreakpointHover(at: point)
+        updateBreakpointToolTip(at: point)
     }
 
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
         let point = convert(event.locationInWindow, from: nil)
         updateFoldHover(at: point)
-        if foldRegion(at: point) != nil {
+        updateBreakpointHover(at: point)
+        updateBreakpointToolTip(at: point)
+        if foldRegion(at: point) != nil || isBreakpointTarget(at: point) {
             NSCursor.pointingHand.set()
+        } else {
+            // Tracking events do not always trigger `cursorUpdate` when the
+            // pointer moves between gutter columns. Reset explicitly so a
+            // stale pointing-hand cursor cannot leak into the editor.
+            NSCursor.arrow.set()
         }
     }
 
@@ -3797,12 +4574,66 @@ final class LineNumberGutterView: NSView {
             NSCursor.pointingHand.set()
             return
         }
+        if isBreakpointTarget(at: point) {
+            NSCursor.pointingHand.set()
+            return
+        }
         super.cursorUpdate(with: event)
     }
 
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         updateFoldHover(at: nil)
+        updateBreakpointHover(at: nil)
+        toolTip = nil
+    }
+
+    private func updateBreakpointHover(at point: NSPoint?) {
+        let nextLine = point.flatMap { point -> Int? in
+            guard !isBlameVisible,
+                  isBreakpointTarget(at: point),
+                  let line = editorLine(at: point),
+                  canAddDebugBreakpoint?(line) == true else { return nil }
+            return line
+        }
+        guard hoveredDebugBreakpointLine != nextLine else { return }
+        hoveredDebugBreakpointLine = nextLine
+        needsDisplay = true
+    }
+
+    private func isBreakpointTarget(at point: NSPoint) -> Bool {
+        let localX = point.x - editorGutterOriginX
+        guard gutterLayout.breakpointInteractionRange.contains(localX),
+              let line = editorLine(at: point) else { return false }
+        if debugBreakpointStatesByLine[line] != nil { return true }
+        return canAddDebugBreakpoint?(line) == true
+    }
+
+    private func updateBreakpointToolTip(at point: NSPoint) {
+        let localX = point.x - editorGutterOriginX
+        guard gutterLayout.breakpointInteractionRange.contains(localX),
+              let line = editorLine(at: point) else {
+            toolTip = nil
+            return
+        }
+        if let state = debugBreakpointStatesByLine[line] {
+            let stateLabel: String
+            if !state.enabled {
+                stateLabel = "Breakpoint disabled"
+            } else {
+                stateLabel = state.verified ? "Breakpoint verified" : "Breakpoint not verified"
+            }
+            let detail = debugBreakpointMessagesByLine[line].map { " — \($0)" } ?? ""
+            toolTip = "Line \(line + 1): \(stateLabel)\(detail)"
+            return
+        }
+        guard canAddDebugBreakpoint?(line) == true else {
+            // A tooltip here is intentional: it explains why the same gutter
+            // gesture works on a method line but not on a comment or brace.
+            toolTip = "Line \(line + 1): Cannot set a Java breakpoint here"
+            return
+        }
+        toolTip = "Line \(line + 1): Click to set breakpoint"
     }
 
     private func updateFoldHover(at point: NSPoint?) {
@@ -3889,6 +4720,10 @@ final class LineNumberGutterView: NSView {
             for: NSPoint(x: textView.textContainerInset.width, y: documentY),
             in: textContainer
         )
+        guard glyphIndex < layoutManager.numberOfGlyphs else {
+            super.mouseDown(with: event)
+            return
+        }
         let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
         let source = textView.string as NSString
         let line = (textView as? CodeTextView)?.lineNumber(at: characterIndex, in: source)
@@ -3897,6 +4732,10 @@ final class LineNumberGutterView: NSView {
             if let blame = blameByLine[line] {
                 onSelectBlame?(blame)
             }
+            return
+        }
+        if !isBlameVisible, isBreakpointTarget(at: point) {
+            onToggleDebugBreakpoint?(line)
             return
         }
         let gitMarker = gitLineChangeMarkersByLine[line]
@@ -3918,8 +4757,6 @@ final class LineNumberGutterView: NSView {
             guard let marker = markers.first(where: { $0.direction == preferredDirection })
                 ?? markers.first else { return }
             onSelectImplementation?(marker)
-        case .breakpoint where !isBlameVisible:
-            onToggleDebugBreakpoint?(line)
         case .lineNumber, .breakpoint, nil:
             textView.window?.makeFirstResponder(textView)
             textView.setSelectedRange(NSRange(location: characterIndex, length: 0))
@@ -3929,6 +4766,25 @@ final class LineNumberGutterView: NSView {
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
         let localX = point.x - editorGutterOriginX
+        if gutterLayout.breakpointInteractionRange.contains(localX),
+           let line = editorLine(at: point) {
+            return debugBreakpointContextMenu(forLine: line)
+        }
+        if gutterLayout.lineNumberRange.contains(localX),
+           let line = editorLine(at: point),
+           onRunToCursor != nil {
+            contextGutterLine = line
+            let menu = NSMenu(title: "Editor Line")
+            let item = NSMenuItem(
+                title: "Run to Cursor",
+                action: #selector(runToCursorFromGutterMenu),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.isEnabled = isRunToCursorEnabled
+            menu.addItem(item)
+            return menu
+        }
         guard gutterLayout.gitChangeRange.contains(localX),
               let line = editorLine(at: point),
               let marker = gitLineChangeMarkersByLine[line] else {
@@ -3952,6 +4808,80 @@ final class LineNumberGutterView: NSView {
             menu.items.last?.target = self
         }
         return menu
+    }
+
+    func debugBreakpointContextMenu(forLine line: Int) -> NSMenu? {
+        contextDebugBreakpointLine = line
+        guard let state = debugBreakpointStatesByLine[line] else {
+            guard canAddDebugBreakpoint?(line) == true else { return nil }
+            let menu = NSMenu(title: "Breakpoint")
+            menu.addItem(
+                withTitle: "Set Breakpoint",
+                action: #selector(addDebugBreakpointFromMenu),
+                keyEquivalent: ""
+            )
+            menu.items.last?.target = self
+            return menu
+        }
+        let menu = NSMenu(title: "Breakpoint")
+        if onEditDebugBreakpoint != nil {
+            menu.addItem(
+                withTitle: "Edit Breakpoint…",
+                action: #selector(editDebugBreakpointFromMenu),
+                keyEquivalent: ""
+            )
+            menu.items.last?.target = self
+        }
+        let toggleTitle = state.enabled ? "Disable Breakpoint" : "Enable Breakpoint"
+        menu.addItem(
+            withTitle: toggleTitle,
+            action: #selector(toggleDebugBreakpointFromMenu),
+            keyEquivalent: ""
+        )
+        menu.items.last?.target = self
+        menu.addItem(
+            withTitle: "Remove Breakpoint",
+            action: #selector(removeDebugBreakpointFromMenu),
+            keyEquivalent: ""
+        )
+        menu.items.last?.target = self
+        if onToggleAllDebugBreakpoints != nil {
+            menu.addItem(.separator())
+            menu.addItem(
+                withTitle: areBreakpointsMuted
+                    ? "Unmute All Breakpoints" : "Mute All Breakpoints",
+                action: #selector(toggleAllDebugBreakpointsFromMenu),
+                keyEquivalent: ""
+            )
+            menu.items.last?.target = self
+        }
+        return menu
+    }
+
+    @objc func editDebugBreakpointFromMenu() {
+        if let line = contextDebugBreakpointLine { onEditDebugBreakpoint?(line) }
+    }
+
+    @objc func addDebugBreakpointFromMenu() {
+        if let line = contextDebugBreakpointLine { onToggleDebugBreakpoint?(line) }
+    }
+
+    @objc private func toggleDebugBreakpointFromMenu() {
+        guard let line = contextDebugBreakpointLine,
+              let state = debugBreakpointStatesByLine[line] else { return }
+        onSetDebugBreakpointEnabled?(line, !state.enabled)
+    }
+
+    @objc private func removeDebugBreakpointFromMenu() {
+        if let line = contextDebugBreakpointLine { onRemoveDebugBreakpoint?(line) }
+    }
+
+    @objc private func toggleAllDebugBreakpointsFromMenu() {
+        onToggleAllDebugBreakpoints?()
+    }
+
+    @objc private func runToCursorFromGutterMenu() {
+        if let contextGutterLine { onRunToCursor?(contextGutterLine) }
     }
 
     private func editorLine(at point: NSPoint) -> Int? {
@@ -4177,6 +5107,103 @@ final class CodeVisionOverlayController {
         button.sizeToFit()
         return ceil(button.frame.width)
     }
+}
+
+@MainActor
+final class DebugInlineValueOverlayController {
+    private weak var textView: NSTextView?
+    private var label: NSTextField?
+    private(set) var renderedText: String?
+    private(set) var renderedFrame: NSRect?
+
+    init(textView: NSTextView) {
+        self.textView = textView
+    }
+
+    func update(line: Int?, values: [EditorInlineDebugValue]) {
+        label?.removeFromSuperview()
+        label = nil
+        renderedText = nil
+        renderedFrame = nil
+        guard let line,
+              !values.isEmpty,
+              let textView,
+              let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else { return }
+        layoutManager.ensureLayout(for: textContainer)
+        let source = textView.string as NSString
+        let lineStart = characterOffset(forLine: line, in: source)
+        guard lineStart < source.length else { return }
+        let lineRange = source.lineRange(for: NSRange(location: lineStart, length: 0))
+        var contentEnd = NSMaxRange(lineRange)
+        while contentEnd > lineRange.location {
+            let character = source.character(at: contentEnd - 1)
+            guard character == 10 || character == 13 else { break }
+            contentEnd -= 1
+        }
+        guard contentEnd > lineRange.location else { return }
+        let lastCharacter = max(lineRange.location, contentEnd - 1)
+        let lastGlyph = layoutManager.glyphIndexForCharacter(at: lastCharacter)
+        var visualLineGlyphRange = NSRange()
+        let lineRect = layoutManager.lineFragmentRect(
+            forGlyphAt: lastGlyph,
+            effectiveRange: &visualLineGlyphRange
+        )
+        let contentGlyphRange = layoutManager.glyphRange(
+            forCharacterRange: NSRange(
+                location: lineRange.location,
+                length: contentEnd - lineRange.location
+            ),
+            actualCharacterRange: nil
+        )
+        let visibleContentRange = NSIntersectionRange(contentGlyphRange, visualLineGlyphRange)
+        guard visibleContentRange.length > 0 else { return }
+        let contentRect = layoutManager.boundingRect(
+            forGlyphRange: visibleContentRange,
+            in: textContainer
+        )
+        let text = values.map { "\($0.name) = \($0.value)" }.joined(separator: "   ")
+        let label = DebugInlineValueLabel(labelWithString: text)
+        label.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        label.textColor = NSColor.secondaryLabelColor.withAlphaComponent(0.82)
+        label.lineBreakMode = .byTruncatingTail
+        label.maximumNumberOfLines = 1
+        label.toolTip = text
+        label.sizeToFit()
+        let originX = textView.textContainerOrigin.x + contentRect.maxX + 12
+        let availableWidth = max(0, textView.bounds.width - originX - 12)
+        guard availableWidth >= 24 else { return }
+        let height = max(16, label.fittingSize.height)
+        label.frame = NSRect(
+            x: originX,
+            y: textView.textContainerOrigin.y + lineRect.midY - height / 2,
+            width: min(label.fittingSize.width, availableWidth),
+            height: height
+        )
+        label.isSelectable = false
+        label.isEditable = false
+        textView.addSubview(label)
+        self.label = label
+        renderedText = text
+        renderedFrame = label.frame
+    }
+
+    private func characterOffset(forLine line: Int, in source: NSString) -> Int {
+        if let codeTextView = textView as? CodeTextView {
+            return codeTextView.characterOffset(forLine: line, in: source)
+        }
+        var currentLine = 0
+        var location = 0
+        while currentLine < line, location < source.length {
+            location = NSMaxRange(source.lineRange(for: NSRange(location: location, length: 0)))
+            currentLine += 1
+        }
+        return location
+    }
+}
+
+private final class DebugInlineValueLabel: NSTextField {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 @MainActor

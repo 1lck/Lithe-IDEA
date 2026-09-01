@@ -19,12 +19,8 @@ extension ProjectRuntimeService: LanguageToolRuntimePort {
 }
 
 extension ProjectRuntimeService: MavenRuntimePort {
-    package func mavenExecutable(for project: MavenProject) -> URL? {
-        mavenExecutable(for: project, overridePath: nil)
-    }
-
-    package func mavenProcessEnvironment() -> [String: String] {
-        environment(for: .maven)
+    package func mavenProcessEnvironment(javaHomePath: String?) -> [String: String] {
+        environment(for: .maven, javaHomeOverride: javaHomePath)
     }
 }
 
@@ -213,22 +209,6 @@ final class ProjectRuntimeService: ObservableObject {
         return message
     }
 
-    func jdbExecutableURL(
-        overridePath: String? = nil,
-        for processKind: ProjectRuntimeProcessKind = .java
-    ) -> URL? {
-        let home = processKind == .maven
-            ? mavenJavaHomeURL(overridePath: overridePath)
-            : javaHomeURL(overridePath: overridePath)
-        if let home {
-            let candidate = home.appendingPathComponent("bin/jdb")
-            if runtimeLocator.isExecutable(at: candidate) {
-                return candidate
-            }
-        }
-        return runtimeLocator.systemJDBExecutable()
-    }
-
     func mavenJavaHomeURL(overridePath: String? = nil) -> URL? {
         if let overridePath {
             let normalizedPath = normalizedOverridePath(overridePath)
@@ -321,34 +301,17 @@ final class ProjectRuntimeService: ObservableObject {
                 status: .jdkMissing,
                 projectURL: projectURL,
                 javaHomePath: nil,
-                javaExecutablePath: nil,
-                jdbExecutablePath: runtimeLocator.systemJDBExecutable()?.path
+                javaExecutablePath: nil
             )
             return
         }
 
         let javaExecutable = javaHome.appendingPathComponent("bin/java")
-        let bundledJDB = javaHome.appendingPathComponent("bin/jdb")
-        let jdbExecutable = runtimeLocator.isExecutable(at: bundledJDB)
-            ? bundledJDB
-            : runtimeLocator.systemJDBExecutable()
-        guard let jdbExecutable else {
-            javaEnvironmentReport = JavaEnvironmentReport(
-                status: .jdbMissing,
-                projectURL: projectURL,
-                javaHomePath: javaHome.path,
-                javaExecutablePath: javaExecutable.path,
-                jdbExecutablePath: nil
-            )
-            return
-        }
-
         javaEnvironmentReport = JavaEnvironmentReport(
             status: .ready,
             projectURL: projectURL,
             javaHomePath: javaHome.path,
-            javaExecutablePath: javaExecutable.path,
-            jdbExecutablePath: jdbExecutable.path
+            javaExecutablePath: javaExecutable.path
         )
     }
 
@@ -377,14 +340,13 @@ final class ProjectRuntimeService: ObservableObject {
             let resolved = configured.hasPrefix("/")
                 ? URL(fileURLWithPath: configured)
                 : rootURL.appendingPathComponent(configured)
-            let candidates = [
-                resolved,
-                resolved.appendingPathComponent("bin/mvn")
-            ]
-            if let candidate = candidates.first(where: { runtimeLocator.isExecutable(at: $0.standardizedFileURL) }) {
-                return candidate.standardizedFileURL
+            let standardized = resolved.standardizedFileURL
+            if runtimeLocator.isExecutable(at: standardized) {
+                return standardized
             }
-            return nil
+            return runtimeLocator.mavenExecutable(
+                forHomePath: standardized.path
+            )
         }
         let wrapper = rootURL.appendingPathComponent("mvnw")
         if runtimeLocator.isExecutable(at: wrapper) {

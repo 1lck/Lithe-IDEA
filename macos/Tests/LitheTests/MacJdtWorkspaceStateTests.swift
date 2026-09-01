@@ -5,16 +5,16 @@ import Testing
 @Suite("macOS JDT LS workspace state")
 struct MacJdtWorkspaceStateTests {
     @Test
-    func fingerprintIncludesVersionWithoutRootBuildFiles() throws {
+    func fingerprintIncludesLanguageServerVersionAndInstallationPath() throws {
         let fixture = try makeFixture()
         defer { fixture.remove() }
 
         let state = MacJdtWorkspaceState(
             cacheDirectoryURL: fixture.cacheURL,
-            workspaceFingerprintResolver: { buildFiles, modules, version in
+            workspaceFingerprintResolver: { buildFiles, modules, identity in
                 #expect(buildFiles.isEmpty)
                 #expect(modules.isEmpty)
-                #expect(version == "7.6.5")
+                #expect(identity == "7.6.5|installation=\(fixture.executableURL.path)")
                 return "core-fingerprint"
             },
             workspaceKeyResolver: { _, _ in String(repeating: "a", count: 64) }
@@ -90,7 +90,7 @@ struct MacJdtWorkspaceStateTests {
         )
 
         #expect(Set(capture.last?.modules ?? []) == Set(["alpha", "zeta"]))
-        #expect(capture.last?.version == "7.6.5")
+        #expect(capture.last?.version == "7.6.5|installation=\(fixture.executableURL.path)")
     }
 
     @Test

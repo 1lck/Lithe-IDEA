@@ -5,7 +5,7 @@
       "id": "java",
       "displayName": "Java",
       "fileExtensions": ["java"],
-      "capabilities": ["run", "languageServer", "formatting", "testing"],
+      "capabilities": ["run", "languageServer", "debugAdapter", "formatting", "testing"],
       "activationPolicy": "onDemand",
       "languageId": "java",
       "languageServerLaunch": {

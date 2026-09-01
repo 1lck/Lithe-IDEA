@@ -37,6 +37,16 @@ export function toggleRunPane(): void {
   }
 }
 
+export function toggleMavenPane(): void {
+  const state = useUIState.getState();
+  if (state.isBottomPaneVisible && state.bottomPaneActiveTab === "maven") {
+    state.setIsBottomPaneVisible(false);
+  } else {
+    state.setBottomPaneActiveTab("maven");
+    state.setIsBottomPaneVisible(true);
+  }
+}
+
 export function toggleTerminalPane(): void {
   const state = useUIState.getState();
   if (state.isBottomPaneVisible && state.bottomPaneActiveTab === "terminal") {

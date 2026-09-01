@@ -1,0 +1,140 @@
+{
+  "version": 1,
+  "session": {
+    "sessionId": "contract-debug-session",
+    "adapterId": "java",
+    "rootPath": "/workspace"
+  },
+  "launch": {
+    "operationId": "launch-main",
+    "configuration": {
+      "name": "Main",
+      "request": "launch",
+      "arguments": {
+        "mainClass": "example.Main"
+      }
+    }
+  },
+  "breakpoints": {
+    "sourcePath": "/workspace/src/main/java/example/Main.java",
+    "values": [
+      {
+        "line": 12,
+        "enabled": true,
+        "condition": "value > 1",
+        "hitCondition": "3",
+        "logMessage": "value = {value}"
+      },
+      {
+        "line": 14,
+        "enabled": false
+      }
+    ]
+  },
+  "exceptionBreakpoints": {
+    "values": [
+      {
+        "filter": "caught",
+        "enabled": true,
+        "condition": "example.CustomException"
+      },
+      {
+        "filter": "uncaught",
+        "enabled": false
+      }
+    ]
+  },
+  "functionBreakpoints": {
+    "values": [
+      {
+        "name": "example.Main.run",
+        "enabled": true,
+        "condition": "ready",
+        "hitCondition": "2"
+      },
+      {
+        "name": "example.Main.skip",
+        "enabled": false
+      }
+    ]
+  },
+  "dataBreakpointInfo": {
+    "operationId": "field-count",
+    "name": "count",
+    "variablesReference": 42,
+    "frameId": 7
+  },
+  "dataBreakpoints": {
+    "values": [
+      {
+        "dataId": "field:count",
+        "label": "Main.count",
+        "enabled": true,
+        "accessType": "write",
+        "condition": "count > 1",
+        "hitCondition": "2"
+      }
+    ]
+  },
+  "setVariable": {
+    "operationId": "set-count",
+    "variablesReference": 42,
+    "name": "count",
+    "value": "7"
+  },
+  "adapterMessages": {
+    "initializeResponse": {
+      "seq": 101,
+      "type": "response",
+      "request_seq": 1,
+      "success": true,
+      "command": "initialize",
+      "body": {
+        "supportsConfigurationDoneRequest": true,
+        "supportsConditionalBreakpoints": true,
+        "supportsHitConditionalBreakpoints": true,
+        "supportsLogPoints": true,
+        "supportsFunctionBreakpoints": true,
+        "supportsDataBreakpoints": true,
+        "supportsSetVariable": true,
+        "supportsCancelRequest": true,
+        "supportsSingleThreadExecutionRequests": true,
+        "supportsRestartRequest": true,
+        "supportsExceptionInfoRequest": true,
+        "supportsExceptionFilterOptions": true,
+        "exceptionBreakpointFilters": [
+          {
+            "filter": "caught",
+            "label": "Caught Exceptions",
+            "default": false,
+            "supportsCondition": true
+          },
+          {
+            "filter": "uncaught",
+            "label": "Uncaught Exceptions",
+            "default": true,
+            "supportsCondition": false
+          }
+        ]
+      }
+    },
+    "initializedEvent": {
+      "seq": 102,
+      "type": "event",
+      "event": "initialized"
+    }
+  },
+  "expected": {
+    "createState": "initializing",
+    "createCommand": "initialize",
+    "postInitializeState": "launching",
+    "postInitializeCommand": "launch",
+    "configurationCommands": [
+      "setExceptionBreakpoints",
+      "setFunctionBreakpoints",
+      "setDataBreakpoints",
+      "setBreakpoints",
+      "configurationDone"
+    ]
+  }
+}

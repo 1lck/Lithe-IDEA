@@ -1,5 +1,6 @@
 import Foundation
 import LitheCoreContracts
+import LitheDebugModule
 
 /// Product-level availability switches for integrations that require external
 /// credentials or services. Keeping these switches in one place lets the UI
@@ -27,6 +28,16 @@ struct WorkbenchNotification: Identifiable, Equatable {
         self.message = message
         self.createdAt = createdAt
         self.isRead = isRead
+    }
+}
+
+struct DebugBreakpointPresentationState {
+    var isManagerPresented = false
+    var pendingEditor: GenericDebugBreakpoint?
+
+    mutating func reset() {
+        isManagerPresented = false
+        pendingEditor = nil
     }
 }
 
@@ -83,12 +94,20 @@ typealias ProjectItemDeletionRequest = LitheCoreContracts.ProjectItemDeletionReq
 enum FindNotificationKeys {
     static let query = "query"
     static let direction = "direction"
+    static let matchCase = "matchCase"
+    static let wholeWords = "wholeWords"
+    static let regularExpression = "regularExpression"
+    static let replacement = "replacement"
+    /// 替换通知的目标文档标识；接收编辑器必须与之匹配才执行替换。
+    static let documentID = "documentID"
 }
 
 extension Notification.Name {
     static let litheFindQueryChanged = Notification.Name("litheFindQueryChanged")
     static let litheFindNavigate = Notification.Name("litheFindNavigate")
     static let litheFindDismiss = Notification.Name("litheFindDismiss")
+    static let litheFindReplaceNext = Notification.Name("litheFindReplaceNext")
+    static let litheFindReplaceAll = Notification.Name("litheFindReplaceAll")
 }
 
 struct ProjectTreeRevealRequest: Equatable {

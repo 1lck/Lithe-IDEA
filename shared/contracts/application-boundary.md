@@ -29,8 +29,8 @@ verification scripts are the executable source of boundary checks.
 | GitHub | remote parsing, trusted request plans, normalized branch comparisons and pull requests/reviews/comments, deterministic ordering, and stable errors | OAuth configuration, HTTPS, browser opening, and operating-system credential storage |
 | Runtime | Java/Maven requirements, normalized candidates, and effective toolchain references | JDK/Maven probing and executable paths |
 | Language tooling | provider catalog, local fallback results, complete LSP process/session runtime, capabilities, diagnostics, UTF-16 edits, and normalized feature results | executable/environment discovery and UI provider routing |
-| Java/Maven/Spring | deterministic Maven-root selection, project structure, modules and profiles; compiler diagnostic parsing; Java source structure, symbols, code vision, run-configuration detection, Spring configuration/bean/endpoint indexing, and JDTLS adapter policy | JDK/Maven discovery, local dependency-repository selection, Java/Maven child processes, sockets, and JDB transport |
-| Run/Debug | versioned configuration documents, three-layer resolution, diagnostics, and platform-neutral launch plans | project file persistence, child processes, sockets, and JDB transport |
+| Java/Maven/Spring | deterministic Maven-root selection, project structure, modules and profiles; compiler diagnostic parsing; Java source structure, symbols, code vision, run-configuration detection, Spring configuration/bean/endpoint indexing, and JDTLS/Java Debug adapter policy | JDK/Maven discovery, local dependency-repository selection, Java/Maven child processes, and sockets |
+| Run/Debug | versioned configuration documents, three-layer resolution, diagnostics, platform-neutral launch plans, DAP framing/state, reverse terminal requests, breakpoint relocation, stepping filters, threads, stacks, variables, and events | project and preference persistence, native edit reporting, adapter discovery, PTY/ConPTY debuggee launch, child processes, sockets, native termination, and UI |
 | Terminal | input bytes, output bytes, lifecycle | PTY/ConPTY, shell and environment |
 | Workbench background | versioned source (`none`, bundled slot `01`–`10`, or `custom`) and opacity | UI, image rendering, bundled-resource packaging, local-image access permission and persistence |
 | Local History | revision metadata, text content, restore result | persistence location and file operations |
@@ -143,12 +143,32 @@ preparing, ready, failure, and timeout notifications; a navigation command while
 preparing ends after the notice and is never replayed later.
 
 macOS and Windows adapters discover the selected JDT LS installation's Equinox
-launcher JAR, platform configuration directory, Lombok agent, and bundled Java
-executable. They submit those paths as structured launch resources; Rust Core
-owns the JVM flags and directly starts `java`/`java.exe` with array arguments.
-Packaged JDT LS therefore has no runtime dependency on shell wrappers,
-PowerShell, or the user's `PATH`. Legacy wrappers are an external-plan
-compatibility fallback and are not the packaged execution path.
+launcher JAR, platform configuration directory, Lombok agent, Java Debug
+Server, and bundled Java executable. Java Test-capable adapters additionally
+submit ordered extension bundles; Rust Core owns their ordering and
+de-duplication, the JVM flags, and direct `java`/`java.exe` startup with array
+arguments. The macOS TestNG runner remains a packaged native resource used only
+when a TestNG session starts. Packaged JDT LS therefore has no runtime dependency
+on shell wrappers, PowerShell, or the user's `PATH`. Legacy wrappers are an
+external-plan compatibility fallback and are not the packaged execution path.
+
+Java test discovery remains a language-service workflow rather than a UI or
+Debug Core parser. When the Tests tool window is opened or refreshed, the
+language facade asks the Java Test extension for each candidate source file's
+class and method tree, then projects stable fully qualified identifiers into
+the native list. Closing the tool window, changing workspace, or reloading the
+Java runtime cancels the owning discovery operation; late results cannot replace
+the current workspace's tree. Discovery does not create a Debug session, result
+socket, adapter connection, or target JVM.
+
+Starting one JUnit or TestNG file, class, or method creates a short-lived native
+loopback result listener on demand. JDT LS owns project/test metadata, Rust Core
+owns deterministic DAP launch argument projection, and the Debug module owns the
+adapter session. Repeated launch, stop, project close, runtime reload, and launch
+failure all cancel the active operation and release the listener. The selected
+Run configuration remains the source of project-scoped Java runtime selection;
+JDT LS remains authoritative for the test runner classpath, working directory,
+and test-specific VM and program arguments.
 
 Platforms observe JDT LS version and non-recursive build-file metadata, while
 Rust Core alone validates and reduces those observations to the opaque workspace
@@ -178,6 +198,45 @@ is then supported or unsupported. Failures retain stable `code`, `stage`, exit
 code, and diagnostic detail across the Rust, Swift, and TypeScript boundaries.
 Domain and adapter layers return stable reasons rather than user-facing prose;
 each product's presentation layer owns localized notification text.
+
+Debugger stepping policy is portable. Rust Core owns adapter defaults,
+normalization, validation, adapter launch projection, and the `isFiltered`
+classification on normalized stack frames. Platform products own preference
+persistence and decide whether matching consecutive frames are collapsed or
+expanded in their native call-stack UI. No Debug session, adapter process, or
+background task is created merely because stepping preferences exist.
+
+Exception pause metadata is portable when the adapter advertises the standard
+exception-information request. Rust Core normalizes the exception type,
+description, break mode, stack trace, evaluation name, and nested details;
+native products decide how that data is presented beside the current frame's
+ordinary scopes and variables. An adapter that supplies no object reference
+does not make the exception itself expandable through this contract.
+
+Debugger variable paging is portable. Rust Core owns the standard DAP
+`filter`, zero-based `start`, and positive `count` request projection and
+normalizes adapter-reported `namedVariables` and `indexedVariables` counts to
+non-negative values. Native products own tree expansion and page-size policy;
+the macOS reference product loads at most 100 children per request, appends
+named children before indexed children, exposes an in-tree load-more action,
+and discards stale pages after the selected frame changes. A native client must
+also stop offering more pages when an adapter returns more children than were
+requested or repeats an already loaded page.
+
+Debugger terminal launch ownership is split at the native boundary. Rust Core
+advertises terminal support, validates and normalizes DAP `runInTerminal`
+reverse requests, correlates the platform response, and rejects stale or
+duplicate completions. The platform Terminal module owns PTY/ConPTY creation,
+direct executable-and-argument startup, environment application, process IDs,
+terminal presentation, and native termination. A Debug session is still lazy:
+neither a terminal nor a debuggee process exists until an adapter requests one.
+
+Debugger disconnect ownership is portable. A session started with `launch`
+owns its local debuggee and sends `terminateDebuggee: true` when stopping. A
+session started with `attach` does not own the remote JVM and sends
+`terminateDebuggee: false`; closing the native transport must therefore detach
+without killing the remote process. A session stopped before launch or attach
+also uses the non-terminating policy.
 
 For JDT LS, the standard initialize handshake and project-import readiness use
 separate Core-owned deadlines. Project import fails only after 45 seconds
@@ -247,3 +306,29 @@ Runtime consumption is declared by the detector from the actual command rather
 than inferred from the provider namespace. An automatically discovered runtime
 path is session-effective: validation and launch share it, but persistence
 still requires an explicit user selection.
+
+Maven tool-window execution uses `maven.launchPlan`; platform views do not
+assemble Maven arguments. Portable profile and Skip Tests defaults conform to
+[`maven-portable-configuration-v1.schema.json`](maven-portable-configuration-v1.schema.json).
+The transient Core request conforms to
+[`maven-launch-context-v1.schema.json`](maven-launch-context-v1.schema.json).
+External `settings.xml`, Maven executable, and Maven JDK paths remain in a
+machine-local store. They may be supplied transiently to Core for planning and
+fingerprinting, but Core never opens `settings.xml` or serializes those paths
+into the portable project context.
+
+The Java language-server startup consumes that same context. Core exposes the
+selected `settings.xml` to JDT LS as
+`java.configuration.maven.userSettings`, then applies the sorted Profile set
+to the reactor and every recursively declared Maven module after JDT LS
+reports `ServiceReady`. The Java session remains `initializing` until those
+project updates all succeed; a rejected or timed-out update fails the session
+instead of silently retaining the previous Maven model.
+
+Maven-backed Run and Debug launch planning consumes the current project Maven
+context. A Run Configuration's explicit Profiles and toolchain paths take
+precedence; explicit `cwd` and `extensions.maven.skipTests` values also take
+precedence, including `skipTests: false`. Unset values inherit the project
+settings. The shared Core applies the final Maven argument order for all three
+entry points. Tool-window module launches add `-am`; Run and Debug retain their
+existing `-pl <module>` behavior without implicitly building dependencies.

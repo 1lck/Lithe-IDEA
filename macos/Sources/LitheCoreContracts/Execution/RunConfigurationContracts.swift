@@ -47,8 +47,28 @@ package struct ProjectRunConfigurationInspection: Equatable, Sendable {
     }
 }
 
+package enum ProjectLoadState: Equatable, Sendable {
+    case idle
+    case loading(workspace: URL)
+    case bound(workspace: URL)
+    case ready(workspace: URL, snapshotID: UUID)
+    case failed(workspace: URL, message: String)
+
+    package func isReady(for workspace: URL, snapshotID: UUID? = nil) -> Bool {
+        guard case .ready(let boundWorkspace, let boundSnapshotID) = self,
+              boundWorkspace == workspace.standardizedFileURL else { return false }
+        return snapshotID.map { $0 == boundSnapshotID } ?? true
+    }
+
+    package func hasReadyInventory(for workspace: URL) -> Bool {
+        guard case .ready(let boundWorkspace, _) = self else { return false }
+        return boundWorkspace == workspace.standardizedFileURL
+    }
+}
+
 package enum RunConfigurationGenerationState: Equatable, Sendable {
     case idle
+    case projectNotReady
     case succeeded(entryCount: Int)
     case noEntries
     case failed(String)
@@ -221,6 +241,14 @@ package protocol RunConfigurationOperations: Sendable {
         classPath: String?,
         debugPort: Int?
     ) throws -> SharedLaunchPlan
+    func launchPlan(
+        at projectURL: URL,
+        configurationID: String,
+        currentFile: String?,
+        classPath: String?,
+        debugPort: Int?,
+        mavenContext: MavenLaunchContext?
+    ) throws -> SharedLaunchPlan
     func saveEditorChanges(
         _ options: RunOptions,
         toolchain: ProjectToolchainSelection,
@@ -233,6 +261,23 @@ package protocol RunConfigurationOperations: Sendable {
 }
 
 package extension RunConfigurationOperations {
+    func launchPlan(
+        at projectURL: URL,
+        configurationID: String,
+        currentFile: String?,
+        classPath: String?,
+        debugPort: Int?,
+        mavenContext _: MavenLaunchContext?
+    ) throws -> SharedLaunchPlan {
+        try launchPlan(
+            at: projectURL,
+            configurationID: configurationID,
+            currentFile: currentFile,
+            classPath: classPath,
+            debugPort: debugPort
+        )
+    }
+
     func saveEditorChanges(
         _: RunOptions,
         toolchain _: ProjectToolchainSelection,

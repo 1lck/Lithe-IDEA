@@ -66,7 +66,7 @@ enum JavaLanguageServerWorkspaceState {
     }
 }
 
-/// Owns Java-only code vision, Maven integration, and legacy Java debug behavior.
+/// Owns Java-only code vision and source structure behavior.
 /// Java LSP navigation and editing are delegated to the Rust host.
 @MainActor
 final class JavaFeatureModel: ObservableObject {
@@ -75,11 +75,7 @@ final class JavaFeatureModel: ObservableObject {
 
     private let operations: any JavaMavenOperations
     private var documentProvider: (@MainActor () -> EditorDocument?)?
-    private var caretProvider: (@MainActor () -> EditorCaret?)?
-    private var notify: (@MainActor (String) -> Void)?
     private var loadBlame: (@MainActor (URL) async -> [GitBlameLine])?
-    private var mavenFeature: MavenFeatureModel?
-    private var debugFeature: JavaDebugFeatureModel?
 
     init(operations: any JavaMavenOperations) {
         self.operations = operations
@@ -87,32 +83,16 @@ final class JavaFeatureModel: ObservableObject {
 
     func configure(
         documentProvider: @escaping @MainActor () -> EditorDocument?,
-        caretProvider: @escaping @MainActor () -> EditorCaret?,
-        notify: @escaping @MainActor (String) -> Void,
         loadBlame: @escaping @MainActor (URL) async -> [GitBlameLine]
     ) {
         self.documentProvider = documentProvider
-        self.caretProvider = caretProvider
-        self.notify = notify
         self.loadBlame = loadBlame
-    }
-
-    func configureRuntime(
-        mavenFeature: MavenFeatureModel?,
-        debugFeature: JavaDebugFeatureModel?
-    ) {
-        self.mavenFeature = mavenFeature
-        self.debugFeature = debugFeature
     }
 
     /// Explicit boundary for Java-only editor adornments and legacy services.
     /// Callers can avoid scheduling Java work for every supported language.
     func handles(fileURL: URL) -> Bool {
         fileURL.pathExtension.lowercased() == "java"
-    }
-
-    func supportsLegacyDebugging(fileURL: URL) -> Bool {
-        handles(fileURL: fileURL)
     }
 
     func stop() {
@@ -185,86 +165,6 @@ final class JavaFeatureModel: ObservableObject {
     var isLanguageServerPreparing: Bool {
         if case .preparing = languageServerWorkspaceState { return true }
         return false
-    }
-
-    @discardableResult
-    func startDebugging(
-        currentDocument: EditorDocument?,
-        workspaceURL: URL?,
-        runFeature: RunFeatureModel,
-        saveDocument: @escaping @MainActor (EditorDocument) throws -> Void,
-        recordSave: @escaping @MainActor (EditorDocument, String) -> Void
-    ) -> Bool {
-        guard let debugFeature else { return false }
-        if debugFeature.targetKind != .remote, let currentDocument, currentDocument.isDirty {
-            do {
-                let previousText = currentDocument.savedText
-                try saveDocument(currentDocument)
-                recordSave(currentDocument, previousText)
-            } catch {
-                notify?("Could not save \(currentDocument.url.lastPathComponent)")
-                return false
-            }
-        }
-        switch debugFeature.targetKind {
-        case .currentFile:
-            guard let currentDocument,
-                  currentDocument.url.pathExtension.lowercased() == "java" else {
-                notify?("Open a Java file before starting Debug")
-                return false
-            }
-            debugFeature.start(
-                fileURL: currentDocument.url,
-                sourceText: currentDocument.text,
-                projectURL: workspaceURL,
-                options: runFeature.options(for: .currentFile)
-            )
-        case .runConfiguration:
-            guard let configuration = runFeature.selectedConfiguration,
-                  configuration.kind.isMavenBacked else {
-                notify?("Select a Spring Boot or Maven Module configuration before starting Debug")
-                return false
-            }
-            guard let workspaceURL, let mavenProject = mavenFeature?.project else {
-                notify?("No Maven project is available for Debug")
-                return false
-            }
-            debugFeature.startMaven(
-                configuration: configuration,
-                project: mavenProject,
-                projectURL: workspaceURL,
-                options: runFeature.options(for: configuration)
-            )
-        case .remote:
-            debugFeature.attachRemote()
-        }
-        return true
-    }
-
-    func toggleDebugBreakpoint(
-        at fileURL: URL,
-        line: Int,
-        documents: [EditorDocument]
-    ) {
-        guard let debugFeature,
-              let document = documents.first(where: {
-                  $0.url.standardizedFileURL == fileURL.standardizedFileURL
-              }),
-              document.url.pathExtension.lowercased() == "java",
-              line > 0 else { return }
-        let className = debugFeature.className(for: document.url, sourceText: document.text)
-        debugFeature.toggleBreakpoint(fileURL: document.url, line: line, className: className)
-    }
-
-    func toggleDebugBreakpointAtCaret() {
-        guard let document = documentProvider?(),
-              let caret = caretProvider?(),
-              document.url.standardizedFileURL == caret.url.standardizedFileURL,
-              document.url.pathExtension.lowercased() == "java" else {
-            notify?("Place the caret in a Java file to set a breakpoint")
-            return
-        }
-        toggleDebugBreakpoint(at: document.url, line: caret.line + 1, documents: [document])
     }
 
     func close(_ document: EditorDocument) {

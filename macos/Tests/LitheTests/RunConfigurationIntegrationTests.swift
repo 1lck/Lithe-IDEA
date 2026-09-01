@@ -10,6 +10,57 @@ import Testing
 @MainActor
 struct RunConfigurationIntegrationTests {
     @Test
+    func portConflictTitleIncludesTheActualPortAndConfigurations() {
+        let conflict = RunPortConflict(
+            port: 18080,
+            configurationNames: ["api", "worker"]
+        )
+
+        #expect(conflict.title == "Port 18080 is used by api, worker")
+    }
+
+    @Test
+    func javaBreakpointLocationPreflightRejectsNonExecutableLines() {
+        let source = """
+        package demo;
+        // comment
+
+        public class Main {
+            /* block comment */
+            void run() {
+                System.out.println("ok");
+            }
+        }
+        """
+
+        #expect(!DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 2))
+        #expect(!DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 3))
+        #expect(!DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 5))
+        #expect(DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 7))
+        #expect(!DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 8))
+    }
+
+    @Test
+    func javaBreakpointLocationPreflightRejectsTypeDeclarationsWithAnyModifierOrder() {
+        let source = """
+        public final class Main {
+            private static interface Nested {
+                void run();
+            }
+            protected abstract record Value(String text) { }
+            static enum Kind { ONE }
+            void execute() { }
+        }
+        """
+
+        #expect(!DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 1))
+        #expect(!DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 2))
+        #expect(!DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 5))
+        #expect(!DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 6))
+        #expect(DebugBreakpointLocationValidator.isExecutableJavaLine(source: source, line: 7))
+    }
+
+    @Test
     func providerCapabilitiesKeepProcessEditorsLanguageNeutral() {
         let process = RunConfigurationKind.process(provider: "python.script").capabilities
         #expect(process.contains(.workingDirectory))
@@ -100,7 +151,7 @@ struct RunConfigurationIntegrationTests {
         #expect(go?.activationPolicy == .onDemand)
         #expect(go?.capabilities.contains(.languageServer) == true)
         #expect(go?.capabilities.contains(.debugAdapter) == true)
-        #expect(catalog.provider(for: URL(fileURLWithPath: "/tmp/Main.java"))?.capabilities.contains(.debugAdapter) == false)
+        #expect(catalog.provider(for: URL(fileURLWithPath: "/tmp/Main.java"))?.capabilities.contains(.debugAdapter) == true)
         if !RustCoreBridge().isAvailable {
             #expect(catalog.provider(for: URL(fileURLWithPath: "/tmp/Package.swift")) == nil)
             #expect(catalog.provider(for: URL(fileURLWithPath: "/tmp/Dockerfile")) == nil)
@@ -127,7 +178,7 @@ struct RunConfigurationIntegrationTests {
         #expect(registry.pack(id: "go")?.debugAdapterLaunch?.executableNames == ["dlv"])
         #expect(registry.pack(id: "python")?.debugAdapterLaunch?.adapterID == "python")
         #expect(registry.pack(id: "rust")?.debugAdapterLaunch?.fallbacks.first?.executableName == "xcrun")
-        #expect(registry.pack(id: "java")?.debugAdapterLaunch?.adapterID == "java")
+        #expect(registry.pack(id: "java")?.debugAdapterLaunch == nil)
         if !RustCoreBridge().isAvailable {
             #expect(providerIDSet == ["java", "go", "python", "node", "rust"])
             #expect(registry.catalog.provider(for: URL(fileURLWithPath: "/tmp/Dockerfile")) == nil)
@@ -243,7 +294,7 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func aFutureJavaDAPRuntimeCanOverrideTheLegacyDebugBoundary() throws {
+    func javaDAPRuntimeActivatesThroughTheSharedDebugBoundary() throws {
         let javaDescriptor = LanguageProviderDescriptor(
             id: "java",
             displayName: "Java",
@@ -286,12 +337,310 @@ struct RunConfigurationIntegrationTests {
             workspaceURL: root,
             configurations: [],
             selectedConfiguration: nil,
+            javaTarget: JavaDebugLaunchTarget(
+                mainClass: "service/com.acme.Main",
+                projectName: "service",
+                modulePaths: ["/tmp/java-project/modules"],
+                classPaths: ["/tmp/java-project/classes"]
+            ),
             options: { _ in RunOptions() }
         )
 
         #expect(configuration.request == .launch)
-        #expect(configuration.arguments["mainClass"] == .string("com.acme.Main"))
+        #expect(configuration.arguments["mainClass"] == .string("service/com.acme.Main"))
+        #expect(configuration.arguments["projectName"] == .string("service"))
+        #expect(configuration.arguments["modulePaths"] == .array([
+            .string("/tmp/java-project/modules"),
+        ]))
+        #expect(configuration.arguments["classPaths"] == .array([
+            .string("/tmp/java-project/classes"),
+        ]))
         #expect(configuration.arguments["cwd"] == .string(root.path))
+    }
+
+    @Test
+    func javaDebugReusesTheSelectedRunConfigurationOptions() throws {
+        let provider = try #require(LanguageProviderCatalog.standard.provider(
+            for: URL(fileURLWithPath: "/tmp/java-project/src/main/java/com/acme/Main.java")
+        ))
+        let root = URL(fileURLWithPath: "/tmp/java-project", isDirectory: true)
+        let selected = RunConfiguration(
+            id: "java-main:service",
+            name: "Service",
+            kind: .javaMain,
+            execution: .application,
+            modulePath: "service",
+            mainClass: "com.acme.ConfiguredMain"
+        )
+        let options = RunOptions(
+            workingDirectoryPath: "service",
+            vmArguments: "-Xmx1g -Dprofile=dev",
+            programArguments: "--port 8080",
+            environment: ["APP_ENV": "dev"]
+        )
+        let resolver = DebugLaunchConfigurationResolver(fileExists: { _ in true })
+        let configuration = try resolver.resolve(
+            provider: provider,
+            documentURL: root.appendingPathComponent("src/main/java/com/acme/Main.java"),
+            workspaceURL: root,
+            configurations: [selected],
+            selectedConfiguration: selected,
+            javaTarget: JavaDebugLaunchTarget(
+                mainClass: "com.acme.ResolvedByJdtls",
+                projectName: nil,
+                modulePaths: [],
+                classPaths: []
+            ),
+            options: { _ in options }
+        )
+
+        #expect(configuration.name == "Service")
+        #expect(configuration.arguments["mainClass"] == .string("com.acme.ConfiguredMain"))
+        #expect(configuration.arguments["cwd"] == .string(root.appendingPathComponent("service").path))
+        #expect(configuration.arguments["vmArgs"] == .string("-Xmx1g -Dprofile=dev"))
+        #expect(configuration.arguments["args"] == .string("--port 8080"))
+        #expect(configuration.arguments["env"] == .object(["APP_ENV": .string("dev")]))
+    }
+
+    @Test
+    func selectedSpringBootConfigurationResolvesItsMainSourceWithoutAnOpenJavaEditor() throws {
+        let root = URL(fileURLWithPath: "/workspace/demo", isDirectory: true)
+        let readme = root.appendingPathComponent("README.md")
+        let application = root.appendingPathComponent(
+            "src/main/java/com/example/demo/DemoApplication.java"
+        )
+        let controller = root.appendingPathComponent(
+            "src/main/java/com/example/demo/user/UserController.java"
+        )
+        let configuration = RunConfiguration(
+            id: "spring-boot:demo",
+            name: "DemoApplication",
+            kind: .springBoot,
+            execution: .service,
+            modulePath: nil,
+            mainClass: "com.example.demo.DemoApplication"
+        )
+
+        let source = DebugLaunchSourceResolver().resolve(
+            configuration: configuration,
+            activeDocumentURL: readme,
+            projectFiles: [controller, application, readme],
+            workspaceURL: root
+        )
+
+        #expect(source == application)
+    }
+
+    @Test
+    func selectedJavaConfigurationUsesItsModuleToDisambiguateDuplicateMainClasses() throws {
+        let root = URL(fileURLWithPath: "/workspace/multi-module", isDirectory: true)
+        let first = root.appendingPathComponent("first/src/main/java/com/acme/Main.java")
+        let second = root.appendingPathComponent("second/src/main/java/com/acme/Main.java")
+        let configuration = RunConfiguration(
+            id: "java-main:second",
+            name: "Second Main",
+            kind: .javaMain,
+            execution: .application,
+            modulePath: "second",
+            mainClass: "com.acme.Main"
+        )
+
+        let source = DebugLaunchSourceResolver().resolve(
+            configuration: configuration,
+            activeDocumentURL: first,
+            projectFiles: [first, second],
+            workspaceURL: root
+        )
+
+        #expect(source == second)
+    }
+
+    @Test
+    func currentFileDebugStillUsesTheActiveEditorDocument() throws {
+        let root = URL(fileURLWithPath: "/workspace/current-file", isDirectory: true)
+        let current = root.appendingPathComponent("src/main/java/com/acme/Main.java")
+        let other = root.appendingPathComponent("src/main/java/com/acme/Other.java")
+
+        let source = DebugLaunchSourceResolver().resolve(
+            configuration: .currentFile,
+            activeDocumentURL: current,
+            projectFiles: [other],
+            workspaceURL: root
+        )
+
+        #expect(source == current)
+    }
+
+    @Test
+    func debugFallsBackFromNonLaunchableCurrentJavaFileToSpringBootConfiguration() {
+        let current = RunConfiguration(
+            id: "current-file",
+            name: "Current File",
+            kind: .currentFile,
+            execution: .application,
+            modulePath: nil,
+            mainClass: nil
+        )
+        let springBoot = RunConfiguration(
+            id: "spring-boot:demo",
+            name: "DemoApplication",
+            kind: .springBoot,
+            execution: .service,
+            modulePath: nil,
+            mainClass: "com.example.demo.DemoApplication"
+        )
+
+        let selected = DebugLaunchSourceResolver().configurationForDebug(
+            selected: current,
+            activeDocumentText: "@Repository class UserRepository { }",
+            configurations: [current, springBoot]
+        )
+
+        #expect(selected.id == springBoot.id)
+    }
+
+    @Test
+    func debugFallsBackWhenCurrentEditorTextIsUnavailable() {
+        let current = RunConfiguration(
+            id: "current-file",
+            name: "Current File",
+            kind: .currentFile,
+            execution: .application,
+            modulePath: nil,
+            mainClass: nil
+        )
+        let springBoot = RunConfiguration(
+            id: "spring-boot:demo",
+            name: "DemoApplication",
+            kind: .springBoot,
+            execution: .service,
+            modulePath: nil,
+            mainClass: "com.example.demo.DemoApplication"
+        )
+
+        let selected = DebugLaunchSourceResolver().configurationForDebug(
+            selected: current,
+            activeDocumentText: nil,
+            configurations: [current, springBoot]
+        )
+
+        #expect(selected.id == springBoot.id)
+    }
+
+    @Test
+    func debugKeepsCurrentJavaFileWhenItHasAMainMethod() {
+        let current = RunConfiguration(
+            id: "current-file",
+            name: "Current File",
+            kind: .currentFile,
+            execution: .application,
+            modulePath: nil,
+            mainClass: nil
+        )
+        let springBoot = RunConfiguration(
+            id: "spring-boot:demo",
+            name: "DemoApplication",
+            kind: .springBoot,
+            execution: .service,
+            modulePath: nil,
+            mainClass: "com.example.demo.DemoApplication"
+        )
+
+        let selected = DebugLaunchSourceResolver().configurationForDebug(
+            selected: current,
+            activeDocumentText: "public static void main(String[] args) { }",
+            configurations: [current, springBoot]
+        )
+
+        #expect(selected.id == current.id)
+    }
+
+    @Test
+    func javaTestDebugLaunchUsesTheSharedRustConfiguration() throws {
+        let core = RustCoreBridge()
+        guard core.isAvailable else { return }
+        let target = JavaTestDebugLaunchTarget(
+            fileURL: URL(fileURLWithPath: "/workspace/UserServiceTest.java"),
+            name: "UserServiceTest",
+            framework: .testng,
+            workingDirectory: "/workspace",
+            mainClass: "com.microsoft.java.test.runner.Launcher",
+            projectName: "service",
+            classPaths: ["/workspace/classes"],
+            modulePaths: [],
+            vmArguments: [],
+            programArguments: [],
+            testNGRunnerPath: "/lithe/java-test-runner.jar",
+            testNGTestNames: ["example.UserServiceTest#logsIn"]
+        )
+        let resolver = DebugLaunchConfigurationResolver(
+            fileExists: { _ in true },
+            javaTestLaunchResolver: core
+        )
+
+        let configuration = try resolver.resolveJavaTest(target: target, resultPort: 43_128)
+
+        #expect(configuration.name == "UserServiceTest")
+        #expect(configuration.request == .launch)
+        #expect(
+            configuration.arguments["mainClass"]
+                == .string("com.microsoft.java.test.runner.Launcher")
+        )
+        #expect(configuration.arguments["classPaths"] == .array([
+            .string("/workspace/classes"),
+            .string("/lithe/java-test-runner.jar"),
+        ]))
+        #expect(
+            configuration.arguments["args"]
+                == .string("43128 testng example.UserServiceTest#logsIn")
+        )
+    }
+
+    @Test
+    func sourceBreakpointRelocationUsesTheSharedRustCore() throws {
+        let core = RustCoreBridge()
+        guard core.isAvailable else { return }
+        let source = "class Main {\n    void run() {}\n}\n"
+
+        let breakpoints = try core.relocateDebugBreakpoints(
+            source: source,
+            edit: DebugSourceEdit(
+                startUTF16Offset: 13,
+                endUTF16Offset: 13,
+                replacement: "\n"
+            ),
+            breakpoints: [DebugSourceBreakpoint(
+                line: 2,
+                condition: "ready",
+                hitCondition: "3"
+            )]
+        )
+
+        #expect(breakpoints == [DebugSourceBreakpoint(
+            line: 3,
+            condition: "ready",
+            hitCondition: "3"
+        )])
+    }
+
+    @Test
+    func javaAttachUsesTheSharedDAPSessionWithValidatedEndpointArguments() throws {
+        let resolver = DebugLaunchConfigurationResolver(fileExists: { _ in true })
+
+        let configuration = try resolver.resolveJavaAttach(host: "  localhost ", port: 5005)
+
+        #expect(configuration.name == "localhost:5005")
+        #expect(configuration.request == .attach)
+        #expect(configuration.arguments == [
+            "hostName": .string("localhost"),
+            "port": .integer(5005)
+        ])
+        #expect(throws: DebugLaunchConfigurationResolutionError.invalidJavaAttachHost) {
+            try resolver.resolveJavaAttach(host: "  ", port: 5005)
+        }
+        #expect(throws: DebugLaunchConfigurationResolutionError.invalidJavaAttachPort) {
+            try resolver.resolveJavaAttach(host: "localhost", port: 65_536)
+        }
     }
 
     @Test
@@ -327,7 +676,7 @@ struct RunConfigurationIntegrationTests {
         )
         #expect(lldbCandidates.first?.source == .xcode)
         #expect(discovery.guidance(for: "java-debug-adapter", projectURL: root, environment: [:])
-            .recovery.contains("LITHE_JAVA_DEBUG_PATH"))
+            .recovery.contains("bundled Java language and Debug Adapter resources"))
     }
 
     @Test
@@ -366,14 +715,59 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func legacyJavaDoesNotAcceptGenericDAPBreakpointsWithoutAnAdapter() throws {
+    func javaDAPBreakpointsCanBeStoredBeforeTheAdapterStarts() throws {
         let source = URL(fileURLWithPath: "/tmp/Main.java")
-        #expect(throws: DebugProviderError.noProvider(fileExtension: "java")) {
-            try DebugAdapterSessionManager(providers: LanguageProviderCatalog.standard.debugProviders) { _, _ in nil }.setBreakpoints(
-                [DebugSourceBreakpoint(line: 1)],
-                in: source
+        let manager = DebugAdapterSessionManager(
+            providers: LanguageProviderCatalog.standard.debugProviders
+        ) { _, _ in nil }
+
+        try manager.setBreakpoints([DebugSourceBreakpoint(line: 1)], in: source)
+
+        #expect(manager.provider(for: source)?.id == "java")
+        #expect(manager.activeAdapterIDs.isEmpty)
+    }
+
+    @Test
+    func restoredJavaBreakpointInAnotherSourceIsSentWhenDebugStarts() throws {
+        let root = URL(fileURLWithPath: "/tmp/restored-java-debug", isDirectory: true)
+        let launchSource = root.appendingPathComponent("src/main/java/demo/DemoApplication.java")
+        let breakpointSource = root.appendingPathComponent("src/main/java/demo/UserController.java")
+        let persistence = RestoredBreakpointPersistence(snapshot: DebugBreakpointSnapshot(
+            breakpoints: [PersistedDebugBreakpoint(
+                relativePath: "src/main/java/demo/UserController.java",
+                line: 23
+            )]
+        ))
+        var adapter: TestDebugAdapterSession?
+        let manager = DebugAdapterSessionManager(
+            providers: LanguageProviderCatalog.standard.debugProviders,
+            makeSession: { _, _ in
+                let value = TestDebugAdapterSession()
+                adapter = value
+                return value
+            }
+        )
+        let feature = GenericDebugFeatureModel(
+            sessions: manager,
+            breakpointPersistence: persistence
+        )
+        feature.openWorkspace(at: root)
+
+        let started = feature.start(
+            fileURL: launchSource,
+            rootURL: root,
+            configuration: DebugLaunchConfiguration(
+                name: "DemoApplication",
+                request: .launch,
+                arguments: [:]
             )
-        }
+        )
+
+        #expect(started)
+        let update = try #require(adapter?.breakpointUpdates.first(where: {
+            $0.0 == breakpointSource.standardizedFileURL
+        }))
+        #expect(update.1 == [DebugSourceBreakpoint(line: 23)])
     }
 
     @Test
@@ -418,6 +812,34 @@ struct RunConfigurationIntegrationTests {
         let javaPlan = try javaProvider.testPlan(scope: .file(files[0]), workspaceURL: root)
         #expect(javaPlan.launchPlan.toolchainID == "project-maven")
         #expect(javaPlan.launchPlan.arguments == ["-Dtest=UserServiceTest", "test"])
+
+        let gradleMethodPlan = try javaProvider.testPlan(
+            scope: .testCase(
+                identifier: "example.UserServiceTest#logsIn()",
+                fileURL: files[0]
+            ),
+            context: LanguageTestContext(
+                workspaceURL: root,
+                projectFiles: [root.appendingPathComponent("build.gradle.kts"), files[0]]
+            )
+        )
+        #expect(gradleMethodPlan.launchPlan.arguments == [
+            "test", "--tests", "example.UserServiceTest.logsIn",
+        ])
+
+        let mavenMethodPlan = try javaProvider.testPlan(
+            scope: .testCase(
+                identifier: "example.UserServiceTest#logsIn()",
+                fileURL: files[0]
+            ),
+            context: LanguageTestContext(
+                workspaceURL: root,
+                projectFiles: [root.appendingPathComponent("pom.xml"), files[0]]
+            )
+        )
+        #expect(mavenMethodPlan.launchPlan.arguments == [
+            "-Dtest=example.UserServiceTest#logsIn", "test",
+        ])
 
         let gradlePlan = try javaProvider.testPlan(
             scope: .workspace,
@@ -745,6 +1167,62 @@ struct RunConfigurationIntegrationTests {
         let response = Data("Content-Length: 2\r\n\r\n{}".utf8)
         socket.onData?(response)
         #expect(received == [response])
+    }
+
+    @Test
+    func javaTransportQueuesDAPBytesUntilJdtlsPortAndSocketAreReady() async throws {
+        let portGate = JavaDebugPortGate()
+        let socket = TestDlvSocketConnection()
+        let endpointRecorder = DebugEndpointRecorder()
+        let transport = MacJavaDebugAdapterTransport(
+            portResolver: { rootURL in try await portGate.resolve(rootURL: rootURL) },
+            socketFactory: { host, port in
+                endpointRecorder.record(host: host, port: port)
+                return socket
+            }
+        )
+        let root = URL(fileURLWithPath: "/tmp/java-dap", isDirectory: true)
+        let initializeFrame = Data("Content-Length: 2\r\n\r\n{}".utf8)
+
+        try transport.start(rootURL: root)
+        try transport.send(initializeFrame)
+        #expect(socket.sent.isEmpty)
+        #expect(await portGate.waitUntilRequested() == root.standardizedFileURL)
+
+        portGate.succeed(port: 5005)
+        let endpoint = await endpointRecorder.waitUntilRecorded()
+        #expect(endpoint.host == "127.0.0.1")
+        #expect(endpoint.port == 5005)
+        #expect(socket.startCount == 1)
+        #expect(socket.sent.isEmpty)
+
+        socket.onReady?()
+        #expect(socket.sent == [initializeFrame])
+        transport.stop()
+        #expect(socket.stopCount == 1)
+    }
+
+    @Test
+    func stoppingJavaTransportCancelsPortDiscoveryWithoutOpeningSocket() async throws {
+        let portGate = JavaDebugPortGate()
+        let socket = TestDlvSocketConnection()
+        let endpointRecorder = DebugEndpointRecorder()
+        let transport = MacJavaDebugAdapterTransport(
+            portResolver: { rootURL in try await portGate.resolve(rootURL: rootURL) },
+            socketFactory: { host, port in
+                endpointRecorder.record(host: host, port: port)
+                return socket
+            }
+        )
+
+        try transport.start(rootURL: URL(fileURLWithPath: "/tmp/java-dap-cancel"))
+        _ = await portGate.waitUntilRequested()
+        transport.stop()
+
+        await portGate.waitUntilCancelled()
+        #expect(!endpointRecorder.didRecord)
+        #expect(socket.startCount == 0)
+        #expect(!transport.isRunning)
     }
 
     @Test
@@ -1203,7 +1681,20 @@ struct RunConfigurationIntegrationTests {
         let resources = JDTLSLaunchResources(
             launcherJarURL: URL(fileURLWithPath: "/jdtls/plugins/equinox.jar"),
             configurationDirectoryURL: URL(fileURLWithPath: "/jdtls/config_mac"),
-            lombokAgentURL: URL(fileURLWithPath: "/jdtls/lombok/lombok.jar")
+            lombokAgentURL: URL(fileURLWithPath: "/jdtls/lombok/lombok.jar"),
+            javaDebugBundleURL: URL(
+                fileURLWithPath: "/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar"
+            ),
+            javaExtensionBundleURLs: [
+                URL(
+                    fileURLWithPath:
+                        "/jdtls/java-test/extensions/com.microsoft.java.test.plugin-0.42.0.jar"
+                )
+            ],
+            javaTestRunnerURL: URL(
+                fileURLWithPath:
+                    "/jdtls/java-test/runner/com.microsoft.java.test.runner-jar-with-dependencies.jar"
+            )
         )
         let runtime = StdioLanguageProviderRuntime(
             descriptor: descriptor,
@@ -1217,15 +1708,26 @@ struct RunConfigurationIntegrationTests {
             jdtlsLaunchResourcesResolver: { _, _ in .available(resources) }
         )
         let session = try #require(runtime.makeLanguageServerSession())
+        let mavenContext = MavenLaunchContext(
+            reactorPath: ".",
+            profiles: ["dev", "enterprise"],
+            settingsPath: "/local/settings.xml",
+            skipTests: true,
+            mavenExecutablePath: "/local/maven/bin/mvn",
+            javaHomePath: "/local/jdk"
+        )
 
         try session.start(
             rootURL: URL(fileURLWithPath: "/workspace", isDirectory: true),
-            workspaceFingerprint: nil
+            workspaceFingerprint: "workspace-fingerprint",
+            mavenContext: mavenContext
         )
 
         let start = try #require(core.startCalls.last)
         #expect(start.runtimeExecutableURL?.path == "/jdk/bin/java")
         #expect(start.jdtlsLaunchResources == resources)
+        #expect(start.workspaceFingerprint == "workspace-fingerprint")
+        #expect(start.mavenContext == mavenContext)
         session.stop()
     }
 
@@ -1758,6 +2260,10 @@ struct RunConfigurationIntegrationTests {
             text: "struct App {}\n",
             rootURL: root
         )
+        #expect(await Self.waitForMainActorCondition {
+            core.startCalls.count == 1
+                && core.syncCalls.last?.fileURL == source.standardizedFileURL
+        })
         let startCall = try #require(core.startCalls.first)
         #expect(startCall.providerID == "swift")
         #expect(startCall.executableURL.path == "/usr/bin/sourcekit-lsp")
@@ -2000,7 +2506,9 @@ struct RunConfigurationIntegrationTests {
         #expect(executeCall.operation == .executeCommand)
         #expect(executeCall.fileURL == nil)
         #expect(executeCall.command?.command == "source.fix")
-        core.enqueueRequestSuccess(operation: .executeCommand, result: ["ok": true])
+        core.enqueueRequestSuccess(operation: .executeCommand, result: [
+            "value": ["ok": true],
+        ])
         #expect(await Self.waitForMainActorCondition { executeResult != nil })
         #expect(executeResult != nil)
         try executeResult?.get()
@@ -2500,7 +3008,8 @@ struct RunConfigurationIntegrationTests {
         await fixture.service.loadProject(
             at: fixture.root,
             files: [],
-            mavenProject: fixture.mavenProject
+            mavenProject: fixture.mavenProject,
+            snapshotID: UUID()
         )
 
         #expect(fixture.service.configurationStatus == .missing)
@@ -2533,7 +3042,8 @@ struct RunConfigurationIntegrationTests {
         await fixture.service.loadProject(
             at: fixture.root,
             files: [],
-            mavenProject: fixture.mavenProject
+            mavenProject: fixture.mavenProject,
+            snapshotID: UUID()
         )
         fixture.service.run(configuration: configuration, currentFileURL: nil)
 
@@ -2986,7 +3496,6 @@ struct RunConfigurationIntegrationTests {
         let report = try #require(runtime.javaEnvironmentReport)
         #expect(report.status == .ready)
         #expect(report.javaHomePath == "/toolchains/jdk")
-        #expect(report.jdbExecutablePath == "/toolchains/jdk/bin/jdb")
         #expect(!report.status.blocksJavaRun)
     }
 
@@ -3007,69 +3516,6 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func mavenDebugUsesSharedDebugLaunchPlan() throws {
-        let root = URL(fileURLWithPath: "/tmp/lithe-debug-service", isDirectory: true)
-        let configuration = JavaRunConfiguration(
-            id: "spring:com.example.App",
-            name: "App",
-            kind: .springBoot,
-            modulePath: "backend",
-            mainClass: "com.example.App"
-        )
-        let arguments = [
-            "-B", "-ntp", "-pl", "backend",
-            "-Dspring-boot.run.jvmArguments=-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:5555",
-            "spring-boot:run"
-        ]
-        let operations = RecordingRunConfigurationOperations(
-            status: .ready,
-            effective: [],
-            plans: [configuration.id: SharedLaunchPlan(
-                executable: .toolchain("project-maven"),
-                arguments: arguments,
-                workingDirectory: "backend"
-            )]
-        )
-        let processFactory = RecordingProcessFactory()
-        let runtime = ProjectRuntimeService(
-            runtimeLocator: RunTestRuntimeLocator(),
-            store: RunTestKeyValueStore()
-        )
-        runtime.openProject(at: root)
-        let project = MavenProject(
-            rootURL: root,
-            pomURL: root.appendingPathComponent("pom.xml"),
-            groupID: nil,
-            artifactID: "fixture",
-            version: nil,
-            packaging: "jar",
-            modules: [],
-            profiles: [],
-            hasWrapper: false
-        )
-        let service = JavaDebugService(
-            runtimeService: runtime,
-            processFactory: { processFactory.make() },
-            fileStorage: RunTestFileStorage(),
-            javaMavenOperations: RunTestJavaMavenOperations(),
-            runConfigurationOperations: operations
-        )
-
-        service.startMaven(
-            configuration: configuration,
-            project: project,
-            projectURL: root,
-            options: JavaRunOptions()
-        )
-
-        let request = try #require(processFactory.processes.first?.requests.first)
-        #expect(request.arguments == arguments)
-        #expect(request.workingDirectory == root.appendingPathComponent("backend").path)
-        #expect(operations.debugPorts.count == 1)
-        #expect(operations.debugPorts[0] != nil)
-    }
-
-    @Test
     func generationPublishesNoEntryResultAndKeepsCurrentFileAvailable() async {
         let current = JavaRunConfiguration.currentFile
         let fixture = makeFixture(
@@ -3081,7 +3527,8 @@ struct RunConfigurationIntegrationTests {
         await fixture.service.loadProject(
             at: fixture.root,
             files: [],
-            mavenProject: fixture.mavenProject
+            mavenProject: fixture.mavenProject,
+            snapshotID: UUID()
         )
         await fixture.service.generateRunConfigurations()
 
@@ -3207,7 +3654,11 @@ struct RunConfigurationIntegrationTests {
         let document = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         let configurations = try #require(document["configurations"] as? [[String: Any]])
         #expect(configurations.count == 2)
-        #expect(configurations.first?["jvmArguments"] as? [String] == ["-Dlabel=hello world", "-Xmx2g"])
+        let mavenExtension = try #require(
+            configurations.first?["extensions"] as? [String: Any]
+        )
+        let mavenOptions = try #require(mavenExtension["maven"] as? [String: Any])
+        #expect(mavenOptions["jvmArguments"] as? [String] == ["-Dlabel=hello world", "-Xmx2g"])
     }
 
     @Test
@@ -3228,6 +3679,7 @@ struct RunConfigurationIntegrationTests {
         try store.saveOptions(
             RunOptions(
                 javaHomePath: "/test/jdk-21",
+                mavenSkipTests: false,
                 mavenExecutablePath: "/test/maven/bin/mvn",
                 mavenJavaHomePath: "/test/maven-jdk"
             ),
@@ -3241,6 +3693,7 @@ struct RunConfigurationIntegrationTests {
         #expect(options.javaHomePath == "/test/jdk-21")
         #expect(options.mavenExecutablePath == "/test/maven/bin/mvn")
         #expect(options.mavenJavaHomePath == "/test/maven-jdk")
+        #expect(options.mavenSkipTests == false)
     }
 
     @Test
@@ -3667,10 +4120,11 @@ struct RunConfigurationIntegrationTests {
             runConfigurationOperations: operations
         )
 
-        await service.loadProject(at: root, files: [], mavenProject: nil)
+        let snapshotID = UUID()
+        await service.loadProject(at: root, files: [], mavenProject: nil, snapshotID: snapshotID)
         let generation = Task { await service.generateRunConfigurations() }
         #expect(await operations.waitUntilBlocked())
-        await service.loadProject(at: root, files: [], mavenProject: nil)
+        await service.loadProject(at: root, files: [], mavenProject: nil, snapshotID: snapshotID)
         operations.releaseGeneration()
         await generation.value
 
@@ -4295,6 +4749,8 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         let runtimeExecutableURL: URL?
         let jdtlsLaunchResources: JDTLSLaunchResources?
         let cacheDirectoryURL: URL?
+        let workspaceFingerprint: String?
+        let mavenContext: MavenLaunchContext?
         let initializeTimeout: TimeInterval
         let requestTimeout: TimeInterval
         let shutdownTimeout: TimeInterval
@@ -4366,6 +4822,42 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
     ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
+        startLanguageServer(
+            providerID: providerID,
+            executableURL: executableURL,
+            arguments: arguments,
+            environment: environment,
+            rootURL: rootURL,
+            workingDirectoryURL: workingDirectoryURL,
+            initializationOptions: initializationOptions,
+            runtimeExecutableURL: runtimeExecutableURL,
+            jdtlsLaunchResources: jdtlsLaunchResources,
+            cacheDirectoryURL: cacheDirectoryURL,
+            workspaceFingerprint: workspaceFingerprint,
+            mavenContext: nil,
+            initializeTimeout: initializeTimeout,
+            requestTimeout: requestTimeout,
+            shutdownTimeout: shutdownTimeout
+        )
+    }
+
+    func startLanguageServer(
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        workingDirectoryURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        runtimeExecutableURL: URL?,
+        jdtlsLaunchResources: JDTLSLaunchResources?,
+        cacheDirectoryURL: URL?,
+        workspaceFingerprint: String?,
+        mavenContext: MavenLaunchContext?,
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
         startCalls.append(StartCall(
             providerID: providerID,
             executableURL: executableURL,
@@ -4377,6 +4869,8 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
             runtimeExecutableURL: runtimeExecutableURL,
             jdtlsLaunchResources: jdtlsLaunchResources,
             cacheDirectoryURL: cacheDirectoryURL,
+            workspaceFingerprint: workspaceFingerprint,
+            mavenContext: mavenContext,
             initializeTimeout: initializeTimeout,
             requestTimeout: requestTimeout,
             shutdownTimeout: shutdownTimeout
@@ -4715,7 +5209,8 @@ private struct RunTestRuntimeLocator: RuntimeLocator {
     func isExecutable(at url: URL) -> Bool { url.lastPathComponent != "mvnw" }
     func systemMavenExecutable() -> URL? { URL(fileURLWithPath: "/toolchains/maven/bin/mvn") }
     func mavenExecutable(forHomePath path: String) -> URL? {
-        URL(fileURLWithPath: path, isDirectory: true).appendingPathComponent("bin/mvn")
+        let url = URL(fileURLWithPath: path)
+        return url.lastPathComponent == "mvn" ? url : url.appendingPathComponent("bin/mvn")
     }
     func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? {
         MavenRuntimeCandidate(
@@ -4724,7 +5219,6 @@ private struct RunTestRuntimeLocator: RuntimeLocator {
             version: "3.9.9"
         )
     }
-    func systemJDBExecutable() -> URL? { URL(fileURLWithPath: "/toolchains/jdk/bin/jdb") }
 }
 
 private struct NestedMavenWrapperRuntimeLocator: RuntimeLocator {
@@ -4742,7 +5236,6 @@ private struct NestedMavenWrapperRuntimeLocator: RuntimeLocator {
     func systemMavenExecutable() -> URL? { nil }
     func mavenExecutable(forHomePath path: String) -> URL? { nil }
     func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? { nil }
-    func systemJDBExecutable() -> URL? { nil }
 }
 
 private struct MissingJavaRuntimeLocator: RuntimeLocator {
@@ -4756,7 +5249,6 @@ private struct MissingJavaRuntimeLocator: RuntimeLocator {
     func systemMavenExecutable() -> URL? { nil }
     func mavenExecutable(forHomePath path: String) -> URL? { nil }
     func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? { nil }
-    func systemJDBExecutable() -> URL? { nil }
 }
 
 private struct XcrunOnlyRuntimeLocator: RuntimeLocator {
@@ -4768,7 +5260,6 @@ private struct XcrunOnlyRuntimeLocator: RuntimeLocator {
     func systemMavenExecutable() -> URL? { nil }
     func mavenExecutable(forHomePath path: String) -> URL? { nil }
     func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? { nil }
-    func systemJDBExecutable() -> URL? { nil }
 }
 
 @MainActor
@@ -4806,6 +5297,20 @@ private final class TestDebugAdapterSession: DebugAdapterControllingSession {
         frameID: Int?,
         completion: @escaping (Result<DebugVariable, Error>) -> Void
     ) {}
+}
+
+private final class RestoredBreakpointPersistence: DebugBreakpointPersisting, @unchecked Sendable {
+    private let snapshot: DebugBreakpointSnapshot
+
+    init(snapshot: DebugBreakpointSnapshot) {
+        self.snapshot = snapshot
+    }
+
+    func loadBreakpoints(for workspaceURL: URL) throws -> DebugBreakpointSnapshot? {
+        snapshot
+    }
+
+    func saveBreakpoints(_ snapshot: DebugBreakpointSnapshot, for workspaceURL: URL) throws {}
 }
 
 @MainActor
@@ -4867,6 +5372,87 @@ private final class TestDlvSocketConnection: DlvSocketConnection {
     func start() { startCount += 1 }
     func send(_ data: Data) { sent.append(data) }
     func stop() { stopCount += 1 }
+}
+
+@MainActor
+private final class JavaDebugPortGate {
+    private var requestedRoot: URL?
+    private var requestWaiters: [CheckedContinuation<URL, Never>] = []
+    private var portContinuation: CheckedContinuation<UInt16, Error>?
+    private var cancelled = false
+    private var cancellationWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func resolve(rootURL: URL) async throws -> UInt16 {
+        requestedRoot = rootURL.standardizedFileURL
+        let waiters = requestWaiters
+        requestWaiters = []
+        waiters.forEach { $0.resume(returning: rootURL.standardizedFileURL) }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                portContinuation = continuation
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.cancel() }
+        }
+    }
+
+    func waitUntilRequested() async -> URL {
+        if let requestedRoot { return requestedRoot }
+        return await withCheckedContinuation { continuation in
+            requestWaiters.append(continuation)
+        }
+    }
+
+    func succeed(port: UInt16) {
+        let continuation = portContinuation
+        portContinuation = nil
+        continuation?.resume(returning: port)
+    }
+
+    func waitUntilCancelled() async {
+        if cancelled { return }
+        await withCheckedContinuation { continuation in
+            cancellationWaiters.append(continuation)
+        }
+    }
+
+    private func cancel() {
+        guard !cancelled else { return }
+        cancelled = true
+        let portContinuation = portContinuation
+        self.portContinuation = nil
+        portContinuation?.resume(throwing: CancellationError())
+        let waiters = cancellationWaiters
+        cancellationWaiters = []
+        waiters.forEach { $0.resume() }
+    }
+}
+
+@MainActor
+private final class DebugEndpointRecorder {
+    struct Endpoint {
+        let host: String
+        let port: UInt16
+    }
+
+    private var endpoint: Endpoint?
+    private var waiters: [CheckedContinuation<Endpoint, Never>] = []
+    var didRecord: Bool { endpoint != nil }
+
+    func record(host: String, port: UInt16) {
+        let endpoint = Endpoint(host: host, port: port)
+        self.endpoint = endpoint
+        let waiters = waiters
+        self.waiters = []
+        waiters.forEach { $0.resume(returning: endpoint) }
+    }
+
+    func waitUntilRecorded() async -> Endpoint {
+        if let endpoint { return endpoint }
+        return await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
 }
 
 private struct RunTestFileStorage: FileStorage {

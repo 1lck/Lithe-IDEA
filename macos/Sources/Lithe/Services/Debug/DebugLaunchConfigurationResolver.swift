@@ -3,6 +3,9 @@ import LitheCoreContracts
 
 enum DebugLaunchConfigurationResolutionError: LocalizedError, Equatable {
     case unsupportedProvider(String)
+    case javaLaunchTargetUnavailable
+    case invalidJavaAttachHost
+    case invalidJavaAttachPort
     case noRustBinaryConfiguration
     case rustExecutableNotBuilt(URL, binary: String)
 
@@ -10,6 +13,12 @@ enum DebugLaunchConfigurationResolutionError: LocalizedError, Equatable {
         switch self {
         case .unsupportedProvider(let provider):
             return "The \(provider) Debug Adapter is not installed yet."
+        case .javaLaunchTargetUnavailable:
+            return "The Java language service could not resolve a main class for this file."
+        case .invalidJavaAttachHost:
+            return "Enter the host name of the running JVM."
+        case .invalidJavaAttachPort:
+            return "Enter a JVM debug port between 1 and 65535."
         case .noRustBinaryConfiguration:
             return "No Cargo binary run configuration matches this Rust file."
         case .rustExecutableNotBuilt(let url, let binary):
@@ -24,21 +33,40 @@ enum DebugLaunchConfigurationResolutionError: LocalizedError, Equatable {
 struct DebugLaunchConfigurationResolver {
     private let fileExists: (URL) -> Bool
     private let executableSuffix: String
+    private let javaTestLaunchResolver: (any JavaTestDebugLaunchResolving)?
 
     init(
         fileStorage: any FileStorage,
-        executableSuffix: String = ""
+        executableSuffix: String = "",
+        javaTestLaunchResolver: (any JavaTestDebugLaunchResolving)? = nil
     ) {
         self.fileExists = { fileStorage.fileExists(at: $0) }
         self.executableSuffix = executableSuffix
+        self.javaTestLaunchResolver = javaTestLaunchResolver
     }
 
     init(
         executableSuffix: String = "",
-        fileExists: @escaping (URL) -> Bool
+        fileExists: @escaping (URL) -> Bool,
+        javaTestLaunchResolver: (any JavaTestDebugLaunchResolving)? = nil
     ) {
         self.fileExists = fileExists
         self.executableSuffix = executableSuffix
+        self.javaTestLaunchResolver = javaTestLaunchResolver
+    }
+
+    @MainActor
+    func resolveJavaTest(
+        target: JavaTestDebugLaunchTarget,
+        resultPort: UInt16
+    ) throws -> DebugLaunchConfiguration {
+        guard let javaTestLaunchResolver else {
+            throw DebugLaunchConfigurationResolutionError.javaLaunchTargetUnavailable
+        }
+        return try javaTestLaunchResolver.resolveJavaTestDebugLaunch(
+            target: target,
+            resultPort: resultPort
+        )
     }
 
     func resolve(
@@ -47,15 +75,20 @@ struct DebugLaunchConfigurationResolver {
         workspaceURL: URL,
         configurations: [RunConfiguration],
         selectedConfiguration: RunConfiguration?,
+        javaTarget: JavaDebugLaunchTarget? = nil,
         options: (RunConfiguration) -> RunOptions
     ) throws -> DebugLaunchConfiguration {
         switch provider.id {
         case "java":
+            guard let javaTarget else {
+                throw DebugLaunchConfigurationResolutionError.javaLaunchTargetUnavailable
+            }
             return javaConfiguration(
                 documentURL: documentURL,
                 workspaceURL: workspaceURL,
                 configurations: configurations,
                 selectedConfiguration: selectedConfiguration,
+                target: javaTarget,
                 options: options
             )
         case "python":
@@ -96,36 +129,77 @@ struct DebugLaunchConfigurationResolver {
         }
     }
 
+    func resolveJavaAttach(host: String, port: Int) throws -> DebugLaunchConfiguration {
+        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedHost.isEmpty else {
+            throw DebugLaunchConfigurationResolutionError.invalidJavaAttachHost
+        }
+        guard (1...65_535).contains(port) else {
+            throw DebugLaunchConfigurationResolutionError.invalidJavaAttachPort
+        }
+        return DebugLaunchConfiguration(
+            name: "\(normalizedHost):\(port)",
+            request: .attach,
+            arguments: [
+                "hostName": .string(normalizedHost),
+                "port": .integer(port)
+            ]
+        )
+    }
+
     private func javaConfiguration(
         documentURL: URL,
         workspaceURL: URL,
         configurations: [RunConfiguration],
         selectedConfiguration: RunConfiguration?,
+        target: JavaDebugLaunchTarget,
         options: (RunConfiguration) -> RunOptions
     ) -> DebugLaunchConfiguration {
+        // Debug is a second execution mode for the selected Run configuration.
+        // Keep every Java configuration eligible here so its JDK, Maven,
+        // working-directory, VM/program arguments, profiles, and environment
+        // overrides are carried over unchanged.
         let configuration = selectedConfiguration.flatMap { selected in
-            selected.kind.isMavenBacked ? selected : nil
+            selected.kind.providerID == "java" || selected.kind.isMavenBacked ? selected : nil
+        }
+        let runOptions = configuration.map(options)
+        let mainClass = configuration?.mainClass ?? target.mainClass
+        let configuredWorkingDirectory = runOptions?.workingDirectoryPath
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let workingDirectory: String
+        if configuredWorkingDirectory.isEmpty {
+            workingDirectory = workspaceURL.standardizedFileURL.path
+        } else {
+            workingDirectory = URL(
+                fileURLWithPath: configuredWorkingDirectory,
+                relativeTo: workspaceURL
+            ).standardizedFileURL.path
         }
         var arguments: [String: ToolingJSONValue] = [
-            "mainClass": .string(inferJavaMainClass(documentURL: documentURL, workspaceURL: workspaceURL)),
-            "cwd": .string(workspaceURL.standardizedFileURL.path),
-            "console": .string("internalConsole")
+            "mainClass": .string(mainClass),
+            "cwd": .string(workingDirectory),
+            "console": .string("integratedTerminal")
         ]
-        if let configuration {
-            let runOptions = options(configuration)
-            let programArguments = RunArgumentParser.parse(runOptions.arguments)
+        if let projectName = target.projectName {
+            arguments["projectName"] = .string(projectName)
+        }
+        if !target.modulePaths.isEmpty {
+            arguments["modulePaths"] = .array(target.modulePaths.map(ToolingJSONValue.string))
+        }
+        if !target.classPaths.isEmpty {
+            arguments["classPaths"] = .array(target.classPaths.map(ToolingJSONValue.string))
+        }
+        if let runOptions {
+            let programArguments = runOptions.arguments.trimmingCharacters(in: .whitespacesAndNewlines)
             if !programArguments.isEmpty {
-                arguments["args"] = .array(programArguments.map(ToolingJSONValue.string))
+                arguments["args"] = .string(programArguments)
             }
             if !runOptions.environment.isEmpty {
                 arguments["env"] = .object(runOptions.environment.mapValues(ToolingJSONValue.string))
             }
-            let vmArguments = RunArgumentParser.parse(runOptions.vmArguments)
+            let vmArguments = runOptions.vmArguments.trimmingCharacters(in: .whitespacesAndNewlines)
             if !vmArguments.isEmpty {
-                arguments["vmArgs"] = .array(vmArguments.map(ToolingJSONValue.string))
-            }
-            if let modulePath = configuration.modulePath, !modulePath.isEmpty {
-                arguments["projectName"] = .string(modulePath)
+                arguments["vmArgs"] = .string(vmArguments)
             }
         }
         return DebugLaunchConfiguration(
@@ -133,26 +207,6 @@ struct DebugLaunchConfigurationResolver {
             request: .launch,
             arguments: arguments
         )
-    }
-
-    private func inferJavaMainClass(documentURL: URL, workspaceURL: URL) -> String {
-        let file = documentURL.standardizedFileURL
-        let root = workspaceURL.standardizedFileURL
-        let relative = file.path.hasPrefix(root.path + "/")
-            ? String(file.path.dropFirst(root.path.count + 1))
-            : file.lastPathComponent
-        let components = relative.split(separator: "/").map(String.init)
-        let sourceRoots = ["src/main/java", "src/test/java", "src/main/kotlin"]
-        let sourceRootIndex: Int? = sourceRoots.compactMap { sourceRoot -> Int? in
-            let rootComponents = sourceRoot.split(separator: "/").map(String.init)
-            guard components.count > rootComponents.count,
-                  Array(components.prefix(rootComponents.count)) == rootComponents else { return nil }
-            return rootComponents.count
-        }.first
-        let classComponents = Array(components.dropFirst(sourceRootIndex ?? max(0, components.count - 1)))
-        let className = classComponents.joined(separator: ".")
-            .replacingOccurrences(of: ".java", with: "")
-        return className.isEmpty ? file.deletingPathExtension().lastPathComponent : className
     }
 
     private func nodeConfiguration(

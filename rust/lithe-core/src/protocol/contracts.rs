@@ -193,6 +193,24 @@ pub struct MavenScanResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Platform-neutral executable reference returned by Maven launch planning.
+pub struct MavenLaunchExecutableResponse {
+    pub toolchain: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Deterministic Maven invocation consumed by native process adapters.
+pub struct MavenLaunchPlanResponse {
+    pub version: u32,
+    pub executable: MavenLaunchExecutableResponse,
+    pub arguments: Vec<String>,
+    pub working_directory: String,
+    pub configuration_fingerprint: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 /// One normalized issue parsed from Maven process output.
 pub struct MavenDiagnosticResponse {
     pub path: String,
@@ -396,6 +414,8 @@ pub struct GitCommitResponse {
 /// References and a bounded page of commit history.
 pub struct GitHistoryResponse {
     pub references: Vec<GitReferenceResponse>,
+    /// Up to five local branches ordered from most to least recently checked out.
+    pub recent_references: Vec<GitReferenceResponse>,
     pub commits: Vec<GitCommitResponse>,
     pub has_more: bool,
     pub user_name: Option<String>,

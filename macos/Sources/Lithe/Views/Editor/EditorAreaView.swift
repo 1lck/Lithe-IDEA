@@ -94,6 +94,7 @@ struct EditorAreaView: View {
             }
         }
         .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.editor)
+        .background(GoToLineDialogPresenter())
         .onChange(of: model.openDocuments.map(\.id)) { ids in
             if let splitDocumentID, !ids.contains(splitDocumentID) {
                 self.splitDocumentID = nil
@@ -407,7 +408,7 @@ struct EditorAreaView: View {
             .lithePointer()
 
             Button {
-                model.closeTerminalSession(session)
+                model.requestCloseTerminalSession(session)
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .semibold))
@@ -497,7 +498,7 @@ struct EditorAreaView: View {
             Button("Clear", action: session.clear)
             Divider()
             Button("Close") {
-                model.closeTerminalSession(session)
+                model.requestCloseTerminalSession(session)
             }
         }
         .opacity(isDragged ? 0.92 : 1)
@@ -990,7 +991,6 @@ struct EditorAreaView: View {
             if let document {
                 CodeEditorView(
                     document: document,
-                    debugService: model.debugFeatureIfActive,
                     shouldFocus: !showsHeader && document.id == model.activeDocumentID,
                     viewportStore: editorViewportStore
                 )
@@ -1153,7 +1153,6 @@ struct EditorAreaView: View {
     ) -> some View {
         CodeEditorView(
             document: document,
-            debugService: model.debugFeatureIfActive,
             shouldFocus: true,
             markdownScrollPosition: markdownScrollPosition,
             viewportStore: editorViewportStore
