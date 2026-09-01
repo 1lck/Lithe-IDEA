@@ -18,3 +18,12 @@ test("normalizes Windows verbatim UNC paths before workspace comparisons", () =>
   expect(pathStartsWithRoot(changed, root)).toBe(true);
   expect(getRelativePath(changed, root)).toBe("pom.xml");
 });
+
+test("normalizes lowercase Windows verbatim UNC prefixes", () => {
+  const root = "//server/share/workspace";
+  const changed = "\\\\?\\unc\\server\\share\\workspace\\pom.xml";
+
+  expect(normalizePath(changed)).toBe("//server/share/workspace/pom.xml");
+  expect(pathStartsWithRoot(changed, root)).toBe(true);
+  expect(getRelativePath(changed, root)).toBe("pom.xml");
+});
