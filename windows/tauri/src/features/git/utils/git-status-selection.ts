@@ -1,3 +1,11 @@
+import type { GitFile } from "../types/git.types";
+
+export function resolveGitFileMutationPaths(files: readonly GitFile[]): string[] {
+  return [
+    ...new Set(files.flatMap((file) => [file.originalPath, file.path].filter(Boolean) as string[])),
+  ].sort((left, right) => left.localeCompare(right));
+}
+
 export function updateGitStatusSelection(
   selectedEntryIds: ReadonlySet<string>,
   entryId: string,

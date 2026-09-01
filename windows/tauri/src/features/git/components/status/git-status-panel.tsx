@@ -57,8 +57,10 @@ import {
   type GitFolderTree,
   type GitStatusGroup,
 } from "../../utils/git-status-model";
+import { deleteGitStatusPaths } from "../../utils/git-status-deletion";
 import {
   buildGitIgnorePaths,
+  resolveGitFileMutationPaths,
   resolveGitStatusDeletionPaths,
   resolveGitStatusContextSelection,
   updateGitStatusSelection,
@@ -225,7 +227,7 @@ const GitStatusPanel = ({
         id,
         kind: "file",
         path: file.path,
-        filePaths: [file.path],
+        filePaths: resolveGitFileMutationPaths([file]),
         files: [file],
       });
     }
@@ -240,15 +242,16 @@ const GitStatusPanel = ({
         if (!folderState) return;
 
         const id = getFolderEntryId(section, branch.path);
+        const files = folderState.descendantFilePaths.flatMap((filePath) => {
+          const file = displayFileByPath.get(filePath);
+          return file ? [file] : [];
+        });
         entries.set(id, {
           id,
           kind: "folder",
           path: branch.path,
-          filePaths: folderState.descendantFilePaths,
-          files: folderState.descendantFilePaths.flatMap((filePath) => {
-            const file = displayFileByPath.get(filePath);
-            return file ? [file] : [];
-          }),
+          filePaths: resolveGitFileMutationPaths(files),
+          files,
         });
         branch.children.forEach(registerNode);
       };
@@ -446,7 +449,9 @@ const GitStatusPanel = ({
   ];
 
   const handleCommitEntries = (entries: GitStatusSelectionEntry[]) => {
-    const filePaths = getSelectionFilePaths(entries);
+    const filePaths = [
+      ...new Set(entries.flatMap((entry) => entry.files.map((file) => file.path))),
+    ];
     if (filePaths.length === 0) return;
     onCommitSelectedPathsChange(new Set(filePaths));
     onCommitSelection?.(filePaths);
@@ -508,11 +513,25 @@ const GitStatusPanel = ({
 
     setIsLoading(true);
     try {
-      for (const filePath of filePaths) {
-        await deleteFile(joinPath(repoPath, filePath));
+      const result = await deleteGitStatusPaths(
+        filePaths,
+        (filePath) => deleteFile(joinPath(repoPath, filePath)),
+        async () => onRefresh?.(),
+      );
+      for (const failure of result.failures) {
+        console.error(`Failed to delete source-control file ${failure.path}:`, failure.error);
+      }
+      if (result.refreshError) {
+        console.error(
+          "Failed to refresh source control after deleting files:",
+          result.refreshError,
+        );
+        toast.error(t("git.refreshAfterDeleteFailed"));
+      }
+      if (result.failures.length > 0) {
+        toast.error(t("git.deleteFilesFailed", { count: result.failures.length }));
       }
       setSelectedEntryIds(new Set());
-      await onRefresh?.();
     } finally {
       setIsLoading(false);
     }
@@ -820,8 +839,8 @@ const GitStatusPanel = ({
         trailing={
           <span className="shrink-0 text-[10px] leading-none text-subtle-foreground">
             {t("git.diffFileCount", {
-              count: entry.filePaths.length,
-              plural: entry.filePaths.length === 1 ? "" : "s",
+              count: entry.files.length,
+              plural: entry.files.length === 1 ? "" : "s",
             })}
           </span>
         }

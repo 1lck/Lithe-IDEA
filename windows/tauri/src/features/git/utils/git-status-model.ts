@@ -34,6 +34,11 @@ export interface GitStatusPresentation {
   groupedUntrackedFiles: Record<GitStatusGroup, GitFile[]>;
 }
 
+export interface VisibleGitFiles {
+  files: GitFile[];
+  fileByPath: Map<string, GitFile>;
+}
+
 const createEmptyGitStatusGroups = (): Record<GitStatusGroup, GitFile[]> => ({
   added: [],
   modified: [],
@@ -115,4 +120,20 @@ export function buildGitStatusPresentation(files: GitFile[]): GitStatusPresentat
     groupedTrackedFiles,
     groupedUntrackedFiles,
   };
+}
+
+export function buildVisibleGitFiles(
+  files: readonly GitFile[],
+  showUntrackedFiles: boolean,
+): VisibleGitFiles {
+  const visibleFiles: GitFile[] = [];
+  const fileByPath = new Map<string, GitFile>();
+
+  for (const file of files) {
+    if (!showUntrackedFiles && file.status === "untracked") continue;
+    visibleFiles.push(file);
+    if (!fileByPath.has(file.path)) fileByPath.set(file.path, file);
+  }
+
+  return { files: visibleFiles, fileByPath };
 }

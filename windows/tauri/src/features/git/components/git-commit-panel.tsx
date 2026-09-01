@@ -26,6 +26,7 @@ import { showGitPushDialog } from "../services/git-push-dialog-service";
 import { useGitBlameStore } from "../stores/git-blame.store";
 import { useGitStore } from "../stores/git.store";
 import type { GitDiff, GitFile } from "../types/git.types";
+import { resolveGitFileMutationPaths } from "../utils/git-status-selection";
 
 interface GitCommitPanelProps {
   selectedFiles: GitFile[];
@@ -307,7 +308,7 @@ const GitCommitPanel = ({
       const success = await commitSelectedChanges(
         repoPath,
         commitMessage.trim(),
-        selectedFiles.map((file) => file.path),
+        resolveGitFileMutationPaths(selectedFiles),
       );
       if (success) {
         useGitBlameStore.getState().actions.clearAllBlame();
@@ -346,7 +347,7 @@ const GitCommitPanel = ({
     setError(null);
 
     try {
-      if (await showGitPushDialog(repoPath)) onCommitSuccess?.();
+      await showGitPushDialog(repoPath);
     } finally {
       setRemoteAction(null);
     }

@@ -20,6 +20,7 @@ use std::io::Write;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::Duration;
 
@@ -27,6 +28,7 @@ const RECENT_BRANCH_LIMIT: usize = 5;
 const RECENT_BRANCH_REFLOG_LIMIT: &str = "100";
 const DEFAULT_BRANCH_FALLBACKS: [&str; 2] = ["main", "master"];
 const DEFAULT_PUSH_PREVIEW_LIMIT: usize = 500;
+static TEMPORARY_INDEX_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -299,33 +301,45 @@ pub struct GitWriteRequest {
     pub auto_stash: bool,
 }
 
-/// Exact on-disk index state restored when a selected-path commit does not complete.
-struct GitIndexSnapshot {
+/// Isolated index used to prepare and commit selected working-tree paths.
+struct TemporaryGitIndex {
     path: PathBuf,
-    contents: Option<Vec<u8>>,
 }
 
-impl GitIndexSnapshot {
-    fn capture(root: &str) -> Result<Self, CoreError> {
-        let path = git_path(root, "index")?;
-        let contents = match std::fs::read(&path) {
-            Ok(contents) => Some(contents),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-            Err(error) => return Err(git_index_io_error("read", error)),
+impl TemporaryGitIndex {
+    fn prepare(root: &str) -> Result<Self, CoreError> {
+        let index = git_path(root, "index")?;
+        let directory = index.parent().ok_or_else(|| {
+            CoreError::new(
+                ErrorCode::Unknown,
+                "Could not locate the Git index directory",
+            )
+        })?;
+        let path = loop {
+            let sequence = TEMPORARY_INDEX_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let candidate =
+                directory.join(format!("lithe-index-{}-{sequence}", std::process::id()));
+            if !candidate.exists() {
+                break candidate;
+            }
         };
-        Ok(Self { path, contents })
+        Ok(Self { path })
     }
 
-    fn restore(&self) -> Result<(), CoreError> {
-        match self.contents.as_ref() {
-            Some(contents) => std::fs::write(&self.path, contents)
-                .map_err(|error| git_index_io_error("restore", error)),
-            None => match std::fs::remove_file(&self.path) {
-                Ok(()) => Ok(()),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-                Err(error) => Err(git_index_io_error("restore", error)),
-            },
-        }
+    fn environment(&self) -> Vec<(String, String)> {
+        vec![(
+            "GIT_INDEX_FILE".to_string(),
+            self.path.to_string_lossy().into_owned(),
+        )]
+    }
+}
+
+impl Drop for TemporaryGitIndex {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+        let mut lock_path = self.path.as_os_str().to_os_string();
+        lock_path.push(".lock");
+        let _ = std::fs::remove_file(PathBuf::from(lock_path));
     }
 }
 
@@ -351,6 +365,10 @@ pub struct GitDiffRequest {
     pub pathspecs: Vec<String>,
     #[serde(default)]
     pub reference: Option<String>,
+    /// Compare the supplied legacy `reference` target against Git's empty tree.
+    /// This is used for cumulative review ranges that begin with a root commit.
+    #[serde(default)]
+    pub empty_tree_base: bool,
     #[serde(default)]
     pub git_reference: Option<GitReferenceRequest>,
     /// Optional typed comparison target. When present, `gitReference` is the
@@ -848,6 +866,22 @@ fn execute_git_with_options(
     })
 }
 
+fn execute_git_with_environment(
+    root: &str,
+    arguments: &[String],
+    input: Option<String>,
+    disable_optional_locks: bool,
+    environment: &[(String, String)],
+) -> Result<GitCommandResponse, CoreError> {
+    capture_git_with_environment(root, arguments, input, disable_optional_locks, environment).map(
+        |output| {
+            let response = output.into_command_response(arguments);
+            record_git_invocation(&response);
+            response
+        },
+    )
+}
+
 fn capture_git_with_options(
     root: &str,
     arguments: &[String],
@@ -972,12 +1006,32 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
     }
 
     let root = validate_root(&request.root)?;
-    let reference = typed_reference_range(
-        &root,
-        request.git_reference.as_ref(),
-        request.target_git_reference.as_ref(),
-        request.reference.as_deref(),
-    )?;
+    let reference = if request.empty_tree_base {
+        if request.git_reference.is_some()
+            || request.target_git_reference.is_some()
+            || request.commit.is_some()
+        {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Git empty-tree diff cannot combine reference forms",
+            ));
+        }
+        let target = request.reference.as_deref().ok_or_else(|| {
+            CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Git empty-tree diff requires a target reference",
+            )
+        })?;
+        validate_revision(target)?;
+        Some(format!("{}..{target}", empty_tree_oid(&root)?))
+    } else {
+        typed_reference_range(
+            &root,
+            request.git_reference.as_ref(),
+            request.target_git_reference.as_ref(),
+            request.reference.as_deref(),
+        )?
+    };
     if reference.is_some() && request.commit.is_some() {
         return Err(CoreError::new(
             ErrorCode::InvalidRequest,
@@ -1641,26 +1695,61 @@ pub fn conflict_marker_paths(
     request: GitConflictMarkerRequest,
 ) -> Result<GitConflictMarkerResponse, CoreError> {
     let root = validate_root(&request.root)?;
-    let paths = staged_conflict_marker_paths(&root, &[])?;
+    let paths = staged_conflict_marker_paths(&root)?;
     Ok(GitConflictMarkerResponse { paths })
 }
 
-fn staged_conflict_marker_paths(
+fn staged_conflict_marker_paths(root: &str) -> Result<Vec<String>, CoreError> {
+    staged_conflict_marker_paths_with_environment(root, &[], false)
+}
+
+fn staged_conflict_marker_paths_with_environment(
     root: &str,
-    pathspecs: &[String],
+    environment: &[(String, String)],
+    changed_only: bool,
 ) -> Result<Vec<String>, CoreError> {
-    let mut arguments = vec![
+    // The alternate index starts at HEAD, so its staged diff is the authoritative
+    // expansion of directory and glob pathspecs without repeating a long path list.
+    let changed_paths = if changed_only {
+        let changed = execute_git_with_environment(
+            root,
+            &[
+                "diff".to_string(),
+                "--cached".to_string(),
+                "--no-ext-diff".to_string(),
+                "--name-only".to_string(),
+                "-z".to_string(),
+            ],
+            None,
+            true,
+            environment,
+        )?;
+        if changed.exit_code != 0 {
+            return Err(
+                CoreError::new(ErrorCode::ProcessFailed, "Git staged diff failed")
+                    .with_details(changed.output),
+            );
+        }
+        Some(
+            changed
+                .stdout
+                .split('\0')
+                .filter(|path| !path.is_empty())
+                .map(str::to_string)
+                .collect::<HashSet<_>>(),
+        )
+    } else {
+        None
+    };
+    let arguments = vec![
         "grep".to_string(),
         "--cached".to_string(),
         "-l".to_string(),
+        "-z".to_string(),
         "-E".to_string(),
         r"^(<<<<<<<|>>>>>>>|\|\|\|\|\|\|\|) ".to_string(),
     ];
-    if !pathspecs.is_empty() {
-        arguments.push("--".into());
-        arguments.extend(pathspecs.iter().cloned());
-    }
-    let found = execute_git_readonly(root, &arguments, None)?;
+    let found = execute_git_with_environment(root, &arguments, None, true, environment)?;
     // `git grep` exits 1 when nothing matches, which is not a failure here.
     if found.exit_code > 1 {
         return Err(
@@ -1669,10 +1758,14 @@ fn staged_conflict_marker_paths(
     }
 
     let mut paths: Vec<String> = found
-        .output
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
+        .stdout
+        .split('\0')
+        .filter(|path| {
+            !path.is_empty()
+                && changed_paths
+                    .as_ref()
+                    .map_or(true, |changed| changed.contains(*path))
+        })
         .map(str::to_string)
         .collect();
     paths.sort();
@@ -1686,91 +1779,83 @@ fn commit_selected_paths(
     message: String,
     amend: bool,
 ) -> Result<GitCommandResponse, CoreError> {
-    // `commit --only` needs untracked paths in the index, but that preparation
-    // must remain invisible if a hook, signer, or validation rejects the commit.
-    let index_snapshot = GitIndexSnapshot::capture(root)?;
-    let stage_arguments = ["add", "-A", "--"]
-        .into_iter()
-        .map(String::from)
-        .chain(paths.iter().cloned())
-        .collect::<Vec<_>>();
-    let staged = match execute_git(root, &stage_arguments, None) {
-        Ok(staged) => staged,
-        Err(error) => return restore_index_after_error(&index_snapshot, error),
+    // Hooks and signers see the selected snapshot without exposing preparation
+    // changes to the user's real index on any failure path.
+    let temporary_index = TemporaryGitIndex::prepare(root)?;
+    let environment = temporary_index.environment();
+    let pathspec_input = nul_pathspec_input(&paths);
+    let head = execute_git_readonly(
+        root,
+        &[
+            "rev-parse".to_string(),
+            "--verify".to_string(),
+            "-q".to_string(),
+            "HEAD".to_string(),
+        ],
+        None,
+    )?;
+    if head.exit_code > 1 {
+        return Ok(head);
+    }
+    let initialize_arguments = if head.exit_code == 0 {
+        vec!["read-tree".to_string(), head.stdout.trim().to_string()]
+    } else {
+        vec!["read-tree".to_string(), "--empty".to_string()]
     };
+    let initialized =
+        execute_git_with_environment(root, &initialize_arguments, None, false, &environment)?;
+    if initialized.exit_code != 0 {
+        return Ok(initialized);
+    }
+    let stage_arguments = vec![
+        "add".to_string(),
+        "-A".to_string(),
+        "--pathspec-from-file=-".to_string(),
+        "--pathspec-file-nul".to_string(),
+    ];
+    let staged = execute_git_with_environment(
+        root,
+        &stage_arguments,
+        Some(pathspec_input.clone()),
+        false,
+        &environment,
+    )?;
     if staged.exit_code != 0 {
-        restore_index_after_command_failure(&index_snapshot, &staged)?;
         return Ok(staged);
     }
 
-    let marker_paths = match staged_conflict_marker_paths(root, &paths) {
-        Ok(paths) => paths,
-        Err(error) => return restore_index_after_error(&index_snapshot, error),
-    };
+    let marker_paths = staged_conflict_marker_paths_with_environment(root, &environment, true)?;
     if !marker_paths.is_empty() {
-        let error = CoreError::new(
+        return Err(CoreError::new(
             ErrorCode::InvalidRequest,
             "Conflict markers remain in selected files",
         )
-        .with_details(marker_paths.join(", "));
-        return restore_index_after_error(&index_snapshot, error);
+        .with_details(marker_paths.join(", ")));
     }
 
     let mut arguments = vec!["commit".into()];
     if amend {
         arguments.push("--amend".into());
     }
-    arguments.extend(["--only".into(), "-m".into(), message, "--".into()]);
-    arguments.extend(paths);
-    let committed = match execute_git(root, &arguments, None) {
-        Ok(committed) => committed,
-        Err(error) => return restore_index_after_error(&index_snapshot, error),
-    };
+    arguments.extend(["-m".into(), message]);
+    let committed = execute_git_with_environment(root, &arguments, None, false, &environment)?;
     if committed.exit_code != 0 {
-        restore_index_after_command_failure(&index_snapshot, &committed)?;
+        return Ok(committed);
     }
-    Ok(committed)
-}
 
-fn restore_index_after_error(
-    snapshot: &GitIndexSnapshot,
-    original: CoreError,
-) -> Result<GitCommandResponse, CoreError> {
-    match snapshot.restore() {
-        Ok(()) => Err(original),
-        Err(restore_error) => Err(CoreError::new(
-            ErrorCode::ProcessFailed,
-            "Git commit failed and the original index could not be restored",
-        )
-        .with_details(format!("{}; {}", original.message, restore_error.message))),
-    }
-}
-
-fn restore_index_after_command_failure(
-    snapshot: &GitIndexSnapshot,
-    command: &GitCommandResponse,
-) -> Result<(), CoreError> {
-    snapshot.restore().map_err(|restore_error| {
-        CoreError::new(
-            ErrorCode::ProcessFailed,
-            "Git commit failed and the original index could not be restored",
-        )
-        .with_details(format!(
-            "{}; {}",
-            command.output.trim(),
-            restore_error.message
-        ))
-    })
-}
-
-fn git_index_io_error(action: &str, error: std::io::Error) -> CoreError {
-    let code = if error.kind() == std::io::ErrorKind::PermissionDenied {
-        ErrorCode::PermissionDenied
-    } else {
-        ErrorCode::Unknown
-    };
-    CoreError::new(code, format!("Could not {action} the Git index"))
-        .with_details(error.to_string())
+    // Reconcile only committed paths in the real index. Unrelated staging that
+    // another Git process created while hooks ran remains intact.
+    execute_git(
+        root,
+        &[
+            "reset".to_string(),
+            "-q".to_string(),
+            "HEAD".to_string(),
+            "--pathspec-from-file=-".to_string(),
+            "--pathspec-file-nul".to_string(),
+        ],
+        Some(pathspec_input),
+    )
 }
 
 /// How an operation decides whether a dirty working tree is in its way.
@@ -3407,6 +3492,7 @@ fn push(
         }
     };
     let target = resolve_push_target(root, reference)?;
+    let should_set_upstream = target.upstream.is_none();
     if let Some(expected_push) = expected_push {
         validate_push_expectation(root, &target, expected_push)?;
     }
@@ -3425,17 +3511,63 @@ fn push(
     if let Some(tag_argument) = tag_argument {
         arguments.push(tag_argument.into());
     }
-    if target.upstream.is_none() {
+    if should_set_upstream && expected_push.is_none() {
         arguments.push("--set-upstream".into());
     }
+    let source = expected_push
+        .map(|expected| expected.local_head.clone())
+        .unwrap_or_else(|| format!("refs/heads/{}", target.local_branch));
+    let remote = target.remote;
+    let remote_branch = target.remote_branch;
+    let local_branch = target.local_branch;
     arguments.extend([
-        target.remote,
-        format!(
-            "refs/heads/{}:refs/heads/{}",
-            target.local_branch, target.remote_branch
-        ),
+        remote.clone(),
+        format!("{source}:refs/heads/{remote_branch}"),
     ]);
-    execute_git(root, &arguments, None)
+    let pushed = execute_git(root, &arguments, None)?;
+    if pushed.exit_code != 0 || !should_set_upstream || expected_push.is_none() {
+        return Ok(pushed);
+    }
+
+    execute_git(
+        root,
+        &[
+            "branch".to_string(),
+            format!("--set-upstream-to={remote}/{remote_branch}"),
+            local_branch,
+        ],
+        None,
+    )
+}
+
+fn nul_pathspec_input(paths: &[String]) -> String {
+    paths
+        .iter()
+        .flat_map(|path| [path.as_str(), "\0"])
+        .collect()
+}
+
+fn empty_tree_oid(root: &str) -> Result<String, CoreError> {
+    let hashed = execute_git_readonly(
+        root,
+        &[
+            "hash-object".to_string(),
+            "-t".to_string(),
+            "tree".to_string(),
+            "--stdin".to_string(),
+        ],
+        Some(String::new()),
+    )?;
+    if hashed.exit_code != 0 {
+        return Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Could not resolve Git's empty tree",
+        )
+        .with_details(hashed.output));
+    }
+    let oid = hashed.stdout.trim();
+    validate_revision(oid)?;
+    Ok(oid.to_string())
 }
 
 fn validate_push_expectation(
@@ -3761,12 +3893,6 @@ fn switch_validated_reference(
         }
         "remote" => {
             let (_, local_name) = mutations::remote_branch_components(root, &reference.full_name)?;
-            if current_branch(root)? == local_name {
-                return Err(CoreError::new(
-                    ErrorCode::InvalidRequest,
-                    "The current branch is already checked out",
-                ));
-            }
             let local_ref = format!("refs/heads/{local_name}");
             let existing = execute_git(
                 root,
@@ -3774,11 +3900,40 @@ fn switch_validated_reference(
                     "show-ref".into(),
                     "--verify".into(),
                     "--quiet".into(),
-                    local_ref,
+                    local_ref.clone(),
                 ],
                 None,
             )?;
             if existing.exit_code == 0 {
+                let upstream = execute_git_readonly(
+                    root,
+                    &[
+                        "for-each-ref".into(),
+                        "--format=%(upstream)".into(),
+                        "--count=1".into(),
+                        local_ref,
+                    ],
+                    None,
+                )?;
+                if upstream.exit_code != 0 {
+                    return Err(CoreError::new(
+                        ErrorCode::ProcessFailed,
+                        "Could not inspect the local branch upstream",
+                    )
+                    .with_details(upstream.output));
+                }
+                if upstream.stdout.trim() != reference.full_name {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "A same-named local branch tracks a different Git reference",
+                    ));
+                }
+                if current_branch(root)? == local_name {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "The current branch is already checked out",
+                    ));
+                }
                 base.push(local_name);
             } else {
                 base.push("--track".into());
@@ -4556,11 +4711,10 @@ fn parse_status(output: &[u8]) -> Vec<GitChange> {
         }
         let x = bytes[0] as char;
         let y = bytes[1] as char;
-        let mut path = record[3..].to_string();
+        let path = record[3..].to_string();
         let mut original_path = None;
-        if matches!(x, 'R' | 'C') && index + 1 < records.len() {
-            original_path = Some(path);
-            path = String::from_utf8_lossy(records[index + 1]).to_string();
+        if (matches!(x, 'R' | 'C') || matches!(y, 'R' | 'C')) && index + 1 < records.len() {
+            original_path = Some(String::from_utf8_lossy(records[index + 1]).to_string());
             index += 1;
         }
         changes.push(GitChange {

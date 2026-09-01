@@ -156,9 +156,24 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
                 payload.remove("targetRef");
                 payload.remove("reference");
             } else {
-                let base = take_text(&mut payload, "baseRef")?;
                 let target = take_text(&mut payload, "targetRef")?;
-                payload.insert("reference".into(), json!(format!("{base}..{target}")));
+                let base = payload.remove("baseRef");
+                match base
+                    .as_ref()
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.trim().is_empty())
+                {
+                    Some(base) => {
+                        payload.insert("reference".into(), json!(format!("{base}..{target}")));
+                    }
+                    None if base.as_ref().is_some_and(Value::is_null) => {
+                        payload.insert("reference".into(), json!(target));
+                        payload.insert("emptyTreeBase".into(), json!(true));
+                    }
+                    None => {
+                        return Err("Windows platform command requires baseRef".to_string());
+                    }
+                }
             }
             payload.insert("pathspecs".into(), json!(["."]));
             "git.diff"
@@ -1092,6 +1107,30 @@ mod tests {
                 "root": "C:/work",
                 "gitReference": base,
                 "targetGitReference": target,
+                "pathspecs": ["."]
+            })
+        );
+    }
+
+    #[test]
+    fn translates_root_commit_range_without_assuming_an_object_format() {
+        let (command, payload) = translate(
+            "git_ref_diff",
+            json!({
+                "repoPath": "C:/work",
+                "baseRef": null,
+                "targetRef": "0123456789abcdef"
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(command, "git.diff");
+        assert_eq!(
+            payload,
+            json!({
+                "root": "C:/work",
+                "reference": "0123456789abcdef",
+                "emptyTreeBase": true,
                 "pathspecs": ["."]
             })
         );

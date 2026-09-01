@@ -110,6 +110,7 @@ export interface MultiFileDiff {
   totalAdditions: number;
   totalDeletions: number;
   fileKeys?: string[];
+  fileLabels?: string[];
   initiallyExpandedFileKey?: string;
   initiallySelectedFileKey?: string;
   isLoading?: boolean;

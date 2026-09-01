@@ -2,12 +2,27 @@ import { describe, expect, test } from "bun:test";
 import {
   buildGitIgnorePaths,
   collapseNestedGitStatusPaths,
+  resolveGitFileMutationPaths,
   resolveGitStatusDeletionPaths,
   resolveGitStatusContextSelection,
   updateGitStatusSelection,
 } from "./git-status-selection";
 
 describe("Git status row selection", () => {
+  test("includes both sides of a rename in Git mutations", () => {
+    expect(
+      resolveGitFileMutationPaths([
+        {
+          path: "src/new-name.ts",
+          originalPath: "src/old-name.ts",
+          status: "renamed",
+          staged: true,
+        },
+        { path: "src/other.ts", status: "modified", staged: false },
+      ]),
+    ).toEqual(["src/new-name.ts", "src/old-name.ts", "src/other.ts"]);
+  });
+
   test("keeps row selection independent from commit checkboxes", () => {
     const initial = new Set(["file:src/first.ts"]);
 

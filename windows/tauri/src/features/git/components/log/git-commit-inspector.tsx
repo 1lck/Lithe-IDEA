@@ -1,12 +1,18 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { GitDiffIcon } from "@/ui/icons";
 import { Button } from "@/ui/button";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/ui/resizable";
 import { useTranslation } from "@/i18n/locale-provider";
 import { getCommitFiles } from "../../api/git-commits-api";
+import { getRefDiff } from "../../api/git-diff-api";
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
 import type { GitCommit, GitCommitFile } from "../../types/git.types";
-import { aggregateGitCommitFiles } from "../../utils/git-commit-file-aggregation";
+import {
+  aggregateSelectedCommitFileRows,
+  gitDiffsToCommitFiles,
+  resolveGitCommitSelectionDiff,
+  type GitCommitSelectionDiff,
+} from "../../utils/git-commit-selection-diff";
 import { GitCommitFileTree } from "./git-commit-file-tree";
 
 type FilesLoadState = "idle" | "loading" | "ready" | "failed";
@@ -16,58 +22,76 @@ export function GitCommitInspector({
   commit,
   commits,
   onOpenDiff,
+  onOpenRangeDiff,
+  onOpenSelectionDiff,
 }: {
   repoPath: string | null;
   commit: GitCommit | null;
   commits: readonly GitCommit[];
   onOpenDiff: (commit: GitCommit, filePath?: string) => void;
+  onOpenRangeDiff: (
+    range: Extract<GitCommitSelectionDiff, { kind: "range" }>,
+    filePath?: string,
+  ) => void;
+  onOpenSelectionDiff: (
+    selection: Extract<GitCommitSelectionDiff, { kind: "selection" }>,
+    filePath?: string,
+  ) => void;
 }) {
   const { t } = useTranslation();
   const [files, setFiles] = useState<GitCommitFile[]>([]);
-  const [commitByPath, setCommitByPath] = useState<Map<string, GitCommit>>(new Map());
   const [loadState, setLoadState] = useState<FilesLoadState>("idle");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const requestIdRef = useRef(0);
   const inspectorPanelLayout = useGitLogPreferencesStore.use.inspectorPanelLayout();
   const { setInspectorPanelLayout } = useGitLogPreferencesStore.use.actions();
+  const selectionDiff = useMemo(() => resolveGitCommitSelectionDiff(commits), [commits]);
 
   useEffect(() => {
     const requestId = ++requestIdRef.current;
     setFiles([]);
-    setCommitByPath(new Map());
     setSelectedPath(null);
-    if (!repoPath || commits.length === 0) {
+    if (!repoPath || !selectionDiff) {
       setLoadState("idle");
       return;
     }
 
     setLoadState("loading");
-    void Promise.all(
-      commits.map(async (selectedCommit) => ({
-        commit: selectedCommit,
-        files: await getCommitFiles(repoPath, selectedCommit.hash),
-      })),
-    ).then((results) => {
+    const filesPromise = (() => {
+      if (selectionDiff.kind === "commit") {
+        return getCommitFiles(repoPath, selectionDiff.commit.hash);
+      }
+      if (selectionDiff.kind === "range") {
+        return getRefDiff(repoPath, selectionDiff.baseRef, selectionDiff.targetRef).then((diffs) =>
+          diffs ? gitDiffsToCommitFiles(diffs) : null,
+        );
+      }
+      return Promise.all(
+        selectionDiff.commits.map((selectedCommit) =>
+          getCommitFiles(repoPath, selectedCommit.hash).then((files) => ({ files })),
+        ),
+      ).then((results) =>
+        results.some((result) => result.files === null)
+          ? null
+          : aggregateSelectedCommitFileRows(
+              results.map((result) => ({ files: result.files ?? [] })),
+            ),
+      );
+    })();
+    void filesPromise.then((loadedFiles) => {
       if (requestId !== requestIdRef.current) return;
-      if (results.some((result) => result.files === null)) {
+      if (loadedFiles === null) {
         setLoadState("failed");
         return;
       }
-      const aggregated = aggregateGitCommitFiles(
-        results.map((result) => ({
-          commit: result.commit,
-          files: result.files ?? [],
-        })),
-      );
-      setFiles(aggregated.files);
-      setCommitByPath(aggregated.commitByPath);
+      setFiles(loadedFiles);
       setLoadState("ready");
     });
 
     return () => {
       requestIdRef.current += 1;
     };
-  }, [commits, repoPath]);
+  }, [repoPath, selectionDiff]);
 
   return (
     <div className="h-full min-h-0 bg-surface/35 font-sans ui-text-sm select-none">
@@ -91,8 +115,14 @@ export function GitCommitInspector({
                 type="button"
                 variant="ghost"
                 size="icon-xs"
-                disabled={!commit || commits.length > 1}
-                onClick={() => commit && onOpenDiff(commit)}
+                disabled={!selectionDiff}
+                onClick={() => {
+                  if (selectionDiff?.kind === "commit") onOpenDiff(selectionDiff.commit);
+                  else if (selectionDiff?.kind === "range") onOpenRangeDiff(selectionDiff);
+                  else if (selectionDiff?.kind === "selection") {
+                    onOpenSelectionDiff(selectionDiff);
+                  }
+                }}
                 tooltip={t("git.log.openCommitDiff")}
                 aria-label={t("git.log.openCommitDiff")}
               >
@@ -121,8 +151,11 @@ export function GitCommitInspector({
                 selectedPath={selectedPath}
                 onSelect={setSelectedPath}
                 onOpen={(path) => {
-                  const sourceCommit = commitByPath.get(path) ?? commit;
-                  if (sourceCommit) onOpenDiff(sourceCommit, path);
+                  if (selectionDiff?.kind === "commit") onOpenDiff(selectionDiff.commit, path);
+                  else if (selectionDiff?.kind === "range") onOpenRangeDiff(selectionDiff, path);
+                  else if (selectionDiff?.kind === "selection") {
+                    onOpenSelectionDiff(selectionDiff, path);
+                  }
                 }}
               />
             )}

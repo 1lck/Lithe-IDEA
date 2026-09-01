@@ -1,6 +1,40 @@
 import { describe, expect, test } from "bun:test";
 import { adaptCoreResult } from "./core-result-adapter";
 
+describe("git status result adaptation", () => {
+  test("preserves both paths of a renamed file", () => {
+    const result = adaptCoreResult(
+      "git_status",
+      { repoPath: "C:/work" },
+      {
+        branch: "main",
+        changes: [
+          {
+            path: "src/new-name.ts",
+            originalPath: "src/old-name.ts",
+            status: "R ",
+            staged: true,
+          },
+        ],
+      },
+    );
+
+    expect(result).toEqual({
+      branch: "main",
+      ahead: 0,
+      behind: 0,
+      files: [
+        {
+          path: "src/new-name.ts",
+          originalPath: "src/old-name.ts",
+          status: "renamed",
+          staged: true,
+        },
+      ],
+    });
+  });
+});
+
 describe("git checkout result adaptation", () => {
   test("maps a successful core checkout to the UI checkout result", () => {
     const result = adaptCoreResult(

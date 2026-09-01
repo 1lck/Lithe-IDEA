@@ -1,5 +1,11 @@
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
-import type { GitPullPreflight, GitReference, GitRemote, PullStrategy } from "../types/git.types";
+import type {
+  GitPullPreflight,
+  GitPullResult,
+  GitReference,
+  GitRemote,
+  PullStrategy,
+} from "../types/git.types";
 import { emitGitChanged } from "../events/git-events";
 import { GitPullWorkflow } from "../hooks/git-pull-workflow";
 import { runGitRead } from "../runtime/git-read-coordinator";
@@ -18,6 +24,7 @@ import {
 export interface GitRemoteActionResult {
   success: boolean;
   error?: string;
+  pullResult?: GitPullResult;
 }
 
 export const getRemotes = async (repoPath: string): Promise<GitRemote[]> => {
@@ -201,10 +208,8 @@ export const pullChanges = async (repoPath: string): Promise<GitRemoteActionResu
       ? { success: true }
       : {
           success: false,
-          error:
-            result.status === "cancelled"
-              ? "Branches have diverged. Open Source Control and choose Merge or Rebase."
-              : result.message,
+          ...(result.status === "failed" && result.error ? { error: result.error } : {}),
+          pullResult: result,
         };
   } finally {
     unsubscribe();

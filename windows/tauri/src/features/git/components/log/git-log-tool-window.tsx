@@ -133,6 +133,8 @@ export function GitLogToolWindow() {
     isLoadingCommitDiff,
     isLoadingBranchDiff,
     viewCommitDiff,
+    viewCommitRangeDiff,
+    viewCommitSelectionDiff,
     viewBranchDiff,
     viewReferenceWorkingTreeDiff,
   } = useGitDiffActions({
@@ -616,6 +618,20 @@ export function GitLogToolWindow() {
               commit={selectedCommit}
               commits={selectedCommits}
               onOpenDiff={openDiff}
+              onOpenRangeDiff={(range, filePath) => {
+                if (isLoadingCommitDiff) return;
+                void viewCommitRangeDiff(
+                  range.baseRef,
+                  range.targetRef,
+                  range.oldest.shortHash,
+                  range.newest.shortHash,
+                  filePath,
+                );
+              }}
+              onOpenSelectionDiff={(selection, filePath) => {
+                if (isLoadingCommitDiff) return;
+                void viewCommitSelectionDiff(selection.commits, filePath);
+              }}
             />
           </ResizablePanel>
         </ResizablePanelGroup>

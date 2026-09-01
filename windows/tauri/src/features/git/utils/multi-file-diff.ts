@@ -14,6 +14,8 @@ export function createMultiFileDiff({
   diffs,
   metadata,
   initialFilePath,
+  fileKeys,
+  fileLabels,
 }: {
   title?: string;
   repoPath: string;
@@ -21,6 +23,8 @@ export function createMultiFileDiff({
   diffs: GitDiff[];
   metadata?: MultiFileDiffMetadata;
   initialFilePath?: string;
+  fileKeys?: string[];
+  fileLabels?: string[];
 }): MultiFileDiff {
   const { additions, deletions } = countDiffStats(diffs);
   const initialFileIndex = initialFilePath
@@ -29,7 +33,9 @@ export function createMultiFileDiff({
       )
     : -1;
   const initialFile = initialFileIndex >= 0 ? diffs[initialFileIndex] : undefined;
-  const initialFileKey = initialFile ? `${initialFile.file_path}:${initialFileIndex}` : undefined;
+  const initialFileKey = initialFile
+    ? (fileKeys?.[initialFileIndex] ?? `${initialFile.file_path}:${initialFileIndex}`)
+    : undefined;
 
   return {
     title,
@@ -39,6 +45,8 @@ export function createMultiFileDiff({
     totalFiles: diffs.length,
     totalAdditions: additions,
     totalDeletions: deletions,
+    fileKeys,
+    fileLabels,
     initiallyExpandedFileKey: initialFileKey,
     initiallySelectedFileKey: initialFileKey,
     ...metadata,

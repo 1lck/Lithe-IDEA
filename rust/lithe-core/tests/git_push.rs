@@ -153,7 +153,13 @@ fn push_preview_and_write_share_destination_and_safe_options() {
         .any(|argument| argument.starts_with("--force-with-lease=refs/heads/main:")));
     assert!(!arguments.contains(&"--force"));
     assert!(arguments.contains(&"--follow-tags"));
-    assert!(arguments.contains(&"refs/heads/main:refs/heads/main"));
+    let reviewed_refspec = format!(
+        "{}:refs/heads/main",
+        preview["data"]["localHead"]
+            .as_str()
+            .expect("preview should contain the local head")
+    );
+    assert!(arguments.contains(&reviewed_refspec.as_str()));
 
     let local_head = git(&repository, &["rev-parse", "HEAD"]);
     let remote_head = git(&remote, &["rev-parse", "refs/heads/main"]);
@@ -239,10 +245,10 @@ fn push_rejects_a_preview_after_the_configured_destination_changes() {
 }
 
 #[test]
-fn push_preview_uses_default_remote_when_branch_has_no_upstream() {
+fn reviewed_push_uses_default_remote_and_sets_upstream_when_missing() {
     let fixture = GitFixture::new();
     let (repository, _) = initialize_repository(&fixture);
-    require_git(&repository, &["branch", "--unset-upstream"]);
+    require_git(&repository, &["switch", "-q", "-c", "feature"]);
     fs::write(repository.join("local.txt"), "local\n").expect("local fixture should be writable");
     require_git(&repository, &["add", "local.txt"]);
     require_git(&repository, &["commit", "-q", "-m", "local only"]);
@@ -250,10 +256,28 @@ fn push_preview_uses_default_remote_when_branch_has_no_upstream() {
     let preview = core("git.pushPreview", &repository, json!({}));
     assert_eq!(preview["ok"], true, "response: {preview}");
     assert_eq!(preview["data"]["remote"], "origin");
-    assert_eq!(preview["data"]["remoteBranch"], "main");
+    assert_eq!(preview["data"]["remoteBranch"], "feature");
     assert!(preview["data"]["upstream"].is_null());
     assert_eq!(preview["data"]["commits"].as_array().map(Vec::len), Some(1));
     assert_eq!(preview["data"]["commits"][0]["subject"], "local only");
+
+    let pushed = core(
+        "git.write",
+        &repository,
+        json!({
+            "operation": "push",
+            "expectedPush": push_expectation(&preview)
+        }),
+    );
+    assert_eq!(pushed["ok"], true, "response: {pushed}");
+    assert_eq!(pushed["data"]["exitCode"], 0, "response: {pushed}");
+    assert_eq!(
+        String::from_utf8_lossy(
+            &git(&repository, &["rev-parse", "--abbrev-ref", "@{upstream}"]).stdout
+        )
+        .trim(),
+        "origin/feature"
+    );
 }
 
 #[test]

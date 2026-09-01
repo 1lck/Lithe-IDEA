@@ -165,6 +165,9 @@ are one-based. `git.status.repositoryRoot` may be an absolute path when the
 opened workspace is a subdirectory of the repository; all Git change paths are
 relative to that repository root. `git.status.ahead` and `behind` report the
 current branch's tracking counts and are zero when no upstream is configured.
+For a rename or copy, each change uses the destination as `path` and preserves
+the source as `originalPath`; platform mutations that act on the Git entry pass
+both paths back to Core.
 The core rejects absolute paths and `..`
 traversal for file commands. Native file dialogs, file watching, PTY/ConPTY,
 Java processes, and runtime discovery remain platform adapters.
@@ -290,7 +293,11 @@ back as `expectedPush`; Core rejects a stale local tip, destination, or tracking
 before starting Git. `force` binds `--force-with-lease` to the reviewed destination
 OID when `expectedPush` is present; `pushTags` accepts `none`, `all`, or `reachable`
 and maps to no tag option, `--tags`, or `--follow-tags` respectively. Legacy push
-callers may omit `expectedPush`.
+callers may omit `expectedPush`. A reviewed push uses the preview's immutable
+`localHead` OID as the refspec source, so a repository change after validation
+cannot add unreviewed commits to the operation. Because Git cannot infer an
+upstream from an OID source, Core explicitly configures the reviewed local
+branch after a successful first push.
 
 New reference-based workflows send `gitReference` as `{ "fullName": string,
 "shortName": string, "kind": "local" | "remote" | "tag" }`. Core verifies
@@ -299,7 +306,9 @@ with Git. The legacy `reference` and `referenceKind` fields remain accepted for
 existing platform calls. `checkoutAndRebase` requires a local or remote branch
 reference and a completely clean worktree; Core records the current local
 branch before switching and rebases the checked-out branch onto that original
-branch. A dirty tree or detached HEAD is rejected before checkout begins.
+branch. A dirty tree or detached HEAD is rejected before checkout begins. When
+remote checkout finds an existing same-named local branch, Core uses it only if
+its configured upstream is the selected complete remote reference.
 
 `pull` without an explicit reference retains current-upstream behavior. An
 explicit remote reference may use either the preferred `gitReference` shape or
@@ -317,8 +326,14 @@ When `commit` includes `paths`, Core stages the complete working-tree state of
 those paths, including untracked files and deletions, then commits only those
 paths. Other paths already present in the index remain staged and are not part
 of the new commit. Core checks conflict markers after preparing that final
-snapshot and restores the exact original index if staging, validation, a hook,
-signing, or commit execution fails. A `commit` request without `paths` retains
+snapshot in an isolated temporary index initialized from the operation's HEAD
+tree. The real index is not changed on any
+staging, validation, hook, signing, or commit failure; successful commits
+reconcile only the selected paths, preserving unrelated staging created while
+the operation ran. Selected paths used to prepare and reconcile the snapshot
+are passed to Git over NUL-delimited stdin with `--pathspec-from-file`, avoiding
+platform command-line limits and preserving rename source/destination identity.
+A `commit` request without `paths` retains
 the legacy behavior of committing the existing index. `ignore` appends root-anchored patterns to the
 repository's top-level `.gitignore`; `exclude` appends the same patterns to the
 worktree-aware Git metadata path for `info/exclude`. Both ignore operations
@@ -377,7 +392,8 @@ nullable, and the progress counters are populated only for a rebase. State is
 read from Git's own metadata, so operations started outside Lithe are reported.
 
 `git.diff` accepts `root`, `pathspecs`, optional `reference`, `gitReference`,
-`targetGitReference`, or `commit`,
+`targetGitReference`, or `commit`, plus `emptyTreeBase` for a legacy target
+reference whose comparison must begin at the repository's object-format-specific empty tree,
 `staged`, `untracked`, `contextLines`, and `ignoreAllWhitespace`, and returns `{ "patch": string, "rows": [],
 "hunks": [] }`. Rows contain one-based `oldLine`/`newLine` values where
 available, `left`/`right` text, a `kind` (`context`, `changed`, `addition`,

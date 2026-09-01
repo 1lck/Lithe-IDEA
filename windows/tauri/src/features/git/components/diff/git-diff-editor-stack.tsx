@@ -573,6 +573,7 @@ const DiffFileSection = memo(function DiffFileSection({
   viewMode,
   showWhitespace,
   onOpenFile,
+  fileLabel,
   searchMatches,
   currentSearchMatch,
   searchQuery,
@@ -583,6 +584,7 @@ const DiffFileSection = memo(function DiffFileSection({
   expanded: boolean;
   onToggle: (sectionKey: string) => void;
   onOpenFile: (filePath: string) => void | Promise<void>;
+  fileLabel?: string;
   viewMode: "unified" | "split";
   showWhitespace: boolean;
   searchMatches: MultiDiffSearchMatch[];
@@ -621,6 +623,9 @@ const DiffFileSection = memo(function DiffFileSection({
         showFileIcon={false}
         trailing={
           <>
+            {fileLabel ? (
+              <span className="font-mono text-[10px] text-subtle-foreground">{fileLabel}</span>
+            ) : null}
             {additions > 0 ? <span className="text-git-added">+{additions}</span> : null}
             {deletions > 0 ? <span className="text-git-deleted">-{deletions}</span> : null}
           </>
@@ -777,6 +782,9 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
           path: filePath,
           iconClassName: statusTextClass[status],
           metadata: [
+            ...(multiDiff.fileLabels?.[index]
+              ? [{ label: multiDiff.fileLabels[index], className: "font-mono text-[10px]" }]
+              : []),
             ...(additions > 0 ? [{ label: `+${additions}`, className: "text-git-added" }] : []),
             ...(deletions > 0 ? [{ label: `-${deletions}`, className: "text-git-deleted" }] : []),
           ],
@@ -1529,6 +1537,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
                       <DiffFileSection
                         diff={diff}
                         sectionKey={sectionKey}
+                        fileLabel={multiDiff.fileLabels?.[index]}
                         expanded={expandedFiles.has(sectionKey)}
                         viewMode={viewMode}
                         showWhitespace={showWhitespace}

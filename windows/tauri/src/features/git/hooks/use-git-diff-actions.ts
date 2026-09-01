@@ -19,10 +19,8 @@ import {
 } from "../services/working-tree-diff-loader";
 import type { MultiFileDiff } from "../types/git-diff.types";
 import type { GitCommit, GitDiff, GitFile, GitReference } from "../types/git.types";
-import {
-  createRequestGeneration,
-  type RequestGeneration,
-} from "../utils/request-generation";
+import { aggregateSelectedCommitDiffs } from "../utils/git-commit-selection-diff";
+import { createRequestGeneration, type RequestGeneration } from "../utils/request-generation";
 import { createCommitDiffBuffer, createMultiFileDiff } from "../utils/multi-file-diff";
 import { createSingleFileWorkingTreeDiff } from "../utils/working-tree-multi-diff";
 
@@ -138,11 +136,7 @@ export function useGitDiffActions({
               label: t("git.indexing"),
             },
           };
-          const bufferId = openDiffBuffer(
-            "diff://working-tree/all-files",
-            title,
-            loadingDiff,
-          );
+          const bufferId = openDiffBuffer("diff://working-tree/all-files", title, loadingDiff);
           void (async () => {
             const diff = await getWorkingTreePathDiff(
               activeRepoPath,
@@ -302,6 +296,112 @@ export function useGitDiffActions({
     [activeRepoPath, commitByHash, t],
   );
 
+  const viewCommitRangeDiff = useCallback(
+    async (
+      baseRef: string | null,
+      targetRef: string,
+      oldestLabel: string,
+      newestLabel: string,
+      filePath?: string,
+    ) => {
+      if (!activeRepoPath) return;
+
+      setIsLoadingCommitDiff(true);
+      try {
+        const diffs = await getRefDiff(activeRepoPath, baseRef, targetRef);
+        if (!diffs?.length) {
+          await showAlertDialog(
+            t("git.diff.noChangesBetween", { base: oldestLabel, target: newestLabel }),
+            t("git.diff.title"),
+          );
+          return;
+        }
+
+        const title = t("git.diff.commitRangeTitle", {
+          base: oldestLabel,
+          target: newestLabel,
+        });
+        const diffData = createMultiFileDiff({
+          title,
+          repoPath: activeRepoPath,
+          commitHash: `${baseRef ?? "root"}..${targetRef}`,
+          diffs,
+          initialFilePath: filePath,
+        });
+        openDiffBuffer(
+          `diff://commit-range/${encodeURIComponent(baseRef ?? "root")}..${encodeURIComponent(targetRef)}`,
+          `${title} (${diffs.length} files)`,
+          diffData,
+        );
+      } catch (error) {
+        console.error("Error getting commit range diff:", error);
+        await showAlertDialog(
+          t("git.diff.compareRefsFailed", {
+            base: oldestLabel,
+            target: newestLabel,
+            error: String(error),
+          }),
+          t("git.diff.title"),
+        );
+      } finally {
+        setIsLoadingCommitDiff(false);
+      }
+    },
+    [activeRepoPath, t],
+  );
+
+  const viewCommitSelectionDiff = useCallback(
+    async (commits: readonly GitCommit[], filePath?: string) => {
+      if (!activeRepoPath || commits.length === 0) return;
+      setIsLoadingCommitDiff(true);
+      try {
+        const results = await Promise.all(
+          commits.map(async (commit) => ({
+            commit,
+            diffs: await getCommitDiff(activeRepoPath, commit.hash),
+          })),
+        );
+        if (results.some((result) => result.diffs === null)) {
+          throw new Error(t("git.log.unableToLoadFiles"));
+        }
+        const aggregate = aggregateSelectedCommitDiffs(
+          results.map((result) => ({ commit: result.commit, diffs: result.diffs ?? [] })),
+        );
+        if (aggregate.diffs.length === 0) {
+          await showAlertDialog(t("git.diff.noChangesInSelectedCommits"), t("git.diff.title"));
+          return;
+        }
+
+        const title = t("git.diff.selectedCommitsTitle", { count: commits.length });
+        const selectionKey = commits.map((commit) => commit.hash).join(",");
+        const diffData = createMultiFileDiff({
+          title,
+          repoPath: activeRepoPath,
+          commitHash: commits[0]?.hash ?? "selection",
+          diffs: aggregate.diffs,
+          initialFilePath: filePath,
+          fileKeys: aggregate.fileKeys,
+          fileLabels: aggregate.fileLabels,
+        });
+        diffData.totalFiles = aggregate.files.length;
+        openDiffBuffer(
+          `diff://commit-selection/${encodeURIComponent(selectionKey)}/all-files`,
+          `${title} (${aggregate.files.length} files)`,
+          diffData,
+        );
+      } catch (error) {
+        console.error("Error getting selected commit diffs:", error);
+        await showAlertDialog(
+          t("git.diff.getSelectedCommitDiffFailed", { error: String(error) }),
+          t("git.diff.title"),
+        );
+      } finally {
+        setIsLoadingCommitDiff(false);
+      }
+    },
+    [activeRepoPath, t],
+  );
+
   const viewStashDiff = useCallback(
     async (stashIndex: number) => {
       if (!activeRepoPath) return;
@@ -392,10 +492,7 @@ export function useGitDiffActions({
             ? await getTypedReferenceDiff(activeRepoPath, baseBranch, currentReference)
             : await getRefDiff(activeRepoPath, baseName, targetBranch);
         if (!diffs?.length) {
-          await showAlertDialog(
-            `No changes between ${baseName} and ${targetBranch}.`,
-            "Git Diff",
-          );
+          await showAlertDialog(`No changes between ${baseName} and ${targetBranch}.`, "Git Diff");
           return;
         }
 
@@ -472,6 +569,8 @@ export function useGitDiffActions({
     viewFileDiff,
     viewWorkingTreeDiff,
     viewCommitDiff,
+    viewCommitRangeDiff,
+    viewCommitSelectionDiff,
     viewStashDiff,
     viewTagComparison,
     viewBranchDiff,

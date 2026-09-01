@@ -42,6 +42,7 @@ import { useGitBlameStore } from "../stores/git-blame.store";
 import { useRepositoryStore } from "../stores/git-repository.store";
 import { useGitStore } from "../stores/git.store";
 import type { GitFile } from "../types/git.types";
+import { buildVisibleGitFiles } from "../utils/git-status-model";
 import {
   type WorkingTreeDiffEntry,
   type WorkingTreeDiffScope,
@@ -166,8 +167,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
   const [stashActionLoading, setStashActionLoading] = useState<Set<number>>(new Set());
 
   const { gitFileByPath, visibleGitFiles, workingTreeDiffEntriesByScope } = useMemo(() => {
-    const nextGitFileByPath = new Map<string, GitFile>();
-    const nextVisibleGitFiles: GitFile[] = [];
+    const visible = buildVisibleGitFiles(gitStatus?.files ?? [], showUntrackedFiles);
     const nextWorkingTreeDiffEntriesByScope: Record<WorkingTreeDiffScope, WorkingTreeDiffEntry[]> =
       {
         all: [],
@@ -176,17 +176,8 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
       };
     const seenDiffableFileKeys = new Set<string>();
 
-    for (const file of gitStatus?.files ?? []) {
-      if (!nextGitFileByPath.has(file.path)) {
-        nextGitFileByPath.set(file.path, file);
-      }
-
-      if (!showUntrackedFiles && file.status === "untracked") {
-        continue;
-      }
-
+    for (const file of visible.files) {
       const fileKey = `${file.staged ? "staged" : "unstaged"}:${file.path}`;
-      nextVisibleGitFiles.push(file);
 
       if (seenDiffableFileKeys.has(fileKey)) {
         continue;
@@ -199,8 +190,8 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     }
 
     return {
-      gitFileByPath: nextGitFileByPath,
-      visibleGitFiles: nextVisibleGitFiles,
+      gitFileByPath: visible.fileByPath,
+      visibleGitFiles: visible.files,
       workingTreeDiffEntriesByScope: nextWorkingTreeDiffEntriesByScope,
     };
   }, [gitStatus?.files, showUntrackedFiles]);

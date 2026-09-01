@@ -1,5 +1,6 @@
 export interface GitFile {
   path: string;
+  originalPath?: string;
   status: "modified" | "added" | "deleted" | "untracked" | "renamed";
   staged: boolean;
 }
@@ -128,20 +129,19 @@ export interface GitPullPreflight {
 export type PullStrategy = "ffOnly" | "merge" | "rebase";
 
 export type GitPullResult =
-  | { status: "pulled"; strategy: PullStrategy; message: string }
-  | { status: "cancelled"; message: string }
+  | { status: "pulled"; strategy: PullStrategy }
+  | { status: "cancelled" }
   | {
       status: "blocked";
       reason: "no-upstream" | "up-to-date" | "dirty" | "state-changed";
-      message: string;
     }
   | {
       status: "failed";
       stage: "fetch" | "preflight" | "pull";
-      message: string;
+      error?: string;
     }
-  | { status: "conflict"; operation: GitOperationState; message: string }
-  | { status: "duplicate"; message: string };
+  | { status: "conflict"; operation: GitOperationState }
+  | { status: "duplicate" };
 
 export interface GitStash {
   index: number;

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { GitDiff } from "../types/git.types";
-import { createCommitDiffBuffer } from "./multi-file-diff";
+import { createCommitDiffBuffer, createMultiFileDiff } from "./multi-file-diff";
 
 const diff = (filePath: string, additions: number, deletions: number): GitDiff => ({
   file_path: filePath,
@@ -35,5 +35,26 @@ describe("commit diff buffers", () => {
     expect(buffer.diffData.initiallySelectedFileKey).toBe("src/feature.ts:1");
     expect(buffer.diffData.totalAdditions).toBe(6);
     expect(buffer.diffData.totalDeletions).toBe(4);
+  });
+
+  test("uses caller-provided section keys for repeated paths", () => {
+    const diffs = [diff("src/shared.ts", 1, 0), diff("src/shared.ts", 0, 1)];
+    const multiDiff = createMultiFileDiff({
+      repoPath: "C:/repo",
+      commitHash: "1234567890abcdef",
+      diffs,
+      initialFilePath: "src/shared.ts",
+      fileKeys: ["newest:src/shared.ts", "oldest:src/shared.ts"],
+      fileLabels: ["newest", "oldest"],
+    });
+
+    expect(multiDiff.files).toBe(diffs);
+    expect(multiDiff.fileKeys).toEqual([
+      "newest:src/shared.ts",
+      "oldest:src/shared.ts",
+    ]);
+    expect(multiDiff.fileLabels).toEqual(["newest", "oldest"]);
+    expect(multiDiff.initiallyExpandedFileKey).toBe("newest:src/shared.ts");
+    expect(multiDiff.initiallySelectedFileKey).toBe("newest:src/shared.ts");
   });
 });

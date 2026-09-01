@@ -346,7 +346,7 @@ export const getCommitDiff = async (
 
 export const getRefDiff = async (
   repoPath: string,
-  baseRef: string,
+  baseRef: string | null,
   targetRef: string,
 ): Promise<GitDiff[] | null> => {
   try {
