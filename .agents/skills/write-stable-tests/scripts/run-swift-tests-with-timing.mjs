@@ -68,7 +68,7 @@ export function isSwiftTestCompletionFragment(fragment, testName) {
   return testName.startsWith(reported) || reported.startsWith(testName);
 }
 
-function parseArguments(arguments_) {
+export function parseArguments(arguments_) {
   const separator = arguments_.indexOf("--");
   if (separator < 0 || separator === arguments_.length - 1) {
     throw new Error("Provide the test command after --.");
@@ -76,7 +76,7 @@ function parseArguments(arguments_) {
   const options = {
     warnMs: 1000,
     maxMs: 15000,
-    terminateMs: 45000,
+    terminateMs: null,
     suiteTimeoutMs: 600000,
     report: path.join(REPOSITORY_ROOT, ".artifacts/test-stability/macos-swift.json"),
     command: arguments_[separator + 1],
@@ -93,6 +93,7 @@ function parseArguments(arguments_) {
     } else if (argument === "--report") options.report = path.resolve(arguments_[++index]);
     else throw new Error(`Unknown argument: ${argument}`);
   }
+  options.terminateMs ??= options.maxMs + 30000;
   if (options.warnMs >= options.maxMs) throw new Error("--warn-ms must be lower than --max-ms.");
   if (options.maxMs >= options.terminateMs) {
     throw new Error("--max-ms must be lower than --terminate-ms.");

@@ -5,7 +5,7 @@ SCRIPT_DIR="${0:A:h}"
 ROOT_DIR="$(cd -- "$SCRIPT_DIR/../../../.." && pwd)"
 WARN_SECONDS=1
 MAX_SECONDS=15
-TERMINATE_SECONDS=45
+TERMINATE_SECONDS=""
 SUITE_TIMEOUT_SECONDS=600
 REPORT="$ROOT_DIR/.artifacts/test-stability/macos-swift.json"
 SWIFT_ARGS=()
@@ -44,6 +44,16 @@ while (( $# > 0 )); do
     esac
 done
 
+TIMING_ARGS=(
+    --warn-ms "$(( WARN_SECONDS * 1000 ))"
+    --max-ms "$(( MAX_SECONDS * 1000 ))"
+    --suite-timeout-ms "$(( SUITE_TIMEOUT_SECONDS * 1000 ))"
+    --report "$REPORT"
+)
+if [[ -n "$TERMINATE_SECONDS" ]]; then
+    TIMING_ARGS+=(--terminate-ms "$(( TERMINATE_SECONDS * 1000 ))")
+fi
+
 for command in node swift; do
     if ! command -v "$command" >/dev/null 2>&1; then
         print -u2 -- "macOS test stability requires $command; Bun is not required."
@@ -60,9 +70,5 @@ done
 
 "$SCRIPT_DIR/verify-test-stability.sh"
 node "$SCRIPT_DIR/run-swift-tests-with-timing.mjs" \
-    --warn-ms "$(( WARN_SECONDS * 1000 ))" \
-    --max-ms "$(( MAX_SECONDS * 1000 ))" \
-    --terminate-ms "$(( TERMINATE_SECONDS * 1000 ))" \
-    --suite-timeout-ms "$(( SUITE_TIMEOUT_SECONDS * 1000 ))" \
-    --report "$REPORT" \
+    "${TIMING_ARGS[@]}" \
     -- "$ROOT_DIR/scripts/test-macos.sh" --no-parallel "${SWIFT_ARGS[@]}"

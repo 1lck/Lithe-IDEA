@@ -12,6 +12,7 @@ import { run as runBunTestsWithTiming } from "./run-bun-tests-with-timing.mjs";
 import { run as runRustTestsWithTiming } from "./run-rust-tests-with-timing.mjs";
 import {
   isSwiftTestCompletionFragment,
+  parseArguments as parseSwiftTimingArguments,
   parseSwiftSuiteLine,
   parseSwiftTimingLine,
   run as runSwiftTestsWithTiming,
@@ -200,6 +201,23 @@ assert.equal(
     "runBeforeTheSnapshot()",
   ),
   true,
+);
+
+assert.equal(
+  parseSwiftTimingArguments(["--", "swift", "test"]).terminateMs,
+  45000,
+);
+assert.equal(
+  parseSwiftTimingArguments(["--max-ms", "60000", "--", "swift", "test"]).terminateMs,
+  90000,
+);
+assert.throws(
+  () => parseSwiftTimingArguments([
+    "--max-ms", "60000",
+    "--terminate-ms", "45000",
+    "--", "swift", "test",
+  ]),
+  /--max-ms must be lower than --terminate-ms/,
 );
 
 let observedPartialLine = null;
