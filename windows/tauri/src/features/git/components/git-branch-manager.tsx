@@ -42,9 +42,12 @@ import { useGitBlameStore } from "../stores/git-blame.store";
 import type { GitWorktree } from "../types/git.types";
 import { isOpenableGitWorktree } from "../utils/git-worktree-open";
 import GitCommandSurface from "./git-command-surface";
+import { GitTrackingCounts } from "./git-tracking-counts";
 
 interface GitBranchManagerProps {
   currentBranch?: string;
+  ahead?: number;
+  behind?: number;
   repoPath?: string;
   onBranchChange?: () => void;
   onWorktreeChange?: (repoPath: string) => void;
@@ -81,11 +84,11 @@ function getCreateBranchName(branches: string[], currentBranch: string, query: s
   return trimmedQuery;
 }
 
-function getBranchLabel(
-  worktree: GitWorktree,
-  translate: (key: string) => string,
-) {
-  return worktree.branch || (worktree.is_detached ? translate("git.detachedHead") : translate("git.noBranch"));
+function getBranchLabel(worktree: GitWorktree, translate: (key: string) => string) {
+  return (
+    worktree.branch ||
+    (worktree.is_detached ? translate("git.detachedHead") : translate("git.noBranch"))
+  );
 }
 
 function getFilteredWorktrees(worktrees: GitWorktree[], repoPath: string, query: string) {
@@ -137,6 +140,8 @@ function getFilteredRepositoryPaths(
 
 const GitBranchManager = ({
   currentBranch,
+  ahead = 0,
+  behind = 0,
   repoPath,
   onBranchChange,
   onWorktreeChange,
@@ -420,7 +425,12 @@ const GitBranchManager = ({
       }
     } catch (error) {
       showToast({
-        message: error instanceof Error ? error.message : operation === "merge" ? t("git.mergeFailed") : t("git.rebaseFailed"),
+        message:
+          error instanceof Error
+            ? error.message
+            : operation === "merge"
+              ? t("git.mergeFailed")
+              : t("git.rebaseFailed"),
         type: "error",
       });
     } finally {
@@ -499,9 +509,7 @@ const GitBranchManager = ({
       onRepositoryChange?.(resolvedRepoPath);
     } catch (error) {
       console.error("Failed to select repository:", error);
-      setSelectionError(
-        error instanceof Error ? error.message : t("git.failedToSelectRepository"),
-      );
+      setSelectionError(error instanceof Error ? error.message : t("git.failedToSelectRepository"));
     } finally {
       setIsSelectingRepo(false);
     }
@@ -653,6 +661,13 @@ const GitBranchManager = ({
         >
           {currentBranch}
         </span>
+        <GitTrackingCounts
+          ahead={ahead}
+          behind={behind}
+          aheadLabel={t("git.aheadOfRemote", { count: ahead })}
+          behindLabel={t("git.behindRemote", { count: behind })}
+          showCounts={false}
+        />
       </Button>
 
       <GitCommandSurface
@@ -899,7 +914,9 @@ function BranchRow({
         "min-h-9",
         isCurrent ? "text-foreground" : "text-subtle-foreground hover:text-foreground",
       )}
-      accessory={isCurrent ? <CommandItemBadge variant="success">{t("git.current")}</CommandItemBadge> : null}
+      accessory={
+        isCurrent ? <CommandItemBadge variant="success">{t("git.current")}</CommandItemBadge> : null
+      }
       action={
         !isCurrent ? (
           <div
@@ -987,7 +1004,9 @@ function RepositoryRow({
       )}
       accessory={
         <>
-          {isCurrent ? <CommandItemBadge variant="success">{t("git.current")}</CommandItemBadge> : null}
+          {isCurrent ? (
+            <CommandItemBadge variant="success">{t("git.current")}</CommandItemBadge>
+          ) : null}
           {isAdded ? <CommandItemBadge>{t("git.added")}</CommandItemBadge> : null}
         </>
       }
@@ -1033,7 +1052,9 @@ function WorktreeRow({
         "min-h-9",
         isCurrent ? "text-foreground" : "text-subtle-foreground hover:text-foreground",
       )}
-      accessory={isCurrent ? <CommandItemBadge variant="success">{t("git.current")}</CommandItemBadge> : null}
+      accessory={
+        isCurrent ? <CommandItemBadge variant="success">{t("git.current")}</CommandItemBadge> : null
+      }
     />
   );
 }

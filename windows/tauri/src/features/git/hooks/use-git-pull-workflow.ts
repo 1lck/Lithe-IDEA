@@ -1,28 +1,27 @@
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { toast } from "sonner";
+import { useTranslation } from "@/i18n/locale-provider";
 import { getGitPullWorkflow } from "../api/git-remotes-api";
 import { emitGitChanged } from "../events/git-events";
-import type { GitPullResult, PullStrategy } from "../types/git.types";
+import type { GitPullResult } from "../types/git.types";
+import { getGitPullResultPresentation } from "../utils/git-pull-result-presentation";
 
 interface UseGitPullWorkflowOptions {
   repoPath: string;
   refresh: () => Promise<void>;
 }
 
-const reportResult = (result: GitPullResult) => {
-  if (result.status === "duplicate" || result.status === "cancelled") return;
-  if (result.status === "pulled") {
-    toast.success(result.message);
-  } else if (result.status === "conflict") {
-    toast.warning(result.message);
-  } else if (result.status === "blocked") {
-    result.reason === "up-to-date" ? toast.info(result.message) : toast.warning(result.message);
-  } else {
-    toast.error(result.message);
-  }
+const reportResult = (
+  result: GitPullResult,
+  translate: (key: string, values?: Record<string, string | number>) => string,
+) => {
+  const presentation = getGitPullResultPresentation(result, translate);
+  if (!presentation) return;
+  toast[presentation.tone](presentation.message);
 };
 
 export function useGitPullWorkflow({ repoPath, refresh }: UseGitPullWorkflowOptions) {
+  const { t } = useTranslation();
   const workflow = useMemo(() => getGitPullWorkflow(repoPath), [repoPath]);
   const snapshot = useSyncExternalStore(
     workflow.subscribe,
@@ -43,25 +42,12 @@ export function useGitPullWorkflow({ repoPath, refresh }: UseGitPullWorkflowOpti
         await refresh();
       },
     });
-    reportResult(result);
+    reportResult(result, t);
     return result;
-  }, [refresh, repoPath, workflow]);
-
-  const chooseStrategy = useCallback(
-    (strategy: Exclude<PullStrategy, "ffOnly"> | null) => workflow.chooseStrategy(strategy),
-    [workflow],
-  );
-
-  useEffect(
-    () => () => {
-      workflow.chooseStrategy(null);
-    },
-    [repoPath, workflow],
-  );
+  }, [refresh, repoPath, t, workflow]);
 
   return {
     ...snapshot,
     pull,
-    chooseStrategy,
   };
 }

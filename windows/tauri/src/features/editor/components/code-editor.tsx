@@ -70,6 +70,7 @@ interface CodeEditorProps {
   readOnly?: boolean;
   breadcrumbProps?: BreadcrumbProps;
   scrollable?: boolean;
+  alwaysConsumeMouseWheel?: boolean;
   backgroundLayer?: ReactNode;
   onReadonlySurfaceClick?: (position: { line: number; column: number }) => void;
   highlightMatches?: Array<{ start: number; end: number }>;
@@ -140,6 +141,7 @@ const CodeEditor = ({
   readOnly = false,
   breadcrumbProps,
   scrollable = true,
+  alwaysConsumeMouseWheel = true,
   backgroundLayer,
   onReadonlySurfaceClick,
   highlightMatches,
@@ -676,6 +678,7 @@ const CodeEditor = ({
                 enableExpensiveServices={enableRichEditorServices}
                 readOnly={readOnly}
                 scrollable={scrollable}
+                alwaysConsumeMouseWheel={alwaysConsumeMouseWheel}
                 backgroundLayer={backgroundLayer}
                 onReadonlySurfaceClick={onReadonlySurfaceClick}
                 highlightMatches={highlightMatches}

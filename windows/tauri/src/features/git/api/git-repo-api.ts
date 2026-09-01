@@ -215,7 +215,23 @@ export async function resolveRepositoryForFile(
   filePath: string,
 ): Promise<{ repoPath: string; filePath: string } | null> {
   const absoluteFilePath = isAbsolutePath(filePath) ? filePath : joinPath(repoPath, filePath);
-  const discoveredRepo = await discoverRepo(parentPath(absoluteFilePath));
+  let discoveredRepo: string | null;
+  try {
+    discoveredRepo = await discoverRepo(parentPath(absoluteFilePath));
+  } catch (error) {
+    const fallbackRepo = await discoverRepo(repoPath);
+    const normalizedFallbackRepo = fallbackRepo ? normalizePath(fallbackRepo) : null;
+    const normalizedAbsoluteFile = normalizePath(absoluteFilePath);
+    const belongsToFallbackRepo =
+      normalizedFallbackRepo !== null &&
+      (normalizedAbsoluteFile === normalizedFallbackRepo ||
+        normalizedAbsoluteFile.startsWith(`${normalizedFallbackRepo}/`));
+
+    if (!belongsToFallbackRepo) {
+      throw error;
+    }
+    discoveredRepo = normalizedFallbackRepo;
+  }
 
   if (!discoveredRepo) {
     return null;
