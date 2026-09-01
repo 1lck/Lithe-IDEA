@@ -7,8 +7,6 @@ struct ChangesSidebarView: View {
     @State private var selectedTab = CommitTab.commit
     @State private var trackedExpanded = true
     @State private var untrackedExpanded = true
-    @State private var commitAreaHeight: CGFloat = 124
-    @State private var commitAreaDragStart: CGFloat = 124
     @State private var stashMessage = "WIP"
     @State private var includeUntracked = true
     @State private var selectedStash: GitStash?
@@ -17,6 +15,7 @@ struct ChangesSidebarView: View {
     @State private var pendingDropShelf: GitShelfEntry?
 
     var body: some View {
+        let _ = LitheSignpost.bodyEvaluated("ChangesSidebarView")
         VStack(spacing: 0) {
             tabHeader
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
@@ -159,42 +158,25 @@ struct ChangesSidebarView: View {
                 minimumCommitHeight,
                 availableCommitHeight
             )
-            let resolvedCommitHeight = constrained(
-                commitAreaHeight,
-                minimum: minimumCommitHeight,
-                maximum: maximumCommitHeight
-            )
 
             VStack(spacing: 0) {
                 commitToolbar
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
-                changeList
-                    .frame(minHeight: minimumListHeight)
-                SplitHandleView(
+
+                LitheSplitPaneView(
                     axis: .vertical,
-                    onDragStarted: {
-                        commitAreaDragStart = resolvedCommitHeight
-                    },
-                    onDragChanged: { translation in
-                        commitAreaHeight = constrained(
-                            commitAreaDragStart - translation,
-                            minimum: minimumCommitHeight,
-                            maximum: maximumCommitHeight
-                        )
-                    },
-                    onDragEnded: { translation in
-                        commitAreaHeight = constrained(
-                            commitAreaDragStart - translation,
-                            minimum: minimumCommitHeight,
-                            maximum: maximumCommitHeight
-                        )
-                    }
+                    placement: .trailing,
+                    defaultSize: Self.defaultCommitAreaHeight,
+                    minimum: minimumCommitHeight,
+                    maximum: maximumCommitHeight,
+                    sized: { commitArea },
+                    flexible: { changeList.frame(minHeight: minimumListHeight) }
                 )
-                commitArea
-                    .frame(height: resolvedCommitHeight)
             }
         }
     }
+
+    private static let defaultCommitAreaHeight: CGFloat = 124
 
     private var shelfContent: some View {
         VStack(spacing: 0) {

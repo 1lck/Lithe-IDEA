@@ -90,6 +90,7 @@ struct WorkbenchView: View {
     @State private var isBackgroundPickerPresented = false
 
     var body: some View {
+        let _ = LitheSignpost.bodyEvaluated("WorkbenchView")
         VStack(spacing: 0) {
             topBar
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
@@ -1076,6 +1077,7 @@ struct WorkbenchView: View {
                     from: model.rightSidebarContributions,
                     model: model
                 )
+                .equatable()
                 .environmentObject(linuxDoWebSession)
                 .frame(width: rightSidebarWidth)
                 .frame(maxHeight: .infinity)
@@ -1217,19 +1219,21 @@ struct WorkbenchView: View {
             sidebarWidth: sidebarWidth,
             topPaneHeight: topPaneHeight,
             isBottomToolVisible: isBottomToolVisible,
-            onSidebarWidthCommitted: { width in
-                sidebarWidth = width
-                saveLayout(sidebarWidth: width, topPaneHeight: topPaneHeight)
-            },
-            onTopPaneHeightCommitted: { height in
-                topPaneHeight = height
-                saveLayout(sidebarWidth: sidebarWidth, topPaneHeight: height)
-            },
+            actions: WorkbenchWorkspaceSplitActions(
+                onSidebarWidthCommitted: { width in
+                    sidebarWidth = width
+                    saveLayout(sidebarWidth: width, topPaneHeight: topPaneHeight)
+                },
+                onTopPaneHeightCommitted: { height in
+                    topPaneHeight = height
+                    saveLayout(sidebarWidth: sidebarWidth, topPaneHeight: height)
+                },
+                onBottomToolMinimize: {
+                    model.closeGitLog()
+                }
+            ),
             showsBottomToolMinimize: model.isGitLogVisible,
             hasWorkbenchBackground: model.workbenchBackgroundFeature.hasImage,
-            onBottomToolMinimize: {
-                model.closeGitLog()
-            },
             sidebar: {
                 activeSidebar(projectTreeRowHeight: settings.projectTreeRowHeight)
             },
@@ -1260,6 +1264,7 @@ struct WorkbenchView: View {
                             from: model.activityBarContributions,
                             model: model
                         )
+                        .equatable()
                     }
                 }
             }
@@ -1555,15 +1560,24 @@ private struct WorkbenchNotificationCenterView: View {
     }
 }
 
+/// The callbacks the workspace split view hands back to the workbench.
+///
+/// Grouped into one value, following `GitGraphRowActions`, so the split view
+/// carries a single stored property instead of three freshly allocated escaping
+/// closures per parent body pass.
+private struct WorkbenchWorkspaceSplitActions {
+    let onSidebarWidthCommitted: (CGFloat) -> Void
+    let onTopPaneHeightCommitted: (CGFloat) -> Void
+    let onBottomToolMinimize: () -> Void
+}
+
 private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTool: View>: View {
     let sidebarWidth: CGFloat
     let topPaneHeight: CGFloat?
     let isBottomToolVisible: Bool
-    let onSidebarWidthCommitted: (CGFloat) -> Void
-    let onTopPaneHeightCommitted: (CGFloat) -> Void
+    let actions: WorkbenchWorkspaceSplitActions
     let showsBottomToolMinimize: Bool
     let hasWorkbenchBackground: Bool
-    let onBottomToolMinimize: () -> Void
     let sidebar: Sidebar
     let editor: Editor
     let bottomTool: BottomTool
@@ -1577,11 +1591,9 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
         sidebarWidth: CGFloat,
         topPaneHeight: CGFloat?,
         isBottomToolVisible: Bool,
-        onSidebarWidthCommitted: @escaping (CGFloat) -> Void,
-        onTopPaneHeightCommitted: @escaping (CGFloat) -> Void,
+        actions: WorkbenchWorkspaceSplitActions,
         showsBottomToolMinimize: Bool,
         hasWorkbenchBackground: Bool,
-        onBottomToolMinimize: @escaping () -> Void,
         @ViewBuilder sidebar: () -> Sidebar,
         @ViewBuilder editor: () -> Editor,
         @ViewBuilder bottomTool: () -> BottomTool
@@ -1589,11 +1601,9 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
         self.sidebarWidth = sidebarWidth
         self.topPaneHeight = topPaneHeight
         self.isBottomToolVisible = isBottomToolVisible
-        self.onSidebarWidthCommitted = onSidebarWidthCommitted
-        self.onTopPaneHeightCommitted = onTopPaneHeightCommitted
+        self.actions = actions
         self.showsBottomToolMinimize = showsBottomToolMinimize
         self.hasWorkbenchBackground = hasWorkbenchBackground
-        self.onBottomToolMinimize = onBottomToolMinimize
         self.sidebar = sidebar()
         self.editor = editor()
         self.bottomTool = bottomTool()
@@ -1603,6 +1613,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
     }
 
     var body: some View {
+        let _ = LitheSignpost.bodyEvaluated("WorkbenchWorkspaceSplitView")
         GeometryReader { geometry in
             let availableTopWidth = max(
                 0,
@@ -1662,39 +1673,11 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                         isBottomToolVisible ? 0 : WorkbenchWorkspaceMetrics.paneInset
                     )
                     .overlay(alignment: .topLeading) {
-                        SplitHandleView(
-                            axis: .horizontal,
-                            showsIdleDivider: false,
-                            onDragStarted: {
-                                sidebarDragStart = resolvedSidebarWidth
-                            },
-                            onDragChanged: { translation in
-                                liveSidebarWidth = constrained(
-                                    sidebarDragStart + translation,
-                                    minimum: minimumSidebarWidth,
-                                    maximum: maximumSidebarWidth
-                                )
-                            },
-                            onDragEnded: { translation in
-                                let finalWidth = constrained(
-                                    sidebarDragStart + translation,
-                                    minimum: minimumSidebarWidth,
-                                    maximum: maximumSidebarWidth
-                                )
-                                liveSidebarWidth = finalWidth
-                                onSidebarWidthCommitted(finalWidth)
-                            }
-                        )
-                        .padding(.top, WorkbenchWorkspaceMetrics.paneInset)
-                        .padding(
-                            .bottom,
-                            isBottomToolVisible ? 0 : WorkbenchWorkspaceMetrics.paneInset
-                        )
-                        .offset(
-                            x: WorkbenchWorkspaceMetrics.paneInset
-                                + resolvedSidebarWidth
-                                + WorkbenchWorkspaceMetrics.paneSpacing / 2
-                                - SplitHandleView.thickness / 2
+                        sidebarResizeHandle(
+                            resolvedSidebarWidth: resolvedSidebarWidth,
+                            minimumSidebarWidth: minimumSidebarWidth,
+                            maximumSidebarWidth: maximumSidebarWidth,
+                            bottomInset: isBottomToolVisible ? 0 : WorkbenchWorkspaceMetrics.paneInset
                         )
                     }
                     .frame(height: isBottomToolVisible ? resolvedTopPaneHeight : geometry.size.height)
@@ -1714,34 +1697,10 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                 }
 
                 if isBottomToolVisible {
-                    SplitHandleView(
-                        axis: .vertical,
-                        showsIdleDivider: false,
-                        onDragStarted: {
-                            topPaneDragStart = resolvedTopPaneHeight
-                        },
-                        onDragChanged: { translation in
-                            liveTopPaneHeight = constrained(
-                                topPaneDragStart + translation,
-                                minimum: minimumTopPaneHeight,
-                                maximum: maximumTopPaneHeight
-                            )
-                        },
-                        onDragEnded: { translation in
-                            let finalHeight = constrained(
-                                topPaneDragStart + translation,
-                                minimum: minimumTopPaneHeight,
-                                maximum: maximumTopPaneHeight
-                            )
-                            liveTopPaneHeight = finalHeight
-                            onTopPaneHeightCommitted(finalHeight)
-                        }
-                    )
-                    .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
-                    .offset(
-                        y: resolvedTopPaneHeight
-                            + WorkbenchWorkspaceMetrics.paneSpacing / 2
-                            - SplitHandleView.thickness / 2
+                    topPaneResizeHandle(
+                        resolvedTopPaneHeight: resolvedTopPaneHeight,
+                        minimumTopPaneHeight: minimumTopPaneHeight,
+                        maximumTopPaneHeight: maximumTopPaneHeight
                     )
                 }
 
@@ -1770,12 +1729,92 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
             // terminals and replaces them with unavailable placeholders. It
             // also rasterizes vector activity-bar icons at inconsistent sizes.
         }
+        // Committing a drag round-trips through the workbench and back down as a
+        // prop. Without these guards that echo writes the value this view just
+        // set, invalidating it a second time for no change.
         .onChange(of: sidebarWidth) { newWidth in
+            guard newWidth != liveSidebarWidth else { return }
             liveSidebarWidth = newWidth
         }
         .onChange(of: topPaneHeight) { newHeight in
+            guard newHeight != liveTopPaneHeight else { return }
             liveTopPaneHeight = newHeight
         }
+    }
+
+    private func sidebarResizeHandle(
+        resolvedSidebarWidth: CGFloat,
+        minimumSidebarWidth: CGFloat,
+        maximumSidebarWidth: CGFloat,
+        bottomInset: CGFloat
+    ) -> some View {
+        SplitHandleView(
+            axis: .horizontal,
+            showsIdleDivider: false,
+            onDragStarted: {
+                sidebarDragStart = resolvedSidebarWidth
+            },
+            onDragChanged: { translation in
+                liveSidebarWidth = constrained(
+                    sidebarDragStart + translation,
+                    minimum: minimumSidebarWidth,
+                    maximum: maximumSidebarWidth
+                )
+            },
+            onDragEnded: { translation in
+                let finalWidth = constrained(
+                    sidebarDragStart + translation,
+                    minimum: minimumSidebarWidth,
+                    maximum: maximumSidebarWidth
+                )
+                liveSidebarWidth = finalWidth
+                onSidebarWidthCommitted(finalWidth)
+            }
+        )
+        .padding(.top, WorkbenchWorkspaceMetrics.paneInset)
+        .padding(.bottom, bottomInset)
+        .offset(
+            x: WorkbenchWorkspaceMetrics.paneInset
+                + resolvedSidebarWidth
+                + WorkbenchWorkspaceMetrics.paneSpacing / 2
+                - SplitHandleView.thickness / 2
+        )
+    }
+
+    private func topPaneResizeHandle(
+        resolvedTopPaneHeight: CGFloat,
+        minimumTopPaneHeight: CGFloat,
+        maximumTopPaneHeight: CGFloat
+    ) -> some View {
+        SplitHandleView(
+            axis: .vertical,
+            showsIdleDivider: false,
+            onDragStarted: {
+                topPaneDragStart = resolvedTopPaneHeight
+            },
+            onDragChanged: { translation in
+                liveTopPaneHeight = constrained(
+                    topPaneDragStart + translation,
+                    minimum: minimumTopPaneHeight,
+                    maximum: maximumTopPaneHeight
+                )
+            },
+            onDragEnded: { translation in
+                let finalHeight = constrained(
+                    topPaneDragStart + translation,
+                    minimum: minimumTopPaneHeight,
+                    maximum: maximumTopPaneHeight
+                )
+                liveTopPaneHeight = finalHeight
+                onTopPaneHeightCommitted(finalHeight)
+            }
+        )
+        .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
+        .offset(
+            y: resolvedTopPaneHeight
+                + WorkbenchWorkspaceMetrics.paneSpacing / 2
+                - SplitHandleView.thickness / 2
+        )
     }
 
     private func constrained(_ value: CGFloat, minimum: CGFloat, maximum: CGFloat) -> CGFloat {
@@ -1808,13 +1847,26 @@ private struct WorkbenchPaneChromeModifier: ViewModifier {
     @ViewBuilder
     func body(content: Content) -> some View {
         if roundsCorners {
+            // Four fixed-size corner notches instead of one pane-sized even-odd
+            // fill. The notch geometry only depends on the corner radius, so it
+            // is built once and merely repositioned while a pane resizes, rather
+            // than re-tessellating a full-pane vector path every frame. Absolute
+            // positioning (not leading/trailing alignment) keeps the notches on
+            // the same physical corners the previous fill used.
             content
                 .background(background)
                 .overlay {
-                    WorkbenchPaneCornerCutouts(
-                        cornerRadius: WorkbenchWorkspaceMetrics.paneCornerRadius
-                    )
-                    .fill(surrounding, style: FillStyle(eoFill: true))
+                    GeometryReader { proxy in
+                        let radius = WorkbenchWorkspaceMetrics.paneCornerRadius
+                        let half = radius / 2
+                        ZStack {
+                            notch(.topLeading).position(x: half, y: half)
+                            notch(.topTrailing).position(x: proxy.size.width - half, y: half)
+                            notch(.bottomLeading).position(x: half, y: proxy.size.height - half)
+                            notch(.bottomTrailing)
+                                .position(x: proxy.size.width - half, y: proxy.size.height - half)
+                        }
+                    }
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
                 }
@@ -1822,20 +1874,134 @@ private struct WorkbenchPaneChromeModifier: ViewModifier {
             content.background(background)
         }
     }
+
+    private func notch(_ corner: WorkbenchPaneCornerGeometry.Corner) -> some View {
+        WorkbenchPaneCornerNotch(corner: corner)
+            .fill(surrounding)
+            .frame(
+                width: WorkbenchWorkspaceMetrics.paneCornerRadius,
+                height: WorkbenchWorkspaceMetrics.paneCornerRadius
+            )
+    }
 }
 
-private struct WorkbenchPaneCornerCutouts: Shape {
-    let cornerRadius: CGFloat
+/// One corner of the gap between a pane's square bounds and its rounded
+/// silhouette, painted in the surrounding color so the pane reads as rounded
+/// without clipping the AppKit-backed content inside it.
+///
+/// The path is a compile-time constant: the radius is fixed, so every instance
+/// reuses the same geometry and resizing a pane only moves it.
+private struct WorkbenchPaneCornerNotch: Shape {
+    let corner: WorkbenchPaneCornerGeometry.Corner
 
+    /// Ignores `rect` because the caller always frames this at exactly
+    /// `paneCornerRadius` square; honoring an arbitrary rect would mean
+    /// rebuilding the path on every layout, which is the cost being removed.
     func path(in rect: CGRect) -> Path {
+        WorkbenchPaneCornerGeometry.path(for: corner)
+    }
+}
+
+/// Pure geometry for the four pane corner notches, separated from the `Shape`
+/// so the arc direction can be verified without rendering.
+enum WorkbenchPaneCornerGeometry {
+    enum Corner: CaseIterable {
+        case topLeading
+        case topTrailing
+        case bottomLeading
+        case bottomTrailing
+    }
+
+    /// The notch path in a `radius`-square box, cached per corner.
+    static func path(for corner: Corner) -> Path {
+        paths[corner] ?? Path()
+    }
+
+    private static let radius = WorkbenchWorkspaceMetrics.paneCornerRadius
+
+    private static let paths: [Corner: Path] = Dictionary(
+        uniqueKeysWithValues: Corner.allCases.map { ($0, makePath(for: $0, radius: radius)) }
+    )
+
+    static func makePath(for corner: Corner, radius: CGFloat) -> Path {
+        // The arc is centered on the box corner diagonally opposite the pane
+        // corner being rounded, so it stays tangent to both pane edges.
+        let center: CGPoint
+        let start: CGPoint
+        let end: CGPoint
+        switch corner {
+        case .topLeading:
+            center = CGPoint(x: radius, y: radius)
+            start = CGPoint(x: radius, y: 0)
+            end = CGPoint(x: 0, y: radius)
+        case .topTrailing:
+            center = CGPoint(x: 0, y: radius)
+            start = CGPoint(x: 0, y: 0)
+            end = CGPoint(x: radius, y: radius)
+        case .bottomLeading:
+            center = CGPoint(x: radius, y: 0)
+            start = CGPoint(x: radius, y: radius)
+            end = CGPoint(x: 0, y: 0)
+        case .bottomTrailing:
+            center = CGPoint(x: 0, y: 0)
+            start = CGPoint(x: 0, y: radius)
+            end = CGPoint(x: radius, y: 0)
+        }
+
+        // Quarter arc as a cubic Bézier. Building it from the two tangent points
+        // rather than sweep angles keeps the direction unambiguous in SwiftUI's
+        // y-down space, where `clockwise:` reads inverted.
+        let handle = radius * 0.5522847498307936
+        let startTangent = unitTangent(from: center, through: start, toward: end)
+        let endTangent = unitTangent(from: center, through: end, toward: start)
+
         var path = Path()
-        path.addRect(rect)
-        path.addRoundedRect(
-            in: rect,
-            cornerSize: CGSize(width: cornerRadius, height: cornerRadius),
-            style: .continuous
+        path.move(to: paneCorner(for: corner, radius: radius))
+        path.addLine(to: start)
+        path.addCurve(
+            to: end,
+            control1: CGPoint(
+                x: start.x + startTangent.dx * handle,
+                y: start.y + startTangent.dy * handle
+            ),
+            control2: CGPoint(
+                x: end.x + endTangent.dx * handle,
+                y: end.y + endTangent.dy * handle
+            )
         )
+        path.closeSubpath()
         return path
+    }
+
+    /// The square corner the notch fills in, in box-local coordinates.
+    private static func paneCorner(for corner: Corner, radius: CGFloat) -> CGPoint {
+        switch corner {
+        case .topLeading: CGPoint(x: 0, y: 0)
+        case .topTrailing: CGPoint(x: radius, y: 0)
+        case .bottomLeading: CGPoint(x: 0, y: radius)
+        case .bottomTrailing: CGPoint(x: radius, y: radius)
+        }
+    }
+
+    /// Unit tangent to the circle at `point`, oriented so the arc sweeps toward
+    /// `destination` along the 90-degree side.
+    private static func unitTangent(
+        from center: CGPoint,
+        through point: CGPoint,
+        toward destination: CGPoint
+    ) -> CGVector {
+        let radial = CGVector(dx: point.x - center.x, dy: point.y - center.y)
+        // Rotating the radius by 90 degrees gives the tangent; the sign that
+        // points at the other endpoint is the one that sweeps the minor arc.
+        let candidate = CGVector(dx: -radial.dy, dy: radial.dx)
+        let towardDestination = CGVector(
+            dx: destination.x - point.x,
+            dy: destination.y - point.y
+        )
+        let alignment = candidate.dx * towardDestination.dx + candidate.dy * towardDestination.dy
+        let length = max(hypot(radial.dx, radial.dy), 0.0001)
+        let sign: CGFloat = alignment >= 0 ? 1 : -1
+        return CGVector(dx: sign * candidate.dx / length, dy: sign * candidate.dy / length)
     }
 }
 
@@ -1848,15 +2014,14 @@ private struct WorkbenchBackgroundImageView: View {
         ZStack {
             LitheTheme.window
 
-            GeometryReader { geometry in
-                if let image {
-                    Image(nsImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: geometry.size.width, height: geometry.size.height)
-                        .clipped()
-                        .opacity(opacity)
-                }
+            if let image {
+                // Fill and clip at the container instead of measuring with a
+                // GeometryReader, so a window resize no longer re-evaluates a
+                // geometry closure just to restate the size the layout offers.
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .opacity(opacity)
             }
 
             // Preserve the source image's colour while keeping text legible.
@@ -1865,7 +2030,11 @@ private struct WorkbenchBackgroundImageView: View {
             // effect at the full 100% setting.
             (colorScheme == .dark ? Color.black.opacity(0.46) : Color.white.opacity(0.25))
         }
-        .compositingGroup()
+        .clipped()
+        // Deliberately not a compositing group: no group-wide opacity or blend
+        // mode is applied here, so flattening these layers offscreen changed
+        // nothing visually while forcing the whole window to recomposite on
+        // every resize.
         .allowsHitTesting(false)
     }
 }

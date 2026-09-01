@@ -16,6 +16,7 @@ struct RunView: View {
     @State private var editingConfigurationID: String?
 
     var body: some View {
+        let _ = LitheSignpost.bodyEvaluated("RunView")
         VStack(spacing: 0) {
             toolWindowHeader
 
@@ -54,42 +55,26 @@ struct RunView: View {
                         maximum: maximumListWidth
                     )
 
-                    HStack(spacing: 0) {
-                        if isConfigurationListCollapsed {
+                    if isConfigurationListCollapsed {
+                        HStack(spacing: 0) {
                             collapsedConfigurationListBar
                                 .frame(width: 32)
                             Rectangle()
                                 .fill(LitheTheme.divider)
                                 .frame(width: 1)
-                        } else {
-                            moduleSessionList
-                                .frame(width: resolvedListWidth)
-
-                            SplitHandleView(
-                                axis: .horizontal,
-                                onDragStarted: {
-                                    configurationListDragStart = resolvedListWidth
-                                },
-                                onDragChanged: { translation in
-                                    liveConfigurationListWidth = constrained(
-                                        configurationListDragStart + translation,
-                                        minimum: minimumListWidth,
-                                        maximum: maximumListWidth
-                                    )
-                                },
-                                onDragEnded: { translation in
-                                    let finalWidth = constrained(
-                                        configurationListDragStart + translation,
-                                        minimum: minimumListWidth,
-                                        maximum: maximumListWidth
-                                    )
-                                    configurationListWidth = Double(finalWidth)
-                                    liveConfigurationListWidth = nil
-                                }
-                            )
+                            selectedConfigurationContent
                         }
-
-                        selectedConfigurationContent
+                    } else {
+                        LitheSplitPaneView(
+                            axis: .horizontal,
+                            placement: .leading,
+                            defaultSize: CGFloat(configurationListWidth),
+                            minimum: minimumListWidth,
+                            maximum: maximumListWidth,
+                            onCommit: { configurationListWidth = Double($0) },
+                            sized: { moduleSessionList },
+                            flexible: { selectedConfigurationContent }
+                        )
                     }
                 }
             }

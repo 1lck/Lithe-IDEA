@@ -11,12 +11,6 @@ struct GitLogView: View {
     @State private var tagsExpanded = true
     @State private var collapsedReferenceGroups: Set<String> = []
     @State private var collapsedFileGroups: Set<String> = []
-    @State private var referencePaneWidth: CGFloat = 260
-    @State private var referencePaneDragStart: CGFloat = 260
-    @State private var detailPaneWidth: CGFloat = 350
-    @State private var detailPaneDragStart: CGFloat = 350
-    @State private var filesPaneHeight: CGFloat?
-    @State private var filesPaneDragStart: CGFloat = 0
     @State private var branchDialogRequest: GitBranchDialogRequest?
     @State private var pendingPushReference: GitReference?
     @State private var pendingCommitOperation: GitCommitOperationRequest?
@@ -67,90 +61,19 @@ struct GitLogView: View {
     }
 
     var body: some View {
+        let _ = LitheSignpost.bodyEvaluated("GitLogView")
         VStack(spacing: 0) {
             toolWindowHeader
             if selectedGitToolTab == .log {
                 primaryActionBar
 
                 GeometryReader { geometry in
-                    let minimumReferencePaneWidth: CGFloat = 220
-                    let minimumCommitPaneWidth: CGFloat = 340
-                    let minimumDetailPaneWidth: CGFloat = 280
-                    let availablePaneWidth = max(
-                        0,
-                        geometry.size.width - (SplitHandleView.thickness * 2)
+                    GitLogThreePaneLayout(
+                        availableWidth: geometry.size.width,
+                        referencePane: { referencePane },
+                        commitPane: { commitPane },
+                        detailPane: { detailPane }
                     )
-                    let maximumDetailPaneWidth = max(
-                        minimumDetailPaneWidth,
-                        min(520, availablePaneWidth - minimumReferencePaneWidth - minimumCommitPaneWidth)
-                    )
-                    let resolvedDetailPaneWidth = constrained(
-                        detailPaneWidth,
-                        minimum: minimumDetailPaneWidth,
-                        maximum: maximumDetailPaneWidth
-                    )
-                    let maximumReferencePaneWidth = max(
-                        minimumReferencePaneWidth,
-                        min(480, availablePaneWidth - resolvedDetailPaneWidth - minimumCommitPaneWidth)
-                    )
-                    let resolvedReferencePaneWidth = constrained(
-                        referencePaneWidth,
-                        minimum: minimumReferencePaneWidth,
-                        maximum: maximumReferencePaneWidth
-                    )
-
-                    HStack(spacing: 0) {
-                        referencePane
-                            .frame(width: resolvedReferencePaneWidth)
-
-                        SplitHandleView(
-                            axis: .horizontal,
-                            onDragStarted: {
-                                referencePaneDragStart = resolvedReferencePaneWidth
-                            },
-                            onDragChanged: { translation in
-                                referencePaneWidth = constrained(
-                                    referencePaneDragStart + translation,
-                                    minimum: minimumReferencePaneWidth,
-                                    maximum: maximumReferencePaneWidth
-                                )
-                            },
-                            onDragEnded: { translation in
-                                referencePaneWidth = constrained(
-                                    referencePaneDragStart + translation,
-                                    minimum: minimumReferencePaneWidth,
-                                    maximum: maximumReferencePaneWidth
-                                )
-                            }
-                        )
-
-                        commitPane
-                            .frame(minWidth: minimumCommitPaneWidth, maxWidth: .infinity)
-
-                        SplitHandleView(
-                            axis: .horizontal,
-                            onDragStarted: {
-                                detailPaneDragStart = resolvedDetailPaneWidth
-                            },
-                            onDragChanged: { translation in
-                                detailPaneWidth = constrained(
-                                    detailPaneDragStart - translation,
-                                    minimum: minimumDetailPaneWidth,
-                                    maximum: maximumDetailPaneWidth
-                                )
-                            },
-                            onDragEnded: { translation in
-                                detailPaneWidth = constrained(
-                                    detailPaneDragStart - translation,
-                                    minimum: minimumDetailPaneWidth,
-                                    maximum: maximumDetailPaneWidth
-                                )
-                            }
-                        )
-
-                        detailPane
-                            .frame(width: resolvedDetailPaneWidth)
-                    }
                 }
             } else {
                 gitConsolePane
@@ -575,11 +498,17 @@ struct GitLogView: View {
     }
 
     private func gitConsoleTimestamp(_ date: Date) -> String {
+        Self.gitConsoleTimestampFormatter.string(from: date)
+    }
+
+    // A DateFormatter is expensive to construct, so build it once instead of on
+    // every console row of every body pass.
+    private static let gitConsoleTimestampFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "HH:mm:ss.SSS"
-        return formatter.string(from: date)
-    }
+        return formatter
+    }()
 
     private var primaryActionBar: some View {
         HStack(spacing: 7) {
@@ -716,8 +645,7 @@ struct GitLogView: View {
         kind: GitReferenceKind,
         expanded: Binding<Bool>
     ) -> some View {
-        let references = model.gitReferences.filter { $0.kind == kind }
-        return VStack(alignment: .leading, spacing: 1) {
+        VStack(alignment: .leading, spacing: 1) {
             Button {
                 expanded.wrappedValue.toggle()
             } label: {
@@ -738,60 +666,86 @@ struct GitLogView: View {
             .lithePointer()
 
             if expanded.wrappedValue {
-                ForEach(GitReferenceTreeNode.build(from: references)) { node in
-                    referenceTreeNode(node, kind: kind, depth: 0)
+                LazyVStack(alignment: .leading, spacing: 1) {
+                    ForEach(referenceRows(for: kind)) { row in
+                        GitReferenceRowView(
+                            row: row,
+                            isSelected: isReferenceRowSelected(row),
+                            isPerformingBranchOperation: model.isPerformingBranchOperation,
+                            currentReferenceID: currentReference?.id,
+                            comparisonSourceID: comparisonSourceReference?.id,
+                            actions: referenceRowActions
+                        )
+                        .equatable()
+                        .id(row.id)
+                    }
                 }
             }
         }
     }
 
-    private func referenceTreeNode(
-        _ node: GitReferenceTreeNode,
-        kind: GitReferenceKind,
-        depth: Int
-    ) -> AnyView {
-        AnyView(
-            VStack(alignment: .leading, spacing: 1) {
-                if let reference = node.reference {
-                    referenceButton(reference, title: node.name, icon: referenceIcon(reference))
-                        .padding(.leading, CGFloat(18 + depth * 18))
-                }
+    private func referenceRows(for kind: GitReferenceKind) -> [GitReferenceRow] {
+        switch kind {
+        case .local: localReferenceRows
+        case .remote: remoteReferenceRows
+        case .tag: tagReferenceRows
+        }
+    }
 
-                if !node.children.isEmpty {
-                    Button {
-                        let key = "\(kind.rawValue):\(node.path)"
-                        if collapsedReferenceGroups.contains(key) {
-                            collapsedReferenceGroups.remove(key)
-                        } else {
-                            collapsedReferenceGroups.insert(key)
-                        }
-                    } label: {
-                        HStack(spacing: 7) {
-                            Image(systemName: collapsedReferenceGroups.contains("\(kind.rawValue):\(node.path)") ? "chevron.right" : "chevron.down")
-                                .font(.system(size: 8, weight: .bold))
-                                .frame(width: 10)
-                            LitheSystemIcon(systemImage: "folder", size: 14)
-                            Text(node.name)
-                                .font(GitVisual.body)
-                                .foregroundStyle(LitheTheme.primaryText)
-                                .lineLimit(1)
-                            Spacer(minLength: 8)
-                        }
-                        .padding(.leading, CGFloat(18 + depth * 18))
-                        .padding(.trailing, 8)
-                        .frame(maxWidth: .infinity, minHeight: GitVisual.treeRowHeight, alignment: .leading)
-                        .contentShape(Rectangle())
-                        .litheRowHover(cornerRadius: 4)
-                    }
-                    .buttonStyle(.plain)
-                    .lithePointer()
+    private func isReferenceRowSelected(_ row: GitReferenceRow) -> Bool {
+        guard case .reference(let reference) = row.content else { return false }
+        return model.selectedGitReference?.id == reference.id
+            || (model.selectedGitReference == nil && reference.isCurrent)
+    }
 
-                    if !collapsedReferenceGroups.contains("\(kind.rawValue):\(node.path)") {
-                        ForEach(node.children) { child in
-                            referenceTreeNode(child, kind: kind, depth: depth + 1)
-                        }
-                    }
+    /// Rebuilt on each body pass, but every closure is stable in behavior, and
+    /// `GitReferenceRowView.==` ignores this struct so it cannot by itself cause
+    /// a row to re-render.
+    private var referenceRowActions: GitReferenceRowActions {
+        GitReferenceRowActions(
+            select: { reference in
+                Task { await model.selectGitReference(reference) }
+            },
+            toggleGroup: { key in
+                if collapsedReferenceGroups.contains(key) {
+                    collapsedReferenceGroups.remove(key)
+                } else {
+                    collapsedReferenceGroups.insert(key)
                 }
+            },
+            newBranch: { reference in
+                branchDialogRequest = GitBranchDialogRequest(kind: .create, reference: reference)
+            },
+            renameBranch: { reference in
+                branchDialogRequest = GitBranchDialogRequest(kind: .rename, reference: reference)
+            },
+            showDiffWithWorkingTree: { reference in
+                Task { await model.showComparisonWithWorkingTree(for: reference) }
+            },
+            compareWithCurrent: { reference in
+                guard let currentReference else { return }
+                Task { await model.showComparison(from: reference, to: currentReference) }
+            },
+            compareWithSelectedSource: { reference in
+                guard let source = comparisonSourceReference else { return }
+                comparisonSourceReference = nil
+                Task { await model.showComparison(from: source, to: reference) }
+            },
+            selectForCompare: { reference in
+                comparisonSourceReference = reference
+            },
+            comparisonSourceName: comparisonSourceReference?.shortName,
+            checkout: { reference in
+                Task { await model.checkoutReference(reference) }
+            },
+            updateCurrentBranch: { reference in
+                Task { await model.updateCurrentBranch(reference) }
+            },
+            push: { reference in
+                pendingPushReference = reference
+            },
+            branchOperation: { kind, reference in
+                pendingBranchOperation = GitBranchOperationRequest(kind: kind, reference: reference)
             }
         )
     }
@@ -1070,40 +1024,18 @@ struct GitLogView: View {
                 minimumFilesPaneHeight,
                 geometry.size.height - SplitHandleView.thickness - minimumCommitDetailHeight
             )
-            let resolvedFilesPaneHeight = constrained(
-                filesPaneHeight ?? (geometry.size.height - SplitHandleView.thickness - 156),
+
+            LitheSplitPaneView(
+                axis: .vertical,
+                placement: .leading,
+                // Until the user drags, the files pane keeps tracking the
+                // container so the detail area stays at its designed height.
+                defaultSize: geometry.size.height - SplitHandleView.thickness - 156,
                 minimum: minimumFilesPaneHeight,
-                maximum: maximumFilesPaneHeight
+                maximum: maximumFilesPaneHeight,
+                sized: { commitFilesPane },
+                flexible: { commitDetail }
             )
-
-            VStack(spacing: 0) {
-                commitFilesPane
-                    .frame(height: resolvedFilesPaneHeight)
-
-                SplitHandleView(
-                    axis: .vertical,
-                    onDragStarted: {
-                        filesPaneDragStart = resolvedFilesPaneHeight
-                    },
-                    onDragChanged: { translation in
-                        filesPaneHeight = constrained(
-                            filesPaneDragStart + translation,
-                            minimum: minimumFilesPaneHeight,
-                            maximum: maximumFilesPaneHeight
-                        )
-                    },
-                    onDragEnded: { translation in
-                        filesPaneHeight = constrained(
-                            filesPaneDragStart + translation,
-                            minimum: minimumFilesPaneHeight,
-                            maximum: maximumFilesPaneHeight
-                        )
-                    }
-                )
-
-                commitDetail
-                    .frame(maxHeight: .infinity)
-            }
         }
         .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.sidebar)
     }

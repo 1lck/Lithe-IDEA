@@ -59,6 +59,7 @@ struct EditorAreaView: View {
     @State private var resolvedJavaDocumentIconKinds: [String: LitheIconKind] = [:]
 
     var body: some View {
+        let _ = LitheSignpost.bodyEvaluated("EditorAreaView")
         ZStack(alignment: .top) {
             Group {
                 if model.selectedSidebar == .database {
@@ -231,14 +232,25 @@ struct EditorAreaView: View {
 
     @ViewBuilder
     private var editorTabItems: some View {
+        // Index once per pass. Scanning `openDocuments` and `terminalSessions`
+        // per tab made this quadratic, and it re-runs on every layout pass.
+        let documentIndices = Dictionary(
+            model.openDocuments.enumerated().map { ($0.element.id, $0.offset) },
+            // First match wins, matching the `firstIndex(where:)` this replaces.
+            uniquingKeysWith: { first, _ in first }
+        )
+        let sessionsByID = Dictionary(
+            model.terminalSessions.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         ForEach(model.editorTabItems) { item in
             switch item {
             case .document(let documentID):
-                if let index = model.openDocuments.firstIndex(where: { $0.id == documentID }) {
+                if let index = documentIndices[documentID] {
                     editorTab(model.openDocuments[index], at: index)
                 }
             case .terminal(let sessionID):
-                if let session = model.terminalSessions.first(where: { $0.id == sessionID }) {
+                if let session = sessionsByID[sessionID] {
                     editorTerminalTab(session)
                 }
             }
