@@ -9,8 +9,8 @@ use crate::git::{
     self, GitApplyRequest, GitBlameRequest, GitCheckoutPreflightRequest, GitCommandRequest,
     GitCommitFilesRequest, GitCommitRequest, GitComparisonRequest, GitConflictMarkerRequest,
     GitDiffRequest, GitHistoryRequest, GitIntegrationPreflightRequest, GitOperationStateRequest,
-    GitPullPreflightRequest, GitPullRequestContextRequest, GitStashesRequest, GitStatusRequest,
-    GitWatchContextRequest, GitWriteRequest,
+    GitPullPreflightRequest, GitPullRequestContextRequest, GitPushPreviewRequest,
+    GitStashesRequest, GitStatusRequest, GitWatchContextRequest, GitWriteRequest,
 };
 use crate::github::{NormalizeResponseRequest, ParseRemoteRequest, RequestPlanRequest};
 use crate::languages::{
@@ -1515,6 +1515,24 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Git history response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitPushPreview => {
+            match serde_json::from_value::<GitPushPreviewRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git push preview request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::push_preview)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git push preview response should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

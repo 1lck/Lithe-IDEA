@@ -30,7 +30,10 @@ struct RustGitOperations: GitOperations, Sendable {
                     stashReference: $0.stashReference,
                     conflictedPaths: $0.conflictedPaths
                 )
-            }
+            },
+            warnings: response.warnings?.map {
+                GitOperationWarning(code: $0.code, message: $0.message, details: $0.details)
+            } ?? []
         )
     }
 
@@ -60,6 +63,7 @@ struct RustGitOperations: GitOperations, Sendable {
         operation: String,
         paths: [String] = [],
         reference: String? = nil,
+        gitReference: GitReference? = nil,
         referenceKind: GitReferenceKind? = nil,
         revision: String? = nil,
         name: String? = nil,
@@ -78,6 +82,7 @@ struct RustGitOperations: GitOperations, Sendable {
             operation: operation,
             paths: paths,
             reference: reference,
+            gitReference: gitReference,
             referenceKind: referenceKind?.rawValue,
             revision: revision,
             name: name,
@@ -134,39 +139,30 @@ struct RustGitOperations: GitOperations, Sendable {
         write(
             at: rootURL,
             operation: "createBranch",
-            reference: reference.fullName,
+            gitReference: reference,
             name: name,
             checkout: checkout
         )
     }
 
     func renameBranch(_ reference: GitReference, to name: String, at rootURL: URL) -> GitProcessResult? {
-        write(at: rootURL, operation: "renameBranch", reference: reference.fullName, name: name)
+        write(at: rootURL, operation: "renameBranch", gitReference: reference, name: name)
     }
 
     func deleteBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? {
-        write(at: rootURL, operation: "deleteBranch", reference: reference.fullName)
+        write(at: rootURL, operation: "deleteBranch", gitReference: reference)
     }
 
     func mergeBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? {
-        write(at: rootURL, operation: "merge", reference: reference.fullName)
+        write(at: rootURL, operation: "merge", gitReference: reference)
     }
 
     func rebaseCurrentBranch(onto reference: GitReference, at rootURL: URL) -> GitProcessResult? {
-        write(at: rootURL, operation: "rebase", reference: reference.fullName)
+        write(at: rootURL, operation: "rebase", gitReference: reference)
     }
 
     func checkoutAndRebase(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? {
-        write(
-            at: rootURL,
-            operation: "checkoutAndRebase",
-            reference: reference.fullName,
-            referenceKind: reference.kind
-        )
-    }
-
-    func updateCurrentBranch(at rootURL: URL, strategy: GitPullStrategy = .ffOnly) -> GitProcessResult? {
-        write(at: rootURL, operation: "pull", mode: strategy.rawValue)
+        write(at: rootURL, operation: "checkoutAndRebase", gitReference: reference)
     }
 
     func pullRemoteReference(
@@ -177,10 +173,13 @@ struct RustGitOperations: GitOperations, Sendable {
         write(
             at: rootURL,
             operation: "pull",
-            reference: reference.fullName,
-            referenceKind: reference.kind,
+            gitReference: reference,
             mode: strategy.rawValue
         )
+    }
+
+    func updateCurrentBranch(at rootURL: URL, strategy: GitPullStrategy = .ffOnly) -> GitProcessResult? {
+        write(at: rootURL, operation: "pull", mode: strategy.rawValue)
     }
 
     /// Staged files still containing conflict markers.
@@ -194,11 +193,22 @@ struct RustGitOperations: GitOperations, Sendable {
         operation: GitIntegrationOperation,
         at rootURL: URL
     ) -> GitIntegrationPreflightState? {
-        guard let payload = core.gitIntegrationPreflight(
-            at: rootURL,
-            reference: target.revision,
-            operation: operation.rawValue
-        ) else { return nil }
+        let payload: RustCoreBridge.GitIntegrationPreflightPayload?
+        switch target {
+        case .reference(let reference):
+            payload = core.gitIntegrationPreflight(
+                at: rootURL,
+                gitReference: reference,
+                operation: operation.rawValue
+            )
+        case .commit:
+            payload = core.gitIntegrationPreflight(
+                at: rootURL,
+                reference: target.revision,
+                operation: operation.rawValue
+            )
+        }
+        guard let payload else { return nil }
         return GitIntegrationPreflightState(
             blockingPaths: payload.blockingPaths,
             blocksEntirely: payload.blocksEntirely
@@ -230,8 +240,7 @@ struct RustGitOperations: GitOperations, Sendable {
         write(
             at: rootURL,
             operation: "checkout",
-            reference: reference.fullName,
-            referenceKind: reference.kind,
+            gitReference: reference,
             force: force,
             autoStash: autoStash
         )
@@ -239,7 +248,7 @@ struct RustGitOperations: GitOperations, Sendable {
 
     /// Returns the working-tree paths that would block checking out `reference`.
     func checkoutBlockingPaths(for reference: GitReference, at rootURL: URL) -> [String] {
-        core.gitCheckoutPreflight(at: rootURL, reference: reference.fullName)?.blockingPaths ?? []
+        core.gitCheckoutPreflight(at: rootURL, reference: reference)?.blockingPaths ?? []
     }
 
     func operationState(at rootURL: URL) -> GitOperationState? {
@@ -273,7 +282,7 @@ struct RustGitOperations: GitOperations, Sendable {
     }
 
     func push(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? {
-        write(at: rootURL, operation: "push", reference: reference.fullName)
+        write(at: rootURL, operation: "push", gitReference: reference)
     }
 
     func cloneRepository(from remote: String, to destination: URL) -> GitProcessResult? {
@@ -382,6 +391,24 @@ struct RustGitOperations: GitOperations, Sendable {
         )?.makeDocument()
     }
 
+    func comparisonDiffDocument(
+        at rootURL: URL,
+        reference: GitReference,
+        targetReference: GitReference?,
+        pathspecs: [String],
+        whitespace: GitDiffWhitespaceMode = .doNotIgnore
+    ) -> DiffDocument? {
+        core.gitDiff(
+            at: rootURL,
+            pathspecs: pathspecs,
+            gitReference: reference,
+            targetGitReference: targetReference,
+            staged: false,
+            untracked: false,
+            ignoreAllWhitespace: whitespace == .ignoreAllWhitespace
+        )?.makeDocument()
+    }
+
     func applyPatch(
         _ patch: String,
         at rootURL: URL,
@@ -421,11 +448,30 @@ struct RustGitOperations: GitOperations, Sendable {
         for reference: GitReference,
         at rootURL: URL
     ) -> GitBranchComparison? {
-        guard let payload = core.gitComparison(at: rootURL, reference: reference.fullName) else {
+        guard let payload = core.gitComparison(at: rootURL, gitReference: reference) else {
             return nil
         }
         return GitBranchComparison(
             reference: reference,
+            files: payload.files.map { file in
+                GitBranchComparisonFile(status: file.status, path: file.path)
+            }
+        )
+    }
+
+    func comparison(
+        from reference: GitReference,
+        to target: GitReference,
+        at rootURL: URL
+    ) -> GitBranchComparison? {
+        guard let payload = core.gitComparison(
+            at: rootURL,
+            gitReference: reference,
+            targetGitReference: target
+        ) else { return nil }
+        return GitBranchComparison(
+            reference: reference,
+            targetReference: target,
             files: payload.files.map { file in
                 GitBranchComparisonFile(status: file.status, path: file.path)
             }
