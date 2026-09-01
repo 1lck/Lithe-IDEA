@@ -5,6 +5,7 @@ SCRIPT_DIR="${0:A:h}"
 ROOT_DIR="$(cd -- "$SCRIPT_DIR/../../../.." && pwd)"
 WARN_SECONDS=1
 MAX_SECONDS=15
+STALL_TIMEOUT_SECONDS=120
 SUITE_TIMEOUT_SECONDS=600
 REPORT="$ROOT_DIR/.artifacts/test-stability/macos-swift.json"
 SWIFT_ARGS=()
@@ -17,6 +18,10 @@ while (( $# > 0 )); do
             ;;
         --max-seconds)
             MAX_SECONDS="$2"
+            shift 2
+            ;;
+        --stall-timeout-seconds)
+            STALL_TIMEOUT_SECONDS="$2"
             shift 2
             ;;
         --suite-timeout-seconds)
@@ -48,7 +53,7 @@ done
 
 for argument in "${SWIFT_ARGS[@]}"; do
     if [[ "$argument" == "--parallel" ]]; then
-        print -u2 -- "--parallel is not allowed: per-test watchdog attribution requires serial execution."
+        print -u2 -- "--parallel is not allowed: per-test duration attribution requires serial execution."
         exit 2
     fi
 done
@@ -57,6 +62,7 @@ done
 node "$SCRIPT_DIR/run-swift-tests-with-timing.mjs" \
     --warn-ms "$(( WARN_SECONDS * 1000 ))" \
     --max-ms "$(( MAX_SECONDS * 1000 ))" \
+    --stall-timeout-ms "$(( STALL_TIMEOUT_SECONDS * 1000 ))" \
     --suite-timeout-ms "$(( SUITE_TIMEOUT_SECONDS * 1000 ))" \
     --report "$REPORT" \
     -- "$ROOT_DIR/scripts/test-macos.sh" --no-parallel "${SWIFT_ARGS[@]}"
