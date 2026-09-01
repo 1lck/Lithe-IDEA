@@ -773,8 +773,11 @@ removed deterministically.
 
 `java.runConfigurations` accepts `{ "root": string, "paths": string[],
 "modulePaths": string[] }`. Java and module paths are workspace-relative. The response
-contains detected `mainClasses` and deterministic `configurations`; process
-launching remains a platform adapter responsibility.
+contains detected `mainClasses` and deterministic `configurations`. Each
+configuration carries the exact workspace-relative `sourcePath` that produced
+it and a `sourceSet` of `main`, `test`, or `other`; consumers must not recover a
+source by matching the qualified class name. Process launching remains a
+platform adapter responsibility.
 
 The `runConfig.*` commands implement the versioned project protocol described
 by the JSON Schemas in this directory. `runConfig.inspect` accepts `root` and

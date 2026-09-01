@@ -5,7 +5,7 @@ use crate::protocol::{
     JavaClassNameResponse, JavaCodeVisionHintResponse, JavaCodeVisionResponse,
     JavaFoldRegionResponse, JavaInlayHintResponse, JavaMainClassResponse,
     JavaRunConfigurationResponse, JavaRunConfigurationsResponse, JavaServerPortResponse,
-    JavaStructureResponse,
+    JavaSourceSetResponse, JavaStructureResponse,
 };
 use regex::Regex;
 use serde::Deserialize;
@@ -110,6 +110,8 @@ pub fn run_configurations(
             },
             module_path: module_path(&value.path, &request.module_paths),
             main_class: Some(value.qualified_name.clone()),
+            source_path: value.path.clone(),
+            source_set: java_source_set(&value.path),
         })
         .collect::<Vec<_>>();
     configurations.sort_by(|left, right| {
@@ -333,6 +335,17 @@ fn module_path(path: &str, modules: &[String]) -> Option<String> {
         .filter(|module| is_inside(path, module))
         .max_by_key(|module| module.len())
         .cloned()
+}
+
+fn java_source_set(path: &str) -> JavaSourceSetResponse {
+    let normalized = path.to_ascii_lowercase();
+    if normalized.starts_with("src/test/") || normalized.contains("/src/test/") {
+        JavaSourceSetResponse::Test
+    } else if normalized.starts_with("src/main/") || normalized.contains("/src/main/") {
+        JavaSourceSetResponse::Main
+    } else {
+        JavaSourceSetResponse::Other
+    }
 }
 
 fn is_inside(path: &str, directory: &str) -> bool {
