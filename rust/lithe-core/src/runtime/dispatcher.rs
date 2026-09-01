@@ -451,6 +451,24 @@ fn execute(request: &str) -> CoreResponse {
             ),
             Err(error) => CoreResponse::failure(id, error),
         },
+        CoreCommand::MavenLaunchPlan => {
+            match serde_json::from_value::<crate::project::MavenLaunchPlanRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Maven launch-plan request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::project::launch_plan)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Maven launch plan should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::MavenDiagnostics => {
             match serde_json::from_value::<MavenDiagnosticsRequest>(parsed.payload)
                 .map_err(|error| {
@@ -479,6 +497,328 @@ fn execute(request: &str) -> CoreResponse {
                     serde_json::to_value(crate::project::render(request))
                         .expect("Markdown render response should encode"),
                 ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DebugCreateSession => {
+            match serde_json::from_value::<crate::debug::CreateSessionRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid debug create-session request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::debug::create_session)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Debug session update should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DebugLaunch => {
+            match serde_json::from_value::<crate::debug::LaunchRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid debug launch request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::debug::launch)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Debug launch update should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DebugJavaTestLaunch => {
+            match serde_json::from_value::<crate::debug::JavaTestLaunchRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Java test debug launch request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::debug::java_test_launch)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Java test debug launch configuration should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DebugSteppingFilters => {
+            match serde_json::from_value::<crate::debug::DebugSteppingFiltersRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid debug stepping-filters request",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::debug::stepping_filters)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Debug stepping filters should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DebugRelocateBreakpoints => {
+            match serde_json::from_value::<crate::debug::RelocateBreakpointsRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid debug relocate-breakpoints request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::debug::relocate_breakpoints)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Debug breakpoint relocation should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DebugSetBreakpoints => {
+            match serde_json::from_value::<crate::debug::SetBreakpointsRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid debug set-breakpoints request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::debug::set_breakpoints)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Debug breakpoint update should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DebugSetExceptionBreakpoints => {
+            match serde_json::from_value::<crate::debug::SetExceptionBreakpointsRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid debug set-exception-breakpoints request",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::debug::set_exception_breakpoints)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Debug exception breakpoint update should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DebugSetFunctionBreakpoints => {
+            match serde_json::from_value::<crate::debug::SetFunctionBreakpointsRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid debug set-function-breakpoints request",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::debug::set_function_breakpoints)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Debug function breakpoint update should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DebugDataBreakpointInfo => {
+            match serde_json::from_value::<crate::debug::DataBreakpointInfoRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid debug data-breakpoint-info request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::debug::data_breakpoint_info)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Debug data breakpoint info update should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DebugSetDataBreakpoints => {
+            match serde_json::from_value::<crate::debug::SetDataBreakpointsRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid debug set-data-breakpoints request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::debug::set_data_breakpoints)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Debug data breakpoint update should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DebugSetVariable => {
+            match serde_json::from_value::<crate::debug::SetVariableRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid debug set-variable request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::debug::set_variable)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Debug variable update should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DebugCancelOperation => {
+            match serde_json::from_value::<crate::debug::CancelOperationRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid debug cancel-operation request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::debug::cancel_operation)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Debug cancellation update should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DebugExecute => {
+            match serde_json::from_value::<crate::debug::ExecuteRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid debug execute request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::debug::execute)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Debug execution update should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DebugInspect => {
+            match serde_json::from_value::<crate::debug::InspectRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid debug inspect request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::debug::inspect)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Debug inspection update should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DebugReceive => {
+            match serde_json::from_value::<crate::debug::ReceiveRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid debug receive request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::debug::receive)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Debug receive update should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DebugRunInTerminalResponse => {
+            match serde_json::from_value::<crate::debug::DebugRunInTerminalResponseRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid debug run-in-terminal response",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::debug::run_in_terminal_response)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Debug run-in-terminal response update should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DebugDisconnect => {
+            match serde_json::from_value::<crate::debug::SessionRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid debug disconnect request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::debug::disconnect)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Debug disconnect update should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DebugDestroySession => {
+            match serde_json::from_value::<crate::debug::SessionRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid debug destroy-session request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::debug::destroy_session)
+            {
+                Ok(()) => CoreResponse::success(id, json!({"destroyed": true})),
                 Err(error) => CoreResponse::failure(id, error),
             }
         }

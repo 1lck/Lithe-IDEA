@@ -87,12 +87,6 @@ final class LanguagePackRegistry {
 
     private static func standardDebugAdapterDefinition(for id: String) -> StdioDebugAdapterLaunch? {
         switch id {
-        case "java":
-            return StdioDebugAdapterLaunch(
-                adapterID: "java",
-                executableNames: ["java-debug-adapter", "java-debug"],
-                arguments: ["--stdio"]
-            )
         case "go":
             return StdioDebugAdapterLaunch(
                 adapterID: "go",

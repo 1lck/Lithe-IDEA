@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/ui/button";
+import { showConfirmDialog, showPromptDialog } from "@/ui/dialog";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/ui/resizable";
 import { tryWriteClipboardText } from "@/utils/clipboard";
 import { useTranslation } from "@/i18n/locale-provider";
@@ -8,9 +9,18 @@ import { useProjectStore } from "@/features/window/stores/project.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useGitLogController } from "../../hooks/use-git-log-controller";
 import { useGitDiffActions } from "../../hooks/use-git-diff-actions";
+import { checkoutReference, createBranch } from "../../api/git-branches-api";
+import { createStash, getStashes, popStash } from "../../api/git-stash-api";
+import {
+  checkoutAndRebase,
+  mergeBranch,
+  pullRemoteReference,
+  rebaseOntoBranch,
+  type IntegrationOutcome,
+} from "../../api/git-integration-api";
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
 import { useRepositoryStore } from "../../stores/git-repository.store";
-import type { GitCommit, GitFile } from "../../types/git.types";
+import type { GitCommit, GitFile, GitReference } from "../../types/git.types";
 import type {
   WorkingTreeDiffEntry,
   WorkingTreeDiffScope,
@@ -18,7 +28,7 @@ import type {
 import { GitCommitInspector } from "./git-commit-inspector";
 import { GitCommitTable } from "./git-commit-table";
 import { GitLogTitleBar } from "./git-log-title-bar";
-import { GitReferenceTree } from "./git-reference-tree";
+import { GitReferenceTree, type GitReferenceAction } from "./git-reference-tree";
 
 export function GitLogToolWindow() {
   const { t } = useTranslation();
@@ -37,6 +47,7 @@ export function GitLogToolWindow() {
     loadMore,
   } = useGitLogController(repoPath);
   const [selectedCommit, setSelectedCommit] = useState<GitCommit | null>(null);
+  const [isReferenceOperating, setIsReferenceOperating] = useState(false);
   const mainPanelLayout = useGitLogPreferencesStore.use.mainPanelLayout();
   const { setMainPanelLayout } = useGitLogPreferencesStore.use.actions();
   const currentReference = useMemo(
@@ -56,7 +67,13 @@ export function GitLogToolWindow() {
     [],
   );
   const emptyGitFileByPath = useMemo(() => new Map<string, GitFile>(), []);
-  const { isLoadingCommitDiff, isLoadingBranchDiff, viewCommitDiff, viewBranchDiff } =
+  const {
+    isLoadingCommitDiff,
+    isLoadingBranchDiff,
+    viewCommitDiff,
+    viewBranchDiff,
+    viewReferenceWorkingTreeDiff,
+  } =
     useGitDiffActions({
       activeRepoPath: repoPath,
       gitFileByPath: emptyGitFileByPath,
@@ -64,6 +81,102 @@ export function GitLogToolWindow() {
       commitByHash,
       currentBranch: currentReference?.shortName,
     });
+
+  const reportIntegration = (outcome: IntegrationOutcome, success: string) => {
+    if (outcome.status === "clean") toast.success(success);
+    else if (outcome.status === "conflicts") {
+      toast.warning(t("git.log.operationConflicts", { count: outcome.conflictedPaths.length }));
+    } else if (outcome.status === "stopped") toast.warning(t("git.log.operationStopped"));
+    else if (outcome.status === "blocked") {
+      toast.error(t("git.log.operationBlocked", { paths: outcome.blockingPaths.join(", ") }));
+    } else toast.error(outcome.message);
+  };
+
+  const runReferenceAction = async (
+    reference: GitReference,
+    action: GitReferenceAction,
+  ) => {
+    if (!repoPath || isReferenceOperating) return;
+    if (action === "compareWithCurrent") {
+      await viewBranchDiff(reference.fullName);
+      return;
+    }
+    if (action === "showWorkingTreeDiff") {
+      await viewReferenceWorkingTreeDiff(reference.fullName);
+      return;
+    }
+    if (action === "createBranch") {
+      const name = await showPromptDialog(t("git.log.branchNamePrompt"), {
+        title: t("git.log.createBranchFromTitle", { reference: reference.shortName }),
+      });
+      if (!name?.trim()) return;
+      setIsReferenceOperating(true);
+      const created = await createBranch(repoPath, name.trim(), reference);
+      setIsReferenceOperating(false);
+      created ? toast.success(t("git.log.branchCreated", { name: name.trim() })) : toast.error(t("git.log.branchCreateFailed"));
+      if (created) await refresh();
+      return;
+    }
+
+    const confirmed = await showConfirmDialog(
+      t("git.log.confirmAction", {
+        action: t(`git.log.action.${action}`),
+        reference: reference.shortName,
+      }),
+      { title: t(`git.log.action.${action}`) },
+    );
+    if (!confirmed) return;
+    setIsReferenceOperating(true);
+    try {
+      if (action === "checkout") {
+        const result = await checkoutReference(repoPath, reference);
+        result.success ? toast.success(result.message) : toast.error(result.message);
+      } else {
+        const outcome =
+          action === "checkoutAndRebase"
+            ? await checkoutAndRebase(repoPath, reference)
+            : action === "rebaseCurrent"
+              ? await rebaseOntoBranch(repoPath, reference)
+              : action === "mergeCurrent"
+                ? await mergeBranch(repoPath, reference)
+                : await pullRemoteReference(
+                    repoPath,
+                    reference,
+                    action === "pullRebase" ? "rebase" : "merge",
+                  );
+        if (outcome.status === "blocked" && (action === "pullRebase" || action === "pullMerge")) {
+          const save = await showConfirmDialog(
+            t("git.log.operationBlocked", { paths: outcome.blockingPaths.join(", ") }),
+            { title: t("git.stashChanges") },
+          );
+          if (save) {
+            const before = await getStashes(repoPath);
+            if (!await createStash(repoPath, "Lithe auto-stash before pull", true)) {
+              toast.error(t("git.stashFailed"));
+            } else {
+              const retry = await pullRemoteReference(repoPath, reference, action === "pullRebase" ? "rebase" : "merge");
+              reportIntegration(
+                retry,
+                t("git.log.actionSucceeded", {
+                  action: t(`git.log.action.${action}`),
+                  reference: reference.shortName,
+                }),
+              );
+              if (retry.status === "clean") {
+                const after = await getStashes(repoPath);
+                if (after.length > before.length) await popStash(repoPath, after[0].index);
+              }
+            }
+          }
+        } else {
+          reportIntegration(outcome, t("git.log.actionSucceeded", { action: t(`git.log.action.${action}`), reference: reference.shortName }));
+        }
+      }
+      await refresh();
+    } finally {
+      setIsReferenceOperating(false);
+    }
+  };
 
   useEffect(() => {
     setSelectedCommit((current) => {
@@ -162,6 +275,8 @@ export function GitLogToolWindow() {
                 setSelectedCommit(null);
                 selectReference(reference);
               }}
+              onAction={(reference, action) => void runReferenceAction(reference, action)}
+              isOperating={isReferenceOperating}
             />
           </ResizablePanel>
           <ResizableHandle />

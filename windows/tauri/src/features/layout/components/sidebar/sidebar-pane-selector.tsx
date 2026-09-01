@@ -19,6 +19,7 @@ import {
   GitGraphIcon,
   FilesIcon,
   MagnifyingGlassIcon,
+  PackageIcon,
   TerminalWindowIcon,
   WarningIcon,
 } from "@/ui/icons";
@@ -70,6 +71,8 @@ interface SidebarPaneSelectorProps {
   isDiagnosticsActive?: boolean;
   onRunClick?: () => void;
   isRunActive?: boolean;
+  onMavenClick?: () => void;
+  isMavenActive?: boolean;
   compact?: boolean;
   showLabels?: boolean;
   orientation?: "horizontal" | "vertical";
@@ -92,6 +95,8 @@ export const SidebarPaneSelector = ({
   isDiagnosticsActive = false,
   onRunClick,
   isRunActive = false,
+  onMavenClick,
+  isMavenActive = false,
   compact = false,
   showLabels = false,
   orientation = "horizontal",
@@ -233,6 +238,22 @@ export const SidebarPaneSelector = ({
             } satisfies SidebarPaneItem,
           ]
         : []),
+      ...(onMavenClick
+        ? [
+            {
+              id: "maven",
+              label: showLabels ? t("workbench.maven") : undefined,
+              icon: <PackageIcon className={iconClassName} />,
+              isActive: isMavenActive,
+              onClick: onMavenClick,
+              ariaLabel: t("workbench.maven"),
+              tooltip: {
+                content: t("workbench.maven"),
+                side: tooltipSide,
+              },
+            } satisfies SidebarPaneItem,
+          ]
+        : []),
       ...(onSettingsClick
         ? [
             {
@@ -267,8 +288,10 @@ export const SidebarPaneSelector = ({
       onDiagnosticsClick,
       isDiagnosticsActive,
       onRunClick,
+      onMavenClick,
       onSettingsClick,
       isRunActive,
+      isMavenActive,
       onViewChange,
       showLabels,
       t,

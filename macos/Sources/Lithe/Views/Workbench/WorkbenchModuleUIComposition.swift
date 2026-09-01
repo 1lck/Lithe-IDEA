@@ -132,15 +132,10 @@ enum WorkbenchModuleUIComposition {
                 isVisible: { _ in true },
                 isSelected: { $0.isDebugVisible },
                 content: { model in
-                    if model.prefersGenericDebugUI,
-                       let feature = model.genericDebugFeatureIfActive {
-                        return AnyView(GenericDebugView(feature: feature))
-                    }
-                    guard let feature = model.debugFeatureIfActive,
-                          let runFeature = model.runFeatureIfActive else {
+                    guard let feature = model.genericDebugFeatureIfActive else {
                         return AnyView(WorkbenchModuleUIRegistry.moduleLoadingView)
                     }
-                    return AnyView(JavaDebugView(feature: feature, runFeature: runFeature))
+                    return AnyView(GenericDebugView(feature: feature))
                 }
             )
         ]

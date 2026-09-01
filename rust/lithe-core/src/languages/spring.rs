@@ -1186,6 +1186,7 @@ macro_rules! spring_annotations {
             #[cfg(test)]
             pub(crate) const ALL: &'static [Self] = &[$(Self::$variant),+];
 
+            #[cfg(test)]
             pub(crate) fn name(self) -> &'static str {
                 match self {
                     $(Self::$variant => $name),+
@@ -1219,10 +1220,69 @@ spring_annotations! {
     Service => "Service",
 }
 
+/// Declares the Spring web mapping annotations exactly once, and derives the
+/// type, spelling, boundary pattern, fixed HTTP method, and test list from that
+/// one declaration. `RequestMapping` carries `None` so methods come from its
+/// `RequestMethod.*` arguments instead.
+macro_rules! spring_mapping_annotations {
+    ($($variant:ident => $name:literal, $method:expr),+ $(,)?) => {
+        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        enum SpringMappingAnnotation {
+            $($variant),+
+        }
+
+        impl SpringMappingAnnotation {
+            /// Every recognized mapping annotation. Production selection walks
+            /// this list and keeps the earliest source match, not declaration
+            /// order by itself.
+            const ALL: &'static [Self] = &[$(Self::$variant),+];
+
+            #[cfg(test)]
+            fn name(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $name),+
+                }
+            }
+
+            fn pattern(self) -> &'static Regex {
+                match self {
+                    $(Self::$variant => {
+                        static PATTERN: LazyLock<Regex> =
+                            LazyLock::new(|| annotation_boundary_pattern($name));
+                        &PATTERN
+                    })+
+                }
+            }
+
+            /// Fixed verb for method mappings; `None` for [`Self::RequestMapping`].
+            fn fixed_http_method(self) -> Option<&'static str> {
+                match self {
+                    $(Self::$variant => $method),+
+                }
+            }
+
+            #[cfg(test)]
+            fn is_present(self, context: &str) -> bool {
+                self.pattern().is_match(context)
+            }
+        }
+    };
+}
+
+spring_mapping_annotations! {
+    GetMapping => "GetMapping", Some("GET"),
+    PostMapping => "PostMapping", Some("POST"),
+    PutMapping => "PutMapping", Some("PUT"),
+    DeleteMapping => "DeleteMapping", Some("DELETE"),
+    PatchMapping => "PatchMapping", Some("PATCH"),
+    RequestMapping => "RequestMapping", None,
+}
+
 impl SpringAnnotation {
-    /// Annotations that declare a Spring component on a type declaration. The
-    /// order also drives the alternation in [`component_name`], so changing it
-    /// changes which annotation wins on a type carrying several of them.
+    /// Annotations that declare a Spring component on a type declaration.
+    /// Detection and naming share this closed set so they cannot drift; when
+    /// several are present, the leftmost source match wins rather than this
+    /// array's declaration order.
     const COMPONENTS: [Self; 6] = [
         Self::Component,
         Self::Service,
@@ -1246,24 +1306,31 @@ fn has_component_annotation(context: &str) -> bool {
         .any(|annotation| annotation.is_present(context))
 }
 
+/// Returns the explicit name of the earliest component annotation in source
+/// order. The value is read only from that annotation's own argument list so a
+/// later neighbor such as `@Component("c")` cannot pollute `@Service("s")`.
+/// An empty string such as `@Component("")` is not a name; callers then use
+/// the default type name.
 fn component_name(context: &str) -> Option<String> {
-    // Built from COMPONENTS so the recognized set cannot diverge from the one
-    // has_component_annotation uses.
-    static ANNOTATION: LazyLock<Regex> = LazyLock::new(|| {
-        let alternation = SpringAnnotation::COMPONENTS
-            .iter()
-            .map(|annotation| regex::escape(annotation.name()))
-            .collect::<Vec<_>>()
-            .join("|");
-        Regex::new(&format!(
-            r#"@({alternation})\s*\([^\)]*[\"']([^\"']+)[\"']"#
-        ))
-        .expect("escaped annotation names produce a valid pattern")
-    });
-    ANNOTATION
-        .captures(context)
-        .and_then(|capture| capture.get(2))
-        .map(|value| value.as_str().to_string())
+    let start = earliest_component_annotation_start(context)?;
+    quoted_values(isolate_annotation_at(context, start))
+        .into_iter()
+        .find(|value| !value.is_empty())
+}
+
+/// Locates every exact component annotation with the cached boundary patterns
+/// and keeps the leftmost source start. Array order in [`SpringAnnotation::COMPONENTS`]
+/// is not a priority.
+fn earliest_component_annotation_start(context: &str) -> Option<usize> {
+    SpringAnnotation::COMPONENTS
+        .iter()
+        .filter_map(|annotation| {
+            annotation
+                .pattern()
+                .find(context)
+                .map(|found| found.start())
+        })
+        .min()
 }
 
 fn qualifier_names(context: &str) -> Vec<String> {
@@ -1277,13 +1344,16 @@ fn qualifier_names(context: &str) -> Vec<String> {
         .collect()
 }
 
+/// Returns declared `@Bean` aliases from the exact `@Bean` annotation only.
+/// A prefix decoy such as `@BeanFactory("decoy")` cannot supply the name.
 fn bean_names(context: &str) -> Vec<String> {
-    let Some(start) = context.find("@Bean") else {
+    let Some(found) = SpringAnnotation::Bean.pattern().find(context) else {
         return Vec::new();
     };
-    let remaining = &context[start..];
-    let end = remaining.find(')').unwrap_or(remaining.len());
-    quoted_values(&remaining[..end])
+    quoted_values(isolate_annotation_at(context, found.start()))
+        .into_iter()
+        .filter(|value| !value.is_empty())
+        .collect()
 }
 
 fn quoted_values(value: &str) -> Vec<String> {
@@ -1433,7 +1503,7 @@ fn endpoint_index(sources: &[(String, String)]) -> Vec<SpringEndpointResponse> {
                 continue;
             }
             let (annotation, annotation_end) = annotation_block(&lines, index);
-            let Some((methods, routes)) = mapping(&annotation) else {
+            let Some((mapping_annotation, methods, routes)) = mapping(&annotation) else {
                 index = annotation_end + 1;
                 continue;
             };
@@ -1441,7 +1511,11 @@ fn endpoint_index(sources: &[(String, String)]) -> Vec<SpringEndpointResponse> {
             let declaration = declaration_index
                 .and_then(|value| lines.get(value).copied())
                 .unwrap_or_default();
-            if annotation.contains("@RequestMapping") && CLASS.is_match(declaration) {
+            // Class-level base routes come only from an exact @RequestMapping, not
+            // a longer custom name that merely starts with that spelling.
+            if mapping_annotation == SpringMappingAnnotation::RequestMapping
+                && CLASS.is_match(declaration)
+            {
                 base_routes = routes;
                 index = annotation_end + 1;
                 continue;
@@ -1477,35 +1551,115 @@ fn endpoint_index(sources: &[(String, String)]) -> Vec<SpringEndpointResponse> {
     endpoints
 }
 
-fn mapping(annotation_text: &str) -> Option<(Vec<String>, Vec<String>)> {
-    for (annotation, method) in [
-        ("@GetMapping", "GET"),
-        ("@PostMapping", "POST"),
-        ("@PutMapping", "PUT"),
-        ("@DeleteMapping", "DELETE"),
-        ("@PatchMapping", "PATCH"),
-    ] {
-        if annotation_text.contains(annotation) {
-            return Some((vec![method.to_string()], annotation_routes(annotation_text)));
+/// Finds the earliest exact Mapping annotation in `annotation_text` and returns
+/// its HTTP methods and routes. Custom names that only share a standard prefix
+/// (for example `@GetMappingCustom`) do not match.
+///
+/// When several Mapping annotations appear in one context, the leftmost source
+/// span wins so selection does not depend on declaration order in
+/// [`SpringMappingAnnotation::ALL`].
+fn mapping(annotation_text: &str) -> Option<(SpringMappingAnnotation, Vec<String>, Vec<String>)> {
+    let (annotation, isolated) = find_mapping_annotation(annotation_text)?;
+    let methods = match annotation.fixed_http_method() {
+        Some(method) => vec![method.to_string()],
+        None => request_mapping_methods(isolated),
+    };
+    Some((annotation, methods, annotation_routes(isolated)))
+}
+
+/// Returns the earliest exact Mapping annotation and the isolated annotation
+/// text used for route and `RequestMethod` parsing.
+fn find_mapping_annotation(text: &str) -> Option<(SpringMappingAnnotation, &str)> {
+    let mut best: Option<(usize, SpringMappingAnnotation)> = None;
+    for &annotation in SpringMappingAnnotation::ALL {
+        if let Some(found) = annotation.pattern().find(text) {
+            let start = found.start();
+            match best {
+                Some((best_start, _)) if start >= best_start => {}
+                _ => best = Some((start, annotation)),
+            }
         }
     }
-    if annotation_text.contains("@RequestMapping") {
-        static METHOD_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-            Regex::new(r"RequestMethod\.(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|TRACE)")
-                .expect("literal pattern is valid")
-        });
-        let mut methods = METHOD_PATTERN
-            .captures_iter(annotation_text)
-            .filter_map(|capture| capture.get(1).map(|value| value.as_str().to_string()))
-            .collect::<Vec<_>>();
-        if methods.is_empty() {
-            methods.push("ANY".to_string());
-        }
-        methods.sort();
-        methods.dedup();
-        return Some((methods, annotation_routes(annotation_text)));
+    let (start, annotation) = best?;
+    Some((annotation, isolate_annotation_at(text, start)))
+}
+
+/// Slices one annotation starting at `start` (`@Name` followed by an optional
+/// argument list) so name or route extraction cannot read string literals from
+/// a neighboring decoy.
+///
+/// A later annotation's `(` is not this annotation's argument list. After the
+/// name, only whitespace may appear before `(`. Parentheses inside quoted
+/// strings, including escaped quotes, do not change the argument-list depth.
+fn isolate_annotation_at(text: &str, start: usize) -> &str {
+    let rest = &text[start..];
+    let name_end = rest
+        .char_indices()
+        .skip(1)
+        .find(|(_, character)| {
+            !(character.is_ascii_alphanumeric() || *character == '_' || *character == '$')
+        })
+        .map(|(index, _)| index)
+        .unwrap_or(rest.len());
+    let after_name = rest.get(name_end..).unwrap_or("");
+    let whitespace_len = after_name
+        .chars()
+        .take_while(|character| character.is_whitespace())
+        .map(char::len_utf8)
+        .sum::<usize>();
+    let after_whitespace = after_name.get(whitespace_len..).unwrap_or("");
+    if !after_whitespace.starts_with('(') {
+        return &rest[..name_end];
     }
-    None
+    let open_index = name_end + whitespace_len;
+    let mut depth = 0isize;
+    let mut in_string = None;
+    let mut escaped = false;
+    for (index, character) in rest[open_index..].char_indices() {
+        if let Some(quote) = in_string {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            if character == '\\' {
+                escaped = true;
+                continue;
+            }
+            if character == quote {
+                in_string = None;
+            }
+            continue;
+        }
+        match character {
+            '"' | '\'' => in_string = Some(character),
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return &rest[..open_index + index + 1];
+                }
+            }
+            _ => {}
+        }
+    }
+    rest
+}
+
+fn request_mapping_methods(annotation: &str) -> Vec<String> {
+    static METHOD_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"RequestMethod\.(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|TRACE)")
+            .expect("literal pattern is valid")
+    });
+    let mut methods = METHOD_PATTERN
+        .captures_iter(annotation)
+        .filter_map(|capture| capture.get(1).map(|value| value.as_str().to_string()))
+        .collect::<Vec<_>>();
+    if methods.is_empty() {
+        methods.push("ANY".to_string());
+    }
+    methods.sort();
+    methods.dedup();
+    methods
 }
 
 fn annotation_routes(annotation: &str) -> Vec<String> {
@@ -1662,6 +1816,91 @@ mod tests {
         assert_eq!(component_name("@Qualifier(\"custom\")"), None);
     }
 
+    /// `@BeanFactory` shares a prefix with `@Bean`, so a naive `@Bean` search
+    /// would take the decoy name. Naming must reuse the cached boundary match.
+    #[test]
+    fn bean_names_uses_the_exact_bean_annotation_not_a_prefix() {
+        assert_eq!(
+            bean_names(r#"@BeanFactory("decoy") @Bean("real")"#),
+            vec!["real".to_string()]
+        );
+        assert_eq!(bean_names(r#"@BeanFactory("decoy")"#), Vec::<String>::new());
+        assert_eq!(bean_names(r#"@Bean("real")"#), vec!["real".to_string()]);
+        assert_eq!(bean_names("@Bean"), Vec::<String>::new());
+        assert_eq!(
+            bean_names(r#"@BeanFactory("decoy") @Bean"#),
+            Vec::<String>::new()
+        );
+    }
+
+    /// A `(` inside a string is not the annotation argument list. Counting it
+    /// would swallow the real closer and pull a later neighbor into the aliases.
+    #[test]
+    fn isolate_annotation_at_ignores_parentheses_inside_strings() {
+        assert_eq!(
+            isolate_annotation_at(r#"@Bean("foo(") @Bean("bar")"#, 0),
+            r#"@Bean("foo(")"#
+        );
+        assert_eq!(
+            isolate_annotation_at(r#"@Bean('foo(') @Service("s")"#, 0),
+            r#"@Bean('foo(')"#
+        );
+        assert_eq!(
+            isolate_annotation_at(r#"@Bean("foo\")") @Bean("bar")"#, 0),
+            r#"@Bean("foo\")")"#
+        );
+        assert_eq!(
+            bean_names(r#"@Bean("foo(") @Bean("bar")"#),
+            vec!["foo(".to_string()]
+        );
+        assert_eq!(
+            component_name(r#"@Service("s(") @Component("c")"#).as_deref(),
+            Some("s(")
+        );
+        let mapping_with_paren = mapping(r#"@GetMapping("/foo(") @PostMapping("/bar")"#)
+            .expect("GetMapping with a parenthesis in its route should still isolate");
+        assert_eq!(mapping_with_paren.0, SpringMappingAnnotation::GetMapping);
+        assert_eq!(mapping_with_paren.2, vec!["/foo(".to_string()]);
+    }
+
+    /// A wide capture can start at the first closing quote and swallow
+    /// `) @Component(`. Isolation plus source-position selection must keep
+    /// the first annotation's own value, independent of COMPONENTS order.
+    #[test]
+    fn component_name_selects_the_earliest_annotation_and_isolates_its_value() {
+        assert_eq!(
+            component_name(r#"@Service("s") @Component("c")"#).as_deref(),
+            Some("s")
+        );
+        assert_eq!(
+            component_name(r#"@Component("c") @Service("s")"#).as_deref(),
+            Some("c")
+        );
+        assert_ne!(
+            component_name(r#"@Service("s") @Component("c")"#).as_deref(),
+            Some(") @Component(")
+        );
+        assert_eq!(component_name("@Service @Component"), None);
+        assert_eq!(component_name(r#"@Service @Component("c")"#), None);
+        assert_eq!(component_name("@Service"), None);
+        assert_eq!(component_name("@ServiceLocator(\"x\")"), None);
+    }
+
+    /// `quoted_values` accepts empty captures. An empty annotation value is not
+    /// an explicit bean name, so naming must return None and let bean_index use
+    /// the default type or method name.
+    #[test]
+    fn empty_annotation_values_are_not_explicit_bean_names() {
+        assert_eq!(component_name(r#"@Component("")"#), None);
+        assert_eq!(component_name(r#"@Service('')"#), None);
+        assert_eq!(
+            component_name(r#"@Component("") @Service("s")"#),
+            None,
+            "an empty leftmost name must not take a later neighbor"
+        );
+        assert_eq!(bean_names(r#"@Bean("")"#), Vec::<String>::new());
+    }
+
     /// Record components and constructor parameters share one pattern, so a
     /// declaration parsed by one path must be parsed identically by the other.
     #[test]
@@ -1675,5 +1914,106 @@ mod tests {
         assert_eq!(fields[0].name, "payments");
         assert_eq!(fields[0].type_name, "PaymentService");
         assert_eq!(injections[0].type_name, "PaymentService");
+    }
+
+    /// Mapping detection must use the same closed set for spelling, boundary
+    /// matching, and HTTP methods so a prefix decoy cannot become an endpoint.
+    #[test]
+    fn every_mapping_annotation_has_a_compiled_boundary_pattern() {
+        for annotation in SpringMappingAnnotation::ALL.iter().copied() {
+            let name = annotation.name();
+            assert!(
+                annotation.is_present(&format!("@{name}(\"/x\")")),
+                "{name} should match its own annotation"
+            );
+            assert!(
+                annotation.is_present(&format!("@{name}")),
+                "{name} should match at the end of a context"
+            );
+            assert!(
+                !annotation.is_present(&format!("@{name}Custom(\"/x\")")),
+                "{name} must not match a longer annotation sharing its prefix"
+            );
+        }
+
+        let names = SpringMappingAnnotation::ALL
+            .iter()
+            .map(|annotation| annotation.name())
+            .collect::<HashSet<_>>();
+        assert_eq!(
+            names.len(),
+            SpringMappingAnnotation::ALL.len(),
+            "every mapping case needs a distinct annotation name"
+        );
+    }
+
+    #[test]
+    fn mapping_rejects_custom_annotations_that_only_share_a_standard_prefix() {
+        assert!(mapping("@GetMappingCustom(\"/x\")").is_none());
+        assert!(mapping("@PostMappingCustom(\"/x\")").is_none());
+        assert!(mapping("@PutMappingCustom(\"/x\")").is_none());
+        assert!(mapping("@DeleteMappingCustom(\"/x\")").is_none());
+        assert!(mapping("@PatchMappingCustom(\"/x\")").is_none());
+        assert!(mapping("@RequestMappingFoo(\"/base\")").is_none());
+    }
+
+    #[test]
+    fn mapping_keeps_standard_annotations_and_request_method_arrays() {
+        let get = mapping("@GetMapping(\"/x\")").expect("GetMapping should match");
+        assert_eq!(get.0, SpringMappingAnnotation::GetMapping);
+        assert_eq!(get.1, vec!["GET".to_string()]);
+        assert_eq!(get.2, vec!["/x".to_string()]);
+
+        let post = mapping("@PostMapping(path = \"/y\")").expect("PostMapping should match");
+        assert_eq!(post.1, vec!["POST".to_string()]);
+        assert_eq!(post.2, vec!["/y".to_string()]);
+
+        let put = mapping("@PutMapping(\"/z\")").expect("PutMapping should match");
+        assert_eq!(put.1, vec!["PUT".to_string()]);
+
+        let delete = mapping("@DeleteMapping(\"/d\")").expect("DeleteMapping should match");
+        assert_eq!(delete.1, vec!["DELETE".to_string()]);
+
+        let patch = mapping("@PatchMapping(\"/p\")").expect("PatchMapping should match");
+        assert_eq!(patch.1, vec!["PATCH".to_string()]);
+
+        let any = mapping("@RequestMapping(\"/base\")").expect("RequestMapping should match");
+        assert_eq!(any.0, SpringMappingAnnotation::RequestMapping);
+        assert_eq!(any.1, vec!["ANY".to_string()]);
+        assert_eq!(any.2, vec!["/base".to_string()]);
+
+        let multi = mapping(
+            "@RequestMapping(path = \"/multi\", method = { RequestMethod.POST, RequestMethod.GET, RequestMethod.GET })",
+        )
+        .expect("RequestMapping with methods should match");
+        assert_eq!(multi.1, vec!["GET".to_string(), "POST".to_string()]);
+        assert_eq!(multi.2, vec!["/multi".to_string()]);
+    }
+
+    #[test]
+    fn mapping_selects_the_earliest_annotation_and_isolates_its_routes() {
+        let selected = mapping("@GetMappingCustom(\"/decoy\") @PostMapping(\"/real\")")
+            .expect("exact PostMapping should still match");
+        assert_eq!(selected.0, SpringMappingAnnotation::PostMapping);
+        assert_eq!(selected.1, vec!["POST".to_string()]);
+        assert_eq!(selected.2, vec!["/real".to_string()]);
+
+        let leftmost = mapping("@PutMapping(\"/first\") @GetMapping(\"/second\")")
+            .expect("leftmost Mapping should win");
+        assert_eq!(leftmost.0, SpringMappingAnnotation::PutMapping);
+        assert_eq!(leftmost.2, vec!["/first".to_string()]);
+    }
+
+    #[test]
+    fn mapping_does_not_take_routes_from_a_following_unrelated_annotation() {
+        let bare =
+            mapping("@GetMapping @Custom(\"/decoy\")").expect("bare GetMapping should still match");
+        assert_eq!(bare.0, SpringMappingAnnotation::GetMapping);
+        assert_eq!(bare.1, vec!["GET".to_string()]);
+        assert_eq!(bare.2, vec![String::new()]);
+
+        let spaced = mapping("@GetMapping (\"/x\") @Custom(\"/decoy\")")
+            .expect("GetMapping with its own argument list should keep that route");
+        assert_eq!(spaced.2, vec!["/x".to_string()]);
     }
 }

@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "inserted line moves breakpoint with statement",
+      "payload": {
+        "source": "class Main {\n    void run() {}\n}\n",
+        "edit": {
+          "startUtf16Offset": 13,
+          "endUtf16Offset": 13,
+          "replacement": "\n"
+        },
+        "breakpoints": [
+          {
+            "line": 2,
+            "column": null,
+            "enabled": true,
+            "condition": "ready",
+            "hitCondition": "3",
+            "logMessage": null
+          }
+        ]
+      },
+      "expected": {
+        "breakpoints": [
+          {
+            "line": 3,
+            "column": null,
+            "enabled": true,
+            "condition": "ready",
+            "hitCondition": "3",
+            "logMessage": null
+          }
+        ]
+      }
+    }
+  ]
+}

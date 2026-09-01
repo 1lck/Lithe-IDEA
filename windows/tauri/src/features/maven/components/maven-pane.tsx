@@ -1,0 +1,752 @@
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
+import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
+import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
+import { workspaceScopeMatchesRoot } from "@/features/workspace/types/workspace-launch-scope";
+import { RunOutputText } from "@/features/run/components/run-output-text";
+import { useUIState } from "@/features/window/stores/ui-state.store";
+import { useTranslation } from "@/i18n/locale-provider";
+import { Button } from "@/ui/button";
+import { Checkbox } from "@/ui/checkbox";
+import Dialog from "@/ui/dialog";
+import Input from "@/ui/input";
+import {
+  ArrowClockwiseIcon,
+  ArrowCounterClockwiseIcon,
+  ArrowsInIcon,
+  CaretDownIcon,
+  CaretRightIcon,
+  FolderIcon,
+  GearIcon,
+  MinusIcon,
+  PackageIcon,
+  PlayIcon,
+  PlusIcon,
+  SlidersHorizontalIcon,
+  StopIcon,
+  TerminalIcon,
+  TrashIcon,
+  WarningIcon,
+} from "@/ui/icons";
+import { ScrollArea } from "@/ui/scroll-area";
+import { Spinner } from "@/ui/spinner";
+import Tooltip from "@/ui/tooltip";
+import { joinPath } from "@/utils/path-helpers";
+import { cn } from "@/utils/cn";
+import { ensureMavenProcessListeners } from "../hooks/use-maven-process-events";
+import { availableMavenProfiles, useMavenStore } from "../stores/maven.store";
+import {
+  reloadJavaForMavenWorkspace,
+  reloadMavenWorkspaceProjects,
+} from "../services/reload-maven-workspace";
+import {
+  MAVEN_LIFECYCLE_PHASES,
+  type MavenLifecyclePhase,
+  type MavenModule,
+  type MavenSettings,
+} from "../types/maven.types";
+
+interface TreeNodeProps {
+  id: string;
+  title: string;
+  subtitle?: string;
+  icon?: ReactNode;
+  selected?: boolean;
+  expanded: boolean;
+  onToggle: (id: string) => void;
+  onSelect?: () => void;
+  children?: ReactNode;
+}
+
+function TreeNode({
+  id,
+  title,
+  subtitle,
+  icon,
+  selected,
+  expanded,
+  onToggle,
+  onSelect,
+  children,
+}: TreeNodeProps) {
+  return (
+    <div>
+      <div className={cn("flex min-h-7 items-center rounded-sm", selected && "bg-selected")}>
+        <button
+          type="button"
+          className="flex size-6 shrink-0 items-center justify-center text-subtle-foreground"
+          onClick={() => onToggle(id)}
+          aria-label={expanded ? "Collapse" : "Expand"}
+        >
+          {expanded ? <CaretDownIcon className="size-3" /> : <CaretRightIcon className="size-3" />}
+        </button>
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-1.5 py-1 pr-2 text-left"
+          onClick={onSelect ?? (() => onToggle(id))}
+        >
+          <span className="shrink-0 text-primary">
+            {icon ?? <PackageIcon className="size-3.5" />}
+          </span>
+          <span className="min-w-0 truncate ui-text-sm">{title}</span>
+          {subtitle ? (
+            <span className="min-w-0 truncate font-mono text-subtle-foreground ui-text-xs">
+              {subtitle}
+            </span>
+          ) : null}
+        </button>
+      </div>
+      {expanded && children ? (
+        <div className="ml-4 border-border/60 border-l pl-1">{children}</div>
+      ) : null}
+    </div>
+  );
+}
+
+function MavenSettingsDialog({
+  initial,
+  error,
+  onClose,
+  onSave,
+}: {
+  initial: MavenSettings;
+  error: string | null;
+  onClose: () => void;
+  onSave: (settings: MavenSettings) => void;
+}) {
+  const { t } = useTranslation();
+  const [draft, setDraft] = useState(initial);
+
+  const choosePath = async (field: keyof MavenSettings, directory: boolean) => {
+    const selected = await open({
+      directory,
+      multiple: false,
+      ...(field === "settingsPath"
+        ? { filters: [{ name: "Maven settings", extensions: ["xml"] }] }
+        : {}),
+    });
+    if (typeof selected === "string") setDraft((current) => ({ ...current, [field]: selected }));
+  };
+
+  const fields: Array<{
+    id: string;
+    field: keyof MavenSettings;
+    label: string;
+    directory: boolean;
+  }> = [
+    { id: "maven-settings-xml", field: "settingsPath", label: "settings.xml", directory: false },
+    {
+      id: "maven-executable",
+      field: "mavenExecutablePath",
+      label: t("maven.mavenExecutable"),
+      directory: true,
+    },
+    {
+      id: "maven-jdk-home",
+      field: "javaHomePath",
+      label: t("maven.javaHome"),
+      directory: true,
+    },
+  ];
+
+  return (
+    <Dialog
+      title={t("maven.settings")}
+      icon={SlidersHorizontalIcon}
+      onClose={onClose}
+      size="lg"
+      footer={
+        <>
+          {error ? (
+            <span className="min-w-0 flex-1 truncate text-destructive ui-text-sm">{error}</span>
+          ) : (
+            <span />
+          )}
+          <Button variant="ghost" onClick={onClose}>
+            {t("ui.cancel")}
+          </Button>
+          <Button
+            onClick={() => {
+              onSave(draft);
+              onClose();
+            }}
+          >
+            {t("ui.save")}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {fields.map(({ id, field, label, directory }) => (
+          <label key={field} htmlFor={id} className="block space-y-1.5">
+            <span className="font-medium ui-text-sm">{label}</span>
+            <div className="flex gap-2">
+              <Input
+                id={id}
+                value={draft[field]}
+                placeholder={t("maven.automatic")}
+                onChange={(event) =>
+                  setDraft((current) => ({ ...current, [field]: event.target.value }))
+                }
+              />
+              <Tooltip content={t("ui.clear")}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => setDraft((current) => ({ ...current, [field]: "" }))}
+                  aria-label={t("ui.clear")}
+                >
+                  <TrashIcon />
+                </Button>
+              </Tooltip>
+              <Tooltip content={t("ui.browse")}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => void choosePath(field, directory)}
+                  aria-label={t("ui.browse")}
+                >
+                  <FolderIcon />
+                </Button>
+              </Tooltip>
+            </div>
+          </label>
+        ))}
+      </div>
+    </Dialog>
+  );
+}
+
+export default function MavenPane() {
+  const { t } = useTranslation();
+  const workspaceId = useActiveWorkspaceId();
+  const root = useMavenStore((state) => state.root);
+  const visiblePaths = useMavenStore((state) => state.visiblePaths);
+  const projectStatus = useMavenStore((state) => state.projectStatus);
+  const projectError = useMavenStore((state) => state.projectError);
+  const project = useMavenStore((state) => state.project);
+  const selectedProfiles = useMavenStore((state) => state.selectedProfiles);
+  const customProfiles = useMavenStore((state) => state.customProfiles);
+  const skipTests = useMavenStore((state) => state.skipTests);
+  const settingsPath = useMavenStore((state) => state.settingsPath);
+  const mavenExecutablePath = useMavenStore((state) => state.mavenExecutablePath);
+  const javaHomePath = useMavenStore((state) => state.javaHomePath);
+  const configurationSaveError = useMavenStore((state) => state.configurationSaveError);
+  const reloadRequired = useMavenStore((state) => state.reloadRequired);
+  const taskStatus = useMavenStore((state) => state.taskStatus);
+  const taskError = useMavenStore((state) => state.taskError);
+  const runningTitle = useMavenStore((state) => state.runningTitle);
+  const output = useMavenStore((state) => state.output);
+  const issues = useMavenStore((state) => state.issues);
+  const lastExitCode = useMavenStore((state) => state.lastExitCode);
+  const actions = useMavenStore((state) => state.actions);
+  const handleFileSelect = useFileSystemStore((state) => state.handleFileSelect);
+  const setIsBottomPaneVisible = useUIState((state) => state.setIsBottomPaneVisible);
+  const [selectedModule, setSelectedModule] = useState<string | null>(null);
+  const [selectedPhase, setSelectedPhase] = useState<MavenLifecyclePhase>("compile");
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [goalDialogOpen, setGoalDialogOpen] = useState(false);
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
+  const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+  const [customGoal, setCustomGoal] = useState("");
+  const [customProfile, setCustomProfile] = useState("");
+  const [reloadError, setReloadError] = useState<string | null>(null);
+
+  const profiles = useMemo(
+    () => availableMavenProfiles({ project, customProfiles }),
+    [customProfiles, project],
+  );
+  const isRunning = taskStatus === "running" || taskStatus === "stopping";
+
+  useEffect(() => {
+    void ensureMavenProcessListeners();
+  }, []);
+
+  useEffect(() => {
+    setReloadError(null);
+  }, [root, workspaceId]);
+
+  useEffect(() => {
+    if (!project) return;
+    const initial = new Set<string>([`project:${project.relativePath}`]);
+    if (profiles.length > 0) initial.add("profiles");
+    setExpanded(initial);
+    setSelectedModule(null);
+    setSelectedPhase("compile");
+  }, [project?.relativePath]);
+
+  const toggleExpanded = (id: string) => {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const runPhase = (phase: MavenLifecyclePhase, module: MavenModule | null) => {
+    setSelectedModule(module?.relativePath ?? null);
+    setSelectedPhase(phase);
+    const target = module?.artifactId ?? project?.artifactId ?? t("maven.project");
+    void actions.runGoals([phase], module?.relativePath ?? null, `${phase} · ${target}`);
+  };
+
+  const runSelected = () => {
+    const module = findMavenModule(project?.modules ?? [], selectedModule);
+    runPhase(selectedPhase, module);
+  };
+
+  const runCustomGoal = () => {
+    const goals = customGoal.trim().split(/\s+/).filter(Boolean);
+    if (goals.length === 0) return;
+    const module = findMavenModule(project?.modules ?? [], selectedModule);
+    const target = module?.artifactId ?? project?.artifactId ?? t("maven.project");
+    setGoalDialogOpen(false);
+    void actions.runGoals(goals, module?.relativePath ?? null, `${customGoal.trim()} · ${target}`);
+  };
+
+  const reloadJava = async () => {
+    if (!root) return;
+    const scope = { workspaceId, root };
+    setReloadError(null);
+    try {
+      await reloadJavaForMavenWorkspace(scope);
+    } catch (error) {
+      if (
+        workspaceRuntimeRegistry.getActiveWorkspaceId() === workspaceId &&
+        workspaceScopeMatchesRoot(scope, useMavenStore.getStore(workspaceId).getState().root)
+      ) {
+        setReloadError(error instanceof Error ? error.message : t("maven.reloadFailed"));
+      }
+    }
+  };
+
+  const reloadProjects = async () => {
+    if (!root) return;
+    const scope = { workspaceId, root };
+    setReloadError(null);
+    try {
+      await reloadMavenWorkspaceProjects(scope);
+    } catch (error) {
+      if (
+        workspaceRuntimeRegistry.getActiveWorkspaceId() === workspaceId &&
+        workspaceScopeMatchesRoot(scope, useMavenStore.getStore(workspaceId).getState().root)
+      ) {
+        setReloadError(error instanceof Error ? error.message : t("maven.reloadFailed"));
+      }
+    }
+  };
+
+  const openIssue = (path: string, line: number, column?: number | null) => {
+    if (!root || !path) return;
+    const target = /^(?:[A-Za-z]:[\\/]|[\\/]{2}|\/)/.test(path) ? path : joinPath(root, path);
+    void handleFileSelect(target, false, line, column ?? undefined, undefined, false);
+  };
+
+  const renderLifecycle = (ownerId: string, module: MavenModule | null) => {
+    const id = `${ownerId}:lifecycle`;
+    return (
+      <TreeNode
+        id={id}
+        title={t("maven.lifecycle")}
+        icon={<GearIcon className="size-3.5" />}
+        expanded={expanded.has(id)}
+        onToggle={toggleExpanded}
+      >
+        {MAVEN_LIFECYCLE_PHASES.map((phase) => {
+          const selected =
+            selectedModule === (module?.relativePath ?? null) && selectedPhase === phase;
+          return (
+            <button
+              key={phase}
+              type="button"
+              className={cn(
+                "flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left ui-text-sm",
+                selected ? "bg-selected text-foreground" : "text-subtle-foreground hover:bg-hover",
+              )}
+              onClick={() => {
+                setSelectedModule(module?.relativePath ?? null);
+                setSelectedPhase(phase);
+              }}
+              onDoubleClick={() => !isRunning && runPhase(phase, module)}
+            >
+              <PlayIcon className={cn("size-3", selected && "text-success")} />
+              <span className="truncate">{phase}</span>
+            </button>
+          );
+        })}
+      </TreeNode>
+    );
+  };
+
+  const renderModule = (module: MavenModule): ReactNode => {
+    const id = `module:${module.relativePath}`;
+    return (
+      <TreeNode
+        key={id}
+        id={id}
+        title={module.artifactId}
+        subtitle={module.relativePath}
+        selected={selectedModule === module.relativePath}
+        expanded={expanded.has(id)}
+        onToggle={toggleExpanded}
+        onSelect={() => setSelectedModule(module.relativePath)}
+      >
+        {renderLifecycle(id, module)}
+        {module.modules.map(renderModule)}
+      </TreeNode>
+    );
+  };
+
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-background">
+      <div className="flex h-(--lithe-pane-header-height) shrink-0 items-center gap-2 border-border/70 border-b px-3">
+        <PackageIcon className="size-4 text-primary" />
+        <div className="min-w-0 flex-1 truncate font-medium ui-text-sm">
+          {t("maven.title")}
+          {project ? ` · ${project.artifactId}` : ""}
+        </div>
+        {projectStatus === "loading" ? <Spinner compact /> : null}
+        {runningTitle ? (
+          <span className="max-w-56 truncate text-subtle-foreground ui-text-sm">
+            {runningTitle}
+          </span>
+        ) : null}
+        {taskStatus === "cancelled" ? (
+          <span className="text-warning ui-text-sm">{t("maven.cancelled")}</span>
+        ) : null}
+        {!isRunning && lastExitCode != null ? (
+          <span
+            className={
+              lastExitCode === 0 ? "text-success ui-text-sm" : "text-destructive ui-text-sm"
+            }
+          >
+            {lastExitCode === 0 ? t("run.succeeded") : t("run.failed")}
+          </span>
+        ) : null}
+        <Tooltip content={isRunning ? t("maven.stop") : t("maven.runSelected")}>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            disabled={!project}
+            onClick={isRunning ? () => void actions.stop() : runSelected}
+            aria-label={isRunning ? t("maven.stop") : t("maven.runSelected")}
+          >
+            {isRunning ? (
+              <StopIcon className="text-warning" />
+            ) : (
+              <PlayIcon className="text-success" />
+            )}
+          </Button>
+        </Tooltip>
+        <Tooltip content={t("maven.executeGoal")}>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            disabled={!project || isRunning}
+            onClick={() => {
+              setCustomGoal("");
+              setGoalDialogOpen(true);
+            }}
+            aria-label={t("maven.executeGoal")}
+          >
+            <TerminalIcon />
+          </Button>
+        </Tooltip>
+        <Tooltip content={t("maven.reloadProjects")}>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            disabled={!root || isRunning || projectStatus === "loading"}
+            onClick={() => void reloadProjects()}
+            aria-label={t("maven.reloadProjects")}
+          >
+            <ArrowClockwiseIcon />
+          </Button>
+        </Tooltip>
+        <Tooltip content={t("maven.skipTests")}>
+          <Checkbox
+            checked={skipTests}
+            disabled={!project}
+            onCheckedChange={actions.setSkipTests}
+            aria-label={t("maven.skipTests")}
+            className="mx-1"
+          />
+        </Tooltip>
+        <Tooltip content={t("maven.collapseAll")}>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => setExpanded(new Set())}
+            aria-label={t("maven.collapseAll")}
+          >
+            <ArrowsInIcon />
+          </Button>
+        </Tooltip>
+        <Tooltip content={t("maven.settings")}>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            disabled={!project}
+            onClick={() => setSettingsDialogOpen(true)}
+            aria-label={t("maven.settings")}
+          >
+            <SlidersHorizontalIcon />
+          </Button>
+        </Tooltip>
+        <Tooltip content={t("maven.clearOutput")}>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={actions.clearOutput}
+            aria-label={t("maven.clearOutput")}
+          >
+            <TrashIcon />
+          </Button>
+        </Tooltip>
+        <Tooltip content={t("run.minimize")}>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => setIsBottomPaneVisible(false)}
+            aria-label={t("run.minimize")}
+          >
+            <MinusIcon />
+          </Button>
+        </Tooltip>
+      </div>
+
+      {reloadRequired || configurationSaveError || reloadError || taskError ? (
+        <div className="flex min-h-9 shrink-0 items-center gap-2 border-border/70 border-b bg-warning/10 px-3">
+          <WarningIcon className="size-3.5 text-warning" />
+          <span className="min-w-0 flex-1 truncate ui-text-sm">
+            {configurationSaveError ?? reloadError ?? taskError ?? t("maven.configurationChanged")}
+          </span>
+          {reloadRequired || reloadError ? (
+            <Button size="xs" variant="ghost" onClick={() => void reloadJava()}>
+              {t("maven.reloadJdt")}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {projectStatus === "failed" ? (
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+          <WarningIcon className="size-7 text-destructive" />
+          <div className="font-medium">{t("maven.loadFailed")}</div>
+          <div className="max-w-lg text-subtle-foreground ui-text-sm">{projectError}</div>
+          <Button size="sm" onClick={() => root && void actions.loadProject(root, visiblePaths)}>
+            {t("ui.retry")}
+          </Button>
+        </div>
+      ) : project ? (
+        <div className="flex min-h-0 flex-1">
+          <ScrollArea
+            className="w-[17rem] shrink-0 border-border/70 border-r bg-sidebar"
+            reserveScrollbarGutter
+          >
+            <div className="space-y-0.5 p-2">
+              {profiles.length > 0 ? (
+                <TreeNode
+                  id="profiles"
+                  title={t("maven.profiles")}
+                  icon={<FolderIcon className="size-3.5" />}
+                  expanded={expanded.has("profiles")}
+                  onToggle={toggleExpanded}
+                >
+                  <div className="flex h-7 items-center gap-1 px-1">
+                    <Tooltip content={t("maven.addProfile")}>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={() => {
+                          setCustomProfile("");
+                          setProfileDialogOpen(true);
+                        }}
+                        aria-label={t("maven.addProfile")}
+                      >
+                        <PlusIcon />
+                      </Button>
+                    </Tooltip>
+                    <Tooltip content={t("maven.restoreProfiles")}>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={actions.restoreDefaultProfiles}
+                        aria-label={t("maven.restoreProfiles")}
+                      >
+                        <ArrowCounterClockwiseIcon />
+                      </Button>
+                    </Tooltip>
+                  </div>
+                  {profiles.map((profile) => (
+                    <label
+                      key={profile.id}
+                      className="flex h-7 cursor-pointer items-center gap-2 rounded-sm px-2 hover:bg-hover"
+                    >
+                      <Checkbox
+                        checked={selectedProfiles.includes(profile.id)}
+                        onCheckedChange={(checked) =>
+                          actions.setSelectedProfiles(
+                            checked
+                              ? [...selectedProfiles, profile.id]
+                              : selectedProfiles.filter((value) => value !== profile.id),
+                          )
+                        }
+                      />
+                      <span className="min-w-0 truncate ui-text-sm">{profile.id}</span>
+                    </label>
+                  ))}
+                </TreeNode>
+              ) : null}
+              <TreeNode
+                id={`project:${project.relativePath}`}
+                title={project.artifactId}
+                subtitle={project.packaging}
+                selected={selectedModule === null}
+                expanded={expanded.has(`project:${project.relativePath}`)}
+                onToggle={toggleExpanded}
+                onSelect={() => setSelectedModule(null)}
+              >
+                {renderLifecycle(`project:${project.relativePath}`, null)}
+                {project.modules.map(renderModule)}
+              </TreeNode>
+            </div>
+          </ScrollArea>
+          <div className="flex min-w-0 flex-1 flex-col">
+            <div className="flex h-9 shrink-0 items-center border-border/70 border-b px-3 font-medium ui-text-sm">
+              <span className="flex-1">{t("maven.buildOutput")}</span>
+              {issues.length > 0 ? <span className="text-warning">{issues.length}</span> : null}
+            </div>
+            {issues.length > 0 ? (
+              <ScrollArea className="max-h-32 shrink-0 border-border/70 border-b bg-sidebar">
+                <div className="py-1">
+                  {issues.map((issue, index) => (
+                    <button
+                      key={`${issue.path}:${issue.line}:${index}`}
+                      type="button"
+                      className="flex w-full items-start gap-2 px-3 py-1.5 text-left hover:bg-hover"
+                      onClick={() => openIssue(issue.path, issue.line, issue.column)}
+                      disabled={!issue.path}
+                    >
+                      <WarningIcon
+                        className={cn(
+                          "mt-0.5 size-3.5 shrink-0",
+                          issue.severity === "error" ? "text-destructive" : "text-warning",
+                        )}
+                      />
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium ui-text-sm">
+                          {issue.path
+                            ? `${issue.path}:${issue.line}${issue.column ? `:${issue.column}` : ""}`
+                            : t("maven.buildOutput")}
+                        </span>
+                        <span className="block truncate text-subtle-foreground ui-text-sm">
+                          {issue.message}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </ScrollArea>
+            ) : null}
+            <ScrollArea className="min-h-0 flex-1" orientation="both">
+              <div className="min-h-full p-3">
+                <RunOutputText
+                  source={output}
+                  title={t("maven.processOutput")}
+                  emptyLabel={t("maven.emptyOutput")}
+                />
+              </div>
+            </ScrollArea>
+          </div>
+        </div>
+      ) : (
+        <div className="flex min-h-0 flex-1 items-center justify-center text-subtle-foreground ui-text-sm">
+          {projectStatus === "loading" ? t("maven.scanning") : t("maven.notDetected")}
+        </div>
+      )}
+
+      {goalDialogOpen ? (
+        <Dialog
+          title={t("maven.executeGoal")}
+          icon={TerminalIcon}
+          onClose={() => setGoalDialogOpen(false)}
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setGoalDialogOpen(false)}>
+                {t("ui.cancel")}
+              </Button>
+              <Button disabled={!customGoal.trim()} onClick={runCustomGoal}>
+                {t("run.run")}
+              </Button>
+            </>
+          }
+        >
+          <Input
+            autoFocus
+            value={customGoal}
+            placeholder="spring-boot:run"
+            onChange={(event) => setCustomGoal(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") runCustomGoal();
+            }}
+          />
+        </Dialog>
+      ) : null}
+      {profileDialogOpen ? (
+        <Dialog
+          title={t("maven.addProfile")}
+          icon={PlusIcon}
+          onClose={() => setProfileDialogOpen(false)}
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setProfileDialogOpen(false)}>
+                {t("ui.cancel")}
+              </Button>
+              <Button
+                disabled={!customProfile.trim()}
+                onClick={() => {
+                  if (actions.addCustomProfile(customProfile)) setProfileDialogOpen(false);
+                }}
+              >
+                {t("maven.add")}
+              </Button>
+            </>
+          }
+        >
+          <Input
+            autoFocus
+            value={customProfile}
+            placeholder={t("maven.profileId")}
+            onChange={(event) => setCustomProfile(event.target.value)}
+          />
+        </Dialog>
+      ) : null}
+      {settingsDialogOpen ? (
+        <MavenSettingsDialog
+          initial={{ settingsPath, mavenExecutablePath, javaHomePath }}
+          error={configurationSaveError}
+          onClose={() => setSettingsDialogOpen(false)}
+          onSave={actions.updateLocalConfiguration}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function findMavenModule(
+  modules: readonly MavenModule[],
+  relativePath: string | null,
+): MavenModule | null {
+  if (!relativePath) return null;
+  for (const module of modules) {
+    if (module.relativePath === relativePath) return module;
+    const nested = findMavenModule(module.modules, relativePath);
+    if (nested) return nested;
+  }
+  return null;
+}

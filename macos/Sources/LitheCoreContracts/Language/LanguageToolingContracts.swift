@@ -170,7 +170,7 @@ package struct LanguageProviderCatalog: Sendable {
     package static let compatibilityFallback = LanguageProviderCatalog(descriptors: [
         LanguageProviderDescriptor(
             id: "java", displayName: "Java", fileExtensions: ["java"],
-            capabilities: [.run, .languageServer, .formatting, .testing],
+            capabilities: [.run, .languageServer, .debugAdapter, .formatting, .testing],
             activationPolicy: .onDemand
         ),
         LanguageProviderDescriptor(
@@ -526,6 +526,8 @@ package struct LanguageServerCodeAction: Identifiable, Equatable, Sendable {
 @MainActor
 package protocol LanguageServerSession: AnyObject {
     var isRunning: Bool { get }
+    /// Packaged Java Test runner, if this JDT LS session was launched with one.
+    var javaTestRunnerURL: URL? { get }
     var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)? { get set }
     var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)? { get set }
     var onStateChange: ((LanguageServerSessionState) -> Void)? { get set }
@@ -539,6 +541,11 @@ package protocol LanguageServerSession: AnyObject {
     ///   state directory so structural changes (add/remove module, edit root
     ///   pom.xml) never reuse a stale project model.
     func start(rootURL: URL, workspaceFingerprint: String?) throws
+    func start(
+        rootURL: URL,
+        workspaceFingerprint: String?,
+        mavenContext: MavenLaunchContext?
+    ) throws
     func synchronize(fileURL: URL, text: String, languageID: String) throws
     func notifyWorkspaceFilesChanged(_ changes: [LanguageServerWorkspaceFileChange]) throws
     func closeDocument(_ fileURL: URL)
@@ -589,6 +596,11 @@ package protocol LanguageServerSession: AnyObject {
         fileURL: URL,
         completion: @escaping (Result<Void, Error>) -> Void
     ) throws
+    func executeReturningValue(
+        _ command: LanguageServerCommand,
+        fileURL: URL,
+        completion: @escaping (Result<ToolingJSONValue, Error>) -> Void
+    ) throws
     func resolveVirtualDocument(
         uri: String,
         completion: @escaping (Result<String, Error>) -> Void
@@ -606,6 +618,16 @@ package protocol LanguageServerSession: AnyObject {
 }
 
 package extension LanguageServerSession {
+    func start(
+        rootURL: URL,
+        workspaceFingerprint: String?,
+        mavenContext _: MavenLaunchContext?
+    ) throws {
+        try start(rootURL: rootURL, workspaceFingerprint: workspaceFingerprint)
+    }
+}
+
+package extension LanguageServerSession {
     var features: LanguageServerFeatureSet { [] }
     var onFeaturesChange: ((LanguageServerFeatureSet) -> Void)? {
         get { nil }
@@ -618,6 +640,15 @@ package extension LanguageServerSession {
     var onStateChange: ((LanguageServerSessionState) -> Void)? {
         get { nil }
         set {}
+    }
+    func executeReturningValue(
+        _ command: LanguageServerCommand,
+        fileURL: URL,
+        completion: @escaping (Result<ToolingJSONValue, Error>) -> Void
+    ) throws {
+        try execute(command, fileURL: fileURL) { result in
+            completion(result.map { .null })
+        }
     }
     var serverInfo: LanguageServerInfo? { nil }
     var onServerInfoChange: ((LanguageServerInfo?) -> Void)? {

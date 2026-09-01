@@ -7,6 +7,7 @@ import LitheTerminalModule
 /// link event so workspace-relative paths can open in its own editor instead.
 final class LitheTerminalView: LocalProcessTerminalView {
     var onOpenLink: ((String, [String: String]) -> Void)?
+    var onProcessOutput: ((Data) -> Void)?
     private var showsWorkbenchBackground = false
     private weak var metalActivationFailedWindow: NSWindow?
 
@@ -109,6 +110,11 @@ final class LitheTerminalView: LocalProcessTerminalView {
     override func requestOpenLink(source: SwiftTerm.TerminalView, link: String, params: [String: String]) {
         onOpenLink?(link, params)
     }
+
+    override func dataReceived(slice: ArraySlice<UInt8>) {
+        onProcessOutput?(Data(slice))
+        super.dataReceived(slice: slice)
+    }
 }
 
 extension LitheTerminalView: WorkbenchBackgroundRendering {}
@@ -136,15 +142,22 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
     let view: LitheTerminalView
 
     var onTermination: ((Int32?) -> Void)?
+    var onOutput: ((Data) -> Void)?
     var onTitle: ((String) -> Void)?
     var onDirectoryUpdate: ((String?) -> Void)?
     var onLink: ((String, [String: String]) -> Void)?
 
     private var selectedShellPath: String?
     private var suppressNextTermination = false
+    private let stoppedChildProcessReaper = MacStoppedChildProcessReaper()
 
     var isRunning: Bool {
         view.process.running
+    }
+
+    var processID: Int32? {
+        let processID = view.process.shellPid
+        return processID > 0 ? processID : nil
     }
 
     var shellName: String {
@@ -161,6 +174,9 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
         view.processDelegate = self
         view.onOpenLink = { [weak self] link, params in
             self?.onLink?(link, params)
+        }
+        view.onProcessOutput = { [weak self] data in
+            self?.onOutput?(data)
         }
         view.font = Self.preferredTerminalFont()
         view.applyThemeColors()
@@ -207,9 +223,36 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
         shellPath: String,
         environment: [String: String]
     ) throws {
+        _ = try startProcess(
+            TerminalProcessLaunch(
+                title: nil,
+                executablePath: shellPath,
+                arguments: ["-l"],
+                workingDirectory: workingDirectory
+            ),
+            environment: environment
+        )
+    }
+
+    func startProcess(
+        _ launch: TerminalProcessLaunch,
+        environment: [String: String]
+    ) throws -> Int32 {
         stop()
         suppressNextTermination = false
-        selectedShellPath = shellPath
+        let executablePath = try resolveExecutablePath(
+            launch.executablePath,
+            workingDirectory: launch.workingDirectory,
+            environment: environment
+        )
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(
+            atPath: launch.workingDirectory,
+            isDirectory: &isDirectory
+        ), isDirectory.boolValue else {
+            throw terminalError("The terminal working directory does not exist: \(launch.workingDirectory)")
+        }
+        selectedShellPath = executablePath
 
         view.terminal.resetToInitialState()
         var options = view.terminal.options
@@ -222,21 +265,16 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
         }
 
         view.startProcess(
-            executable: shellPath,
-            args: ["-l"],
+            executable: executablePath,
+            args: launch.arguments,
             environment: environmentArray,
-            currentDirectory: workingDirectory
+            currentDirectory: launch.workingDirectory
         )
 
-        guard view.process.running else {
-            throw NSError(
-                domain: "Lithe.Terminal",
-                code: 1,
-                userInfo: [
-                    NSLocalizedDescriptionKey: "Unable to start \(shellPath)"
-                ]
-            )
+        guard view.process.running, let processID else {
+            throw terminalError("Unable to start \(executablePath)")
         }
+        return processID
     }
 
     func send(_ input: Data) throws {
@@ -259,9 +297,12 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
     }
 
     func stop() {
-        guard view.process.running else { return }
+        guard let processID else { return }
         suppressNextTermination = true
-        view.terminate()
+        if view.process.running {
+            view.terminate()
+        }
+        stoppedChildProcessReaper.reapWhenExited(processID)
     }
 
     func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
@@ -280,5 +321,43 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
             return
         }
         onTermination?(exitCode)
+    }
+
+    private func resolveExecutablePath(
+        _ executablePath: String,
+        workingDirectory: String,
+        environment: [String: String]
+    ) throws -> String {
+        let fileManager = FileManager.default
+        let candidate: String?
+        if executablePath.contains("/") {
+            let url = executablePath.hasPrefix("/")
+                ? URL(fileURLWithPath: executablePath)
+                : URL(fileURLWithPath: workingDirectory, isDirectory: true)
+                    .appendingPathComponent(executablePath)
+            candidate = url.standardizedFileURL.path
+        } else {
+            candidate = environment["PATH"]?
+                .split(separator: ":", omittingEmptySubsequences: false)
+                .map(String.init)
+                .map { directory in
+                    URL(fileURLWithPath: directory, isDirectory: true)
+                        .appendingPathComponent(executablePath)
+                        .standardizedFileURL.path
+                }
+                .first { fileManager.isExecutableFile(atPath: $0) }
+        }
+        guard let candidate, fileManager.isExecutableFile(atPath: candidate) else {
+            throw terminalError("The terminal executable is unavailable: \(executablePath)")
+        }
+        return candidate
+    }
+
+    private func terminalError(_ message: String) -> NSError {
+        NSError(
+            domain: "Lithe.Terminal",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: message]
+        )
     }
 }

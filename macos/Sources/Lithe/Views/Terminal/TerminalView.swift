@@ -84,13 +84,14 @@ struct TerminalView: View {
                         session.restart()
                         session.focus()
                     }
+                    .disabled(session.isManagedProcess)
                     Button("Clear", action: session.clear)
                     Divider()
                     Button("Move to Editor") {
                         model.moveTerminalToEditor(session.id)
                     }
                     Button("Close Terminal") {
-                        model.closeTerminalSession(session)
+                        model.requestCloseTerminalSession(session)
                     }
                 } else {
                     Button("No Terminal Sessions") {}
@@ -163,7 +164,7 @@ struct TerminalView: View {
             }
 
             Button {
-                model.closeTerminalSession(session)
+                model.requestCloseTerminalSession(session)
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .semibold))
@@ -206,7 +207,7 @@ struct TerminalView: View {
                 }),
                 .separator,
                 .action("Close", systemImage: "xmark", action: {
-                    model.closeTerminalSession(session)
+                    model.requestCloseTerminalSession(session)
                 })
             ]
         }

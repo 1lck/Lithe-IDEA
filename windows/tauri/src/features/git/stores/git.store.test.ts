@@ -47,7 +47,12 @@ describe("Git history pagination", () => {
   test("requests a larger cumulative snapshot instead of an ignored offset", async () => {
     const store = createGitStore();
     loadInitialHistory(store, "C:/repo", commits(50));
-    getGitHistory.mockResolvedValue({ references: [], commits: commits(100), hasMore: true });
+    getGitHistory.mockResolvedValue({
+      references: [],
+      recentReferences: [],
+      commits: commits(100),
+      hasMore: true,
+    });
 
     await store.getState().actions.loadMoreCommits("C:/repo");
 
@@ -59,7 +64,12 @@ describe("Git history pagination", () => {
   test("uses the shared core hasMore flag at the end of history", async () => {
     const store = createGitStore();
     loadInitialHistory(store, "C:/repo", commits(50));
-    getGitHistory.mockResolvedValue({ references: [], commits: commits(73), hasMore: false });
+    getGitHistory.mockResolvedValue({
+      references: [],
+      recentReferences: [],
+      commits: commits(73),
+      hasMore: false,
+    });
 
     await store.getState().actions.loadMoreCommits("C:/repo");
 
@@ -93,7 +103,12 @@ describe("Git history pagination", () => {
 
     const pending = store.getState().actions.loadMoreCommits("C:/repo-a");
     store.getState().actions.prepareRepositoryLoad("C:/repo-b");
-    resolveHistory({ references: [], commits: commits(100), hasMore: true });
+    resolveHistory({
+      references: [],
+      recentReferences: [],
+      commits: commits(100),
+      hasMore: true,
+    });
     await pending;
 
     expect(store.getState().currentRepoPath).toBe("C:/repo-b");

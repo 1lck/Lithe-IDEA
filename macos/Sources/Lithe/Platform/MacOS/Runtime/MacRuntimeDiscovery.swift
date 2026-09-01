@@ -15,16 +15,6 @@ enum MacRuntimeDiscovery {
         return RuntimeDiscoveryResult(javaRuntimes: javaRuntimes, mavenRuntimes: mavenRuntimes)
     }
 
-    static func systemJDBExecutable() -> URL? {
-        [
-            "/opt/homebrew/bin/jdb",
-            "/usr/local/bin/jdb",
-            "/usr/bin/jdb"
-        ]
-        .map(URL.init(fileURLWithPath:))
-        .first(where: { FileManager.default.isExecutableFile(atPath: $0.path) })
-    }
-
     static func systemMavenExecutable(environment: [String: String]) -> URL? {
         discoverMavenExecutables(environment: environment).first
     }
@@ -32,11 +22,22 @@ enum MacRuntimeDiscovery {
     static func mavenExecutable(forHomePath path: String) -> URL? {
         let expanded = (path as NSString).expandingTildeInPath
         let url = URL(fileURLWithPath: expanded).standardizedFileURL
-        let candidates = [
-            url,
-            url.appendingPathComponent("bin/mvn")
-        ]
-        return candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0.path) })
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            return nil
+        }
+        let executable = isDirectory.boolValue
+            ? url.appendingPathComponent("bin/mvn")
+            : url
+        var executableIsDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(
+            atPath: executable.path,
+            isDirectory: &executableIsDirectory
+        ), !executableIsDirectory.boolValue,
+        FileManager.default.isExecutableFile(atPath: executable.path) else {
+            return nil
+        }
+        return executable.standardizedFileURL
     }
 
     static func validJavaHome(_ path: String) -> URL? {

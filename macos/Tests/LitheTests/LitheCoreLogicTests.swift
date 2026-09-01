@@ -2,9 +2,11 @@ import AppKit
 import Combine
 import CoreServices
 import Foundation
+import LitheApplicationKernel
 @testable import LitheDatabaseModule
 @testable import LitheGitModule
 import LitheLocalHistoryModule
+import LitheModuleAPI
 import LitheSearchModule
 import Testing
 import LitheTerminalModule
@@ -86,6 +88,205 @@ struct LitheCoreLogicTests {
 
         #expect(!coordinator.windowShouldClose(window))
         #expect(sessions.closeActiveProjectCallCount == 1)
+    }
+
+    @Test
+    @MainActor
+    func commandWClosesActiveWorkbenchContentBeforeTheWindow() {
+        let sessions = TestProjectWindowSessions(hasActiveProject: true)
+        sessions.consumesWorkbenchCloseCommand = true
+        let coordinator = LitheWindowCoordinator(projectSessions: sessions)
+        let window = CloseCommandTestWindow()
+        coordinator.attach(to: window, layout: .workspace)
+
+        coordinator.performCloseCommand()
+
+        #expect(sessions.closeActiveWorkbenchItemCallCount == 1)
+        #expect(window.performCloseCallCount == 0)
+        #expect(sessions.closeActiveProjectCallCount == 0)
+    }
+
+    @Test
+    @MainActor
+    func commandWUsesNativeWindowCloseAfterWorkbenchContentIsGone() async {
+        let sessions = TestProjectWindowSessions(hasActiveProject: true)
+        let coordinator = LitheWindowCoordinator(projectSessions: sessions)
+        let window = CloseCommandTestWindow()
+        coordinator.attach(to: window, layout: .workspace)
+
+        coordinator.performCloseCommand()
+
+        #expect(sessions.closeActiveWorkbenchItemCallCount == 1)
+        #expect(window.performCloseCallCount == 1)
+        #expect(!window.delegateAllowedClose)
+        #expect(await window.waitUntilNativeCloseAllowed())
+        #expect(window.performCloseCallCount == 2)
+        #expect(window.delegateAllowedClose)
+        #expect(sessions.resetForProjectWindowCloseCallCount == 1)
+        #expect(sessions.closeActiveProjectCallCount == 0)
+    }
+
+    @Test
+    @MainActor
+    func commandWWaitsForProjectCleanupBeforeAllowingNativeClose() async {
+        let cleanupStarted = TestGate()
+        let releaseCleanup = TestGate()
+        let sessions = TestProjectWindowSessions(hasActiveProject: true)
+        sessions.projectWindowCleanupStarted = cleanupStarted
+        sessions.projectWindowCleanupRelease = releaseCleanup
+        let coordinator = LitheWindowCoordinator(projectSessions: sessions)
+        let window = CloseCommandTestWindow()
+        coordinator.attach(to: window, layout: .workspace)
+        defer { releaseCleanup.open() }
+
+        coordinator.performCloseCommand()
+
+        #expect(await cleanupStarted.waitUntilOpen())
+        #expect(window.performCloseCallCount == 1)
+        #expect(!window.delegateAllowedClose)
+
+        releaseCleanup.open()
+
+        #expect(await window.waitUntilNativeCloseAllowed())
+        #expect(window.performCloseCallCount == 2)
+        #expect(window.delegateAllowedClose)
+        #expect(sessions.resetForProjectWindowCloseCallCount == 1)
+    }
+
+    @Test
+    @MainActor
+    func commandWCancelDoesNotResetSessionsOrLeakIntoTheNextWindowClose() {
+        let sessions = TestProjectWindowSessions(hasActiveProject: true)
+        let coordinator = LitheWindowCoordinator(
+            projectSessions: sessions,
+            confirmUnsavedDocuments: { _ in false }
+        )
+        let window = CloseCommandTestWindow()
+        coordinator.attach(to: window, layout: .workspace)
+
+        coordinator.performCloseCommand()
+
+        #expect(window.performCloseCallCount == 1)
+        #expect(!window.delegateAllowedClose)
+        #expect(sessions.resetForProjectWindowCloseCallCount == 0)
+
+        #expect(!coordinator.windowShouldClose(window))
+        #expect(sessions.requestCloseActiveSessionCallCount == 1)
+    }
+
+    @Test
+    @MainActor
+    func commandWSaveFailureDoesNotResetSessions() {
+        let sessions = TestProjectWindowSessions(hasActiveProject: true)
+        sessions.hasUnsavedDocuments = true
+        sessions.saveAllDocumentsResult = false
+        let coordinator = LitheWindowCoordinator(
+            projectSessions: sessions,
+            confirmUnsavedDocuments: { owner in
+                #expect(owner.hasUnsavedDocuments)
+                #expect(!owner.saveAllDocuments())
+                return false
+            }
+        )
+        let window = CloseCommandTestWindow()
+        coordinator.attach(to: window, layout: .workspace)
+
+        coordinator.performCloseCommand()
+
+        #expect(!window.delegateAllowedClose)
+        #expect(sessions.saveAllDocumentsCallCount == 1)
+        #expect(sessions.resetForProjectWindowCloseCallCount == 0)
+    }
+
+    @Test
+    @MainActor
+    func ordinaryWindowCloseStillClosesOnlyTheActiveSession() {
+        let sessions = TestProjectWindowSessions(hasActiveProject: true)
+        let coordinator = LitheWindowCoordinator(projectSessions: sessions)
+
+        #expect(!coordinator.windowShouldClose(NSWindow()))
+        #expect(sessions.requestCloseActiveSessionCallCount == 1)
+        #expect(sessions.resetForProjectWindowCloseCallCount == 0)
+    }
+
+    @Test
+    @MainActor
+    func closingAProjectWindowReplacesAllSessionsWithAnEmptyActiveSession() async {
+        let store = MutableKeyValueStore()
+        let settings = AppSettings(store: store)
+        var createdModels: [AppModel] = []
+        let manager = ProjectSessionManager(
+            settings: settings,
+            modelFactory: {
+                let model = AppModel(
+                    settings: settings,
+                    services: MacServiceContainer(
+                        store: store,
+                        settings: settings,
+                        moduleLaunchMode: .safeMode
+                    ).services
+                )
+                createdModels.append(model)
+                return model
+            },
+            newWindowOpener: { _ in }
+        )
+
+        manager.openStandaloneFile(URL(fileURLWithPath: "/tmp/lithe-close-first.swift"))
+        manager.openStandaloneFile(URL(fileURLWithPath: "/tmp/lithe-close-second.swift"))
+        let oldIDs = Set(manager.sessions.map(\.id))
+        manager.pendingProjectOpen = PendingProjectOpen(
+            url: URL(fileURLWithPath: "/tmp/lithe-close-pending"),
+            sourceSessionID: manager.activeSessionID
+        )
+
+        await manager.resetForProjectWindowClose()
+
+        #expect(manager.sessions.count == 1)
+        #expect(!oldIDs.contains(manager.activeSessionID))
+        #expect(manager.activeModel.workspaceURL == nil)
+        #expect(manager.activeModel.standaloneFileURL == nil)
+        #expect(manager.pendingProjectOpen == nil)
+        #expect(manager.activeModel === createdModels.last)
+    }
+
+    @Test
+    @MainActor
+    func projectWindowResetWaitsForModuleShutdownBeforeReplacingSessions() async throws {
+        let shutdownStarted = TestGate()
+        let releaseShutdown = TestGate()
+        let store = MutableKeyValueStore()
+        let settings = AppSettings(store: store)
+        let manager = ProjectSessionManager(
+            settings: settings,
+            modelFactory: {
+                AppModel(
+                    settings: settings,
+                    services: MacServiceContainer(store: store, settings: settings).services
+                )
+            },
+            newWindowOpener: { _ in }
+        )
+        let previousModel = manager.activeModel
+        let runtime = previousModel.services.moduleRuntime
+        try runtime.register(ModuleFactory(manifest: projectWindowShutdownTestManifest) {
+            ProjectWindowShutdownTestModule(
+                shutdownStarted: shutdownStarted,
+                releaseShutdown: releaseShutdown
+            )
+        })
+        _ = try await runtime.activate(projectWindowShutdownTestManifest.id)
+        defer { releaseShutdown.open() }
+
+        let resetTask = Task { await manager.resetForProjectWindowClose() }
+
+        #expect(await shutdownStarted.waitUntilOpen())
+        #expect(manager.activeModel === previousModel)
+
+        releaseShutdown.open()
+        await resetTask.value
+
+        #expect(manager.activeModel !== previousModel)
     }
 
     @Test
@@ -2264,8 +2465,8 @@ struct LitheCoreLogicTests {
             updates.append((index, count))
         }
 
-        textView.syncFindState(isVisible: true, query: "")
-        textView.syncFindState(isVisible: true, query: "")
+        textView.syncFindState(isVisible: true, query: "", options: .default)
+        textView.syncFindState(isVisible: true, query: "", options: .default)
 
         #expect(updates.count == 1)
         #expect(updates.first?.index == -1)
@@ -2317,7 +2518,7 @@ struct LitheCoreLogicTests {
         let textView = CodeTextView(frame: .zero)
         textView.string = "alpha beta alpha"
         textView.rebuildLineIndex()
-        textView.updateFindMatches(query: "alpha")
+        textView.updateFindMatches(query: "alpha", options: .default)
         #expect(textView.currentFindMatchCountForTesting == 2)
 
         textView.string = "Xalpha beta alpha"
@@ -2336,11 +2537,75 @@ struct LitheCoreLogicTests {
             reportedStates.append("\(index):\(count)")
         }
 
-        textView.syncFindState(isVisible: true, query: "")
-        textView.syncFindState(isVisible: true, query: "alpha")
-        textView.syncFindState(isVisible: true, query: "alpha")
+        textView.syncFindState(isVisible: true, query: "", options: .default)
+        textView.syncFindState(isVisible: true, query: "alpha", options: .default)
+        textView.syncFindState(isVisible: true, query: "alpha", options: .default)
 
         #expect(reportedStates == ["-1:0", "0:2"])
+    }
+
+    @Test
+    @MainActor
+    func codeEditorKeepsCrossLineRegexMatchesAcrossEdits() {
+        // 正则可能产生跨行匹配：在匹配所在行附近编辑无关内容后，
+        // 整篇重算必须找回该匹配（行窗口增量曾把它移除且无法在窗口内复原）。
+        let textView = CodeTextView(frame: .zero)
+        textView.string = "alpha\nbeta gamma"
+        textView.rebuildLineIndex()
+        let options = FindInFileOptions(regularExpression: true)
+        textView.updateFindMatches(query: "a\\nb", options: options)
+        #expect(textView.currentFindMatchCountForTesting == 1)
+        #expect(textView.findMatchLocationsForTesting == [4])
+
+        textView.string = "alpha\nbeXta gamma"
+        textView.applyFindEdit(
+            replacedRange: NSRange(location: 8, length: 0),
+            insertedLength: 1,
+            query: "a\\nb"
+        )
+        #expect(textView.currentFindMatchCountForTesting == 1)
+        #expect(textView.findMatchLocationsForTesting == [4])
+    }
+
+    @Test
+    @MainActor
+    func replaceNotificationsOnlyApplyToTheBoundDocument() {
+        let textView = CodeTextView(frame: .zero)
+        let documentID = UUID()
+        textView.documentID = documentID
+        textView.string = "foo bar"
+        textView.updateFindMatches(query: "foo", options: .default)
+
+        // 文档不匹配的替换通知必须被忽略，防止分栏时误伤其他编辑器
+        NotificationCenter.default.post(
+            name: .litheFindReplaceNext,
+            object: nil,
+            userInfo: [
+                FindNotificationKeys.documentID: UUID(),
+                FindNotificationKeys.replacement: "baz"
+            ]
+        )
+        #expect(textView.string == "foo bar")
+
+        NotificationCenter.default.post(
+            name: .litheFindReplaceNext,
+            object: nil,
+            userInfo: [
+                FindNotificationKeys.documentID: documentID,
+                FindNotificationKeys.replacement: "baz"
+            ]
+        )
+        #expect(textView.string == "baz bar")
+
+        NotificationCenter.default.post(
+            name: .litheFindReplaceAll,
+            object: nil,
+            userInfo: [
+                FindNotificationKeys.documentID: UUID(),
+                FindNotificationKeys.replacement: "qux"
+            ]
+        )
+        #expect(textView.string == "baz bar")
     }
 
     @Test
@@ -2693,11 +2958,52 @@ struct LitheCoreLogicTests {
     }
 }
 
+private let projectWindowShutdownTestManifest = ModuleManifest(
+    id: ModuleID("dev.lithe.tests.project-window-shutdown"),
+    displayName: "Project Window Shutdown Test Module",
+    scope: .application,
+    defaultState: .enabled,
+    activationPolicy: .onDemand
+)
+
+@MainActor
+private final class ProjectWindowShutdownTestModule: LitheModule {
+    let manifest = projectWindowShutdownTestManifest
+    private let shutdownStarted: TestGate
+    private let releaseShutdown: TestGate
+
+    init(shutdownStarted: TestGate, releaseShutdown: TestGate) {
+        self.shutdownStarted = shutdownStarted
+        self.releaseShutdown = releaseShutdown
+    }
+
+    func activate(context: ModuleContext) async throws {}
+    func prepareForSleep() async throws {}
+    func sleep() async {}
+
+    func shutdown() async {
+        shutdownStarted.open()
+        _ = await releaseShutdown.waitUntilOpen()
+    }
+
+    func exportedCapabilities() -> [ModuleCapabilityID: AnyObject] { [:] }
+}
+
 @MainActor
 private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
     var hasActiveProject: Bool
     var hasActiveStandaloneFile = false
+    var consumesWorkbenchCloseCommand = false
+    var hasUnsavedDocuments = false
+    var unsavedDocumentNames: [String] = []
+    var saveAllDocumentsResult = true
+    var projectWindowCleanupStarted: TestGate?
+    var projectWindowCleanupRelease: TestGate?
     private(set) var closeActiveProjectCallCount = 0
+    private(set) var closeActiveWorkbenchItemCallCount = 0
+    private(set) var requestCloseActiveSessionCallCount = 0
+    private(set) var resetForProjectWindowCloseCallCount = 0
+    private(set) var saveAllDocumentsCallCount = 0
 
     init(hasActiveProject: Bool) {
         self.hasActiveProject = hasActiveProject
@@ -2707,9 +3013,47 @@ private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
         closeActiveProjectCallCount += 1
     }
 
+    func requestCloseActiveWorkbenchItem() -> Bool {
+        closeActiveWorkbenchItemCallCount += 1
+        return consumesWorkbenchCloseCommand
+    }
+
     func requestCloseActiveSession() -> Bool {
+        requestCloseActiveSessionCallCount += 1
         closeActiveProject()
         return false
+    }
+
+    func saveAllDocuments() -> Bool {
+        saveAllDocumentsCallCount += 1
+        return saveAllDocumentsResult
+    }
+
+    func resetForProjectWindowClose() async {
+        resetForProjectWindowCloseCallCount += 1
+        projectWindowCleanupStarted?.open()
+        if let projectWindowCleanupRelease {
+            _ = await projectWindowCleanupRelease.waitUntilOpen()
+        }
+    }
+}
+
+@MainActor
+private final class CloseCommandTestWindow: NSWindow {
+    private(set) var performCloseCallCount = 0
+    private(set) var delegateAllowedClose = false
+    private let nativeCloseAllowed = TestGate()
+
+    override func performClose(_ sender: Any?) {
+        performCloseCallCount += 1
+        delegateAllowedClose = delegate?.windowShouldClose?(self) ?? true
+        if delegateAllowedClose {
+            nativeCloseAllowed.open()
+        }
+    }
+
+    func waitUntilNativeCloseAllowed() async -> Bool {
+        await nativeCloseAllowed.waitUntilOpen()
     }
 }
 
@@ -3148,7 +3492,7 @@ struct EditorDocumentTests {
             reloadProjectServices: {},
             refreshGit: {},
             updateHistoryVisibilityRules: { _ in },
-            onSnapshotLoaded: { _, _ in }
+            onSnapshotLoaded: { _, _, _ in }
         )
 
         let workspace = URL(fileURLWithPath: "/tmp/retry-workspace")
@@ -3202,7 +3546,7 @@ struct EditorDocumentTests {
             reloadProjectServices: {},
             refreshGit: { gitRefreshCount += 1 },
             updateHistoryVisibilityRules: { _ in },
-            onSnapshotLoaded: { _, _ in snapshotLoadCount += 1 }
+            onSnapshotLoaded: { _, _, _ in snapshotLoadCount += 1 }
         )
         let workspace = URL(fileURLWithPath: "/tmp/lithe-initial-refresh")
         model.beginWorkspace(at: workspace, visibilityRules: .default)
@@ -3214,6 +3558,151 @@ struct EditorDocumentTests {
         }
         #expect(snapshotLoadCount == 1)
         #expect(gitRefreshCount == 1)
+    }
+
+    /// After the snapshot is published, restoreSession and watch setup can still
+    /// suspend. A project switch in that window must not deliver the old scan
+    /// through onSnapshotLoaded under the new workspace identity.
+    @Test
+    @MainActor
+    func rebuildRejectsStaleWorkspaceBeforeSnapshotCallback() async {
+        let enteredRestore = TestGate()
+        let releaseRestore = TestGate()
+        defer { releaseRestore.open() }
+
+        let operations = SequencedWorkspaceOperations(snapshotAvailability: [true])
+        let sessionStore = WorkspaceSessionStore(store: MutableKeyValueStore())
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-stale-snapshot-callback")
+        sessionStore.save(
+            WorkspaceSession(openPaths: [], activePath: nil, selectedSidebar: "project"),
+            for: workspace
+        )
+
+        var snapshotLoadCount = 0
+        var isCurrent = true
+        let model = WorkspaceFeatureModel(
+            operations: operations,
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            gitWatchContextProvider: SequencedGitWatchContextProvider([nil]),
+            directoryWatcherFactory: TestDirectoryWatcherFactory(),
+            workspaceSessionStore: sessionStore
+        )
+        model.configure(
+            documentsProvider: { [] },
+            activeDocumentProvider: { nil },
+            selectedSidebarProvider: { "project" },
+            setSelectedSidebar: { _ in },
+            restoreSession: { _, _ in
+                enteredRestore.open()
+                _ = await releaseRestore.waitUntilOpen(timeout: .seconds(5))
+            },
+            openFile: { _ in },
+            notify: { _ in },
+            recordHistory: { _, _ in },
+            relocateHistory: { _, _ in },
+            relocateOpenDocuments: { _, _ in },
+            closeDocuments: { _ in },
+            processExternalChanges: { _ in false },
+            reloadProjectServices: {},
+            refreshGit: {},
+            updateHistoryVisibilityRules: { _ in },
+            onSnapshotLoaded: { _, _, _ in snapshotLoadCount += 1 }
+        )
+
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        let rebuildTask = Task {
+            await model.rebuild(
+                at: workspace,
+                rules: .default,
+                isCurrent: { isCurrent }
+            )
+        }
+
+        #expect(await enteredRestore.waitUntilOpen(timeout: .seconds(5)))
+        #expect(model.appliedSnapshot != nil, "the snapshot should already be published")
+        isCurrent = false
+        releaseRestore.open()
+
+        let result = await rebuildTask.value
+        if case .stale = result {} else {
+            Issue.record("A rebuild that lost isCurrent before the callback should report stale")
+        }
+        #expect(snapshotLoadCount == 0, "the stale rebuild must not deliver onSnapshotLoaded")
+    }
+
+    /// Closing and reopening the same path leaves the workspace URL unchanged, so
+    /// only the opening's generation can tell a refresh that outlived the close
+    /// from one that belongs to the current session. Without it, the earlier
+    /// refresh would publish its scan into the new opening after `reset`.
+    @Test
+    @MainActor
+    func refreshFromAnEarlierOpeningOfTheSamePathDoesNotDeliverItsSnapshot() async {
+        let enteredRestore = TestGate()
+        let releaseRestore = TestGate()
+        defer { releaseRestore.open() }
+
+        let operations = SequencedWorkspaceOperations(snapshotAvailability: [true])
+        let sessionStore = WorkspaceSessionStore(store: MutableKeyValueStore())
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-same-path-reopen-refresh")
+        sessionStore.save(
+            WorkspaceSession(openPaths: [], activePath: nil, selectedSidebar: "project"),
+            for: workspace
+        )
+
+        var snapshotLoadCount = 0
+        let model = WorkspaceFeatureModel(
+            operations: operations,
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            gitWatchContextProvider: SequencedGitWatchContextProvider([nil]),
+            directoryWatcherFactory: TestDirectoryWatcherFactory(),
+            workspaceSessionStore: sessionStore
+        )
+        model.configure(
+            documentsProvider: { [] },
+            activeDocumentProvider: { nil },
+            selectedSidebarProvider: { "project" },
+            setSelectedSidebar: { _ in },
+            restoreSession: { _, _ in
+                enteredRestore.open()
+                _ = await releaseRestore.waitUntilOpen(timeout: .seconds(5))
+            },
+            openFile: { _ in },
+            notify: { _ in },
+            recordHistory: { _, _ in },
+            relocateHistory: { _, _ in },
+            relocateOpenDocuments: { _, _ in },
+            closeDocuments: { _ in },
+            processExternalChanges: { _ in false },
+            reloadProjectServices: {},
+            refreshGit: {},
+            updateHistoryVisibilityRules: { _ in },
+            onSnapshotLoaded: { _, _, _ in snapshotLoadCount += 1 }
+        )
+
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        // The refresh builds its own current guard, so this exercises production
+        // identity rather than a guard supplied by the test.
+        let refreshTask = Task { await model.refreshCurrent() }
+
+        #expect(await enteredRestore.waitUntilOpen(timeout: .seconds(5)))
+        #expect(model.appliedSnapshot != nil, "the snapshot should already be published")
+
+        // Close and reopen the same path while the refresh is suspended.
+        model.reset()
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        releaseRestore.open()
+        await refreshTask.value
+
+        #expect(
+            snapshotLoadCount == 0,
+            "a refresh from the previous opening must not deliver its snapshot to the new one"
+        )
+        #expect(
+            model.appliedSnapshot == nil,
+            "the new opening has not scanned yet, so no snapshot should be applied"
+        )
     }
 
     @Test
@@ -3361,7 +3850,7 @@ struct EditorDocumentTests {
             reloadProjectServices: {},
             refreshGit: { refreshCount += 1 },
             updateHistoryVisibilityRules: { _ in },
-            onSnapshotLoaded: { _, _ in }
+            onSnapshotLoaded: { _, _, _ in }
         )
 
         let workspace = URL(fileURLWithPath: "/tmp/frozen-workspace")
@@ -3984,7 +4473,7 @@ private func makeWorkspaceObservationUnitModel(
         reloadProjectServices: reloadProjectServices,
         refreshGit: refreshGit,
         updateHistoryVisibilityRules: { _ in },
-        onSnapshotLoaded: { _, _ in }
+        onSnapshotLoaded: { _, _, _ in }
     )
     return model
 }
@@ -4020,8 +4509,10 @@ private actor SequencedGitWatchContextProvider: GitWatchContextProviding {
 private final class TestTerminalTransport: TerminalTransport {
     let nativeView: AnyObject = NSView(frame: .zero)
     var isRunning = false
+    var processID: Int32? { isRunning ? 1234 : nil }
     var shellName = "Shell"
     var onTermination: ((Int32?) -> Void)?
+    var onOutput: ((Data) -> Void)?
     var onTitle: ((String) -> Void)?
     var onDirectoryUpdate: ((String?) -> Void)?
     var onLink: ((String, [String: String]) -> Void)?
@@ -4040,6 +4531,16 @@ private final class TestTerminalTransport: TerminalTransport {
         startRequests.append(shellPath)
         shellName = URL(fileURLWithPath: shellPath).lastPathComponent
         isRunning = true
+    }
+
+    func startProcess(
+        _ launch: TerminalProcessLaunch,
+        environment: [String: String]
+    ) throws -> Int32 {
+        startRequests.append(launch.executablePath)
+        shellName = URL(fileURLWithPath: launch.executablePath).lastPathComponent
+        isRunning = true
+        return 1234
     }
 
     func send(_ input: Data) throws {}

@@ -46,6 +46,13 @@ extension AppModel {
                 self?.handleLanguageSessionChange()
             }
         )
+        capability.sessions.configureMavenContextProvider { [weak self] descriptor, rootURL in
+            guard descriptor.id == "java",
+                  self?.workspaceURL?.standardizedFileURL == rootURL.standardizedFileURL else {
+                return nil
+            }
+            return self?.mavenFeatureIfActive?.launchContext
+        }
         capability.tools.onCandidatesChanged = { [weak self] providerID in
             guard let self,
                   self.languageToolingFeature.shouldRetryCandidate(providerID: providerID),

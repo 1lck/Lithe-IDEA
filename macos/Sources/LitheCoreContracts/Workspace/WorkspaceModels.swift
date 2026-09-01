@@ -36,9 +36,11 @@ package struct FileNode: Identifiable, Hashable, Sendable {
 }
 
 package struct WorkspaceSnapshot: Sendable {
+    package let id: UUID
     package let root: FileNode
     package let files: [URL]
-    package init(root: FileNode, files: [URL]) {
+    package init(root: FileNode, files: [URL], id: UUID = UUID()) {
+        self.id = id
         self.root = root
         self.files = files
     }

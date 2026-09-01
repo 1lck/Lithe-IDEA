@@ -89,6 +89,17 @@ pub(crate) struct JdtStartContext {
     pub workspace_fingerprint: Option<String>,
 }
 
+/// Maven import settings already validated by the shared project domain.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct JdtMavenConfiguration {
+    /// Optional machine-local Maven settings file consumed by JDT LS.
+    pub settings_path: Option<String>,
+    /// Sorted, de-duplicated Maven profile IDs selected for this workspace.
+    pub profiles: Vec<String>,
+    /// Deterministically ordered reactor and recursive-module directory URIs.
+    pub project_uris: Vec<String>,
+}
+
 /// Platform-resolved files required to launch JDT LS without a shell wrapper.
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -96,6 +107,8 @@ pub(crate) struct JdtDirectLaunchResources {
     pub launcher_jar_path: PathBuf,
     pub configuration_directory: PathBuf,
     pub lombok_agent_path: PathBuf,
+    #[serde(default)]
+    pub java_debug_bundle_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq)]
@@ -206,13 +219,16 @@ pub(crate) fn adapt_start(context: &JdtStartContext) -> JdtStartAdaptation {
     }
 }
 
-/// Adds the JDT LS client extensions required for class-file navigation.
+/// Adds the JDT LS client extensions required for Java tooling.
 ///
 /// Catalog-provided options are preserved, while the provider-owned capability
 /// is authoritative because virtual class files cannot be opened without it.
+/// Extension bundles are appended in caller order without duplicating catalog
+/// entries, which keeps Debug and Test plugin activation deterministic.
 pub(crate) fn adapt_initialization_options(
     provider_id: &str,
     initialization_options: Option<Value>,
+    java_extension_bundle_paths: &[PathBuf],
 ) -> Option<Value> {
     if !is_java_provider(provider_id) {
         return initialization_options;
@@ -233,6 +249,24 @@ pub(crate) fn adapt_initialization_options(
         .expect("the extended capabilities were normalized to an object")
         .insert("classFileContentsSupport".to_string(), Value::Bool(true));
 
+    if !java_extension_bundle_paths.is_empty() {
+        let bundles = options
+            .entry("bundles")
+            .or_insert_with(|| Value::Array(Vec::new()));
+        if !bundles.is_array() {
+            *bundles = Value::Array(Vec::new());
+        }
+        let bundles = bundles
+            .as_array_mut()
+            .expect("the Java extension bundles were normalized to an array");
+        for bundle_path in java_extension_bundle_paths {
+            let bundle = Value::String(bundle_path.to_string_lossy().into_owned());
+            if !bundles.contains(&bundle) {
+                bundles.push(bundle);
+            }
+        }
+    }
+
     Some(Value::Object(options))
 }
 
@@ -242,6 +276,7 @@ pub(crate) fn adapt_initialization_options(
 pub(crate) fn workspace_configuration(
     provider_id: &str,
     items: &[WorkspaceConfigurationItem],
+    maven_configuration: Option<&JdtMavenConfiguration>,
 ) -> Option<Vec<Value>> {
     if !is_java_provider(provider_id) {
         return None;
@@ -249,19 +284,47 @@ pub(crate) fn workspace_configuration(
     Some(
         items
             .iter()
-            .map(|item| java_configuration_for_section(item.section.as_deref()))
+            .map(|item| {
+                java_configuration_for_section(item.section.as_deref(), maven_configuration)
+            })
             .collect(),
     )
 }
 
 /// Notification the engine sends after the generic `initialized` handshake.
-pub(crate) fn initialized_notification(provider_id: &str) -> Option<ProviderNotification> {
+pub(crate) fn initialized_notification(
+    provider_id: &str,
+    maven_configuration: Option<&JdtMavenConfiguration>,
+) -> Option<ProviderNotification> {
     is_java_provider(provider_id).then(|| ProviderNotification {
         method: DID_CHANGE_CONFIGURATION_METHOD.to_string(),
         params: json!({
-            "settings": java_settings()
+            "settings": java_settings(maven_configuration)
         }),
     })
+}
+
+/// Commands that apply the selected Maven profiles to every imported project.
+pub(crate) fn maven_profile_update_requests(
+    configuration: Option<&JdtMavenConfiguration>,
+) -> Vec<Value> {
+    let Some(configuration) = configuration else {
+        return Vec::new();
+    };
+    let profiles = configuration.profiles.join(",");
+    configuration
+        .project_uris
+        .iter()
+        .map(|uri| {
+            json!({
+                "command": "java.project.updateSettings",
+                "arguments": [
+                    uri,
+                    { "org.eclipse.m2e.core.selectedProfiles": profiles }
+                ]
+            })
+        })
+        .collect()
 }
 
 /// Returns whether the provider has a readiness phase after standard LSP
@@ -645,8 +708,8 @@ fn without_wrapper_owned_arguments(arguments: &[String]) -> Vec<String> {
     retained
 }
 
-fn java_settings() -> Value {
-    json!({
+fn java_settings(maven_configuration: Option<&JdtMavenConfiguration>) -> Value {
+    let mut settings = json!({
         "java": {
             "eclipse": {
                 "downloadSources": false
@@ -671,33 +734,22 @@ fn java_settings() -> Value {
                 "enabled": true
             }
         }
-    })
+    });
+    if let Some(settings_path) = maven_configuration.and_then(|value| value.settings_path.as_ref())
+    {
+        settings["java"]["configuration"]["maven"] = json!({
+            "userSettings": settings_path
+        });
+    }
+    settings
 }
 
-fn java_configuration_for_section(section: Option<&str>) -> Value {
+fn java_configuration_for_section(
+    section: Option<&str>,
+    maven_configuration: Option<&JdtMavenConfiguration>,
+) -> Value {
     match section {
-        Some("java") => json!({
-            "eclipse": {
-                "downloadSources": false
-            },
-            "maven": {
-                "downloadSources": false
-            },
-            "configuration": {
-                "updateBuildConfiguration": "automatic"
-            },
-            "inlayHints": {
-                "parameterNames": {
-                    "enabled": "all"
-                }
-            },
-            "implementationsCodeLens": {
-                "enabled": true
-            },
-            "referencesCodeLens": {
-                "enabled": true
-            }
-        }),
+        Some("java") => java_settings(maven_configuration)["java"].clone(),
         Some("java.inlayHints") => json!({
             "parameterNames": {
                 "enabled": "all"
@@ -709,8 +761,17 @@ fn java_configuration_for_section(section: Option<&str>) -> Value {
         Some("java.eclipse.downloadSources") => json!(false),
         Some("java.maven") => json!({ "downloadSources": false }),
         Some("java.maven.downloadSources") => json!(false),
-        Some("java.configuration") => json!({ "updateBuildConfiguration": "automatic" }),
+        Some("java.configuration") => {
+            java_settings(maven_configuration)["java"]["configuration"].clone()
+        }
         Some("java.configuration.updateBuildConfiguration") => json!("automatic"),
+        Some("java.configuration.maven") => maven_configuration
+            .and_then(|value| value.settings_path.as_ref())
+            .map(|path| json!({ "userSettings": path }))
+            .unwrap_or(Value::Null),
+        Some("java.configuration.maven.userSettings") => maven_configuration
+            .and_then(|value| value.settings_path.as_ref())
+            .map_or(Value::Null, |path| json!(path)),
         Some("java.implementationsCodeLens") => json!({ "enabled": true }),
         Some("java.implementationsCodeLens.enabled") => json!(true),
         Some("java.referencesCodeLens") => json!({ "enabled": true }),
@@ -992,6 +1053,9 @@ mod tests {
             launcher_jar_path: PathBuf::from("/jdtls/plugins/equinox.jar"),
             configuration_directory: PathBuf::from("/jdtls/config_mac"),
             lombok_agent_path: PathBuf::from("/jdtls/lombok/lombok.jar"),
+            java_debug_bundle_path: Some(PathBuf::from(
+                "/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar",
+            )),
         });
         context.arguments = vec![
             "--stdio".to_string(),
@@ -1103,11 +1167,11 @@ mod tests {
 
         assert_eq!(adapted.arguments, context.arguments);
         assert_eq!(adapted.data_directory, None);
-        assert!(workspace_configuration("rust", &[]).is_none());
-        assert!(initialized_notification("rust").is_none());
+        assert!(workspace_configuration("rust", &[], None).is_none());
+        assert!(initialized_notification("rust", None).is_none());
         assert!(virtual_source_resolve_params("rust", "jdt://contents/A.class").is_none());
         assert_eq!(
-            adapt_initialization_options("rust", Some(json!({ "custom": true }))),
+            adapt_initialization_options("rust", Some(json!({ "custom": true })), &[]),
             Some(json!({ "custom": true }))
         );
         let location = ProviderLocation {
@@ -1124,11 +1188,18 @@ mod tests {
             "JAVA",
             Some(json!({
                 "workspace": { "custom": true },
+                "bundles": ["/plugins/custom.jar"],
                 "extendedClientCapabilities": {
                     "customCapability": true,
                     "classFileContentsSupport": false
                 }
             })),
+            &[
+                PathBuf::from("/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar"),
+                PathBuf::from(
+                    "/jdtls/java-test/extensions/com.microsoft.java.test.plugin-0.42.0.jar",
+                ),
+            ],
         )
         .unwrap();
 
@@ -1140,6 +1211,14 @@ mod tests {
         assert_eq!(
             options["extendedClientCapabilities"]["classFileContentsSupport"],
             true
+        );
+        assert_eq!(
+            options["bundles"],
+            json!([
+                "/plugins/custom.jar",
+                "/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar",
+                "/jdtls/java-test/extensions/com.microsoft.java.test.plugin-0.42.0.jar"
+            ])
         );
     }
 
@@ -1162,7 +1241,7 @@ mod tests {
             scope_uri: Some("file:///workspace/project".to_string()),
             section: Some(section.to_string()),
         });
-        let values = workspace_configuration("java", &items).unwrap();
+        let values = workspace_configuration("java", &items, None).unwrap();
 
         assert_eq!(values[0]["inlayHints"]["parameterNames"]["enabled"], "all");
         assert_eq!(values[0]["eclipse"]["downloadSources"], false);
@@ -1183,7 +1262,7 @@ mod tests {
 
     #[test]
     fn java_initialized_notification_publishes_inlay_settings() {
-        let notification = initialized_notification("JAVA").unwrap();
+        let notification = initialized_notification("JAVA", None).unwrap();
 
         assert_eq!(notification.method, "workspace/didChangeConfiguration");
         assert_eq!(
@@ -1205,6 +1284,70 @@ mod tests {
         assert_eq!(
             notification.params["settings"]["java"]["referencesCodeLens"]["enabled"],
             true
+        );
+    }
+
+    #[test]
+    fn java_configuration_and_profile_updates_consume_the_maven_context() {
+        let configuration = JdtMavenConfiguration {
+            settings_path: Some("/local/settings.xml".to_string()),
+            profiles: vec!["dev".to_string(), "enterprise".to_string()],
+            project_uris: vec![
+                "file:///workspace/reactor/".to_string(),
+                "file:///workspace/reactor/module-a/".to_string(),
+                "file:///workspace/reactor/module-a/nested/".to_string(),
+            ],
+        };
+        let items = [
+            "java",
+            "java.configuration",
+            "java.configuration.maven",
+            "java.configuration.maven.userSettings",
+        ]
+        .map(|section| WorkspaceConfigurationItem {
+            scope_uri: Some("file:///workspace/reactor/".to_string()),
+            section: Some(section.to_string()),
+        });
+
+        let values = workspace_configuration("java", &items, Some(&configuration)).unwrap();
+        assert_eq!(
+            values[0]["configuration"]["maven"]["userSettings"],
+            "/local/settings.xml"
+        );
+        assert_eq!(values[1]["maven"]["userSettings"], "/local/settings.xml");
+        assert_eq!(values[2]["userSettings"], "/local/settings.xml");
+        assert_eq!(values[3], "/local/settings.xml");
+
+        let notification = initialized_notification("java", Some(&configuration)).unwrap();
+        assert_eq!(
+            notification.params["settings"]["java"]["configuration"]["maven"]["userSettings"],
+            "/local/settings.xml"
+        );
+        assert_eq!(
+            maven_profile_update_requests(Some(&configuration)),
+            vec![
+                json!({
+                    "command": "java.project.updateSettings",
+                    "arguments": [
+                        "file:///workspace/reactor/",
+                        { "org.eclipse.m2e.core.selectedProfiles": "dev,enterprise" }
+                    ]
+                }),
+                json!({
+                    "command": "java.project.updateSettings",
+                    "arguments": [
+                        "file:///workspace/reactor/module-a/",
+                        { "org.eclipse.m2e.core.selectedProfiles": "dev,enterprise" }
+                    ]
+                }),
+                json!({
+                    "command": "java.project.updateSettings",
+                    "arguments": [
+                        "file:///workspace/reactor/module-a/nested/",
+                        { "org.eclipse.m2e.core.selectedProfiles": "dev,enterprise" }
+                    ]
+                }),
+            ]
         );
     }
 

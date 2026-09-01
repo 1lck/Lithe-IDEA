@@ -52,8 +52,13 @@ final class MacServiceContainer {
         processRegistry: ManagedProcessRegistry = ManagedProcessRegistry(),
         moduleLaunchMode: ModuleLaunchMode = .normal,
         moduleStore providedModuleStore: MacModuleConfigurationStore? = nil,
+        workspaceOperations providedWorkspaceOperations: (any WorkspaceOperations)? = nil,
+        runConfigurationOperations providedRunConfigurationOperations: (any RunConfigurationOperations)? = nil,
+        gitWatchContextProvider providedGitWatchContextProvider: (any GitWatchContextProviding)? = nil,
+        runExecutableResolver providedRunExecutableResolver: (any RunExecutableResolving)? = nil,
         pluginRuntimeRecovery: MacPluginRuntimeRecoveryCoordinator? = nil,
-        authorizationCallbackRouter providedAuthorizationCallbackRouter: MacExternalAuthorizationCallbackRouter? = nil
+        authorizationCallbackRouter providedAuthorizationCallbackRouter: MacExternalAuthorizationCallbackRouter? = nil,
+        platformUI providedPlatformUI: (any PlatformUI)? = nil
     ) {
         let authorizationCallbackRouter = providedAuthorizationCallbackRouter
             ?? MacExternalAuthorizationCallbackRouter()
@@ -73,6 +78,8 @@ final class MacServiceContainer {
             preferences: store
         )
         self.runConfigurationStore = runConfigurationStore
+        let debugBreakpointStore = MacDebugBreakpointStore(store: store)
+        let debugSteppingFilterStore = MacDebugSteppingFilterStore(store: store)
         let fileOperations = MacWorkspaceFileOperations()
         let processRunner = MacProcessRunner()
         let secureStore = MacLocalSecretStore()
@@ -87,7 +94,7 @@ final class MacServiceContainer {
             secureStore: MacKeychainSecureStore(service: "app.lithe.desktop.github"),
             git: MacGitHubGitOperations(core: rustCore)
         )
-        let platformUI = MacPlatformUI()
+        let platformUI = providedPlatformUI ?? MacPlatformUI()
         let discourseCommunityService = DiscourseCommunityService(
             core: rustCore,
             credentialStore: MacKeychainSecureStore(service: "app.lithe.desktop.linux-do"),
@@ -301,7 +308,7 @@ final class MacServiceContainer {
         do {
             try moduleRegistry.register(ModuleFactory(manifest: ExecutionModule.moduleManifest, contributions: ExecutionModule.moduleContributions) {
                 ExecutionModule(makeGraph: {
-                    let executableResolver = RunExecutableResolver(
+                    let executableResolver = providedRunExecutableResolver ?? RunExecutableResolver(
                         runtimeService: runtimeService,
                         toolchainRegistry: runToolchainRegistry,
                         metadataResolver: ProcessRunToolchainMetadataResolver(processRunner: processRunner)
@@ -310,7 +317,8 @@ final class MacServiceContainer {
                         maven: MavenService(
                             runtimeService: runtimeService,
                             process: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution),
-                            mavenOperations: javaMavenOperations
+                            mavenOperations: javaMavenOperations,
+                            configurationStore: MacMavenConfigurationStore(storage: fileStorage)
                         ),
                         run: RunService(
                             runtime: runtimeService,
@@ -319,7 +327,7 @@ final class MacServiceContainer {
                             fileAccess: MacRunFileAccess(storage: fileStorage),
                             preferences: MacRunPreferenceStore(store: store),
                             serverPortParser: javaMavenOperations,
-                            runConfigurationOperations: runConfigurationStore,
+                            runConfigurationOperations: providedRunConfigurationOperations ?? runConfigurationStore,
                             executableResolver: executableResolver,
                             languageProviderCatalog: languagePackRegistry.catalog,
                             languageRunProviders: languagePackRegistry.runProviders,
@@ -339,6 +347,26 @@ final class MacServiceContainer {
             try moduleRegistry.register(ModuleFactory(manifest: DebugModule.moduleManifest, contributions: DebugModule.moduleContributions) {
                 DebugModule(makeGraph: {
                     let debugFactories: [String: () -> (any DebugAdapterSession)?] = [
+                        "java": {
+                            CoreDebugAdapterProtocolSession(
+                                adapterID: "java",
+                                transport: MacJavaDebugAdapterTransport(
+                                    portResolver: { rootURL in
+                                        guard let capability = try await moduleRuntime
+                                            .activateCapability(.languageIntelligence)
+                                            as? LanguageIntelligenceCapability else {
+                                            throw MacJavaDebugAdapterTransport.TransportError
+                                                .languageIntelligenceUnavailable
+                                        }
+                                        return try await capability.sessions.startJavaDebugServer(
+                                            rootURL: rootURL
+                                        )
+                                    }
+                                ),
+                                core: rustCore,
+                                deadlineScheduler: MacDebugOperationDeadlineScheduler()
+                            )
+                        },
                         "go": {
                             guard let executable = runtimeService.executableOnPath("dlv") else { return nil }
                             return DebugAdapterProtocolSession(
@@ -389,14 +417,11 @@ final class MacServiceContainer {
                         }
                     )
                     let graph = DebugFeatureGraph(
-                        java: JavaDebugService(
-                            runtimeService: runtimeService,
-                            processFactory: { MacStreamingProcess(processRegistry: processRegistry, moduleID: .debug) },
-                            fileStorage: fileStorage,
-                            javaMavenOperations: javaMavenOperations,
-                            runConfigurationOperations: runConfigurationStore
-                        ),
-                        adapterSessions: adapterSessions
+                        adapterSessions: adapterSessions,
+                        breakpointPersistence: debugBreakpointStore,
+                        breakpointRelocator: rustCore,
+                        steppingFilterResolver: rustCore,
+                        steppingFilterPersistence: debugSteppingFilterStore
                     )
                     return graph
                 })
@@ -405,7 +430,12 @@ final class MacServiceContainer {
             preconditionFailure("Invalid execution/debug module graph: \(error.localizedDescription)")
         }
         let gitOperations = RustGitOperations(core: rustCore)
-        let workspaceOperations = RustWorkspaceOperations(core: rustCore)
+        let defaultWorkspaceOperations = RustWorkspaceOperations(core: rustCore)
+        let workspaceOperations: any WorkspaceOperations = providedWorkspaceOperations ?? defaultWorkspaceOperations
+        let searchOperations: any SearchOperations =
+            (providedWorkspaceOperations as? any SearchOperations) ?? defaultWorkspaceOperations
+        let gitWatchContextProvider: any GitWatchContextProviding =
+            providedGitWatchContextProvider ?? RustGitWatchContextProvider(core: rustCore)
         let localHistoryOperations = RustLocalHistoryOperations(core: rustCore)
         let markdownRenderer = RustMarkdownRendering(core: rustCore)
         let markdownImageImporter = MarkdownImageImportService(storage: fileStorage)
@@ -417,7 +447,7 @@ final class MacServiceContainer {
                 )
             })
             try moduleRegistry.register(ModuleFactory(manifest: SearchModule.moduleManifest, contributions: SearchModule.moduleContributions) {
-                SearchModule(operations: workspaceOperations)
+                SearchModule(operations: searchOperations)
             })
             try moduleRegistry.register(ModuleFactory(manifest: HistoryModule.moduleManifest, contributions: HistoryModule.moduleContributions) {
                 HistoryModule(
@@ -482,6 +512,13 @@ final class MacServiceContainer {
             pluginCatalog: pluginCatalog,
             languageProviderCatalogSource: languageProviderCatalogSource,
             languageProviderCatalogSnapshot: languageProviderCatalogSnapshot,
+            debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver(
+                fileStorage: fileStorage,
+                javaTestLaunchResolver: rustCore
+            ),
+            debugPortAvailabilityChecker: MacDebugPortAvailabilityChecker(),
+            javaTestResultServerFactory: { MacJavaTestResultServer() },
+            debugBreakpointPersistence: debugBreakpointStore,
             workspaceOperations: workspaceOperations,
             documentLifecycleDecider: RustDocumentLifecycleDecider(core: rustCore),
             javaMavenOperations: javaMavenOperations,
@@ -492,7 +529,7 @@ final class MacServiceContainer {
             fileOperations: fileOperations,
             binaryFileViewerRegistry: binaryFileViewerRegistry,
             projectRuntimeService: runtimeService,
-            gitWatchContextProvider: RustGitWatchContextProvider(core: rustCore),
+            gitWatchContextProvider: gitWatchContextProvider,
             githubService: githubService,
             secureStore: secureStore,
             databaseSecureStore: databaseSecureStore,

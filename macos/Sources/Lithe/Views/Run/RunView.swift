@@ -180,6 +180,12 @@ struct RunView: View {
             )
         }
         switch feature.generationState {
+        case .projectNotReady:
+            return (
+                String(localized: "Project is still loading"),
+                String(localized: "Wait for the project to finish loading, then identify it again."),
+                "clock.fill"
+            )
         case .succeeded(let entryCount):
             return (
                 String(localized: "Project identification complete"),
@@ -201,6 +207,12 @@ struct RunView: View {
             return (String(localized: "Project identification failed"), message, "xmark.octagon.fill")
         case .idle:
             return nil
+        case .projectNotReady:
+            return (
+                String(localized: "Project is still loading"),
+                String(localized: "Wait for the workspace scan to finish, then identify the project again."),
+                "hourglass"
+            )
         }
     }
 
@@ -526,6 +538,7 @@ struct RunView: View {
                         onToggle: nil
                     ) {
                         selectedSessionID = nil
+                        model.selectRunConfiguration(.currentFile)
                     }
 
                     ForEach(RunConfigurationExecution.displayOrder, id: \.self) { execution in
@@ -595,12 +608,14 @@ struct RunView: View {
                 if let session, session.isRunning {
                     feature.stopModule(session)
                 } else {
+                    model.selectRunConfiguration(configuration)
                     model.startRunConfiguration(configuration)
                     selectedSessionID = configuration.id
                 }
             }
         ) {
             selectedSessionID = configuration.id
+            model.selectRunConfiguration(configuration)
         }
     }
 

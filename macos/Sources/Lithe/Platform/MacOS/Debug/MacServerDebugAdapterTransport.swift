@@ -23,7 +23,7 @@ protocol DebugAdapterSocketConnection: AnyObject {
 typealias DlvSocketConnection = DebugAdapterSocketConnection
 
 @MainActor
-private final class NetworkDebugAdapterSocketConnection: DebugAdapterSocketConnection {
+final class NetworkDebugAdapterSocketConnection: DebugAdapterSocketConnection {
     private let connection: NWConnection
     private let queue = DispatchQueue(label: "app.lithe.debug.adapter-tcp")
     var onReady: (() -> Void)?

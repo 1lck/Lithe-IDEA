@@ -139,6 +139,15 @@ export function adaptCoreResult<T>(
               upstreamShortName: reference.upstreamShortName ?? undefined,
             }))
           : [],
+        recentReferences: Array.isArray(data.recentReferences)
+          ? data.recentReferences.map((reference: JsonRecord) => ({
+              fullName: reference.fullName,
+              shortName: reference.shortName,
+              kind: reference.kind,
+              isCurrent: Boolean(reference.isCurrent),
+              upstreamShortName: reference.upstreamShortName ?? undefined,
+            }))
+          : [],
         commits: Array.isArray(data.commits)
           ? data.commits.map((commit: JsonRecord) => ({
               hash: commit.hash,

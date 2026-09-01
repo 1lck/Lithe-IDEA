@@ -34,15 +34,34 @@ package struct JDTLSLaunchResources: Equatable, Sendable {
     package let launcherJarURL: URL
     package let configurationDirectoryURL: URL
     package let lombokAgentURL: URL
+    /// Ordered OSGi bundles contributed by Java tooling extensions. The Java
+    /// Debug Server remains first for compatibility with older Rust cores.
+    package let javaExtensionBundleURLs: [URL]
+    /// Standalone TestNG runner used only when a TestNG debug launch is requested.
+    package let javaTestRunnerURL: URL?
 
     package init(
         launcherJarURL: URL,
         configurationDirectoryURL: URL,
-        lombokAgentURL: URL
+        lombokAgentURL: URL,
+        javaDebugBundleURL: URL? = nil,
+        javaExtensionBundleURLs: [URL] = [],
+        javaTestRunnerURL: URL? = nil
     ) {
         self.launcherJarURL = launcherJarURL.standardizedFileURL
         self.configurationDirectoryURL = configurationDirectoryURL.standardizedFileURL
         self.lombokAgentURL = lombokAgentURL.standardizedFileURL
+        var seen = Set<String>()
+        self.javaExtensionBundleURLs = ([javaDebugBundleURL].compactMap { $0 } + javaExtensionBundleURLs)
+            .map(\.standardizedFileURL)
+            .filter { seen.insert($0.path).inserted }
+        self.javaTestRunnerURL = javaTestRunnerURL?.standardizedFileURL
+    }
+
+    package var javaDebugBundleURL: URL? {
+        javaExtensionBundleURLs.first {
+            $0.lastPathComponent.hasPrefix("com.microsoft.java.debug.plugin-")
+        }
     }
 }
 
@@ -194,6 +213,23 @@ package protocol LanguageServerRuntimeCore: Sendable {
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
     ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure>
+    func startLanguageServer(
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        workingDirectoryURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        runtimeExecutableURL: URL?,
+        jdtlsLaunchResources: JDTLSLaunchResources?,
+        cacheDirectoryURL: URL?,
+        workspaceFingerprint: String?,
+        mavenContext: MavenLaunchContext?,
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure>
 
     func stopLanguageServer(sessionID: String)
     func syncLanguageServerDocument(
@@ -234,6 +270,43 @@ package protocol LanguageServerRuntimeCore: Sendable {
     func cancelLanguageServerOperation(sessionID: String, operationID: String)
     func pollLanguageServerEvents(sessionID: String) -> [LanguageServerRuntimeEvent]
     func destroyLanguageServer(sessionID: String)
+}
+
+package extension LanguageServerRuntimeCore {
+    func startLanguageServer(
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        workingDirectoryURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        runtimeExecutableURL: URL?,
+        jdtlsLaunchResources: JDTLSLaunchResources?,
+        cacheDirectoryURL: URL?,
+        workspaceFingerprint: String?,
+        mavenContext _: MavenLaunchContext?,
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
+        startLanguageServer(
+            providerID: providerID,
+            executableURL: executableURL,
+            arguments: arguments,
+            environment: environment,
+            rootURL: rootURL,
+            workingDirectoryURL: workingDirectoryURL,
+            initializationOptions: initializationOptions,
+            runtimeExecutableURL: runtimeExecutableURL,
+            jdtlsLaunchResources: jdtlsLaunchResources,
+            cacheDirectoryURL: cacheDirectoryURL,
+            workspaceFingerprint: workspaceFingerprint,
+            initializeTimeout: initializeTimeout,
+            requestTimeout: requestTimeout,
+            shutdownTimeout: shutdownTimeout
+        )
+    }
 }
 
 package extension LanguageServerRuntimeCore {

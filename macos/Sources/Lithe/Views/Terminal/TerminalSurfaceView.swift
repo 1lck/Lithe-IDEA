@@ -38,7 +38,7 @@ struct TerminalSurfaceView: View {
                     session.focus()
                 }),
                 .action("Close Terminal", systemImage: "xmark", action: {
-                    model.closeTerminalSession(session)
+                    model.requestCloseTerminalSession(session)
                 })
             ]
         }

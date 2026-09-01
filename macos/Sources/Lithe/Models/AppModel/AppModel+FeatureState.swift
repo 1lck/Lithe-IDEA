@@ -4,6 +4,7 @@ import LitheLocalHistoryModule
 import LitheSearchModule
 
 extension AppModel {
+    var workspaceSnapshotID: UUID? { workspaceFeature.appliedSnapshot?.id }
     var springEndpoints: [SpringEndpoint] { springFeature.endpoints }
     var springBeans: [SpringBean] { springFeature.beans }
     var isIndexingSpring: Bool { springFeature.isIndexing }
@@ -215,6 +216,7 @@ extension AppModel {
     var isCommitting: Bool { gitFeatureIfActive?.isCommitting ?? false }
     var gitBlameLines: [URL: [GitBlameLine]] { gitFeatureIfActive?.gitBlameLines ?? [:] }
     var gitReferences: [GitReference] { gitFeatureIfActive?.gitReferences ?? [] }
+    var recentGitReferences: [GitReference] { gitFeatureIfActive?.recentGitReferences ?? [] }
     var gitCommits: [GitCommit] { gitFeatureIfActive?.gitCommits ?? [] }
     var gitLogMatchedCommitHashes: Set<String>? {
         gitFeatureIfActive?.gitLogMatchedCommitHashes
@@ -229,6 +231,9 @@ extension AppModel {
         set { gitFeatureIfActive?.selectedGitCommit = newValue }
     }
     var selectedGitCommitFiles: [GitCommitFile] { gitFeatureIfActive?.selectedGitCommitFiles ?? [] }
+    var selectedGitCommitFilesLoadState: GitCommitFilesLoadState {
+        gitFeatureIfActive?.selectedGitCommitFilesLoadState ?? .idle
+    }
     var selectedGitCommitFile: GitCommitFile? {
         get { gitFeatureIfActive?.selectedGitCommitFile }
         set { gitFeatureIfActive?.selectedGitCommitFile = newValue }
@@ -330,7 +335,7 @@ extension AppModel {
         switch id {
         case "open-project", "settings":
             true
-        case "save", "find-in-file", "local-history", "reveal-in-finder":
+        case "save", "find-in-file", "replace-in-file", "go-to-line", "local-history", "reveal-in-finder", "toggle-breakpoint":
             activeDocument != nil
         case "find-next", "find-previous":
             isFindBarVisible && findMatchCount > 0
@@ -345,11 +350,13 @@ extension AppModel {
             supportsLanguageServerFeature(.references)
         case "go-to-implementation":
             supportsLanguageServerFeature(.implementation)
+        case "debug-resume", "debug-step-over", "debug-step-into", "debug-step-out":
+            genericDebugFeatureIfActive?.state == .paused
         case "close-project", "search-everywhere", "search-in-project",
              "replace-in-project", "project-local-history", "run", "debug",
              "stop-run", "stop-debug", "toggle-terminal", "toggle-problems",
              "toggle-maven", "toggle-git-log", "toggle-run", "toggle-tests",
-             "toggle-debug", "spring-endpoints":
+             "toggle-debug", "view-breakpoints", "spring-endpoints":
             workspaceURL != nil
         default:
             false

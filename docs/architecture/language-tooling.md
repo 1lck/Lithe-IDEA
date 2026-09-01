@@ -157,9 +157,10 @@ timeout。Core、service 和 adapter 只返回稳定原因，面向用户的提�
 
 1. 平台完成可执行文件、运行时和 provider 专用资源发现，向 Rust 提交 typed `startServer`；JDTLS 包内计划必须包含 `jdtlsLaunchResources`；
 2. Rust provider adapter 生成最终参数，engine 创建 session、直接启动目标进程并安装 stdout/stderr reader，再发送 `initialize`；
-3. 收到响应后，Rust 保存服务器 capability，发送 `initialized` 和 provider adapter 通知；JDTLS 继续等待 `language/status: ServiceReady`，项目导入完成前仍是 `initializing`；
-4. manager 只在真实 `ready` 后发布 capability；打开文档发送 `didOpen`，后续编辑优先按服务器协商结果发送增量 `didChange`；
-5. Rust 以 LSP request ID 关联 deadline，并用不透明 operation ID 把 terminal result 投影给 Swift。
+3. 收到响应后，Rust 保存服务器 capability，发送 `initialized` 和 provider adapter 通知；JDTLS 的配置通知和 `workspace/configuration` 响应通过 `java.configuration.maven.userSettings` 消费当前 Maven `settings.xml`，随后继续等待 `language/status: ServiceReady`；
+4. JDTLS 报告 `ServiceReady` 后，Rust 对 reactor 和每个递归 Maven module 发送 `java.project.updateSettings`，以 `org.eclipse.m2e.core.selectedProfiles` 应用排序后的 Profiles；所有响应成功前仍保持 `initializing`，拒绝或超时会明确失败而不沿用旧 Maven model；
+5. manager 只在真实 `ready` 后发布 capability；打开文档发送 `didOpen`，后续编辑优先按服务器协商结果发送增量 `didChange`；
+6. Rust 以 LSP request ID 关联 deadline，并用不透明 operation ID 把 terminal result 投影给 Swift。
 
 `initializeTimeoutMilliseconds` 只约束标准 LSP 握手。JDTLS 返回 initialize
 结果后，Core 立即切换到独立的 `ServiceReady` 等待：连续 45 秒没有变化的
@@ -194,6 +195,14 @@ interface/inheritance` 四类图标并展示跳转结果。编辑器对 marker �
 marker 结果。新版本会取消旧批次并使缓存失效，因此频繁输入不会累计旧的
 CodeLens、implementation 或 `java/findLinks` 请求。没有语义目标的声明不显示
 图标；一个目标直接跳转，多个目标由平台 UI 显示选择列表。
+
+Java 测试类与方法同样不能由 UI 猜测。Tests 面板打开或刷新时，
+`LanguageToolingSessionManager` 直接调用 JDT LS 已注册的 Java Test 扩展命令
+`vscode.java.test.findTestTypesAndMethods`，将 JDT 返回的类、方法、框架和
+全限定标识投影为平台无关的测试项。UI 只展示并回传稳定标识；JUnit/TestNG 的
+Debug 启动继续由 JDT 生成项目参数，再交给 Rust Debug Core 归一化。测试发现本身
+不会创建 Debug 会话、回环 socket 或目标 JVM，关闭面板、切换项目和重载 Java
+runtime 都会取消尚未完成的发现任务并丢弃晚到结果。
 
 ### 当前限制
 
