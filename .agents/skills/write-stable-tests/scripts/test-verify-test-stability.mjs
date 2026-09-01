@@ -254,6 +254,209 @@ try {
   rmSync(swiftTimeoutRoot, { recursive: true, force: true });
 }
 
+// Regression coverage for the CI misattribution incident: block-buffered pipes
+// can swallow a finish line, so a stall must be reported as runner silence with
+// the unfinished tests listed, never as "test X exceeded the budget".
+const swiftStallRoot = mkdtempSync(path.join(os.tmpdir(), "lithe-test-stability-swift-stall-"));
+try {
+  const reportPath = path.join(swiftStallRoot, "swift-stall.json");
+  await assert.rejects(
+    runSwiftTestsWithTiming(
+      {
+        warnMs: 50,
+        maxMs: 200,
+        stallTimeoutMs: 100,
+        suiteTimeoutMs: 5000,
+        report: reportPath,
+        command: "swift",
+        commandArguments: ["test"],
+      },
+      {
+        runProcessImpl: async ({ onStdoutLine, onSpawn }) => {
+          let resolveTerminated;
+          const terminated = new Promise((resolve) => {
+            resolveTerminated = resolve;
+          });
+          onSpawn({
+            terminate: async () => {
+              resolveTerminated();
+              return true;
+            },
+          });
+          onStdoutLine('◇ Suite "Keyboard shortcuts" started.');
+          onStdoutLine("◇ Test fast() started.");
+          onStdoutLine("✔ Test fast() passed after 0.001 seconds.");
+          onStdoutLine("◇ Test truncatedFinishLine() started.");
+          // The finish line for truncatedFinishLine() never arrives, as when the
+          // runner's stdio buffer is lost; the stall watchdog must fire.
+          await terminated;
+          return {
+            code: null,
+            signal: "SIGTERM",
+            timedOut: false,
+            terminationConfirmed: true,
+            durationMs: 150,
+            stdout: "",
+            stderr: "",
+          };
+        },
+      },
+    ),
+    /produced no output for 100ms; tests without a reported result: truncatedFinishLine\(\)/,
+  );
+  const stallReport = JSON.parse(readFileSync(reportPath, "utf8"));
+  assert.equal(stallReport.process.stalled, true);
+  assert.deepEqual(
+    stallReport.tests.map(({ name, status }) => ({ name, status })),
+    [
+      { name: "fast()", status: "passed" },
+      { name: "truncatedFinishLine()", status: "timeout" },
+      { name: "Swift test runner stall", status: "timeout" },
+    ],
+  );
+} finally {
+  rmSync(swiftStallRoot, { recursive: true, force: true });
+}
+
+// A stall after every test reported a result points at teardown/exit instead of
+// blaming any test.
+const swiftTeardownStallRoot = mkdtempSync(
+  path.join(os.tmpdir(), "lithe-test-stability-swift-teardown-stall-"),
+);
+try {
+  const reportPath = path.join(swiftTeardownStallRoot, "swift-teardown-stall.json");
+  await assert.rejects(
+    runSwiftTestsWithTiming(
+      {
+        warnMs: 50,
+        maxMs: 200,
+        stallTimeoutMs: 100,
+        suiteTimeoutMs: 5000,
+        report: reportPath,
+        command: "swift",
+        commandArguments: ["test"],
+      },
+      {
+        runProcessImpl: async ({ onStdoutLine, onSpawn }) => {
+          let resolveTerminated;
+          const terminated = new Promise((resolve) => {
+            resolveTerminated = resolve;
+          });
+          onSpawn({
+            terminate: async () => {
+              resolveTerminated();
+              return true;
+            },
+          });
+          onStdoutLine("◇ Test fast() started.");
+          onStdoutLine("✔ Test fast() passed after 0.001 seconds.");
+          await terminated;
+          return {
+            code: null,
+            signal: "SIGTERM",
+            timedOut: false,
+            terminationConfirmed: true,
+            durationMs: 150,
+            stdout: "",
+            stderr: "",
+          };
+        },
+      },
+    ),
+    /produced no output for 100ms; every parsed test had reported a result/,
+  );
+  const teardownReport = JSON.parse(readFileSync(reportPath, "utf8"));
+  assert.equal(teardownReport.process.stalled, true);
+  assert.deepEqual(
+    teardownReport.tests.map(({ name, status }) => ({ name, status })),
+    [
+      { name: "fast()", status: "passed" },
+      { name: "Swift test runner stall", status: "timeout" },
+    ],
+  );
+} finally {
+  rmSync(swiftTeardownStallRoot, { recursive: true, force: true });
+}
+
+// The per-test budget is enforced from the durations swift-testing reports: a
+// test that finishes over maxMs must fail the run even though the runner
+// exited cleanly and no watchdog fired.
+const swiftBudgetRoot = mkdtempSync(path.join(os.tmpdir(), "lithe-test-stability-swift-budget-"));
+try {
+  const reportPath = path.join(swiftBudgetRoot, "swift-budget.json");
+  await assert.rejects(
+    runSwiftTestsWithTiming(
+      {
+        warnMs: 50,
+        maxMs: 200,
+        stallTimeoutMs: 5000,
+        suiteTimeoutMs: 10000,
+        report: reportPath,
+        command: "swift",
+        commandArguments: ["test"],
+      },
+      {
+        runProcessImpl: async ({ onStdoutLine, onSpawn }) => {
+          onSpawn({ terminate: async () => true });
+          onStdoutLine("◇ Test overBudget() started.");
+          onStdoutLine("✔ Test overBudget() passed after 0.250 seconds.");
+          return {
+            code: 0,
+            signal: null,
+            timedOut: false,
+            terminationConfirmed: true,
+            durationMs: 300,
+            stdout: "",
+            stderr: "",
+          };
+        },
+      },
+    ),
+    /1 Swift test\(s\) exceeded the local budget/,
+  );
+  const budgetReport = JSON.parse(readFileSync(reportPath, "utf8"));
+  assert.deepEqual(
+    budgetReport.tests.map(({ name, status, durationMs }) => ({ name, status, durationMs })),
+    [{ name: "overBudget()", status: "passed", durationMs: 250 }],
+  );
+} finally {
+  rmSync(swiftBudgetRoot, { recursive: true, force: true });
+}
+
+// A spawn failure must reject promptly and clear the stall watchdog; a leaked
+// ref'd timer would keep the harness process alive for the full stall timeout.
+{
+  const spawnFailureRoot = mkdtempSync(
+    path.join(os.tmpdir(), "lithe-test-stability-swift-spawn-failure-"),
+  );
+  try {
+    await assert.rejects(
+      runSwiftTestsWithTiming(
+        {
+          warnMs: 50,
+          maxMs: 200,
+          stallTimeoutMs: 600000,
+          suiteTimeoutMs: 10000,
+          report: path.join(spawnFailureRoot, "swift-spawn-failure.json"),
+          command: "swift",
+          commandArguments: ["test"],
+        },
+        {
+          runProcessImpl: async () => {
+            throw new Error("spawn ENOENT");
+          },
+        },
+      ),
+      /spawn ENOENT/,
+    );
+    // If the watchdog leaked, the 600s timer would hold this test process open
+    // long past its CI budget; reaching this line with a cleared event loop is
+    // asserted implicitly by the suite finishing on time.
+  } finally {
+    rmSync(spawnFailureRoot, { recursive: true, force: true });
+  }
+}
+
 const rustCompileFailureRoot = mkdtempSync(
   path.join(
     os.tmpdir(),
