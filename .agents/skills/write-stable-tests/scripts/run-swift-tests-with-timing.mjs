@@ -76,6 +76,7 @@ function parseArguments(arguments_) {
   const options = {
     warnMs: 1000,
     maxMs: 15000,
+    terminateMs: 45000,
     suiteTimeoutMs: 600000,
     report: path.join(REPOSITORY_ROOT, ".artifacts/test-stability/macos-swift.json"),
     command: arguments_[separator + 1],
@@ -85,12 +86,17 @@ function parseArguments(arguments_) {
     const argument = arguments_[index];
     if (argument === "--warn-ms") options.warnMs = positiveInteger(arguments_[++index], "--warn-ms");
     else if (argument === "--max-ms") options.maxMs = positiveInteger(arguments_[++index], "--max-ms");
-    else if (argument === "--suite-timeout-ms") {
+    else if (argument === "--terminate-ms") {
+      options.terminateMs = positiveInteger(arguments_[++index], "--terminate-ms");
+    } else if (argument === "--suite-timeout-ms") {
       options.suiteTimeoutMs = positiveInteger(arguments_[++index], "--suite-timeout-ms");
     } else if (argument === "--report") options.report = path.resolve(arguments_[++index]);
     else throw new Error(`Unknown argument: ${argument}`);
   }
   if (options.warnMs >= options.maxMs) throw new Error("--warn-ms must be lower than --max-ms.");
+  if (options.maxMs >= options.terminateMs) {
+    throw new Error("--max-ms must be lower than --terminate-ms.");
+  }
   return options;
 }
 
@@ -100,8 +106,13 @@ export async function run(
     runProcessImpl = runProcess,
     setTimeoutImpl = setTimeout,
     clearTimeoutImpl = clearTimeout,
+    onBudgetExceeded = (message) => console.error(message),
   } = {},
 ) {
+  const terminateMs = options.terminateMs ?? options.maxMs * 3;
+  if (options.maxMs >= terminateMs) {
+    throw new Error("Swift test termination deadline must be higher than its performance budget.");
+  }
   mkdirSync(path.dirname(options.report), { recursive: true });
   const logPath = options.report.replace(/\.json$/i, ".log");
   const log = createWriteStream(logPath, { flags: "w" });
@@ -111,18 +122,21 @@ export async function run(
   let timedOutTest = null;
   let terminateChild = () => {};
 
-  const clearTestTimer = (name) => {
+  const clearTestTimers = (name) => {
     const activeTest = active.get(name);
-    if (!activeTest || activeTest.timer === null) return;
-    clearTimeoutImpl(activeTest.timer);
-    activeTest.timer = null;
+    if (!activeTest) return;
+    for (const key of ["budgetTimer", "terminationTimer"]) {
+      if (activeTest[key] === null) continue;
+      clearTimeoutImpl(activeTest[key]);
+      activeTest[key] = null;
+    }
   };
 
   const recordPartialLine = (line) => {
     const matchingTests = [...active.keys()].filter((name) =>
       isSwiftTestCompletionFragment(line, name),
     );
-    if (matchingTests.length === 1) clearTestTimer(matchingTests[0]);
+    if (matchingTests.length === 1) clearTestTimers(matchingTests[0]);
   };
 
   const recordLine = (line, stream) => {
@@ -133,24 +147,33 @@ export async function run(
     const event = parseSwiftTimingLine(line);
     if (!event) return;
     if (event.event === "started") {
-      clearTestTimer(event.name);
+      clearTestTimers(event.name);
       const activeTest = {
         startedAt: performance.now(),
         suite: currentSuite,
-        timer: null,
+        budgetTimer: null,
+        terminationTimer: null,
       };
       active.set(event.name, activeTest);
-      activeTest.timer = setTimeoutImpl(() => {
+      activeTest.budgetTimer = setTimeoutImpl(() => {
+        if (active.get(event.name) !== activeTest || timedOutTest) return;
+        activeTest.budgetTimer = null;
+        onBudgetExceeded(
+          `ERROR Swift test exceeded ${options.maxMs}ms and must be fixed: ${event.name}. ` +
+            `The runner will terminate it at ${terminateMs}ms if it does not finish.`,
+        );
+      }, options.maxMs);
+      activeTest.terminationTimer = setTimeoutImpl(() => {
         if (active.get(event.name) !== activeTest || timedOutTest) return;
         timedOutTest = { name: event.name, suite: activeTest.suite };
-        activeTest.timer = null;
+        activeTest.terminationTimer = null;
         void terminateChild();
-      }, options.maxMs);
+      }, terminateMs);
       return;
     }
 
     const activeTest = active.get(event.name);
-    clearTestTimer(event.name);
+    clearTestTimers(event.name);
     active.delete(event.name);
     records.push({
       name: event.name,
@@ -181,7 +204,7 @@ export async function run(
   });
 
   const result = await childPromise;
-  for (const name of active.keys()) clearTestTimer(name);
+  for (const name of active.keys()) clearTestTimers(name);
   await new Promise((resolve, reject) => {
     log.once("error", reject);
     log.end(resolve);
@@ -192,7 +215,8 @@ export async function run(
       name: timedOutTest.name,
       ...(timedOutTest.suite ? { suite: timedOutTest.suite } : {}),
       status: "timeout",
-      durationMs: options.maxMs,
+      durationMs: terminateMs,
+      details: `Swift test exceeded the ${options.maxMs}ms performance budget and was terminated at ${terminateMs}ms.`,
     });
   }
   for (const [name, activeTest] of active) {
@@ -201,7 +225,7 @@ export async function run(
         name,
         ...(activeTest.suite ? { suite: activeTest.suite } : {}),
         status: result.timedOut ? "timeout" : "incomplete",
-        durationMs: options.maxMs,
+        durationMs: Math.round(performance.now() - activeTest.startedAt),
       });
     }
   }
@@ -226,6 +250,7 @@ export async function run(
     command: [options.command, ...options.commandArguments],
     warnMs: options.warnMs,
     maxMs: options.maxMs,
+    terminateMs,
     suiteTimeoutMs: options.suiteTimeoutMs,
     process: {
       exitCode: result.code,
@@ -244,7 +269,7 @@ export async function run(
   }
 
   if (timedOutTest) {
-    throw new Error(`Swift test exceeded ${options.maxMs}ms: ${timedOutTest.name}`);
+    throw new Error(`Swift test exceeded ${terminateMs}ms and was terminated: ${timedOutTest.name}`);
   }
   if (result.timedOut) throw new Error(`Swift test suite exceeded ${options.suiteTimeoutMs}ms.`);
   if (records.length === 0) throw new Error("The Swift runner did not report any individual test durations.");

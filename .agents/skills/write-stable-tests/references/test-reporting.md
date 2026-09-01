@@ -22,6 +22,9 @@ The dashboard separates correctness from performance:
 - `failed`, `error`, `timeout`, and `incomplete` are stability failures.
 - A duration at or above `maxMs` exceeds the hard performance budget and is
   emitted as a JUnit failure even when the underlying assertion passed.
+- Swift tests have a separate `terminateMs` deadline. Crossing `maxMs` reports
+  the actionable budget error immediately; only `terminateMs` stops the test
+  process tree so failure diagnostics have time to flush.
 - A duration at or above `warnMs` but below `maxMs` is a performance warning.
   It remains a passing JUnit case but appears in the optimization queue.
 - Faster passing cases are healthy. Skipped cases are reported separately.

@@ -217,26 +217,28 @@ assert.equal(observedPartialLine, "✔ Test catalogHa");
 const swiftFragmentRoot = mkdtempSync(path.join(os.tmpdir(), "lithe-swift-fragment-"));
 try {
   const reportPath = path.join(swiftFragmentRoot, "swift-fragment.json");
-  const timeoutToken = Symbol("swift-test-timeout");
-  let timeoutCleared = false;
+  const fragmentTimers = new Map();
+  let nextFragmentTimerID = 0;
   let childTerminated = false;
   await runSwiftTestsWithTiming(
     {
       warnMs: 50,
       maxMs: 200,
+      terminateMs: 450,
       suiteTimeoutMs: 500,
       report: reportPath,
       command: "swift",
       commandArguments: ["test"],
     },
     {
-      setTimeoutImpl: (callback) => {
+      setTimeoutImpl: (callback, delayMs) => {
         assert.equal(typeof callback, "function");
-        return timeoutToken;
+        const timerID = ++nextFragmentTimerID;
+        fragmentTimers.set(timerID, { callback, delayMs });
+        return timerID;
       },
-      clearTimeoutImpl: (token) => {
-        assert.equal(token, timeoutToken);
-        timeoutCleared = true;
+      clearTimeoutImpl: (timerID) => {
+        assert.equal(fragmentTimers.delete(timerID), true);
       },
       runProcessImpl: async ({ onSpawn, onStdoutLine, onStdoutPartialLine }) => {
         onSpawn({
@@ -249,8 +251,12 @@ try {
         onStdoutLine(
           "◇ Test catalogHasStableUniqueCommandsAndConflictFreeDefaults() started.",
         );
+        assert.deepEqual(
+          [...fragmentTimers.values()].map(({ delayMs }) => delayMs),
+          [200, 450],
+        );
         onStdoutPartialLine("✔ Test catalogHa");
-        assert.equal(timeoutCleared, true);
+        assert.equal(fragmentTimers.size, 0);
         onStdoutLine(
           "✔ Test catalogHasStableUniqueCommandsAndConflictFreeDefaults() passed after 0.001 seconds.",
         );
@@ -268,8 +274,10 @@ try {
     },
   );
   assert.equal(childTerminated, false);
+  const fragmentReport = JSON.parse(readFileSync(reportPath, "utf8"));
+  assert.equal(fragmentReport.terminateMs, 450);
   assert.deepEqual(
-    JSON.parse(readFileSync(reportPath, "utf8")).tests.map(({ name, status }) => ({
+    fragmentReport.tests.map(({ name, status }) => ({
       name,
       status,
     })),
@@ -282,27 +290,31 @@ try {
   );
 
   const issueReportPath = path.join(swiftFragmentRoot, "swift-issue-fragment.json");
-  let issueTimeout = null;
-  let issueTimerCleared = false;
+  const issueTimers = new Map();
+  const issueBudgetErrors = [];
+  let nextIssueTimerID = 0;
   let issueChildTerminated = false;
   await assert.rejects(
     runSwiftTestsWithTiming(
       {
         warnMs: 50,
         maxMs: 200,
+        terminateMs: 450,
         suiteTimeoutMs: 500,
         report: issueReportPath,
         command: "swift",
         commandArguments: ["test"],
       },
       {
-        setTimeoutImpl: (callback) => {
-          issueTimeout = callback;
-          return timeoutToken;
+        setTimeoutImpl: (callback, delayMs) => {
+          const timerID = ++nextIssueTimerID;
+          issueTimers.set(timerID, { callback, delayMs });
+          return timerID;
         },
-        clearTimeoutImpl: () => {
-          issueTimerCleared = true;
+        clearTimeoutImpl: (timerID) => {
+          assert.equal(issueTimers.delete(timerID), true);
         },
+        onBudgetExceeded: (message) => issueBudgetErrors.push(message),
         runProcessImpl: async ({ onSpawn, onStdoutLine, onStdoutPartialLine }) => {
           onSpawn({
             terminate: async () => {
@@ -315,29 +327,39 @@ try {
           onStdoutPartialLine(
             "✘ Test runBeforeTheSnapshot() recorded an issue at RunEntryPointTests.swift:35:9",
           );
-          assert.equal(issueTimerCleared, false);
-          issueTimeout();
-          assert.equal(issueChildTerminated, true);
+          assert.equal(issueTimers.size, 2);
+          const budgetTimer = [...issueTimers.entries()].find(([, timer]) => timer.delayMs === 200);
+          assert.ok(budgetTimer);
+          issueTimers.delete(budgetTimer[0]);
+          budgetTimer[1].callback();
+          assert.equal(issueChildTerminated, false);
+          assert.match(issueBudgetErrors[0], /exceeded 200ms and must be fixed/);
+          assert.match(issueBudgetErrors[0], /terminate it at 450ms/);
+          onStdoutLine(
+            "✘ Test runBeforeTheSnapshot() failed after 0.300 seconds with 1 issue.",
+          );
+          assert.equal(issueTimers.size, 0);
           return {
-            code: null,
-            signal: "SIGTERM",
+            code: 1,
+            signal: null,
             timedOut: false,
             terminationConfirmed: true,
-            durationMs: 200,
+            durationMs: 300,
             stdout: "",
             stderr: "",
           };
         },
       },
     ),
-    /Swift test exceeded 200ms: runBeforeTheSnapshot\(\)/,
+    /1 Swift test\(s\) exceeded the local budget/,
   );
+  assert.equal(issueChildTerminated, false);
   assert.deepEqual(
     JSON.parse(readFileSync(issueReportPath, "utf8")).tests.map(({ name, status }) => ({
       name,
       status,
     })),
-    [{ name: "runBeforeTheSnapshot()", status: "timeout" }],
+    [{ name: "runBeforeTheSnapshot()", status: "failed" }],
   );
 
   const interleavedReportPath = path.join(swiftFragmentRoot, "swift-interleaved.json");
@@ -349,15 +371,16 @@ try {
       {
         warnMs: 50,
         maxMs: 200,
+        terminateMs: 450,
         suiteTimeoutMs: 500,
         report: interleavedReportPath,
         command: "swift",
         commandArguments: ["test"],
       },
       {
-        setTimeoutImpl: (callback) => {
+        setTimeoutImpl: (callback, delayMs) => {
           const timerID = ++nextTimerID;
-          scheduledTimers.set(timerID, callback);
+          scheduledTimers.set(timerID, { callback, delayMs });
           return timerID;
         },
         clearTimeoutImpl: (timerID) => {
@@ -374,17 +397,22 @@ try {
           onStdoutLine('◇ Suite "Interleaved tests" started.');
           onStdoutLine("◇ Test firstTest() started.");
           onStdoutLine("◇ Test secondTest() started.");
-          const firstTimer = 1;
-          const secondTimer = 2;
-          assert.deepEqual([...scheduledTimers.keys()], [firstTimer, secondTimer]);
+          assert.deepEqual(
+            [...scheduledTimers.values()].map(({ delayMs }) => delayMs),
+            [200, 450, 200, 450],
+          );
 
           onStdoutLine("✔ Test secondTest() passed after 0.001 seconds.");
-          assert.equal(scheduledTimers.has(secondTimer), false);
-          assert.equal(scheduledTimers.has(firstTimer), true);
+          assert.deepEqual([...scheduledTimers.keys()], [1, 2]);
 
-          const firstTimeout = scheduledTimers.get(firstTimer);
-          scheduledTimers.delete(firstTimer);
-          firstTimeout();
+          const firstBudgetTimer = scheduledTimers.get(1);
+          scheduledTimers.delete(1);
+          firstBudgetTimer.callback();
+          assert.equal(interleavedChildTerminated, false);
+
+          const firstTerminationTimer = scheduledTimers.get(2);
+          scheduledTimers.delete(2);
+          firstTerminationTimer.callback();
           assert.equal(interleavedChildTerminated, true);
           return {
             code: null,
@@ -398,7 +426,7 @@ try {
         },
       },
     ),
-    /Swift test exceeded 200ms: firstTest\(\)/,
+    /Swift test exceeded 450ms and was terminated: firstTest\(\)/,
   );
   assert.deepEqual(
     JSON.parse(readFileSync(interleavedReportPath, "utf8")).tests.map(({ name, status }) => ({

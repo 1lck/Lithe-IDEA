@@ -5,6 +5,7 @@ SCRIPT_DIR="${0:A:h}"
 ROOT_DIR="$(cd -- "$SCRIPT_DIR/../../../.." && pwd)"
 WARN_SECONDS=1
 MAX_SECONDS=15
+TERMINATE_SECONDS=45
 SUITE_TIMEOUT_SECONDS=600
 REPORT="$ROOT_DIR/.artifacts/test-stability/macos-swift.json"
 SWIFT_ARGS=()
@@ -17,6 +18,10 @@ while (( $# > 0 )); do
             ;;
         --max-seconds)
             MAX_SECONDS="$2"
+            shift 2
+            ;;
+        --terminate-seconds)
+            TERMINATE_SECONDS="$2"
             shift 2
             ;;
         --suite-timeout-seconds)
@@ -57,6 +62,7 @@ done
 node "$SCRIPT_DIR/run-swift-tests-with-timing.mjs" \
     --warn-ms "$(( WARN_SECONDS * 1000 ))" \
     --max-ms "$(( MAX_SECONDS * 1000 ))" \
+    --terminate-ms "$(( TERMINATE_SECONDS * 1000 ))" \
     --suite-timeout-ms "$(( SUITE_TIMEOUT_SECONDS * 1000 ))" \
     --report "$REPORT" \
     -- "$ROOT_DIR/scripts/test-macos.sh" --no-parallel "${SWIFT_ARGS[@]}"

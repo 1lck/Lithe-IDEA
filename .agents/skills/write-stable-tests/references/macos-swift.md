@@ -3,6 +3,12 @@
 The macOS harness requires only Swift, zsh, and Node.js. Bun is not installed,
 loaded, or invoked anywhere in this path.
 
+The default per-test performance budget is 15 seconds. Crossing that budget
+immediately records an error that requires repair, while a separate 45-second
+termination deadline preserves diagnostics before the runner stops the process
+tree. A test that finishes between the two thresholds still fails the timing
+budget.
+
 ## Preferred synchronization
 
 - Prefer actor-owned state, checked continuations, `AsyncStream`, injected
