@@ -32,7 +32,7 @@ export function releaseMarker(login, isoDate) {
 }
 
 export function isActiveClaim(claim, release) {
-  return Boolean(claim && (!release || new Date(release.isoDate) <= new Date(claim.isoDate)));
+  return Boolean(claim && (!release || release.login !== claim.login || new Date(release.isoDate) <= new Date(claim.isoDate)));
 }
 
 export function parseMarker(body, prefix) {
