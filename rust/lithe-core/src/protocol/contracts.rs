@@ -239,6 +239,18 @@ pub struct JavaMainClassResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Source-set classification attached to one discovered Java run entry.
+pub enum JavaSourceSetResponse {
+    /// Production source compiled into the main project output.
+    Main,
+    /// Test source compiled into the test project output.
+    Test,
+    /// Java source outside the conventional Maven main and test layouts.
+    Other,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 /// UI-facing Java or Spring Boot run entry.
 pub struct JavaRunConfigurationResponse {
     pub id: String,
@@ -247,6 +259,10 @@ pub struct JavaRunConfigurationResponse {
     pub kind: String,
     pub module_path: Option<String>,
     pub main_class: Option<String>,
+    /// Workspace-relative source that produced this exact run entry.
+    pub source_path: String,
+    /// Build output that must be present on the Java launch classpath.
+    pub source_set: JavaSourceSetResponse,
 }
 
 #[derive(Debug, Clone, Serialize)]
