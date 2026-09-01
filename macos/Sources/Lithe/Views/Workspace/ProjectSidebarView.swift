@@ -449,6 +449,18 @@ private struct FileNodeRow: View {
     private var directoryContextMenuItems: [LitheContextMenuItem] {
         var items: [LitheContextMenuItem] = []
 
+        items += [
+            .submenu("New", items: [
+                .action("New File…", systemImage: "doc") {
+                    actions.requestCreateFile(node.url)
+                },
+                .action("New Directory…", systemImage: "folder") {
+                    actions.requestCreateDirectory(node.url)
+                }
+            ]),
+            .separator
+        ]
+
         if gitStatus.kind(for: node.url, isDirectory: true) != nil {
             items += [
                 .action("Show Git Diff", systemImage: "arrow.triangle.branch") {
@@ -457,18 +469,6 @@ private struct FileNodeRow: View {
                 .separator
             ]
         }
-
-        items += [
-            .submenu("New", items: [
-                .action("New File…") {
-                    actions.requestCreateFile(node.url)
-                },
-                .action("New Directory…") {
-                    actions.requestCreateDirectory(node.url)
-                }
-            ]),
-            .separator
-        ]
 
         if depth == 0 {
             items += [

@@ -20,6 +20,28 @@ struct TerminalSurfaceView: View {
             }
         }
         .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.editor)
+        .litheContextMenu {
+            [
+                .action("Copy", systemImage: "doc.on.doc", action: {
+                    NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
+                }),
+                .action("Paste", systemImage: "doc.on.clipboard", action: {
+                    NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
+                }),
+                .action("Select All", systemImage: "selection.pin.in.out", action: {
+                    NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
+                }),
+                .separator,
+                .action("Clear", systemImage: "eraser", action: session.clear),
+                .action("Restart", systemImage: "arrow.clockwise", action: {
+                    session.restart()
+                    session.focus()
+                }),
+                .action("Close Terminal", systemImage: "xmark", action: {
+                    model.closeTerminalSession(session)
+                })
+            ]
+        }
         .task(id: session.id) {
             requestInputFocus()
         }

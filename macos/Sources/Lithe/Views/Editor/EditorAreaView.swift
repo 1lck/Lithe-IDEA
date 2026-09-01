@@ -266,7 +266,7 @@ struct EditorAreaView: View {
             }
         }
         .contentShape(Rectangle())
-        .contextMenu {
+        .litheContextMenu {
             editorTabContextMenu(for: document, at: index)
         }
         .onHover { isHovering in
@@ -491,14 +491,16 @@ struct EditorAreaView: View {
         .onHover { isHovering in
             hoveredTabID = isHovering ? session.id : nil
         }
-        .contextMenu {
-            Button("Interrupt", action: session.interrupt)
-            Button("Restart", action: session.restart)
-            Button("Clear", action: session.clear)
-            Divider()
-            Button("Close") {
-                model.closeTerminalSession(session)
-            }
+        .litheContextMenu {
+            [
+                .action("Interrupt", systemImage: "stop.fill", action: session.interrupt),
+                .action("Restart", systemImage: "arrow.clockwise", action: session.restart),
+                .action("Clear", systemImage: "eraser", action: session.clear),
+                .separator,
+                .action("Close", systemImage: "xmark", action: {
+                    model.closeTerminalSession(session)
+                })
+            ]
         }
         .opacity(isDragged ? 0.92 : 1)
         .scaleEffect(isDragged ? 0.99 : 1)
@@ -1025,81 +1027,79 @@ struct EditorAreaView: View {
         }
     }
 
-    @ViewBuilder
-    private func editorTabContextMenu(for document: EditorDocument, at index: Int) -> some View {
-        Group {
-            Button("Close") {
-                model.requestCloseDocument(document)
-            }
-
-            Button("Open in Right Split") {
-                splitDocumentID = document.id
-            }
-            .disabled(model.openDocuments.count < 2)
-
-            Button("Close Other Tabs") {
-                model.requestCloseDocuments(
-                    model.openDocuments.filter { $0.id != document.id },
-                    preferredDocumentID: document.id
-                )
-            }
-            .disabled(model.openDocuments.count <= 1)
-
-            Button("Close Tabs to the Left") {
-                model.requestCloseDocuments(
-                    Array(model.openDocuments.prefix(index)),
-                    preferredDocumentID: document.id
-                )
-            }
-            .disabled(index == 0)
-
-            Button("Close Tabs to the Right") {
-                let documents = Array(model.openDocuments.dropFirst(index + 1))
-                model.requestCloseDocuments(documents, preferredDocumentID: document.id)
-            }
-            .disabled(index >= model.openDocuments.count - 1)
-
-            Button("Close Unmodified Tabs") {
-                model.requestCloseDocuments(
-                    model.openDocuments.filter { !$0.isDirty },
-                    preferredDocumentID: document.id
-                )
-            }
-
-            Button("Close All Tabs") {
-                model.requestCloseDocuments(model.openDocuments)
-            }
-        }
-
-        Divider()
-
-        Menu("Copy Path / Reference") {
-            Button("Copy Path") {
-                model.copyProjectItemPath(document.url, relative: false)
-            }
-            Button("Copy Relative Path") {
-                model.copyProjectItemPath(document.url, relative: true)
-            }
-        }
+    private func editorTabContextMenu(
+        for document: EditorDocument,
+        at index: Int
+    ) -> [LitheContextMenuItem] {
+        var items: [LitheContextMenuItem] = [
+            .action("Close", action: { model.requestCloseDocument(document) }),
+            .action(
+                "Open in Right Split",
+                isEnabled: model.openDocuments.count >= 2,
+                action: { splitDocumentID = document.id }
+            ),
+            .action(
+                "Close Other Tabs",
+                isEnabled: model.openDocuments.count > 1,
+                action: {
+                    model.requestCloseDocuments(
+                        model.openDocuments.filter { $0.id != document.id },
+                        preferredDocumentID: document.id
+                    )
+                }
+            ),
+            .action(
+                "Close Tabs to the Left",
+                isEnabled: index > 0,
+                action: {
+                    model.requestCloseDocuments(
+                        Array(model.openDocuments.prefix(index)),
+                        preferredDocumentID: document.id
+                    )
+                }
+            ),
+            .action(
+                "Close Tabs to the Right",
+                isEnabled: index < model.openDocuments.count - 1,
+                action: {
+                    model.requestCloseDocuments(
+                        Array(model.openDocuments.dropFirst(index + 1)),
+                        preferredDocumentID: document.id
+                    )
+                }
+            ),
+            .action(
+                "Close Unmodified Tabs",
+                action: {
+                    model.requestCloseDocuments(
+                        model.openDocuments.filter { !$0.isDirty },
+                        preferredDocumentID: document.id
+                    )
+                }
+            ),
+            .action("Close All Tabs", action: { model.requestCloseDocuments(model.openDocuments) }),
+            .separator,
+            .submenu("Copy Path / Reference", items: [
+                .action("Copy Path", action: { model.copyProjectItemPath(document.url, relative: false) }),
+                .action("Copy Relative Path", action: { model.copyProjectItemPath(document.url, relative: true) })
+            ])
+        ]
 
         if model.canRevealInProjectTree(document.url) {
-            Button("Reveal in Project Tree") {
-                model.activeDocumentID = document.id
-                model.revealInProjectTree(document.url)
-            }
+            items.append(
+                .action("Reveal in Project Tree", action: {
+                    model.activeDocumentID = document.id
+                    model.revealInProjectTree(document.url)
+                })
+            )
         }
-        Button("Show in Finder") {
-            model.revealProjectItemInFinder(document.url)
-        }
-        Button("Local History…") {
-            model.showLocalHistory(for: document.url)
-        }
-
-        Divider()
-
-        Button("Rename…") {
-            model.requestRenameProjectItem(at: document.url)
-        }
+        items += [
+            .action("Show in Finder", action: { model.revealProjectItemInFinder(document.url) }),
+            .action("Local History…", action: { model.showLocalHistory(for: document.url) }),
+            .separator,
+            .action("Rename…", action: { model.requestRenameProjectItem(at: document.url) })
+        ]
+        return items
     }
 
     @ViewBuilder

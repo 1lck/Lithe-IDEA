@@ -64,6 +64,13 @@ struct LitheToolWindowHeader<Actions: View>: View {
         .padding(.trailing, 7)
         .frame(height: LitheTheme.Metrics.toolWindowHeaderHeight)
         .litheWorkbenchSurface(LitheTheme.toolHeader)
+        .litheContextMenu {
+            onMinimize.map { minimize in
+                [
+                    .action("Hide \(title) Tool Window", systemImage: "minus", action: minimize)
+                ]
+            } ?? []
+        }
     }
 }
 

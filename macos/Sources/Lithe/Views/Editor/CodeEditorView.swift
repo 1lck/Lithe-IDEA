@@ -2276,10 +2276,14 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
             forGlyphAt: glyphRange.location,
             effectiveRange: nil
         )
+        let horizontalInset = EditorLayoutMetrics.currentLineHorizontalInset
+        let visibleEditorRect = enclosingScrollView.map {
+            convert($0.contentView.bounds, from: $0.contentView).intersection(bounds)
+        } ?? bounds
         let currentLineRect = NSRect(
-            x: 0,
+            x: visibleEditorRect.minX + horizontalInset,
             y: textContainerOrigin.y + lineRect.minY,
-            width: max(0, bounds.width - EditorLayoutMetrics.currentLineHorizontalInset),
+            width: max(0, visibleEditorRect.width - horizontalInset * 2),
             height: lineRect.height
         )
         guard currentLineRect.intersects(rect) else { return }
@@ -2830,12 +2834,70 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
             }
         }
 
-        let menu = super.menu(for: event) ?? NSMenu()
-        let languageItems = languageContextMenuItems()
-        guard !languageItems.isEmpty else { return menu }
-        menu.insertItem(.separator(), at: 0)
-        for item in languageItems.reversed() { menu.insertItem(item, at: 0) }
-        return menu
+        guard let window else { return super.menu(for: event) }
+        LitheContextMenuPresenter.shared.show(
+            items: editorContextMenuItems(),
+            at: window.convertPoint(toScreen: event.locationInWindow),
+            appearance: effectiveAppearance,
+            locale: Locale.current
+        )
+        return nil
+    }
+
+    private func editorContextMenuItems() -> [LitheContextMenuItem] {
+        var items: [LitheContextMenuItem] = []
+        func addLanguageItem(
+            _ feature: LanguageServerFeatureSet,
+            _ title: String,
+            _ systemImage: String,
+            _ action: @escaping () -> Void
+        ) {
+            guard languageServerFeatures.contains(feature) else { return }
+            items.append(.action(title, systemImage: systemImage, action: action))
+        }
+
+        addLanguageItem(.implementation, "Go to Implementation", "arrow.turn.up.right", onGoToImplementation ?? {})
+        addLanguageItem(.definition, "Go to Definition", "arrow.up.right", onGoToDefinition ?? {})
+        addLanguageItem(.references, "Find Usages", "magnifyingglass", onFindUsages ?? {})
+        addLanguageItem(.hover, "Quick Documentation", "questionmark.circle", {
+            let position = self.languageServerPosition(at: self.selectedRange().location)
+            self.onQuickDocumentation?(position.line, position.utf16Column)
+        })
+        addLanguageItem(.completion, "Complete Symbol", "text.cursor", {
+            self.requestLanguageCompletions()
+        })
+        addLanguageItem(.rename, "Rename Symbol", "pencil", {
+            self.renameSymbolFromMenu()
+        })
+        addLanguageItem(.formatting, "Format Document", "text.alignleft", onFormatRequested ?? {})
+        addLanguageItem(.codeActions, "Source Actions…", "wand.and.stars", {
+            self.codeActionsFromMenu()
+        })
+
+        if !items.isEmpty { items.append(.separator) }
+        let selectionLength = selectedRange().length
+        items += [
+            .action("Undo", systemImage: "arrow.uturn.backward", isEnabled: undoManager?.canUndo == true, action: {
+                self.undoManager?.undo()
+            }),
+            .action("Redo", systemImage: "arrow.uturn.forward", isEnabled: undoManager?.canRedo == true, action: {
+                self.undoManager?.redo()
+            }),
+            .separator,
+            .action("Cut", systemImage: "scissors", isEnabled: isEditable && selectionLength > 0, action: {
+                self.cut(nil)
+            }),
+            .action("Copy", systemImage: "doc.on.doc", isEnabled: selectionLength > 0, action: {
+                self.copy(nil)
+            }),
+            .action("Paste", systemImage: "doc.on.clipboard", isEnabled: isEditable, action: {
+                self.paste(nil)
+            }),
+            .action("Select All", systemImage: "selection.pin.in.out", isEnabled: !string.isEmpty, action: {
+                self.selectAll(nil)
+            })
+        ]
+        return items
     }
 
     func languageContextMenuItems() -> [NSMenuItem] {
@@ -3528,9 +3590,9 @@ final class LineNumberGutterView: NSView {
             if lineNumber - 1 == currentLine {
                 palette.currentLine.setFill()
                 NSRect(
-                    x: EditorLayoutMetrics.currentLineHorizontalInset,
+                    x: bounds.minX + EditorLayoutMetrics.currentLineHorizontalInset,
                     y: y,
-                    width: max(0, bounds.width - EditorLayoutMetrics.currentLineHorizontalInset),
+                    width: max(0, bounds.width - EditorLayoutMetrics.currentLineHorizontalInset * 2),
                     height: lineRect.height
                 ).fill()
             }
@@ -3935,23 +3997,37 @@ final class LineNumberGutterView: NSView {
             return super.menu(for: event)
         }
         contextGitLineChange = marker
-        let menu = NSMenu(title: "Git Line Change")
-        menu.addItem(withTitle: "Show Git Diff", action: #selector(showGitLineChangeFromMenu), keyEquivalent: "")
-        menu.items.last?.target = self
+        guard let window else { return nil }
+        var items: [LitheContextMenuItem] = [
+            .action("Show Git Diff", systemImage: "doc.text.magnifyingglass", action: { [weak self] in
+                self?.showGitLineChangeFromMenu()
+            })
+        ]
         if onStageGitLineChange != nil {
-            menu.addItem(withTitle: "Stage Change Block", action: #selector(stageGitLineChangeFromMenu), keyEquivalent: "")
-            menu.items.last?.target = self
+            items.append(.action("Stage Change Block", systemImage: "plus.square", action: { [weak self] in
+                self?.stageGitLineChangeFromMenu()
+            }))
         }
         if onUnstageGitLineChange != nil {
-            menu.addItem(withTitle: "Unstage Change Block", action: #selector(unstageGitLineChangeFromMenu), keyEquivalent: "")
-            menu.items.last?.target = self
+            items.append(.action("Unstage Change Block", systemImage: "arrow.uturn.backward", action: { [weak self] in
+                self?.unstageGitLineChangeFromMenu()
+            }))
         }
         if onDiscardGitLineChange != nil {
-            menu.addItem(.separator())
-            menu.addItem(withTitle: "Discard Change Block…", action: #selector(discardGitLineChangeFromMenu), keyEquivalent: "")
-            menu.items.last?.target = self
+            items += [
+                .separator,
+                .action("Discard Change Block…", systemImage: "trash", role: .destructive, action: { [weak self] in
+                    self?.discardGitLineChangeFromMenu()
+                })
+            ]
         }
-        return menu
+        LitheContextMenuPresenter.shared.show(
+            items: items,
+            at: window.convertPoint(toScreen: event.locationInWindow),
+            appearance: effectiveAppearance,
+            locale: Locale.current
+        )
+        return nil
     }
 
     private func editorLine(at point: NSPoint) -> Int? {

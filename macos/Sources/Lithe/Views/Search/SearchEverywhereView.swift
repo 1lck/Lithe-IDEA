@@ -333,6 +333,24 @@ struct SearchEverywhereView: View {
         .frame(maxWidth: .infinity)
         .frame(height: 24)
         .background(index == selectedIndex ? LitheTheme.selection : .clear)
+        .litheContextMenu {
+            [
+                .action("Open", systemImage: "doc.text", action: {
+                    model.openSearchEverywhereResult(result)
+                }),
+                .action("Show in Finder", systemImage: "folder", action: {
+                    model.revealProjectItemInFinder(result.url)
+                }),
+                .submenu("Copy Path / Reference", items: [
+                    .action("Copy Path", action: {
+                        model.copyProjectItemPath(result.url, relative: false)
+                    }),
+                    .action("Copy Relative Path", action: {
+                        model.copyProjectItemPath(result.url, relative: true)
+                    })
+                ])
+            ]
+        }
     }
 
     /// 结果所在目录（不含文件名本身），文件直接位于工作区根下时为空。
