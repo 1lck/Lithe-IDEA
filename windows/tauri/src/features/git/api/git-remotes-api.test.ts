@@ -1,29 +1,24 @@
 import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import * as gitEvents from "../events/git-events";
-import type { GitPullPreflight } from "../types/git.types";
+import type { GitPullPreflight, GitReference } from "../types/git.types";
 
 const invoke = mock(async (_command: string, _args?: unknown): Promise<unknown> => null);
 const emitGitChanged = spyOn(gitEvents, "emitGitChanged");
-const getOperationState = mock(async () => null);
-const getBranches = mock(async () => []);
-const getGitHistory = mock(async () => null);
-const getGitStatus = mock(async () => null);
 
 mock.module("@/platform/tauri-core", () => ({ invoke }));
-mock.module("./git-integration-api", () => ({ getOperationState }));
-mock.module("./git-branches-api", () => ({ getBranches }));
-mock.module("./git-commits-api", () => ({ getGitHistory }));
-mock.module("./git-status-api", () => ({ getGitStatus }));
 
-const { executePullChanges, fetchChanges, getGitPullWorkflow, getPullPreflight, pullChanges } =
-  await import("./git-remotes-api");
+const {
+  deleteRemoteBranch,
+  executePullChanges,
+  fetchChanges,
+  getGitPullWorkflow,
+  getPullPreflight,
+  pullChanges,
+} = await import("./git-remotes-api");
 
 beforeEach(() => {
   invoke.mockReset();
   emitGitChanged.mockClear();
-  getBranches.mockClear();
-  getGitHistory.mockClear();
-  getGitStatus.mockClear();
 });
 
 describe("Git remote Pull API", () => {
@@ -81,22 +76,59 @@ describe("Git remote Pull API", () => {
           hasLocalChanges: false,
         } satisfies GitPullPreflight;
       }
+      if (command === "git_status") {
+        return { repositoryPath: "C:/repo", branch: "main", files: [], ahead: 1, behind: 1 };
+      }
+      if (command === "git_log") {
+        return { references: [], recentReferences: [], commits: [], hasMore: false };
+      }
+      if (command === "git_branches") return [];
+      if (command === "git_get_remotes") return [];
       return null;
     });
 
     await expect(pullChanges("C:/repo")).resolves.toEqual({
       success: false,
-      error: "Branches have diverged. Open Source Control and choose Merge or Rebase.",
+      pullResult: { status: "cancelled" },
     });
     expect(invoke).not.toHaveBeenCalledWith("git_pull", expect.anything());
-    expect(getGitStatus).toHaveBeenCalledWith("C:/repo");
-    expect(getGitHistory).toHaveBeenCalledWith("C:/repo", 50);
-    expect(getBranches).toHaveBeenCalledWith("C:/repo");
+    expect(invoke).toHaveBeenCalledWith("git_status", { repoPath: "C:/repo" });
+    expect(invoke).toHaveBeenCalledWith("git_log", { repoPath: "C:/repo", limit: 50 });
+    expect(invoke).toHaveBeenCalledWith("git_branches", { repoPath: "C:/repo" });
     expect(invoke).toHaveBeenCalledWith("git_get_remotes", { repoPath: "C:/repo" });
     expect(emitGitChanged).toHaveBeenLastCalledWith({
       repoPath: "C:/repo",
       scopes: ["working-tree", "history", "refs", "remotes"],
       source: "pull-finished",
+    });
+  });
+
+  test("deletes only the selected branch from the selected remote", async () => {
+    invoke.mockImplementation(async (command: string) =>
+      command === "git_discover_repo" ? "C:/repo" : null,
+    );
+
+    const reference: GitReference = {
+      fullName: "refs/remotes/team/origin/feature/orders",
+      shortName: "team/origin/feature/orders",
+      kind: "remote",
+      isCurrent: false,
+    };
+    await deleteRemoteBranch("C:/repo", reference);
+
+    expect(invoke).toHaveBeenCalledWith("git.write", {
+      repoPath: "C:/repo",
+      operation: "deleteRemoteBranch",
+      gitReference: {
+        fullName: "refs/remotes/team/origin/feature/orders",
+        shortName: "team/origin/feature/orders",
+        kind: "remote",
+      },
+    });
+    expect(emitGitChanged).toHaveBeenLastCalledWith({
+      repoPath: "C:/repo",
+      scopes: ["history", "refs", "remotes"],
+      source: "delete-remote-branch",
     });
   });
 });

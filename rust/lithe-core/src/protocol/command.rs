@@ -207,6 +207,8 @@ pub enum CoreCommand {
     GitApply,
     /// Lists references and bounded commit history (`git.history`).
     GitHistory,
+    /// Resolves the destination and commits for a branch push (`git.pushPreview`).
+    GitPushPreview,
     /// Resolves metadata for one commit (`git.commit`).
     GitCommit,
     /// Lists paths changed by one commit (`git.commitFiles`).
@@ -329,6 +331,7 @@ impl CoreCommand {
             "git.diff" => Some(Self::GitDiff),
             "git.apply" => Some(Self::GitApply),
             "git.history" => Some(Self::GitHistory),
+            "git.pushPreview" => Some(Self::GitPushPreview),
             "git.commit" => Some(Self::GitCommit),
             "git.commitFiles" => Some(Self::GitCommitFiles),
             "git.comparison" => Some(Self::GitComparison),
@@ -413,5 +416,13 @@ mod tests {
         ] {
             assert!(CoreCommand::parse(command).is_some(), "missing {command}");
         }
+    }
+
+    #[test]
+    fn parses_git_push_preview_command() {
+        assert!(matches!(
+            CoreCommand::parse("git.pushPreview"),
+            Some(CoreCommand::GitPushPreview)
+        ));
     }
 }

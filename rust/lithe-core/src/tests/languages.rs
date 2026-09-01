@@ -424,6 +424,11 @@ fn java_core_commands_return_shared_runtime_and_structure_data() {
     );
     assert_eq!(response["data"]["configurations"][0]["kind"], "springBoot");
     assert_eq!(response["data"]["configurations"][0]["modulePath"], "src");
+    assert_eq!(
+        response["data"]["configurations"][0]["sourcePath"],
+        "src/main/java/com/example/App.java"
+    );
+    assert_eq!(response["data"]["configurations"][0]["sourceSet"], "main");
 
     let structure = serde_json::json!({
         "id": "java-structure",

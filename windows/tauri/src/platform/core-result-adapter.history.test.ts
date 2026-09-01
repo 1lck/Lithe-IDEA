@@ -15,6 +15,8 @@ describe("git history result adaptation", () => {
             kind: "local",
             isCurrent: true,
             upstreamShortName: "origin/main",
+            ahead: 12,
+            behind: 3,
           },
         ],
         recentReferences: [
@@ -24,6 +26,8 @@ describe("git history result adaptation", () => {
             kind: "local",
             isCurrent: true,
             upstreamShortName: "origin/main",
+            ahead: 12,
+            behind: 3,
           },
         ],
         commits: [
@@ -50,6 +54,8 @@ describe("git history result adaptation", () => {
           kind: "local",
           isCurrent: true,
           upstreamShortName: "origin/main",
+          ahead: 12,
+          behind: 3,
         },
       ],
       recentReferences: [
@@ -59,6 +65,8 @@ describe("git history result adaptation", () => {
           kind: "local",
           isCurrent: true,
           upstreamShortName: "origin/main",
+          ahead: 12,
+          behind: 3,
         },
       ],
       commits: [

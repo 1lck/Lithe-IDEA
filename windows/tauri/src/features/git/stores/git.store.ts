@@ -4,6 +4,13 @@ import { getGitHistory } from "../api/git-commits-api";
 import { getGitStatus } from "../api/git-status-api";
 import type { GitCommit, GitOperationState, GitStash, GitStatus } from "../types/git.types";
 
+interface GitSourceControlSession {
+  commitSelectedPaths: string[];
+  commitMessage: string;
+  collapsedFolders: string[];
+  collapsedSections: string[];
+}
+
 interface GitState {
   gitStatus: GitStatus | null;
   workspaceGitStatus: GitStatus | null;
@@ -18,6 +25,7 @@ interface GitState {
   currentRepoPath: string | null;
   currentWorkspaceRepoPath: string | null;
   workspaceGitStatusUpdatedAt: number;
+  sourceControlSessions: Record<string, GitSourceControlSession>;
 
   actions: {
     prepareRepositoryLoad: (repoPath: string) => void;
@@ -47,6 +55,10 @@ interface GitState {
     setStashes: (stashes: GitStash[]) => void;
     setIsLoadingGitData: (loading: boolean) => void;
     setIsRefreshing: (refreshing: boolean) => void;
+    updateSourceControlSession: (
+      repoPath: string,
+      update: Partial<GitSourceControlSession>,
+    ) => void;
     reset: () => void;
   };
 }
@@ -69,6 +81,7 @@ export const createGitStore = () =>
     currentRepoPath: null,
     currentWorkspaceRepoPath: null,
     workspaceGitStatusUpdatedAt: 0,
+    sourceControlSessions: {},
 
     actions: {
       prepareRepositoryLoad: (repoPath) => {
@@ -184,6 +197,21 @@ export const createGitStore = () =>
       setStashes: (stashes) => set({ stashes }),
       setIsLoadingGitData: (loading) => set({ isLoadingGitData: loading }),
       setIsRefreshing: (refreshing) => set({ isRefreshing: refreshing }),
+      updateSourceControlSession: (repoPath, update) =>
+        set((state) => {
+          const current = state.sourceControlSessions[repoPath] ?? {
+            commitSelectedPaths: [],
+            commitMessage: "",
+            collapsedFolders: [],
+            collapsedSections: [],
+          };
+          return {
+            sourceControlSessions: {
+              ...state.sourceControlSessions,
+              [repoPath]: { ...current, ...update },
+            },
+          };
+        }),
 
       reset: () =>
         set({
