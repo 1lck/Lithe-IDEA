@@ -364,6 +364,9 @@ struct BranchSwitcherPopover: View {
         .lithePointer()
     }
 
+    /// A branch line. Clicking it opens the reference's action menu instead of
+    /// checking out directly, matching IDEA: checkout is an explicit menu entry,
+    /// so a stray click on the list can never switch the working tree.
     private func branchRow(
         _ reference: GitReference,
         indented: Bool,
@@ -371,46 +374,106 @@ struct BranchSwitcherPopover: View {
     ) -> some View {
         let highlightsCurrent = presentation == .recent && reference.isCurrent
 
-        return Button {
-            guard !reference.isCurrent else { return }
-            isPresented = false
-            Task { await model.checkoutReference(reference) }
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: referenceIcon(reference, marksCurrent: presentation == .recent))
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(highlightsCurrent ? LitheTheme.warning : LitheTheme.secondaryText)
-                    .frame(width: 17)
-                Text(branchDisplayName(reference, presentation: presentation))
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(LitheTheme.primaryText)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 10)
-                if let upstream = reference.upstreamShortName {
-                    Text(upstream)
+        return BranchActionMenuRow(
+            label: {
+                HStack(spacing: 8) {
+                    Image(systemName: referenceIcon(reference, marksCurrent: presentation == .recent))
                         .font(.system(size: 11.5))
-                        .foregroundStyle(LitheTheme.secondaryText)
+                        .foregroundStyle(highlightsCurrent ? LitheTheme.warning : LitheTheme.secondaryText)
+                        .frame(width: 17)
+                    Text(branchDisplayName(reference, presentation: presentation))
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(LitheTheme.primaryText)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                }
-                if !reference.isCurrent {
+                    Spacer(minLength: 10)
+                    if let upstream = reference.upstreamShortName {
+                        Text(upstream)
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
                     Image(systemName: "chevron.right")
                         .font(.system(size: 8, weight: .bold))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
-            }
-            .padding(.leading, branchRowLeadingPadding(indented: indented, presentation: presentation))
-            .padding(.trailing, 9)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: Metrics.branchRowHeight)
-            .background(highlightsCurrent ? LitheTheme.subtleSelection : .clear)
-            .clipShape(RoundedRectangle(cornerRadius: 5))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .lithePointer()
+                .padding(.leading, branchRowLeadingPadding(indented: indented, presentation: presentation))
+                .padding(.trailing, 9)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(height: Metrics.branchRowHeight)
+                .background(highlightsCurrent ? LitheTheme.subtleSelection : .clear)
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+                .contentShape(Rectangle())
+                // Branch and upstream names are truncated to keep the row width
+                // fixed, so the untruncated pair is only reachable on hover.
+                .help(branchRowTooltip(reference))
+            },
+            menuContent: { branchActionMenu(for: reference) }
+        )
         .disabled(model.isPerformingBranchOperation)
+    }
+
+    /// The full branch name, plus its upstream when tracked, for rows whose text
+    /// the fixed popup width truncates.
+    private func branchRowTooltip(_ reference: GitReference) -> String {
+        guard let upstream = reference.upstreamShortName else { return reference.shortName }
+        return "\(reference.shortName) → \(upstream)"
+    }
+
+    /// The per-reference action list, ordered like IDEA's branch menu: creation
+    /// and comparison first, then checkout and integration, then destructive
+    /// entries last.
+    @ViewBuilder
+    private func branchActionMenu(for reference: GitReference) -> some View {
+        Button("New Branch from '\(reference.shortName)'…") {
+            dismissAndRun { onNewBranch(reference) }
+        }
+
+        Button("Show Diff with Working Tree") {
+            dismissAndRun { Task { await model.showComparisonWithWorkingTree(for: reference) } }
+        }
+
+        if let current = model.currentGitReference, current.id != reference.id {
+            Button("Compare with Current Branch") {
+                dismissAndRun { Task { await model.showComparison(from: reference, to: current) } }
+            }
+        }
+
+        if !reference.isCurrent {
+            Divider()
+
+            Button("Checkout") {
+                dismissAndRun { Task { await model.checkoutReference(reference) } }
+            }
+        }
+
+        if reference.kind != .tag {
+            Divider()
+
+            Button("Update") {
+                dismissAndRun { Task { await model.updateCurrentBranch(reference) } }
+            }
+
+            Button("Push…") {
+                dismissAndRun { onPush(reference) }
+            }
+        }
+
+        if reference.kind == .local, !reference.isCurrent {
+            Divider()
+
+            Button("Delete") {
+                dismissAndRun { Task { await model.deleteBranch(reference) } }
+            }
+        }
+    }
+
+    /// Closes the popover before running a branch action so the action's own
+    /// sheet or dialog is not presented behind a popover that is about to go away.
+    private func dismissAndRun(_ action: @escaping () -> Void) {
+        isPresented = false
+        action()
     }
 
     private var recentReferences: [GitReference] {
@@ -574,6 +637,37 @@ struct BranchSwitcherPopover: View {
         case .recent, .grouped, .searchResult:
             return reference.shortName
         }
+    }
+}
+
+/// A branch row that surfaces its actions through a native pop-up menu rather
+/// than a direct checkout.
+///
+/// Using `SwiftUI.Menu` with `.menuStyle(.borderlessButton)` produces a native
+/// NSMenu, which works correctly inside the outer popover, positions itself to
+/// avoid screen edges, and provides the hover-safety path that IDEA exposes:
+/// once any row's menu is open, moving the cursor to another row opens that
+/// menu immediately without a click.
+private struct BranchActionMenuRow<Label: View, MenuContent: View>: View {
+    @ViewBuilder let label: () -> Label
+    @ViewBuilder let menuContent: () -> MenuContent
+
+    @State private var isHovering = false
+
+    var body: some View {
+        SwiftUI.Menu {
+            menuContent()
+        } label: {
+            label()
+                .background(isHovering ? LitheTheme.subtleSelection : .clear)
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        // Constrain to the list width so the menu button does not stretch.
+        .fixedSize(horizontal: false, vertical: true)
+        .lithePointer()
+        .onHover { isHovering = $0 }
     }
 }
 
