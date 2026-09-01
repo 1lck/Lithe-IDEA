@@ -335,7 +335,7 @@ extension AppModel {
         switch id {
         case "open-project", "settings":
             true
-        case "save", "find-in-file", "replace-in-file", "go-to-line", "local-history", "reveal-in-finder", "toggle-breakpoint":
+        case "save", "close-tab", "find-in-file", "replace-in-file", "go-to-line", "local-history", "reveal-in-finder", "toggle-breakpoint":
             activeDocument != nil
         case "find-next", "find-previous":
             isFindBarVisible && findMatchCount > 0

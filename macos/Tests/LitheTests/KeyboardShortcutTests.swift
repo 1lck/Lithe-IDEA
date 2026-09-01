@@ -61,6 +61,7 @@ struct KeyboardShortcutTests {
         #expect(actionIDs.contains("search-everywhere"))
         #expect(actionIDs.contains("find-next"))
         #expect(actionIDs.contains("find-previous"))
+        #expect(actionIDs.contains("close-tab"))
         #expect(actionIDs.contains("navigate-back"))
         #expect(actionIDs.contains("navigate-forward"))
         #expect(actionIDs.contains("go-to-definition"))

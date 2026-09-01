@@ -70,6 +70,11 @@ enum LitheActionRegistry {
             action("settings", model: model) { model.showSettings() },
             action("rebuild-java-index", model: model) { model.rebuildJavaIndex() },
             action("save", model: model) { model.saveActiveDocument() },
+            action("close-tab", model: model) {
+                if let document = model.activeDocument {
+                    model.requestCloseDocument(document)
+                }
+            },
             action("search-everywhere", model: model) { model.toggleSearchEverywhere() },
             action("navigate-back", model: model) { model.navigateBack() },
             action("navigate-forward", model: model) { model.navigateForward() },

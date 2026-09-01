@@ -748,6 +748,8 @@
 "Keep Editor" = "保留编辑器版本";
 "Load Disk Version" = "加载磁盘版本";
 "Close split" = "关闭分栏";
+"Close Tab" = "关闭标签页";
+"Close the active editor tab" = "关闭当前编辑器标签页";
 "Open in Right Split" = "在右侧分栏打开";
 "Close Other Tabs" = "关闭其他标签页";
 "Close Tabs to the Left" = "关闭左侧标签页";

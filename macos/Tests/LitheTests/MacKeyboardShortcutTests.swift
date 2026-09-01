@@ -57,4 +57,29 @@ struct MacKeyboardShortcutTests {
             ) == "run"
         )
     }
+
+    @Test
+    func commandWResolvesToCloseTab() throws {
+        let binding = try #require(
+            MacKeyboardShortcutEventMapper.binding(
+                keyCode: 13,
+                charactersIgnoringModifiers: "w",
+                modifierFlags: [.command]
+            )
+        )
+        let command = try #require(LitheCommandCatalog.command(id: "close-tab"))
+
+        #expect(binding == .keyPress(key: "w", modifiers: [.command]))
+        #expect(
+            MacKeyboardShortcutMatcher.commandID(
+                for: binding,
+                registrations: [
+                    KeyboardShortcutRegistration(
+                        commandID: command.id,
+                        bindings: command.defaultBindings
+                    )
+                ]
+            ) == "close-tab"
+        )
+    }
 }

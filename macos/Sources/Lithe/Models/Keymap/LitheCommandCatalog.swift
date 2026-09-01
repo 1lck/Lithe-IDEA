@@ -52,6 +52,7 @@ enum LitheCommandCatalog {
         command("replace-in-project", "Replace in Files", "Replace text across the workspace", .navigation, "r", [.shift, .command]),
         command("spring-endpoints", "Spring Endpoints", "Show indexed Spring MVC routes", .navigation),
 
+        command("close-tab", "Close Tab", "Close the active editor tab", .window, "w", [.command]),
         command("toggle-terminal", "Toggle Terminal", "Show or hide the Terminal tool window", .window),
         command("toggle-problems", "Toggle Problems", "Show or hide language diagnostics", .window),
         command("toggle-maven", "Toggle Maven", "Show or hide the Maven tool window", .window),
