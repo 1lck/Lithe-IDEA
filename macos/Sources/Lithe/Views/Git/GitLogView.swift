@@ -104,7 +104,9 @@ struct GitLogView: View {
             } catch {
                 return
             }
-            await model.applyGitLogFilter(gitLogQuery)
+            // `Date()` is captured here — once, at the moment the debounced
+            // task fires — so date-range boundaries are stable for this query.
+            await model.applyGitLogFilter(gitLogQuery(now: Date()))
         }
         .onChange(of: model.gitRepositoryRoot) { _ in
             selectedGitLogAuthor = nil
@@ -1229,8 +1231,17 @@ struct GitLogView: View {
     }
 
     private var visibleCommitHashes: Set<String>? {
-        guard !gitLogQuery.isEmpty else { return nil }
+        guard hasActiveGitLogFilter else { return nil }
         return model.gitLogMatchedCommitHashes
+    }
+
+    /// True when any filter is active, without calling `Date()`. Used to decide
+    /// whether to show the filtered commit subset or the full log.
+    private var hasActiveGitLogFilter: Bool {
+        !model.gitLogSearchQuery.isEmpty
+            || selectedGitLogAuthor != nil
+            || selectedGitLogDatePreset != .anyTime
+            || !gitLogPathFilter.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var gitLogFilterTaskIdentity: GitLogFilterTaskIdentity {
@@ -1243,14 +1254,16 @@ struct GitLogView: View {
         )
     }
 
-    private var gitLogQuery: GitLogQuery {
+    /// Builds the filter query with a caller-supplied `now`, so `Date()` is
+    /// only called once at the task execution site rather than on every body pass.
+    private func gitLogQuery(now: Date) -> GitLogQuery {
         let path = gitLogPathFilter.trimmingCharacters(in: .whitespacesAndNewlines)
         let query = GitLogQuery.parse(model.gitLogSearchQuery).addingStructuredFilters(
             currentUserOnly: selectedGitLogAuthor == .currentUser,
             exactAuthor: selectedGitLogAuthor?.exactAuthor,
             paths: path.isEmpty ? [] : [path]
         )
-        return selectedGitLogDatePreset.applying(to: query, now: Date())
+        return selectedGitLogDatePreset.applying(to: query, now: now)
     }
 
     private var gitLogAuthorOptions: [GitLogAuthorOption] {

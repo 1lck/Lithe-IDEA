@@ -9,8 +9,6 @@ struct RunView: View {
     @AppStorage("lithe.run.pinnedConfigurationIDs") private var pinnedConfigurationTokens = ""
     @AppStorage("lithe.run.configurationListWidth") private var configurationListWidth = 230.0
     @AppStorage("lithe.run.configurationListCollapsed") private var isConfigurationListCollapsed = false
-    @State private var liveConfigurationListWidth: CGFloat?
-    @State private var configurationListDragStart: CGFloat = 230
     /// Separate caches: the two raw strings change independently, and one box
     /// memoizes a single raw value.
     @State private var collapsedExecutionCache = RunConfigurationTokenCache()
@@ -53,12 +51,6 @@ struct RunView: View {
                         minimumListWidth,
                         min(420, geometry.size.width - SplitHandleView.thickness - minimumContentWidth)
                     )
-                    let resolvedListWidth = constrained(
-                        liveConfigurationListWidth ?? CGFloat(configurationListWidth),
-                        minimum: minimumListWidth,
-                        maximum: maximumListWidth
-                    )
-
                     if isConfigurationListCollapsed {
                         HStack(spacing: 0) {
                             collapsedConfigurationListBar
@@ -875,10 +867,6 @@ struct RunView: View {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private func constrained(_ value: CGFloat, minimum: CGFloat, maximum: CGFloat) -> CGFloat {
-        min(max(value, minimum), maximum)
     }
 
     private func sectionHeader(_ execution: RunConfigurationExecution, count: Int) -> some View {
