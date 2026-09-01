@@ -32,6 +32,8 @@ export function useFooterGitBranchItem(): ChromeItem<FooterLeadingItemId> | null
     content: (
       <GitBranchManager
         currentBranch={footerBranch}
+        ahead={footerGitStatus.ahead}
+        behind={footerGitStatus.behind}
         repoPath={footerRepoPath}
         paletteTarget
         triggerSurface="footer"

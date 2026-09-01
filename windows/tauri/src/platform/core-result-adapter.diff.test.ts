@@ -18,11 +18,18 @@ index 333..444 100644
 `;
 
 describe("git diff stats adaptation", () => {
-  test("maps per-file additions and deletions from the whole tree patch", () => {
+  test("maps Core numstat entries without parsing a patch", () => {
     const stats = adaptCoreResult(
       "git_status_diff_stats",
       { repoPath: "C:/work" },
-      { patch: twoFilePatch },
+      {
+        files: [
+          { path: "a.txt", staged: false, additions: 1, deletions: 0, binary: false },
+          { path: "b.txt", staged: false, additions: 0, deletions: 1, binary: false },
+        ],
+        additions: 1,
+        deletions: 1,
+      },
     );
 
     expect(stats).toEqual([
@@ -35,13 +42,31 @@ describe("git diff stats adaptation", () => {
     const stats = adaptCoreResult(
       "git_status_diff_stats",
       { repoPath: "C:/work", staged: true },
-      { patch: twoFilePatch },
+      {
+        files: [
+          { path: "a.txt", additions: 1, deletions: 0, binary: false },
+          { path: "b.txt", additions: 0, deletions: 1, binary: false },
+        ],
+      },
     );
 
     expect(Array.isArray(stats)).toBe(true);
     for (const stat of stats as Array<{ staged: boolean }>) {
       expect(stat.staged).toBe(true);
     }
+  });
+
+  test("keeps accepting the legacy patch response during Core upgrades", () => {
+    const stats = adaptCoreResult(
+      "git_status_diff_stats",
+      { repoPath: "C:/work" },
+      { patch: twoFilePatch },
+    );
+
+    expect(stats).toEqual([
+      { file_path: "a.txt", staged: false, additions: 1, deletions: 0 },
+      { file_path: "b.txt", staged: false, additions: 0, deletions: 1 },
+    ]);
   });
 });
 

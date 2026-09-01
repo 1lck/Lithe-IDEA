@@ -126,6 +126,7 @@ interface MonacoEditorProps {
   enableExpensiveServices?: boolean;
   readOnly?: boolean;
   scrollable?: boolean;
+  alwaysConsumeMouseWheel?: boolean;
   backgroundLayer?: ReactNode;
   onReadonlySurfaceClick?: (position: { line: number; column: number }) => void;
   highlightMatches?: Array<{ start: number; end: number }>;
@@ -156,6 +157,7 @@ export function MonacoEditor({
   enableExpensiveServices = true,
   readOnly = false,
   scrollable = true,
+  alwaysConsumeMouseWheel = true,
   backgroundLayer,
   onReadonlySurfaceClick,
   highlightMatches,
@@ -685,7 +687,7 @@ export function MonacoEditor({
         vertical: scrollable ? "auto" : "hidden",
         horizontal: scrollable ? "auto" : "hidden",
         handleMouseWheel: scrollable,
-        alwaysConsumeMouseWheel: scrollable,
+        alwaysConsumeMouseWheel: scrollable && alwaysConsumeMouseWheel,
       },
     });
 
@@ -1131,6 +1133,7 @@ export function MonacoEditor({
     rootFolderPath,
     workspaceId,
     scrollable,
+    alwaysConsumeMouseWheel,
     scheduleInlineGitBlameRender,
     selectEntireModel,
     semanticTokens,
@@ -1622,7 +1625,7 @@ export function MonacoEditor({
         vertical: scrollable ? "auto" : "hidden",
         horizontal: scrollable ? "auto" : "hidden",
         handleMouseWheel: scrollable,
-        alwaysConsumeMouseWheel: scrollable,
+        alwaysConsumeMouseWheel: scrollable && alwaysConsumeMouseWheel,
       },
     });
     if (container) syncContainedEditorFontOptions(container, fontOptions);
@@ -1663,6 +1666,7 @@ export function MonacoEditor({
     renderIndentGuides,
     renderWhitespace,
     scrollable,
+    alwaysConsumeMouseWheel,
     semanticTokens,
     tabSize,
     themeId,
