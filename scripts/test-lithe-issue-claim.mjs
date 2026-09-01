@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  claimMarker, claimStatus, hasProgressSince, isMaintainer, isPullRequestIssue, latestProgressDate, parseCommand, parseMarker,
+  claimMarker, claimStatus, hasProgressSince, isActiveClaim, isMaintainer, isPullRequestIssue, latestProgressDate, parseCommand, parseMarker, releaseMarker,
 } from '../.github/lithe-issue-claim/logic.mjs';
 
 const now = new Date('2026-09-01T00:00:00Z');
@@ -40,4 +40,11 @@ test('a substantive assignee comment resets the inactivity window', () => {
     { user: { login: 'alice' }, created_at: '2026-08-20T00:00:00Z', body: 'first update' },
     { user: { login: 'alice' }, created_at: '2026-08-25T00:00:00Z', body: 'latest update' },
   ], 'alice', '2026-08-01T00:00:00Z'), '2026-08-25T00:00:00Z');
+});
+
+test('a release tombstone allows a later claimant to take over', () => {
+  const claim = parseMarker(claimMarker('alice', '2026-08-01T00:00:00Z'), '<!-- lithe-claim:');
+  const release = parseMarker(releaseMarker('alice', '2026-08-10T00:00:00Z'), '<!-- lithe-claim-release:');
+  assert.equal(isActiveClaim(claim, release), false);
+  assert.equal(isActiveClaim(claim, null), true);
 });

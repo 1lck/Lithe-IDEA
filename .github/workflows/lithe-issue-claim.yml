@@ -41,13 +41,15 @@ jobs:
             const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
             const trusted = (c) => c.user?.type === 'Bot' && c.user?.login === 'github-actions[bot]';
             const recordedClaim = [...comments].reverse().filter(trusted).map((c) => logic.parseMarker(c.body, logic.CLAIM_MARKER)).find(Boolean);
+            const recordedRelease = [...comments].reverse().filter(trusted).map((c) => logic.parseMarker(c.body, logic.RELEASE_MARKER)).find(Boolean);
+            const activeClaim = logic.isActiveClaim(recordedClaim, recordedRelease) ? recordedClaim : null;
             const maintainer = logic.isMaintainer(context.payload.comment.author_association);
             const comment = async (body) => github.rest.issues.createComment({ owner, repo, issue_number, body });
             if (command === '/assign') {
               if (assignee === login) return comment(`@${login} 已经认领了这个 Issue。`);
               if (assignee) return comment(`这个 Issue 当前由 @${assignee} 负责，不能抢占。`);
-              if (recordedClaim?.login === login) return comment(`@${login} 已经登记认领了这个 Issue。`);
-              if (recordedClaim && recordedClaim.login !== login) return comment(`这个 Issue 当前由 @${recordedClaim.login} 负责，不能抢占。`);
+              if (activeClaim?.login === login) return comment(`@${login} 已经登记认领了这个 Issue。`);
+              if (activeClaim && activeClaim.login !== login) return comment(`这个 Issue 当前由 @${activeClaim.login} 负责，不能抢占。`);
               let official = false;
               try {
                 await github.rest.issues.addAssignees({ owner, repo, issue_number, assignees: [login] });
@@ -67,13 +69,13 @@ jobs:
               }
               return;
             }
-            const effectiveOwner = assignee || recordedClaim?.login;
+            const effectiveOwner = assignee || activeClaim?.login;
             if (!effectiveOwner) return comment('这个 Issue 当前没有负责人。');
             if (effectiveOwner !== login && !maintainer) return comment(`只有当前负责人 @${effectiveOwner} 或维护者可以释放认领。`);
             if (assignee) await github.rest.issues.removeAssignees({ owner, repo, issue_number, assignees: [assignee] });
             await github.rest.issues.removeLabel({ owner, repo, issue_number, name: logic.CLAIM_LABEL }).catch(() => {});
             await github.rest.issues.removeLabel({ owner, repo, issue_number, name: logic.STALE_LABEL }).catch(() => {});
-            return comment(`@${effectiveOwner} 已释放这个 Issue，其他贡献者可以继续认领。`);
+            return comment(`${logic.releaseMarker(effectiveOwner, new Date().toISOString())}\n@${effectiveOwner} 已释放这个 Issue，其他贡献者可以继续认领。`);
 
   stale:
     if: github.event_name != 'issue_comment'
@@ -101,6 +103,8 @@ jobs:
                 await github.rest.issues.removeLabel({ owner, repo, issue_number: issue.number, name: logic.CLAIM_LABEL }).catch(() => {});
                 continue;
               }
+              const release = [...comments].reverse().filter(trusted).map((c) => logic.parseMarker(c.body, logic.RELEASE_MARKER)).find(Boolean);
+              if (!logic.isActiveClaim(claim, release)) continue;
               const official = issue.assignees?.some((a) => a.login === claim.login);
               const progressDate = logic.latestProgressDate(comments, claim.login, claim.isoDate);
               const activityDate = progressDate || claim.isoDate;
@@ -120,6 +124,6 @@ jobs:
                 if (stillOwned) await github.rest.issues.removeAssignees({ owner, repo, issue_number: issue.number, assignees: [claim.login] });
                 await github.rest.issues.removeLabel({ owner, repo, issue_number: issue.number, name: logic.CLAIM_LABEL }).catch(() => {});
                 await github.rest.issues.removeLabel({ owner, repo, issue_number: issue.number, name: logic.STALE_LABEL }).catch(() => {});
-                await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: `@${claim.login} 已连续 7 天未更新进度，认领已自动释放，其他贡献者可以继续申请。` });
+                await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: `${logic.releaseMarker(claim.login, new Date().toISOString())}\n@${claim.login} 已连续 7 天未更新进度，认领已自动释放，其他贡献者可以继续申请。` });
               }
             }

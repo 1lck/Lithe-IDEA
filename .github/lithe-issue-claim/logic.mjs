@@ -2,6 +2,7 @@ export const CLAIM_LABEL = 'claimed';
 export const STALE_LABEL = 'stale-claim';
 export const CLAIM_MARKER = '<!-- lithe-claim:';
 export const WARNING_MARKER = '<!-- lithe-claim-warning:';
+export const RELEASE_MARKER = '<!-- lithe-claim-release:';
 export const CLAIM_TTL_DAYS = 30;
 export const WARNING_GRACE_DAYS = 7;
 
@@ -24,6 +25,14 @@ export function claimMarker(login, isoDate) {
 
 export function warningMarker(login, isoDate) {
   return `${WARNING_MARKER}${login}:${isoDate} -->`;
+}
+
+export function releaseMarker(login, isoDate) {
+  return `${RELEASE_MARKER}${login}:${isoDate} -->`;
+}
+
+export function isActiveClaim(claim, release) {
+  return Boolean(claim && (!release || new Date(release.isoDate) <= new Date(claim.isoDate)));
 }
 
 export function parseMarker(body, prefix) {
