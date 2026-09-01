@@ -14,6 +14,7 @@ const reference = (
         : "refs/tags/v1.0.0",
   shortName: kind === "remote" ? "origin/feature" : kind === "tag" ? "v1.0.0" : "main",
   kind,
+  peelsToCommit: true,
   isCurrent,
 });
 
