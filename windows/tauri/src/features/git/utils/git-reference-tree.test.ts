@@ -31,6 +31,7 @@ describe("Git reference tree", () => {
         fullName: "refs/heads/main",
         shortName: "main",
         kind: "local" as const,
+        peelsToCommit: true,
         isCurrent: true,
       },
     ];
