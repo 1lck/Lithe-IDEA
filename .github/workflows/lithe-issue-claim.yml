@@ -124,10 +124,11 @@ jobs:
               const release = [...comments].reverse().filter(trusted).map((c) => logic.parseMarker(c.body, logic.RELEASE_MARKER)).find((candidate) => logic.releaseMatchesClaim(candidate, claim));
               if (!logic.isActiveClaim(claim, release)) {
                 const current = (await github.rest.issues.get({ owner, repo, issue_number: issue.number })).data;
-                const stillOwned = current.assignees?.some((a) => a.login === claim.login);
+                let stillOwned = current.assignees?.some((a) => a.login === claim.login);
                 if (logic.needsReleaseRecovery(claim, release, current.assignees?.map((a) => a.login))) {
                   try {
                     await github.rest.issues.removeAssignees({ owner, repo, issue_number: issue.number, assignees: [claim.login] });
+                    stillOwned = false;
                   } catch (error) {
                     core.warning(`Unable to recover released assignee: ${error.message}`);
                     continue;
