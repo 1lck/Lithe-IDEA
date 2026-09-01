@@ -698,6 +698,10 @@ fn git_write_creates_deletes_and_records_tags() {
         String::from_utf8_lossy(&run(&["cat-file", "-t", "refs/tags/v2.0"]).stdout).trim(),
         "tag"
     );
+    let annotated_tag_object =
+        String::from_utf8_lossy(&run(&["rev-parse", "refs/tags/v2.0"]).stdout)
+            .trim()
+            .to_string();
 
     // An empty name is a missing required field. The format matrix below is
     // shared with the macOS dialog through `tag-names.json`, so both sides
@@ -812,6 +816,14 @@ fn git_write_creates_deletes_and_records_tags() {
         delete_lightweight["data"]["tagDeletion"]["deletedTarget"],
         head
     );
+    assert!(delete_lightweight["data"]["invocations"]
+        .as_array()
+        .expect("tag deletion invocations should be an array")
+        .iter()
+        .any(|invocation| {
+            invocation["arguments"]
+                == serde_json::json!(["update-ref", "-d", "refs/tags/v1.0", head])
+        }));
     assert!(delete_lightweight["data"]["tagDeletion"]
         .get("message")
         .is_none());
@@ -834,6 +846,14 @@ fn git_write_creates_deletes_and_records_tags() {
         "release\r\n\r\nsecond paragraph\r\n\r\n"
     );
     assert_eq!(deletion["deletedTarget"], head);
+    assert!(delete_annotated["data"]["invocations"]
+        .as_array()
+        .expect("annotated tag deletion invocations should be an array")
+        .iter()
+        .any(|invocation| {
+            invocation["arguments"]
+                == serde_json::json!(["update-ref", "-d", "refs/tags/v2.0", annotated_tag_object])
+        }));
 
     // Deleting a missing tag fails with the stable not-exist message.
     let missing = request("deleteTag", serde_json::json!({"name": "v1.0"}));
@@ -884,6 +904,13 @@ fn git_write_records_the_deleted_branch_target() {
     assert!(run(&["add", "example.txt"]).status.success());
     assert!(run(&["commit", "-qm", "initial"]).status.success());
     assert!(run(&["branch", "feature/short-lived"]).status.success());
+    assert!(run(&[
+        "config",
+        "branch.feature/short-lived.description",
+        "temporary"
+    ])
+    .status
+    .success());
     let head = String::from_utf8_lossy(&run(&["rev-parse", "HEAD"]).stdout)
         .trim()
         .to_string();
@@ -930,11 +957,26 @@ fn git_write_records_the_deleted_branch_target() {
     assert_eq!(deletion["ok"], true, "{deletion:?}");
     assert_eq!(deletion["data"]["exitCode"], 0);
     assert_eq!(
-        deletion["data"]["branchDeletion"]["name"],
-        "feature/short-lived"
+        deletion["data"]["branchDeletion"]["name"], "feature/short-lived",
+        "{deletion:?}"
     );
     assert_eq!(deletion["data"]["branchDeletion"]["deletedTarget"], head);
+    assert!(deletion["data"]["invocations"]
+        .as_array()
+        .expect("branch deletion invocations should be an array")
+        .iter()
+        .any(|invocation| {
+            invocation["arguments"]
+                == serde_json::json!(["update-ref", "-d", "refs/heads/feature/short-lived", head])
+        }));
     assert!(deletion["data"].get("tagDeletion").is_none());
+    assert_ne!(
+        run(&["config", "--get", "branch.feature/short-lived.description"])
+            .status
+            .code(),
+        Some(0),
+        "branch-local configuration should be removed with the ref"
+    );
 
     // Deleting a missing branch fails with the stable not-exist message.
     let missing = request(
@@ -963,6 +1005,39 @@ fn git_write_records_the_deleted_branch_target() {
             .trim(),
         head
     );
+
+    // Atomic deletion must retain the safety contract of `git branch -d` and
+    // refuse a branch whose tip is not merged into its upstream or HEAD.
+    assert!(run(&["switch", "-q", "feature/short-lived"])
+        .status
+        .success());
+    fs::write(root.join("feature.txt"), "unmerged\n").expect("file should be writable");
+    assert!(run(&["add", "feature.txt"]).status.success());
+    assert!(run(&["commit", "-qm", "unmerged branch work"])
+        .status
+        .success());
+    assert!(run(&["switch", "-q", "main"]).status.success());
+    let unmerged = request(
+        "deleteBranch",
+        serde_json::json!({"reference": "refs/heads/feature/short-lived"}),
+    );
+    assert_eq!(unmerged["ok"], true, "{unmerged:?}");
+    assert_eq!(
+        unmerged["data"]["operationError"]["code"],
+        "invalid_request"
+    );
+    assert_eq!(
+        unmerged["data"]["operationError"]["message"],
+        "The branch 'feature/short-lived' is not fully merged"
+    );
+    assert!(run(&[
+        "show-ref",
+        "--verify",
+        "--quiet",
+        "refs/heads/feature/short-lived"
+    ])
+    .status
+    .success());
 
     fs::remove_dir_all(root).expect("temporary repository should be removable");
 }
@@ -1612,6 +1687,16 @@ fn git_history_returns_references_and_commit_graph_fields() {
     assert!(run(&["add", "example.txt"]).status.success());
     assert!(run(&["commit", "-qm", "initial"]).status.success());
 
+    assert!(run(&["tag", "commit-tag", "HEAD"]).status.success());
+    let tree = String::from_utf8_lossy(&run(&["rev-parse", "HEAD^{tree}"]).stdout)
+        .trim()
+        .to_string();
+    assert!(run(&["tag", "tree-tag", &tree]).status.success());
+    let blob = String::from_utf8_lossy(&run(&["hash-object", "example.txt"]).stdout)
+        .trim()
+        .to_string();
+    assert!(run(&["tag", "blob-tag", &blob]).status.success());
+
     let commit_hash = String::from_utf8_lossy(&run(&["rev-parse", "HEAD"]).stdout)
         .trim()
         .to_string();
@@ -1710,6 +1795,19 @@ fn git_history_returns_references_and_commit_graph_fields() {
         .expect("references should be an array")
         .iter()
         .any(|reference| reference["kind"] == "local"));
+    for (name, expected) in [
+        ("commit-tag", true),
+        ("tree-tag", false),
+        ("blob-tag", false),
+    ] {
+        let reference = response["data"]["references"]
+            .as_array()
+            .expect("references should be an array")
+            .iter()
+            .find(|reference| reference["shortName"] == name)
+            .expect("tag reference should be present");
+        assert_eq!(reference["peelsToCommit"], expected, "tag {name}");
+    }
 
     fs::remove_dir_all(root).expect("temporary workspace should be removable");
 }

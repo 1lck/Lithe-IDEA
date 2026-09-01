@@ -443,6 +443,29 @@ struct GitModuleTests {
 
     // MARK: Tag management
 
+    @Test
+    func gitTagDeletionCapabilityRequiresACommitTarget() {
+        let commitTag = GitReference(
+            fullName: "refs/tags/v1.0",
+            shortName: "v1.0",
+            kind: .tag,
+            peelsToCommit: true,
+            isCurrent: false,
+            upstreamShortName: nil
+        )
+        let treeTag = GitReference(
+            fullName: "refs/tags/tree-tag",
+            shortName: "tree-tag",
+            kind: .tag,
+            peelsToCommit: false,
+            isCurrent: false,
+            upstreamShortName: nil
+        )
+
+        #expect(commitTag.supportsTagDeletion)
+        #expect(!treeTag.supportsTagDeletion)
+    }
+
     private func makeTagTestFeature(
         _ operations: TestGitOperations,
         onNotify: @escaping @MainActor (String) -> Void = { _ in }

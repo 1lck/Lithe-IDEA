@@ -275,12 +275,10 @@ empty value), it creates an annotated tag (`git tag -a`); an absent field
 creates a lightweight tag. UI callers trim new user-entered messages. Core
 passes the supplied annotation with verbatim cleanup so restore preserves
 CRLF and trailing blank lines, and an explicit empty value preserves an empty
-annotated tag. Tag
-names must satisfy the `git check-ref-format` refname rules and must not
+annotated tag. Tag names must satisfy the `git check-ref-format` refname rules and must not
 begin with a dash; `shared/fixtures/git/tag-names.json` pins the boundary cases
 for Core and host-side validation. Before invoking Git, `createTag` probes the
-repository so
-a duplicate tag (`A tag named '<name>' already exists`) and an unresolvable
+repository so a duplicate tag (`A tag named '<name>' already exists`) and an unresolvable
 non-commit target (`Could not resolve tag target '<rev>'`) fail with stable
 `invalid_request` messages instead of localized Git output. `deleteTag` uses
 `name` and removes `refs/tags/<name>`; a missing tag fails with
@@ -291,7 +289,10 @@ structured `tagDeletion` record — `{ "name": string, "deletedTarget": string,
 `message` is the original annotation with its line breaks preserved. Hosts
 can rebuild the tag by replaying `createTag` with `name`, `deletedTarget`,
 and `message`; the tagger identity and timestamp are intentionally not
-preserved. `deleteBranch` resolves `refs/heads/<name>` before deleting and,
+preserved. Deletion supplies the observed unpeeled object ID to `update-ref`,
+so a concurrent force-update fails atomically instead of deleting new state and
+returning a stale recovery target. `deleteBranch` applies the same expected-OID
+guard after checking the branch is fully merged and not checked out, then
 on success, carries a structured `branchDeletion` record —
 `{ "name": string, "deletedTarget": string }` — so hosts can offer to
 recreate the branch at its previous commit; a missing branch fails with
@@ -360,6 +361,8 @@ and the optional effective `userName` and `userEmail` from repository Git
 configuration. Commit parents are explicit so clients can render merge
 topology without re-parsing Git output. The identity fields let clients
 implement a stable `me` filter without guessing from recent commits.
+Each reference includes `peelsToCommit`; hosts use it to disable commit-only
+actions for legal tree/blob tags before the user reaches a failing mutation.
 
 `git.commit` accepts `root` and a revision, returning one `commit` object.
 `git.blame` accepts `root` and a workspace-relative `path`; its line numbers

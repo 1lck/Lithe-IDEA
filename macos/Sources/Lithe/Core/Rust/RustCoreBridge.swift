@@ -913,6 +913,7 @@ struct RustCoreBridge: Sendable {
             let fullName: String
             let shortName: String
             let kind: String
+            let peelsToCommit: Bool
             let isCurrent: Bool
             let upstreamShortName: String?
         }
@@ -943,6 +944,7 @@ struct RustCoreBridge: Sendable {
                         fullName: reference.fullName,
                         shortName: reference.shortName,
                         kind: kind,
+                        peelsToCommit: reference.peelsToCommit,
                         isCurrent: reference.isCurrent,
                         upstreamShortName: reference.upstreamShortName
                     )
@@ -953,6 +955,7 @@ struct RustCoreBridge: Sendable {
                         fullName: reference.fullName,
                         shortName: reference.shortName,
                         kind: kind,
+                        peelsToCommit: reference.peelsToCommit,
                         isCurrent: reference.isCurrent,
                         upstreamShortName: reference.upstreamShortName
                     )

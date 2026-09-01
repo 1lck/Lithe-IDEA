@@ -1059,10 +1059,15 @@ struct GitLogView: View {
             if reference.kind == .tag {
                 Divider()
 
-                Button("Delete Tag…", role: .destructive) {
-                    pendingTagDeletion = reference
+                if reference.supportsTagDeletion {
+                    Button("Delete Tag…", role: .destructive) {
+                        pendingTagDeletion = reference
+                    }
+                    .disabled(model.isPerformingBranchOperation)
+                } else {
+                    Button("Delete Tag… (target is not a commit)") {}
+                        .disabled(true)
                 }
-                .disabled(model.isPerformingBranchOperation)
             }
         }
     }

@@ -58,6 +58,7 @@ export const checkoutBranch = async (
     fullName: branchName.startsWith("refs/heads/") ? branchName : `refs/heads/${branchName}`,
     shortName,
     kind: "local",
+    peelsToCommit: true,
     isCurrent: false,
   });
 };

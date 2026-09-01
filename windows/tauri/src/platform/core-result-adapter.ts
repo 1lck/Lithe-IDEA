@@ -135,6 +135,7 @@ export function adaptCoreResult<T>(
               fullName: reference.fullName,
               shortName: reference.shortName,
               kind: reference.kind,
+              peelsToCommit: Boolean(reference.peelsToCommit),
               isCurrent: Boolean(reference.isCurrent),
               upstreamShortName: reference.upstreamShortName ?? undefined,
             }))
@@ -144,6 +145,7 @@ export function adaptCoreResult<T>(
               fullName: reference.fullName,
               shortName: reference.shortName,
               kind: reference.kind,
+              peelsToCommit: Boolean(reference.peelsToCommit),
               isCurrent: Boolean(reference.isCurrent),
               upstreamShortName: reference.upstreamShortName ?? undefined,
             }))

@@ -4,6 +4,7 @@
       "fullName": "refs/heads/feature/recent",
       "shortName": "feature/recent",
       "kind": "local",
+      "peelsToCommit": true,
       "isCurrent": true,
       "upstreamShortName": null
     },
@@ -11,6 +12,7 @@
       "fullName": "refs/heads/main",
       "shortName": "main",
       "kind": "local",
+      "peelsToCommit": true,
       "isCurrent": false,
       "upstreamShortName": "origin/main"
     }
@@ -20,6 +22,7 @@
       "fullName": "refs/heads/feature/recent",
       "shortName": "feature/recent",
       "kind": "local",
+      "peelsToCommit": true,
       "isCurrent": true,
       "upstreamShortName": null
     },
@@ -27,6 +30,7 @@
       "fullName": "refs/heads/main",
       "shortName": "main",
       "kind": "local",
+      "peelsToCommit": true,
       "isCurrent": false,
       "upstreamShortName": "origin/main"
     }

@@ -56,11 +56,27 @@ package struct GitReference: Identifiable, Hashable, Sendable {
     package let fullName: String
     package let shortName: String
     package let kind: GitReferenceKind
+    package let peelsToCommit: Bool
     package let isCurrent: Bool
     package let upstreamShortName: String?
-    package init(fullName: String, shortName: String, kind: GitReferenceKind, isCurrent: Bool, upstreamShortName: String?) { self.fullName = fullName; self.shortName = shortName; self.kind = kind; self.isCurrent = isCurrent; self.upstreamShortName = upstreamShortName }
+    package init(
+        fullName: String,
+        shortName: String,
+        kind: GitReferenceKind,
+        peelsToCommit: Bool = true,
+        isCurrent: Bool,
+        upstreamShortName: String?
+    ) {
+        self.fullName = fullName
+        self.shortName = shortName
+        self.kind = kind
+        self.peelsToCommit = peelsToCommit
+        self.isCurrent = isCurrent
+        self.upstreamShortName = upstreamShortName
+    }
 
     package var id: String { fullName }
+    package var supportsTagDeletion: Bool { kind == .tag && peelsToCommit }
 }
 
 package struct GitStash: Identifiable, Hashable, Sendable {

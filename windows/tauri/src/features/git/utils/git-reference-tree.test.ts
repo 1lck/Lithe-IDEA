@@ -6,6 +6,7 @@ const reference = (shortName: string): GitReference => ({
   fullName: `refs/remotes/${shortName}`,
   shortName,
   kind: "remote",
+  peelsToCommit: true,
   isCurrent: false,
 });
 

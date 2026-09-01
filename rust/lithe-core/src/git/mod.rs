@@ -1033,7 +1033,7 @@ pub fn history(request: GitHistoryRequest) -> Result<GitHistoryResponse, CoreErr
         arguments: vec![
             "for-each-ref".to_string(),
             "--sort=refname".to_string(),
-            "--format=%(refname)\t%(refname:short)\t%(HEAD)\t%(upstream:short)".to_string(),
+            "--format=%(refname)\t%(refname:short)\t%(HEAD)\t%(upstream:short)\t%(objecttype)\t%(*objecttype)".to_string(),
             "refs/heads".to_string(),
             "refs/remotes".to_string(),
             "refs/tags".to_string(),
@@ -2108,9 +2108,15 @@ fn resolved_commit_target(root: &str, target: &str) -> Result<Option<String>, Co
 fn delete_tag(root: &str, value: Option<&str>) -> Result<GitCommandResponse, CoreError> {
     let name = validated_tag_name(value)?;
     let reference = format!("refs/tags/{name}");
+    let expected_object = resolve_ref_object(root, &reference)?.ok_or_else(|| {
+        CoreError::new(
+            ErrorCode::InvalidRequest,
+            format!("The tag '{name}' does not exist"),
+        )
+    })?;
     let object_type = execute_git(
         root,
-        &["cat-file".into(), "-t".into(), reference.clone()],
+        &["cat-file".into(), "-t".into(), expected_object.clone()],
         None,
     )?;
     if object_type.exit_code != 0 {
@@ -2124,7 +2130,7 @@ fn delete_tag(root: &str, value: Option<&str>) -> Result<GitCommandResponse, Cor
     if is_annotated {
         let tag_object = execute_git(
             root,
-            &["cat-file".into(), "tag".into(), reference.clone()],
+            &["cat-file".into(), "tag".into(), expected_object.clone()],
             None,
         )?;
         if tag_object.exit_code == 0 {
@@ -2138,7 +2144,7 @@ fn delete_tag(root: &str, value: Option<&str>) -> Result<GitCommandResponse, Cor
         &[
             "rev-parse".into(),
             "--verify".into(),
-            format!("{reference}^{{commit}}"),
+            format!("{expected_object}^{{commit}}"),
         ],
         None,
     )?;
@@ -2149,10 +2155,8 @@ fn delete_tag(root: &str, value: Option<&str>) -> Result<GitCommandResponse, Cor
         )
         .with_details(peeled.output));
     }
-    let mut result = execute_git(root, &["tag".into(), "-d".into(), name.clone()], None)?;
-    if result.exit_code == 0 && !ref_exists(&root, &reference)? {
-        // Defense against the probe-mutate race: the record is only offered
-        // when the ref is actually gone, never against re-created state.
+    let mut result = delete_ref_if_unchanged(root, &reference, &expected_object)?;
+    if result.exit_code == 0 {
         result.tag_deletion = Some(GitTagDeletionResponse {
             name,
             deleted_target: peeled.stdout.trim().to_string(),
@@ -2172,65 +2176,197 @@ fn delete_tag(root: &str, value: Option<&str>) -> Result<GitCommandResponse, Cor
 /// host can offer a restore. The commit is resolved before the deletion
 /// because `git branch -d` diagnostics are localized prose.
 fn delete_branch(root: &str, branch: &str) -> Result<GitCommandResponse, CoreError> {
-    let target = execute_git(
-        root,
-        &[
-            "rev-parse".into(),
-            "--verify".into(),
-            format!("refs/heads/{branch}"),
-        ],
-        None,
-    )?;
-    if target.exit_code != 0 {
-        return Err(CoreError::new(
+    let reference = format!("refs/heads/{branch}");
+    let target = resolve_ref_object(root, &reference)?.ok_or_else(|| {
+        CoreError::new(
             ErrorCode::InvalidRequest,
             format!("The branch '{branch}' does not exist"),
         )
-        .with_details(target.output));
-    }
-    let mut result = execute_git(
-        root,
-        &[
-            "branch".into(),
-            "-d".into(),
-            "--".into(),
-            branch.to_string(),
-        ],
-        None,
-    )?;
-    if result.exit_code == 0 && !ref_exists(&root, &format!("refs/heads/{branch}"))? {
-        // Same probe-mutate defense as tags: only offer a restore when the
-        // ref is actually gone.
+    })?;
+    ensure_branch_is_safely_deletable(root, branch, &reference, &target)?;
+    let mut result = delete_ref_if_unchanged(root, &reference, &target)?;
+    if result.exit_code == 0 {
+        remove_branch_config(root, branch)?;
         result.branch_deletion = Some(GitBranchDeletionResponse {
             name: branch.to_string(),
-            deleted_target: target.stdout.trim().to_string(),
+            deleted_target: target,
         });
     }
     Ok(result)
 }
 
-/// Reports whether a full refname currently resolves, used after a deletion
-/// to confirm the ref is really gone before offering a restore.
-fn ref_exists(root: &str, reference: &str) -> Result<bool, CoreError> {
+/// Resolves an exact refname to its current unpeeled object id.
+fn resolve_ref_object(root: &str, reference: &str) -> Result<Option<String>, CoreError> {
     let probe = execute_git(
         root,
         &[
-            "for-each-ref".into(),
-            "--format=%(refname)".into(),
+            "rev-parse".into(),
+            "--verify".into(),
+            "--quiet".into(),
             reference.to_string(),
         ],
         None,
     )?;
-    if probe.exit_code != 0 {
+    Ok((probe.exit_code == 0).then(|| probe.stdout.trim().to_string()))
+}
+
+/// Deletes a ref only when it still points at the object observed by the
+/// caller. `update-ref` performs the comparison and mutation under the same
+/// ref lock, closing the probe-then-mutate race.
+fn delete_ref_if_unchanged(
+    root: &str,
+    reference: &str,
+    expected_object: &str,
+) -> Result<GitCommandResponse, CoreError> {
+    let mut result = execute_git(
+        root,
+        &[
+            "update-ref".into(),
+            "-d".into(),
+            reference.to_string(),
+            expected_object.to_string(),
+        ],
+        None,
+    )?;
+    if result.exit_code != 0 {
+        result.operation_error = Some(
+            CoreError::new(
+                ErrorCode::InvalidRequest,
+                format!("The Git reference '{reference}' changed before it could be deleted"),
+            )
+            .with_details(result.output.clone()),
+        );
+    }
+    Ok(result)
+}
+
+/// Preserves `git branch -d` safety before the atomic ref mutation: a branch
+/// must not be checked out in any worktree and must be merged into its valid
+/// upstream, or into HEAD when it has no usable upstream.
+fn ensure_branch_is_safely_deletable(
+    root: &str,
+    branch: &str,
+    reference: &str,
+    target: &str,
+) -> Result<(), CoreError> {
+    let worktrees = execute_git(
+        root,
+        &["worktree".into(), "list".into(), "--porcelain".into()],
+        None,
+    )?;
+    if worktrees.exit_code != 0 {
+        return Err(
+            CoreError::new(ErrorCode::ProcessFailed, "Could not inspect Git worktrees")
+                .with_details(worktrees.output),
+        );
+    }
+    if worktrees
+        .stdout
+        .lines()
+        .any(|line| line == format!("branch {reference}"))
+    {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            format!("The branch '{branch}' is checked out in a worktree"),
+        ));
+    }
+
+    let upstream = execute_git(
+        root,
+        &[
+            "for-each-ref".into(),
+            "--format=%(upstream)".into(),
+            reference.to_string(),
+        ],
+        None,
+    )?;
+    if upstream.exit_code != 0 {
         return Err(CoreError::new(
             ErrorCode::ProcessFailed,
-            "Could not verify deleted Git reference",
+            "Could not inspect the branch upstream",
         )
-        .with_details(probe.output));
+        .with_details(upstream.output));
     }
-    // `for-each-ref` patterns can also return descendant refs, so compare the
-    // emitted full names instead of treating any output as an exact match.
-    Ok(probe.stdout.lines().any(|candidate| candidate == reference))
+    let upstream = upstream.stdout.trim();
+    let merge_target = if !upstream.is_empty() && resolved_commit_target(root, upstream)?.is_some()
+    {
+        upstream
+    } else {
+        "HEAD"
+    };
+    let merged = execute_git(
+        root,
+        &[
+            "merge-base".into(),
+            "--is-ancestor".into(),
+            target.to_string(),
+            merge_target.to_string(),
+        ],
+        None,
+    )?;
+    match merged.exit_code {
+        0 => Ok(()),
+        1 => Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            format!("The branch '{branch}' is not fully merged"),
+        )),
+        _ => Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            format!("Could not verify whether branch '{branch}' is merged"),
+        )
+        .with_details(merged.output)),
+    }
+}
+
+/// Removes branch-local configuration after the ref has been deleted, matching
+/// the metadata cleanup performed by `git branch -d`.
+fn remove_branch_config(root: &str, branch: &str) -> Result<(), CoreError> {
+    let listing = capture_git_with_options(
+        root,
+        &[
+            "config".into(),
+            "--name-only".into(),
+            "--get-regexp".into(),
+            "^branch\\.".into(),
+        ],
+        None,
+        false,
+    )?;
+    if listing.exit_code == 1 {
+        return Ok(());
+    }
+    if listing.exit_code != 0 {
+        return Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Could not inspect branch configuration",
+        )
+        .with_details(String::from_utf8_lossy(&listing.stderr)));
+    }
+    let prefix = format!("branch.{branch}.");
+    if !String::from_utf8_lossy(&listing.stdout)
+        .lines()
+        .any(|key| key.starts_with(&prefix))
+    {
+        return Ok(());
+    }
+    let cleanup = capture_git_with_options(
+        root,
+        &[
+            "config".into(),
+            "--remove-section".into(),
+            format!("branch.{branch}"),
+        ],
+        None,
+        false,
+    )?;
+    if cleanup.exit_code == 0 {
+        return Ok(());
+    }
+    Err(CoreError::new(
+        ErrorCode::ProcessFailed,
+        format!("Deleted branch '{branch}' but could not remove its configuration"),
+    )
+    .with_details(String::from_utf8_lossy(&cleanup.stderr)))
 }
 
 /// Extracts the annotation message from a raw tag object byte-for-byte, so a
@@ -2706,7 +2842,7 @@ pub(super) fn switch_reference(
 
 fn parse_reference(line: &str) -> Option<GitReferenceResponse> {
     let columns = line.split('\t').collect::<Vec<_>>();
-    if columns.len() < 4 || columns[1].ends_with("/HEAD") {
+    if columns.len() < 6 || columns[1].ends_with("/HEAD") {
         return None;
     }
     let kind = if columns[0].starts_with("refs/heads/") {
@@ -2720,6 +2856,7 @@ fn parse_reference(line: &str) -> Option<GitReferenceResponse> {
         full_name: columns[0].to_string(),
         short_name: columns[1].to_string(),
         kind: kind.to_string(),
+        peels_to_commit: kind != "tag" || columns[4] == "commit" || columns[5] == "commit",
         is_current: columns[2].trim() == "*",
         upstream_short_name: (!columns[3].is_empty()).then(|| columns[3].to_string()),
     })
@@ -3757,6 +3894,7 @@ mod tests {
             full_name: "refs/heads/feature/recent".into(),
             short_name: "feature/recent".into(),
             kind: "local".into(),
+            peels_to_commit: true,
             is_current: true,
             upstream_short_name: None,
         };
@@ -3764,6 +3902,7 @@ mod tests {
             full_name: "refs/heads/main".into(),
             short_name: "main".into(),
             kind: "local".into(),
+            peels_to_commit: true,
             is_current: false,
             upstream_short_name: Some("origin/main".into()),
         };
