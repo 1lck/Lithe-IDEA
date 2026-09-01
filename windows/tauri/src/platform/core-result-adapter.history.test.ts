@@ -16,6 +16,8 @@ describe("git history result adaptation", () => {
             peelsToCommit: true,
             isCurrent: true,
             upstreamShortName: "origin/main",
+            ahead: 12,
+            behind: 3,
           },
           {
             fullName: "refs/tags/tree-tag",
@@ -33,6 +35,8 @@ describe("git history result adaptation", () => {
             peelsToCommit: true,
             isCurrent: true,
             upstreamShortName: "origin/main",
+            ahead: 12,
+            behind: 3,
           },
         ],
         commits: [
@@ -60,6 +64,8 @@ describe("git history result adaptation", () => {
           peelsToCommit: true,
           isCurrent: true,
           upstreamShortName: "origin/main",
+          ahead: 12,
+          behind: 3,
         },
         {
           fullName: "refs/tags/tree-tag",
@@ -78,6 +84,8 @@ describe("git history result adaptation", () => {
           peelsToCommit: true,
           isCurrent: true,
           upstreamShortName: "origin/main",
+          ahead: 12,
+          behind: 3,
         },
       ],
       commits: [

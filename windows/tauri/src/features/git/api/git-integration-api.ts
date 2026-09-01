@@ -1,7 +1,12 @@
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
 import { emitGitChanged } from "../events/git-events";
 import { resolveRepositoryPathOrThrow } from "./git-repo-api";
-import type { GitOperationState, GitReference, PullStrategy } from "../types/git.types";
+import type {
+  GitOperationState,
+  GitOperationWarning,
+  GitReference,
+  PullStrategy,
+} from "../types/git.types";
 
 type IntegrationOperation = "merge" | "rebase";
 
@@ -11,8 +16,13 @@ interface IntegrationPreflightResult {
 }
 
 export type IntegrationOutcome =
-  | { status: "clean" }
-  | { status: "conflicts"; conflictedPaths: string[] }
+  | { status: "clean"; warnings?: GitOperationWarning[] }
+  | {
+      status: "conflicts";
+      conflictedPaths: string[];
+      deferredAutoStash?: boolean;
+      stashRestore?: { stashReference: string };
+    }
   | { status: "stopped" }
   | { status: "blocked"; blockingPaths: string[]; blocksEntirely: boolean }
   | { status: "error"; message: string };
@@ -27,10 +37,12 @@ const errorMessage = (error: unknown): string => {
   return message.trim() || "Git operation failed";
 };
 
-const notifyOperationChanged = (repoPath: string, source: string) => {
+const notifyOperationChanged = (repoPath: string, source: string, refreshStashes = false) => {
   emitGitChanged({
     repoPath,
-    scopes: ["working-tree", "history", "refs"],
+    scopes: refreshStashes
+      ? ["working-tree", "history", "refs", "stashes"]
+      : ["working-tree", "history", "refs"],
     source,
   });
 };
@@ -156,6 +168,7 @@ export const pullRemoteReference = async (
   repoPath: string,
   reference: GitReference,
   strategy: Extract<PullStrategy, "merge" | "rebase">,
+  autoStash = false,
 ): Promise<IntegrationOutcome> => {
   const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
   let preflight: IntegrationPreflightResult | null = null;
@@ -169,7 +182,7 @@ export const pullRemoteReference = async (
   } catch {
     // Git remains the final authority if a read-only preflight is unavailable.
   }
-  if (preflight && preflight.blockingPaths.length > 0) {
+  if (!autoStash && preflight && preflight.blockingPaths.length > 0) {
     return {
       status: "blocked",
       blockingPaths: preflight.blockingPaths,
@@ -177,20 +190,37 @@ export const pullRemoteReference = async (
     };
   }
   try {
-    await tauriInvoke("git_pull", {
+    const result = await tauriInvoke<{
+      stashRestore?: { stashReference: string; conflictedPaths: string[] };
+      warnings?: GitOperationWarning[];
+    }>("git_pull", {
       repoPath: resolvedRepoPath,
       reference: reference.fullName,
       referenceKind: reference.kind,
       mode: strategy,
+      ...(autoStash ? { autoStash: true } : {}),
     });
-    notifyOperationChanged(resolvedRepoPath, `pull-${strategy}-completed`);
-    return { status: "clean" };
+    notifyOperationChanged(resolvedRepoPath, `pull-${strategy}-completed`, autoStash);
+    if (result?.stashRestore) {
+      return {
+        status: "conflicts",
+        conflictedPaths: result.stashRestore.conflictedPaths,
+        stashRestore: { stashReference: result.stashRestore.stashReference },
+      };
+    }
+    return { status: "clean", warnings: result?.warnings ?? [] };
   } catch (error) {
-    notifyOperationChanged(resolvedRepoPath, `pull-${strategy}-rejected`);
+    notifyOperationChanged(resolvedRepoPath, `pull-${strategy}-rejected`, autoStash);
     const state = await getOperationState(resolvedRepoPath).catch(() => null);
     if (state?.kind === strategy) {
       return state.conflictedPaths.length
-        ? { status: "conflicts", conflictedPaths: state.conflictedPaths }
+        ? {
+            status: "conflicts",
+            conflictedPaths: state.conflictedPaths,
+            ...(autoStash && preflight?.blockingPaths.length
+              ? { deferredAutoStash: true }
+              : {}),
+          }
         : { status: "stopped" };
     }
     return { status: "error", message: errorMessage(error) };

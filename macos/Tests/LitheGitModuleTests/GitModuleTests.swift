@@ -869,19 +869,22 @@ struct GitModuleTests {
     @Test
     func gitBranchConfigCleanupFailureKeepsTheRestorableDeletionRecord() async {
         var notifications: [String] = []
-        let warning = "Deleted branch 'feature/short-lived' but could not remove its configuration"
+        let warning = "Could not remove configuration for deleted branch 'feature/short-lived'"
         let (feature, _) = makeTagTestFeature(
             TestGitOperations(
                 snapshotValue: GitSnapshot(repositoryRoot: URL(fileURLWithPath: "/workspace"), branch: "main", changes: []),
                 deleteBranchResult: GitProcessResult(
                     arguments: ["update-ref", "-d", "refs/heads/feature/short-lived"],
-                    output: warning,
+                    output: "",
                     exitCode: 0,
-                    operationErrorMessage: warning,
                     branchDeletion: GitBranchDeletion(
                         name: "feature/short-lived",
                         deletedTarget: "abc123def456"
-                    )
+                    ),
+                    warnings: [GitOperationWarning(
+                        code: "branch_config_cleanup_failed",
+                        message: warning
+                    )]
                 )
             ),
             onNotify: { notifications.append($0) }
@@ -901,7 +904,7 @@ struct GitModuleTests {
             name: "feature/short-lived",
             deletedTarget: "abc123def456"
         ))
-        #expect(notifications == [warning])
+        #expect(notifications == ["Deleted branch feature/short-lived: \(warning)"])
     }
 
     @Test
@@ -1052,7 +1055,14 @@ struct GitModuleTests {
             stageResult: GitProcessResult(
                 arguments: ["add", "--", "README.md"],
                 output: "staged",
-                exitCode: 0
+                exitCode: 0,
+                warnings: [
+                    GitOperationWarning(
+                        code: "git_follow_up_failed",
+                        message: "The main operation succeeded",
+                        details: "follow-up diagnostic"
+                    )
+                ]
             )
         ))
 
@@ -1062,6 +1072,13 @@ struct GitModuleTests {
         #expect(result.arguments == ["add", "--", "README.md"])
         #expect(result.output == "staged")
         #expect(result.succeeded)
+        #expect(result.warnings == [
+            GitOperationWarning(
+                code: "git_follow_up_failed",
+                message: "The main operation succeeded",
+                details: "follow-up diagnostic"
+            )
+        ])
     }
 
     @Test
@@ -1654,7 +1671,7 @@ struct GitModuleTests {
         ])
         let service = GitService(operations: TestGitOperations(
             snapshotValue: snapshot,
-            comparisonValue: payload
+            typedComparisonValue: payload
         ))
 
         let comparison = await service.comparison(from: source, to: target, at: root)
@@ -2108,9 +2125,11 @@ private final class GitProcessResultQueue: @unchecked Sendable {
 private struct TestGitOperations: GitOperations {
     private let snapshotValue: GitSnapshot?
     private let comparisonValue: GitBranchComparison?
+    private let typedComparisonValue: GitBranchComparison?
     private let filesValue: [GitCommitFile]?
     private let untrackedDiffDocumentValue: DiffDocument?
     private let comparisonDiffDocumentValue: DiffDocument?
+    private let typedComparisonDiffDocumentValue: DiffDocument?
     private let historyValue: GitHistorySnapshot?
     private let stageResult: GitProcessResult?
     private let runGate: TestGitRunGate?
@@ -2127,10 +2146,12 @@ private struct TestGitOperations: GitOperations {
     init(
         snapshotValue: GitSnapshot? = nil,
         comparisonValue: GitBranchComparison? = nil,
+        typedComparisonValue: GitBranchComparison? = nil,
         historyValue: GitHistorySnapshot? = nil,
         filesValue: [GitCommitFile]? = nil,
         untrackedDiffDocumentValue: DiffDocument? = nil,
         comparisonDiffDocumentValue: DiffDocument? = nil,
+        typedComparisonDiffDocumentValue: DiffDocument? = nil,
         stageResult: GitProcessResult? = nil,
         runGate: TestGitRunGate? = nil,
         filesRecorder: GitFilesCallRecorder? = nil,
@@ -2145,10 +2166,12 @@ private struct TestGitOperations: GitOperations {
     ) {
         self.snapshotValue = snapshotValue
         self.comparisonValue = comparisonValue
+        self.typedComparisonValue = typedComparisonValue
         self.historyValue = historyValue
         self.filesValue = filesValue
         self.untrackedDiffDocumentValue = untrackedDiffDocumentValue
         self.comparisonDiffDocumentValue = comparisonDiffDocumentValue
+        self.typedComparisonDiffDocumentValue = typedComparisonDiffDocumentValue
         self.stageResult = stageResult
         self.runGate = runGate
         self.filesRecorder = filesRecorder
@@ -2181,6 +2204,7 @@ private struct TestGitOperations: GitOperations {
     func diffPatch(at rootURL: URL, pathspecs: [String], staged: Bool, untracked: Bool, whitespace: GitDiffWhitespaceMode) -> String? { nil }
     func commitDiffDocument(at rootURL: URL, commit: String, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { nil }
     func comparisonDiffDocument(at rootURL: URL, reference: String, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { comparisonDiffDocumentValue }
+    func comparisonDiffDocument(at rootURL: URL, reference: GitReference, targetReference: GitReference?, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { typedComparisonDiffDocumentValue }
     func applyPatch(_ patch: String, at rootURL: URL, mode: String) -> GitProcessResult? { nil }
     func history(at rootURL: URL, reference: GitReference?, limit: Int) -> GitHistorySnapshot? { historyValue }
     func files(in commit: GitCommit, at rootURL: URL) -> [GitCommitFile]? {
@@ -2192,6 +2216,7 @@ private struct TestGitOperations: GitOperations {
     }
     func commit(at rootURL: URL, hash: String) -> GitCommit? { nil }
     func comparison(for reference: GitReference, at rootURL: URL) -> GitBranchComparison? { comparisonValue }
+    func comparison(from reference: GitReference, to target: GitReference, at rootURL: URL) -> GitBranchComparison? { typedComparisonValue }
     func stashes(at rootURL: URL) -> [GitStash]? { nil }
     func blame(at rootURL: URL, relativePath: String) -> [GitBlameLine]? { nil }
     func stage(_ change: GitChange) -> GitProcessResult? { stageResult }

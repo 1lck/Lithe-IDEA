@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "name": "Maven Java main source-set launch plans",
+  "cases": [
+    {
+      "name": "test source main",
+      "module": "module-a",
+      "source": "module-a/src/test/java/com/example/App.java",
+      "sourceSet": "test",
+      "configurationId": "java-main:com.example.App:module-a",
+      "expectedArguments": [
+        "-B",
+        "-ntp",
+        "-pl",
+        "module-a",
+        "-Dexec.mainClass=com.example.App",
+        "-Dexec.classpathScope=test",
+        "test-compile",
+        "org.codehaus.mojo:exec-maven-plugin:3.5.0:java"
+      ]
+    },
+    {
+      "name": "main source main",
+      "module": "module-b",
+      "source": "module-b/src/main/java/com/example/App.java",
+      "sourceSet": "main",
+      "configurationId": "java-main:com.example.App:module-b",
+      "expectedArguments": [
+        "-B",
+        "-ntp",
+        "-pl",
+        "module-b",
+        "-Dexec.mainClass=com.example.App",
+        "org.codehaus.mojo:exec-maven-plugin:3.5.0:java"
+      ]
+    }
+  ]
+}

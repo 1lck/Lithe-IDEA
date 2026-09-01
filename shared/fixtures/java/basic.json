@@ -10,7 +10,9 @@
       "expected": {
         "mainClass": "com.example.App",
         "kind": "springBoot",
-        "modulePath": "src"
+        "modulePath": "src",
+        "sourcePath": "src/main/java/com/example/App.java",
+        "sourceSet": "main"
       }
     },
     {

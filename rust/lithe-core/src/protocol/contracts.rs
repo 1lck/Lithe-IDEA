@@ -239,6 +239,18 @@ pub struct JavaMainClassResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Source-set classification attached to one discovered Java run entry.
+pub enum JavaSourceSetResponse {
+    /// Production source compiled into the main project output.
+    Main,
+    /// Test source compiled into the test project output.
+    Test,
+    /// Java source outside the conventional Maven main and test layouts.
+    Other,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 /// UI-facing Java or Spring Boot run entry.
 pub struct JavaRunConfigurationResponse {
     pub id: String,
@@ -247,6 +259,10 @@ pub struct JavaRunConfigurationResponse {
     pub kind: String,
     pub module_path: Option<String>,
     pub main_class: Option<String>,
+    /// Workspace-relative source that produced this exact run entry.
+    pub source_path: String,
+    /// Build output that must be present on the Java launch classpath.
+    pub source_set: JavaSourceSetResponse,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -396,6 +412,10 @@ pub struct GitReferenceResponse {
     pub peels_to_commit: bool,
     pub is_current: bool,
     pub upstream_short_name: Option<String>,
+    /// Commits present only on this local branch compared with its upstream.
+    pub ahead: usize,
+    /// Commits present only on this local branch's upstream.
+    pub behind: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -423,6 +443,40 @@ pub struct GitHistoryResponse {
     pub has_more: bool,
     pub user_name: Option<String>,
     pub user_email: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Resolved destination and bounded commits for one branch push.
+pub struct GitPushPreviewResponse {
+    /// Local branch that will be sent to the remote.
+    pub local_branch: String,
+    /// Commit at the local branch tip when this preview was resolved.
+    pub local_head: String,
+    /// Remote selected from the branch upstream or repository defaults.
+    pub remote: String,
+    /// Branch name created or updated on the remote.
+    pub remote_branch: String,
+    /// Locally observed destination OID, or `None` before first publication.
+    pub remote_tracking_oid: Option<String>,
+    /// Configured upstream short name, or `None` before first publication.
+    pub upstream: Option<String>,
+    /// Exact tag references and object IDs included in this reviewed push.
+    pub tags: Vec<GitPushTagResponse>,
+    /// Commits reachable from the local branch but not its resolved remote base.
+    pub commits: Vec<GitCommitResponse>,
+    /// Whether more commits exist beyond the bounded preview.
+    pub has_more: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// One immutable tag snapshot included in a reviewed push.
+pub struct GitPushTagResponse {
+    /// Fully qualified tag reference under `refs/tags/`.
+    pub full_name: String,
+    /// Tag object ID observed while the preview was created.
+    pub object_id: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

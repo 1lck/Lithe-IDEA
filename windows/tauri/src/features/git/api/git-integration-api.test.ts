@@ -49,6 +49,7 @@ describe("Git integration state", () => {
     await expect(checkoutAndRebase("C:/repo", reference)).resolves.toEqual({ status: "clean" });
     await expect(pullRemoteReference("C:/repo", reference, "merge")).resolves.toEqual({
       status: "clean",
+      warnings: [],
     });
     expect(invoke).toHaveBeenCalledWith("git_checkout_and_rebase", {
       repoPath: "C:/repo",
@@ -98,6 +99,150 @@ describe("Git integration state", () => {
     await expect(mergeBranch("C:/repo", "feature")).resolves.toEqual({
       status: "conflicts",
       conflictedPaths: ["src/app.ts"],
+    });
+  });
+
+  test("delegates dirty remote Pull recovery to Core auto-stash", async () => {
+    invoke.mockImplementation(async (command: string) => {
+      if (command === "git_discover_repo") return "C:/repo";
+      if (command === "git_integration_preflight") {
+        return { blockingPaths: ["src/local.ts"], blocksEntirely: true };
+      }
+      if (command === "git_pull") {
+        return {
+          warnings: [
+            {
+              code: "git_stash_drop_failed",
+              message: "Pull completed but the temporary stash could not be dropped",
+            },
+          ],
+        };
+      }
+      return null;
+    });
+    const reference = {
+      fullName: "refs/remotes/origin/feature/demo",
+      shortName: "origin/feature/demo",
+      kind: "remote" as const,
+      isCurrent: false,
+    };
+
+    await expect(pullRemoteReference("C:/repo", reference, "rebase", true)).resolves.toEqual({
+      status: "clean",
+      warnings: [
+        {
+          code: "git_stash_drop_failed",
+          message: "Pull completed but the temporary stash could not be dropped",
+        },
+      ],
+    });
+    expect(invoke).toHaveBeenCalledWith("git_pull", {
+      repoPath: "C:/repo",
+      reference: reference.fullName,
+      referenceKind: "remote",
+      mode: "rebase",
+      autoStash: true,
+    });
+    expect(emitGitChanged).toHaveBeenCalledWith({
+      repoPath: "C:/repo",
+      scopes: ["working-tree", "history", "refs", "stashes"],
+      source: "pull-rebase-completed",
+    });
+  });
+
+  test("returns stash restore conflicts after a successful remote Pull", async () => {
+    invoke.mockImplementation(async (command: string) => {
+      if (command === "git_discover_repo") return "C:/repo";
+      if (command === "git_integration_preflight") {
+        return { blockingPaths: [], blocksEntirely: false };
+      }
+      if (command === "git_pull") {
+        return {
+          stashRestore: {
+            stashReference: "stash@{0}",
+            conflictedPaths: ["src/local.ts"],
+          },
+        };
+      }
+      return null;
+    });
+    const reference = {
+      fullName: "refs/remotes/origin/feature/demo",
+      shortName: "origin/feature/demo",
+      kind: "remote" as const,
+      isCurrent: false,
+    };
+
+    await expect(pullRemoteReference("C:/repo", reference, "merge", true)).resolves.toEqual({
+      status: "conflicts",
+      conflictedPaths: ["src/local.ts"],
+      stashRestore: { stashReference: "stash@{0}" },
+    });
+    expect(emitGitChanged).toHaveBeenCalledWith({
+      repoPath: "C:/repo",
+      scopes: ["working-tree", "history", "refs", "stashes"],
+      source: "pull-merge-completed",
+    });
+  });
+
+  test("keeps the auto-stash visible when a remote Pull stops on conflicts", async () => {
+    invoke.mockImplementation(async (command: string) => {
+      if (command === "git_discover_repo") return "C:/repo";
+      if (command === "git_integration_preflight") {
+        return { blockingPaths: ["src/local.ts"], blocksEntirely: true };
+      }
+      if (command === "git_pull") throw new Error("pull stopped");
+      if (command === "git_operation_state") {
+        return operationState("merge", ["src/conflict.ts"]);
+      }
+      return null;
+    });
+    const reference = {
+      fullName: "refs/remotes/origin/feature/demo",
+      shortName: "origin/feature/demo",
+      kind: "remote" as const,
+      isCurrent: false,
+    };
+
+    await expect(pullRemoteReference("C:/repo", reference, "merge", true)).resolves.toEqual({
+      status: "conflicts",
+      conflictedPaths: ["src/conflict.ts"],
+      deferredAutoStash: true,
+    });
+    expect(emitGitChanged).toHaveBeenCalledWith({
+      repoPath: "C:/repo",
+      scopes: ["working-tree", "history", "refs", "stashes"],
+      source: "pull-merge-rejected",
+    });
+  });
+
+  test("reads the operation state when a remote Pull stops on conflicts", async () => {
+    invoke.mockImplementation(async (command: string) => {
+      if (command === "git_discover_repo") return "C:/repo";
+      if (command === "git_integration_preflight") {
+        return { blockingPaths: [], blocksEntirely: false };
+      }
+      if (command === "git_pull") throw new Error("pull stopped");
+      if (command === "git_operation_state") {
+        return operationState("merge", ["src/conflict.ts"]);
+      }
+      return null;
+    });
+    const reference = {
+      fullName: "refs/remotes/origin/feature/demo",
+      shortName: "origin/feature/demo",
+      kind: "remote" as const,
+      isCurrent: false,
+    };
+
+    await expect(pullRemoteReference("C:/repo", reference, "merge")).resolves.toEqual({
+      status: "conflicts",
+      conflictedPaths: ["src/conflict.ts"],
+    });
+    expect(emitGitChanged).toHaveBeenCalledWith({
+      repoPath: "C:/repo",
+      scopes: ["working-tree", "history", "refs"],
+      source: "pull-merge-rejected",
     });
   });
 

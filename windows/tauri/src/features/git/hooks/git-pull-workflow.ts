@@ -31,9 +31,9 @@ const IDLE_SNAPSHOT: GitPullWorkflowSnapshot = {
   pendingPreflight: null,
 };
 
-const errorText = (error: unknown, fallback: string) => {
+const errorText = (error: unknown): string | undefined => {
   const message = error instanceof Error ? error.message : String(error);
-  return message.trim() || fallback;
+  return message.trim() || undefined;
 };
 
 /** Coordinates one safe pull path, including an explicit divergent-history choice. */
@@ -57,7 +57,7 @@ export class GitPullWorkflow {
 
   async run(repoPath: string, options: GitPullWorkflowOptions): Promise<GitPullResult> {
     if (this.snapshot.isPulling) {
-      return { status: "duplicate", message: "A pull is already in progress." };
+      return { status: "duplicate" };
     }
 
     this.update({ isPulling: true, pendingPreflight: null });
@@ -67,7 +67,7 @@ export class GitPullWorkflow {
         return {
           status: "failed",
           stage: "fetch",
-          message: `Fetch failed: ${fetched.error || "Unable to update remote references."}`,
+          error: fetched.error,
         };
       }
 
@@ -78,7 +78,7 @@ export class GitPullWorkflow {
         return {
           status: "failed",
           stage: "preflight",
-          message: `Pull safety check failed: ${errorText(error, "Unable to inspect the branch.")}`,
+          error: errorText(error),
         };
       }
 
@@ -86,7 +86,6 @@ export class GitPullWorkflow {
         return {
           status: "blocked",
           reason: "no-upstream",
-          message: "The current branch has no upstream. Set an upstream before pulling.",
         };
       }
 
@@ -94,7 +93,6 @@ export class GitPullWorkflow {
         return {
           status: "blocked",
           reason: "dirty",
-          message: "Commit or stash local changes before pulling.",
         };
       }
 
@@ -102,7 +100,6 @@ export class GitPullWorkflow {
         return {
           status: "blocked",
           reason: "up-to-date",
-          message: "The current branch is already up to date.",
         };
       }
 
@@ -110,7 +107,7 @@ export class GitPullWorkflow {
       if (preflight.diverged) {
         const selectedStrategy = await this.waitForStrategy(preflight);
         if (!selectedStrategy) {
-          return { status: "cancelled", message: "Pull cancelled." };
+          return { status: "cancelled" };
         }
 
         let currentPreflight: GitPullPreflight;
@@ -120,7 +117,7 @@ export class GitPullWorkflow {
           return {
             status: "failed",
             stage: "preflight",
-            message: `Pull safety check failed: ${errorText(error, "Unable to inspect the branch.")}`,
+            error: errorText(error),
           };
         }
 
@@ -128,7 +125,6 @@ export class GitPullWorkflow {
           return {
             status: "blocked",
             reason: "dirty",
-            message: "Commit or stash local changes before pulling.",
           };
         }
 
@@ -141,7 +137,6 @@ export class GitPullWorkflow {
           return {
             status: "blocked",
             reason: "state-changed",
-            message: "The branch changed while choosing a pull strategy. Review it and try again.",
           };
         }
         strategy = selectedStrategy;
@@ -149,13 +144,7 @@ export class GitPullWorkflow {
 
       const pulled = await this.dependencies.pull(repoPath, strategy);
       if (pulled.success) {
-        const message =
-          strategy === "merge"
-            ? "Merged upstream changes successfully."
-            : strategy === "rebase"
-              ? "Rebased onto upstream successfully."
-              : "Pulled changes successfully.";
-        return { status: "pulled", strategy, message };
+        return { status: "pulled", strategy };
       }
 
       try {
@@ -164,7 +153,6 @@ export class GitPullWorkflow {
           return {
             status: "conflict",
             operation,
-            message: `${operation.kind === "merge" ? "Merge" : "Rebase"} stopped for conflict resolution.`,
           };
         }
       } catch (stateError) {
@@ -174,7 +162,7 @@ export class GitPullWorkflow {
       return {
         status: "failed",
         stage: "pull",
-        message: `Pull failed: ${pulled.error || "Git rejected the pull."}`,
+        error: pulled.error,
       };
     } finally {
       this.resolveStrategy = null;

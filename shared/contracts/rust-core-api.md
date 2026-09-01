@@ -145,6 +145,7 @@ stable error code and a user-facing message:
 | `git.diff` | Produce a structured working-tree, index, reference, or commit patch |
 | `git.apply` | Apply or check a patch in `stage`, `unstage`, `discard`, or Shelf restore mode |
 | `git.history` | Return deterministic refs, recent local branches, commits, parent hashes, decorations, and pagination state |
+| `git.pushPreview` | Resolve a local branch push destination and the bounded commits not present on that remote base |
 | `git.commit` | Return one structured commit by revision |
 | `git.commitFiles` | Return files changed by one commit |
 | `git.comparison` | Return files changed between a reference and the working tree |
@@ -164,6 +165,9 @@ are one-based. `git.status.repositoryRoot` may be an absolute path when the
 opened workspace is a subdirectory of the repository; all Git change paths are
 relative to that repository root. `git.status.ahead` and `behind` report the
 current branch's tracking counts and are zero when no upstream is configured.
+For a rename or copy, each change uses the destination as `path` and preserves
+the source as `originalPath`; platform mutations that act on the Git entry pass
+both paths back to Core.
 The core rejects absolute paths and `..`
 traversal for file commands. Native file dialogs, file watching, PTY/ConPTY,
 Java processes, and runtime discovery remain platform adapters.
@@ -241,21 +245,31 @@ response retains the invocation trace and includes the failure as
 `operationError`.
 
 `git.write` accepts a typed mutation request. Its required `operation` values are
-`stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `cherryPick`, `revert`,
-`reset`, `createBranch`, `publishBranch`, `renameBranch`, `deleteBranch`, `merge`, `rebase`,
-`checkoutAndRebase`,
-`fetch`, `pull`, `push`, `checkout`, `checkoutRevision`, `clone`, `stashPush`,
-`stashApply`, `stashPop`, `stashDrop`, `operationContinue`, `operationAbort`,
-`operationSkip`, `createTag`, and `deleteTag`. Optional fields are `paths`,
-`reference`, `referenceKind`, `revision`, `name`, `message`, `remote`,
-`destination`, `mode`, `includeUntracked`, `checkout`, and `amend`.
+`stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `ignore`, `exclude`, `cherryPick`, `revert`,
+`reset`, `editCommitMessage`, `deleteCommit`, `squashCommits`, `createBranch`, `publishBranch`,
+`renameBranch`, `setUpstream`, `unsetUpstream`, `deleteBranch`, `merge`, `rebase`, `createWorktree`,
+`fetch`, `pull`, `push`, `checkout`, `checkoutAndRebase`, `checkoutRevision`, `clone`, `stashPush`,
+`stashApply`, `stashPop`, `stashDrop`, `deleteRemoteBranch`, `operationContinue`,
+`operationAbort`, `operationSkip`, `createTag`, and `deleteTag`. Optional fields are `paths`, `reference`, `referenceKind`,
+`gitReference`, `revision`, `revisions`, `name`, `message`, `remote`, `destination`, `mode`,
+`includeUntracked`, `checkout`, `amend`, `force`, `pushTags`, `expectedPush`, and `autoStash`.
 
 The core validates pathspecs, revisions, branch names, references, reset modes,
 stash references, and operation-specific required fields before invoking Git.
+`setUpstream` requires a typed remote `gitReference` and passes its complete
+`refs/remotes/*` identity to Git, so a same-named local branch cannot make the
+upstream ambiguous. `createWorktree` likewise requires a typed reference; for a
+remote reference Core executes one `git worktree add --track -b` mutation using
+the complete remote ref, so branch creation, checkout, and tracking setup do not
+form separate platform-visible success states.
 Successful process launch returns `{ "arguments": string[], "output": string,
 "stdout": string, "stderr": string, "exitCode": number, "invocations":
 GitCommandInvocation[], "operationError": CoreError?, "stashRestore":
-GitStashRestore? }` even when Git exits non-zero. The top-level process fields
+GitStashRestore?, "warnings": GitOperationWarning[] }` even when Git exits non-zero.
+`GitOperationWarning` is `{ "code": string, "message": string, "details"?: string }`
+and reports a non-fatal follow-up failure after the requested mutation already
+succeeded. Platform clients must retain the successful operation outcome while
+presenting the warning. The top-level process fields
 always describe the final subprocess, and `output` is that subprocess's
 `stdout` followed by `stderr`. `invocations` records every Git subprocess for
 composite operations such as `discardAll` and Smart Checkout in execution
@@ -276,16 +290,82 @@ and checks out that branch at a detached HEAD when needed, then pushes it with
 an upstream. If the push fails, the local branch is intentionally retained so
 the user can fix credentials or connectivity and retry without losing commits.
 
-`checkoutAndRebase` accepts a complete local or remote `reference` plus its
-`referenceKind`. Core records the current local branch, rejects any dirty
-working tree before switching, checks out the selected branch, and rebases it
-onto the original branch. Tags and the current local branch are rejected.
+`git.pushPreview` accepts `root`, an optional complete local `gitReference` or
+legacy `reference`, an optional bounded `limit`, and `pushTags`. It returns `localBranch`,
+`localHead`, `remote`, `remoteBranch`, nullable `remoteTrackingOid`, nullable
+`upstream`, exact reviewed `tags`, `commits`, and `hasMore` using
+`shared/fixtures/git/push-preview-v1.json`. The push destination follows
+`branch.<name>.pushRemote`, then `remote.pushDefault`, the configured upstream
+remote, `branch.<name>.remote`, and finally `origin` or the first configured
+remote. A destination without a fetched tracking reference previews commits not
+reachable from that remote. A reviewed `push` mutation sends these resolved fields
+back as `expectedPush`; Core rejects a stale local tip, destination, or tracking OID
+before starting Git. `force` binds `--force-with-lease` to the reviewed destination
+OID when `expectedPush` is present, and Core also validates the reviewed tag
+identities; `pushTags` accepts `none`, `all`, or `reachable`
+and maps to no tag option, `--tags`, or `--follow-tags` respectively. Legacy push
+callers may omit `expectedPush`. A reviewed push uses the preview's immutable
+`localHead` OID as the refspec source, so a repository change after validation
+cannot add unreviewed commits to the operation. Because Git cannot infer an
+upstream from an OID source, Core explicitly configures the reviewed local
+branch after a successful first push.
 
-`pull` without a reference continues to use the current branch's configured
-upstream. When `reference` is present, it must be a complete
-`refs/remotes/<remote>/<branch>` reference with `referenceKind: "remote"`;
-Core safely splits it into structured remote and branch arguments and applies
-the requested `ffOnly`, `merge`, or `rebase` strategy.
+New reference-based workflows send `gitReference` as `{ "fullName": string,
+"shortName": string, "kind": "local" | "remote" | "tag" }`. Core verifies
+that all three fields describe the same namespace and validates the full ref
+with Git. The legacy `reference` and `referenceKind` fields remain accepted for
+existing platform calls. `checkoutAndRebase` requires a local or remote branch
+reference and a completely clean worktree; Core records the current local
+branch before switching and rebases the checked-out branch onto that original
+branch. A dirty tree or detached HEAD is rejected before checkout begins. When
+remote checkout finds an existing same-named local branch, Core uses it only if
+its configured upstream is the selected complete remote reference.
+
+`pull` without an explicit reference retains current-upstream behavior. An
+explicit remote reference may use either the preferred `gitReference` shape or
+the legacy `reference` plus `referenceKind: "remote"` fields. Core validates and
+safely splits `refs/remotes/<remote>/<branch>` against configured remote names,
+then invokes pull with the explicit remote and branch using `mode` `ffOnly`,
+`merge`, or `rebase`. Platforms must not parse the remote reference or construct
+these Git arguments themselves.
+
+`deleteRemoteBranch` requires a complete remote `gitReference`. Core resolves
+the configured remote with longest-prefix matching and invokes a structured
+remote branch deletion; platforms must not split `shortName` themselves.
+
+When `commit` includes `paths`, Core stages the complete working-tree state of
+those paths, including untracked files and deletions, then commits only those
+paths. Other paths already present in the index remain staged and are not part
+of the new commit. Core checks conflict markers after preparing that final
+snapshot in an isolated temporary index initialized from the operation's HEAD
+tree. The real index is not changed on any
+staging, validation, hook, signing, or commit failure; successful commits
+reconcile only the selected paths, preserving unrelated staging created while
+the operation ran. Selected paths used to prepare and reconcile the snapshot
+are passed to Git over NUL-delimited stdin with `--pathspec-from-file`, avoiding
+platform command-line limits and preserving rename source/destination identity.
+`git.diff` accepts `worktreeSnapshot: true` to review that same complete
+working-tree snapshot against `HEAD` through an isolated temporary index. This
+mode includes staged, unstaged, untracked, deleted, and same-path recreated
+files without reading or mutating the real index and cannot be combined with
+other diff reference modes.
+A `commit` request without `paths` retains
+the legacy behavior of committing the existing index. `ignore` appends root-anchored patterns to the
+repository's top-level `.gitignore`; `exclude` appends the same patterns to the
+worktree-aware Git metadata path for `info/exclude`. Both ignore operations
+preserve existing content, escape Git pattern characters, de-duplicate rules,
+and interpret a trailing `/` as a directory rule.
+
+`editCommitMessage` rebuilds the selected commit and its later first-parent
+descendants with the new `message`. `squashCommits` requires at least two
+distinct, contiguous `revisions`, uses the newest selected tree, and rebuilds
+later descendants. Both preserve commit author and committer attribution and
+atomically update the checked-out branch reference. `deleteCommit` drops a
+non-root commit and replays later commits; deleting HEAD resets to its parent.
+All three operations reject a dirty worktree, detached HEAD, an active Git
+operation, a target outside the current branch's first-parent chain, a rewrite
+range containing a merge commit, or any rewritten commit reachable from
+`refs/remotes`.
 
 `createTag` uses `name` for the new tag, `revision` as its target commit or
 revision, and an optional `message`: when the field is present (including an
@@ -315,8 +395,8 @@ on success, carries a structured `branchDeletion` record —
 `{ "name": string, "deletedTarget": string }` — so hosts can offer to
 recreate the branch at its previous commit; a missing branch fails with
 `The branch '<name>' does not exist`. If the ref deletion succeeds but branch
-configuration cleanup fails, the response contains both `branchDeletion` and
-`operationError`; hosts must preserve the Restore action while surfacing the
+configuration cleanup fails, the response contains both `branchDeletion` and a
+`branch_config_cleanup_failed` warning; hosts must preserve the Restore action while surfacing the
 cleanup diagnostic.
 
 `operationContinue`, `operationAbort`, and `operationSkip` inspect Git metadata
@@ -326,7 +406,8 @@ remain, and skip is supported only for a rebase. All three return the normal
 Git process result when Git is invoked;
 an absent or unsupported operation state uses the `invalid_request` envelope.
 
-`git.checkoutPreflight` accepts `{ "root": string, "reference": string }` and
+`git.checkoutPreflight` accepts `{ "root": string, "reference": string }` or
+the preferred `{ "root": string, "gitReference": GitReference }` shape and
 returns `{ "blockingPaths": string[] }`. The sorted, de-duplicated result
 contains tracked paths that are both locally modified and different between
 HEAD and the target, plus untracked paths that the target reference tracks.
@@ -338,8 +419,8 @@ string or `null`, numeric `ahead` and `behind` counts, `diverged`, and
 tracked changes and excludes untracked files. A branch with no configured
 upstream returns `null`, zero counts, and false for both booleans.
 
-`git.integrationPreflight` accepts `{ "root": string, "reference": string,
-"operation": string }`, where `operation` is `merge`, `rebase`, `cherryPick`,
+`git.integrationPreflight` accepts either `reference` or `gitReference` with
+`root` and `operation`, where `operation` is `merge`, `rebase`, `cherryPick`,
 or `revert`. It returns sorted, de-duplicated `blockingPaths` and
 `blocksEntirely`. Merge, cherry-pick, and revert report only dirty tracked paths
 that overlap files the operation would write. Rebase reports every dirty
@@ -358,7 +439,9 @@ conflict marker. A bare
 nullable, and the progress counters are populated only for a rebase. State is
 read from Git's own metadata, so operations started outside Lithe are reported.
 
-`git.diff` accepts `root`, `pathspecs`, optional `reference` or `commit`,
+`git.diff` accepts `root`, `pathspecs`, optional `reference`, `gitReference`,
+`targetGitReference`, or `commit`, plus `emptyTreeBase` for a legacy target
+reference whose comparison must begin at the repository's object-format-specific empty tree,
 `staged`, `untracked`, `contextLines`, and `ignoreAllWhitespace`, and returns `{ "patch": string, "rows": [],
 "hunks": [] }`. Rows contain one-based `oldLine`/`newLine` values where
 available, `left`/`right` text, a `kind` (`context`, `changed`, `addition`,
@@ -367,6 +450,15 @@ available, `left`/`right` text, a `kind` (`context`, `changed`, `addition`,
 clients must fall back to `left`. Hunk entries contain their header and the
 patch text needed for partial apply; rows are not duplicated per hunk, so
 clients group `rows` by `hunkID` instead.
+New reference-tree workflows use `gitReference`; Core validates its full
+identity before constructing the diff invocation. When `targetGitReference` is
+present, Core validates both complete identities and constructs the two-ref
+range. The legacy `reference` field remains available for existing revision and
+range comparisons.
+
+`git.comparison` accepts `root` plus the same `reference` or `gitReference` /
+`targetGitReference` forms and returns the deterministically ordered changed
+files. Platforms must not construct a two-ref range themselves.
 `git.apply` accepts `root`, `patch`, and `mode`; supported modes are `stage`,
 `unstage`, `discard`, `restoreIndex`, `worktree`, `restoreIndexCheck`, and
 `worktreeCheck`. The two `*Check` modes only test whether the reverse patch
@@ -384,6 +476,9 @@ topology without re-parsing Git output. The identity fields let clients
 implement a stable `me` filter without guessing from recent commits.
 Each reference includes `peelsToCommit`; hosts use it to disable commit-only
 actions for legal tree/blob tags before the user reaches a failing mutation.
+Each local reference with an upstream also returns numeric `ahead` and `behind`
+counts against that fetched remote-tracking reference. References without an
+upstream, remote references, and tags return zero for both fields.
 
 `git.commit` accepts `root` and a revision, returning one `commit` object.
 `git.blame` accepts `root` and a workspace-relative `path`; its line numbers
@@ -807,8 +902,11 @@ removed deterministically.
 
 `java.runConfigurations` accepts `{ "root": string, "paths": string[],
 "modulePaths": string[] }`. Java and module paths are workspace-relative. The response
-contains detected `mainClasses` and deterministic `configurations`; process
-launching remains a platform adapter responsibility.
+contains detected `mainClasses` and deterministic `configurations`. Each
+configuration carries the exact workspace-relative `sourcePath` that produced
+it and a `sourceSet` of `main`, `test`, or `other`; consumers must not recover a
+source by matching the qualified class name. Process launching remains a
+platform adapter responsibility.
 
 The `runConfig.*` commands implement the versioned project protocol described
 by the JSON Schemas in this directory. `runConfig.inspect` accepts `root` and

@@ -1,5 +1,5 @@
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
-import type { GitWorktree } from "../types/git.types";
+import type { GitReference, GitWorktree } from "../types/git.types";
 import { emitGitChanged } from "../events/git-events";
 import { runGitRead } from "../runtime/git-read-coordinator";
 import {
@@ -49,6 +49,34 @@ export const addWorktree = async (
   } catch (error) {
     console.error("Failed to add worktree:", error);
     return false;
+  }
+};
+
+export const addWorktreeFromReference = async (
+  repoPath: string,
+  path: string,
+  branchName: string,
+  reference: GitReference,
+): Promise<void> => {
+  const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
+  try {
+    await tauriInvoke("git.write", {
+      repoPath: resolvedRepoPath,
+      operation: "createWorktree",
+      destination: path,
+      name: branchName,
+      gitReference: {
+        fullName: reference.fullName,
+        shortName: reference.shortName,
+        kind: reference.kind,
+      },
+    });
+  } finally {
+    emitGitChanged({
+      repoPath: resolvedRepoPath,
+      scopes: ["repository", "history", "refs"],
+      source: "add-reference-worktree",
+    });
   }
 };
 

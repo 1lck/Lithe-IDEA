@@ -1,6 +1,64 @@
 import { describe, expect, test } from "bun:test";
 import { adaptCoreResult } from "./core-result-adapter";
 
+describe("git status result adaptation", () => {
+  test("preserves both paths of a renamed file", () => {
+    const result = adaptCoreResult(
+      "git_status",
+      { repoPath: "C:/work" },
+      {
+        branch: "main",
+        changes: [
+          {
+            path: "src/new-name.ts",
+            originalPath: "src/old-name.ts",
+            status: "R ",
+            staged: true,
+            worktree: false,
+          },
+        ],
+      },
+    );
+
+    expect(result).toEqual({
+      branch: "main",
+      ahead: 0,
+      behind: 0,
+      files: [
+        {
+          path: "src/new-name.ts",
+          originalPath: "src/old-name.ts",
+          status: "renamed",
+          staged: true,
+          rawStatus: "R ",
+          worktree: false,
+        },
+      ],
+    });
+  });
+
+  test("maps whole-path status and removes snapshots that match HEAD", () => {
+    const result = adaptCoreResult<{ files: Array<Record<string, unknown>> }>(
+      "git_status",
+      { repoPath: "C:/work" },
+      {
+        changes: [
+          { path: "added.ts", status: "AM", staged: true, worktree: true },
+          { path: "deleted.ts", status: "DM", staged: true, worktree: true },
+          { path: "modified.ts", status: "MM", staged: true, worktree: true },
+          { path: "no-op.ts", status: "AD", staged: true, worktree: true },
+        ],
+      },
+    );
+
+    expect(result.files.map((file) => [file.path, file.status])).toEqual([
+      ["added.ts", "added"],
+      ["deleted.ts", "deleted"],
+      ["modified.ts", "modified"],
+    ]);
+  });
+});
+
 describe("git checkout result adaptation", () => {
   test("maps a successful core checkout to the UI checkout result", () => {
     const result = adaptCoreResult(

@@ -14,9 +14,14 @@ function withoutTrailingCarriageReturn(value: string): string {
 
 function normalizeStatus(status: string, untracked: boolean): string {
   if (untracked || status.includes("?")) return "untracked";
-  if (status.includes("A")) return "added";
-  if (status.includes("D")) return "deleted";
-  if (status.includes("R")) return "renamed";
+  const indexStatus = status[0] ?? " ";
+  const worktreeStatus = status[1] ?? " ";
+  if (indexStatus === "A") return "added";
+  if (worktreeStatus === "D" || indexStatus === "D") return "deleted";
+  if ([indexStatus, worktreeStatus].some((value) => value === "R" || value === "C")) {
+    return "renamed";
+  }
+  if (worktreeStatus === "A") return "added";
   return "modified";
 }
 
@@ -107,6 +112,26 @@ function adaptDiff(command: string, args: JsonRecord | undefined, value: unknown
   return diffs;
 }
 
+function adaptDiffStats(args: JsonRecord | undefined, value: unknown): unknown {
+  const data = asRecord(value);
+  if (!Array.isArray(data.files)) {
+    // Older Core builds returned a structured patch for this compatibility
+    // command. Keep accepting that shape during rolling upgrades.
+    return adaptDiff("git_status_diff_stats", args, value);
+  }
+
+  const requestStaged = Boolean(asRecord(args).staged);
+  return data.files.map((entry: unknown) => {
+    const file = asRecord(entry);
+    return {
+      file_path: String(file.path ?? ""),
+      staged: typeof file.staged === "boolean" ? file.staged : requestStaged,
+      additions: Number(file.additions ?? 0),
+      deletions: Number(file.deletions ?? 0),
+    };
+  });
+}
+
 export function adaptCoreResult<T>(
   command: string,
   args: JsonRecord | undefined,
@@ -121,11 +146,18 @@ export function adaptCoreResult<T>(
         ahead: data.ahead ?? 0,
         behind: data.behind ?? 0,
         files: Array.isArray(data.changes)
-          ? data.changes.map((change: JsonRecord) => ({
+          ? data.changes
+              .filter((change: JsonRecord) => String(change.status ?? "") !== "AD")
+              .map((change: JsonRecord) => ({
               path: change.path,
+              ...(typeof change.originalPath === "string"
+                ? { originalPath: change.originalPath }
+                : {}),
               status: normalizeStatus(String(change.status ?? ""), Boolean(change.untracked)),
               staged: Boolean(change.staged),
-            }))
+              rawStatus: String(change.status ?? ""),
+              worktree: Boolean(change.worktree),
+              }))
           : [],
       } as T;
     case "git_log":
@@ -138,6 +170,8 @@ export function adaptCoreResult<T>(
               peelsToCommit: Boolean(reference.peelsToCommit),
               isCurrent: Boolean(reference.isCurrent),
               upstreamShortName: reference.upstreamShortName ?? undefined,
+              ahead: typeof reference.ahead === "number" ? reference.ahead : 0,
+              behind: typeof reference.behind === "number" ? reference.behind : 0,
             }))
           : [],
         recentReferences: Array.isArray(data.recentReferences)
@@ -148,6 +182,8 @@ export function adaptCoreResult<T>(
               peelsToCommit: Boolean(reference.peelsToCommit),
               isCurrent: Boolean(reference.isCurrent),
               upstreamShortName: reference.upstreamShortName ?? undefined,
+              ahead: typeof reference.ahead === "number" ? reference.ahead : 0,
+              behind: typeof reference.behind === "number" ? reference.behind : 0,
             }))
           : [],
         commits: Array.isArray(data.commits)
@@ -165,19 +201,23 @@ export function adaptCoreResult<T>(
         hasMore: Boolean(data.hasMore),
       } as T;
     case "git_branches":
-      return (Array.isArray(data.references)
-        ? data.references
-            .filter((reference: JsonRecord) => reference.kind === "local")
-            .map((reference: JsonRecord) => reference.shortName)
-        : []) as T;
+      return (
+        Array.isArray(data.references)
+          ? data.references
+              .filter((reference: JsonRecord) => reference.kind === "local")
+              .map((reference: JsonRecord) => reference.shortName)
+          : []
+      ) as T;
     case "git_get_stashes":
-      return (Array.isArray(data.stashes)
-        ? data.stashes.map((stash: JsonRecord, index: number) => ({
-            index: Number(String(stash.reference ?? "").match(/\d+/)?.[0] ?? index),
-            message: stash.message,
-            date: stash.date,
-          }))
-        : []) as T;
+      return (
+        Array.isArray(data.stashes)
+          ? data.stashes.map((stash: JsonRecord, index: number) => ({
+              index: Number(String(stash.reference ?? "").match(/\d+/)?.[0] ?? index),
+              message: stash.message,
+              date: stash.date,
+            }))
+          : []
+      ) as T;
     case "git_blame_file": {
       const lines = Array.isArray(data.lines) ? data.lines : [];
       return {
@@ -195,11 +235,13 @@ export function adaptCoreResult<T>(
       } as T;
     }
     case "git_diff_file":
-    case "git_status_diff_stats":
     case "git_commit_diff":
     case "git_ref_diff":
+    case "git_working_tree_ref_diff":
     case "git_stash_diff":
       return adaptDiff(command, args, value) as T;
+    case "git_status_diff_stats":
+      return adaptDiffStats(args, value) as T;
     case "git_discover_repo":
       return String(data.output ?? "").trim() as T;
     case "git_get_remotes": {
@@ -215,17 +257,33 @@ export function adaptCoreResult<T>(
         .split("\n")
         .filter(Boolean)
         .map((line) => {
-          const [name = "", commit = "", message = "", date = "", objectType = ""] = line.split("\0");
-          return { name, commit, message: message || undefined, date, is_annotated: objectType === "tag" };
+          const [name = "", commit = "", message = "", date = "", objectType = ""] =
+            line.split("\0");
+          return {
+            name,
+            commit,
+            message: message || undefined,
+            date,
+            is_annotated: objectType === "tag",
+          };
         }) as T;
     case "git_get_worktrees": {
-      const currentRoot = String(asRecord(args).repoPath ?? "").replace(/\\/g, "/").replace(/\/$/, "");
-      const records = String(data.output ?? "").trim().split(/\n\s*\n/).filter(Boolean);
+      const currentRoot = String(asRecord(args).repoPath ?? "")
+        .replace(/\\/g, "/")
+        .replace(/\/$/, "");
+      const records = String(data.output ?? "")
+        .trim()
+        .split(/\n\s*\n/)
+        .filter(Boolean);
       return records.map((record) => {
-        const fields = new Map(record.split("\n").map((line) => {
-          const separator = line.indexOf(" ");
-          return separator < 0 ? [line, "true"] : [line.slice(0, separator), line.slice(separator + 1)];
-        }));
+        const fields = new Map(
+          record.split("\n").map((line) => {
+            const separator = line.indexOf(" ");
+            return separator < 0
+              ? [line, "true"]
+              : [line.slice(0, separator), line.slice(separator + 1)];
+          }),
+        );
         const path = String(fields.get("worktree") ?? "");
         return {
           path,

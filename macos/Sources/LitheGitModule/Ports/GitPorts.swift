@@ -71,6 +71,18 @@ public struct GitBranchDeletion: Equatable, Sendable {
     }
 }
 
+public struct GitOperationWarning: Equatable, Sendable {
+    public let code: String
+    public let message: String
+    public let details: String?
+
+    public init(code: String, message: String, details: String? = nil) {
+        self.code = code
+        self.message = message
+        self.details = details
+    }
+}
+
 public struct GitProcessResult: Sendable {
     public let arguments: [String]
     public let output: String
@@ -82,6 +94,7 @@ public struct GitProcessResult: Sendable {
     public let stashRestoreConflict: GitStashRestoreConflict?
     public let tagDeletion: GitTagDeletion?
     public let branchDeletion: GitBranchDeletion?
+    public let warnings: [GitOperationWarning]
     public init(
         arguments: [String] = [],
         output: String,
@@ -92,7 +105,8 @@ public struct GitProcessResult: Sendable {
         operationErrorMessage: String? = nil,
         stashRestoreConflict: GitStashRestoreConflict? = nil,
         tagDeletion: GitTagDeletion? = nil,
-        branchDeletion: GitBranchDeletion? = nil
+        branchDeletion: GitBranchDeletion? = nil,
+        warnings: [GitOperationWarning] = []
     ) {
         self.arguments = arguments
         self.output = output
@@ -104,6 +118,7 @@ public struct GitProcessResult: Sendable {
         self.stashRestoreConflict = stashRestoreConflict
         self.tagDeletion = tagDeletion
         self.branchDeletion = branchDeletion
+        self.warnings = warnings
     }
 }
 

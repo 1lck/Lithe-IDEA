@@ -41,6 +41,13 @@ package protocol GitOperations: Sendable {
         pathspecs: [String],
         whitespace: GitDiffWhitespaceMode
     ) -> DiffDocument?
+    func comparisonDiffDocument(
+        at rootURL: URL,
+        reference: GitReference,
+        targetReference: GitReference?,
+        pathspecs: [String],
+        whitespace: GitDiffWhitespaceMode
+    ) -> DiffDocument?
 
     func applyPatch(
         _ patch: String,
@@ -57,6 +64,11 @@ package protocol GitOperations: Sendable {
     func files(in commit: GitCommit, at rootURL: URL) -> [GitCommitFile]?
     func commit(at rootURL: URL, hash: String) -> GitCommit?
     func comparison(for reference: GitReference, at rootURL: URL) -> GitBranchComparison?
+    func comparison(
+        from reference: GitReference,
+        to target: GitReference,
+        at rootURL: URL
+    ) -> GitBranchComparison?
     func stashes(at rootURL: URL) -> [GitStash]?
     func blame(at rootURL: URL, relativePath: String) -> [GitBlameLine]?
 
@@ -134,6 +146,7 @@ package struct GitService: Sendable {
         package let stashRestoreConflict: GitStashRestoreConflict?
         package let tagDeletion: GitTagDeletion?
         package let branchDeletion: GitBranchDeletion?
+        package let warnings: [GitOperationWarning]
 
         package init(
             workingDirectory: URL? = nil,
@@ -146,7 +159,8 @@ package struct GitService: Sendable {
             operationErrorMessage: String? = nil,
             stashRestoreConflict: GitStashRestoreConflict? = nil,
             tagDeletion: GitTagDeletion? = nil,
-            branchDeletion: GitBranchDeletion? = nil
+            branchDeletion: GitBranchDeletion? = nil,
+            warnings: [GitOperationWarning] = []
         ) {
             self.workingDirectory = workingDirectory
             self.arguments = arguments
@@ -159,6 +173,7 @@ package struct GitService: Sendable {
             self.stashRestoreConflict = stashRestoreConflict
             self.tagDeletion = tagDeletion
             self.branchDeletion = branchDeletion
+            self.warnings = warnings
         }
 
         package var succeeded: Bool {
@@ -421,9 +436,8 @@ package struct GitService: Sendable {
         to target: GitReference,
         at repositoryRoot: URL
     ) async -> GitBranchComparison {
-        let range = comparisonRange(from: reference, to: target)
         let payload = await read(priority: .utility) {
-            $0.comparison(for: range, at: repositoryRoot)
+            $0.comparison(from: reference, to: target, at: repositoryRoot)
         }
         return GitBranchComparison(
             reference: reference,
@@ -466,28 +480,15 @@ package struct GitService: Sendable {
         at repositoryRoot: URL,
         whitespace: GitDiffWhitespaceMode = .doNotIgnore
     ) async -> [DiffRow] {
-        let range = comparisonRange(from: reference, to: target)
         return await read {
             $0.comparisonDiffDocument(
                 at: repositoryRoot,
-                reference: range.fullName,
+                reference: reference,
+                targetReference: target,
                 pathspecs: [file.path],
                 whitespace: whitespace
             )
         }?.rows ?? []
-    }
-
-    private func comparisonRange(
-        from reference: GitReference,
-        to target: GitReference
-    ) -> GitReference {
-        GitReference(
-            fullName: "\(reference.fullName)..\(target.fullName)",
-            shortName: "\(reference.shortName)..\(target.shortName)",
-            kind: reference.kind,
-            isCurrent: false,
-            upstreamShortName: nil
-        )
     }
 
     func createBranch(
@@ -681,7 +682,8 @@ package struct GitService: Sendable {
                 operationErrorMessage: result?.operationErrorMessage,
                 stashRestoreConflict: result?.stashRestoreConflict,
                 tagDeletion: result?.tagDeletion,
-                branchDeletion: result?.branchDeletion
+                branchDeletion: result?.branchDeletion,
+                warnings: result?.warnings ?? []
             )
         }.value
     }

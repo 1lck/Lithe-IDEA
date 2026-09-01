@@ -830,6 +830,12 @@ struct RustCoreBridge: Sendable {
             let deletedTarget: String
         }
 
+        struct Warning: Decodable, Sendable {
+            let code: String
+            let message: String
+            let details: String?
+        }
+
         let arguments: [String]?
         let output: String
         let stdout: String?
@@ -840,6 +846,7 @@ struct RustCoreBridge: Sendable {
         let stashRestore: StashRestore?
         let tagDeletion: TagDeletion?
         let branchDeletion: BranchDeletion?
+        let warnings: [Warning]?
     }
 
     struct GitDiffPayload: Decodable, Sendable {
@@ -1737,11 +1744,24 @@ struct RustCoreBridge: Sendable {
         let input: String?
     }
 
+    private struct GitReferenceRequest: Encodable {
+        let fullName: String
+        let shortName: String
+        let kind: String
+
+        init(_ reference: GitReference) {
+            fullName = reference.fullName
+            shortName = reference.shortName
+            kind = reference.kind.rawValue
+        }
+    }
+
     private struct GitWriteRequest: Encodable {
         let root: String
         let operation: String
         let paths: [String]
         let reference: String?
+        let gitReference: GitReferenceRequest?
         let referenceKind: String?
         let revision: String?
         let name: String?
@@ -1760,6 +1780,8 @@ struct RustCoreBridge: Sendable {
         let root: String
         let pathspecs: [String]
         let reference: String?
+        let gitReference: GitReferenceRequest?
+        let targetGitReference: GitReferenceRequest?
         let commit: String?
         let staged: Bool
         let untracked: Bool
@@ -1791,7 +1813,9 @@ struct RustCoreBridge: Sendable {
 
     private struct GitComparisonRequest: Encodable {
         let root: String
-        let reference: String
+        let reference: String?
+        let gitReference: GitReferenceRequest?
+        let targetGitReference: GitReferenceRequest?
     }
 
     private struct GitStashesRequest: Encodable {
@@ -1800,7 +1824,7 @@ struct RustCoreBridge: Sendable {
 
     private struct GitCheckoutPreflightRequest: Encodable {
         let root: String
-        let reference: String
+        let gitReference: GitReferenceRequest
     }
 
     private struct GitOperationStateRequest: Encodable {
@@ -1817,7 +1841,8 @@ struct RustCoreBridge: Sendable {
 
     private struct GitIntegrationPreflightRequest: Encodable {
         let root: String
-        let reference: String
+        let reference: String?
+        let gitReference: GitReferenceRequest?
         let operation: String
     }
 
@@ -2630,6 +2655,7 @@ struct RustCoreBridge: Sendable {
         operation: String,
         paths: [String] = [],
         reference: String? = nil,
+        gitReference: GitReference? = nil,
         referenceKind: String? = nil,
         revision: String? = nil,
         name: String? = nil,
@@ -2650,6 +2676,7 @@ struct RustCoreBridge: Sendable {
                 operation: operation,
                 paths: paths,
                 reference: reference,
+                gitReference: gitReference.map(GitReferenceRequest.init),
                 referenceKind: referenceKind,
                 revision: revision,
                 name: name,
@@ -2666,12 +2693,12 @@ struct RustCoreBridge: Sendable {
         )
     }
 
-    func gitCheckoutPreflight(at rootURL: URL, reference: String) -> GitCheckoutPreflightPayload? {
+    func gitCheckoutPreflight(at rootURL: URL, reference: GitReference) -> GitCheckoutPreflightPayload? {
         execute(
             command: "git.checkoutPreflight",
             payload: GitCheckoutPreflightRequest(
                 root: rootURL.standardizedFileURL.path,
-                reference: reference
+                gitReference: GitReferenceRequest(reference)
             )
         )
     }
@@ -2705,7 +2732,8 @@ struct RustCoreBridge: Sendable {
 
     func gitIntegrationPreflight(
         at rootURL: URL,
-        reference: String,
+        reference: String? = nil,
+        gitReference: GitReference? = nil,
         operation: String
     ) -> GitIntegrationPreflightPayload? {
         execute(
@@ -2713,6 +2741,7 @@ struct RustCoreBridge: Sendable {
             payload: GitIntegrationPreflightRequest(
                 root: rootURL.standardizedFileURL.path,
                 reference: reference,
+                gitReference: gitReference.map(GitReferenceRequest.init),
                 operation: operation
             )
         )
@@ -2723,6 +2752,7 @@ struct RustCoreBridge: Sendable {
         operation: String,
         paths: [String] = [],
         reference: String? = nil,
+        gitReference: GitReference? = nil,
         referenceKind: String? = nil,
         revision: String? = nil,
         name: String? = nil,
@@ -2743,6 +2773,7 @@ struct RustCoreBridge: Sendable {
                 operation: operation,
                 paths: paths,
                 reference: reference,
+                gitReference: gitReference.map(GitReferenceRequest.init),
                 referenceKind: referenceKind,
                 revision: revision,
                 name: name,
@@ -2763,6 +2794,8 @@ struct RustCoreBridge: Sendable {
         at rootURL: URL,
         pathspecs: [String],
         reference: String? = nil,
+        gitReference: GitReference? = nil,
+        targetGitReference: GitReference? = nil,
         commit: String? = nil,
         staged: Bool,
         untracked: Bool,
@@ -2775,6 +2808,8 @@ struct RustCoreBridge: Sendable {
                 root: rootURL.standardizedFileURL.path,
                 pathspecs: pathspecs,
                 reference: reference,
+                gitReference: gitReference.map(GitReferenceRequest.init),
+                targetGitReference: targetGitReference.map(GitReferenceRequest.init),
                 commit: commit,
                 staged: staged,
                 untracked: untracked,
@@ -2846,12 +2881,19 @@ struct RustCoreBridge: Sendable {
         )
     }
 
-    func gitComparison(at rootURL: URL, reference: String) -> GitComparisonPayload? {
+    func gitComparison(
+        at rootURL: URL,
+        reference: String? = nil,
+        gitReference: GitReference? = nil,
+        targetGitReference: GitReference? = nil
+    ) -> GitComparisonPayload? {
         execute(
             command: "git.comparison",
             payload: GitComparisonRequest(
                 root: rootURL.standardizedFileURL.path,
-                reference: reference
+                reference: reference,
+                gitReference: gitReference.map(GitReferenceRequest.init),
+                targetGitReference: targetGitReference.map(GitReferenceRequest.init)
             )
         )
     }
