@@ -1652,6 +1652,21 @@ package final class GitFeatureModel: ObservableObject {
             gitWorktreeInspectionLoadState = .failed("The checkout path does not exist")
             return
         }
+
+        // The primary checkout is already observed by the Git feature model.
+        // Reusing its status and history avoids a second full Git scan when
+        // opening the Worktrees tool window, while linked worktrees still use
+        // the dedicated inspection path below.
+        if worktree.isCurrent, !isLoadingGitHistory {
+            gitWorktreeInspection = GitWorktreeInspection(
+                worktreeID: worktree.id,
+                changes: gitChanges,
+                commits: gitCommits
+            )
+            gitWorktreeInspectionLoadState = .ready
+            return
+        }
+
         gitWorktreeInspectionLoadState = .loading
         let reference = gitReferences.first { $0.fullName == worktree.branch }
         let inspection = await service.inspectWorktree(worktree, reference: reference)
