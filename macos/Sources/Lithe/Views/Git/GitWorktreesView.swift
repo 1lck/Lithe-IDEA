@@ -41,9 +41,15 @@ struct GitWorktreesView: View {
         }
     }
 
+    private struct WorktreeActionNotice: Identifiable {
+        let id = UUID()
+        let message: String
+    }
+
     @EnvironmentObject private var model: AppModel
     @State private var showsCreateSheet = false
     @State private var removalConfirmation: RemovalConfirmation?
+    @State private var worktreeActionNotice: WorktreeActionNotice?
     @State private var showsPruneConfirmation = false
     @State private var searchText = ""
     @State private var selectedWorktreeID: String?
@@ -123,6 +129,13 @@ struct GitWorktreesView: View {
                     secondaryButton: .cancel()
                 )
             }
+        }
+        .alert(item: $worktreeActionNotice) { notice in
+            Alert(
+                title: Text("Worktree action unavailable"),
+                message: Text(notice.message),
+                dismissButton: .default(Text("OK"))
+            )
         }
         .confirmationDialog(
             "Prune stale worktree records?",
@@ -437,14 +450,12 @@ struct GitWorktreesView: View {
                     model.copyProjectItemPath(worktree.url, relative: false)
                 }
                 worktreeAction(worktree.isLocked ? "Unlock Worktree" : "Lock Worktree", icon: worktree.isLocked ? "lock.open" : "lock") {
-                    Task { await model.setGitWorktreeLocked(worktree, locked: !worktree.isLocked) }
+                    toggleLock(for: worktree)
                 }
-                .disabled(worktree.isPrimary || worktree.isPrunable)
                 .help(lockHelp(for: worktree))
                 worktreeAction("Remove Worktree…", icon: "trash", destructive: true) {
-                    removalConfirmation = .regular(worktree)
+                    requestRemoval(for: worktree)
                 }
-                .disabled(worktree.isPrimary || worktree.isCurrent || worktree.isLocked || worktree.isPrunable)
                 .help(removalHelp(for: worktree))
                 if worktree.isPrunable {
                     worktreeAction("Repair Worktree Records", icon: "wrench.and.screwdriver") {
@@ -538,9 +549,8 @@ struct GitWorktreesView: View {
             worktreeCard(title: "Worktree Settings") {
                 informationRow("Protection", value: worktree.isLocked ? "Locked" : "Unlocked")
                 worktreeAction(worktree.isLocked ? "Unlock Worktree" : "Lock Worktree", icon: worktree.isLocked ? "lock.open" : "lock") {
-                    Task { await model.setGitWorktreeLocked(worktree, locked: !worktree.isLocked) }
+                    toggleLock(for: worktree)
                 }
-                .disabled(worktree.isPrimary || worktree.isPrunable)
                 .help(lockHelp(for: worktree))
             }
             worktreeCard(title: "Maintenance") {
@@ -556,9 +566,8 @@ struct GitWorktreesView: View {
             }
             worktreeCard(title: "Danger Zone") {
                 worktreeAction("Remove Worktree…", icon: "trash", destructive: true) {
-                    removalConfirmation = .regular(worktree)
+                    requestRemoval(for: worktree)
                 }
-                .disabled(worktree.isPrimary || worktree.isCurrent || worktree.isLocked || worktree.isPrunable)
                 .help(removalHelp(for: worktree))
             }
         }
@@ -842,6 +851,25 @@ struct GitWorktreesView: View {
         if worktree.isPrimary { return String(localized: "The primary worktree cannot be locked.") }
         if worktree.isPrunable { return String(localized: "Repair or prune the missing checkout before changing its lock.") }
         return ""
+    }
+
+    private func toggleLock(for worktree: GitWorktree) {
+        if worktree.isPrimary {
+            worktreeActionNotice = WorktreeActionNotice(message: String(localized: "The primary worktree cannot be locked."))
+        } else if worktree.isPrunable {
+            worktreeActionNotice = WorktreeActionNotice(message: String(localized: "Repair or prune the missing checkout before changing its lock."))
+        } else {
+            Task { await model.setGitWorktreeLocked(worktree, locked: !worktree.isLocked) }
+        }
+    }
+
+    private func requestRemoval(for worktree: GitWorktree) {
+        let reason = removalHelp(for: worktree)
+        if !reason.isEmpty {
+            worktreeActionNotice = WorktreeActionNotice(message: reason)
+        } else {
+            removalConfirmation = .regular(worktree)
+        }
     }
 
     private func pathActionHelp(for worktree: GitWorktree) -> String {
