@@ -5,6 +5,7 @@ import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.s
 import { Button } from "@/ui/button";
 import { FolderIcon, XIcon as X } from "@/ui/icons";
 import { cn } from "@/utils/cn";
+import { getProjectDisplayLabel } from "../utils/project-display-label";
 import { getProjectTabBarItems, shouldShowProjectTabBar } from "../utils/project-tab-bar-model";
 
 interface ProjectTabBarProps {
@@ -43,7 +44,8 @@ export function ProjectTabBar({ hideWhenSingle = false }: ProjectTabBarProps) {
     >
       <div className="flex min-w-max items-center gap-1">
         {projects.map((project) => {
-          const closeLabel = t("titleProject.closeProject", { name: project.name });
+          const displayName = getProjectDisplayLabel(project);
+          const closeLabel = t("titleProject.closeProject", { name: displayName });
 
           return (
             <div key={project.id} className="group relative">
@@ -71,7 +73,7 @@ export function ProjectTabBar({ hideWhenSingle = false }: ProjectTabBarProps) {
                   )}
                   aria-hidden="true"
                 />
-                <span className="min-w-0 truncate">{project.name}</span>
+                <span className="min-w-0 truncate">{displayName}</span>
                 {project.isActive ? (
                   <span
                     aria-hidden="true"
