@@ -1661,7 +1661,8 @@ package final class GitFeatureModel: ObservableObject {
             gitWorktreeInspection = GitWorktreeInspection(
                 worktreeID: worktree.id,
                 changes: gitChanges,
-                commits: gitCommits
+                commits: gitCommits,
+                hasMoreCommits: false
             )
             gitWorktreeInspectionLoadState = .ready
             return
@@ -1698,13 +1699,31 @@ package final class GitFeatureModel: ObservableObject {
                 self.gitWorktreeInspection = GitWorktreeInspection(
                     worktreeID: worktree.id,
                     changes: inspection.changes,
-                    commits: fullHistory.commits
+                    commits: fullHistory.commits,
+                    hasMoreCommits: fullHistory.hasMore
                 )
             }
         } else {
             gitWorktreeInspection = nil
             gitWorktreeInspectionLoadState = .failed("Could not inspect this worktree")
         }
+    }
+
+    package func loadMoreWorktreeHistory(for worktree: GitWorktree) async {
+        guard let inspection = gitWorktreeInspection,
+              inspection.worktreeID == worktree.id,
+              inspection.hasMoreCommits,
+              !Task.isCancelled else { return }
+        let reference = gitReferences.first { $0.fullName == worktree.branch }
+        let nextLimit = inspection.commits.count + 50
+        let history = await service.history(at: worktree.url, reference: reference, limit: nextLimit)
+        guard gitWorktreeInspection?.worktreeID == worktree.id else { return }
+        gitWorktreeInspection = GitWorktreeInspection(
+            worktreeID: worktree.id,
+            changes: inspection.changes,
+            commits: history.commits,
+            hasMoreCommits: history.hasMore
+        )
     }
 
     package func createWorktree(

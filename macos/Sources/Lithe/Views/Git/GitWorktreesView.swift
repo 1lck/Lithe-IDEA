@@ -52,6 +52,8 @@ struct GitWorktreesView: View {
     @State private var worktreeActionNotice: WorktreeActionNotice?
     @State private var showsPruneConfirmation = false
     @State private var searchText = ""
+    @State private var historySearchText = ""
+    @State private var isLoadingMoreHistory = false
     @State private var selectedWorktreeID: String?
     @State private var activeSection = WorktreeSection.overview
 
@@ -544,8 +546,24 @@ struct GitWorktreesView: View {
                 worktreeMessage(icon: "clock.arrow.circlepath", title: "No commits", detail: "No commits were found for this branch.")
             } else {
                 worktreeCard(title: "Commit History") {
-                    VStack(spacing: 0) {
-                        ForEach(inspection.commits) { commit in
+                    let query = historySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let commits = query.isEmpty ? inspection.commits : inspection.commits.filter {
+                        $0.subject.localizedCaseInsensitiveContains(query)
+                            || $0.authorName.localizedCaseInsensitiveContains(query)
+                            || $0.hash.localizedCaseInsensitiveContains(query)
+                    }
+                    VStack(alignment: .leading, spacing: 10) {
+                        TextField("Search commits", text: $historySearchText)
+                            .textFieldStyle(.roundedBorder)
+                            .font(Visual.body)
+                        if commits.isEmpty {
+                            Text("No matching commits in the loaded history.")
+                                .font(Visual.metadata)
+                                .foregroundStyle(LitheTheme.secondaryText)
+                                .padding(.vertical, 8)
+                        }
+                        VStack(spacing: 0) {
+                        ForEach(commits) { commit in
                             HStack(alignment: .firstTextBaseline, spacing: 10) {
                                 Image(systemName: "circle.fill")
                                     .font(.system(size: 7))
@@ -566,7 +584,31 @@ struct GitWorktreesView: View {
                                     .lineLimit(1)
                             }
                             .padding(.vertical, 8)
-                            if commit.id != inspection.commits.last?.id { Divider() }
+                            if commit.id != commits.last?.id { Divider() }
+                        }
+                        }
+                        if query.isEmpty && inspection.hasMoreCommits {
+                            Button {
+                                guard !isLoadingMoreHistory else { return }
+                                isLoadingMoreHistory = true
+                                Task {
+                                    await model.loadMoreGitWorktreeHistory(worktree)
+                                    isLoadingMoreHistory = false
+                                }
+                            } label: {
+                                HStack {
+                                    Spacer()
+                                    if isLoadingMoreHistory {
+                                        ProgressView().controlSize(.small)
+                                    } else {
+                                        Text("Load More")
+                                    }
+                                    Spacer()
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .disabled(isLoadingMoreHistory)
                         }
                     }
                 }

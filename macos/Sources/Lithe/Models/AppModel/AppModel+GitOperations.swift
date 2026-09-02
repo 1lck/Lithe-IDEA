@@ -146,6 +146,11 @@ extension AppModel {
         await gitFeature.inspectWorktree(worktree)
     }
 
+    func loadMoreGitWorktreeHistory(_ worktree: GitWorktree) async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.loadMoreWorktreeHistory(for: worktree)
+    }
+
     func createGitWorktree(
         named name: String,
         from reference: GitReference,

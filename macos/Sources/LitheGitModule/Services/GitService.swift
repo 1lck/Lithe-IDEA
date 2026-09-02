@@ -240,7 +240,8 @@ package struct GitService: Sendable {
         return GitWorktreeInspection(
             worktreeID: worktree.id,
             changes: resolvedChanges,
-            commits: resolvedHistory.commits
+            commits: resolvedHistory.commits,
+            hasMoreCommits: resolvedHistory.hasMore
         )
     }
 
