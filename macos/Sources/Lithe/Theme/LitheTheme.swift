@@ -49,6 +49,7 @@ enum LitheTheme {
         let sidebar: RGBA
         let editor: RGBA
         let raised: RGBA
+        let notification: RGBA
         let selection: RGBA
         let subtleSelection: RGBA
         let hoverBackground: RGBA
@@ -137,6 +138,7 @@ enum LitheTheme {
                 sidebar: surface,
                 editor: surface,
                 raised: surface.mixed(with: ink, amount: isDark ? 0.085 : 0.018),
+                notification: surface.mixed(with: ink, amount: isDark ? 0.085 : 0.018),
                 selection: accent,
                 subtleSelection: subtleAccent,
                 hoverBackground: ink.withAlpha(isDark ? 0.065 : 0.055),
@@ -187,6 +189,7 @@ enum LitheTheme {
                 sidebar: adaptive(light: (1, 1, 1, 1), dark: (0.110, 0.114, 0.122, 1)),
                 editor: adaptive(light: (1, 1, 1, 1), dark: (0.110, 0.114, 0.122, 1)),
                 raised: adaptive(light: (1, 1, 1, 1), dark: (0.165, 0.175, 0.190, 1)),
+                notification: adaptive(light: (1, 1, 1, 1), dark: (51.0 / 255.0, 54.0 / 255.0, 59.0 / 255.0, 1)),
                 selection: adaptive(light: (0.275, 0.455, 0.945, 1), dark: (0.208, 0.455, 0.941, 1)),
                 subtleSelection: adaptive(light: (0.855, 0.902, 0.973, 1), dark: (0.205, 0.218, 0.238, 1)),
                 hoverBackground: adaptive(light: (0, 0, 0, 0.050), dark: (1, 1, 1, 0.055)),
@@ -299,6 +302,16 @@ enum LitheTheme {
     static var sidebar: Color { adaptive(\.sidebar) }
     static var editor: Color { adaptive(\.editor) }
     static var raised: Color { adaptive(\.raised) }
+    static var notificationBackground: Color { adaptive(\.notification) }
+    static var contextMenuBackground: Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            if activeTheme == .lithe, isDark {
+                return NSColor(srgbRed: 38.0 / 255.0, green: 39.0 / 255.0, blue: 44.0 / 255.0, alpha: 1)
+            }
+            return Palette.make(theme: activeTheme, isDark: isDark).popupBackground.nsColor
+        })
+    }
 
     // MARK: - 选中与悬停
     static var selection: Color { adaptive(\.selection) }
@@ -393,7 +406,7 @@ enum LitheTheme {
         static let treeRowHeight: CGFloat = 27
         // IntelliJ IDEA New UI uses contiguous project-tree rows, 4/12 pt
         // tree insets, and an 8 pt selection arc (4 pt corner radius).
-        static let projectTreeRowSpacing: CGFloat = 0
+        static let projectTreeRowSpacing: CGFloat = 1
         static let projectTreeContentVerticalInset: CGFloat = 4
         static let projectTreeContentHorizontalInset: CGFloat = 12
         static let projectTreeSelectionCornerRadius: CGFloat = 4
