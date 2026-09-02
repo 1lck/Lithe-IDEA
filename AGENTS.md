@@ -1,34 +1,28 @@
-# Lithe Agent Entry Point
+# Lithe 代理入口
 
-Before any work in this repository, load and follow the `develop-lithe` skill
-at `.agents/skills/develop-lithe/SKILL.md`. That Skill is the single source of
-truth for AI coding and verification rules, including the required Rust Core
-comment standard.
+在本仓库中开展任何工作之前，必须加载并遵循位于
+`.agents/skills/develop-lithe/SKILL.md` 的 `develop-lithe` 技能。该技能是
+人工智能编码与验证规则的唯一准则，其中包括 Rust Core 必须遵循的注释规范。
 
-If a task creates, modifies, or reviews test code or test infrastructure,
-additionally load `.agents/skills/write-stable-tests/SKILL.md` before
-proceeding. That Skill defines the mandatory bounded-wait, deterministic-time,
-cleanup, and per-test timing rules for both macOS and Windows.
+如果任务会创建、修改或审查测试代码或测试基础设施，则还必须在继续之前加载
+`.agents/skills/write-stable-tests/SKILL.md`。该技能规定了 macOS 和 Windows
+都必须遵循的有界等待、确定性时间、清理以及单测试计时规则。
 
-If a task prepares, validates, or publishes a stable Lithe release,
-additionally load `.agents/skills/release-lithe/SKILL.md` before changing
-release notes, version metadata, tags, or release workflows.
+如果任务涉及准备、验证或发布稳定版 Lithe，则必须在修改发行说明、版本元数据、
+标签或发布工作流之前，额外加载 `.agents/skills/release-lithe/SKILL.md`。
 
-If the task involves building, running, diagnosing, or transferring files to the
-Windows product through a Parallels guest VM, additionally load
-`.agents/skills/debug-windows-on-parallels/SKILL.md` before proceeding.
+如果任务涉及通过 Parallels 虚拟机来构建、运行、诊断 Windows 产品，或向其中
+传输文件，则必须在继续之前额外加载
+`.agents/skills/debug-windows-on-parallels/SKILL.md`。
 
-## Test process lifecycle and cleanup
+## 测试进程生命周期与清理
 
-Unless the user gives a specific instruction to keep a process running, any
-Lithe application started for building, testing, debugging, previewing, or
-verification must be shut down when the task or test run is complete. Clean up
-all child processes, helper processes, temporary app instances, and related
-resources, then verify that no Lithe processes remain before handing the work
-back. Do not launch duplicate Lithe instances during repeated checks, and do
-not leave test-built applications open in the user's application list. If a
-process cannot be stopped cleanly, report it explicitly and make a bounded
-best-effort cleanup before continuing.
+除非用户明确要求保持进程运行，否则，任何为构建、测试、调试、预览或验证而
+启动的 Lithe 应用，都必须在任务或测试运行结束时关闭。清理所有子进程、辅助
+进程、临时应用实例及相关资源，并在交付工作之前确认没有残留的 Lithe 进程。
+重复检查期间不得启动重复的 Lithe 实例，也不得让测试构建的应用继续出现在
+用户的应用列表中。如果某个进程无法正常停止，必须明确报告，并在继续之前
+尽最大努力进行有界清理。
 
 ## 高性能 UI 交互与可调布局要求
 
