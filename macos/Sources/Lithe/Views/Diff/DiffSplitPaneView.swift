@@ -19,8 +19,7 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
     let rowOverlay: (DiffRow, DiffSide) -> RowOverlay
 
     @State private var horizontalOffset: CGFloat = 0
-    @State private var wheelUpdateBuffer = FrameCoalescedDragUpdateBuffer()
-    @State private var wheelUpdateTask: Task<Void, Never>?
+    @State private var wheelScheduler = LitheDragUpdateScheduler()
 
     init(
         displayRows: [DiffDisplayRow],
@@ -102,17 +101,24 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
         .frame(width: viewportWidth, height: minimumHeight, alignment: .topLeading)
         .background {
             DiffHorizontalScrollWheelMonitor { delta in
-                let pendingOffset = wheelUpdateBuffer.pendingValue ?? horizontalOffset
-                scheduleWheelOffsetUpdate(
-                    min(max(pendingOffset + delta, 0), maximumHorizontalOffset)
-                )
+                // Wheel deltas are incremental, so accumulate onto the in-flight
+                // target rather than the last applied offset. minimumChange: 0
+                // keeps sub-point wheel steps from being swallowed by the
+                // deadband, matching the pre-scheduler behavior.
+                let pendingOffset = wheelScheduler.pendingValue ?? horizontalOffset
+                wheelScheduler.submit(
+                    min(max(pendingOffset + delta, 0), maximumHorizontalOffset),
+                    minimumChange: 0
+                ) { nextOffset in
+                    horizontalOffset = nextOffset
+                }
             }
         }
         .onChange(of: contentWidth) { _ in
-            cancelScheduledWheelOffsetUpdate()
+            wheelScheduler.cancel()
             horizontalOffset = min(horizontalOffset, maximumHorizontalOffset)
         }
-        .onDisappear(perform: cancelScheduledWheelOffsetUpdate)
+        .onDisappear { wheelScheduler.cancel() }
     }
 
     private func sideViewport(
@@ -127,25 +133,6 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
             .frame(width: viewportWidth, height: height, alignment: .topLeading)
             .clipped()
             .background(LitheTheme.editor)
-    }
-
-    private func scheduleWheelOffsetUpdate(_ nextOffset: CGFloat) {
-        guard wheelUpdateBuffer.submit(nextOffset) else { return }
-        wheelUpdateTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(16))
-            guard !Task.isCancelled else { return }
-            let nextOffset = wheelUpdateBuffer.takePendingValue()
-            wheelUpdateTask = nil
-            if let nextOffset {
-                horizontalOffset = nextOffset
-            }
-        }
-    }
-
-    private func cancelScheduledWheelOffsetUpdate() {
-        wheelUpdateTask?.cancel()
-        wheelUpdateTask = nil
-        wheelUpdateBuffer.cancel()
     }
 
     private var centerGutter: some View {
