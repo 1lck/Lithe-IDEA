@@ -207,6 +207,8 @@ export function adaptCoreResult<T>(
               kind: reference.kind,
               isCurrent: Boolean(reference.isCurrent),
               upstreamShortName: reference.upstreamShortName ?? undefined,
+              ahead: typeof reference.ahead === "number" ? reference.ahead : 0,
+              behind: typeof reference.behind === "number" ? reference.behind : 0,
             }))
           : [],
         recentReferences: Array.isArray(data.recentReferences)
@@ -216,6 +218,8 @@ export function adaptCoreResult<T>(
               kind: reference.kind,
               isCurrent: Boolean(reference.isCurrent),
               upstreamShortName: reference.upstreamShortName ?? undefined,
+              ahead: typeof reference.ahead === "number" ? reference.ahead : 0,
+              behind: typeof reference.behind === "number" ? reference.behind : 0,
             }))
           : [],
       } as T;

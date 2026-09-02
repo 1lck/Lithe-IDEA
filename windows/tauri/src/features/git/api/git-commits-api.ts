@@ -156,6 +156,8 @@ export const getGitHistoryPage = async (
           ...(cursor ? { cursor } : {}),
           ...(reference ? { reference } : {}),
         }),
+      // A cursor page consumes server-side state and cannot safely replay the same request.
+      { retryOnInvalidation: false },
     );
   } catch (error) {
     if (!isNotGitRepositoryError(error)) console.error("Failed to get git history page:", error);

@@ -23,12 +23,13 @@ const RECENT_BRANCH_LIMIT: usize = 5;
 const RECENT_BRANCH_REFLOG_LIMIT: &str = "100";
 const DEFAULT_BRANCH_FALLBACKS: [&str; 2] = ["main", "master"];
 const HISTORY_CURSOR_IDLE_TTL: Duration = Duration::from_secs(120);
+const HISTORY_CURSOR_REAPER_INTERVAL: Duration = Duration::from_secs(1);
 const HISTORY_PAGE_DEADLINE: Duration = Duration::from_secs(30);
 const HISTORY_STREAM_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const MAX_HISTORY_SESSIONS: usize = 8;
 
-static HISTORY_SESSIONS: OnceLock<Mutex<std::collections::HashMap<String, HistorySession>>> =
-    OnceLock::new();
+static HISTORY_SESSIONS: OnceLock<Mutex<HistorySessionRegistry>> = OnceLock::new();
+static HISTORY_REAPER: OnceLock<()> = OnceLock::new();
 static NEXT_HISTORY_CURSOR: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Deserialize)]
@@ -186,15 +187,16 @@ pub fn history_page(request: GitHistoryPageRequest) -> Result<GitHistoryPageResp
     validate_reference(request.reference.as_deref())?;
     cleanup_expired_history_sessions();
 
-    let mut session = if let Some(cursor) = request.cursor.as_deref() {
+    let (mut session, lease) = if let Some(cursor) = request.cursor.as_deref() {
         take_history_session(cursor)?.ok_or_else(|| invalid_history_cursor(cursor))?
     } else {
-        evict_history_session_if_needed();
-        HistorySession::start(root.clone(), request.reference.clone())?
+        let lease = reserve_history_session_slot()?;
+        let session = HistorySession::start(root.clone(), request.reference.clone())?;
+        (session, lease)
     };
     if session.root != root || session.reference != request.reference {
         let cursor = session.cursor.clone();
-        insert_history_session(session)?;
+        lease.store(session)?;
         return Err(invalid_history_cursor(&cursor));
     }
 
@@ -208,7 +210,7 @@ pub fn history_page(request: GitHistoryPageRequest) -> Result<GitHistoryPageResp
             let next_cursor = has_more.then(|| session.cursor.clone());
             if has_more {
                 session.last_access = Instant::now();
-                insert_history_session(session)?;
+                lease.store(session)?;
             } else {
                 session.stop();
             }
@@ -294,16 +296,17 @@ pub fn close_history_cursor(
     let root = validate_root(&request.root)?;
     cleanup_expired_history_sessions();
     let session = {
-        let mut sessions = history_sessions()
+        let mut registry = history_sessions()
             .lock()
             .map_err(history_session_lock_error)?;
-        if sessions
+        if registry
+            .sessions
             .get(&request.cursor)
             .is_some_and(|session| session.root != root)
         {
             return Err(invalid_history_cursor(&request.cursor));
         }
-        sessions.remove(&request.cursor)
+        registry.sessions.remove(&request.cursor)
     };
     let closed = session.is_some();
     if let Some(session) = session {
@@ -330,6 +333,45 @@ struct HistorySession {
     emitted: usize,
     last_access: Instant,
     finished: bool,
+}
+
+#[derive(Default)]
+struct HistorySessionRegistry {
+    sessions: std::collections::HashMap<String, HistorySession>,
+    /// Sessions that are starting or temporarily checked out for a page read.
+    in_flight: usize,
+}
+
+/// Accounts for a live session while it is outside the registry map.
+struct HistorySessionLease {
+    active: bool,
+}
+
+impl HistorySessionLease {
+    fn new() -> Self {
+        Self { active: true }
+    }
+
+    fn store(mut self, session: HistorySession) -> Result<(), CoreError> {
+        let mut registry = history_sessions()
+            .lock()
+            .map_err(history_session_lock_error)?;
+        registry.in_flight = registry.in_flight.saturating_sub(1);
+        registry.sessions.insert(session.cursor.clone(), session);
+        self.active = false;
+        Ok(())
+    }
+}
+
+impl Drop for HistorySessionLease {
+    fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
+        if let Ok(mut registry) = history_sessions().lock() {
+            registry.in_flight = registry.in_flight.saturating_sub(1);
+        }
+    }
 }
 
 impl HistorySession {
@@ -555,8 +597,18 @@ fn validate_reference(reference: Option<&str>) -> Result<(), CoreError> {
     Ok(())
 }
 
-fn history_sessions() -> &'static Mutex<std::collections::HashMap<String, HistorySession>> {
-    HISTORY_SESSIONS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+fn history_sessions() -> &'static Mutex<HistorySessionRegistry> {
+    let registry = HISTORY_SESSIONS.get_or_init(|| Mutex::new(HistorySessionRegistry::default()));
+    HISTORY_REAPER.get_or_init(|| {
+        thread::Builder::new()
+            .name("lithe-git-history-reaper".to_string())
+            .spawn(|| loop {
+                thread::sleep(HISTORY_CURSOR_REAPER_INTERVAL);
+                cleanup_expired_history_sessions();
+            })
+            .expect("Git history reaper should start");
+    });
+    registry
 }
 
 fn history_session_lock_error<T>(error: std::sync::PoisonError<T>) -> CoreError {
@@ -567,55 +619,80 @@ fn history_session_lock_error<T>(error: std::sync::PoisonError<T>) -> CoreError 
     .with_details(error.to_string())
 }
 
-fn take_history_session(cursor: &str) -> Result<Option<HistorySession>, CoreError> {
-    history_sessions()
+fn take_history_session(
+    cursor: &str,
+) -> Result<Option<(HistorySession, HistorySessionLease)>, CoreError> {
+    let mut registry = history_sessions()
         .lock()
-        .map_err(history_session_lock_error)
-        .map(|mut sessions| sessions.remove(cursor))
-}
-
-fn insert_history_session(session: HistorySession) -> Result<(), CoreError> {
-    history_sessions()
-        .lock()
-        .map_err(history_session_lock_error)?
-        .insert(session.cursor.clone(), session);
-    Ok(())
+        .map_err(history_session_lock_error)?;
+    let Some(session) = registry.sessions.remove(cursor) else {
+        return Ok(None);
+    };
+    registry.in_flight += 1;
+    Ok(Some((session, HistorySessionLease::new())))
 }
 
 fn cleanup_expired_history_sessions() {
-    let expired = history_sessions().lock().ok().map(|mut sessions| {
-        let now = Instant::now();
-        let cursors = sessions
-            .iter()
-            .filter(|(_, session)| {
-                now.duration_since(session.last_access) >= HISTORY_CURSOR_IDLE_TTL
-            })
-            .map(|(cursor, _)| cursor.clone())
-            .collect::<Vec<_>>();
-        cursors
-            .into_iter()
-            .filter_map(|cursor| sessions.remove(&cursor))
-            .collect::<Vec<_>>()
+    let expired = history_sessions().lock().ok().map(|mut registry| {
+        take_expired_history_sessions(&mut registry, Instant::now(), HISTORY_CURSOR_IDLE_TTL)
     });
     for session in expired.unwrap_or_default() {
         session.stop();
     }
 }
 
-fn evict_history_session_if_needed() {
-    let session = history_sessions().lock().ok().and_then(|mut sessions| {
-        if sessions.len() < MAX_HISTORY_SESSIONS {
-            return None;
-        }
-        let cursor = sessions
-            .iter()
-            .min_by_key(|(_, session)| session.last_access)
-            .map(|(cursor, _)| cursor.clone())?;
-        sessions.remove(&cursor)
-    });
-    if let Some(session) = session {
+fn take_expired_history_sessions(
+    registry: &mut HistorySessionRegistry,
+    now: Instant,
+    ttl: Duration,
+) -> Vec<HistorySession> {
+    let cursors = registry
+        .sessions
+        .iter()
+        .filter(|(_, session)| now.saturating_duration_since(session.last_access) >= ttl)
+        .map(|(cursor, _)| cursor.clone())
+        .collect::<Vec<_>>();
+    cursors
+        .into_iter()
+        .filter_map(|cursor| registry.sessions.remove(&cursor))
+        .collect()
+}
+
+fn reserve_history_session_slot() -> Result<HistorySessionLease, CoreError> {
+    let evicted = {
+        let mut registry = history_sessions()
+            .lock()
+            .map_err(history_session_lock_error)?;
+        reserve_history_session_slot_from(&mut registry)?
+    };
+    for session in evicted {
         session.stop();
     }
+    Ok(HistorySessionLease::new())
+}
+
+fn reserve_history_session_slot_from(
+    registry: &mut HistorySessionRegistry,
+) -> Result<Vec<HistorySession>, CoreError> {
+    let mut evicted = Vec::new();
+    while registry.sessions.len() + registry.in_flight >= MAX_HISTORY_SESSIONS {
+        let Some(cursor) = registry
+            .sessions
+            .iter()
+            .min_by_key(|(_, session)| session.last_access)
+            .map(|(cursor, _)| cursor.clone())
+        else {
+            return Err(CoreError::new(
+                ErrorCode::ProcessFailed,
+                "Too many Git history sessions are active",
+            ));
+        };
+        if let Some(session) = registry.sessions.remove(&cursor) {
+            evicted.push(session);
+        }
+    }
+    registry.in_flight += 1;
+    Ok(evicted)
 }
 
 fn invalid_history_cursor(cursor: &str) -> CoreError {
@@ -739,4 +816,66 @@ fn git_config_value(root: &str, key: &str) -> Option<String> {
     }
     let value = response.output.trim();
     (!value.is_empty()).then(|| value.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        reserve_history_session_slot_from, take_expired_history_sessions, HistorySession,
+        HistorySessionRegistry, MAX_HISTORY_SESSIONS,
+    };
+    use crate::protocol::ErrorCode;
+    use std::time::{Duration, Instant};
+
+    fn finished_session(cursor: &str, last_access: Instant) -> HistorySession {
+        HistorySession {
+            cursor: cursor.to_string(),
+            root: "/test/repository".to_string(),
+            reference: None,
+            child: None,
+            receiver: None,
+            stdout_reader: None,
+            stderr_reader: None,
+            pending: None,
+            emitted: 0,
+            last_access,
+            finished: true,
+        }
+    }
+
+    #[test]
+    fn expired_sessions_are_removed_without_touching_recent_sessions() {
+        let now = Instant::now();
+        let mut registry = HistorySessionRegistry::default();
+        registry.sessions.insert(
+            "expired".to_string(),
+            finished_session("expired", now - Duration::from_secs(121)),
+        );
+        registry.sessions.insert(
+            "recent".to_string(),
+            finished_session("recent", now - Duration::from_secs(119)),
+        );
+
+        let expired = take_expired_history_sessions(&mut registry, now, Duration::from_secs(120));
+
+        assert_eq!(expired.len(), 1);
+        assert_eq!(expired[0].cursor, "expired");
+        assert!(registry.sessions.contains_key("recent"));
+    }
+
+    #[test]
+    fn session_limit_counts_requests_that_are_still_in_flight() {
+        let mut registry = HistorySessionRegistry {
+            sessions: Default::default(),
+            in_flight: MAX_HISTORY_SESSIONS,
+        };
+
+        let error = match reserve_history_session_slot_from(&mut registry) {
+            Ok(_) => panic!("a ninth in-flight session should be rejected"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(error.code, ErrorCode::ProcessFailed));
+        assert_eq!(registry.in_flight, MAX_HISTORY_SESSIONS);
+    }
 }
