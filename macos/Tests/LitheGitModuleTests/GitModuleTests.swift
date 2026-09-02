@@ -1658,7 +1658,7 @@ private struct TestGitOperations: GitOperations {
     func revert(_ hash: String, at rootURL: URL) -> GitProcessResult? { nil }
     func resetCurrentBranch(to hash: String, mode: String, at rootURL: URL) -> GitProcessResult? { nil }
     func createBranch(named name: String, from reference: GitReference, checkout: Bool, at rootURL: URL) -> GitProcessResult? { nil }
-    func createWorktree(named name: String, from reference: GitReference, at destination: URL, repositoryRoot: URL) -> GitProcessResult? { nil }
+    func createWorktree(named name: String, from reference: GitReference, revision: String?, at destination: URL, repositoryRoot: URL) -> GitProcessResult? { nil }
     func removeWorktree(_ worktree: GitWorktree, force: Bool, at rootURL: URL) -> GitProcessResult? { nil }
     func lockWorktree(_ worktree: GitWorktree, at rootURL: URL) -> GitProcessResult? { nil }
     func unlockWorktree(_ worktree: GitWorktree, at rootURL: URL) -> GitProcessResult? { nil }
