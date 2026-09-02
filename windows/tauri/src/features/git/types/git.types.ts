@@ -75,6 +75,17 @@ export interface GitPushPreview extends GitPushExpectation {
   hasMore: boolean;
 }
 
+export interface GitReferenceSnapshot {
+  references: GitReference[];
+  recentReferences: GitReference[];
+}
+
+export interface GitHistoryPage {
+  commits: GitCommit[];
+  nextCursor?: string;
+  hasMore: boolean;
+}
+
 export interface GitCommitFile {
   status: string;
   path: string;
