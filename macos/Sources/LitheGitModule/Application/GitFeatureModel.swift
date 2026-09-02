@@ -1669,6 +1669,7 @@ package final class GitFeatureModel: ObservableObject {
     package func createWorktree(
         named rawName: String,
         from reference: GitReference,
+        revision: String? = nil,
         at destination: URL
     ) async {
         guard let gitRepositoryRoot, !isPerformingWorktreeOperation else { return }
@@ -1682,6 +1683,7 @@ package final class GitFeatureModel: ObservableObject {
             await service.createWorktree(
                 named: name,
                 from: reference,
+                revision: revision?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true ? nil : revision,
                 at: destination.standardizedFileURL,
                 repositoryRoot: gitRepositoryRoot
             )

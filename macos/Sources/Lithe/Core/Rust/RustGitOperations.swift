@@ -148,6 +148,7 @@ struct RustGitOperations: GitOperations, Sendable {
     func createWorktree(
         named name: String,
         from reference: GitReference,
+        revision: String? = nil,
         at destination: URL,
         repositoryRoot: URL
     ) -> GitProcessResult? {
@@ -155,6 +156,7 @@ struct RustGitOperations: GitOperations, Sendable {
             at: repositoryRoot,
             operation: "createWorktree",
             gitReference: reference,
+            revision: revision,
             name: name,
             destination: destination
         )

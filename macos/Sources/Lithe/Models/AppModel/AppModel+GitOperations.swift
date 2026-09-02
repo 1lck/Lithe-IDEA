@@ -149,10 +149,11 @@ extension AppModel {
     func createGitWorktree(
         named name: String,
         from reference: GitReference,
+        revision: String? = nil,
         at destination: URL
     ) async {
         guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.createWorktree(named: name, from: reference, at: destination)
+        await gitFeature.createWorktree(named: name, from: reference, revision: revision, at: destination)
     }
 
     func removeGitWorktree(_ worktree: GitWorktree, force: Bool) async {

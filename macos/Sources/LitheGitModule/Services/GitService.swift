@@ -81,7 +81,7 @@ package protocol GitOperations: Sendable {
     func revert(_ hash: String, at rootURL: URL) -> GitProcessResult?
     func resetCurrentBranch(to hash: String, mode: String, at rootURL: URL) -> GitProcessResult?
     func createBranch(named name: String, from reference: GitReference, checkout: Bool, at rootURL: URL) -> GitProcessResult?
-    func createWorktree(named name: String, from reference: GitReference, at destination: URL, repositoryRoot: URL) -> GitProcessResult?
+    func createWorktree(named name: String, from reference: GitReference, revision: String?, at destination: URL, repositoryRoot: URL) -> GitProcessResult?
     func removeWorktree(_ worktree: GitWorktree, force: Bool, at rootURL: URL) -> GitProcessResult?
     func lockWorktree(_ worktree: GitWorktree, at rootURL: URL) -> GitProcessResult?
     func unlockWorktree(_ worktree: GitWorktree, at rootURL: URL) -> GitProcessResult?
@@ -192,7 +192,7 @@ package struct GitService: Sendable {
         reference: GitReference?
     ) async -> GitWorktreeInspection? {
         async let snapshot = snapshot(for: worktree.url)
-        async let history = history(at: worktree.url, reference: reference, limit: 50)
+        async let history = history(at: worktree.url, reference: reference, limit: 300)
         guard let snapshot = await snapshot else { return nil }
         let resolvedHistory = await history
         return GitWorktreeInspection(
@@ -522,6 +522,7 @@ package struct GitService: Sendable {
     func createWorktree(
         named name: String,
         from reference: GitReference,
+        revision: String? = nil,
         at destination: URL,
         repositoryRoot: URL
     ) async -> CommandResult {
@@ -529,6 +530,7 @@ package struct GitService: Sendable {
             $0.createWorktree(
                 named: name,
                 from: reference,
+                revision: revision,
                 at: destination,
                 repositoryRoot: repositoryRoot
             )
