@@ -1818,6 +1818,12 @@ package final class GitFeatureModel: ObservableObject {
                 worktree.displayName
             )
             : trimmedMessage(result))
+        if result.succeeded, gitWorktreeInspection?.worktreeID == worktree.id {
+            // Clear deleted checkout details before the registry refresh so
+            // the UI cannot keep rendering a removed path.
+            gitWorktreeInspection = nil
+            gitWorktreeInspectionLoadState = .idle
+        }
         await refreshWorktrees()
     }
 
