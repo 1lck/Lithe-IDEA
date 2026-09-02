@@ -4,7 +4,7 @@ use super::{capture_git_with_options, is_safe_pathspec};
 use crate::protocol::{CoreError, ErrorCode};
 
 use super::{
-    current_branch, execute_git, switch_reference, validated_reference, GitCommandResponse,
+    current_branch, execute_git, switch_reference, write_request_reference, GitCommandResponse,
     GitWriteRequest,
 };
 
@@ -13,14 +13,19 @@ pub(super) fn checkout_and_rebase(
     root: &str,
     request: GitWriteRequest,
 ) -> Result<GitCommandResponse, CoreError> {
-    if !matches!(request.reference_kind.as_deref(), Some("local" | "remote")) {
+    let reference_kind = request
+        .git_reference
+        .as_ref()
+        .map(|reference| reference.kind.as_str())
+        .or(request.reference_kind.as_deref());
+    if !matches!(reference_kind, Some("local" | "remote")) {
         return Err(CoreError::new(
             ErrorCode::InvalidRequest,
             "Checkout and rebase requires a local or remote branch",
         ));
     }
     let original_branch = current_branch(root)?;
-    let reference = validated_reference(request.reference.as_deref())?;
+    let reference = write_request_reference(root, &request)?;
     if reference == original_branch || reference == format!("refs/heads/{original_branch}") {
         return Err(CoreError::new(
             ErrorCode::InvalidRequest,

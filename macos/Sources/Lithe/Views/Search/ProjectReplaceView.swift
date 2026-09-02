@@ -223,6 +223,24 @@ struct ProjectReplaceView: View {
         .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
+        .litheContextMenu {
+            [
+                .action("Open", systemImage: "doc.text", action: {
+                    model.openFile(file.url, displayPath: file.relativePath)
+                }),
+                .action("Show in Finder", systemImage: "folder", action: {
+                    model.revealProjectItemInFinder(file.url)
+                }),
+                .submenu("Copy Path / Reference", items: [
+                    .action("Copy Path", action: {
+                        model.copyProjectItemPath(file.url, relative: false)
+                    }),
+                    .action("Copy Relative Path", action: {
+                        model.copyProjectItemPath(file.url, relative: true)
+                    })
+                ])
+            ]
+        }
     }
 
     private func clearPreview() {

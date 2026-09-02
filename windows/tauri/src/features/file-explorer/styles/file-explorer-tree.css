@@ -42,7 +42,7 @@
   min-width: 0 !important;
 }
 
-.file-tree-container .file-tree-item button {
+.file-tree-container .file-tree-item > button {
   box-sizing: border-box !important;
   border: 1px solid transparent !important;
   border-radius: var(--file-tree-row-radius) !important;
@@ -57,22 +57,27 @@
   padding-block: 2px !important;
 }
 
-.file-tree-container .file-tree-item button:hover {
+.file-tree-container .file-tree-item[data-has-action="true"] > button {
+  width: auto !important;
+  flex: 1 1 0%;
+}
+
+.file-tree-container .file-tree-item > button:hover {
   background-color: transparent !important;
 }
 
-.file-tree-container .file-tree-item button.bg-selected,
-.file-tree-container .file-tree-item button.bg-selected:hover {
+.file-tree-container .file-tree-item > button.bg-selected,
+.file-tree-container .file-tree-item > button.bg-selected:hover {
   border-color: transparent !important;
   background-color: var(--file-tree-selected-idle-bg) !important;
 }
 
-.file-explorer-shell[data-tree-focused="true"] .file-tree-item button.bg-selected,
-.file-explorer-shell[data-tree-focused="true"] .file-tree-item button.bg-selected:hover {
+.file-explorer-shell[data-tree-focused="true"] .file-tree-item > button.bg-selected,
+.file-explorer-shell[data-tree-focused="true"] .file-tree-item > button.bg-selected:hover {
   background-color: var(--selected) !important;
 }
 
-.file-tree-container .file-tree-item button:focus-visible {
+.file-tree-container .file-tree-item > button:focus-visible {
   border-color: transparent !important;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 52%, var(--border));
 }

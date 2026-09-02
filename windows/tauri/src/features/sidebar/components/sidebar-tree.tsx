@@ -215,6 +215,7 @@ export const SidebarTreeRow = forwardRef<HTMLButtonElement, SidebarTreeRowProps>
         data-sidebar-tree-row=""
         data-active={active ? "true" : undefined}
         data-depth={depth}
+        data-has-action={action ? "true" : undefined}
       >
         {guides !== undefined ? (
           guides

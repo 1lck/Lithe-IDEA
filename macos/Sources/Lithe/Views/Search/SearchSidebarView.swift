@@ -108,6 +108,24 @@ struct SearchSidebarView: View {
                             }
                             .buttonStyle(.plain)
                             .lithePointer()
+                            .litheContextMenu {
+                                [
+                                    .action("Open", systemImage: "doc.text", action: {
+                                        model.openSearchResult(result)
+                                    }),
+                                    .action("Show in Finder", systemImage: "folder", action: {
+                                        model.revealProjectItemInFinder(result.url)
+                                    }),
+                                    .submenu("Copy Path / Reference", items: [
+                                        .action("Copy Path", action: {
+                                            model.copyProjectItemPath(result.url, relative: false)
+                                        }),
+                                        .action("Copy Relative Path", action: {
+                                            model.copyProjectItemPath(result.url, relative: true)
+                                        })
+                                    ])
+                                ]
+                            }
                             Rectangle().fill(LitheTheme.divider).frame(height: 1)
                         }
                     }
