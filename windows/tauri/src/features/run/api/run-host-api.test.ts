@@ -1,11 +1,10 @@
-import { Channel } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const invoke = mock(async () => undefined);
 
 mock.module("@/platform/tauri-core", () => ({
   invoke,
-  Channel,
+  Channel: class {},
   convertFileSrc: (path: string) => path,
 }));
 mock.module("../utils/run-window-context", () => ({
