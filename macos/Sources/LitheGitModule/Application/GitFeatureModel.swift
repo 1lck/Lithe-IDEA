@@ -1688,7 +1688,9 @@ package final class GitFeatureModel: ObservableObject {
                 let fullHistory = await self.service.history(
                     at: worktree.url,
                     reference: reference,
-                    limit: 300
+                    // Keep the warm cache bounded; older commits can be
+                    // requested later by pagination or an explicit search.
+                    limit: 80
                 )
                 guard generation == self.worktreeInspectionRequestGeneration,
                       self.gitWorktreeInspection?.worktreeID == worktree.id,

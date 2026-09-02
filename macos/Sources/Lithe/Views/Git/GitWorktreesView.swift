@@ -543,26 +543,29 @@ struct GitWorktreesView: View {
             if inspection.commits.isEmpty {
                 worktreeMessage(icon: "clock.arrow.circlepath", title: "No commits", detail: "No commits were found for this branch.")
             } else {
-                worktreeCard(title: String(format: String(localized: "Commit History (%lld)"), inspection.commits.count)) {
+                worktreeCard(title: "Commit History") {
                     VStack(spacing: 0) {
                         ForEach(inspection.commits) { commit in
-                            HStack(alignment: .top, spacing: 12) {
+                            HStack(alignment: .firstTextBaseline, spacing: 10) {
                                 Image(systemName: "circle.fill")
                                     .font(.system(size: 7))
                                     .foregroundStyle(LitheTheme.accent)
-                                    .padding(.top, 5)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(commit.subject)
-                                        .font(Visual.bodyMedium)
-                                        .foregroundStyle(LitheTheme.primaryText)
-                                    Text("\(commit.shortHash)  ·  \(commit.authorName)  ·  \(commit.date)")
-                                        .font(Visual.metadata)
-                                        .foregroundStyle(LitheTheme.secondaryText)
-                                        .lineLimit(1)
-                                }
+                                Text(commit.subject)
+                                    .font(Visual.bodyMedium)
+                                    .foregroundStyle(LitheTheme.primaryText)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
                                 Spacer()
+                                Text(commit.authorName)
+                                    .font(Visual.metadata)
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                                    .lineLimit(1)
+                                Text(commit.date)
+                                    .font(Visual.metadata)
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                                    .lineLimit(1)
                             }
-                            .padding(.vertical, 9)
+                            .padding(.vertical, 8)
                             if commit.id != inspection.commits.last?.id { Divider() }
                         }
                     }
