@@ -10,6 +10,7 @@ use crate::protocol::{
     GitHistoryResponse, GitIntegrationPreflightResponse, GitOperationStateResponse,
     GitPullPreflightResponse, GitPushPreviewResponse, GitPushTagResponse, GitReferenceResponse,
     GitStashResponse, GitStashesResponse, GitStatusResponse, GitWatchContextResponse,
+    GitWorktreeResponse, GitWorktreesResponse,
 };
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
@@ -42,6 +43,13 @@ pub struct GitStatusRequest {
 #[serde(rename_all = "camelCase")]
 /// Request for the directories and files a host watcher should observe.
 pub struct GitWatchContextRequest {
+    pub root: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Request for all worktrees registered in the current repository.
+pub struct GitWorktreesRequest {
     pub root: String,
 }
 
@@ -849,6 +857,18 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
         }
         "checkoutAndRebase" => return mutations::checkout_and_rebase(&root, request),
         "createWorktree" => return create_worktree(&root, &request),
+        "removeWorktree" | "lockWorktree" | "unlockWorktree" => {
+            return mutate_worktree(&root, &request)
+        }
+        "pruneWorktrees" => {
+            arguments = vec![
+                "worktree".into(),
+                "prune".into(),
+                "--verbose".into(),
+                "--expire=now".into(),
+            ]
+        }
+        "repairWorktrees" => arguments = vec!["worktree".into(), "repair".into()],
         "fetch" => arguments = vec!["fetch".into(), "--all".into(), "--prune".into()],
         // Strategy comes from the caller because only the user can decide whether a
         // divergent history should be merged or replayed. Absent a choice we stay on
@@ -4250,6 +4270,121 @@ fn push_with_upstream_warning(
     pushed
 }
 
+/// Returns one metadata-only snapshot for every registered worktree.
+pub fn worktrees(request: GitWorktreesRequest) -> Result<GitWorktreesResponse, CoreError> {
+    let root = validate_root(&request.root)?;
+    Ok(GitWorktreesResponse {
+        worktrees: list_worktrees(&root)?,
+    })
+}
+
+fn list_worktrees(root: &str) -> Result<Vec<GitWorktreeResponse>, CoreError> {
+    let arguments = vec![
+        "worktree".to_string(),
+        "list".to_string(),
+        "--porcelain".to_string(),
+        "-z".to_string(),
+    ];
+    let response = execute_git_readonly(root, &arguments, None)?;
+    if response.exit_code != 0 {
+        return Err(
+            CoreError::new(ErrorCode::ProcessFailed, "Git worktree listing failed")
+                .with_details(response.output),
+        );
+    }
+    let current_root = repository_root(root)?
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(root));
+    let mut records = Vec::new();
+    let mut fields = Vec::new();
+    for field in response.stdout.split('\0') {
+        if field.is_empty() {
+            if !fields.is_empty() {
+                records.push(parse_worktree_record(
+                    &fields,
+                    records.is_empty(),
+                    &current_root,
+                )?);
+                fields.clear();
+            }
+        } else {
+            fields.push(field);
+        }
+    }
+    if !fields.is_empty() {
+        records.push(parse_worktree_record(
+            &fields,
+            records.is_empty(),
+            &current_root,
+        )?);
+    }
+    // Git currently emits the primary worktree first, but sorting here makes
+    // that display contract explicit and stable across Git versions.
+    records.sort_by(|left, right| {
+        right
+            .is_primary
+            .cmp(&left.is_primary)
+            .then_with(|| left.path.cmp(&right.path))
+    });
+    Ok(records)
+}
+
+fn parse_worktree_record(
+    fields: &[&str],
+    is_primary: bool,
+    current_root: &Path,
+) -> Result<GitWorktreeResponse, CoreError> {
+    let path = fields
+        .iter()
+        .find_map(|field| field.strip_prefix("worktree "))
+        .filter(|path| !path.is_empty())
+        .ok_or_else(|| {
+            CoreError::new(
+                ErrorCode::ProcessFailed,
+                "Git returned an invalid worktree record",
+            )
+        })?;
+    let head = fields
+        .iter()
+        .find_map(|field| field.strip_prefix("HEAD "))
+        .unwrap_or_default()
+        .to_string();
+    let branch = fields
+        .iter()
+        .find_map(|field| field.strip_prefix("branch "))
+        .map(str::to_string);
+    let value_after_marker = |marker: &str| {
+        fields.iter().find_map(|field| {
+            if *field == marker {
+                Some(None)
+            } else {
+                field
+                    .strip_prefix(&format!("{marker} "))
+                    .map(|value| Some(value.to_string()))
+            }
+        })
+    };
+    let lock = value_after_marker("locked");
+    let prunable = value_after_marker("prunable");
+    let reported_path = PathBuf::from(path);
+    let comparison_path = reported_path
+        .canonicalize()
+        .unwrap_or_else(|_| reported_path.clone());
+    Ok(GitWorktreeResponse {
+        path: path.to_string(),
+        head,
+        branch,
+        is_current: comparison_path == current_root,
+        is_primary,
+        is_bare: fields.contains(&"bare"),
+        is_detached: fields.contains(&"detached"),
+        is_locked: lock.is_some(),
+        lock_reason: lock.flatten(),
+        is_prunable: prunable.is_some(),
+        prune_reason: prunable.flatten(),
+    })
+}
+
 fn create_worktree(root: &str, request: &GitWriteRequest) -> Result<GitCommandResponse, CoreError> {
     let branch = validated_branch_name(root, request.name.as_deref())?;
     let destination = required_text(request.destination.as_deref(), "worktree destination")?;
@@ -4278,6 +4413,53 @@ fn create_worktree(root: &str, request: &GitWriteRequest) -> Result<GitCommandRe
         destination,
         reference.full_name,
     ]);
+    execute_git(root, &arguments, None)
+}
+
+fn mutate_worktree(root: &str, request: &GitWriteRequest) -> Result<GitCommandResponse, CoreError> {
+    let destination = required_text(request.destination.as_deref(), "worktree destination")?;
+    if destination.starts_with('-') || destination.contains(['\0', '\n', '\r']) {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Invalid Git worktree destination",
+        ));
+    }
+    let entries = list_worktrees(root)?;
+    let target = entries
+        .iter()
+        .find(|entry| entry.path == destination)
+        .ok_or_else(|| {
+            CoreError::new(
+                ErrorCode::InvalidRequest,
+                "The selected path is not a registered Git worktree",
+            )
+        })?;
+    if request.operation == "removeWorktree" && (target.is_current || target.is_primary) {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "The current or primary Git worktree cannot be removed",
+        ));
+    }
+    if request.operation == "removeWorktree" && target.is_locked {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Unlock the Git worktree before removing it",
+        ));
+    }
+
+    let mut arguments = vec!["worktree".to_string()];
+    match request.operation.as_str() {
+        "removeWorktree" => {
+            arguments.push("remove".into());
+            if request.force {
+                arguments.push("--force".into());
+            }
+        }
+        "lockWorktree" => arguments.push("lock".into()),
+        "unlockWorktree" => arguments.push("unlock".into()),
+        _ => unreachable!("caller restricts worktree mutations"),
+    }
+    arguments.extend(["--".into(), destination]);
     execute_git(root, &arguments, None)
 }
 

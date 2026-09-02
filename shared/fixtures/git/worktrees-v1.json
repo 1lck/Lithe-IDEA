@@ -1,0 +1,31 @@
+{
+  "protocolVersion": 1,
+  "worktrees": [
+    {
+      "path": "/example/project",
+      "head": "1111111111111111111111111111111111111111",
+      "branch": "refs/heads/main",
+      "isCurrent": true,
+      "isPrimary": true,
+      "isBare": false,
+      "isDetached": false,
+      "isLocked": false,
+      "lockReason": null,
+      "isPrunable": false,
+      "pruneReason": null
+    },
+    {
+      "path": "/example/worktrees/feature-core",
+      "head": "2222222222222222222222222222222222222222",
+      "branch": "refs/heads/feature/core",
+      "isCurrent": false,
+      "isPrimary": false,
+      "isBare": false,
+      "isDetached": false,
+      "isLocked": true,
+      "lockReason": "active task",
+      "isPrunable": false,
+      "pruneReason": null
+    }
+  ]
+}
