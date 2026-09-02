@@ -1,52 +1,69 @@
-# Lithe 代理入口
+# Lithe Agent Entry Point
 
-在本仓库中开展任何工作之前，必须加载并遵循位于
-`.agents/skills/develop-lithe/SKILL.md` 的 `develop-lithe` 技能。该技能是
-人工智能编码与验证规则的唯一准则，其中包括 Rust Core 必须遵循的注释规范。
+Before any work in this repository, load and follow the `develop-lithe` skill
+at `.agents/skills/develop-lithe/SKILL.md`. That skill is the single source of
+truth for AI coding and verification rules, including the required Rust Core
+comment standard.
 
-如果任务会创建、修改或审查测试代码或测试基础设施，则还必须在继续之前加载
-`.agents/skills/write-stable-tests/SKILL.md`。该技能规定了 macOS 和 Windows
-都必须遵循的有界等待、确定性时间、清理以及单测试计时规则。
+If a task creates, modifies, or reviews test code or test infrastructure,
+additionally load `.agents/skills/write-stable-tests/SKILL.md` before
+proceeding. That skill defines the mandatory bounded-wait, deterministic-time,
+cleanup, and per-test timing rules for both macOS and Windows.
 
-如果任务涉及准备、验证或发布稳定版 Lithe，则必须在修改发行说明、版本元数据、
-标签或发布工作流之前，额外加载 `.agents/skills/release-lithe/SKILL.md`。
+If a task prepares, validates, or publishes a stable Lithe release,
+additionally load `.agents/skills/release-lithe/SKILL.md` before changing
+release notes, version metadata, tags, or release workflows.
 
-如果任务涉及通过 Parallels 虚拟机来构建、运行、诊断 Windows 产品，或向其中
-传输文件，则必须在继续之前额外加载
-`.agents/skills/debug-windows-on-parallels/SKILL.md`。
+If the task involves building, running, diagnosing, or transferring files to the
+Windows product through a Parallels guest VM, additionally load
+`.agents/skills/debug-windows-on-parallels/SKILL.md` before proceeding.
 
-## 测试进程生命周期与清理
+## Test Process Lifecycle and Cleanup
 
-除非用户明确要求保持进程运行，否则，任何为构建、测试、调试、预览或验证而
-启动的 Lithe 应用，都必须在任务或测试运行结束时关闭。清理所有子进程、辅助
-进程、临时应用实例及相关资源，并在交付工作之前确认没有残留的 Lithe 进程。
-重复检查期间不得启动重复的 Lithe 实例，也不得让测试构建的应用继续出现在
-用户的应用列表中。如果某个进程无法正常停止，必须明确报告，并在继续之前
-尽最大努力进行有界清理。
+Unless the user gives a specific instruction to keep a process running, any
+Lithe application started for building, testing, debugging, previewing, or
+verification must be shut down when the task or test run is complete. Clean up
+all child processes, helper processes, temporary app instances, and related
+resources, then verify that no Lithe processes remain before handing the work
+back. Do not launch duplicate Lithe instances during repeated checks, and do
+not leave test-built applications open in the user's application list. If a
+process cannot be stopped cleanly, report it explicitly and make a bounded
+best-effort cleanup before continuing.
 
-## 高性能 UI 交互与可调布局要求
+## High-Performance UI Interaction and Resizable Layout Requirements
 
-涉及可拖拽分隔线、可调整面板、连续拖动、滚动或其他高频 UI 交互时，必须
-优先复用项目中已有的高性能布局容器和交互组件，不得为了快速实现而在业务
-父视图中直接堆叠自定义 `DragGesture`、逐事件写入多个 `@State` 或重复实现
-分隔线逻辑。
+When working on draggable splitters, resizable panels, continuous dragging,
+scrolling, or other high-frequency UI interactions, prioritize reusing the
+project's existing high-performance layout containers and interaction
+components. Do not quickly implement these behaviors by stacking custom
+`DragGesture` handlers in a business parent view, writing to multiple `@State`
+properties on every event, or duplicating splitter logic.
 
-- macOS 的可调面板必须优先使用 `LitheSplitPaneView` 和
-  `SplitHandleView`；如果确实无法复用，必须在变更说明中解释原因，并保持
-  相同的行为契约。
-- 拖拽处理必须使用稳定的坐标空间（连续拖动时优先使用全局坐标），避免因
-  分隔线自身移动导致坐标原点变化和拖拽跳动。
-- 高频拖拽事件必须经过节流、合并或死区过滤，不能在每个指针事件中触发
-  无必要的父视图重建；可变尺寸状态应尽量封装在局部布局容器内，避免拖动
-  使整个功能页面重新计算。
-- 必须提供明确的最小/最大尺寸和可用空间约束，保证相邻面板仍满足最低可用
-  宽度；窗口缩放、面板隐藏和重新出现时不得产生负尺寸或布局溢出。
-- 交互行为应与现有 Git、编辑器和工具窗口保持一致，包括悬停/拖拽高亮、
-  平台对应的调整光标、帮助文本和无障碍标签。
-- 如果尺寸需要跨刷新或重启保留，应通过现有布局持久化机制提交最终尺寸，
-  不要在拖拽过程中持续写入持久化存储。
-- 新增或修改此类 UI 后，必须至少完成对应产品构建、`git diff --check`
-  和相关边界检查；代码审查时应明确确认拖拽不会导致高频全页面重绘。
+- Resizable macOS panels must use `LitheSplitPaneView` and `SplitHandleView`
+  whenever possible. If they genuinely cannot be reused, explain why in the
+  change summary and preserve the same behavioral contract.
+- Drag handling must use a stable coordinate space, preferably global
+  coordinates for continuous dragging, to prevent the moving splitter from
+  changing the coordinate origin and causing jumps.
+- High-frequency drag events must be throttled, coalesced, or filtered with a
+  dead zone. Do not trigger unnecessary parent-view reconstruction on every
+  pointer event. Keep mutable size state in a local layout container whenever
+  possible so dragging does not recompute the entire feature page.
+- Provide explicit minimum and maximum sizes and available-space constraints so
+  adjacent panels retain their minimum usable widths. Window resizing, panel
+  hiding, and panel restoration must not produce negative sizes or layout
+  overflow.
+- Interaction behavior should match existing Git, editor, and tool windows,
+  including hover/drag highlighting, the platform-appropriate resize cursor,
+  help text, and accessibility labels.
+- If sizes must persist across refreshes or restarts, commit the final size
+  through the existing layout-persistence mechanism rather than continuously
+  writing to persistent storage during dragging.
+- After adding or modifying this type of UI, at minimum complete the relevant
+  product build, `git diff --check`, and boundary checks. During code review,
+  explicitly confirm that dragging does not cause high-frequency full-page
+  redraws.
 
-这些要求适用于 macOS 和 Windows：平台可使用各自的原生实现，但交互语义、
-性能目标、尺寸约束和可访问性要求必须保持一致。
+These requirements apply to both macOS and Windows. Each platform may use its
+own native implementation, but interaction semantics, performance goals, size
+constraints, and accessibility requirements must remain consistent.
