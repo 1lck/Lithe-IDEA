@@ -42,6 +42,7 @@ describe("Git integration state", () => {
       fullName: "refs/remotes/origin/feature/demo",
       shortName: "origin/feature/demo",
       kind: "remote" as const,
+      peelsToCommit: true,
       isCurrent: false,
     };
 
@@ -123,6 +124,7 @@ describe("Git integration state", () => {
       fullName: "refs/remotes/origin/feature/demo",
       shortName: "origin/feature/demo",
       kind: "remote" as const,
+      peelsToCommit: true,
       isCurrent: false,
     };
 
@@ -169,6 +171,7 @@ describe("Git integration state", () => {
       fullName: "refs/remotes/origin/feature/demo",
       shortName: "origin/feature/demo",
       kind: "remote" as const,
+      peelsToCommit: true,
       isCurrent: false,
     };
 
@@ -200,6 +203,7 @@ describe("Git integration state", () => {
       fullName: "refs/remotes/origin/feature/demo",
       shortName: "origin/feature/demo",
       kind: "remote" as const,
+      peelsToCommit: true,
       isCurrent: false,
     };
 
@@ -231,6 +235,7 @@ describe("Git integration state", () => {
       fullName: "refs/remotes/origin/feature/demo",
       shortName: "origin/feature/demo",
       kind: "remote" as const,
+      peelsToCommit: true,
       isCurrent: false,
     };
 
