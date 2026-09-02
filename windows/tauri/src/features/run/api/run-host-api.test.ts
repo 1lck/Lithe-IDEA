@@ -1,17 +1,22 @@
+import { Channel } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const invoke = mock(async () => undefined);
-const getCurrentWebviewWindow = mock(() => ({ label: "project-window" }));
 
-mock.module("@/platform/tauri-core", () => ({ invoke }));
-mock.module("@tauri-apps/api/webviewWindow", () => ({ getCurrentWebviewWindow }));
+mock.module("@/platform/tauri-core", () => ({
+  invoke,
+  Channel,
+  convertFileSrc: (path: string) => path,
+}));
+mock.module("../utils/run-window-context", () => ({
+  getRunWindowLabel: () => "project-window",
+}));
 
 const { startRunProcess, stopRunProcess, writeRunStdin } = await import("../api/run-host-api");
 
 describe("run host API window scoping", () => {
   beforeEach(() => {
     invoke.mockClear();
-    getCurrentWebviewWindow.mockClear();
   });
 
   test("startRunProcess includes the current window label", async () => {
