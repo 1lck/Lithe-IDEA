@@ -141,6 +141,7 @@
 "Worktree" = "Worktree";
 "Copy worktree path" = "Copy worktree path";
 "Commit History" = "Commit History";
+"Commit History (%lld)" = "Commit History (%lld)";
 "Settings" = "Settings";
 "Basic Information" = "Basic Information";
 "Path" = "Path";
@@ -227,6 +228,7 @@
 "Checkout Path Missing" = "Checkout Path Missing";
 "The checkout directory no longer exists. Repair moved worktree metadata or prune the stale Git record." = "The checkout directory no longer exists. Repair moved worktree metadata or prune the stale Git record.";
 "The primary worktree cannot be locked." = "The primary worktree cannot be locked.";
+"Repair or prune the missing checkout before changing its lock." = "Repair or prune the missing checkout before changing its lock.";
 "The primary worktree cannot be removed." = "The primary worktree cannot be removed.";
 "The current worktree cannot be removed here." = "The current worktree cannot be removed here.";
 "Unlock the worktree before removing it." = "Unlock the worktree before removing it.";

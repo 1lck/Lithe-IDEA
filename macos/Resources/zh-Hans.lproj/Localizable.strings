@@ -1312,6 +1312,7 @@
 "Worktree" = "工作树";
 "Copy worktree path" = "复制工作树路径";
 "Commit History" = "提交历史";
+"Commit History (%lld)" = "提交历史（%lld 条）";
 "Basic Information" = "基本信息";
 "Path" = "路径";
 "Branch" = "分支";
@@ -1387,6 +1388,7 @@
 "Checkout Path Missing" = "检出路径不存在";
 "The checkout directory no longer exists. Repair moved worktree metadata or prune the stale Git record." = "检出目录已不存在。你可以修复移动后的工作树元数据，或清理失效的 Git 记录。";
 "The primary worktree cannot be locked." = "主工作区不能锁定。";
+"Repair or prune the missing checkout before changing its lock." = "请先修复或清理路径缺失的工作树，再更改锁定状态。";
 "The primary worktree cannot be removed." = "主工作区不能删除。";
 "The current worktree cannot be removed here." = "不能在这里删除当前工作树。";
 "Unlock the worktree before removing it." = "请先解锁工作树再删除。";

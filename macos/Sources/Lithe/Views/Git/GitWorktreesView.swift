@@ -81,11 +81,12 @@ struct GitWorktreesView: View {
                     repositoryRoot: repositoryRoot,
                     references: model.gitReferences,
                     currentReference: model.gitReferences.first(where: \.isCurrent)
-                ) { name, reference, destination in
+                ) { name, reference, revision, destination in
                     Task {
                         await model.createGitWorktree(
                             named: name,
                             from: reference,
+                            revision: revision,
                             at: destination
                         )
                     }
@@ -422,38 +423,38 @@ struct GitWorktreesView: View {
     private func actionCard(_ worktree: GitWorktree) -> some View {
         worktreeCard(title: "Actions") {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
+                worktreeAction("Open in Lithe", icon: "macwindow") {
+                    model.openProject(worktree.url)
+                }
+                .disabled(worktree.isPrunable)
+                .help(pathActionHelp(for: worktree))
+                worktreeAction("Show in Finder", icon: "folder") {
+                    model.revealProjectItemInFinder(worktree.url)
+                }
+                .disabled(worktree.isPrunable)
+                .help(pathActionHelp(for: worktree))
                 worktreeAction("Copy Path", icon: "doc.on.doc") {
                     model.copyProjectItemPath(worktree.url, relative: false)
                 }
+                worktreeAction(worktree.isLocked ? "Unlock Worktree" : "Lock Worktree", icon: worktree.isLocked ? "lock.open" : "lock") {
+                    Task { await model.setGitWorktreeLocked(worktree, locked: !worktree.isLocked) }
+                }
+                .disabled(worktree.isPrimary || worktree.isPrunable)
+                .help(lockHelp(for: worktree))
+                worktreeAction("Remove Worktree…", icon: "trash", destructive: true) {
+                    removalConfirmation = .regular(worktree)
+                }
+                .disabled(worktree.isPrimary || worktree.isCurrent || worktree.isLocked || worktree.isPrunable)
+                .help(removalHelp(for: worktree))
                 if worktree.isPrunable {
                     worktreeAction("Repair Worktree Records", icon: "wrench.and.screwdriver") {
                         Task { await model.repairGitWorktrees() }
                     }
-                    worktreeAction("Prune Stale Records", icon: "trash.slash", destructive: true) {
-                        showsPruneConfirmation = true
-                    }
-                } else {
-                    worktreeAction("Open in Lithe", icon: "macwindow") {
-                        model.openProject(worktree.url)
-                    }
-                    worktreeAction("Show in Finder", icon: "folder") {
-                        model.revealProjectItemInFinder(worktree.url)
-                    }
-                    worktreeAction(worktree.isLocked ? "Unlock Worktree" : "Lock Worktree", icon: worktree.isLocked ? "lock.open" : "lock") {
-                        Task { await model.setGitWorktreeLocked(worktree, locked: !worktree.isLocked) }
-                    }
-                    .disabled(worktree.isPrimary)
-                    .help(worktree.isPrimary ? String(localized: "The primary worktree cannot be locked.") : "")
-                    worktreeAction("Remove Worktree…", icon: "trash", destructive: true) {
-                        removalConfirmation = .regular(worktree)
-                    }
-                    .disabled(worktree.isPrimary || worktree.isCurrent || worktree.isLocked)
-                    .help(removalHelp(for: worktree))
-                    worktreeAction("Prune Stale Records", icon: "trash.slash") {
-                        showsPruneConfirmation = true
-                    }
-                    .disabled(!model.gitWorktrees.contains(where: \.isPrunable))
                 }
+                worktreeAction("Prune Stale Records", icon: "trash.slash", destructive: worktree.isPrunable) {
+                    showsPruneConfirmation = true
+                }
+                .disabled(!model.gitWorktrees.contains(where: \.isPrunable))
             }
         }
     }
@@ -502,7 +503,7 @@ struct GitWorktreesView: View {
             if inspection.commits.isEmpty {
                 worktreeMessage(icon: "clock.arrow.circlepath", title: "No commits", detail: "No commits were found for this branch.")
             } else {
-                worktreeCard(title: "Commit History") {
+                worktreeCard(title: String(format: String(localized: "Commit History (%lld)"), inspection.commits.count)) {
                     VStack(spacing: 0) {
                         ForEach(inspection.commits) { commit in
                             HStack(alignment: .top, spacing: 12) {
@@ -536,12 +537,11 @@ struct GitWorktreesView: View {
         VStack(spacing: 12) {
             worktreeCard(title: "Worktree Settings") {
                 informationRow("Protection", value: worktree.isLocked ? "Locked" : "Unlocked")
-                if !worktree.isPrunable {
-                    worktreeAction(worktree.isLocked ? "Unlock Worktree" : "Lock Worktree", icon: worktree.isLocked ? "lock.open" : "lock") {
-                        Task { await model.setGitWorktreeLocked(worktree, locked: !worktree.isLocked) }
-                    }
-                    .disabled(worktree.isPrimary)
+                worktreeAction(worktree.isLocked ? "Unlock Worktree" : "Lock Worktree", icon: worktree.isLocked ? "lock.open" : "lock") {
+                    Task { await model.setGitWorktreeLocked(worktree, locked: !worktree.isLocked) }
                 }
+                .disabled(worktree.isPrimary || worktree.isPrunable)
+                .help(lockHelp(for: worktree))
             }
             worktreeCard(title: "Maintenance") {
                 if worktree.isPrunable {
@@ -838,6 +838,16 @@ struct GitWorktreesView: View {
         return ""
     }
 
+    private func lockHelp(for worktree: GitWorktree) -> String {
+        if worktree.isPrimary { return String(localized: "The primary worktree cannot be locked.") }
+        if worktree.isPrunable { return String(localized: "Repair or prune the missing checkout before changing its lock.") }
+        return ""
+    }
+
+    private func pathActionHelp(for worktree: GitWorktree) -> String {
+        worktree.isPrunable ? String(localized: "The checkout path does not exist") : ""
+    }
+
     private func changeColor(_ change: GitChange) -> Color {
         switch change.kind {
         case .added: LitheTheme.success
@@ -888,12 +898,13 @@ private struct GitWorktreeCreateView: View {
     let repositoryRoot: URL
     let references: [GitReference]
     let currentReference: GitReference?
-    let onSubmit: (String, GitReference, URL) -> Void
+    let onSubmit: (String, GitReference, String?, URL) -> Void
 
     @State private var branchName = ""
     @State private var selectedReferenceID = ""
     @State private var destinationPath = ""
     @State private var destinationWasEdited = false
+    @State private var revision = ""
     @FocusState private var branchFieldFocused: Bool
 
     var body: some View {
@@ -949,6 +960,17 @@ private struct GitWorktreeCreateView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Starting commit (optional)")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                TextField("Use the selected branch tip", text: $revision)
+                    .textFieldStyle(.roundedBorder)
+                Text("Enter a commit hash to create the new branch from that exact point.")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(LitheTheme.tertiaryText)
+            }
+
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }
@@ -956,7 +978,7 @@ private struct GitWorktreeCreateView: View {
                     .lithePointer()
                 Button("Create") {
                     guard let selectedReference else { return }
-                    onSubmit(trimmedBranchName, selectedReference, URL(fileURLWithPath: destinationPath))
+                    onSubmit(trimmedBranchName, selectedReference, revision.isEmpty ? nil : revision, URL(fileURLWithPath: destinationPath))
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)
