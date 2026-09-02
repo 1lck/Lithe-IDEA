@@ -826,6 +826,8 @@ package struct GitService: Sendable {
             invocations: result?.invocations ?? [],
             operationErrorMessage: result?.operationErrorMessage,
             stashRestoreConflict: result?.stashRestoreConflict,
+            tagDeletion: result?.tagDeletion,
+            branchDeletion: result?.branchDeletion,
             warnings: result?.warnings ?? []
         )
         performanceLogger.record(
@@ -835,19 +837,6 @@ package struct GitService: Sendable {
                 arguments: commandResult.arguments,
                 durationMilliseconds: elapsedMilliseconds(since: startedAt),
                 succeeded: commandResult.succeeded
-                arguments: result?.arguments.isEmpty == false
-                    ? result?.arguments ?? fallbackArguments
-                    : fallbackArguments,
-                output: result?.output ?? "Rust Core Git operation failed",
-                standardOutput: result?.standardOutput,
-                standardError: result?.standardError,
-                exitCode: result?.exitCode ?? 1,
-                invocations: result?.invocations ?? [],
-                operationErrorMessage: result?.operationErrorMessage,
-                stashRestoreConflict: result?.stashRestoreConflict,
-                tagDeletion: result?.tagDeletion,
-                branchDeletion: result?.branchDeletion,
-                warnings: result?.warnings ?? []
             )
         )
         return commandResult
