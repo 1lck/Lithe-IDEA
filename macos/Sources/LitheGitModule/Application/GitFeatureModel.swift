@@ -1661,8 +1661,8 @@ package final class GitFeatureModel: ObservableObject {
             gitWorktreeInspection = GitWorktreeInspection(
                 worktreeID: worktree.id,
                 changes: gitChanges,
-                commits: gitCommits,
-                hasMoreCommits: false
+                commits: Array(gitCommits.prefix(80)),
+                hasMoreCommits: gitCommits.count > 80 || canLoadMoreGitHistory
             )
             gitWorktreeInspectionLoadState = .ready
             return
