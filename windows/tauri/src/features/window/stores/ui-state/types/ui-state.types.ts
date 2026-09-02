@@ -18,7 +18,7 @@ export type BottomPaneTab =
   | "references"
   | "buffers"
   | "run"
-  // Kept so persisted preview sessions can migrate the former bottom Maven pane.
+  // Maven task output is independent from the right-side Maven navigation tool window.
   | "maven"
   | "gitLog";
 

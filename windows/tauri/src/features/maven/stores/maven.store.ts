@@ -78,7 +78,7 @@ export interface MavenState {
   taskStatus: MavenTaskStatus;
   taskError: string | null;
   activeSessionId: string | null;
-  runningTitle: string | null;
+  taskTitle: string | null;
   output: string;
   issues: MavenDiagnostic[];
   lastExitCode: number | null;
@@ -232,7 +232,7 @@ export const createMavenStore = (
       taskStatus: "idle",
       taskError: null,
       activeSessionId: null,
-      runningTitle: null,
+      taskTitle: null,
       output: "",
       issues: [],
       lastExitCode: null,
@@ -259,7 +259,7 @@ export const createMavenStore = (
                   taskStatus: "idle" as const,
                   taskError: null,
                   activeSessionId: null,
-                  runningTitle: null,
+                  taskTitle: null,
                   output: "",
                   issues: [],
                   lastExitCode: null,
@@ -403,7 +403,7 @@ export const createMavenStore = (
             taskStatus: "running",
             taskError: null,
             activeSessionId: sessionId,
-            runningTitle: title,
+            taskTitle: title,
             output: "",
             issues: [],
             lastExitCode: null,
@@ -445,7 +445,6 @@ export const createMavenStore = (
               taskStatus: "failed",
               taskError: message,
               activeSessionId: null,
-              runningTitle: null,
               lastExitCode: 1,
               output: trimOutput(`${get().output}${message}\n`),
               issues: [{ path: "", line: 1, column: null, severity: "error", message }],
@@ -467,7 +466,6 @@ export const createMavenStore = (
                 taskStatus: "cancelled",
                 taskError: null,
                 activeSessionId: null,
-                runningTitle: null,
                 lastExitCode: null,
                 output: cancelledOutput(get().output),
               });
@@ -491,7 +489,12 @@ export const createMavenStore = (
             output: "",
             issues: [],
             lastExitCode: null,
-            taskStatus: state.taskStatus === "cancelled" ? "idle" : state.taskStatus,
+            taskError: null,
+            taskTitle: null,
+            taskStatus:
+              state.taskStatus === "cancelled" || state.taskStatus === "failed"
+                ? "idle"
+                : state.taskStatus,
           }));
         },
 
@@ -511,7 +514,6 @@ export const createMavenStore = (
               taskStatus: "cancelled",
               taskError: null,
               activeSessionId: null,
-              runningTitle: null,
               lastExitCode: null,
               output: cancelledOutput(output),
             });
@@ -522,7 +524,6 @@ export const createMavenStore = (
             taskStatus: exitCode === 0 ? "idle" : "failed",
             taskError: exitCode === 0 ? null : `Maven exited with code ${exitCode}.`,
             activeSessionId: null,
-            runningTitle: null,
             lastExitCode: exitCode,
           });
           void dependencies

@@ -40,7 +40,7 @@ test("right activity rail places Maven in the upper right tool group", async () 
   expect(transparencyStyles).toContain(".lithe-plugin-activity-rail");
 });
 
-test("Maven content is owned by the resizable right tool window", async () => {
+test("Maven navigation stays right while task output uses the bottom pane", async () => {
   const railSource = await Bun.file(new URL("./plugin-activity-rail.tsx", import.meta.url)).text();
   const layoutSource = await Bun.file(new URL("./main-layout.tsx", import.meta.url)).text();
   const bottomPaneSource = await Bun.file(
@@ -49,6 +49,9 @@ test("Maven content is owned by the resizable right tool window", async () => {
   const mavenPaneSource = await Bun.file(
     new URL("../../maven/components/maven-pane.tsx", import.meta.url),
   ).text();
+  const mavenRunPaneSource = await Bun.file(
+    new URL("../../maven/components/maven-run-pane.tsx", import.meta.url),
+  ).text();
 
   expect(railSource).toContain(
     'state.isRightSidebarVisible && state.activeRightSidebarView === "maven"',
@@ -56,10 +59,22 @@ test("Maven content is owned by the resizable right tool window", async () => {
   expect(layoutSource).toContain('activeRightSidebarView === "maven"');
   expect(layoutSource).toContain("hidden={!isRightToolWindowVisible}");
   expect(layoutSource).toContain("<MavenPane onClose={closeMavenToolWindow} />");
-  expect(bottomPaneSource).not.toContain("MavenPane");
+  expect(layoutSource).not.toContain(
+    'if (!isBottomPaneVisible || bottomPaneActiveTab !== "maven") return;',
+  );
+  expect(bottomPaneSource).toContain('bottomPaneActiveTab === "maven"');
+  expect(bottomPaneSource).toContain("<MavenRunPane />");
   expect(mavenPaneSource).toContain(
     "export default function MavenPane({ onClose }: MavenPaneProps)",
   );
-  expect(mavenPaneSource).not.toContain("setIsBottomPaneVisible");
+  expect(mavenPaneSource).toContain("openMavenRunPane();");
+  expect(mavenPaneSource).not.toContain("RunOutputText");
+  expect(mavenPaneSource).not.toContain("showBuildOutput");
+  expect(mavenPaneSource).not.toContain("actions.clearOutput");
   expect(mavenPaneSource).not.toContain('className="w-[17rem]');
+  expect(mavenRunPaneSource).toContain("useMavenStore");
+  expect(mavenRunPaneSource).toContain("<RunOutputText");
+  expect(mavenRunPaneSource).toContain("actions.clearOutput");
+  expect(mavenRunPaneSource).toContain("actions.stop()");
+  expect(mavenRunPaneSource).not.toContain("ensureMavenProcessListeners");
 });

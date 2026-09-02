@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isBackendCapabilityAvailable } from "@/config/backend-capabilities";
 import DebuggerView from "@/features/debugger/components/debugger-view";
 import DiagnosticsBuffer from "@/features/diagnostics/components/diagnostics-buffer";
+import MavenRunPane from "@/features/maven/components/maven-run-pane";
 import RunPane from "@/features/run/components/run-pane";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useTranslation } from "@/i18n/locale-provider";
@@ -273,6 +274,12 @@ const BottomPane = () => {
         {bottomPaneActiveTab === "run" && isBackendCapabilityAvailable("run") && (
           <div className="h-full">
             <RunPane />
+          </div>
+        )}
+
+        {bottomPaneActiveTab === "maven" && (
+          <div className="h-full">
+            <MavenRunPane />
           </div>
         )}
 

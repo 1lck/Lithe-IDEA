@@ -311,11 +311,13 @@ describe("Maven workspace state", () => {
     expect(startMavenProcess).not.toHaveBeenCalled();
     expect(store.getState().taskStatus).toBe("cancelled");
     expect(store.getState().activeSessionId).toBeNull();
+    expect(store.getState().taskTitle).toBe("compile");
     expect(store.getState().output).toBe("Maven task cancelled.\n");
 
     store.getState().actions.clearOutput();
 
     expect(store.getState().taskStatus).toBe("idle");
+    expect(store.getState().taskTitle).toBeNull();
     expect(store.getState().output).toBe("");
   });
 
@@ -352,6 +354,15 @@ describe("Maven workspace state", () => {
     expect(startMavenProcess).not.toHaveBeenCalled();
     expect(store.getState().taskStatus).toBe("failed");
     expect(store.getState().taskError).toContain("App.java");
+    expect(store.getState().taskTitle).toBe("compile");
+
+    store.getState().actions.clearOutput();
+
+    expect(store.getState().taskStatus).toBe("idle");
+    expect(store.getState().taskError).toBeNull();
+    expect(store.getState().taskTitle).toBeNull();
+    expect(store.getState().issues).toEqual([]);
+    expect(store.getState().lastExitCode).toBeNull();
   });
 
   test("keeps cancellation when process exit arrives before stop completes", async () => {
@@ -399,6 +410,6 @@ describe("Maven workspace state", () => {
     await Promise.resolve();
 
     expect(store.getState().issues).toEqual([]);
-    expect(store.getState().runningTitle).toBe("test");
+    expect(store.getState().taskTitle).toBe("test");
   });
 });

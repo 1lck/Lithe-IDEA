@@ -84,8 +84,6 @@ export function MainLayout() {
   const isSidebarVisible = useUIState((state) => state.isSidebarVisible);
   const isRightSidebarVisible = useUIState((state) => state.isRightSidebarVisible);
   const activeRightSidebarView = useUIState((state) => state.activeRightSidebarView);
-  const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible);
-  const bottomPaneActiveTab = useUIState((state) => state.bottomPaneActiveTab);
   const mavenProjectStatus = useMavenStore((state) => state.projectStatus);
   const mavenProject = useMavenStore((state) => state.project);
   const sidebarWidth = useSettingsStore((state) => state.settings.sidebarWidth);
@@ -153,16 +151,6 @@ export function MainLayout() {
   useEffect(() => {
     void initializeDebuggerEventBridge();
   }, []);
-
-  useEffect(() => {
-    if (!isBottomPaneVisible || bottomPaneActiveTab !== "maven") return;
-
-    const state = useUIState.getState();
-    state.setActiveRightSidebarView("maven");
-    state.setIsRightSidebarVisible(true);
-    state.setBottomPaneActiveTab("terminal");
-    state.setIsBottomPaneVisible(false);
-  }, [bottomPaneActiveTab, isBottomPaneVisible]);
 
   useEffect(() => {
     if (isMavenVisible && mavenProjectStatus === "ready" && !mavenProject) {
