@@ -1664,15 +1664,10 @@ package final class GitFeatureModel: ObservableObject {
         isPerformingBranchOperation = true
         let result = await withGitOperation { await service.deleteBranch(reference, at: gitRepositoryRoot) }
         isPerformingBranchOperation = false
-        if let deletion = result.branchDeletion {
+        if result.succeeded, let deletion = result.branchDeletion {
             recentlyDeletedBranch = deletion
-            notify?(
-                result.succeeded
-                    ? successfulMessage(result, fallback: "Deleted branch \(deletion.name)")
-                    : trimmedMessage(result)
-            )
+            notify?(successfulMessage(result, fallback: "Deleted branch \(deletion.name)"))
         } else {
-            recentlyDeletedBranch = nil
             notify?(result.succeeded ? "Deleted \(reference.shortName)" : trimmedMessage(result))
         }
         await refreshGit()
@@ -1754,7 +1749,6 @@ package final class GitFeatureModel: ObservableObject {
             recentlyDeletedTag = deletion
             notify?("Deleted tag \(deletion.name)")
         } else {
-            recentlyDeletedTag = nil
             notify?(trimmedMessage(result))
         }
         await refreshGit()
