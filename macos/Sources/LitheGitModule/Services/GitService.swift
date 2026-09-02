@@ -135,6 +135,8 @@ package protocol GitOperations: Sendable {
     func popStash(_ stash: GitStash, at rootURL: URL) -> GitProcessResult?
     func dropStash(_ stash: GitStash, at rootURL: URL) -> GitProcessResult?
     func stageAll(at rootURL: URL) -> GitProcessResult?
+    func createTag(named name: String, at revision: String, message: String?, rootURL: URL) -> GitProcessResult?
+    func deleteTag(named name: String, rootURL: URL) -> GitProcessResult?
 }
 
 package typealias GitWatchContextProviding = LitheCoreContracts.GitWatchContextProviding
@@ -200,6 +202,8 @@ package struct GitService: Sendable {
         package let invocations: [GitProcessInvocation]
         package let operationErrorMessage: String?
         package let stashRestoreConflict: GitStashRestoreConflict?
+        package let tagDeletion: GitTagDeletion?
+        package let branchDeletion: GitBranchDeletion?
         package let warnings: [GitOperationWarning]
 
         package init(
@@ -212,6 +216,8 @@ package struct GitService: Sendable {
             invocations: [GitProcessInvocation] = [],
             operationErrorMessage: String? = nil,
             stashRestoreConflict: GitStashRestoreConflict? = nil,
+            tagDeletion: GitTagDeletion? = nil,
+            branchDeletion: GitBranchDeletion? = nil,
             warnings: [GitOperationWarning] = []
         ) {
             self.workingDirectory = workingDirectory
@@ -223,6 +229,8 @@ package struct GitService: Sendable {
             self.invocations = invocations
             self.operationErrorMessage = operationErrorMessage
             self.stashRestoreConflict = stashRestoreConflict
+            self.tagDeletion = tagDeletion
+            self.branchDeletion = branchDeletion
             self.warnings = warnings
         }
 
@@ -777,6 +785,24 @@ package struct GitService: Sendable {
         await command(at: repositoryRoot) { $0.stageAll(at: repositoryRoot) }
     }
 
+    /// Creates a lightweight or annotated tag: a non-empty `message` produces
+    /// the annotated form. `revision` is the commit hash or resolvable
+    /// revision the tag should point at.
+    func createTag(
+        named name: String,
+        at revision: String,
+        message: String?,
+        at repositoryRoot: URL
+    ) async -> CommandResult {
+        await command(at: repositoryRoot) {
+            $0.createTag(named: name, at: revision, message: message, rootURL: repositoryRoot)
+        }
+    }
+
+    func deleteTag(named name: String, at repositoryRoot: URL) async -> CommandResult {
+        await command(at: repositoryRoot) { $0.deleteTag(named: name, rootURL: repositoryRoot) }
+    }
+
     private func command(
         at workingDirectory: URL? = nil,
         fallbackArguments: [String] = [],
@@ -809,6 +835,19 @@ package struct GitService: Sendable {
                 arguments: commandResult.arguments,
                 durationMilliseconds: elapsedMilliseconds(since: startedAt),
                 succeeded: commandResult.succeeded
+                arguments: result?.arguments.isEmpty == false
+                    ? result?.arguments ?? fallbackArguments
+                    : fallbackArguments,
+                output: result?.output ?? "Rust Core Git operation failed",
+                standardOutput: result?.standardOutput,
+                standardError: result?.standardError,
+                exitCode: result?.exitCode ?? 1,
+                invocations: result?.invocations ?? [],
+                operationErrorMessage: result?.operationErrorMessage,
+                stashRestoreConflict: result?.stashRestoreConflict,
+                tagDeletion: result?.tagDeletion,
+                branchDeletion: result?.branchDeletion,
+                warnings: result?.warnings ?? []
             )
         )
         return commandResult

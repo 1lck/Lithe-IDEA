@@ -1,4 +1,5 @@
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { mavenStoreForSession, releaseMavenSessionWorkspace } from "../stores/maven.store";
 
 interface RunOutputEvent {
@@ -15,8 +16,9 @@ let outputUnlisten: UnlistenFn | undefined;
 let exitUnlisten: UnlistenFn | undefined;
 
 export async function ensureMavenProcessListeners(): Promise<void> {
+  const currentWindow = getCurrentWebviewWindow();
   if (!outputUnlisten) {
-    outputUnlisten = await listen<RunOutputEvent>("run-output", (event) => {
+    outputUnlisten = await currentWindow.listen<RunOutputEvent>("run-output", (event) => {
       if (!event.payload.sessionId.startsWith("maven:")) return;
       mavenStoreForSession(event.payload.sessionId)
         .getState()
@@ -24,7 +26,7 @@ export async function ensureMavenProcessListeners(): Promise<void> {
     });
   }
   if (!exitUnlisten) {
-    exitUnlisten = await listen<RunExitEvent>("run-exit", (event) => {
+    exitUnlisten = await currentWindow.listen<RunExitEvent>("run-exit", (event) => {
       const sessionId = event.payload.sessionId;
       if (!sessionId.startsWith("maven:")) return;
       mavenStoreForSession(sessionId)

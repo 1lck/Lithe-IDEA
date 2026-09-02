@@ -133,6 +133,51 @@
         "message": "Save work",
         "includeUntracked": true
       }
+    },
+    {
+      "operation": "createTag",
+      "payload": {
+        "name": "v1.0.0",
+        "revision": "2f1c9a4"
+      }
+    },
+    {
+      "operation": "createTag",
+      "payload": {
+        "name": "v2.0.0",
+        "revision": "8e4b2d7",
+        "message": "Release 2.0.0"
+      }
+    },
+    {
+      "operation": "deleteTag",
+      "payload": {
+        "name": "v2.0.0"
+      }
+    },
+    {
+      "operation": "deleteBranch",
+      "payload": {
+        "reference": "refs/heads/feature/pending"
+      }
+    }
+  ],
+  "responses": [
+    {
+      "operation": "deleteTag",
+      "tagDeletion": {
+        "name": "v2.0.0",
+        "deletedTarget": "8e4b2d7bb019f0e5a3c6f1a2d4e5b6c7d8e9f0a1",
+        "kind": "annotated",
+        "message": "Release 2.0.0"
+      }
+    },
+    {
+      "operation": "deleteBranch",
+      "branchDeletion": {
+        "name": "feature/pending",
+        "deletedTarget": "2f1c9a4bb019f0e5a3c6f1a2d4e5b6c7d8e9f0a1"
+      }
     }
   ],
   "invalidRequests": [
@@ -148,6 +193,14 @@
       "operation": "stage",
       "payload": {
         "paths": ["../outside.txt"]
+      },
+      "errorCode": "invalid_request"
+    },
+    {
+      "operation": "createTag",
+      "payload": {
+        "name": "bad tag name",
+        "revision": "HEAD"
       },
       "errorCode": "invalid_request"
     },

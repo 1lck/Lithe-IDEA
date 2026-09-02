@@ -16,9 +16,11 @@ struct GitLogView: View {
     @State private var tagReferenceRows: [GitReferenceRow] = []
     @State private var currentReferenceCache = GitCurrentReferenceCache()
     @State private var branchDialogRequest: GitBranchDialogRequest?
+    @State private var tagDialogRequest: GitTagDialogRequest?
     @State private var pendingPushReference: GitReference?
     @State private var pendingCommitOperation: GitCommitOperationRequest?
     @State private var pendingBranchOperation: GitBranchOperationRequest?
+    @State private var pendingTagDeletion: GitReference?
     @State private var comparisonSourceReference: GitReference?
     @State private var showCommitDecorations = false
     @State private var selectedGitToolTab = GitToolTab.log
@@ -69,22 +71,8 @@ struct GitLogView: View {
         let _ = LitheSignpost.bodyEvaluated("GitLogView")
         VStack(spacing: 0) {
             toolWindowHeader
-            if selectedGitToolTab == .log {
-                primaryActionBar
-
-                GeometryReader { geometry in
-                    GitLogThreePaneLayout(
-                        availableWidth: geometry.size.width,
-                        referencePane: { referencePane },
-                        commitPane: { commitPane },
-                        detailPane: { detailPane }
-                    )
-                }
-            } else if selectedGitToolTab == .worktrees {
-                GitWorktreesView()
-            } else {
-                gitConsolePane
-            }
+            primaryContent
+            primaryContent
         }
         .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.sidebar)
         .task(id: model.gitCommitsVersion) {
@@ -239,6 +227,98 @@ struct GitLogView: View {
             if let operation = pendingBranchOperation {
                 Text(operation.kind.message(for: operation.reference))
             }
+        }
+        .modifier(GitTagDialogsModifier(
+            tagDialogRequest: $tagDialogRequest,
+            pendingTagDeletion: $pendingTagDeletion
+        ))
+    }
+
+    /// The tab split lives outside `body` because the main expression is
+    /// already close to the type-checker limit.
+    @ViewBuilder
+    private var primaryContent: some View {
+        if selectedGitToolTab == .log {
+            logTabContent
+        } else {
+            gitConsolePane
+        }
+    }
+
+    private var logTabContent: some View {
+        Group {
+            primaryActionBar
+            if let deletedBranch = model.recentlyDeletedBranch {
+                deletedReferenceBanner(
+                    icon: "arrow.triangle.branch",
+                    message: "Deleted branch '\(deletedBranch.name)'",
+                    onRestore: { await model.restoreRecentlyDeletedBranch() },
+                    onDismiss: { model.dismissDeletedBranchBanner() }
+                )
+            }
+            if let deletedTag = model.recentlyDeletedTag {
+                deletedReferenceBanner(
+                    icon: "tag",
+                    message: "Deleted tag '\(deletedTag.name)'",
+                    onRestore: { await model.restoreRecentlyDeletedTag() },
+                    onDismiss: { model.dismissDeletedTagBanner() }
+                )
+            }
+            logPanes
+        }
+    }
+
+    private var logPanes: some View {
+        GeometryReader { geometry in
+            GitLogThreePaneLayout(
+                availableWidth: geometry.size.width,
+                referencePane: { referencePane },
+                commitPane: { commitPane },
+                detailPane: { detailPane }
+            )
+        }
+    }
+
+    /// The New Tag sheet and its delete confirmation live in a modifier
+    /// because the main `body` expression is already close to the type-checker
+    /// limit; an explicit `ViewModifier` keeps both type-checkable.
+    private struct GitTagDialogsModifier: ViewModifier {
+        @Binding var tagDialogRequest: GitTagDialogRequest?
+        @Binding var pendingTagDeletion: GitReference?
+        @EnvironmentObject private var model: AppModel
+
+        func body(content: Content) -> some View {
+            content
+                .sheet(item: $tagDialogRequest) { request in
+                    GitTagNameDialog(request: request) { name, message in
+                        // Returning the failure keeps the dialog open so the
+                        // error appears where the user typed, like IntelliJ's
+                        // New Tag dialog.
+                        await model.createTag(at: request.commit, name: name, message: message)
+                    }
+                }
+                .confirmationDialog(
+                    "Delete tag '\(pendingTagDeletion?.shortName ?? "")'?",
+                    isPresented: Binding(
+                        get: { pendingTagDeletion != nil },
+                        set: { if !$0 { pendingTagDeletion = nil } }
+                    ),
+                    titleVisibility: .visible
+                ) {
+                    Button("Delete", role: .destructive) {
+                        guard let reference = pendingTagDeletion else { return }
+                        pendingTagDeletion = nil
+                        Task { await model.deleteTag(reference) }
+                    }
+                    .disabled(model.isPerformingBranchOperation)
+                    .lithePointer()
+                    Button("Cancel", role: .cancel) {
+                        pendingTagDeletion = nil
+                    }
+                    .lithePointer()
+                } message: {
+                    Text("This removes the tag from the repository and affects collaborators who reference it. You can restore it from the banner afterwards.")
+                }
         }
     }
 
@@ -607,6 +687,48 @@ struct GitLogView: View {
         }
     }
 
+    /// IntelliJ-style "deleted ref [Restore]" notice. The restore record lives
+    /// in session state, so closing the banner ends the restore opportunity.
+    private func deletedReferenceBanner(
+        icon: String,
+        message: String,
+        onRestore: @escaping () async -> Void,
+        onDismiss: @escaping () -> Void
+    ) -> some View {
+        HStack(spacing: 7) {
+            LitheSystemIcon(systemImage: icon, size: 13)
+                .foregroundStyle(LitheTheme.warning)
+            Text(message)
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(LitheTheme.primaryText)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            Button("Restore") {
+                Task { await onRestore() }
+            }
+            .controlSize(.small)
+            .buttonStyle(.borderedProminent)
+            .tint(LitheTheme.accent)
+            .disabled(model.isPerformingBranchOperation)
+            .lithePointer()
+            Button {
+                onDismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+            .litheIconButton()
+            .help("Dismiss")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(LitheTheme.raised)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+        }
+    }
+
     private var referencePane: some View {
         VStack(spacing: 0) {
             HStack(spacing: 4) {
@@ -920,6 +1042,20 @@ struct GitLogView: View {
                     branchDialogRequest = GitBranchDialogRequest(kind: .rename, reference: reference)
                 }
                 .disabled(model.isPerformingBranchOperation)
+            }
+
+            if reference.kind == .tag {
+                Divider()
+
+                if reference.supportsTagDeletion {
+                    Button("Delete Tag…", role: .destructive) {
+                        pendingTagDeletion = reference
+                    }
+                    .disabled(model.isPerformingBranchOperation)
+                } else {
+                    Button("Delete Tag… (target is not a commit)") {}
+                        .disabled(true)
+                }
             }
         }
     }
@@ -1249,6 +1385,9 @@ struct GitLogView: View {
             },
             onReset: { commit in
                 pendingOperation.wrappedValue = GitCommitOperationRequest(kind: .reset, commit: commit)
+            },
+            onCreateTag: { commit in
+                tagDialogRequest = GitTagDialogRequest(commit: commit)
             }
         )
     }
@@ -1995,6 +2134,105 @@ private struct GitBranchNameDialog: View {
         guard !trimmedName.isEmpty else { return }
         onSubmit(trimmedName, checkout)
         dismiss()
+    }
+}
+
+private struct GitTagDialogRequest: Identifiable {
+    let id = UUID()
+    let commit: GitCommit
+}
+
+/// New Tag dialog mirroring IntelliJ's: a required name plus an optional
+/// message (annotated tag when non-empty). Local validation shows inline and
+/// keeps the dialog open; a server-side failure returned by `onSubmit` (for
+/// example a duplicate name) is shown here as well instead of a notification.
+private struct GitTagNameDialog: View {
+    @Environment(\.dismiss) private var dismiss
+    let request: GitTagDialogRequest
+    let onSubmit: (String, String) async -> String?
+
+    @State private var name = ""
+    @State private var message = ""
+    @State private var submitError: String?
+    @State private var isSubmitting = false
+    @FocusState private var nameFieldFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("New Tag")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(LitheTheme.primaryText)
+                Text("Create on commit \(request.commit.shortHash). Leave the message empty for a lightweight tag.")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+
+            TextField("Tag name", text: $name)
+                .textFieldStyle(.roundedBorder)
+                .focused($nameFieldFocused)
+                .onSubmit(submit)
+
+            VStack(alignment: .leading, spacing: 3) {
+                TextField("Message (optional)", text: $message, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(1...4)
+                Text("A message creates an annotated tag.")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+
+            if let error = validationError ?? submitError {
+                Text(error)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(LitheTheme.error)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                    .lithePointer()
+                Button("Create", action: submit)
+                    .buttonStyle(.borderedProminent)
+                    .lithePointer()
+                    .tint(LitheTheme.accent)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(trimmedName.isEmpty || validationError != nil || isSubmitting)
+            }
+        }
+        .padding(20)
+        .frame(width: 420)
+        .background(LitheTheme.raised)
+        .onAppear { nameFieldFocused = true }
+    }
+
+    private var trimmedName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Mirrors the refname rules the Rust core enforces so illegal names are
+    /// rejected before a request is sent.
+    private var validationError: String? {
+        let name = trimmedName
+        guard !name.isEmpty else { return nil }
+        return GitTagNameValidator.validationError(for: name)
+    }
+
+    private func submit() {
+        guard !trimmedName.isEmpty, validationError == nil, !isSubmitting else { return }
+        isSubmitting = true
+        submitError = nil
+        Task {
+            let error = await onSubmit(trimmedName, message)
+            isSubmitting = false
+            if let error {
+                submitError = error
+            } else {
+                dismiss()
+            }
+        }
     }
 }
 

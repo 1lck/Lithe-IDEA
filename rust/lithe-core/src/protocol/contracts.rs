@@ -438,6 +438,9 @@ pub struct GitReferenceResponse {
     pub short_name: String,
     /// Reference category: local branch, remote branch, or tag.
     pub kind: String,
+    /// Whether the reference resolves to a commit and therefore supports
+    /// commit-only mutations such as restorable tag deletion.
+    pub peels_to_commit: bool,
     pub is_current: bool,
     pub upstream_short_name: Option<String>,
     /// Commits present only on this local branch compared with its upstream.

@@ -226,6 +226,12 @@ extension AppModel {
     var requestedStashReference: String? {
         gitFeatureIfActive?.requestedStashReference
     }
+    var recentlyDeletedTag: GitTagDeletion? {
+        gitFeatureIfActive?.recentlyDeletedTag
+    }
+    var recentlyDeletedBranch: GitBranchDeletion? {
+        gitFeatureIfActive?.recentlyDeletedBranch
+    }
     var isCommitting: Bool { gitFeatureIfActive?.isCommitting ?? false }
     var gitBlameLines: [URL: [GitBlameLine]] { gitFeatureIfActive?.gitBlameLines ?? [:] }
     var gitReferences: [GitReference] { gitFeatureIfActive?.gitReferences ?? [] }
