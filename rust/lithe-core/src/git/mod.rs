@@ -1584,11 +1584,6 @@ fn read_commit_log(
 ) -> Result<(Vec<GitCommitResponse>, bool), CoreError> {
     let mut arguments = vec!["log".to_string()];
     arguments.extend(selectors);
-    let source = if let Some(revision) = request.revision.as_deref() {
-        validated_revision(Some(revision))?
-    } else {
-        reference.full_name.clone()
-    };
     arguments.extend([
         "--topo-order".to_string(),
         "--decorate=short".to_string(),
@@ -4411,6 +4406,11 @@ fn create_worktree(root: &str, request: &GitWriteRequest) -> Result<GitCommandRe
         // making the selected remote-tracking branch ambiguous.
         arguments.push("--track".into());
     }
+    let source = if let Some(revision) = request.revision.as_deref() {
+        validated_revision(Some(revision))?
+    } else {
+        reference.full_name.clone()
+    };
     arguments.extend(["-b".into(), branch, "--".into(), destination, source]);
     execute_git(root, &arguments, None)
 }
