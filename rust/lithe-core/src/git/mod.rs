@@ -4329,6 +4329,18 @@ fn list_worktrees(root: &str) -> Result<Vec<GitWorktreeResponse>, CoreError> {
     Ok(records)
 }
 
+fn worktree_paths_match(left: &str, right: &str) -> bool {
+    let left_path = PathBuf::from(left);
+    let right_path = PathBuf::from(right);
+    if left_path == right_path {
+        return true;
+    }
+    match (left_path.canonicalize(), right_path.canonicalize()) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
+}
+
 fn parse_worktree_record(
     fields: &[&str],
     is_primary: bool,
@@ -4367,14 +4379,14 @@ fn parse_worktree_record(
     let lock = value_after_marker("locked");
     let prunable = value_after_marker("prunable");
     let reported_path = PathBuf::from(path);
-    let comparison_path = reported_path
+    let normalized_path = reported_path
         .canonicalize()
         .unwrap_or_else(|_| reported_path.clone());
     Ok(GitWorktreeResponse {
-        path: path.to_string(),
+        path: normalized_path.to_string_lossy().to_string(),
         head,
         branch,
-        is_current: comparison_path == current_root,
+        is_current: normalized_path == current_root,
         is_primary,
         is_bare: fields.contains(&"bare"),
         is_detached: fields.contains(&"detached"),
@@ -4426,7 +4438,7 @@ fn mutate_worktree(root: &str, request: &GitWriteRequest) -> Result<GitCommandRe
     let entries = list_worktrees(root)?;
     let target = entries
         .iter()
-        .find(|entry| entry.path == destination)
+        .find(|entry| worktree_paths_match(&entry.path, &destination))
         .ok_or_else(|| {
             CoreError::new(
                 ErrorCode::InvalidRequest,

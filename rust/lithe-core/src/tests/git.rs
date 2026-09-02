@@ -1545,6 +1545,17 @@ fn git_write_manages_only_registered_non_primary_worktrees() {
     assert_eq!(repair["data"]["exitCode"], 0, "{repair:?}");
 
     fs::remove_dir_all(&stale_destination).expect("stale worktree should be removable");
+    let unrelated_missing_remove = git_write_request(
+        &root,
+        "removeWorktree",
+        serde_json::json!({
+            "destination": root.with_extension("another-missing-worktree")
+        }),
+    );
+    assert_eq!(
+        unrelated_missing_remove["data"]["operationError"]["code"], "invalid_request",
+        "{unrelated_missing_remove:?}"
+    );
     let prune = git_write_request(&root, "pruneWorktrees", serde_json::json!({}));
     assert_eq!(prune["data"]["exitCode"], 0, "{prune:?}");
     let listed: Value = serde_json::from_str(&execute_json(
