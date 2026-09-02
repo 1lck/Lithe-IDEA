@@ -58,7 +58,8 @@ final class MacServiceContainer {
         runExecutableResolver providedRunExecutableResolver: (any RunExecutableResolving)? = nil,
         pluginRuntimeRecovery: MacPluginRuntimeRecoveryCoordinator? = nil,
         authorizationCallbackRouter providedAuthorizationCallbackRouter: MacExternalAuthorizationCallbackRouter? = nil,
-        platformUI providedPlatformUI: (any PlatformUI)? = nil
+        platformUI providedPlatformUI: (any PlatformUI)? = nil,
+        gitPerformanceLogger: (any GitPerformanceLogger)? = nil
     ) {
         let authorizationCallbackRouter = providedAuthorizationCallbackRouter
             ?? MacExternalAuthorizationCallbackRouter()
@@ -443,7 +444,8 @@ final class MacServiceContainer {
             try moduleRegistry.register(ModuleFactory(manifest: GitModule.moduleManifest, contributions: GitModule.moduleContributions) {
                 GitModule(
                     operations: gitOperations,
-                    shelfStorage: MacGitShelfStorage(storage: fileStorage)
+                    shelfStorage: MacGitShelfStorage(storage: fileStorage),
+                    performanceLogger: gitPerformanceLogger ?? NullGitPerformanceLogger()
                 )
             })
             try moduleRegistry.register(ModuleFactory(manifest: SearchModule.moduleManifest, contributions: SearchModule.moduleContributions) {

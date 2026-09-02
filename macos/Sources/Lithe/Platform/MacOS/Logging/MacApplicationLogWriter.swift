@@ -1,7 +1,8 @@
 import Darwin
 import Foundation
+import LitheGitModule
 
-final class MacApplicationLogWriter {
+final class MacApplicationLogWriter: @unchecked Sendable {
     static let fileName = "lithe.log"
 
     private let lock = NSLock()
@@ -50,6 +51,32 @@ final class MacApplicationLogWriter {
         }
         guard written == data.count else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+    }
+}
+
+
+/// Bridges Git performance diagnostics into the application's configured log file.
+struct MacGitPerformanceLogger: GitPerformanceLogger, Sendable {
+    private let writer: MacApplicationLogWriter
+    private let queue = DispatchQueue(
+        label: "com.openres.Lithe.git-performance-log",
+        qos: .utility
+    )
+
+    init(writer: MacApplicationLogWriter) {
+        self.writer = writer
+    }
+
+    func record(_ message: String) {
+        let timestampMilliseconds = Int(Date().timeIntervalSince1970 * 1_000)
+        queue.async { [writer] in
+            do {
+                try writer.append("timestamp_ms=\(timestampMilliseconds) \(message)\n")
+            } catch {
+                let fallback = "Could not write Git performance log: \(error.localizedDescription)\n"
+                FileHandle.standardError.write(Data(fallback.utf8))
+            }
         }
     }
 }

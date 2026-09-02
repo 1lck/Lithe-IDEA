@@ -1,6 +1,16 @@
 import Foundation
 import LitheCoreContracts
 
+package protocol GitPerformanceLogger: Sendable {
+    func record(_ message: String)
+}
+
+package struct NullGitPerformanceLogger: GitPerformanceLogger {
+    package init() {}
+
+    package func record(_ message: String) {}
+}
+
 package protocol GitOperations: Sendable {
     func run(
         arguments: [String],
@@ -170,9 +180,14 @@ private actor GitHistoryCache {
 package struct GitService: Sendable {
     private let operations: any GitOperations
     private let historyCache = GitHistoryCache()
+    private let performanceLogger: any GitPerformanceLogger
 
-    package init(operations: any GitOperations) {
+    package init(
+        operations: any GitOperations,
+        performanceLogger: any GitPerformanceLogger = NullGitPerformanceLogger()
+    ) {
         self.operations = operations
+        self.performanceLogger = performanceLogger
     }
 
     package struct CommandResult: Sendable {
@@ -419,7 +434,14 @@ package struct GitService: Sendable {
         reference: GitReference? = nil,
         limit: Int = 300
     ) async -> GitHistorySnapshot {
+        let historyLookupStartedAt = ContinuousClock.now
         if let cached = await historyCache.value(rootURL: repositoryRoot, reference: reference, limit: limit) {
+            performanceLogger.record(
+                GitPerformanceLogFormatter.cacheHit(
+                    operation: #function,
+                    durationMilliseconds: elapsedMilliseconds(since: historyLookupStartedAt)
+                )
+            )
             return cached
         }
         let snapshot = await read(priority: .utility) {
@@ -758,35 +780,106 @@ package struct GitService: Sendable {
     private func command(
         at workingDirectory: URL? = nil,
         fallbackArguments: [String] = [],
+        operationName: String = #function,
         _ operation: @escaping @Sendable (any GitOperations) -> GitProcessResult?
     ) async -> CommandResult {
         let operations = self.operations
-        return await Task.detached(priority: .userInitiated) {
-            let result = operation(operations)
-            return CommandResult(
-                workingDirectory: workingDirectory,
-                arguments: result?.arguments.isEmpty == false
-                    ? result?.arguments ?? fallbackArguments
-                    : fallbackArguments,
-                output: result?.output ?? "Rust Core Git operation failed",
-                standardOutput: result?.standardOutput,
-                standardError: result?.standardError,
-                exitCode: result?.exitCode ?? 1,
-                invocations: result?.invocations ?? [],
-                operationErrorMessage: result?.operationErrorMessage,
-                stashRestoreConflict: result?.stashRestoreConflict,
-                warnings: result?.warnings ?? []
-            )
+        let startedAt = ContinuousClock.now
+        let result = await Task.detached(priority: .userInitiated) {
+            operation(operations)
         }.value
+        let commandResult = CommandResult(
+            workingDirectory: workingDirectory,
+            arguments: result?.arguments.isEmpty == false
+                ? result?.arguments ?? fallbackArguments
+                : fallbackArguments,
+            output: result?.output ?? "Rust Core Git operation failed",
+            standardOutput: result?.standardOutput,
+            standardError: result?.standardError,
+            exitCode: result?.exitCode ?? 1,
+            invocations: result?.invocations ?? [],
+            operationErrorMessage: result?.operationErrorMessage,
+            stashRestoreConflict: result?.stashRestoreConflict,
+            warnings: result?.warnings ?? []
+        )
+        performanceLogger.record(
+            GitPerformanceLogFormatter.command(
+                operation: operationName,
+                workingDirectory: workingDirectory,
+                arguments: commandResult.arguments,
+                durationMilliseconds: elapsedMilliseconds(since: startedAt),
+                succeeded: commandResult.succeeded
+            )
+        )
+        return commandResult
     }
 
     private func read<T: Sendable>(
         priority: TaskPriority = .userInitiated,
+        operationName: String = #function,
         _ operation: @escaping @Sendable (any GitOperations) -> T?
     ) async -> T? {
         let operations = self.operations
-        return await Task.detached(priority: priority) {
+        let startedAt = ContinuousClock.now
+        let result = await Task.detached(priority: priority) {
             operation(operations)
         }.value
+        performanceLogger.record(
+            GitPerformanceLogFormatter.read(
+                operation: operationName,
+                durationMilliseconds: elapsedMilliseconds(since: startedAt),
+                succeeded: result != nil
+            )
+        )
+        return result
+    }
+
+    package func recordWorktreeInspection(
+        worktreeID: String,
+        phase: String,
+        durationMilliseconds: Int
+    ) {
+        performanceLogger.record(
+            "[git-performance] operation=worktree-inspection phase=\(phase) worktree=\(GitPerformanceLogFormatter.redact(worktreeID)) duration_ms=\(durationMilliseconds)"
+        )
+    }
+
+    private func elapsedMilliseconds(since startedAt: ContinuousClock.Instant) -> Int {
+        let components = startedAt.duration(to: .now).components
+        let milliseconds = (Double(components.seconds) * 1_000)
+            + (Double(components.attoseconds) / 1_000_000_000_000_000)
+        return max(0, Int(milliseconds.rounded()))
+    }
+}
+
+private enum GitPerformanceLogFormatter {
+    static func command(
+        operation: String,
+        workingDirectory: URL?,
+        arguments: [String],
+        durationMilliseconds: Int,
+        succeeded: Bool
+    ) -> String {
+        let command = GitConsoleCommandFormatter.commandLine(arguments: arguments)
+        let directory = workingDirectory?.path ?? "-"
+        return "[git-performance] operation=\(redact(operation)) duration_ms=\(durationMilliseconds) status=\(succeeded ? "success" : "failure") cwd=\(redact(directory)) command=\(redact(command))"
+    }
+
+    static func read(
+        operation: String,
+        durationMilliseconds: Int,
+        succeeded: Bool
+    ) -> String {
+        "[git-performance] operation=\(redact(operation)) duration_ms=\(durationMilliseconds) status=\(succeeded ? "success" : "failure") cache=miss"
+    }
+
+    static func cacheHit(operation: String, durationMilliseconds: Int) -> String {
+        "[git-performance] operation=\(redact(operation)) duration_ms=\(durationMilliseconds) status=success cache=hit"
+    }
+
+    static func redact(_ value: String) -> String {
+        GitConsoleRedactor.redact(value)
+            .replacingOccurrences(of: "\r", with: "\\r")
+            .replacingOccurrences(of: "\n", with: "\\n")
     }
 }

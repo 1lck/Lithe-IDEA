@@ -29,12 +29,20 @@ package struct GitWorktreeInspection: Sendable {
     package let changes: [GitChange]
     package let commits: [GitCommit]
     package let hasMoreCommits: Bool
+    package let hasLoadedChanges: Bool
 
-    package init(worktreeID: String, changes: [GitChange], commits: [GitCommit], hasMoreCommits: Bool = false) {
+    package init(
+        worktreeID: String,
+        changes: [GitChange],
+        commits: [GitCommit],
+        hasMoreCommits: Bool = false,
+        hasLoadedChanges: Bool = true
+    ) {
         self.worktreeID = worktreeID
         self.changes = changes
         self.commits = commits
         self.hasMoreCommits = hasMoreCommits
+        self.hasLoadedChanges = hasLoadedChanges
     }
 }
 

@@ -318,6 +318,29 @@ struct GitModuleTests {
     }
 
     @Test
+    func gitServiceRecordsElapsedTimeForHistoryOperations() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let logger = GitPerformanceLogRecorder()
+        let service = GitService(
+            operations: TestGitOperations(historyValue: GitHistorySnapshot(
+                references: [],
+                recentReferences: [],
+                commits: [],
+                hasMore: false
+            )),
+            performanceLogger: logger
+        )
+
+        _ = await service.history(at: root, limit: 30)
+
+        let messages = logger.messages
+        #expect(messages.count == 1)
+        #expect(messages.first?.contains("operation=history") == true)
+        #expect(messages.first?.contains("duration_ms=") == true)
+        #expect(messages.first?.contains("status=success") == true)
+    }
+
+    @Test
     func gitHistoryPublishesRecentReferencesInCoreOrder() async {
         let root = URL(fileURLWithPath: "/workspace")
         let main = GitReference(
@@ -910,6 +933,53 @@ struct GitModuleTests {
 
         #expect(feature.gitConsoleEntries.count == 1)
         #expect(feature.gitConsoleEntries.first?.workingDirectory == secondRoot)
+    }
+
+    @Test
+    func worktreeInspectionPublishesHistoryBeforeStatusScanFinishes() async throws {
+        let worktree = makeTestWorktree(path: "/workspace-feature", branch: "feature/history")
+        let change = GitChange(
+            repositoryRoot: URL(fileURLWithPath: worktree.path),
+            path: "Sources/App.swift",
+            originalPath: nil,
+            indexStatus: " ",
+            workTreeStatus: "M"
+        )
+        let commit = makeTestCommit(hash: "history-commit", subject: "Show history first")
+        let snapshotGate = GitModuleTestGate()
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(
+                repositoryRoot: URL(fileURLWithPath: worktree.path),
+                branch: "feature/history",
+                changes: [change]
+            ),
+            historyValue: GitHistorySnapshot(
+                references: [],
+                recentReferences: [],
+                commits: [commit],
+                hasMore: false
+            ),
+            snapshotGate: snapshotGate
+        ))
+        let feature = GitFeatureModel(service: service)
+        let inspectionTask = Task { @MainActor in
+            await feature.inspectWorktree(worktree)
+        }
+        defer {
+            inspectionTask.cancel()
+            snapshotGate.open()
+        }
+
+        let partialInspection = await waitForGitWorktreeInspection(feature)
+        try #require(partialInspection != nil)
+        #expect(partialInspection?.commits == [commit])
+        #expect(partialInspection?.hasLoadedChanges == false)
+        #expect(partialInspection?.changes.isEmpty == true)
+
+        snapshotGate.open()
+        try #require(await waitForGitTaskCompletion(inspectionTask))
+        #expect(feature.gitWorktreeInspection?.changes == [change])
+        #expect(feature.gitWorktreeInspection?.hasLoadedChanges == true)
     }
 
     @Test
@@ -1560,6 +1630,19 @@ private func waitForGitTaskCompletion(
 }
 
 @MainActor
+private func waitForGitWorktreeInspection(
+    _ feature: GitFeatureModel,
+    timeout: Duration = .seconds(2)
+) async -> GitWorktreeInspection? {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while feature.gitWorktreeInspection == nil, clock.now < deadline {
+        await Task.yield()
+    }
+    return feature.gitWorktreeInspection
+}
+
+@MainActor
 private func waitForGitWorkToBecomeIdle(
     timeout: Duration = .seconds(2),
     isActive: @MainActor () -> Bool
@@ -1572,6 +1655,23 @@ private func waitForGitWorkToBecomeIdle(
     return !isActive()
 }
 
+private final class GitPerformanceLogRecorder: GitPerformanceLogger, @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedMessages: [String] = []
+
+    var messages: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedMessages
+    }
+
+    func record(_ message: String) {
+        lock.lock()
+        recordedMessages.append(message)
+        lock.unlock()
+    }
+}
+
 private struct TestGitOperations: GitOperations {
     private let snapshotValue: GitSnapshot?
     private let comparisonValue: GitBranchComparison?
@@ -1581,6 +1681,7 @@ private struct TestGitOperations: GitOperations {
     private let comparisonDiffDocumentValue: DiffDocument?
     private let typedComparisonDiffDocumentValue: DiffDocument?
     private let historyValue: GitHistorySnapshot?
+    private let snapshotGate: GitModuleTestGate?
     private let stageResult: GitProcessResult?
     private let runGate: TestGitRunGate?
     private let filesRecorder: GitFilesCallRecorder?
@@ -1595,6 +1696,7 @@ private struct TestGitOperations: GitOperations {
         untrackedDiffDocumentValue: DiffDocument? = nil,
         comparisonDiffDocumentValue: DiffDocument? = nil,
         typedComparisonDiffDocumentValue: DiffDocument? = nil,
+        snapshotGate: GitModuleTestGate? = nil,
         stageResult: GitProcessResult? = nil,
         runGate: TestGitRunGate? = nil,
         filesRecorder: GitFilesCallRecorder? = nil,
@@ -1608,6 +1710,7 @@ private struct TestGitOperations: GitOperations {
         self.untrackedDiffDocumentValue = untrackedDiffDocumentValue
         self.comparisonDiffDocumentValue = comparisonDiffDocumentValue
         self.typedComparisonDiffDocumentValue = typedComparisonDiffDocumentValue
+        self.snapshotGate = snapshotGate
         self.stageResult = stageResult
         self.runGate = runGate
         self.filesRecorder = filesRecorder
@@ -1625,7 +1728,10 @@ private struct TestGitOperations: GitOperations {
         )
     }
 
-    func snapshot(at rootURL: URL) -> GitSnapshot? { snapshotValue }
+    func snapshot(at rootURL: URL) -> GitSnapshot? {
+        _ = snapshotGate?.waitSynchronously()
+        return snapshotValue
+    }
     func watchContext(at rootURL: URL) -> GitWatchContext? { nil }
     func worktrees(at rootURL: URL) -> [GitWorktree]? { nil }
     func diffDocument(at rootURL: URL, pathspecs: [String], staged: Bool, untracked: Bool, whitespace: GitDiffWhitespaceMode) -> DiffDocument? {

@@ -506,7 +506,9 @@ struct GitWorktreesView: View {
         if worktree.isPrunable {
             missingPathState
         } else if let inspection = matchingInspection(for: worktree) {
-            if inspection.changes.isEmpty {
+            if !inspection.hasLoadedChanges {
+                inspectionState
+            } else if inspection.changes.isEmpty {
                 worktreeMessage(icon: "checkmark.circle", title: "No local changes", detail: "This worktree has no uncommitted changes.")
             } else {
                 worktreeCard(title: "Changes") {

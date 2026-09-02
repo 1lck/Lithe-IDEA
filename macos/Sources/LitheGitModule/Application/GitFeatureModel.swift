@@ -622,6 +622,13 @@ package final class GitFeatureModel: ObservableObject {
         recordGitConsoleEntry(result)
     }
 
+    private func elapsedMilliseconds(since startedAt: ContinuousClock.Instant) -> Int {
+        let components = startedAt.duration(to: .now).components
+        let milliseconds = (Double(components.seconds) * 1_000)
+            + (Double(components.attoseconds) / 1_000_000_000_000_000)
+        return max(0, Int(milliseconds.rounded()))
+    }
+
     private func recordGitConsoleEntry(_ result: GitService.CommandResult) {
         guard let workingDirectory = result.workingDirectory ?? gitRepositoryRoot else { return }
         if result.invocations.isEmpty {
@@ -1647,6 +1654,7 @@ package final class GitFeatureModel: ObservableObject {
     package func inspectWorktree(_ worktree: GitWorktree) async {
         worktreeInspectionRequestGeneration &+= 1
         let generation = worktreeInspectionRequestGeneration
+        let inspectionStartedAt = ContinuousClock.now
         guard !worktree.isPrunable else {
             gitWorktreeInspection = nil
             gitWorktreeInspectionLoadState = .failed("The checkout path does not exist")
@@ -1654,9 +1662,7 @@ package final class GitFeatureModel: ObservableObject {
         }
 
         // The primary checkout is already observed by the Git feature model.
-        // Reusing its status and history avoids a second full Git scan when
-        // opening the Worktrees tool window, while linked worktrees still use
-        // the dedicated inspection path below.
+        // Reuse its settled state without starting another Git scan.
         if worktree.isCurrent, !isLoadingGitHistory {
             gitWorktreeInspection = GitWorktreeInspection(
                 worktreeID: worktree.id,
@@ -1665,47 +1671,85 @@ package final class GitFeatureModel: ObservableObject {
                 hasMoreCommits: gitCommits.count > 80 || canLoadMoreGitHistory
             )
             gitWorktreeInspectionLoadState = .ready
+            service.recordWorktreeInspection(
+                worktreeID: worktree.id,
+                phase: "reused-state",
+                durationMilliseconds: elapsedMilliseconds(since: inspectionStartedAt)
+            )
             return
         }
 
         gitWorktreeInspectionLoadState = .loading
         let reference = gitReferences.first { $0.fullName == worktree.branch }
-        let inspection = await service.inspectWorktree(worktree, reference: reference)
-        guard generation == worktreeInspectionRequestGeneration else { return }
-        if Task.isCancelled {
+        // History is the primary content of this pane. Start it independently
+        // from the worktree status scan so a slow or unreadable index cannot
+        // keep the commit list behind the loading state.
+        async let history = service.history(at: worktree.url, reference: reference, limit: 30)
+        async let snapshot = service.snapshot(for: worktree.url)
+
+        let resolvedHistory = await history
+        guard generation == worktreeInspectionRequestGeneration, !Task.isCancelled else {
             gitWorktreeInspectionLoadState = .idle
             return
         }
-        if let inspection {
-            gitWorktreeInspection = inspection
-            gitWorktreeInspectionLoadState = .ready
 
-            // Do not make the first detail render wait for the full history.
-            // The larger window is fetched after the lightweight inspection
-            // has already populated the pane, and stale selections are ignored.
-            guard inspection.commits.count >= 30 else { return }
-            Task { [weak self] in
-                guard let self else { return }
-                let fullHistory = await self.service.history(
-                    at: worktree.url,
-                    reference: reference,
-                    // Keep the warm cache bounded; older commits can be
-                    // requested later by pagination or an explicit search.
-                    limit: 80
-                )
-                guard generation == self.worktreeInspectionRequestGeneration,
-                      self.gitWorktreeInspection?.worktreeID == worktree.id,
-                      !Task.isCancelled else { return }
-                self.gitWorktreeInspection = GitWorktreeInspection(
-                    worktreeID: worktree.id,
-                    changes: inspection.changes,
-                    commits: fullHistory.commits,
-                    hasMoreCommits: fullHistory.hasMore
-                )
-            }
-        } else {
-            gitWorktreeInspection = nil
-            gitWorktreeInspectionLoadState = .failed("Could not inspect this worktree")
+        let initialChanges = worktree.isCurrent ? gitChanges : []
+        let initialInspection = GitWorktreeInspection(
+            worktreeID: worktree.id,
+            changes: initialChanges,
+            commits: resolvedHistory.commits,
+            hasMoreCommits: resolvedHistory.hasMore,
+            hasLoadedChanges: worktree.isCurrent
+        )
+        gitWorktreeInspection = initialInspection
+        gitWorktreeInspectionLoadState = .ready
+        service.recordWorktreeInspection(
+            worktreeID: worktree.id,
+            phase: "history-published",
+            durationMilliseconds: elapsedMilliseconds(since: inspectionStartedAt)
+        )
+
+        // Do not make the first detail render wait for the full status scan.
+        // The larger history window and the status result are both applied only
+        // if this worktree is still selected.
+        let resolvedChanges = (await snapshot)?.changes ?? []
+        guard generation == worktreeInspectionRequestGeneration,
+              gitWorktreeInspection?.worktreeID == worktree.id,
+              !Task.isCancelled else { return }
+        let inspection = GitWorktreeInspection(
+            worktreeID: worktree.id,
+            changes: resolvedChanges,
+            commits: gitWorktreeInspection?.commits ?? resolvedHistory.commits,
+            hasMoreCommits: gitWorktreeInspection?.hasMoreCommits ?? resolvedHistory.hasMore,
+            hasLoadedChanges: true
+        )
+        gitWorktreeInspection = inspection
+        service.recordWorktreeInspection(
+            worktreeID: worktree.id,
+            phase: "changes-published",
+            durationMilliseconds: elapsedMilliseconds(since: inspectionStartedAt)
+        )
+
+        guard inspection.commits.count >= 30 else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            let fullHistory = await self.service.history(
+                at: worktree.url,
+                reference: reference,
+                // Keep the warm cache bounded; older commits can be
+                // requested later by pagination or an explicit search.
+                limit: 80
+            )
+            guard generation == self.worktreeInspectionRequestGeneration,
+                  self.gitWorktreeInspection?.worktreeID == worktree.id,
+                  !Task.isCancelled else { return }
+            self.gitWorktreeInspection = GitWorktreeInspection(
+                worktreeID: worktree.id,
+                changes: self.gitWorktreeInspection?.changes ?? resolvedChanges,
+                commits: fullHistory.commits,
+                hasMoreCommits: fullHistory.hasMore,
+                hasLoadedChanges: self.gitWorktreeInspection?.hasLoadedChanges ?? true
+            )
         }
     }
 
