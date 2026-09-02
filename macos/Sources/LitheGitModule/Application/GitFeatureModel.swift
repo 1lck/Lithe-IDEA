@@ -43,7 +43,27 @@ package final class GitFeatureModel: ObservableObject {
     @Published package private(set) var gitLineChangeMarkers: [URL: [GitLineChangeMarker]] = [:]
     @Published package private(set) var gitReferences: [GitReference] = []
     @Published package private(set) var recentGitReferences: [GitReference] = []
-    @Published package private(set) var gitCommits: [GitCommit] = []
+    @Published package private(set) var gitCommits: [GitCommit] = [] {
+        didSet { gitCommitsVersion = Self.nextGitCommitsVersion() }
+    }
+    /// Monotonic token for `gitCommits`, so `.task(id:)` keys and filter
+    /// identities compare in constant time instead of hashing a list that
+    /// routinely holds thousands of commits.
+    ///
+    /// Maintained by `didSet` rather than at each assignment, so a future write
+    /// site cannot forget to bump it. Not `@Published`: it only ever changes
+    /// alongside `gitCommits`, which already publishes, and a second publish
+    /// would mean a second invalidation for one logical change.
+    package private(set) var gitCommitsVersion = 0
+
+    /// Counts across instances, so reopening a workspace cannot hand a fresh
+    /// feature model a version a previous one already used.
+    private static var gitCommitsVersionCounter = 0
+
+    private static func nextGitCommitsVersion() -> Int {
+        gitCommitsVersionCounter &+= 1
+        return gitCommitsVersionCounter
+    }
     @Published package private(set) var gitLogMatchedCommitHashes: Set<String>?
     @Published package private(set) var isFilteringGitLog = false
     @Published package var selectedGitReference: GitReference?

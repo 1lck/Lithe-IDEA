@@ -9,13 +9,16 @@ struct RunView: View {
     @AppStorage("lithe.run.pinnedConfigurationIDs") private var pinnedConfigurationTokens = ""
     @AppStorage("lithe.run.configurationListWidth") private var configurationListWidth = 230.0
     @AppStorage("lithe.run.configurationListCollapsed") private var isConfigurationListCollapsed = false
-    @State private var liveConfigurationListWidth: CGFloat?
-    @State private var configurationListDragStart: CGFloat = 230
+    /// Separate caches: the two raw strings change independently, and one box
+    /// memoizes a single raw value.
+    @State private var collapsedExecutionCache = RunConfigurationTokenCache()
+    @State private var pinnedConfigurationCache = RunConfigurationTokenCache()
     /// The configuration whose editor popover is open. Held separately from the list
     /// selection so opening an editor does not switch which log is shown.
     @State private var editingConfigurationID: String?
 
     var body: some View {
+        let _ = LitheSignpost.bodyEvaluated("RunView")
         VStack(spacing: 0) {
             toolWindowHeader
 
@@ -48,48 +51,26 @@ struct RunView: View {
                         minimumListWidth,
                         min(420, geometry.size.width - SplitHandleView.thickness - minimumContentWidth)
                     )
-                    let resolvedListWidth = constrained(
-                        liveConfigurationListWidth ?? CGFloat(configurationListWidth),
-                        minimum: minimumListWidth,
-                        maximum: maximumListWidth
-                    )
-
-                    HStack(spacing: 0) {
-                        if isConfigurationListCollapsed {
+                    if isConfigurationListCollapsed {
+                        HStack(spacing: 0) {
                             collapsedConfigurationListBar
                                 .frame(width: 32)
                             Rectangle()
                                 .fill(LitheTheme.divider)
                                 .frame(width: 1)
-                        } else {
-                            moduleSessionList
-                                .frame(width: resolvedListWidth)
-
-                            SplitHandleView(
-                                axis: .horizontal,
-                                onDragStarted: {
-                                    configurationListDragStart = resolvedListWidth
-                                },
-                                onDragChanged: { translation in
-                                    liveConfigurationListWidth = constrained(
-                                        configurationListDragStart + translation,
-                                        minimum: minimumListWidth,
-                                        maximum: maximumListWidth
-                                    )
-                                },
-                                onDragEnded: { translation in
-                                    let finalWidth = constrained(
-                                        configurationListDragStart + translation,
-                                        minimum: minimumListWidth,
-                                        maximum: maximumListWidth
-                                    )
-                                    configurationListWidth = Double(finalWidth)
-                                    liveConfigurationListWidth = nil
-                                }
-                            )
+                            selectedConfigurationContent
                         }
-
-                        selectedConfigurationContent
+                    } else {
+                        LitheSplitPaneView(
+                            axis: .horizontal,
+                            placement: .leading,
+                            defaultSize: CGFloat(configurationListWidth),
+                            minimum: minimumListWidth,
+                            maximum: maximumListWidth,
+                            onCommit: { configurationListWidth = Double($0) },
+                            sized: { moduleSessionList },
+                            flexible: { selectedConfigurationContent }
+                        )
                     }
                 }
             }
@@ -434,11 +415,11 @@ struct RunView: View {
     }
 
     private var collapsedExecutions: Set<String> {
-        Set(collapsedExecutionIDs.split(separator: ",").map(String.init))
+        collapsedExecutionCache.tokens(from: collapsedExecutionIDs, separator: ",")
     }
 
     private var pinnedConfigurationTokenSet: Set<String> {
-        Set(pinnedConfigurationTokens.split(separator: "\n").map(String.init))
+        pinnedConfigurationCache.tokens(from: pinnedConfigurationTokens, separator: "\n")
     }
 
     private func pinToken(for configuration: RunConfiguration) -> String {
@@ -886,10 +867,6 @@ struct RunView: View {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private func constrained(_ value: CGFloat, minimum: CGFloat, maximum: CGFloat) -> CGFloat {
-        min(max(value, minimum), maximum)
     }
 
     private func sectionHeader(_ execution: RunConfigurationExecution, count: Int) -> some View {
