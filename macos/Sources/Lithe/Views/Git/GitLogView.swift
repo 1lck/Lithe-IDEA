@@ -2622,6 +2622,12 @@ private struct GitReferenceRowView: View, Equatable {
 
 // MARK: - Git Log Three-Pane Layout
 
+private enum GitLogThreePaneMetrics {
+    static let minimumReferencePaneWidth: CGFloat = 180
+    static let minimumCommitPaneWidth: CGFloat = 340
+    static let minimumDetailPaneWidth: CGFloat = 250
+}
+
 private struct GitLogThreePaneLayout<ReferencePane: View, CommitPane: View, DetailPane: View>: View {
     let availableWidth: CGFloat
     private let referencePane: ReferencePane
@@ -2641,11 +2647,29 @@ private struct GitLogThreePaneLayout<ReferencePane: View, CommitPane: View, Deta
     }
 
     private var referencePaneMaximum: CGFloat {
-        max(180, availableWidth * 0.35)
+        max(
+            GitLogThreePaneMetrics.minimumReferencePaneWidth,
+            min(
+                availableWidth * 0.35,
+                availableWidth
+                    - (SplitHandleView.thickness * 2)
+                    - GitLogThreePaneMetrics.minimumCommitPaneWidth
+                    - GitLogThreePaneMetrics.minimumDetailPaneWidth
+            )
+        )
     }
 
     private var detailPaneMaximum: CGFloat {
-        max(250, availableWidth * 0.5)
+        max(
+            GitLogThreePaneMetrics.minimumDetailPaneWidth,
+            min(
+                availableWidth * 0.5,
+                availableWidth
+                    - (SplitHandleView.thickness * 2)
+                    - GitLogThreePaneMetrics.minimumCommitPaneWidth
+                    - referencePaneMaximum
+            )
+        )
     }
 
     var body: some View {
@@ -2653,15 +2677,16 @@ private struct GitLogThreePaneLayout<ReferencePane: View, CommitPane: View, Deta
             axis: .horizontal,
             placement: .leading,
             defaultSize: 220,
-            minimum: 180,
+            minimum: GitLogThreePaneMetrics.minimumReferencePaneWidth,
             maximum: referencePaneMaximum,
+            flexibleMinimum: GitLogThreePaneMetrics.minimumCommitPaneWidth,
             sized: { referencePane },
             flexible: {
                 LitheSplitPaneView(
                     axis: .horizontal,
                     placement: .trailing,
                     defaultSize: 350,
-                    minimum: 250,
+                    minimum: GitLogThreePaneMetrics.minimumDetailPaneWidth,
                     maximum: detailPaneMaximum,
                     sized: { detailPane },
                     flexible: { commitPane }

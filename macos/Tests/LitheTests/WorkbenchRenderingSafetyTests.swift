@@ -5,12 +5,8 @@ import Testing
 @Suite("Workbench rendering safety")
 struct WorkbenchRenderingSafetyTests {
     @Test
-    func workspaceReservesTheRightActivityBarAndItsDivider() {
-        #expect(
-            WorkbenchLayoutMetrics.workspaceTrailingInset
-                == WorkbenchLayoutMetrics.rightActivityBarWidth
-                    + WorkbenchLayoutMetrics.rightActivityBarDividerWidth
-        )
+    func workspaceReservesTheRightActivityBar() {
+        #expect(WorkbenchLayoutMetrics.workspaceTrailingInset == WorkbenchLayoutMetrics.rightActivityBarWidth)
     }
 
     @Test

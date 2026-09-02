@@ -42,4 +42,30 @@ describe("resolveRepositoryForFile", () => {
       filePath: "src/main.ts",
     });
   });
+
+  test("falls back to the active repository when a deleted file's directory is gone", async () => {
+    invoke.mockImplementation(async (_command, args) => {
+      const path = (args as { path: string }).path;
+      if (path === "D:/work/project/removed/directory") {
+        throw new Error("Workspace does not exist");
+      }
+      return "D:/work/project";
+    });
+
+    const result = await resolveRepositoryForFile(
+      "D:/work/project",
+      "removed/directory/Deleted.java",
+    );
+
+    expect(invoke).toHaveBeenNthCalledWith(1, "git_discover_repo", {
+      path: "D:/work/project/removed/directory",
+    });
+    expect(invoke).toHaveBeenNthCalledWith(2, "git_discover_repo", {
+      path: "D:/work/project",
+    });
+    expect(result).toEqual({
+      repoPath: "D:/work/project",
+      filePath: "removed/directory/Deleted.java",
+    });
+  });
 });

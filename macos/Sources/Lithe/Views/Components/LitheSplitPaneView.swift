@@ -17,6 +17,9 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
     let defaultSize: CGFloat
     let minimum: CGFloat
     let maximum: CGFloat
+    /// Minimum size reserved for the flexible pane, when the hosted content
+    /// has a product-level usability requirement of its own.
+    let flexibleMinimum: CGFloat?
     let showsIdleDivider: Bool
     /// Called with the final size when a drag ends. Hosts that persist the size
     /// write it here; the container then defers to `defaultSize` again so the
@@ -35,6 +38,7 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
         defaultSize: CGFloat,
         minimum: CGFloat,
         maximum: CGFloat,
+        flexibleMinimum: CGFloat? = nil,
         showsIdleDivider: Bool = true,
         onCommit: ((CGFloat) -> Void)? = nil,
         @ViewBuilder sized: () -> Sized,
@@ -45,6 +49,7 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
         self.defaultSize = defaultSize
         self.minimum = minimum
         self.maximum = maximum
+        self.flexibleMinimum = flexibleMinimum
         self.showsIdleDivider = showsIdleDivider
         self.onCommit = onCommit
         self.sized = sized()
@@ -94,9 +99,9 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
     @ViewBuilder
     private var flexiblePane: some View {
         if axis == .horizontal {
-            flexible.frame(maxWidth: .infinity)
+            flexible.frame(minWidth: flexibleMinimum, maxWidth: .infinity)
         } else {
-            flexible.frame(maxHeight: .infinity)
+            flexible.frame(minHeight: flexibleMinimum, maxHeight: .infinity)
         }
     }
 

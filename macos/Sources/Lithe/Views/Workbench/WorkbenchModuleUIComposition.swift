@@ -43,7 +43,6 @@ enum WorkbenchModuleUIComposition {
         contributions: GitModule.moduleContributions,
         actions: [
             .init(id: "git.log.toggle", perform: { model in
-                if !model.isGitLogVisible { model.selectedSidebar = .changes }
                 Task { await model.toggleGitLog() }
             })
         ],

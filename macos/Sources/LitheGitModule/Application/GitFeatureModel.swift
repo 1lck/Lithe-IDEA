@@ -1800,7 +1800,14 @@ package final class GitFeatureModel: ObservableObject {
                 }
                 if let stash = gitStashes.first(where: { $0.message.contains(message) }) {
                     let restored = await service.popStash(stash, at: gitRepositoryRoot)
-                    if !restored.succeeded { notify?("恢复本地改动失败：\(trimmedMessage(restored))") }
+                    if let conflict = restored.stashRestoreConflict {
+                        presentStashRestoreConflict(conflict, operationTitle: "pull")
+                        return
+                    }
+                    guard restored.succeeded else {
+                        notify?("恢复本地改动失败：\(trimmedMessage(restored))")
+                        return
+                    }
                 }
                 await reportBranchOperation(result, success: strategy == .rebase ? "从远程分支变基拉取完成" : "从远程分支合并拉取完成")
                 return
@@ -1823,6 +1830,7 @@ package final class GitFeatureModel: ObservableObject {
                 }
                 if !(await restoreShelf(shelf, at: gitRepositoryRoot)) {
                     notify?("恢复搁置改动失败")
+                    return
                 }
                 await reportBranchOperation(result, success: strategy == .rebase ? "从远程分支变基拉取完成" : "从远程分支合并拉取完成")
                 return
@@ -2037,7 +2045,7 @@ package final class GitFeatureModel: ObservableObject {
         if let state = gitOperationState, state.hasConflicts {
             notify?("\(state.kind.title) stopped with \(state.conflictedPaths.count) conflicted file(s)")
         } else {
-            notify?(result.succeeded ? success : trimmedMessage(result))
+            notify?(result.succeeded ? successfulMessage(result, fallback: success) : trimmedMessage(result))
         }
     }
 
@@ -2288,7 +2296,11 @@ package final class GitFeatureModel: ObservableObject {
         isPerformingBranchOperation = true
         let result = await withGitOperation { await service.push(reference, at: gitRepositoryRoot) }
         isPerformingBranchOperation = false
-        notify?(result.succeeded ? "Pushed \(reference.shortName)" : trimmedMessage(result))
+        notify?(
+            result.succeeded
+                ? successfulMessage(result, fallback: "Pushed \(reference.shortName)")
+                : trimmedMessage(result)
+        )
         await refreshGit()
     }
 
@@ -2317,7 +2329,12 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     private func showResult(_ result: GitService.CommandResult, success: String) {
-        notify?(result.succeeded ? success : trimmedMessage(result))
+        notify?(result.succeeded ? successfulMessage(result, fallback: success) : trimmedMessage(result))
+    }
+
+    private func successfulMessage(_ result: GitService.CommandResult, fallback: String) -> String {
+        guard let warning = result.warnings.first else { return fallback }
+        return "\(fallback): \(warning.message)"
     }
 
     private func trimmedMessage(_ result: GitService.CommandResult) -> String {

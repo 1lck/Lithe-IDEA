@@ -1,56 +1,27 @@
-import { CaretDownIcon, CaretRightIcon, FileIcon, FolderIcon } from "@/ui/icons";
-import { useMemo, useState } from "react";
+import type { CSSProperties } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ThemedFileIcon } from "@/extensions/icon-themes/components/themed-file-icon";
+import {
+  useFileTreePresentation,
+  type FileTreePresentation,
+} from "@/features/file-explorer/hooks/use-file-tree-presentation";
+import { FILE_TREE_BASE_INDENT } from "@/features/file-explorer/lib/file-tree-row";
+import "@/features/file-explorer/styles/file-explorer-tree.css";
+import { SidebarTree, SidebarTreeRow } from "@/features/sidebar/components/sidebar-tree";
+import {
+  buildPathTree,
+  compactPathTreeBranch,
+  type PathTreeNode,
+} from "@/features/sidebar/lib/path-tree";
 import { useTranslation } from "@/i18n/locale-provider";
+import { bindScrollContainerWheel } from "@/ui/scroll-container-wheel";
 import { cn } from "@/utils/cn";
 import type { GitCommitFile } from "../../types/git.types";
+import { getCommitFileStatusColorClassName } from "../../utils/git-file-status-visuals";
 
-interface FileTreeNode {
-  id: string;
-  name: string;
-  path: string;
-  file?: GitCommitFile;
-  children: FileTreeNode[];
-}
-
-interface MutableFileTreeNode extends FileTreeNode {
-  children: MutableFileTreeNode[];
-}
-
-function buildFileTree(files: GitCommitFile[]): FileTreeNode[] {
-  const roots: MutableFileTreeNode[] = [];
-  for (const file of files) {
-    const parts = file.path.split("/").filter(Boolean);
-    let children = roots;
-    let path = "";
-    parts.forEach((name, index) => {
-      path = path ? `${path}/${name}` : name;
-      let node = children.find((candidate) => candidate.name === name);
-      if (!node) {
-        node = { id: path, name, path, children: [] };
-        children.push(node);
-      }
-      if (index === parts.length - 1) node.file = file;
-      children = node.children;
-    });
-  }
-  const sort = (nodes: MutableFileTreeNode[]) => {
-    nodes.sort((left, right) => {
-      if (Boolean(left.children.length) !== Boolean(right.children.length)) {
-        return left.children.length ? -1 : 1;
-      }
-      return left.name.localeCompare(right.name);
-    });
-    nodes.forEach((node) => sort(node.children));
-  };
-  sort(roots);
-  return roots;
-}
-
-function statusClassName(status: string) {
-  if (status.startsWith("A")) return "text-emerald-400";
-  if (status.startsWith("D")) return "text-red-400";
-  if (status.startsWith("R")) return "text-amber-400";
-  return "text-sky-400";
+export function countCommitFileTreeLeaves(node: PathTreeNode<GitCommitFile>): number {
+  if (node.type === "leaf") return 1;
+  return node.children.reduce((count, child) => count + countCommitFileTreeLeaves(child), 0);
 }
 
 function FileNode({
@@ -58,79 +29,109 @@ function FileNode({
   depth,
   collapsed,
   selectedPath,
+  presentation,
   onToggle,
   onSelect,
   onOpen,
 }: {
-  node: FileTreeNode;
+  node: PathTreeNode<GitCommitFile>;
   depth: number;
-  collapsed: Set<string>;
+  collapsed: ReadonlySet<string>;
   selectedPath: string | null;
+  presentation: FileTreePresentation;
   onToggle: (path: string) => void;
   onSelect: (path: string) => void;
   onOpen: (path: string) => void;
 }) {
   const { t } = useTranslation();
-  const isDirectory = node.children.length > 0 && !node.file;
-  const isCollapsed = collapsed.has(node.path);
 
+  if (node.type === "branch") {
+    const compacted = presentation.compactFolders
+      ? compactPathTreeBranch(node)
+      : { branch: node, label: node.name };
+    const branch = compacted.branch;
+    const expanded = !collapsed.has(branch.path);
+
+    return (
+      <div>
+        <SidebarTreeRow
+          depth={depth}
+          indentSize={presentation.indentSize}
+          baseIndent={FILE_TREE_BASE_INDENT}
+          showGuides={presentation.showIndentGuides}
+          expanded={expanded}
+          onToggle={() => onToggle(branch.path)}
+          onClick={() => onToggle(branch.path)}
+          label={compacted.label}
+          leading={
+            presentation.showIcons ? (
+              <ThemedFileIcon
+                fileName={branch.name}
+                isDir
+                isExpanded={expanded}
+                className="file-tree-node-icon shrink-0 text-subtle-foreground"
+              />
+            ) : null
+          }
+          trailing={
+            <span className="pr-1 text-subtle-foreground tabular-nums">
+              {countCommitFileTreeLeaves(branch)}
+            </span>
+          }
+          title={branch.path}
+          className="h-full py-0.5"
+          style={{ height: presentation.rowHeight }}
+        />
+        {expanded
+          ? branch.children.map((child) => (
+              <FileNode
+                key={child.id}
+                node={child}
+                depth={depth + 1}
+                collapsed={collapsed}
+                selectedPath={selectedPath}
+                presentation={presentation}
+                onToggle={onToggle}
+                onSelect={onSelect}
+                onOpen={onOpen}
+              />
+            ))
+          : null}
+      </div>
+    );
+  }
+
+  const file = node.item;
+  const statusColorClassName = getCommitFileStatusColorClassName(file.status);
   return (
-    <>
-      <button
-        type="button"
-        className={cn(
-          "flex h-6 w-full min-w-0 items-center gap-1.5 rounded px-1.5 text-left hover:bg-accent/80",
-          node.file && selectedPath === node.path && "bg-accent text-accent-foreground",
-        )}
-        style={{ paddingLeft: 7 + depth * 14 }}
-        onClick={() => (node.file ? onSelect(node.path) : onToggle(node.path))}
-        onDoubleClick={() => node.file && onOpen(node.path)}
-        title={node.file ? t("git.log.openFileDiff") : node.path}
-      >
-        {isDirectory ? (
-          isCollapsed ? (
-            <CaretRightIcon className="size-3 shrink-0" />
-          ) : (
-            <CaretDownIcon className="size-3 shrink-0" />
-          )
-        ) : (
-          <span className="size-3 shrink-0" />
-        )}
-        {isDirectory ? (
-          <FolderIcon className="size-3.5 shrink-0 text-subtle-foreground" />
-        ) : (
-          <FileIcon className="size-3.5 shrink-0 text-subtle-foreground" />
-        )}
-        <span className="truncate">{node.name}</span>
-        {node.file ? (
-          <span
-            className={cn(
-              "ml-auto shrink-0 pr-1 font-mono text-[10px]",
-              statusClassName(node.file.status),
-            )}
-          >
-            {node.file.status}
-          </span>
-        ) : (
-          <span className="ml-auto pr-1 text-subtle-foreground tabular-nums">
-            {node.children.length}
-          </span>
-        )}
-      </button>
-      {!isCollapsed &&
-        node.children.map((child) => (
-          <FileNode
-            key={child.id}
-            node={child}
-            depth={depth + 1}
-            collapsed={collapsed}
-            selectedPath={selectedPath}
-            onToggle={onToggle}
-            onSelect={onSelect}
-            onOpen={onOpen}
+    <SidebarTreeRow
+      depth={depth}
+      indentSize={presentation.indentSize}
+      baseIndent={FILE_TREE_BASE_INDENT}
+      showGuides={presentation.showIndentGuides}
+      reserveDisclosureSpace
+      active={selectedPath === node.path}
+      onClick={() => onSelect(node.path)}
+      onDoubleClick={() => onOpen(node.path)}
+      label={<span className={statusColorClassName}>{node.name}</span>}
+      leading={
+        presentation.showIcons ? (
+          <ThemedFileIcon
+            fileName={node.path}
+            isDir={false}
+            className="file-tree-node-icon shrink-0 text-subtle-foreground"
           />
-        ))}
-    </>
+        ) : null
+      }
+      trailing={
+        <span className={cn("pr-1 font-mono text-[10px]", statusColorClassName)}>
+          {file.status}
+        </span>
+      }
+      title={t("git.log.openFileDiff")}
+      className="h-full py-0.5"
+      style={{ height: presentation.rowHeight }}
+    />
   );
 }
 
@@ -145,7 +146,17 @@ export function GitCommitFileTree({
   onSelect: (path: string) => void;
   onOpen: (path: string) => void;
 }) {
-  const tree = useMemo(() => buildFileTree(files), [files]);
+  const { t } = useTranslation();
+  const presentation = useFileTreePresentation();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const tree = useMemo(
+    () =>
+      buildPathTree(files, {
+        getPath: (file) => file.path,
+        getKey: (file) => file.path,
+      }),
+    [files],
+  );
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const toggle = (path: string) => {
     setCollapsed((current) => {
@@ -156,8 +167,24 @@ export function GitCommitFileTree({
     });
   };
 
+  useLayoutEffect(() => {
+    const element = scrollRef.current;
+    if (!element) return;
+    return bindScrollContainerWheel(element);
+  }, []);
+
   return (
-    <div className="min-h-0 flex-1 overflow-auto p-1.5">
+    <SidebarTree
+      ref={scrollRef}
+      data-scroll-container=""
+      label={t("git.log.commitFiles")}
+      className="file-tree-container min-h-0 flex-1 overflow-auto p-1.5"
+      style={
+        {
+          "--file-tree-row-height": `${presentation.rowHeight}px`,
+        } as CSSProperties
+      }
+    >
       {tree.map((node) => (
         <FileNode
           key={node.id}
@@ -165,11 +192,12 @@ export function GitCommitFileTree({
           depth={0}
           collapsed={collapsed}
           selectedPath={selectedPath}
+          presentation={presentation}
           onToggle={toggle}
           onSelect={onSelect}
           onOpen={onOpen}
         />
       ))}
-    </div>
+    </SidebarTree>
   );
 }

@@ -81,6 +81,7 @@ struct WorkbenchView: View {
     @State private var newBranchReference: GitReference?
     @State private var isCheckoutRevisionPresented = false
     @State private var pendingTopBarPushReference: GitReference?
+    @State private var pendingTopBarDeleteReference: GitReference?
     @State private var isProjectSwitcherPresented = false
     @State private var isPluginPanelPresented = false
     @State private var isNotificationCenterPresented = false
@@ -284,6 +285,31 @@ struct WorkbenchView: View {
                 }
             )
         }
+        .confirmationDialog(
+            "Delete branch?",
+            isPresented: Binding(
+                get: { pendingTopBarDeleteReference != nil },
+                set: { if !$0 { pendingTopBarDeleteReference = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                guard let reference = pendingTopBarDeleteReference else { return }
+                pendingTopBarDeleteReference = nil
+                Task { await model.deleteBranch(reference) }
+            }
+            .disabled(model.isPerformingBranchOperation)
+            .lithePointer()
+            Button("Cancel", role: .cancel) {
+                pendingTopBarDeleteReference = nil
+            }
+            .lithePointer()
+        } message: {
+            Text(
+                "Delete the local branch \(pendingTopBarDeleteReference?.shortName ?? "")? "
+                    + "Git will refuse if it contains unmerged work."
+            )
+        }
         .overlayPreferenceValue(ProjectSwitcherButtonBoundsPreferenceKey.self) { bounds in
             GeometryReader { geometry in
                 if isProjectSwitcherPresented, let bounds {
@@ -369,6 +395,46 @@ struct WorkbenchView: View {
                         proxy.scrollTo(id, anchor: .center)
                     }
                 }
+            }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if !model.activeNotifications.isEmpty {
+                VStack(alignment: .trailing, spacing: 8) {
+                    ForEach(model.activeNotifications) { notification in
+                        HStack(alignment: .center, spacing: 10) {
+                            Image(systemName: "info.circle.fill")
+                                .font(.system(size: 14))
+                                .foregroundStyle(LitheTheme.accent)
+                            Text(LocalizedStringKey(notification.message))
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(LitheTheme.primaryText)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 4)
+                            Button {
+                                model.dismissNotification(notification.id)
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(LitheTheme.tertiaryText)
+                            }
+                            .buttonStyle(.plain)
+                            .frame(width: 16, height: 16)
+                            .contentShape(Rectangle())
+                            .litheRowHover(cornerRadius: LitheTheme.Metrics.cornerRadius, animation: nil)
+                            .accessibilityLabel("Dismiss notification")
+                        }
+                        .padding(.leading, 12)
+                        .padding(.trailing, 6)
+                        .padding(.vertical, 10)
+                        .frame(minWidth: 280, maxWidth: 360, alignment: .topLeading)
+                        .background(LitheTheme.notificationBackground)
+                        .clipShape(RoundedRectangle(cornerRadius: 7))
+                        .contentShape(RoundedRectangle(cornerRadius: 7))
+                    }
+                }
+                .onHover { model.setNotificationStackHovered($0) }
+                .padding(.trailing, WorkbenchLayoutMetrics.rightActivityBarWidth + 12)
+                .padding(.bottom, 38)
             }
         }
         .frame(height: LitheTheme.Metrics.tabHeight + 4)
@@ -652,6 +718,10 @@ struct WorkbenchView: View {
                     onPush: { reference in
                         updateSwitcherPresentation(branch: false)
                         pendingTopBarPushReference = reference
+                    },
+                    onDelete: { reference in
+                        updateSwitcherPresentation(branch: false)
+                        pendingTopBarDeleteReference = reference
                     },
                     onNewBranch: { reference in
                         updateSwitcherPresentation(branch: false)
