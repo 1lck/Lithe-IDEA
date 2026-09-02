@@ -136,15 +136,28 @@ private actor GitHistoryCache {
         let limit: Int
     }
 
-    private var values: [Key: GitHistorySnapshot] = [:]
+    private struct Entry {
+        let snapshot: GitHistorySnapshot
+        let insertedAt: Date
+    }
+
+    private var values: [Key: Entry] = [:]
 
     func value(rootURL: URL, reference: GitReference?, limit: Int) -> GitHistorySnapshot? {
-        values[Key(rootPath: rootURL.standardizedFileURL.path, reference: reference?.fullName, limit: limit)]
+        let key = Key(rootPath: rootURL.standardizedFileURL.path, reference: reference?.fullName, limit: limit)
+        guard let entry = values[key] else { return nil }
+        // Short-lived reuse smooths repeated pane opens without allowing a
+        // commit made in the meantime to leave the UI stale indefinitely.
+        guard Date().timeIntervalSince(entry.insertedAt) < 5 else {
+            values.removeValue(forKey: key)
+            return nil
+        }
+        return entry.snapshot
     }
 
     func insert(_ snapshot: GitHistorySnapshot, rootURL: URL, reference: GitReference?, limit: Int) {
         let key = Key(rootPath: rootURL.standardizedFileURL.path, reference: reference?.fullName, limit: limit)
-        values[key] = snapshot
+        values[key] = Entry(snapshot: snapshot, insertedAt: Date())
         // Keep this process-local cache bounded while retaining the most useful recent queries.
         if values.count > 24, let oldestKey = values.keys.first {
             values.removeValue(forKey: oldestKey)
