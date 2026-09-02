@@ -357,6 +357,59 @@ struct GitModuleTests {
     }
 
     @Test
+    func gitHistoryAppendsTheNextPageWithoutReplacingEarlierCommits() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let commits = (0..<3).map { index in
+            GitCommit(
+                hash: "hash-\(index)",
+                shortHash: "short-\(index)",
+                parentHashes: [],
+                authorName: "Lithe Test",
+                authorEmail: "test@example.com",
+                date: "2026/09/01 10:0\(index)",
+                subject: "commit-\(index)",
+                decorations: ""
+            )
+        }
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            referencesValue: GitReferenceSnapshot(
+                references: [],
+                recentReferences: [],
+                identity: GitIdentity(name: "Lithe Test", email: "test@example.com")
+            ),
+            historyPageValues: [
+                "": GitHistoryPage(
+                    commits: Array(commits.prefix(2)),
+                    nextCursor: "cursor-2",
+                    hasMore: true
+                ),
+                "cursor-2": GitHistoryPage(
+                    commits: [commits[2]],
+                    nextCursor: nil,
+                    hasMore: false
+                )
+            ]
+        ))
+        let feature = GitFeatureModel(service: service)
+        feature.configure(
+            workspaceURLProvider: { root },
+            isGitLogVisibleProvider: { true },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+
+        await feature.refreshGit()
+        #expect(feature.gitCommits.map(\.hash) == ["hash-0", "hash-1"])
+        #expect(feature.canLoadMoreGitHistory)
+
+        await feature.loadMoreGitHistory()
+
+        #expect(feature.gitCommits.map(\.hash) == ["hash-0", "hash-1", "hash-2"])
+        #expect(!feature.canLoadMoreGitHistory)
+    }
+
+    @Test
     func remoteReferenceActionsPreserveIdentityAndPullStrategy() async {
         let root = URL(fileURLWithPath: "/workspace")
         let reference = GitReference(
@@ -1465,6 +1518,8 @@ private struct TestGitOperations: GitOperations {
     private let comparisonDiffDocumentValue: DiffDocument?
     private let typedComparisonDiffDocumentValue: DiffDocument?
     private let historyValue: GitHistorySnapshot?
+    private let referencesValue: GitReferenceSnapshot?
+    private let historyPageValues: [String: GitHistoryPage]?
     private let stageResult: GitProcessResult?
     private let runGate: TestGitRunGate?
     private let filesRecorder: GitFilesCallRecorder?
@@ -1475,6 +1530,8 @@ private struct TestGitOperations: GitOperations {
         comparisonValue: GitBranchComparison? = nil,
         typedComparisonValue: GitBranchComparison? = nil,
         historyValue: GitHistorySnapshot? = nil,
+        referencesValue: GitReferenceSnapshot? = nil,
+        historyPageValues: [String: GitHistoryPage]? = nil,
         filesValue: [GitCommitFile]? = nil,
         untrackedDiffDocumentValue: DiffDocument? = nil,
         comparisonDiffDocumentValue: DiffDocument? = nil,
@@ -1488,6 +1545,8 @@ private struct TestGitOperations: GitOperations {
         self.comparisonValue = comparisonValue
         self.typedComparisonValue = typedComparisonValue
         self.historyValue = historyValue
+        self.referencesValue = referencesValue
+        self.historyPageValues = historyPageValues
         self.filesValue = filesValue
         self.untrackedDiffDocumentValue = untrackedDiffDocumentValue
         self.comparisonDiffDocumentValue = comparisonDiffDocumentValue
@@ -1520,6 +1579,34 @@ private struct TestGitOperations: GitOperations {
     func comparisonDiffDocument(at rootURL: URL, reference: GitReference, targetReference: GitReference?, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { typedComparisonDiffDocumentValue }
     func applyPatch(_ patch: String, at rootURL: URL, mode: String) -> GitProcessResult? { nil }
     func history(at rootURL: URL, reference: GitReference?, limit: Int) -> GitHistorySnapshot? { historyValue }
+    func references(at rootURL: URL, operationID: String) -> GitReferenceSnapshot? {
+        if let referencesValue { return referencesValue }
+        guard let historyValue else { return nil }
+        return GitReferenceSnapshot(
+            references: historyValue.references,
+            recentReferences: historyValue.recentReferences,
+            identity: historyValue.identity
+        )
+    }
+    func historyPage(
+        at rootURL: URL,
+        reference: GitReference?,
+        cursor: String?,
+        limit: Int,
+        operationID: String
+    ) -> GitHistoryPage? {
+        if let historyPageValues { return historyPageValues[cursor ?? ""] }
+        guard let historyValue else { return nil }
+        let offset = cursor.flatMap(Int.init) ?? 0
+        let commits = Array(historyValue.commits.dropFirst(offset).prefix(limit))
+        let hasMore = historyValue.commits.count > offset + commits.count || historyValue.hasMore
+        return GitHistoryPage(
+            commits: commits,
+            nextCursor: hasMore ? String(offset + commits.count) : nil,
+            hasMore: hasMore
+        )
+    }
+    func cancel(operationID: String) -> Bool { false }
     func files(in commit: GitCommit, at rootURL: URL) -> [GitCommitFile]? {
         filesRecorder?.recordCall()
         if let filesGate {

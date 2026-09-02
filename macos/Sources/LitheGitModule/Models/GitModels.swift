@@ -235,6 +235,34 @@ package struct GitHistorySnapshot: Sendable {
     }
 }
 
+package struct GitReferenceSnapshot: Sendable {
+    package let references: [GitReference]
+    package let recentReferences: [GitReference]
+    package let identity: GitIdentity?
+
+    package init(
+        references: [GitReference],
+        recentReferences: [GitReference] = [],
+        identity: GitIdentity? = nil
+    ) {
+        self.references = references
+        self.recentReferences = recentReferences
+        self.identity = identity
+    }
+}
+
+package struct GitHistoryPage: Sendable {
+    package let commits: [GitCommit]
+    package let nextCursor: String?
+    package let hasMore: Bool
+
+    package init(commits: [GitCommit], nextCursor: String?, hasMore: Bool) {
+        self.commits = commits
+        self.nextCursor = nextCursor
+        self.hasMore = hasMore
+    }
+}
+
 package struct GitIdentity: Hashable, Sendable {
     package let name: String?
     package let email: String?

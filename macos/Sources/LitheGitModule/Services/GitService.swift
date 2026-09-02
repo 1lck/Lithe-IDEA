@@ -60,6 +60,16 @@ package protocol GitOperations: Sendable {
         reference: GitReference?,
         limit: Int
     ) -> GitHistorySnapshot?
+    func references(at rootURL: URL, operationID: String) -> GitReferenceSnapshot?
+    func historyPage(
+        at rootURL: URL,
+        reference: GitReference?,
+        cursor: String?,
+        limit: Int,
+        operationID: String
+    ) -> GitHistoryPage?
+    func closeHistoryCursor(at rootURL: URL, cursor: String) -> Bool
+    func cancel(operationID: String) -> Bool
 
     func files(in commit: GitCommit, at rootURL: URL) -> [GitCommitFile]?
     func commit(at rootURL: URL, hash: String) -> GitCommit?
@@ -119,6 +129,42 @@ package protocol GitOperations: Sendable {
     func popStash(_ stash: GitStash, at rootURL: URL) -> GitProcessResult?
     func dropStash(_ stash: GitStash, at rootURL: URL) -> GitProcessResult?
     func stageAll(at rootURL: URL) -> GitProcessResult?
+}
+
+package extension GitOperations {
+    func references(at rootURL: URL, operationID: String) -> GitReferenceSnapshot? {
+        guard let snapshot = history(at: rootURL, reference: nil, limit: 1) else { return nil }
+        return GitReferenceSnapshot(
+            references: snapshot.references,
+            recentReferences: snapshot.recentReferences,
+            identity: snapshot.identity
+        )
+    }
+
+    func historyPage(
+        at rootURL: URL,
+        reference: GitReference?,
+        cursor: String?,
+        limit: Int,
+        operationID: String
+    ) -> GitHistoryPage? {
+        let offset = cursor.flatMap(Int.init) ?? 0
+        guard let snapshot = history(
+            at: rootURL,
+            reference: reference,
+            limit: offset + limit + 1
+        ) else { return nil }
+        let page = Array(snapshot.commits.dropFirst(offset).prefix(limit))
+        let hasMore = snapshot.commits.count > offset + page.count || snapshot.hasMore
+        return GitHistoryPage(
+            commits: page,
+            nextCursor: hasMore ? String(offset + page.count) : nil,
+            hasMore: hasMore
+        )
+    }
+
+    func closeHistoryCursor(at rootURL: URL, cursor: String) -> Bool { false }
+    func cancel(operationID: String) -> Bool { false }
 }
 
 package typealias GitWatchContextProviding = LitheCoreContracts.GitWatchContextProviding
@@ -354,6 +400,43 @@ package struct GitService: Sendable {
         await read(priority: .utility) {
             $0.history(at: repositoryRoot, reference: reference, limit: limit)
         } ?? GitHistorySnapshot(references: [], commits: [], hasMore: false)
+    }
+
+    func references(
+        at repositoryRoot: URL,
+        operationID: String
+    ) async -> GitReferenceSnapshot? {
+        await cancellableRead(operationID: operationID) {
+            $0.references(at: repositoryRoot, operationID: operationID)
+        }
+    }
+
+    func historyPage(
+        at repositoryRoot: URL,
+        reference: GitReference?,
+        cursor: String?,
+        limit: Int,
+        operationID: String
+    ) async -> GitHistoryPage? {
+        await cancellableRead(operationID: operationID) {
+            $0.historyPage(
+                at: repositoryRoot,
+                reference: reference,
+                cursor: cursor,
+                limit: limit,
+                operationID: operationID
+            )
+        }
+    }
+
+    @discardableResult
+    package func closeHistoryCursor(at repositoryRoot: URL, cursor: String) -> Bool {
+        operations.closeHistoryCursor(at: repositoryRoot, cursor: cursor)
+    }
+
+    @discardableResult
+    package func cancel(operationID: String) -> Bool {
+        operations.cancel(operationID: operationID)
     }
 
     func files(in commit: GitCommit, at repositoryRoot: URL) async -> [GitCommitFile]? {
@@ -668,5 +751,21 @@ package struct GitService: Sendable {
         return await Task.detached(priority: priority) {
             operation(operations)
         }.value
+    }
+
+    private func cancellableRead<T: Sendable>(
+        priority: TaskPriority = .utility,
+        operationID: String,
+        _ operation: @escaping @Sendable (any GitOperations) -> T?
+    ) async -> T? {
+        let operations = self.operations
+        let task = Task.detached(priority: priority) {
+            operation(operations)
+        }
+        return await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            _ = operations.cancel(operationID: operationID)
+        }
     }
 }

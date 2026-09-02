@@ -83,7 +83,10 @@ package final class GitFeatureModel: ObservableObject {
     private var onGitOperationBegan: (@MainActor () -> Void)?
     private var onGitOperationEnded: (@MainActor () async -> Void)?
     private var acquireModuleLease: (@MainActor (String) -> ModuleLease)?
-    private var gitHistoryLimit = 300
+    private static let gitHistoryPageSize = 100
+    private var gitHistoryCursor: String?
+    private var gitHistoryGeneration = UUID()
+    private var activeGitHistoryOperationIDs: Set<String> = []
     private var deferredSavedChanges: GitDeferredSavedChanges?
     private var nextRefreshRequestID: UInt64 = 0
     private var activeRefreshRequestIDs: Set<UInt64> = []
@@ -160,6 +163,7 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func reset() {
+        cancelGitHistoryLoading()
         gitChanges = []
         pendingStagingStates = [:]
         gitStashes = []
@@ -200,7 +204,7 @@ package final class GitFeatureModel: ObservableObject {
         commitPathsByHash = [:]
         clearGitCommitFilesCache()
         gitLogFilterGeneration = UUID()
-        gitHistoryLimit = 300
+        gitHistoryCursor = nil
         isLoadingGitHistory = false
         isLoadingMoreGitHistory = false
         canLoadMoreGitHistory = false
@@ -1237,29 +1241,55 @@ package final class GitFeatureModel: ObservableObject {
 
     package func selectGitReference(_ reference: GitReference?) async {
         selectedGitReference = reference
-        gitHistoryLimit = 300
         canLoadMoreGitHistory = false
         await refreshGitHistory()
     }
 
     package func refreshGitHistory() async {
-        guard let gitRepositoryRoot, !isLoadingGitHistory else { return }
+        guard let gitRepositoryRoot else { return }
+        cancelGitHistoryLoading()
+        let generation = gitHistoryGeneration
+        let selectedReference = selectedGitReference
+        let referencesOperationID = gitHistoryOperationID(kind: "references", generation: generation)
+        let pageOperationID = gitHistoryOperationID(kind: "page", generation: generation)
+        activeGitHistoryOperationIDs.formUnion([referencesOperationID, pageOperationID])
         isLoadingGitHistory = true
         let previousCommitHash = selectedGitCommit?.hash
-        let snapshot = await service.history(
+        async let references = service.references(
             at: gitRepositoryRoot,
-            reference: selectedGitReference,
-            limit: gitHistoryLimit
+            operationID: referencesOperationID
         )
-        gitReferences = snapshot.references
-        recentGitReferences = snapshot.recentReferences
-        gitCommits = snapshot.commits
-        gitIdentity = snapshot.identity
-        canLoadMoreGitHistory = snapshot.hasMore
-
-        let nextCommit = snapshot.commits.first(where: { $0.hash == previousCommitHash })
-            ?? snapshot.commits.first
+        async let page = service.historyPage(
+            at: gitRepositoryRoot,
+            reference: selectedReference,
+            cursor: nil,
+            limit: Self.gitHistoryPageSize,
+            operationID: pageOperationID
+        )
+        let (referenceSnapshot, historyPage) = await (references, page)
+        activeGitHistoryOperationIDs.subtract([referencesOperationID, pageOperationID])
+        guard gitHistoryGeneration == generation,
+              self.gitRepositoryRoot == gitRepositoryRoot,
+              selectedGitReference == selectedReference else {
+            if let cursor = historyPage?.nextCursor {
+                service.closeHistoryCursor(at: gitRepositoryRoot, cursor: cursor)
+            }
+            return
+        }
         isLoadingGitHistory = false
+        guard let historyPage else { return }
+
+        if let referenceSnapshot {
+            gitReferences = referenceSnapshot.references
+            recentGitReferences = referenceSnapshot.recentReferences
+            gitIdentity = referenceSnapshot.identity
+        }
+        gitCommits = historyPage.commits
+        gitHistoryCursor = historyPage.nextCursor
+        canLoadMoreGitHistory = historyPage.hasMore
+
+        let nextCommit = historyPage.commits.first(where: { $0.hash == previousCommitHash })
+            ?? historyPage.commits.first
         if let nextCommit {
             if previousCommitHash == nextCommit.hash {
                 selectedGitCommit = nextCommit
@@ -1345,11 +1375,61 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func loadMoreGitHistory() async {
-        guard canLoadMoreGitHistory, !isLoadingGitHistory else { return }
+        guard let gitRepositoryRoot,
+              let cursor = gitHistoryCursor,
+              canLoadMoreGitHistory,
+              !isLoadingGitHistory,
+              !isLoadingMoreGitHistory else { return }
+        let generation = gitHistoryGeneration
+        let selectedReference = selectedGitReference
+        let operationID = gitHistoryOperationID(kind: "page-more", generation: generation)
+        activeGitHistoryOperationIDs.insert(operationID)
         isLoadingMoreGitHistory = true
-        defer { isLoadingMoreGitHistory = false }
-        gitHistoryLimit += 300
-        await refreshGitHistory()
+        gitHistoryCursor = nil
+        let page = await service.historyPage(
+            at: gitRepositoryRoot,
+            reference: selectedReference,
+            cursor: cursor,
+            limit: Self.gitHistoryPageSize,
+            operationID: operationID
+        )
+        activeGitHistoryOperationIDs.remove(operationID)
+        guard gitHistoryGeneration == generation,
+              self.gitRepositoryRoot == gitRepositoryRoot,
+              selectedGitReference == selectedReference else {
+            if let cursor = page?.nextCursor {
+                service.closeHistoryCursor(at: gitRepositoryRoot, cursor: cursor)
+            }
+            return
+        }
+        isLoadingMoreGitHistory = false
+        guard let page else {
+            canLoadMoreGitHistory = false
+            return
+        }
+
+        let loadedHashes = Set(gitCommits.map(\.hash))
+        gitCommits.append(contentsOf: page.commits.filter { !loadedHashes.contains($0.hash) })
+        gitHistoryCursor = page.nextCursor
+        canLoadMoreGitHistory = page.hasMore
+    }
+
+    package func cancelGitHistoryLoading() {
+        gitHistoryGeneration = UUID()
+        if let gitRepositoryRoot, let cursor = gitHistoryCursor {
+            service.closeHistoryCursor(at: gitRepositoryRoot, cursor: cursor)
+        }
+        gitHistoryCursor = nil
+        for operationID in activeGitHistoryOperationIDs {
+            service.cancel(operationID: operationID)
+        }
+        activeGitHistoryOperationIDs.removeAll()
+        isLoadingGitHistory = false
+        isLoadingMoreGitHistory = false
+    }
+
+    private func gitHistoryOperationID(kind: String, generation: UUID) -> String {
+        "git-history-\(kind)-\(generation.uuidString)"
     }
 
     package func selectGitCommit(_ commit: GitCommit) async {
