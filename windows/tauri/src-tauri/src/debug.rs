@@ -270,10 +270,12 @@ pub async fn debug_send_request(
         fail_session(&app, &request.session_id, pid, &error);
         error
     })?;
-    let update = execute_core_async(core_command, payload).await.map_err(|error| {
-        fail_session(&app, &request.session_id, pid, &error);
-        error
-    })?;
+    let update = execute_core_async(core_command, payload)
+        .await
+        .map_err(|error| {
+            fail_session(&app, &request.session_id, pid, &error);
+            error
+        })?;
     if let Err(error) = write_outbound_frames(&stdin, &update) {
         fail_session(&app, &request.session_id, pid, &error);
         return Err(error);
@@ -949,7 +951,10 @@ mod tests {
             "C:/work/project-b",
             &normalize_workspace("C:/work/project-a")
         ));
-        assert!(!session_owned_by("", &normalize_workspace("C:/work/project-a")));
+        assert!(!session_owned_by(
+            "",
+            &normalize_workspace("C:/work/project-a")
+        ));
     }
 
     #[test]
