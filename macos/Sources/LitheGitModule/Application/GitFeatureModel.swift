@@ -14,8 +14,13 @@ package final class GitFeatureModel: ObservableObject {
     @Published private var pendingStagingStates: [GitChange.ID: Bool] = [:]
     @Published package private(set) var gitStashes: [GitStash] = []
     @Published package private(set) var gitShelves: [GitShelfEntry] = []
+    @Published package private(set) var gitWorktrees: [GitWorktree] = []
+    @Published package private(set) var gitWorktreeLoadState = GitWorktreeLoadState.idle
+    @Published package private(set) var gitWorktreeInspection: GitWorktreeInspection?
+    @Published package private(set) var gitWorktreeInspectionLoadState = GitWorktreeInspectionLoadState.idle
     @Published package private(set) var isPerformingStashOperation = false
     @Published package private(set) var isPerformingShelfOperation = false
+    @Published package private(set) var isPerformingWorktreeOperation = false
     @Published package private(set) var gitRepositoryRoot: URL?
     @Published package private(set) var currentBranch = "No Git"
     @Published package var selectedChange: GitChange?
@@ -94,6 +99,7 @@ package final class GitFeatureModel: ObservableObject {
     private let snapshotProvider: @Sendable (URL) async -> GitSnapshot?
     private let stashesProvider: @Sendable (URL) async -> [GitStash]
     private let operationStateProvider: @Sendable (URL) async -> GitOperationState?
+    private let worktreesProvider: @Sendable (URL) async -> [GitWorktree]?
     private let diffDocumentProvider: @Sendable (GitChange, GitDiffWhitespaceMode) async -> DiffDocument
     private var workspaceURLProvider: (@MainActor () -> URL?)?
     private var isGitLogVisibleProvider: (@MainActor () -> Bool)?
@@ -114,6 +120,8 @@ package final class GitFeatureModel: ObservableObject {
     private var gitConsoleRepositoryGeneration: UInt64 = 0
     private var loadingLineChangeURLs: Set<URL> = []
     private var lineChangeHunks: [URL: [String: DiffHunk]] = [:]
+    private var worktreeRequestGeneration: UInt64 = 0
+    private var worktreeInspectionRequestGeneration: UInt64 = 0
 
     private static let commitFilesPrefetchRadius = 4
 
@@ -123,6 +131,7 @@ package final class GitFeatureModel: ObservableObject {
         snapshotProvider: (@Sendable (URL) async -> GitSnapshot?)? = nil,
         stashesProvider: (@Sendable (URL) async -> [GitStash])? = nil,
         operationStateProvider: (@Sendable (URL) async -> GitOperationState?)? = nil,
+        worktreesProvider: (@Sendable (URL) async -> [GitWorktree]?)? = nil,
         diffDocumentProvider: (@Sendable (GitChange, GitDiffWhitespaceMode) async -> DiffDocument)? = nil
     ) {
         self.service = service
@@ -131,6 +140,7 @@ package final class GitFeatureModel: ObservableObject {
         self.snapshotProvider = snapshotProvider ?? { await service.snapshot(for: $0) }
         self.stashesProvider = stashesProvider ?? { await service.stashes(at: $0) }
         self.operationStateProvider = operationStateProvider ?? { await service.operationState(at: $0) }
+        self.worktreesProvider = worktreesProvider ?? { await service.worktrees(at: $0) }
         self.diffDocumentProvider = diffDocumentProvider ?? {
             await service.diffDocument(for: $0, whitespace: $1)
         }
@@ -167,6 +177,7 @@ package final class GitFeatureModel: ObservableObject {
     package var hasActiveModuleWork: Bool {
         isPerformingStashOperation
             || isPerformingShelfOperation
+            || isPerformingWorktreeOperation
             || isLoadingDiff
             || isRefreshingGit
             || isCommitting
@@ -184,6 +195,12 @@ package final class GitFeatureModel: ObservableObject {
         pendingStagingStates = [:]
         gitStashes = []
         gitShelves = []
+        gitWorktrees = []
+        gitWorktreeLoadState = .idle
+        worktreeRequestGeneration &+= 1
+        gitWorktreeInspection = nil
+        gitWorktreeInspectionLoadState = .idle
+        worktreeInspectionRequestGeneration &+= 1
         gitOperationState = nil
         pendingPullStrategy = nil
         pendingIntegrationConflict = nil
@@ -195,6 +212,7 @@ package final class GitFeatureModel: ObservableObject {
         deferredSavedChanges = nil
         isPerformingStashOperation = false
         isPerformingShelfOperation = false
+        isPerformingWorktreeOperation = false
         gitRepositoryRoot = nil
         currentBranch = "No Git"
         selectedChange = nil
@@ -322,6 +340,9 @@ package final class GitFeatureModel: ObservableObject {
             if gitRepositoryRoot != snapshot.repositoryRoot {
                 clearGitCommitFilesCache()
                 gitRepositoryRoot = snapshot.repositoryRoot
+                gitWorktrees = []
+                gitWorktreeLoadState = .idle
+                worktreeRequestGeneration &+= 1
                 gitConsoleRepositoryGeneration &+= 1
                 isLoadingInitialGitConsoleEntry = false
                 hasLoadedInitialGitConsoleEntry = false
@@ -1599,6 +1620,143 @@ package final class GitFeatureModel: ObservableObject {
         selectedBranchComparisonFile = nil
         branchComparisonRows = []
         isLoadingBranchComparison = false
+    }
+
+    package func refreshWorktrees() async {
+        worktreeRequestGeneration &+= 1
+        let generation = worktreeRequestGeneration
+        guard let repositoryRoot = gitRepositoryRoot else {
+            gitWorktrees = []
+            gitWorktreeLoadState = .idle
+            return
+        }
+        gitWorktreeLoadState = .loading
+        let worktrees = await worktreesProvider(repositoryRoot)
+        guard generation == worktreeRequestGeneration,
+              gitRepositoryRoot?.standardizedFileURL == repositoryRoot.standardizedFileURL,
+              !Task.isCancelled else { return }
+        if let worktrees {
+            gitWorktrees = worktrees
+            gitWorktreeLoadState = .ready
+        } else {
+            gitWorktrees = []
+            gitWorktreeLoadState = .failed("Could not load Git worktrees")
+        }
+    }
+
+    package func inspectWorktree(_ worktree: GitWorktree) async {
+        worktreeInspectionRequestGeneration &+= 1
+        let generation = worktreeInspectionRequestGeneration
+        guard !worktree.isPrunable else {
+            gitWorktreeInspection = nil
+            gitWorktreeInspectionLoadState = .failed("The checkout path does not exist")
+            return
+        }
+        gitWorktreeInspectionLoadState = .loading
+        let reference = gitReferences.first { $0.fullName == worktree.branch }
+        let inspection = await service.inspectWorktree(worktree, reference: reference)
+        guard generation == worktreeInspectionRequestGeneration,
+              !Task.isCancelled else { return }
+        if let inspection {
+            gitWorktreeInspection = inspection
+            gitWorktreeInspectionLoadState = .ready
+        } else {
+            gitWorktreeInspection = nil
+            gitWorktreeInspectionLoadState = .failed("Could not inspect this worktree")
+        }
+    }
+
+    package func createWorktree(
+        named rawName: String,
+        from reference: GitReference,
+        at destination: URL
+    ) async {
+        guard let gitRepositoryRoot, !isPerformingWorktreeOperation else { return }
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            notify?(String(localized: "Enter a branch name", bundle: .main))
+            return
+        }
+        isPerformingWorktreeOperation = true
+        let result = await withGitOperation {
+            await service.createWorktree(
+                named: name,
+                from: reference,
+                at: destination.standardizedFileURL,
+                repositoryRoot: gitRepositoryRoot
+            )
+        }
+        isPerformingWorktreeOperation = false
+        if result.succeeded {
+            notify?(String(
+                format: String(localized: "Created worktree for %@", bundle: .main),
+                name
+            ))
+            await refreshWorktrees()
+            await refreshGitHistory()
+        } else {
+            notify?(trimmedMessage(result))
+        }
+    }
+
+    package func removeWorktree(_ worktree: GitWorktree, force: Bool) async {
+        guard let gitRepositoryRoot, !isPerformingWorktreeOperation else { return }
+        isPerformingWorktreeOperation = true
+        let result = await withGitOperation {
+            await service.removeWorktree(worktree, force: force, at: gitRepositoryRoot)
+        }
+        isPerformingWorktreeOperation = false
+        notify?(result.succeeded
+            ? String(
+                format: String(localized: "Removed %@", bundle: .main),
+                worktree.displayName
+            )
+            : trimmedMessage(result))
+        await refreshWorktrees()
+    }
+
+    package func setWorktreeLocked(_ worktree: GitWorktree, locked: Bool) async {
+        guard let gitRepositoryRoot, !isPerformingWorktreeOperation else { return }
+        isPerformingWorktreeOperation = true
+        let result = await withGitOperation {
+            if locked {
+                await service.lockWorktree(worktree, at: gitRepositoryRoot)
+            } else {
+                await service.unlockWorktree(worktree, at: gitRepositoryRoot)
+            }
+        }
+        isPerformingWorktreeOperation = false
+        let success = String(
+            format: String(
+                localized: locked ? "Locked %@" : "Unlocked %@",
+                bundle: .main
+            ),
+            worktree.displayName
+        )
+        notify?(result.succeeded ? success : trimmedMessage(result))
+        await refreshWorktrees()
+    }
+
+    package func pruneWorktrees() async {
+        guard let gitRepositoryRoot, !isPerformingWorktreeOperation else { return }
+        isPerformingWorktreeOperation = true
+        let result = await withGitOperation { await service.pruneWorktrees(at: gitRepositoryRoot) }
+        isPerformingWorktreeOperation = false
+        notify?(result.succeeded
+            ? String(localized: "Pruned stale worktree records", bundle: .main)
+            : trimmedMessage(result))
+        await refreshWorktrees()
+    }
+
+    package func repairWorktrees() async {
+        guard let gitRepositoryRoot, !isPerformingWorktreeOperation else { return }
+        isPerformingWorktreeOperation = true
+        let result = await withGitOperation { await service.repairWorktrees(at: gitRepositoryRoot) }
+        isPerformingWorktreeOperation = false
+        notify?(result.succeeded
+            ? String(localized: "Repaired worktree records", bundle: .main)
+            : trimmedMessage(result))
+        await refreshWorktrees()
     }
 
     package func createBranch(named rawName: String, from reference: GitReference, checkout: Bool) async {

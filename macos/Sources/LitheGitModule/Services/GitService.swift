@@ -10,7 +10,7 @@ package protocol GitOperations: Sendable {
 
     func snapshot(at rootURL: URL) -> GitSnapshot?
     func watchContext(at rootURL: URL) -> GitWatchContext?
-
+    func worktrees(at rootURL: URL) -> [GitWorktree]?
 
     func diffDocument(
         at rootURL: URL,
@@ -81,6 +81,12 @@ package protocol GitOperations: Sendable {
     func revert(_ hash: String, at rootURL: URL) -> GitProcessResult?
     func resetCurrentBranch(to hash: String, mode: String, at rootURL: URL) -> GitProcessResult?
     func createBranch(named name: String, from reference: GitReference, checkout: Bool, at rootURL: URL) -> GitProcessResult?
+    func createWorktree(named name: String, from reference: GitReference, at destination: URL, repositoryRoot: URL) -> GitProcessResult?
+    func removeWorktree(_ worktree: GitWorktree, force: Bool, at rootURL: URL) -> GitProcessResult?
+    func lockWorktree(_ worktree: GitWorktree, at rootURL: URL) -> GitProcessResult?
+    func unlockWorktree(_ worktree: GitWorktree, at rootURL: URL) -> GitProcessResult?
+    func repairWorktrees(at rootURL: URL) -> GitProcessResult?
+    func pruneWorktrees(at rootURL: URL) -> GitProcessResult?
     func renameBranch(_ reference: GitReference, to name: String, at rootURL: URL) -> GitProcessResult?
     func deleteBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult?
     func mergeBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult?
@@ -175,6 +181,25 @@ package struct GitService: Sendable {
 
     func snapshot(for workspace: URL) async -> GitSnapshot? {
         await read(priority: .utility) { $0.snapshot(at: workspace) }
+    }
+
+    func worktrees(at repositoryRoot: URL) async -> [GitWorktree]? {
+        await read(priority: .utility) { $0.worktrees(at: repositoryRoot) }
+    }
+
+    func inspectWorktree(
+        _ worktree: GitWorktree,
+        reference: GitReference?
+    ) async -> GitWorktreeInspection? {
+        async let snapshot = snapshot(for: worktree.url)
+        async let history = history(at: worktree.url, reference: reference, limit: 50)
+        guard let snapshot = await snapshot else { return nil }
+        let resolvedHistory = await history
+        return GitWorktreeInspection(
+            worktreeID: worktree.id,
+            changes: snapshot.changes,
+            commits: resolvedHistory.commits
+        )
     }
 
     func consoleVersion(at repositoryRoot: URL) async -> CommandResult {
@@ -492,6 +517,48 @@ package struct GitService: Sendable {
         await command(at: repositoryRoot) {
             $0.createBranch(named: name, from: reference, checkout: checkout, at: repositoryRoot)
         }
+    }
+
+    func createWorktree(
+        named name: String,
+        from reference: GitReference,
+        at destination: URL,
+        repositoryRoot: URL
+    ) async -> CommandResult {
+        await command(at: repositoryRoot) {
+            $0.createWorktree(
+                named: name,
+                from: reference,
+                at: destination,
+                repositoryRoot: repositoryRoot
+            )
+        }
+    }
+
+    func removeWorktree(
+        _ worktree: GitWorktree,
+        force: Bool,
+        at repositoryRoot: URL
+    ) async -> CommandResult {
+        await command(at: repositoryRoot) {
+            $0.removeWorktree(worktree, force: force, at: repositoryRoot)
+        }
+    }
+
+    func lockWorktree(_ worktree: GitWorktree, at repositoryRoot: URL) async -> CommandResult {
+        await command(at: repositoryRoot) { $0.lockWorktree(worktree, at: repositoryRoot) }
+    }
+
+    func unlockWorktree(_ worktree: GitWorktree, at repositoryRoot: URL) async -> CommandResult {
+        await command(at: repositoryRoot) { $0.unlockWorktree(worktree, at: repositoryRoot) }
+    }
+
+    func repairWorktrees(at repositoryRoot: URL) async -> CommandResult {
+        await command(at: repositoryRoot) { $0.repairWorktrees(at: repositoryRoot) }
+    }
+
+    func pruneWorktrees(at repositoryRoot: URL) async -> CommandResult {
+        await command(at: repositoryRoot) { $0.pruneWorktrees(at: repositoryRoot) }
     }
 
     func renameBranch(

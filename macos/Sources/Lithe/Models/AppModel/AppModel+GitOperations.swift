@@ -136,6 +136,49 @@ extension AppModel {
         await gitFeature.refreshGit()
     }
 
+    func refreshGitWorktrees() async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.refreshWorktrees()
+    }
+
+    func inspectGitWorktree(_ worktree: GitWorktree) async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.inspectWorktree(worktree)
+    }
+
+    func createGitWorktree(
+        named name: String,
+        from reference: GitReference,
+        at destination: URL
+    ) async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.createWorktree(named: name, from: reference, at: destination)
+    }
+
+    func removeGitWorktree(_ worktree: GitWorktree, force: Bool) async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.removeWorktree(worktree, force: force)
+    }
+
+    func setGitWorktreeLocked(_ worktree: GitWorktree, locked: Bool) async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.setWorktreeLocked(worktree, locked: locked)
+    }
+
+    func pruneGitWorktrees() async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.pruneWorktrees()
+    }
+
+    func repairGitWorktrees() async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.repairWorktrees()
+    }
+
+    func chooseGitWorktreeParentDirectory() -> URL? {
+        platformUI.chooseDirectory(title: "Choose Worktree Parent", prompt: "Choose")
+    }
+
     func stageSelectedChange() async {
         guard let gitFeature = await activateGitModule() else { return }
         await gitFeature.stageSelectedChange()
