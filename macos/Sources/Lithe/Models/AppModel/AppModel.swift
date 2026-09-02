@@ -97,7 +97,6 @@ final class AppModel: ObservableObject, Identifiable {
     var isPerformingProjectItemOperation: Bool {
         workspaceFeature.isPerformingProjectItemOperation
     }
-    @Published var notificationMessage: String?
     @Published var activeNotifications: [WorkbenchNotification] = []
     @Published var notifications: [WorkbenchNotification] = []
     var notificationDismissalTasks: [UUID: Task<Void, Never>] = [:]

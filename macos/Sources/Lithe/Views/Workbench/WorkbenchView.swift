@@ -4,7 +4,6 @@ import LitheGitModule
 
 enum WorkbenchLayoutMetrics {
     static let rightActivityBarWidth: CGFloat = 40
-    static let rightActivityBarDividerWidth: CGFloat = 1
     static let workspaceTrailingInset = rightActivityBarWidth
 }
 
@@ -19,7 +18,7 @@ private enum ActivityBarMetrics {
 }
 
 private enum WorkbenchWorkspaceMetrics {
-    static let paneInset: CGFloat = 6
+    static let paneInset: CGFloat = 0
     static let paneSpacing: CGFloat = 6
     static let paneCornerRadius: CGFloat = 10
 }
@@ -94,18 +93,13 @@ struct WorkbenchView: View {
         let _ = LitheSignpost.bodyEvaluated("WorkbenchView")
         VStack(spacing: 0) {
             topBar
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
             if projectSessions.openProjects.count > 1 {
                 projectTabBar
-                Rectangle().fill(LitheTheme.divider).frame(height: 1)
             }
 
             HStack(spacing: 0) {
                 activityBar
-                Rectangle()
-                    .fill(LitheTheme.divider)
-                    .frame(width: 1)
                 workspaceArea
                     .padding(.trailing, WorkbenchLayoutMetrics.workspaceTrailingInset)
             }
@@ -114,7 +108,6 @@ struct WorkbenchView: View {
                 rightHoverRegion
             }
 
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
             statusBar
         }
         .background {
@@ -330,17 +323,44 @@ struct WorkbenchView: View {
                 }
             }
         }
-        .overlay(alignment: .bottom) {
-            if let message = model.notificationMessage {
-                Text(LocalizedStringKey(message))
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(LitheTheme.primaryText)
-                    .padding(.horizontal, 14)
-                    .frame(height: 34)
-                    .background(LitheTheme.raised)
-                    .clipShape(RoundedRectangle(cornerRadius: 7))
-                    .shadow(color: .black.opacity(0.35), radius: 12, y: 4)
-                    .padding(.bottom, 38)
+        .overlay(alignment: .bottomTrailing) {
+            if !model.activeNotifications.isEmpty {
+                VStack(alignment: .trailing, spacing: 8) {
+                    ForEach(model.activeNotifications) { notification in
+                        HStack(alignment: .center, spacing: 10) {
+                            Image(systemName: "info.circle.fill")
+                                .font(.system(size: 14))
+                                .foregroundStyle(LitheTheme.accent)
+                            Text(LocalizedStringKey(notification.message))
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(LitheTheme.primaryText)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 4)
+                            Button {
+                                model.dismissNotification(notification.id)
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(LitheTheme.tertiaryText)
+                            }
+                            .buttonStyle(.plain)
+                            .frame(width: 16, height: 16)
+                            .contentShape(Rectangle())
+                            .litheRowHover(cornerRadius: LitheTheme.Metrics.cornerRadius, animation: nil)
+                            .accessibilityLabel("Dismiss notification")
+                        }
+                        .padding(.leading, 12)
+                        .padding(.trailing, 6)
+                        .padding(.vertical, 10)
+                        .frame(minWidth: 280, maxWidth: 360, alignment: .topLeading)
+                        .background(LitheTheme.notificationBackground)
+                        .clipShape(RoundedRectangle(cornerRadius: 7))
+                        .contentShape(RoundedRectangle(cornerRadius: 7))
+                    }
+                }
+                .onHover { model.setNotificationStackHovered($0) }
+                .padding(.trailing, WorkbenchLayoutMetrics.rightActivityBarWidth + 12)
+                .padding(.bottom, 38)
             }
         }
         .overlay {
@@ -395,46 +415,6 @@ struct WorkbenchView: View {
                         proxy.scrollTo(id, anchor: .center)
                     }
                 }
-            }
-        }
-        .overlay(alignment: .bottomTrailing) {
-            if !model.activeNotifications.isEmpty {
-                VStack(alignment: .trailing, spacing: 8) {
-                    ForEach(model.activeNotifications) { notification in
-                        HStack(alignment: .center, spacing: 10) {
-                            Image(systemName: "info.circle.fill")
-                                .font(.system(size: 14))
-                                .foregroundStyle(LitheTheme.accent)
-                            Text(LocalizedStringKey(notification.message))
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(LitheTheme.primaryText)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Spacer(minLength: 4)
-                            Button {
-                                model.dismissNotification(notification.id)
-                            } label: {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundStyle(LitheTheme.tertiaryText)
-                            }
-                            .buttonStyle(.plain)
-                            .frame(width: 16, height: 16)
-                            .contentShape(Rectangle())
-                            .litheRowHover(cornerRadius: LitheTheme.Metrics.cornerRadius, animation: nil)
-                            .accessibilityLabel("Dismiss notification")
-                        }
-                        .padding(.leading, 12)
-                        .padding(.trailing, 6)
-                        .padding(.vertical, 10)
-                        .frame(minWidth: 280, maxWidth: 360, alignment: .topLeading)
-                        .background(LitheTheme.notificationBackground)
-                        .clipShape(RoundedRectangle(cornerRadius: 7))
-                        .contentShape(RoundedRectangle(cornerRadius: 7))
-                    }
-                }
-                .onHover { model.setNotificationStackHovered($0) }
-                .padding(.trailing, WorkbenchLayoutMetrics.rightActivityBarWidth + 12)
-                .padding(.bottom, 38)
             }
         }
         .frame(height: LitheTheme.Metrics.tabHeight + 4)
@@ -514,7 +494,6 @@ struct WorkbenchView: View {
         .onHover { hovering in
             hoveredProjectTabID = hovering ? projectModel.id : nil
         }
-        .animation(.easeOut(duration: 0.12), value: isHovered)
         .animation(.easeOut(duration: 0.12), value: isActive)
     }
 
@@ -553,11 +532,6 @@ struct WorkbenchView: View {
                 key: ProjectSwitcherButtonBoundsPreferenceKey.self,
                 value: .bounds
             ) { $0 }
-
-            Rectangle()
-                .fill(LitheTheme.divider)
-                .frame(width: 1, height: 20)
-                .padding(.horizontal, 5)
 
             Button {
                 updateSwitcherPresentation(
@@ -600,11 +574,13 @@ struct WorkbenchView: View {
 
             Spacer(minLength: 22)
 
-            runConfigurationPicker
-            runLaunchButton
-            debugLaunchButton
-            if hasActiveExecution {
-                stopExecutionButton
+            HStack(spacing: 8) {
+                runConfigurationPicker
+                runLaunchButton
+                debugLaunchButton
+                if hasActiveExecution {
+                    stopExecutionButton
+                }
             }
 
             backgroundPickerButton
@@ -906,20 +882,27 @@ struct WorkbenchView: View {
                 }
             }
         } label: {
-            HStack(spacing: 5) {
+            HStack(spacing: 8) {
+                RunConfigurationIcon(
+                    kind: model.runFeatureIfActive?.selectedConfiguration?.kind ?? .currentFile,
+                    size: 14
+                )
                 Text(model.runFeatureIfActive?.selectedConfiguration?.name ?? "Current File")
                     .font(.system(size: 11.5, weight: .medium))
                     .lineLimit(1)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .bold))
             }
             .foregroundStyle(LitheTheme.primaryText)
-            .padding(.horizontal, 8)
-            .frame(maxWidth: 190, minHeight: 30)
-            .litheRowHover(isActive: false, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
+            .padding(.horizontal, 4)
+            .frame(minWidth: 160, alignment: .leading)
+            .frame(height: 30)
+            .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
+        .menuIndicator(.visible)
         .fixedSize(horizontal: true, vertical: false)
+        .frame(minWidth: 160, alignment: .leading)
+        .frame(height: 30)
+        .litheRowHover(isActive: false, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
         .help("Select run configuration for Run or Debug")
         .accessibilityLabel("Select run configuration for Run or Debug")
         .accessibilityIdentifier("run-configuration-picker")
@@ -1180,9 +1163,6 @@ struct WorkbenchView: View {
                     }
                 }
             }
-            Rectangle()
-                .fill(LitheTheme.divider)
-                .frame(width: 1)
             pluginActivityBar
         }
         .fixedSize(horizontal: true, vertical: false)

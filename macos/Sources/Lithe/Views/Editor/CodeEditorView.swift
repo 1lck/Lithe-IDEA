@@ -3590,7 +3590,11 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = true
-        scrollView.backgroundColor = NSColor(red: 0.105, green: 0.11, blue: 0.12, alpha: 1)
+        let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        scrollView.backgroundColor = LitheTheme.nsColor(
+            .editor,
+            isDark: isDark
+        )
         let controller = NSViewController()
         controller.view = scrollView
         controller.preferredContentSize = NSSize(width: 480, height: 220)
