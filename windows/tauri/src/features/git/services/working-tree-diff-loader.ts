@@ -13,7 +13,8 @@ const WORKING_TREE_DIFF_BATCH_SIZE = 8;
 const WORKING_TREE_DIFF_FILE_LIMIT = 1_000;
 const activeLoads = new Map<string, AbortController>();
 
-const yieldToRenderer = () => new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
+const yieldToRenderer = () =>
+  new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
 
 function isBufferLoadCurrent(
   bufferId: string,
@@ -50,6 +51,7 @@ export async function loadWorkingTreeDiffsProgressively({
   initialDiffs = [],
   initialProcessed = 0,
   initiallyExpandedFileKey,
+  wholePathSnapshot = false,
 }: {
   repoPath: string;
   bufferId: string;
@@ -59,6 +61,7 @@ export async function loadWorkingTreeDiffsProgressively({
   initialDiffs?: LoadedWorkingTreeDiff[];
   initialProcessed?: number;
   initiallyExpandedFileKey?: string;
+  wholePathSnapshot?: boolean;
 }): Promise<void> {
   cancelWorkingTreeDiffLoad(bufferId);
   const controller = new AbortController();
@@ -86,7 +89,8 @@ export async function loadWorkingTreeDiffsProgressively({
       totalAdditions: stats.additions,
       totalDeletions: stats.deletions,
       fileKeys: loadedDiffs.map((item) => item.fileKey),
-      initiallyExpandedFileKey: initiallyExpandedFileKey ?? loadedDiffs[0]?.fileKey,
+      initiallyExpandedFileKey:
+        initiallyExpandedFileKey ?? loadedDiffs[0]?.fileKey,
       isLoading,
       indexingProgress: {
         processed,
@@ -104,22 +108,38 @@ export async function loadWorkingTreeDiffsProgressively({
 
   let processed = initialProcessed;
   try {
-    for (let index = 0; index < diffEntriesToLoad.length; index += WORKING_TREE_DIFF_BATCH_SIZE) {
+    for (
+      let index = 0;
+      index < diffEntriesToLoad.length;
+      index += WORKING_TREE_DIFF_BATCH_SIZE
+    ) {
       if (!isBufferLoadCurrent(bufferId, repoPath, controller)) break;
 
-      const batch = diffEntriesToLoad.slice(index, index + WORKING_TREE_DIFF_BATCH_SIZE);
+      const batch = diffEntriesToLoad.slice(
+        index,
+        index + WORKING_TREE_DIFF_BATCH_SIZE,
+      );
       const batchResults = await Promise.all(
         batch.map(async ([fileKey, entry]) => {
           let diff: GitDiff | null;
           try {
-            diff = await loadWorkingTreeFileDiff(repoPath, entry);
+            diff = await loadWorkingTreeFileDiff(
+              repoPath,
+              entry,
+              wholePathSnapshot,
+            );
           } catch (error) {
-            console.error(`Failed to load working-tree diff for ${entry.path}:`, error);
+            console.error(
+              `Failed to load working-tree diff for ${entry.path}:`,
+              error,
+            );
             return null;
           }
           if (
             !diff ||
-            (diff.lines.length === 0 && diff.is_image !== true && diff.is_binary !== true)
+            (diff.lines.length === 0 &&
+              diff.is_image !== true &&
+              diff.is_binary !== true)
           ) {
             return null;
           }
@@ -131,9 +151,12 @@ export async function loadWorkingTreeDiffsProgressively({
 
       processed += batch.length;
       loadedDiffs.push(
-        ...batchResults.filter((entry): entry is LoadedWorkingTreeDiff => entry !== null),
+        ...batchResults.filter(
+          (entry): entry is LoadedWorkingTreeDiff => entry !== null,
+        ),
       );
-      if (!publish(processed, index + batch.length < diffEntriesToLoad.length)) break;
+      if (!publish(processed, index + batch.length < diffEntriesToLoad.length))
+        break;
       await yieldToRenderer();
     }
   } finally {

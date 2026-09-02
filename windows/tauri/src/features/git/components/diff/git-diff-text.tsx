@@ -296,6 +296,7 @@ const TextDiffViewer = memo(
         <div
           ref={selectionScopeRef}
           className="font-mono code-editor-font-override min-w-0"
+          data-diff-outer-wheel={isEmbeddedInScrollView ? "" : undefined}
           style={{
             fontSize: `${fontSize}px`,
             fontFamily: editorFontFamily,
@@ -401,6 +402,7 @@ const TextDiffViewer = memo(
     return (
       <div
         ref={selectionScopeRef}
+        data-diff-outer-wheel={isEmbeddedInScrollView ? "" : undefined}
         className={
           isEmbeddedInScrollView
             ? "min-w-0 overflow-x-auto overflow-y-hidden"

@@ -566,17 +566,28 @@ fn run_configuration_generation_deduplicates_nested_checkout_sources() {
 
 #[test]
 fn run_configuration_generation_disambiguates_same_main_class_across_modules() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/execution/maven-java-main-source-sets-v1.json"
+    ))
+    .expect("Maven Java main source-set fixture should be valid JSON");
     let root = temporary_root("run-config-duplicate-main-classes");
-    let module_a = "module-a/src/main/java/com/example/App.java";
-    let module_b = "module-b/src/main/java/com/example/App.java";
-    fs::create_dir_all(root.join("module-a/src/main/java/com/example")).unwrap();
-    fs::create_dir_all(root.join("module-b/src/main/java/com/example")).unwrap();
+    fs::create_dir_all(&root).unwrap();
     fs::write(root.join("pom.xml"), "<project/>").unwrap();
-    fs::write(root.join("module-a/pom.xml"), "<project/>").unwrap();
-    fs::write(root.join("module-b/pom.xml"), "<project/>").unwrap();
     let java = "package com.example; class App { public static void main(String[] args) {} }";
-    fs::write(root.join(module_a), java).unwrap();
-    fs::write(root.join(module_b), java).unwrap();
+    let cases = fixture["cases"]
+        .as_array()
+        .expect("source-set fixture should contain cases");
+    let mut paths = Vec::new();
+    let mut modules = Vec::new();
+    for case in cases {
+        let module = case["module"].as_str().expect("case should name a module");
+        let source = case["source"].as_str().expect("case should name a source");
+        fs::create_dir_all(root.join(source).parent().unwrap()).unwrap();
+        fs::write(root.join(module).join("pom.xml"), "<project/>").unwrap();
+        fs::write(root.join(source), java).unwrap();
+        paths.push(source);
+        modules.push(module);
+    }
 
     let generate = |paths: Vec<&str>| -> Value {
         serde_json::from_str(&execute_json(
@@ -586,15 +597,15 @@ fn run_configuration_generation_disambiguates_same_main_class_across_modules() {
                 "payload": {
                     "root": root,
                     "paths": paths,
-                    "modulePaths": ["module-a", "module-b"]
+                    "modulePaths": modules
                 }
             })
             .to_string(),
         ))
         .unwrap()
     };
-    let response = generate(vec![module_a, module_b]);
-    let reversed = generate(vec![module_b, module_a]);
+    let response = generate(paths.clone());
+    let reversed = generate(paths.into_iter().rev().collect());
 
     assert_eq!(response["ok"], true, "{response}");
     assert_eq!(
@@ -609,14 +620,44 @@ fn run_configuration_generation_disambiguates_same_main_class_across_modules() {
         .filter(|value| value["provider"] == "java.main")
         .collect::<Vec<_>>();
     assert_eq!(module_configurations.len(), 2, "{configurations:?}");
-    assert!(module_configurations.iter().any(|value| {
-        value["id"] == "java-main:com.example.App:module-a"
-            && value["extensions"]["maven"]["module"] == "module-a"
-    }));
-    assert!(module_configurations.iter().any(|value| {
-        value["id"] == "java-main:com.example.App:module-b"
-            && value["extensions"]["maven"]["module"] == "module-b"
-    }));
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        serde_json::to_string(&response["data"]["generated"]).unwrap(),
+    )
+    .unwrap();
+    for case in cases {
+        let configuration_id = case["configurationId"]
+            .as_str()
+            .expect("case should name a configuration");
+        let configuration = module_configurations
+            .iter()
+            .find(|value| value["id"] == configuration_id)
+            .expect("generated configuration should match the fixture");
+        assert_eq!(
+            configuration["extensions"]["java"]["source"],
+            case["source"]
+        );
+        assert_eq!(
+            configuration["extensions"]["java"]["sourceSet"],
+            case["sourceSet"]
+        );
+        let plan: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": format!("plan-{configuration_id}"),
+                "command": "runConfig.createLaunchPlan",
+                "payload": {"root": root, "configurationId": configuration_id}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(plan["ok"], true, "case {}: {plan}", case["name"]);
+        assert_eq!(
+            plan["data"]["arguments"], case["expectedArguments"],
+            "case {}",
+            case["name"]
+        );
+    }
     assert_eq!(response["data"]["entryCount"], 2);
     assert_eq!(reversed["data"]["entryCount"], 2);
 
@@ -680,6 +721,11 @@ fn ordinary_java_main_uses_an_application_launch_plan() {
         .unwrap()
         .iter()
         .any(|value| value == "-Dexec.mainClass=com.example.WorkerMain"));
+    assert!(!plan["data"]["arguments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|value| value == "-Dexec.classpathScope=test" || value == "test-compile"));
     assert_eq!(
         plan["data"]["arguments"]
             .as_array()
@@ -688,6 +734,73 @@ fn ordinary_java_main_uses_an_application_launch_plan() {
             .unwrap(),
         "org.codehaus.mojo:exec-maven-plugin:3.5.0:java"
     );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn maven_test_source_main_uses_the_test_classpath() {
+    let root = temporary_root("run-config-maven-test-main");
+    let source = "src/test/java/com/example/MainTests.java";
+    fs::create_dir_all(root.join("src/test/java/com/example")).unwrap();
+    fs::write(root.join("pom.xml"), "<project/>").unwrap();
+    fs::write(
+        root.join(source),
+        "package com.example; class MainTests { public static void main(String[] args) {} }",
+    )
+    .unwrap();
+
+    let generated_response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "generate-maven-test-main",
+            "command": "runConfig.generate",
+            "payload": {"root": root, "paths": [source], "modulePaths": []}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    let generated = &generated_response["data"]["generated"];
+    let java_main = generated["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|value| value["id"] == "java-main:com.example.MainTests")
+        .unwrap();
+    assert_eq!(java_main["extensions"]["java"]["source"], source);
+    assert_eq!(java_main["extensions"]["java"]["sourceSet"], "test");
+
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        serde_json::to_string(generated).unwrap(),
+    )
+    .unwrap();
+    let plan: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "plan-maven-test-main",
+            "command": "runConfig.createLaunchPlan",
+            "payload": {
+                "root": root,
+                "configurationId": "java-main:com.example.MainTests"
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(plan["ok"], true, "{plan}");
+    let arguments = plan["data"]["arguments"].as_array().unwrap();
+    assert!(arguments
+        .iter()
+        .any(|value| value == "-Dexec.classpathScope=test"));
+    let test_compile = arguments
+        .iter()
+        .position(|value| value == "test-compile")
+        .expect("test sources should be compiled before launch");
+    let exec_java = arguments
+        .iter()
+        .position(|value| value == "org.codehaus.mojo:exec-maven-plugin:3.5.0:java")
+        .expect("the Maven Exec goal should be present");
+    assert!(test_compile < exec_java);
 
     fs::remove_dir_all(root).unwrap();
 }
@@ -1497,24 +1610,50 @@ fn run_configuration_generation_detects_maven_compiler_target() {
 #[test]
 fn run_configuration_inspection_invalidates_an_older_generator_revision() {
     let root = temporary_root("run-config-generator-revision");
-    fs::create_dir_all(root.join("src")).unwrap();
-    fs::write(root.join("src/App.java"), "class App {}").unwrap();
+    let test_source = "module-a/src/test/java/com/example/App.java";
+    let main_source = "module-b/src/main/java/com/example/App.java";
+    fs::create_dir_all(root.join("module-a/src/test/java/com/example")).unwrap();
+    fs::create_dir_all(root.join("module-b/src/main/java/com/example")).unwrap();
+    fs::write(root.join("pom.xml"), "<project/>").unwrap();
+    fs::write(root.join("module-a/pom.xml"), "<project/>").unwrap();
+    fs::write(root.join("module-b/pom.xml"), "<project/>").unwrap();
+    let java = "package com.example; class App { public static void main(String[] args) {} }";
+    fs::write(root.join(test_source), java).unwrap();
+    fs::write(root.join(main_source), java).unwrap();
     let generated: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
             "id": "generate-revision",
             "command": "runConfig.generate",
-            "payload": {"root": root, "paths": ["src/App.java"], "modulePaths": []}
+            "payload": {
+                "root": root,
+                "paths": [test_source, main_source],
+                "modulePaths": ["module-a", "module-b"]
+            }
         })
         .to_string(),
     ))
     .unwrap();
     let mut document = generated["data"]["generated"].clone();
-    let legacy_fingerprint = legacy_generator_fingerprint(&document["generator"]["inputs"]);
+    let revision_two_fingerprint =
+        generator_fingerprint_for_revision(&document["generator"]["inputs"], "2");
     assert_ne!(
         document["generator"]["fingerprint"],
-        serde_json::json!(legacy_fingerprint)
+        serde_json::json!(revision_two_fingerprint)
     );
-    document["generator"]["fingerprint"] = serde_json::json!(legacy_fingerprint);
+    document["generator"]["fingerprint"] = serde_json::json!(revision_two_fingerprint);
+    let configurations = document["configurations"]
+        .as_array_mut()
+        .expect("generated document should contain configurations");
+    for configuration in configurations.iter_mut() {
+        if let Some(java) = configuration["extensions"]["java"].as_object_mut() {
+            java.remove("sourceSet");
+        }
+    }
+    let stale_test_configuration = configurations
+        .iter_mut()
+        .find(|configuration| configuration["id"] == "java-main:com.example.App:module-a")
+        .expect("test module configuration should exist");
+    stale_test_configuration["extensions"]["java"]["source"] = serde_json::json!(main_source);
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
     fs::write(
         root.join(".lithe/run/generated.json"),
@@ -1533,6 +1672,10 @@ fn run_configuration_inspection_invalidates_an_older_generator_revision() {
     .unwrap();
     assert_eq!(inspected["ok"], true, "{inspected}");
     assert_eq!(
+        inspected["data"]["diagnostics"][0]["code"],
+        "staleFingerprint"
+    );
+    assert_eq!(
         inspected["data"]["diagnostics"][0]["message"],
         "Run configuration generator changed; regenerate configurations"
     );
@@ -1540,9 +1683,11 @@ fn run_configuration_inspection_invalidates_an_older_generator_revision() {
     fs::remove_dir_all(root).unwrap();
 }
 
-fn legacy_generator_fingerprint(inputs: &Value) -> String {
+fn generator_fingerprint_for_revision(inputs: &Value, revision: &str) -> String {
     let inputs = serde_json::from_value::<BTreeMap<String, String>>(inputs.clone()).unwrap();
     let mut digest = Sha256::new();
+    digest.update(revision.as_bytes());
+    digest.update([0]);
     for (relative, content_hash) in inputs {
         digest.update(relative.as_bytes());
         digest.update([0]);

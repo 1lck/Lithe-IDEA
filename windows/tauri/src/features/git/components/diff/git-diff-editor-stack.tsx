@@ -186,6 +186,7 @@ function LargeDiffSectionEditor({
         showToolbar={false}
         readOnly={true}
         scrollable={true}
+        alwaysConsumeMouseWheel={false}
         highlightMatches={highlightMatches}
         currentHighlightIndex={currentSearchMatchIndex}
       />
@@ -329,7 +330,10 @@ function EmbeddedDiffSectionEditor({
   if (viewMode === "split") {
     return (
       <div className="grid grid-cols-2 bg-background" style={{ height: `${height}px` }}>
-        <div className="relative overflow-hidden border-border border-r bg-background">
+        <div
+          className="relative overflow-hidden border-border border-r bg-background"
+          data-diff-outer-wheel
+        >
           <DiffLineBackgroundLayer
             lineKinds={splitContent.left.lineKinds}
             lineHeight={lineHeight}
@@ -347,7 +351,7 @@ function EmbeddedDiffSectionEditor({
             }
           />
         </div>
-        <div className="relative overflow-hidden bg-background">
+        <div className="relative overflow-hidden bg-background" data-diff-outer-wheel>
           <DiffLineBackgroundLayer
             lineKinds={splitContent.right.lineKinds}
             lineHeight={lineHeight}
@@ -370,7 +374,11 @@ function EmbeddedDiffSectionEditor({
   }
 
   return (
-    <div className="relative overflow-hidden bg-background" style={{ height: `${height}px` }}>
+    <div
+      className="relative overflow-hidden bg-background"
+      style={{ height: `${height}px` }}
+      data-diff-outer-wheel
+    >
       <DiffLineBackgroundLayer lineKinds={unifiedContent.lineKinds} lineHeight={lineHeight} />
       <CodeEditor
         bufferId={unifiedBufferId}
@@ -565,6 +573,7 @@ const DiffFileSection = memo(function DiffFileSection({
   viewMode,
   showWhitespace,
   onOpenFile,
+  fileLabel,
   searchMatches,
   currentSearchMatch,
   searchQuery,
@@ -575,6 +584,7 @@ const DiffFileSection = memo(function DiffFileSection({
   expanded: boolean;
   onToggle: (sectionKey: string) => void;
   onOpenFile: (filePath: string) => void | Promise<void>;
+  fileLabel?: string;
   viewMode: "unified" | "split";
   showWhitespace: boolean;
   searchMatches: MultiDiffSearchMatch[];
@@ -613,6 +623,9 @@ const DiffFileSection = memo(function DiffFileSection({
         showFileIcon={false}
         trailing={
           <>
+            {fileLabel ? (
+              <span className="font-mono text-[10px] text-subtle-foreground">{fileLabel}</span>
+            ) : null}
             {additions > 0 ? <span className="text-git-added">+{additions}</span> : null}
             {deletions > 0 ? <span className="text-git-deleted">-{deletions}</span> : null}
           </>
@@ -678,6 +691,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
   const [currentSearchMatchIndex, setCurrentSearchMatchIndex] = useState(-1);
   const [selectedFileKey, setSelectedFileKey] = useState<string | null>(
     () =>
+      multiDiff.initiallySelectedFileKey ??
       multiDiff.initiallyExpandedFileKey ??
       (multiDiff.files[0] ? getMultiDiffSectionKey(multiDiff, multiDiff.files[0], 0) : null),
   );
@@ -716,6 +730,30 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
   );
   const indexingProgress = multiDiff.indexingProgress;
   const isIndexingDiffs = Boolean(multiDiff.isLoading);
+  useEffect(() => {
+    const scrollContainer = diffStackScrollRef.current;
+    if (!scrollContainer) return;
+
+    const forwardEmbeddedEditorWheel = (event: WheelEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element) || !target.closest("[data-diff-outer-wheel]")) return;
+      if (event.deltaY === 0 || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+
+      const deltaScale =
+        event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? scrollContainer.clientHeight : 1;
+      event.preventDefault();
+      event.stopPropagation();
+      scrollContainer.scrollBy({ top: event.deltaY * deltaScale });
+    };
+
+    scrollContainer.addEventListener("wheel", forwardEmbeddedEditorWheel, {
+      capture: true,
+      passive: false,
+    });
+    return () => {
+      scrollContainer.removeEventListener("wheel", forwardEmbeddedEditorWheel, { capture: true });
+    };
+  }, [isIndexingDiffs]);
   const indexingLabel = indexingProgress
     ? t("git.indexingWithCount", {
         label: indexingProgress.label ?? t("git.indexing"),
@@ -744,6 +782,9 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
           path: filePath,
           iconClassName: statusTextClass[status],
           metadata: [
+            ...(multiDiff.fileLabels?.[index]
+              ? [{ label: multiDiff.fileLabels[index], className: "font-mono text-[10px]" }]
+              : []),
             ...(additions > 0 ? [{ label: `+${additions}`, className: "text-git-added" }] : []),
             ...(deletions > 0 ? [{ label: `-${deletions}`, className: "text-git-deleted" }] : []),
           ],
@@ -847,6 +888,12 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
     [isWorkingTree],
   );
   useEffect(() => {
+    const initialFileKey = multiDiff.initiallySelectedFileKey;
+    if (!initialFileKey) return;
+
+    handleSelectFileFromTree(initialFileKey);
+  }, [handleSelectFileFromTree, multiDiff]);
+  useEffect(() => {
     const nextKeys = new Set(
       multiDiff.files.map((diff, index) => getMultiDiffSectionKey(multiDiff, diff, index)),
     );
@@ -868,11 +915,17 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
     setSelectedFileKey((previous) => {
       if (previous && nextKeys.has(previous)) return previous;
       return (
+        multiDiff.initiallySelectedFileKey ??
         multiDiff.initiallyExpandedFileKey ??
         (multiDiff.files[0] ? getMultiDiffSectionKey(multiDiff, multiDiff.files[0], 0) : null)
       );
     });
-  }, [multiDiff.fileKeys, multiDiff.files, multiDiff.initiallyExpandedFileKey]);
+  }, [
+    multiDiff.fileKeys,
+    multiDiff.files,
+    multiDiff.initiallyExpandedFileKey,
+    multiDiff.initiallySelectedFileKey,
+  ]);
 
   useEffect(() => {
     if (searchMatches.length === 0) {
@@ -1071,11 +1124,13 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
         showPath={false}
         showDefaultActions={false}
         extraLeftContent={
-          <div className="ui-text-sm flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap text-subtle-foreground">
+          <div className="ui-text-sm flex min-w-0 w-full items-center gap-2 overflow-hidden whitespace-nowrap text-subtle-foreground">
             {isWorkingTree && selectedDiffFile ? (
               <>
                 <FileText className="shrink-0 text-subtle-foreground" />
-                <span className="shrink-0 font-semibold text-foreground">{selectedFileName}</span>
+                <span className="min-w-0 truncate font-semibold text-foreground">
+                  {selectedFileName}
+                </span>
                 <span
                   className={cn(
                     "rounded-md px-1.5 py-0.5 font-semibold tracking-wide",
@@ -1196,22 +1251,22 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
 
       {isWorkingTree && selectedDiffFile ? (
         <>
-          <div className="flex min-h-10 items-center gap-2 border-border/70 border-b bg-surface/40 px-2.5">
+          <div className="flex min-h-10 min-w-0 items-center gap-2 overflow-hidden border-border/70 border-b bg-surface/40 px-2.5">
             <button
               type="button"
               onClick={() => setIsFindVisible(true)}
               className={cn(
-                "ui-text-sm flex h-7 min-w-44 items-center gap-2 rounded-md border border-border/70 bg-background px-2.5 text-left text-subtle-foreground",
+                "ui-text-sm flex h-7 min-w-0 max-w-44 flex-1 basis-28 items-center gap-2 rounded-md border border-border/70 bg-background px-2.5 text-left text-subtle-foreground",
                 "hover:bg-accent/50 hover:text-foreground",
               )}
             >
               <Search className="shrink-0" />
-              <span className="flex-1">{t("git.diff.search")}</span>
+              <span className="min-w-0 flex-1 truncate">{t("git.diff.search")}</span>
             </button>
 
-            <div className="h-5 w-px bg-border/70" />
+            <div className="h-5 w-px shrink-0 bg-border/70" />
 
-            <div className="flex items-center rounded-md bg-accent/45 p-0.5">
+            <div className="flex shrink-0 items-center rounded-md bg-accent/45 p-0.5">
               <button
                 type="button"
                 onClick={() => setViewMode("unified")}
@@ -1243,7 +1298,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
               type="button"
               onClick={() => setShowWhitespace((current) => !current)}
               className={cn(
-                "ui-text-sm h-7 rounded-md px-2 text-subtle-foreground hover:bg-accent/60 hover:text-foreground",
+                "ui-text-sm h-7 shrink-0 rounded-md px-2 text-subtle-foreground hover:bg-accent/60 hover:text-foreground",
                 showWhitespace && "bg-accent text-foreground",
               )}
               aria-pressed={showWhitespace}
@@ -1482,6 +1537,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
                       <DiffFileSection
                         diff={diff}
                         sectionKey={sectionKey}
+                        fileLabel={multiDiff.fileLabels?.[index]}
                         expanded={expandedFiles.has(sectionKey)}
                         viewMode={viewMode}
                         showWhitespace={showWhitespace}
