@@ -41,6 +41,7 @@ struct WorkbenchView: View {
     @State private var newBranchReference: GitReference?
     @State private var isCheckoutRevisionPresented = false
     @State private var pendingTopBarPushReference: GitReference?
+    @State private var pendingTopBarDeleteReference: GitReference?
     @State private var isProjectSwitcherPresented = false
     @State private var isPluginPanelPresented = false
     @State private var isNotificationCenterPresented = false
@@ -254,6 +255,31 @@ struct WorkbenchView: View {
             .lithePointer()
         } message: {
             Text("This sends the current branch to its configured remote.")
+        }
+        .confirmationDialog(
+            "Delete branch?",
+            isPresented: Binding(
+                get: { pendingTopBarDeleteReference != nil },
+                set: { if !$0 { pendingTopBarDeleteReference = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                guard let reference = pendingTopBarDeleteReference else { return }
+                pendingTopBarDeleteReference = nil
+                Task { await model.deleteBranch(reference) }
+            }
+            .disabled(model.isPerformingBranchOperation)
+            .lithePointer()
+            Button("Cancel", role: .cancel) {
+                pendingTopBarDeleteReference = nil
+            }
+            .lithePointer()
+        } message: {
+            Text(
+                "Delete the local branch \(pendingTopBarDeleteReference?.shortName ?? "")? "
+                    + "Git will refuse if it contains unmerged work."
+            )
         }
         .overlay(alignment: .bottom) {
             if let message = model.notificationMessage {
@@ -500,6 +526,10 @@ struct WorkbenchView: View {
                     onPush: { reference in
                         isBranchSwitcherPresented = false
                         pendingTopBarPushReference = reference
+                    },
+                    onDelete: { reference in
+                        isBranchSwitcherPresented = false
+                        pendingTopBarDeleteReference = reference
                     },
                     onNewBranch: { reference in
                         isBranchSwitcherPresented = false

@@ -15,6 +15,7 @@ struct BranchSwitcherPopover: View {
     @Binding var isPresented: Bool
     let onCommit: () -> Void
     let onPush: (GitReference) -> Void
+    let onDelete: (GitReference) -> Void
     let onNewBranch: (GitReference) -> Void
     let onCheckoutRevision: () -> Void
     let onManageBranches: () -> Void
@@ -448,12 +449,13 @@ struct BranchSwitcherPopover: View {
             }
         }
 
-        if reference.kind != .tag {
+        if reference.kind == .local {
             Divider()
 
             Button("Update") {
                 dismissAndRun { Task { await model.updateCurrentBranch(reference) } }
             }
+            .disabled(!reference.isCurrent)
 
             Button("Push…") {
                 dismissAndRun { onPush(reference) }
@@ -463,8 +465,8 @@ struct BranchSwitcherPopover: View {
         if reference.kind == .local, !reference.isCurrent {
             Divider()
 
-            Button("Delete") {
-                dismissAndRun { Task { await model.deleteBranch(reference) } }
+            Button("Delete", role: .destructive) {
+                dismissAndRun { onDelete(reference) }
             }
         }
     }

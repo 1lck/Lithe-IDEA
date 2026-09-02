@@ -9,15 +9,23 @@ import Testing
 /// a stray click while scanning the list.
 @Suite("Branch switcher popover behavior")
 struct BranchSwitcherPopoverBehaviorTests {
-    private static func popoverSource() throws -> String {
+    private static func source(at relativePath: String) throws -> String {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let popoverURL = repositoryRoot.appendingPathComponent(
-            "Sources/Lithe/Views/Git/BranchSwitcherPopover.swift"
+        return try String(
+            contentsOf: repositoryRoot.appendingPathComponent(relativePath),
+            encoding: .utf8
         )
-        return try String(contentsOf: popoverURL, encoding: .utf8)
+    }
+
+    private static func popoverSource() throws -> String {
+        try source(at: "Sources/Lithe/Views/Git/BranchSwitcherPopover.swift")
+    }
+
+    private static func workbenchSource() throws -> String {
+        try source(at: "Sources/Lithe/Views/Workbench/WorkbenchView.swift")
     }
 
     @Test
@@ -75,5 +83,36 @@ struct BranchSwitcherPopoverBehaviorTests {
             source.contains(".help(branchRowTooltip(reference))"),
             "Rows truncate branch and upstream names, so hover must reveal the untruncated pair."
         )
+    }
+
+    @Test
+    func updateAndPushAreLimitedToSupportedLocalBranches() throws {
+        let source = try Self.popoverSource()
+
+        guard let localActions = source.range(of: "if reference.kind == .local {") else {
+            Issue.record("Update and Push must be grouped under a local-branch capability check.")
+            return
+        }
+        let actions = source[localActions.lowerBound...]
+        #expect(actions.contains("Button(\"Update\")"))
+        #expect(
+            actions.contains(".disabled(!reference.isCurrent)"),
+            "Only the current local branch can be updated."
+        )
+        #expect(actions.contains("Button(\"Push…\")"))
+    }
+
+    @Test
+    func deleteUsesTheWorkbenchConfirmationFlow() throws {
+        let popover = try Self.popoverSource()
+        let workbench = try Self.workbenchSource()
+
+        #expect(popover.contains("dismissAndRun { onDelete(reference) }"))
+        #expect(
+            !popover.contains("model.deleteBranch(reference)"),
+            "The popover must not delete a branch before the user confirms."
+        )
+        #expect(workbench.contains("Button(\"Delete\", role: .destructive)"))
+        #expect(workbench.contains("Task { await model.deleteBranch(reference) }"))
     }
 }
