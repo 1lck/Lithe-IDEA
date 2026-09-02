@@ -5,7 +5,7 @@ import LitheGitModule
 enum WorkbenchLayoutMetrics {
     static let rightActivityBarWidth: CGFloat = 40
     static let rightActivityBarDividerWidth: CGFloat = 1
-    static let workspaceTrailingInset = rightActivityBarWidth + rightActivityBarDividerWidth
+    static let workspaceTrailingInset = rightActivityBarWidth
 }
 
 private enum ActivityBarMetrics {
