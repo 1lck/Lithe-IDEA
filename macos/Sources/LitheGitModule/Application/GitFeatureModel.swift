@@ -1689,7 +1689,6 @@ package final class GitFeatureModel: ObservableObject {
 
         let resolvedHistory = await history
         guard generation == worktreeInspectionRequestGeneration, !Task.isCancelled else {
-            gitWorktreeInspectionLoadState = .idle
             return
         }
 
@@ -1758,10 +1757,13 @@ package final class GitFeatureModel: ObservableObject {
               inspection.worktreeID == worktree.id,
               inspection.hasMoreCommits,
               !Task.isCancelled else { return }
+        let generation = worktreeInspectionRequestGeneration
         let reference = gitReferences.first { $0.fullName == worktree.branch }
         let nextLimit = inspection.commits.count + 50
         let history = await service.history(at: worktree.url, reference: reference, limit: nextLimit)
-        guard gitWorktreeInspection?.worktreeID == worktree.id else { return }
+        guard generation == worktreeInspectionRequestGeneration,
+              gitWorktreeInspection?.worktreeID == worktree.id,
+              !Task.isCancelled else { return }
         gitWorktreeInspection = GitWorktreeInspection(
             worktreeID: worktree.id,
             changes: inspection.changes,

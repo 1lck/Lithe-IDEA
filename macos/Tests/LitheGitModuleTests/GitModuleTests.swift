@@ -983,6 +983,54 @@ struct GitModuleTests {
     }
 
     @Test
+    func staleWorktreeInspectionCannotClearNewLoadingState() async throws {
+        let oldWorktree = makeTestWorktree(path: "/workspace-old", branch: "feature/old")
+        let newWorktree = makeTestWorktree(path: "/workspace-new", branch: "feature/new")
+        let controller = GitHistoryLoadController(results: [
+            GitHistorySnapshot(
+                references: [],
+                recentReferences: [],
+                commits: [makeTestCommit(hash: "old-history", subject: "Old")],
+                hasMore: false
+            ),
+            GitHistorySnapshot(
+                references: [],
+                recentReferences: [],
+                commits: [makeTestCommit(hash: "new-history", subject: "New")],
+                hasMore: false
+            )
+        ])
+        let feature = GitFeatureModel(service: GitService(
+            operations: TestGitOperations(historyController: controller)
+        ))
+        let oldInspection = Task { @MainActor in
+            await feature.inspectWorktree(oldWorktree)
+        }
+        defer {
+            oldInspection.cancel()
+            controller.releaseAll()
+        }
+
+        try #require(await controller.waitUntilCallStarts(0))
+        let newInspection = Task { @MainActor in
+            await feature.inspectWorktree(newWorktree)
+        }
+        defer { newInspection.cancel() }
+        try #require(await controller.waitUntilCallStarts(1))
+        #expect(feature.gitWorktreeInspectionLoadState == .loading)
+
+        controller.releaseCall(0)
+        try #require(await waitForGitTaskCompletion(oldInspection))
+        #expect(feature.gitWorktreeInspectionLoadState == .loading)
+
+        controller.releaseCall(1)
+        try #require(await waitForGitTaskCompletion(newInspection))
+        #expect(feature.gitWorktreeInspectionLoadState == .ready)
+        #expect(feature.gitWorktreeInspection?.worktreeID == newWorktree.id)
+        #expect(!controller.didTimeOut)
+    }
+
+    @Test
     func newerWorktreeRefreshWinsWhenAnOlderRequestFinishesLast() async throws {
         let root = URL(fileURLWithPath: "/workspace")
         let oldWorktree = makeTestWorktree(path: "/workspace-old", branch: "feature/old")
@@ -1427,6 +1475,58 @@ private final class GitModuleTestGate: @unchecked Sendable {
     }
 }
 
+private final class GitHistoryLoadController: @unchecked Sendable {
+    private let lock = NSLock()
+    private let results: [GitHistorySnapshot]
+    private let startedGates: [GitModuleTestGate]
+    private let releaseGates: [GitModuleTestGate]
+    private var calls = 0
+    private var timedOut = false
+
+    init(results: [GitHistorySnapshot]) {
+        self.results = results
+        startedGates = results.map { _ in GitModuleTestGate() }
+        releaseGates = results.map { _ in GitModuleTestGate() }
+    }
+
+    var didTimeOut: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return timedOut
+    }
+
+    func history(at rootURL: URL, reference: GitReference?, limit: Int) -> GitHistorySnapshot? {
+        let callIndex: Int
+        lock.lock()
+        callIndex = calls
+        calls += 1
+        lock.unlock()
+        guard results.indices.contains(callIndex) else { return nil }
+        startedGates[callIndex].open()
+        guard releaseGates[callIndex].waitSynchronously() else {
+            lock.lock()
+            timedOut = true
+            lock.unlock()
+            return nil
+        }
+        return results[callIndex]
+    }
+
+    func waitUntilCallStarts(_ index: Int) async -> Bool {
+        guard startedGates.indices.contains(index) else { return false }
+        return await startedGates[index].waitUntilOpen()
+    }
+
+    func releaseCall(_ index: Int) {
+        guard releaseGates.indices.contains(index) else { return }
+        releaseGates[index].open()
+    }
+
+    func releaseAll() {
+        releaseGates.forEach { $0.open() }
+    }
+}
+
 private final class GitWorktreeLoadController: @unchecked Sendable {
     private let lock = NSLock()
     private let results: [[GitWorktree]?]
@@ -1681,6 +1781,7 @@ private struct TestGitOperations: GitOperations {
     private let comparisonDiffDocumentValue: DiffDocument?
     private let typedComparisonDiffDocumentValue: DiffDocument?
     private let historyValue: GitHistorySnapshot?
+    private let historyController: GitHistoryLoadController?
     private let snapshotGate: GitModuleTestGate?
     private let stageResult: GitProcessResult?
     private let runGate: TestGitRunGate?
@@ -1692,6 +1793,7 @@ private struct TestGitOperations: GitOperations {
         comparisonValue: GitBranchComparison? = nil,
         typedComparisonValue: GitBranchComparison? = nil,
         historyValue: GitHistorySnapshot? = nil,
+        historyController: GitHistoryLoadController? = nil,
         filesValue: [GitCommitFile]? = nil,
         untrackedDiffDocumentValue: DiffDocument? = nil,
         comparisonDiffDocumentValue: DiffDocument? = nil,
@@ -1706,6 +1808,7 @@ private struct TestGitOperations: GitOperations {
         self.comparisonValue = comparisonValue
         self.typedComparisonValue = typedComparisonValue
         self.historyValue = historyValue
+        self.historyController = historyController
         self.filesValue = filesValue
         self.untrackedDiffDocumentValue = untrackedDiffDocumentValue
         self.comparisonDiffDocumentValue = comparisonDiffDocumentValue
@@ -1742,7 +1845,12 @@ private struct TestGitOperations: GitOperations {
     func comparisonDiffDocument(at rootURL: URL, reference: String, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { comparisonDiffDocumentValue }
     func comparisonDiffDocument(at rootURL: URL, reference: GitReference, targetReference: GitReference?, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { typedComparisonDiffDocumentValue }
     func applyPatch(_ patch: String, at rootURL: URL, mode: String) -> GitProcessResult? { nil }
-    func history(at rootURL: URL, reference: GitReference?, limit: Int) -> GitHistorySnapshot? { historyValue }
+    func history(at rootURL: URL, reference: GitReference?, limit: Int) -> GitHistorySnapshot? {
+        if let historyController {
+            return historyController.history(at: rootURL, reference: reference, limit: limit)
+        }
+        return historyValue
+    }
     func files(in commit: GitCommit, at rootURL: URL) -> [GitCommitFile]? {
         filesRecorder?.recordCall()
         if let filesGate {
