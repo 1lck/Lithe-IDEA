@@ -263,20 +263,27 @@ const CodeEditor = ({
     if (!enableInteractiveServices) return;
     if (!activeBufferId || !editorRef.current) return;
 
-    const focusTarget =
-      editorRef.current
-        .querySelector<HTMLElement>("[data-monaco-editor-scroll]")
-        ?.querySelector<HTMLTextAreaElement>("textarea") ??
-      editorRef.current.querySelector<HTMLTextAreaElement>("textarea");
+    const focusEditor = () => {
+      const editorContainer = editorRef.current;
+      if (!editorContainer) return;
 
-    if (!focusTarget) return;
+      const focusTarget =
+        editorContainer
+          .querySelector<HTMLElement>("[data-monaco-editor-scroll]")
+          ?.querySelector<HTMLTextAreaElement>("textarea") ??
+        editorContainer.querySelector<HTMLTextAreaElement>("textarea");
 
-    // Small delay to ensure the editor surface is mounted.
-    const focusTimer = setTimeout(() => {
-      focusTarget.focus();
-    }, 0);
+      focusTarget?.focus();
+    };
 
-    return () => clearTimeout(focusTimer);
+    // Wait for the active Monaco surface to finish rendering after a tab switch.
+    const animationFrame = requestAnimationFrame(focusEditor);
+    const focusTimer = setTimeout(focusEditor, 0);
+
+    return () => {
+      cancelAnimationFrame(animationFrame);
+      clearTimeout(focusTimer);
+    };
   }, [activeBufferId, enableInteractiveServices]);
 
   // Sync content and file info with editor instance store

@@ -466,8 +466,8 @@ export const defaultKeymaps: Keybinding[] = [
     source: "default",
     when: "editorFocus",
   },
-  { key: "ctrl+-", command: "navigation.goBack", source: "default" },
-  { key: "ctrl+shift+-", command: "navigation.goForward", source: "default" },
+  { key: "ctrl+alt+left", command: "navigation.goBack", source: "default" },
+  { key: "ctrl+alt+right", command: "navigation.goForward", source: "default" },
 
   // Additional view commands
   { key: "cmd+p", command: "file.quickOpen", source: "default" },

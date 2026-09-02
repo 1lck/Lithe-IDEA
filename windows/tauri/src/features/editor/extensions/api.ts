@@ -54,6 +54,7 @@ interface ActiveEditorAdapter {
   deleteRange: (range: Range) => void;
   replaceRange: (range: Range, text: string) => void;
   selectAll: () => void;
+  focus: () => void;
   addSelectionToNextFindMatch?: () => void;
   addSelectionToPreviousFindMatch?: () => void;
   selectAllFindMatches?: () => void;
@@ -197,6 +198,10 @@ class EditorAPIImpl implements EditorAPI {
 
   getCursorPosition(): Position {
     return useEditorStateStore.getState().cursorPosition;
+  }
+
+  focus(): void {
+    this.activeEditorAdapter?.focus();
   }
 
   setCursorPosition(position: Position): void {

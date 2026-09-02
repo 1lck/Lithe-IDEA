@@ -40,6 +40,7 @@ export async function navigateToJumpEntry(entry: JumpListEntry): Promise<boolean
     });
 
     useEditorStateStore.getState().actions.setScroll(entry.scrollTop, entry.scrollLeft);
+    editorAPI.focus();
 
     logger.info("JumpList", `Jumped to ${entry.filePath}:${entry.line}:${entry.column}`);
   }, 100);
