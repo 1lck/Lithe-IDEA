@@ -21,7 +21,7 @@ export function PluginActivityRail() {
     (state) => Boolean(state.project) || state.projectStatus === "failed",
   );
   const isMavenActive = useUIState(
-    (state) => state.isBottomPaneVisible && state.bottomPaneActiveTab === "maven",
+    (state) => state.isRightSidebarVisible && state.activeRightSidebarView === "maven",
   );
   const activityViewsLabel = t("workbench.activityViews");
   const extensionsLabel = t("extensions.title");

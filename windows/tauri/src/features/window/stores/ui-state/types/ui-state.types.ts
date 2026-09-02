@@ -18,6 +18,7 @@ export type BottomPaneTab =
   | "references"
   | "buffers"
   | "run"
+  // Kept so persisted preview sessions can migrate the former bottom Maven pane.
   | "maven"
   | "gitLog";
 

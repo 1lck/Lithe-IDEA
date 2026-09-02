@@ -39,3 +39,27 @@ test("right activity rail places Maven in the upper right tool group", async () 
   expect(sidebarSource).not.toContain('id: "maven"');
   expect(transparencyStyles).toContain(".lithe-plugin-activity-rail");
 });
+
+test("Maven content is owned by the resizable right tool window", async () => {
+  const railSource = await Bun.file(new URL("./plugin-activity-rail.tsx", import.meta.url)).text();
+  const layoutSource = await Bun.file(new URL("./main-layout.tsx", import.meta.url)).text();
+  const bottomPaneSource = await Bun.file(
+    new URL("./bottom-pane/bottom-pane.tsx", import.meta.url),
+  ).text();
+  const mavenPaneSource = await Bun.file(
+    new URL("../../maven/components/maven-pane.tsx", import.meta.url),
+  ).text();
+
+  expect(railSource).toContain(
+    'state.isRightSidebarVisible && state.activeRightSidebarView === "maven"',
+  );
+  expect(layoutSource).toContain('activeRightSidebarView === "maven"');
+  expect(layoutSource).toContain("hidden={!isRightToolWindowVisible}");
+  expect(layoutSource).toContain("<MavenPane onClose={closeMavenToolWindow} />");
+  expect(bottomPaneSource).not.toContain("MavenPane");
+  expect(mavenPaneSource).toContain(
+    "export default function MavenPane({ onClose }: MavenPaneProps)",
+  );
+  expect(mavenPaneSource).not.toContain("setIsBottomPaneVisible");
+  expect(mavenPaneSource).not.toContain('className="w-[17rem]');
+});

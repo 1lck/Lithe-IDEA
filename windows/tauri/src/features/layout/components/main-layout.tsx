@@ -6,6 +6,8 @@ import { useFileSystemFolderDrop } from "@/features/file-system/hooks/use-file-s
 import { openDroppedWorkspacePaths } from "@/features/file-system/utils/open-dropped-workspace-paths";
 import { useGitStore } from "@/features/git/stores/git.store";
 import { isGitChangeRelevant, subscribeToGitChanges } from "@/features/git/events/git-events";
+import { closeMavenToolWindow } from "@/features/maven/actions/maven-tool-window-actions";
+import { useMavenStore } from "@/features/maven/stores/maven.store";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useOnboardingStore } from "@/features/onboarding/stores/onboarding.store";
 import { CachedWorkspaceSplitViews } from "@/features/panes/components/split-view-root";
@@ -71,6 +73,7 @@ const TerminalHost = lazy(() =>
   })),
 );
 const BottomPane = lazy(() => import("./bottom-pane/bottom-pane"));
+const MavenPane = lazy(() => import("@/features/maven/components/maven-pane"));
 
 export function MainLayout() {
   const { t } = useTranslation();
@@ -81,6 +84,10 @@ export function MainLayout() {
   const isSidebarVisible = useUIState((state) => state.isSidebarVisible);
   const isRightSidebarVisible = useUIState((state) => state.isRightSidebarVisible);
   const activeRightSidebarView = useUIState((state) => state.activeRightSidebarView);
+  const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible);
+  const bottomPaneActiveTab = useUIState((state) => state.bottomPaneActiveTab);
+  const mavenProjectStatus = useMavenStore((state) => state.projectStatus);
+  const mavenProject = useMavenStore((state) => state.project);
   const sidebarWidth = useSettingsStore((state) => state.settings.sidebarWidth);
   const showStatusBar = useSettingsStore((state) => state.settings.showStatusBar);
   const isDatabaseConnectionVisible = useUIState((state) => state.isDatabaseConnectionVisible);
@@ -91,6 +98,9 @@ export function MainLayout() {
     COLLAPSED_ACTIVITY_RAIL_WIDTH + (isSidebarVisible ? sidebarWidth : 0);
   const isNotificationsVisible =
     isRightSidebarVisible && activeRightSidebarView === "notifications";
+  const isMavenSelected = activeRightSidebarView === "maven";
+  const isMavenVisible = isRightSidebarVisible && isMavenSelected;
+  const isRightToolWindowVisible = isNotificationsVisible || isMavenVisible;
   const vimRelativeLineNumbers = useSettingsStore((state) => state.settings.vimRelativeLineNumbers);
   const relativeLineNumbers = useVimStore.use.relativeLineNumbers();
   const { setRelativeLineNumbers } = useVimStore.use.actions();
@@ -143,6 +153,22 @@ export function MainLayout() {
   useEffect(() => {
     void initializeDebuggerEventBridge();
   }, []);
+
+  useEffect(() => {
+    if (!isBottomPaneVisible || bottomPaneActiveTab !== "maven") return;
+
+    const state = useUIState.getState();
+    state.setActiveRightSidebarView("maven");
+    state.setIsRightSidebarVisible(true);
+    state.setBottomPaneActiveTab("terminal");
+    state.setIsBottomPaneVisible(false);
+  }, [bottomPaneActiveTab, isBottomPaneVisible]);
+
+  useEffect(() => {
+    if (isMavenVisible && mavenProjectStatus === "ready" && !mavenProject) {
+      closeMavenToolWindow();
+    }
+  }, [isMavenVisible, mavenProject, mavenProjectStatus]);
 
   useEffect(() => {
     if (!onboardingOpen || !onboardingContext) return;
@@ -303,7 +329,7 @@ export function MainLayout() {
               <ResizablePane
                 position="right"
                 widthKey="rightToolWindowWidth"
-                hidden={!isNotificationsVisible}
+                hidden={!isRightToolWindowVisible}
                 outerEdge={false}
                 reservedWidth={leftPaneReservedWidth + COLLAPSED_ACTIVITY_RAIL_WIDTH}
               >
@@ -311,6 +337,11 @@ export function MainLayout() {
                   isVisible={isNotificationsVisible}
                   onClose={closeNotificationsToolWindow}
                 />
+                {isMavenSelected ? (
+                  <Suspense fallback={null}>
+                    <MavenPane onClose={closeMavenToolWindow} />
+                  </Suspense>
+                ) : null}
               </ResizablePane>
               <PluginActivityRail />
             </div>
