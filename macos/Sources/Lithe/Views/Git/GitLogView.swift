@@ -260,7 +260,11 @@ struct GitLogView: View {
                 .log,
                 title: "Log: \(model.selectedGitReference?.shortName ?? model.currentBranch)"
             )
-            gitToolTabButton(.worktrees, title: "Worktrees")
+            gitToolTabButton(
+                .worktrees,
+                title: "Worktrees",
+                detail: model.gitRepositoryRoot?.path
+            )
             gitToolTabButton(.console, title: "Console")
 
             if selectedGitToolTab == .log {
@@ -319,7 +323,11 @@ struct GitLogView: View {
         }
     }
 
-    private func gitToolTabButton(_ tab: GitToolTab, title: LocalizedStringKey) -> some View {
+    private func gitToolTabButton(
+        _ tab: GitToolTab,
+        title: LocalizedStringKey,
+        detail: String? = nil
+    ) -> some View {
         let isSelected = selectedGitToolTab == tab
         let showsCloseButton = isSelected && tab == .console
         return HStack(spacing: 0) {
@@ -329,14 +337,23 @@ struct GitLogView: View {
                     Task { await model.loadGitConsoleIfNeeded() }
                 }
             } label: {
-                Text(title)
-                    .font(GitVisual.toolbar)
-                    .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
-                    .lineLimit(1)
-                    .padding(.leading, 9)
-                    .padding(.trailing, showsCloseButton ? 4 : 9)
-                    .frame(height: 27)
-                    .contentShape(Rectangle())
+                HStack(spacing: 5) {
+                    Text(title)
+                    if let detail, !detail.isEmpty {
+                        Text("·")
+                            .foregroundStyle(LitheTheme.tertiaryText)
+                        Text(detail)
+                            .foregroundStyle(LitheTheme.secondaryText)
+                            .truncationMode(.middle)
+                    }
+                }
+                .font(GitVisual.toolbar)
+                .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
+                .lineLimit(1)
+                .padding(.leading, 9)
+                .padding(.trailing, showsCloseButton ? 4 : 9)
+                .frame(height: 27)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .lithePointer()
