@@ -1,5 +1,13 @@
-import { FunnelIcon as Funnel } from "@/ui/icons";
+import {
+  ArrowCounterClockwiseIcon as Reset,
+  FunnelIcon as Funnel,
+  GitCommitIcon as CherryPick,
+  GitMergeIcon as Squash,
+  PencilIcon as Edit,
+  TrashIcon as Trash,
+} from "@/ui/icons";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type React from "react";
 import { writeSidebarResourceDragData } from "@/features/sidebar/utils/sidebar-resource-drag";
 import {
   DropdownMenu,
@@ -7,6 +15,9 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
+  Dropdown,
+  useDropdownMenu,
+  type MenuItem,
 } from "@/ui/dropdown";
 import { Spinner } from "@/ui/spinner";
 import { Avatar } from "@/ui/avatar";
@@ -19,6 +30,13 @@ import { useTranslation } from "@/i18n/locale-provider";
 import type { GitCommit } from "../types/git.types";
 import { useGitStore } from "../stores/git.store";
 import { getGitAuthorAvatarUrl } from "../utils/git-author-avatar";
+import { useGitHistoryMutations } from "../hooks/use-git-history-mutations";
+import {
+  isContiguousGitHistorySelection,
+  resolveGitHistoryContextSelection,
+  selectedCommitsInHistoryOrder,
+  updateGitHistorySelection,
+} from "../utils/git-history-selection";
 
 interface GitCommitHistoryProps {
   onViewCommitDiff?: (commitHash: string, filePath?: string) => void;
@@ -29,7 +47,8 @@ interface GitCommitHistoryProps {
 
 interface CommitItemProps {
   commit: GitCommit;
-  onViewCommitDiff: (commitHash: string) => void;
+  onSelect: (event: React.MouseEvent, commit: GitCommit) => void;
+  onContextMenu: (event: React.MouseEvent, commit: GitCommit) => void;
   isSelected: boolean;
   syncState: "local" | "pushed";
   repoPath?: string;
@@ -60,11 +79,14 @@ function getCommitSearchFields(commit: GitCommit, scope: HistorySearchScope) {
 }
 
 const CommitItem = memo(
-  ({ commit, onViewCommitDiff, isSelected, syncState, repoPath }: CommitItemProps) => {
-    const handleCommitClick = useCallback(() => {
-      onViewCommitDiff(commit.hash);
-    }, [commit.hash, onViewCommitDiff]);
-
+  ({
+    commit,
+    onSelect,
+    onContextMenu,
+    isSelected,
+    syncState,
+    repoPath,
+  }: CommitItemProps) => {
     const shortHash = commit.hash.substring(0, 7);
     const avatarUrl = getGitAuthorAvatarUrl(commit);
 
@@ -72,7 +94,9 @@ const CommitItem = memo(
       <div className="mb-0.5">
         <button
           type="button"
-          onClick={handleCommitClick}
+          onClick={(event) => onSelect(event, commit)}
+          onContextMenu={(event) => onContextMenu(event, commit)}
+          aria-pressed={isSelected}
           className={cn(
             "ui-text-sm flex w-full cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-1.5 text-left outline-none transition-colors hover:bg-accent/80 focus-visible:bg-accent/80",
             isSelected && "bg-primary/10",
@@ -133,17 +157,23 @@ const GitCommitHistory = ({
   const lastScrollTop = useRef(0);
   const scrollSetupTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const scrollSetupRafRef = useRef<number | null>(null);
-  const [selectedCommitHash, setSelectedCommitHash] = useState<string | null>(null);
+  const selectionAnchorRef = useRef<string | null>(null);
+  const contextMenu = useDropdownMenu<{ commitHashes: string[] }>();
+  const [selectedCommitHashes, setSelectedCommitHashes] = useState<Set<string>>(new Set());
   const [historySearchQuery, setHistorySearchQuery] = useState("");
   const [historySearchScope, setHistorySearchScope] = useState<HistorySearchScope>("all");
-
-  const handleViewCommitDiff = useCallback(
-    (commitHash: string, filePath?: string) => {
-      setSelectedCommitHash(commitHash);
-      onViewCommitDiff?.(commitHash, filePath);
-    },
-    [onViewCommitDiff],
-  );
+  const clearHistorySelection = useCallback(() => {
+    setSelectedCommitHashes(new Set());
+    selectionAnchorRef.current = null;
+  }, []);
+  const {
+    isMutatingHistory,
+    editMessage,
+    removeCommit,
+    squashSelectedCommits,
+    resetBranchToCommit,
+    cherryPickSelectedCommit,
+  } = useGitHistoryMutations({ repoPath, onCompleted: clearHistorySelection });
 
   const filteredCommits = useMemo(() => {
     const query = historySearchQuery.trim();
@@ -161,6 +191,108 @@ const GitCommitHistory = ({
     });
     return syncState;
   }, [ahead, commits]);
+
+  useEffect(() => {
+    const availableHashes = new Set(commits.map((commit) => commit.hash));
+    setSelectedCommitHashes((current) => {
+      const next = new Set([...current].filter((hash) => availableHashes.has(hash)));
+      return next.size === current.size ? current : next;
+    });
+    if (selectionAnchorRef.current && !availableHashes.has(selectionAnchorRef.current)) {
+      selectionAnchorRef.current = null;
+    }
+  }, [commits]);
+
+  const handleCommitSelect = useCallback(
+    (event: React.MouseEvent, commit: GitCommit) => {
+      const result = updateGitHistorySelection(
+        filteredCommits.map((candidate) => candidate.hash),
+        selectedCommitHashes,
+        commit.hash,
+        selectionAnchorRef.current,
+        {
+          additive: event.ctrlKey || event.metaKey,
+          range: event.shiftKey,
+        },
+      );
+      setSelectedCommitHashes(result.selected);
+      selectionAnchorRef.current = result.anchor;
+      if (!(event.ctrlKey || event.metaKey || event.shiftKey)) {
+        onViewCommitDiff?.(commit.hash);
+      }
+    },
+    [filteredCommits, onViewCommitDiff, selectedCommitHashes],
+  );
+
+  const handleCommitContextMenu = useCallback(
+    (event: React.MouseEvent, commit: GitCommit) => {
+      const next = resolveGitHistoryContextSelection(selectedCommitHashes, commit.hash);
+      setSelectedCommitHashes(next);
+      if (!selectedCommitHashes.has(commit.hash)) {
+        selectionAnchorRef.current = commit.hash;
+      }
+      contextMenu.open(event, { commitHashes: [...next] });
+    },
+    [contextMenu, selectedCommitHashes],
+  );
+
+  const contextMenuCommits = useMemo(
+    () => selectedCommitsInHistoryOrder(commits, new Set(contextMenu.data?.commitHashes ?? [])),
+    [commits, contextMenu.data],
+  );
+  const contextSelection = useMemo(
+    () => new Set(contextMenuCommits.map((commit) => commit.hash)),
+    [contextMenuCommits],
+  );
+  const contextSelectionIsContiguous = isContiguousGitHistorySelection(commits, contextSelection);
+
+  const contextMenuItems: MenuItem[] = (() => {
+    if (contextMenuCommits.length > 1) {
+      return [
+        {
+          id: "squash-commits",
+          label: t("git.squashCommits"),
+          icon: <Squash />,
+          disabled: isMutatingHistory || !contextSelectionIsContiguous,
+          onClick: () => void squashSelectedCommits(contextMenuCommits),
+        },
+      ];
+    }
+
+    const commit = contextMenuCommits[0];
+    if (!commit) return [];
+    return [
+      {
+        id: "edit-commit-message",
+        label: t("git.editCommitMessage"),
+        icon: <Edit />,
+        disabled: isMutatingHistory,
+        onClick: () => void editMessage(commit),
+      },
+      {
+        id: "delete-commit",
+        label: t("git.deleteCommit"),
+        icon: <Trash />,
+        className: "text-destructive",
+        disabled: isMutatingHistory,
+        onClick: () => void removeCommit(commit),
+      },
+      {
+        id: "reset-to-commit",
+        label: t("git.resetToCommit"),
+        icon: <Reset />,
+        disabled: isMutatingHistory,
+        onClick: () => void resetBranchToCommit(commit),
+      },
+      {
+        id: "cherry-pick-commit",
+        label: t("git.cherryPickCommit"),
+        icon: <CherryPick />,
+        disabled: isMutatingHistory || commits[0]?.hash === commit.hash,
+        onClick: () => void cherryPickSelectedCommit(commit),
+      },
+    ];
+  })();
 
   const hasHistoryRows = commits.length > 0;
   const hasHistoryFilter = historySearchScope !== "all";
@@ -313,8 +445,9 @@ const GitCommitHistory = ({
               <CommitItem
                 key={commit.hash}
                 commit={commit}
-                onViewCommitDiff={handleViewCommitDiff}
-                isSelected={commit.hash === selectedCommitHash}
+                onSelect={handleCommitSelect}
+                onContextMenu={handleCommitContextMenu}
+                isSelected={selectedCommitHashes.has(commit.hash)}
                 syncState={commitSyncStateByHash.get(commit.hash) ?? "pushed"}
                 repoPath={repoPath}
               />
@@ -334,6 +467,13 @@ const GitCommitHistory = ({
           </>
         )}
       </div>
+
+      <Dropdown
+        isOpen={contextMenu.isOpen}
+        point={contextMenu.position}
+        items={contextMenuItems}
+        onClose={contextMenu.close}
+      />
     </div>
   );
 };

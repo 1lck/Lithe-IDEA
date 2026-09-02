@@ -181,8 +181,8 @@ export function getSplitLineMeta(line: DiffLineProps["line"], splitSide: "left" 
   };
 }
 
-function getUnifiedLineGutterLabel(line: DiffLineProps["line"]) {
-  if (line.line_type === "removed") return "-";
+export function getUnifiedLineGutterLabel(line: DiffLineProps["line"]) {
+  if (line.line_type === "removed") return line.old_line_number ?? "";
   return line.new_line_number ?? line.old_line_number ?? "";
 }
 

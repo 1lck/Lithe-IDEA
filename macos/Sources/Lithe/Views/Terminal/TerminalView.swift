@@ -200,14 +200,16 @@ struct TerminalView: View {
                     )
             }
         }
-        .contextMenu {
-            Button("Move to Editor") {
-                model.moveTerminalToEditor(session.id)
-            }
-            Divider()
-            Button("Close") {
-                model.requestCloseTerminalSession(session)
-            }
+        .litheContextMenu {
+            [
+                .action("Move to Editor", systemImage: "rectangle.center.inset.filled", action: {
+                    model.moveTerminalToEditor(session.id)
+                }),
+                .separator,
+                .action("Close", systemImage: "xmark", action: {
+                    model.requestCloseTerminalSession(session)
+                })
+            ]
         }
         .lithePointer()
     }

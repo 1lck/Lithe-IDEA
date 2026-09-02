@@ -18,7 +18,8 @@ import { Spinner } from "@/ui/spinner";
 import { showConfirmDialog } from "@/ui/dialog";
 import { toast } from "sonner";
 import { useTranslation } from "@/i18n/locale-provider";
-import { fetchChanges, pushChanges, type GitRemoteActionResult } from "../api/git-remotes-api";
+import { fetchChanges, type GitRemoteActionResult } from "../api/git-remotes-api";
+import { showGitPushDialog } from "../services/git-push-dialog-service";
 import { discardAllChanges, initRepository } from "../api/git-status-api";
 import { useGitStore } from "../stores/git.store";
 import { type GitActionsMenuAnchorRect } from "../utils/git-actions-menu-position";
@@ -113,10 +114,10 @@ const GitActionsMenu = ({
   };
 
   const handlePush = () => {
-    handleAction(() => pushChanges(repoPath!), t("git.push"), {
-      loading: t("git.pushingChanges"),
-      success: t("git.changesPushed"),
-      error: t("git.pushFailed"),
+    if (!repoPath) return;
+    onClose();
+    void showGitPushDialog(repoPath).then((pushed) => {
+      if (pushed) onRefresh?.();
     });
   };
 

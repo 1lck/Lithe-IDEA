@@ -12,6 +12,7 @@ import {
   ArrowClockwiseIcon as RefreshCw,
 } from "@/ui/icons";
 import type { GitRemoteActionResult } from "@/features/git/api/git-remotes-api";
+import { getGitPullResultPresentation } from "@/features/git/utils/git-pull-result-presentation";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { createTranslator } from "@/i18n/locale";
 import { showConfirmDialog, showPromptDialog } from "@/ui/dialog";
@@ -29,7 +30,7 @@ interface GitActionsParams {
     stageAllFiles: (path: string) => Promise<boolean>;
     unstageAllFiles: (path: string) => Promise<boolean>;
     commitChanges: (path: string, message: string) => Promise<boolean>;
-    pushChanges: (path: string) => Promise<GitRemoteActionResult>;
+    showGitPushDialog: (path: string) => Promise<boolean>;
     pullChanges: (path: string) => Promise<GitRemoteActionResult>;
     fetchChanges: (path: string) => Promise<GitRemoteActionResult>;
     discardAllChanges: (path: string) => Promise<boolean>;
@@ -352,27 +353,14 @@ export const createGitActions = (params: GitActionsParams): Action[] => {
       description: "Push changes to remote",
       icon: <ArrowUp />,
       category: "Git",
-      action: async () => {
+      action: () => {
         if (!repoPath) {
           showToast({ message: t("git.noRepositoryOpen"), type: "error" });
           onClose();
           return;
         }
-        try {
-          showToast({ message: t("git.pushingChanges"), type: "info" });
-          const result = await gitOperations.pushChanges(repoPath);
-          if (result.success) {
-            showToast({ message: t("git.changesPushed"), type: "success" });
-          } else {
-            showToast({
-              message: result.error || "Failed to push changes",
-              type: "error",
-            });
-          }
-        } catch (error) {
-          showToast({ message: t("git.operationError", { error: String(error) }), type: "error" });
-        }
         onClose();
+        void gitOperations.showGitPushDialog(repoPath);
       },
     },
     {
@@ -393,9 +381,21 @@ export const createGitActions = (params: GitActionsParams): Action[] => {
           if (result.success) {
             showToast({ message: t("git.pulledChanges"), type: "success" });
           } else {
+            const presentation = result.pullResult
+              ? getGitPullResultPresentation(result.pullResult, t)
+              : null;
+            const requiresStrategy = result.pullResult?.status === "cancelled";
             showToast({
-              message: result.error || "Failed to pull changes",
-              type: "error",
+              message:
+                presentation?.message ||
+                (requiresStrategy ? t("git.pullResult.strategyRequired") : result.error) ||
+                t("git.pullResult.pullFailed", {
+                  error: t("git.pullResult.gitRejectedPull"),
+                }),
+              type:
+                presentation?.tone === "info" || presentation?.tone === "warning"
+                  ? "info"
+                  : "error",
             });
           }
         } catch (error) {
@@ -444,10 +444,10 @@ export const createGitActions = (params: GitActionsParams): Action[] => {
           onClose();
           return;
         }
-        const confirmed = await showConfirmDialog(
-          t("git.discardAllChangesConfirm"),
-          { title: t("git.discardAllChanges"), confirmLabel: t("git.discard") },
-        );
+        const confirmed = await showConfirmDialog(t("git.discardAllChangesConfirm"), {
+          title: t("git.discardAllChanges"),
+          confirmLabel: t("git.discard"),
+        });
         if (!confirmed) {
           onClose();
           return;
