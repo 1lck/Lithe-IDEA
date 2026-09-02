@@ -2991,6 +2991,18 @@ pub(super) fn write_request_reference(
     root: &str,
     request: &GitWriteRequest,
 ) -> Result<String, CoreError> {
+    // Branch restore records carry the deleted commit object ID rather than a
+    // live ref. Accept that exact revision only for createBranch; every other
+    // mutation continues to require a typed, existing Git reference.
+    if request.operation == "createBranch" {
+        if let Some(reference) = request.git_reference.as_ref() {
+            if reference.full_name == reference.short_name {
+                if let Ok(revision) = validated_revision(Some(&reference.full_name)) {
+                    return Ok(revision);
+                }
+            }
+        }
+    }
     optional_write_request_reference(root, request)?
         .ok_or_else(|| CoreError::new(ErrorCode::InvalidRequest, "Missing Git reference"))
 }

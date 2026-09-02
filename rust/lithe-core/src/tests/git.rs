@@ -1893,7 +1893,11 @@ fn git_write_records_the_deleted_branch_target() {
     let restore = request(
         "createBranch",
         serde_json::json!({
-            "reference": deletion["data"]["branchDeletion"]["deletedTarget"],
+            "gitReference": {
+                "fullName": deletion["data"]["branchDeletion"]["deletedTarget"],
+                "shortName": deletion["data"]["branchDeletion"]["deletedTarget"],
+                "kind": "local"
+            },
             "name": "feature/short-lived",
             "checkout": false
         }),
