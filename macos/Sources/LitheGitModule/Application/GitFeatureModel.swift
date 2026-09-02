@@ -1655,8 +1655,11 @@ package final class GitFeatureModel: ObservableObject {
         gitWorktreeInspectionLoadState = .loading
         let reference = gitReferences.first { $0.fullName == worktree.branch }
         let inspection = await service.inspectWorktree(worktree, reference: reference)
-        guard generation == worktreeInspectionRequestGeneration,
-              !Task.isCancelled else { return }
+        guard generation == worktreeInspectionRequestGeneration else { return }
+        if Task.isCancelled {
+            gitWorktreeInspectionLoadState = .idle
+            return
+        }
         if let inspection {
             gitWorktreeInspection = inspection
             gitWorktreeInspectionLoadState = .ready

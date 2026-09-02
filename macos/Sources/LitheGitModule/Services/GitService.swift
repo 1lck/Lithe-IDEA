@@ -191,13 +191,16 @@ package struct GitService: Sendable {
         _ worktree: GitWorktree,
         reference: GitReference?
     ) async -> GitWorktreeInspection? {
-        async let snapshot = snapshot(for: worktree.url)
         async let history = history(at: worktree.url, reference: reference, limit: 300)
-        guard let snapshot = await snapshot else { return nil }
+        async let snapshot = snapshot(for: worktree.url)
         let resolvedHistory = await history
+        // A linked worktree can occasionally have a transiently unreadable
+        // index while Git is refreshing it. Keep the independent commit
+        // history visible instead of dropping the entire inspection result.
+        let resolvedChanges = (await snapshot)?.changes ?? []
         return GitWorktreeInspection(
             worktreeID: worktree.id,
-            changes: snapshot.changes,
+            changes: resolvedChanges,
             commits: resolvedHistory.commits
         )
     }
