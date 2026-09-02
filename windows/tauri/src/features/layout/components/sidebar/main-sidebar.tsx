@@ -35,11 +35,9 @@ import {
   toggleDiagnosticsPane,
 } from "@/features/layout/actions/workbench-tool-window-actions";
 import { RunIcon } from "@/features/run/components/run-icon";
-import { useMavenStore } from "@/features/maven/stores/maven.store";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import {
   toggleGitLogPane,
-  toggleMavenPane,
   toggleRunPane,
   toggleTerminalPane,
 } from "@/features/keymaps/commands/view-command-actions";
@@ -75,7 +73,6 @@ import {
   GitBranchIcon,
   GitGraphIcon,
   MagnifyingGlassIcon,
-  PackageIcon,
   TerminalWindowIcon,
   WarningIcon,
 } from "@/ui/icons";
@@ -127,8 +124,6 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
   const openSettingsDialog = useUIState((state) => state.openSettingsDialog);
   const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible);
   const bottomPaneActiveTab = useUIState((state) => state.bottomPaneActiveTab);
-  const mavenProject = useMavenStore((state) => state.project);
-  const mavenProjectStatus = useMavenStore((state) => state.projectStatus);
   const configuredActivityRailWidth = useSettingsStore((state) => state.settings.activityRailWidth);
   const askWhereToOpenProjects = useSettingsStore((state) => state.settings.askWhereToOpenProjects);
   const openFoldersInNewWindow = useSettingsStore((state) => state.settings.openFoldersInNewWindow);
@@ -188,7 +183,6 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
       ["files", { id: "files", label: t("workbench.project"), icon: <FilesIcon /> }],
       ["git", { id: "git", label: t("workbench.changes"), icon: <GitBranchIcon /> }],
       ["search", { id: "search", label: t("workbench.search"), icon: <MagnifyingGlassIcon /> }],
-      ["maven", { id: "maven", label: t("workbench.maven"), icon: <PackageIcon /> }],
       ["run", { id: "run", label: t("workbench.run"), icon: <RunIcon /> }],
       [
         "terminal",
@@ -636,12 +630,6 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
                   isDiagnosticsActive={isBottomPaneVisible && bottomPaneActiveTab === "diagnostics"}
                   onRunClick={() => toggleRunPane()}
                   isRunActive={isBottomPaneVisible && bottomPaneActiveTab === "run"}
-                  onMavenClick={
-                    mavenProject || mavenProjectStatus === "failed"
-                      ? () => toggleMavenPane()
-                      : undefined
-                  }
-                  isMavenActive={isBottomPaneVisible && bottomPaneActiveTab === "maven"}
                   compact={!expanded}
                   showLabels={expanded}
                   orientation="vertical"
