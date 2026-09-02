@@ -51,7 +51,16 @@ download_verified_file() {
     fi
 
     rm -f -- "$temporary_path"
-    if ! curl --fail --location --retry 3 --output "$temporary_path" "$url"; then
+    print -u2 -- "Downloading $description: $url"
+    if ! curl \
+        --fail \
+        --location \
+        --retry 3 \
+        --retry-all-errors \
+        --connect-timeout 15 \
+        --max-time 180 \
+        --output "$temporary_path" \
+        "$url"; then
         rm -f -- "$temporary_path"
         return 1
     fi
