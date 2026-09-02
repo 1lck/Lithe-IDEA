@@ -61,6 +61,7 @@ struct GitLogView: View {
 
     private enum GitToolTab {
         case log
+        case worktrees
         case console
     }
 
@@ -79,6 +80,8 @@ struct GitLogView: View {
                         detailPane: { detailPane }
                     )
                 }
+            } else if selectedGitToolTab == .worktrees {
+                GitWorktreesView()
             } else {
                 gitConsolePane
             }
@@ -257,16 +260,19 @@ struct GitLogView: View {
                 .log,
                 title: "Log: \(model.selectedGitReference?.shortName ?? model.currentBranch)"
             )
+            gitToolTabButton(.worktrees, title: "Worktrees")
             gitToolTabButton(.console, title: "Console")
 
-            Button {
-                selectedGitToolTab = .log
-                Task { await model.selectGitReference(nil) }
-            } label: {
-                Image(systemName: "plus")
+            if selectedGitToolTab == .log {
+                Button {
+                    selectedGitToolTab = .log
+                    Task { await model.selectGitReference(nil) }
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .litheIconButton()
+                .help("Show all references")
             }
-            .litheIconButton()
-            .help("Show all references")
 
             Menu {
                 Button("Fetch All Remotes") {
