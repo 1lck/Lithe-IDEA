@@ -913,6 +913,46 @@ struct GitModuleTests {
     }
 
     @Test
+    func newerWorktreeRefreshWinsWhenAnOlderRequestFinishesLast() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let oldWorktree = makeTestWorktree(path: "/workspace-old", branch: "feature/old")
+        let newWorktree = makeTestWorktree(path: "/workspace-new", branch: "feature/new")
+        let loader = GitWorktreeLoadController(results: [[oldWorktree], [newWorktree]])
+        let feature = GitFeatureModel(
+            service: GitService(operations: TestGitOperations()),
+            snapshotProvider: { root in
+                GitSnapshot(repositoryRoot: root, branch: "main", changes: [])
+            },
+            worktreesProvider: { root in await loader.load(root) }
+        )
+        feature.configure(
+            workspaceURLProvider: { root },
+            isGitLogVisibleProvider: { false },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+        await feature.refreshGit()
+
+        let firstRefresh = Task { @MainActor in await feature.refreshWorktrees() }
+        try #require(await loader.waitUntilCallStarts(0))
+        let secondRefresh = Task { @MainActor in await feature.refreshWorktrees() }
+        defer {
+            firstRefresh.cancel()
+            secondRefresh.cancel()
+            loader.releaseAll()
+        }
+        try #require(await loader.waitUntilCallStarts(1))
+        loader.releaseCall(1)
+        try #require(await waitForGitTaskCompletion(secondRefresh))
+        loader.releaseCall(0)
+        try #require(await waitForGitTaskCompletion(firstRefresh))
+
+        #expect(!loader.didTimeOut)
+        #expect(feature.gitWorktreeLoadState == .ready)
+        #expect(feature.gitWorktrees == [newWorktree])
+    }
+
+    @Test
     func gitConsolePreservesStandardErrorColorForSuccessfulCommands() {
         let entry = GitConsoleEntry(
             workingDirectory: URL(fileURLWithPath: "/workspace"),
@@ -1226,6 +1266,22 @@ private func makeTestCommit(hash: String, subject: String) -> GitCommit {
     )
 }
 
+private func makeTestWorktree(path: String, branch: String) -> GitWorktree {
+    GitWorktree(
+        path: path,
+        head: "1111111111111111111111111111111111111111",
+        branch: "refs/heads/\(branch)",
+        isCurrent: false,
+        isPrimary: false,
+        isBare: false,
+        isDetached: false,
+        isLocked: false,
+        lockReason: nil,
+        isPrunable: false,
+        pruneReason: nil
+    )
+}
+
 private final class GitModuleTestGate: @unchecked Sendable {
     private let condition = NSCondition()
     private var isOpen = false
@@ -1298,6 +1354,66 @@ private final class GitModuleTestGate: @unchecked Sendable {
         condition.unlock()
         timeoutTask?.cancel()
         waiter?.resume(returning: result)
+    }
+}
+
+private final class GitWorktreeLoadController: @unchecked Sendable {
+    private let lock = NSLock()
+    private let results: [[GitWorktree]?]
+    private let startedGates: [GitModuleTestGate]
+    private let releaseGates: [GitModuleTestGate]
+    private var calls = 0
+    private var timedOut = false
+
+    init(results: [[GitWorktree]?]) {
+        self.results = results
+        startedGates = results.map { _ in GitModuleTestGate() }
+        releaseGates = results.map { _ in GitModuleTestGate() }
+    }
+
+    var didTimeOut: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return timedOut
+    }
+
+    func load(_ root: URL) async -> [GitWorktree]? {
+        let callIndex = reserveCall()
+        guard results.indices.contains(callIndex) else { return nil }
+        startedGates[callIndex].open()
+        guard await releaseGates[callIndex].waitUntilOpen() else {
+            recordTimeout()
+            return nil
+        }
+        return results[callIndex]
+    }
+
+    func waitUntilCallStarts(_ index: Int) async -> Bool {
+        guard startedGates.indices.contains(index) else { return false }
+        return await startedGates[index].waitUntilOpen()
+    }
+
+    func releaseCall(_ index: Int) {
+        guard releaseGates.indices.contains(index) else { return }
+        releaseGates[index].open()
+    }
+
+    func releaseAll() {
+        releaseGates.forEach { $0.open() }
+    }
+
+    private func reserveCall() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        let callIndex = calls
+        calls += 1
+        return callIndex
+    }
+
+    private func recordTimeout() {
+        lock.lock()
+        timedOut = true
+        lock.unlock()
     }
 }
 
@@ -1511,6 +1627,7 @@ private struct TestGitOperations: GitOperations {
 
     func snapshot(at rootURL: URL) -> GitSnapshot? { snapshotValue }
     func watchContext(at rootURL: URL) -> GitWatchContext? { nil }
+    func worktrees(at rootURL: URL) -> [GitWorktree]? { nil }
     func diffDocument(at rootURL: URL, pathspecs: [String], staged: Bool, untracked: Bool, whitespace: GitDiffWhitespaceMode) -> DiffDocument? {
         untracked ? untrackedDiffDocumentValue : nil
     }
@@ -1541,6 +1658,12 @@ private struct TestGitOperations: GitOperations {
     func revert(_ hash: String, at rootURL: URL) -> GitProcessResult? { nil }
     func resetCurrentBranch(to hash: String, mode: String, at rootURL: URL) -> GitProcessResult? { nil }
     func createBranch(named name: String, from reference: GitReference, checkout: Bool, at rootURL: URL) -> GitProcessResult? { nil }
+    func createWorktree(named name: String, from reference: GitReference, at destination: URL, repositoryRoot: URL) -> GitProcessResult? { nil }
+    func removeWorktree(_ worktree: GitWorktree, force: Bool, at rootURL: URL) -> GitProcessResult? { nil }
+    func lockWorktree(_ worktree: GitWorktree, at rootURL: URL) -> GitProcessResult? { nil }
+    func unlockWorktree(_ worktree: GitWorktree, at rootURL: URL) -> GitProcessResult? { nil }
+    func repairWorktrees(at rootURL: URL) -> GitProcessResult? { nil }
+    func pruneWorktrees(at rootURL: URL) -> GitProcessResult? { nil }
     func renameBranch(_ reference: GitReference, to name: String, at rootURL: URL) -> GitProcessResult? { nil }
     func deleteBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? { nil }
     func mergeBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? { nil }
