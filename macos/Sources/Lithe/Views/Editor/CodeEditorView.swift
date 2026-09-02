@@ -93,6 +93,7 @@ enum EditorLayoutMetrics {
     static let leadingInset: CGFloat = 4
     static let lineFragmentPadding: CGFloat = 4
     static let caretWidth: CGFloat = 2
+    static let currentLineHorizontalInset: CGFloat = 1
 
     static func showsBlameMetadata(
         line: Int,
@@ -482,17 +483,17 @@ struct CodeEditorView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> EditorContainerView {
         let palette = CodeEditorPalette(isDark: colorScheme == .dark, theme: settings.colorTheme)
-        let showsWorkbenchBackground = model.workbenchBackgroundFeature.hasImage
         let container = EditorContainerView()
-        container.displaysTransparentBackground = showsWorkbenchBackground
+        container.displaysTransparentBackground = true
         let scrollView = NSScrollView(frame: .zero)
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.borderType = .noBorder
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
-        scrollView.drawsBackground = !showsWorkbenchBackground
-        scrollView.backgroundColor = palette.background
-        scrollView.contentView.drawsBackground = !showsWorkbenchBackground
+        scrollView.drawsBackground = false
+        scrollView.backgroundColor = .clear
+        scrollView.contentView.drawsBackground = false
+        scrollView.contentView.backgroundColor = .clear
         scrollView.wantsLayer = true
         scrollView.layer?.masksToBounds = true
 
@@ -528,8 +529,15 @@ struct CodeEditorView: NSViewRepresentable {
         textView.font = LitheTheme.editorFont(size: settings.editorFontSize)
         textView.defaultParagraphStyle = LitheTheme.editorParagraphStyle
         textView.indentationWidth = settings.tabWidth
-        textView.applyAppearance(palette, isTransparent: showsWorkbenchBackground)
-        textView.drawsBackground = !showsWorkbenchBackground
+        textView.applyAppearance(palette, isTransparent: true)
+        textView.drawsBackground = false
+        let viewportState = viewportStore.state(for: document.id)
+        let textLength = (textView.string as NSString).length
+        let selectionLocation = min(viewportState.selectionLocation, textLength)
+        let selectionLength = min(viewportState.selectionLength, textLength - selectionLocation)
+        textView.setSelectedRange(
+            NSRange(location: selectionLocation, length: selectionLength)
+        )
         textView.isEditable = !document.isReadOnly
         textView.isSelectable = true
         textView.onWindowAttached = { [weak coordinator = context.coordinator] in
@@ -614,9 +622,12 @@ struct CodeEditorView: NSViewRepresentable {
             coordinator?.updateStandardGutterWidth(width)
         }
         gutter.attach(textView: textView, scrollView: scrollView)
-        gutter.applyAppearance(palette, isTransparent: showsWorkbenchBackground)
+        gutter.applyAppearance(palette, isTransparent: true)
         context.coordinator.attachMarkdownScrollSync(to: scrollView)
         context.coordinator.attachViewportTracking(to: scrollView)
+        if let initialImportFold = JavaInitialImportFold.region(in: document.text as NSString) {
+            context.coordinator.primeJavaImportFold(initialImportFold)
+        }
 
         textView.onCaretPresentationChanged = { [weak gutter] in
             gutter?.needsDisplay = true
@@ -648,18 +659,18 @@ struct CodeEditorView: NSViewRepresentable {
     func updateNSView(_ container: EditorContainerView, context: Context) {
         guard let textView = container.scrollView?.documentView as? NSTextView else { return }
         let palette = CodeEditorPalette(isDark: colorScheme == .dark, theme: settings.colorTheme)
-        let showsWorkbenchBackground = model.workbenchBackgroundFeature.hasImage
         let appearanceChanged = context.coordinator.isDarkAppearance != palette.isDark
             || context.coordinator.colorTheme != settings.colorTheme
         context.coordinator.document = document
         context.coordinator.model = model
         context.coordinator.shouldFocus = shouldFocus
         context.coordinator.markdownScrollPosition = markdownScrollPosition
-        container.displaysTransparentBackground = showsWorkbenchBackground
+        container.displaysTransparentBackground = true
         if let scrollView = container.scrollView {
-            scrollView.drawsBackground = !showsWorkbenchBackground
-            scrollView.backgroundColor = palette.background
-            scrollView.contentView.drawsBackground = !showsWorkbenchBackground
+            scrollView.drawsBackground = false
+            scrollView.backgroundColor = .clear
+            scrollView.contentView.drawsBackground = false
+            scrollView.contentView.backgroundColor = .clear
             context.coordinator.attachMarkdownScrollSync(to: scrollView)
             context.coordinator.attachMarkdownImagePasteMonitor(to: scrollView)
             context.coordinator.attachViewportTracking(to: scrollView)
@@ -683,7 +694,7 @@ struct CodeEditorView: NSViewRepresentable {
             tabWidth: tabWidth,
             languageFeatures: languageFeatures,
             isReadOnly: document.isReadOnly,
-            isTransparent: showsWorkbenchBackground,
+            isTransparent: true,
             palette: palette,
             textView: textView,
             gutter: container.gutter
@@ -1259,6 +1270,13 @@ struct CodeEditorView: NSViewRepresentable {
 
         func resetHighlightCache() {
             highlightedRanges.removeAll()
+        }
+
+        func primeJavaImportFold(_ region: JavaFoldRegion) {
+            guard fileExtension.lowercased() == "java" else { return }
+            foldRegions = [region]
+            collapsedFoldIDs = [region.id]
+            applyFoldState()
         }
 
         func scheduleFoldRefresh(useDefaultImportFold: Bool = false) {
@@ -2705,10 +2723,14 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
             forGlyphAt: glyphRange.location,
             effectiveRange: nil
         )
+        let horizontalInset = EditorLayoutMetrics.currentLineHorizontalInset
+        let visibleEditorRect = enclosingScrollView.map {
+            convert($0.contentView.bounds, from: $0.contentView).intersection(bounds)
+        } ?? bounds
         let currentLineRect = NSRect(
-            x: 0,
+            x: visibleEditorRect.minX + horizontalInset,
             y: textContainerOrigin.y + lineRect.minY,
-            width: bounds.width,
+            width: max(0, visibleEditorRect.width - horizontalInset * 2),
             height: lineRect.height
         )
         guard currentLineRect.intersects(rect) else { return }
@@ -2910,18 +2932,25 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
     override func flagsChanged(with event: NSEvent) {
         super.flagsChanged(with: event)
+        guard let window,
+              isEditorHitTarget(at: convert(window.mouseLocationOutsideOfEventStream, from: nil)) else {
+            NSCursor.arrow.set()
+            return
+        }
         guard isLanguageNavigationEnabled, hasNavigationModifier(event.modifierFlags) else {
             clearLinkHighlight()
             return
         }
-        if let window {
-            updateLinkHighlight(at: convert(window.mouseLocationOutsideOfEventStream, from: nil))
-        }
+        updateLinkHighlight(at: convert(window.mouseLocationOutsideOfEventStream, from: nil))
     }
 
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
         let point = convert(event.locationInWindow, from: nil)
+        guard isEditorHitTarget(at: point) else {
+            NSCursor.arrow.set()
+            return
+        }
         let summaryRegion = foldSummaryRegion(at: point)
         updateFoldHover(to: summaryRegion?.id)
         if summaryRegion != nil {
@@ -2931,6 +2960,10 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
     override func mouseMoved(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        guard isEditorHitTarget(at: point) else {
+            NSCursor.arrow.set()
+            return
+        }
         let summaryRegion = foldSummaryRegion(at: point)
         updateFoldHover(to: summaryRegion?.id)
         if summaryRegion != nil {
@@ -2957,6 +2990,10 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
     override func cursorUpdate(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        guard isEditorHitTarget(at: point) else {
+            NSCursor.arrow.set()
+            return
+        }
         if foldSummaryRegion(at: point) != nil {
             NSCursor.pointingHand.set()
             return
@@ -2966,6 +3003,14 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
             return
         }
         NSCursor.iBeam.set()
+    }
+
+    private func isEditorHitTarget(at point: NSPoint) -> Bool {
+        guard let contentView = window?.contentView,
+              let hitView = contentView.hitTest(convert(point, to: contentView)) else {
+            return true
+        }
+        return hitView === self || hitView.isDescendant(of: self)
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -3343,31 +3388,81 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
             }
         }
 
-        let menu = super.menu(for: event) ?? NSMenu()
-        let goToLineItem = NSMenuItem(
-            title: NSLocalizedString("Go to Line…", comment: "Context menu item that opens the go-to-line dialog"),
-            action: #selector(goToLineFromMenu),
-            keyEquivalent: ""
+        guard let window else { return super.menu(for: event) }
+        LitheContextMenuPresenter.shared.show(
+            items: editorContextMenuItems(),
+            at: window.convertPoint(toScreen: event.locationInWindow),
+            appearance: effectiveAppearance,
+            locale: Locale.current
         )
-        goToLineItem.target = self
-        menu.insertItem(goToLineItem, at: 0)
-        menu.insertItem(.separator(), at: 1)
-        let languageItems = languageContextMenuItems()
-        if onRunToCursor != nil {
-            let runToCursor = NSMenuItem(
-                title: "Run to Cursor",
-                action: #selector(runToCursorFromMenu),
-                keyEquivalent: ""
-            )
-            runToCursor.target = self
-            runToCursor.isEnabled = isRunToCursorEnabled
-            menu.insertItem(.separator(), at: 0)
-            menu.insertItem(runToCursor, at: 0)
+        return nil
+    }
+
+    private func editorContextMenuItems() -> [LitheContextMenuItem] {
+        var items: [LitheContextMenuItem] = []
+        func addLanguageItem(
+            _ feature: LanguageServerFeatureSet,
+            _ title: String,
+            _ systemImage: String,
+            _ action: @escaping () -> Void
+        ) {
+            guard languageServerFeatures.contains(feature) else { return }
+            items.append(.action(title, systemImage: systemImage, action: action))
         }
-        guard !languageItems.isEmpty else { return menu }
-        menu.insertItem(.separator(), at: 0)
-        for item in languageItems.reversed() { menu.insertItem(item, at: 0) }
-        return menu
+
+        addLanguageItem(.implementation, "Go to Implementation", "arrow.turn.up.right", onGoToImplementation ?? {})
+        addLanguageItem(.definition, "Go to Definition", "arrow.up.right", onGoToDefinition ?? {})
+        addLanguageItem(.references, "Find Usages", "magnifyingglass", onFindUsages ?? {})
+        addLanguageItem(.hover, "Quick Documentation", "questionmark.circle", {
+            let position = self.languageServerPosition(at: self.selectedRange().location)
+            self.onQuickDocumentation?(position.line, position.utf16Column)
+        })
+        addLanguageItem(.completion, "Complete Symbol", "text.cursor", {
+            self.requestLanguageCompletions()
+        })
+        addLanguageItem(.rename, "Rename Symbol", "pencil", {
+            self.renameSymbolFromMenu()
+        })
+        addLanguageItem(.formatting, "Format Document", "text.alignleft", onFormatRequested ?? {})
+        addLanguageItem(.codeActions, "Source Actions…", "wand.and.stars", {
+            self.codeActionsFromMenu()
+        })
+
+        if onRunToCursor != nil {
+            items.append(.action("Run to Cursor", systemImage: "arrow.right.to.line", isEnabled: isRunToCursorEnabled, action: {
+                let position = self.languageServerPosition(at: self.selectedRange().location)
+                self.onRunToCursor?(position.line, position.utf16Column)
+            }))
+        }
+        if onGoToLineRequested != nil {
+            items.append(.action("Go to Line…", systemImage: "text.line.first.and.arrowtriangle.forward", action: {
+                self.onGoToLineRequested?()
+            }))
+        }
+        if !items.isEmpty { items.append(.separator) }
+        let selectionLength = selectedRange().length
+        items += [
+            .action("Undo", systemImage: "arrow.uturn.backward", isEnabled: undoManager?.canUndo == true, action: {
+                self.undoManager?.undo()
+            }),
+            .action("Redo", systemImage: "arrow.uturn.forward", isEnabled: undoManager?.canRedo == true, action: {
+                self.undoManager?.redo()
+            }),
+            .separator,
+            .action("Cut", systemImage: "scissors", isEnabled: isEditable && selectionLength > 0, action: {
+                self.cut(nil)
+            }),
+            .action("Copy", systemImage: "doc.on.doc", isEnabled: selectionLength > 0, action: {
+                self.copy(nil)
+            }),
+            .action("Paste", systemImage: "doc.on.clipboard", isEnabled: isEditable, action: {
+                self.paste(nil)
+            }),
+            .action("Select All", systemImage: "selection.pin.in.out", isEnabled: !string.isEmpty, action: {
+                self.selectAll(nil)
+            })
+        ]
+        return items
     }
 
     func languageContextMenuItems() -> [NSMenuItem] {
@@ -3664,6 +3759,38 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     }
 }
 
+private enum JavaInitialImportFold {
+    private static let pattern = #"(?m)^[ \t]*import[ \t]+[^;]+;[ \t]*$"#
+
+    static func region(in source: NSString) -> JavaFoldRegion? {
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let matches = expression.matches(
+            in: source as String,
+            range: NSRange(location: 0, length: source.length)
+        )
+        guard matches.count >= 2,
+              let first = matches.first,
+              let last = matches.last else { return nil }
+
+        let firstLine = source.lineRange(for: NSRange(location: first.range.location, length: 0))
+        let lastLine = source.lineRange(for: NSRange(location: last.range.location, length: 0))
+        let hiddenStart = NSMaxRange(firstLine)
+        let hiddenEnd = NSMaxRange(lastLine)
+        return JavaFoldRegion(
+            kind: .imports,
+            startLine: lineNumber(in: source, at: first.range.location),
+            endLine: lineNumber(in: source, at: last.range.location),
+            hiddenRange: NSRange(location: hiddenStart, length: hiddenEnd - hiddenStart)
+        )
+    }
+
+    private static func lineNumber(in source: NSString, at location: Int) -> Int {
+        source.substring(to: min(location, source.length)).reduce(into: 0) { count, character in
+            if character == "\n" { count += 1 }
+        }
+    }
+}
+
 @MainActor
 final class EditorContainerView: NSView {
     weak var scrollView: NSScrollView?
@@ -3765,7 +3892,7 @@ final class LineNumberGutterView: NSView {
         self.textView = textView
         self.scrollView = scrollView
         wantsLayer = true
-        layer?.backgroundColor = palette.gutterBackground.cgColor
+        layer?.backgroundColor = NSColor.clear.cgColor
         refreshLineNumberLayout()
         scrollView.contentView.postsBoundsChangedNotifications = true
         boundsObserver = NotificationCenter.default.addObserver(
@@ -4118,7 +4245,12 @@ final class LineNumberGutterView: NSView {
             }
             if lineNumber - 1 == currentLine {
                 palette.currentLine.setFill()
-                NSRect(x: 0, y: y, width: bounds.width, height: lineRect.height).fill()
+                NSRect(
+                    x: bounds.minX + EditorLayoutMetrics.currentLineHorizontalInset,
+                    y: y,
+                    width: max(0, bounds.width - EditorLayoutMetrics.currentLineHorizontalInset * 2),
+                    height: lineRect.height
+                ).fill()
             }
             if !isBlameVisible,
                hoveredDebugBreakpointLine == lineNumber - 1 {
@@ -4713,23 +4845,37 @@ final class LineNumberGutterView: NSView {
             return super.menu(for: event)
         }
         contextGitLineChange = marker
-        let menu = NSMenu(title: "Git Line Change")
-        menu.addItem(withTitle: "Show Git Diff", action: #selector(showGitLineChangeFromMenu), keyEquivalent: "")
-        menu.items.last?.target = self
+        guard let window else { return nil }
+        var items: [LitheContextMenuItem] = [
+            .action("Show Git Diff", systemImage: "doc.text.magnifyingglass", action: { [weak self] in
+                self?.showGitLineChangeFromMenu()
+            })
+        ]
         if onStageGitLineChange != nil {
-            menu.addItem(withTitle: "Stage Change Block", action: #selector(stageGitLineChangeFromMenu), keyEquivalent: "")
-            menu.items.last?.target = self
+            items.append(.action("Stage Change Block", systemImage: "plus.square", action: { [weak self] in
+                self?.stageGitLineChangeFromMenu()
+            }))
         }
         if onUnstageGitLineChange != nil {
-            menu.addItem(withTitle: "Unstage Change Block", action: #selector(unstageGitLineChangeFromMenu), keyEquivalent: "")
-            menu.items.last?.target = self
+            items.append(.action("Unstage Change Block", systemImage: "arrow.uturn.backward", action: { [weak self] in
+                self?.unstageGitLineChangeFromMenu()
+            }))
         }
         if onDiscardGitLineChange != nil {
-            menu.addItem(.separator())
-            menu.addItem(withTitle: "Discard Change Block…", action: #selector(discardGitLineChangeFromMenu), keyEquivalent: "")
-            menu.items.last?.target = self
+            items += [
+                .separator,
+                .action("Discard Change Block…", systemImage: "trash", role: .destructive, action: { [weak self] in
+                    self?.discardGitLineChangeFromMenu()
+                })
+            ]
         }
-        return menu
+        LitheContextMenuPresenter.shared.show(
+            items: items,
+            at: window.convertPoint(toScreen: event.locationInWindow),
+            appearance: effectiveAppearance,
+            locale: Locale.current
+        )
+        return nil
     }
 
     func debugBreakpointContextMenu(forLine line: Int) -> NSMenu? {

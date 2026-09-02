@@ -97,6 +97,7 @@ struct LitheScrollViewChrome: NSViewRepresentable {
         nsView.alwaysShowVertical = alwaysShowVertical
         nsView.usesCompactScrollers = usesCompactScrollers
         nsView.configureEnclosingScrollView()
+        nsView.needsDisplay = true
     }
 
     final class ScrollViewProbe: NSView {
@@ -144,6 +145,23 @@ struct LitheScrollViewChrome: NSViewRepresentable {
             if !scrollView.hasVerticalScroller {
                 scrollView.hasVerticalScroller = true
             }
+            // Persistent scrollers require legacy style because AppKit owns
+            // overlay fade behavior. Non-persistent scrollers remain overlay.
+            let scrollerStyle: NSScroller.Style = alwaysShowVertical ? .legacy : .overlay
+            if scrollView.scrollerStyle != scrollerStyle {
+                scrollView.scrollerStyle = scrollerStyle
+            }
+            if scrollView.autohidesScrollers != !alwaysShowVertical {
+                scrollView.autohidesScrollers = !alwaysShowVertical
+            }
+            let isDark = scrollView.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let knobStyle: NSScroller.KnobStyle = isDark ? .light : .dark
+            if scrollView.verticalScroller?.knobStyle != knobStyle {
+                scrollView.verticalScroller?.knobStyle = knobStyle
+            }
+            if scrollView.horizontalScroller?.knobStyle != knobStyle {
+                scrollView.horizontalScroller?.knobStyle = knobStyle
+            }
             if usesCompactScrollers {
                 if !(scrollView.verticalScroller is CompactScroller) {
                     scrollView.verticalScroller = CompactScroller()
@@ -162,22 +180,6 @@ struct LitheScrollViewChrome: NSViewRepresentable {
                     scroller?.wantsLayer = true
                     scroller?.layer?.backgroundColor = NSColor.clear.cgColor
                 }
-            }
-
-            // Persistent scrollers require legacy style because AppKit owns
-            // overlay fade behavior. Non-persistent scrollers remain overlay.
-            let scrollerStyle: NSScroller.Style = alwaysShowVertical ? .legacy : .overlay
-            if scrollView.scrollerStyle != scrollerStyle {
-                scrollView.scrollerStyle = scrollerStyle
-            }
-            if scrollView.autohidesScrollers != !alwaysShowVertical {
-                scrollView.autohidesScrollers = !alwaysShowVertical
-            }
-            if scrollView.verticalScroller?.knobStyle != .dark {
-                scrollView.verticalScroller?.knobStyle = .dark
-            }
-            if scrollView.horizontalScroller?.knobStyle != .dark {
-                scrollView.horizontalScroller?.knobStyle = .dark
             }
             let controlSize: NSControl.ControlSize = usesCompactScrollers ? .mini : .regular
             if scrollView.verticalScroller?.controlSize != controlSize {
@@ -275,11 +277,11 @@ struct LitheScrollViewChrome: NSViewRepresentable {
             guard knobRect.width > 0, knobRect.height > 0 else { return }
 
             let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            let sidebar = LitheTheme.nsColor(.sidebar, isDark: isDark)
             let secondaryText = LitheTheme.nsColor(.secondaryText, isDark: isDark)
-            let thumbColor = sidebar.blended(withFraction: 0.28, of: secondaryText)
-                ?? secondaryText
-            thumbColor.withAlphaComponent(0.95).setFill()
+            let thumbColor = isDark && LitheTheme.activeTheme == .lithe
+                ? NSColor(srgbRed: 67.0 / 255.0, green: 67.0 / 255.0, blue: 67.0 / 255.0, alpha: 1)
+                : secondaryText.withAlphaComponent(isDark ? 0.62 : 0.36)
+            thumbColor.setFill()
             NSBezierPath(
                 roundedRect: knobRect,
                 xRadius: min(2.5, knobRect.width / 2),

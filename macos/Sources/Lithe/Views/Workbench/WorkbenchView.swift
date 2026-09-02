@@ -4,8 +4,7 @@ import LitheGitModule
 
 enum WorkbenchLayoutMetrics {
     static let rightActivityBarWidth: CGFloat = 40
-    static let rightActivityBarDividerWidth: CGFloat = 1
-    static let workspaceTrailingInset = rightActivityBarWidth + rightActivityBarDividerWidth
+    static let workspaceTrailingInset = rightActivityBarWidth
 }
 
 private enum ActivityBarMetrics {
@@ -19,9 +18,11 @@ private enum ActivityBarMetrics {
 }
 
 private enum WorkbenchWorkspaceMetrics {
-    static let paneInset: CGFloat = 6
+    static let paneInset: CGFloat = 0
     static let paneSpacing: CGFloat = 6
     static let paneCornerRadius: CGFloat = 10
+    static let minimumTopPaneHeight: CGFloat = 220
+    static let changesMinimumTopPaneHeight: CGFloat = 332
 }
 
 private enum WorkbenchPopoverLayoutMetrics {
@@ -92,18 +93,13 @@ struct WorkbenchView: View {
     var body: some View {
         VStack(spacing: 0) {
             topBar
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
             if projectSessions.openProjects.count > 1 {
                 projectTabBar
-                Rectangle().fill(LitheTheme.divider).frame(height: 1)
             }
 
             HStack(spacing: 0) {
                 activityBar
-                Rectangle()
-                    .fill(LitheTheme.divider)
-                    .frame(width: 1)
                 workspaceArea
                     .padding(.trailing, WorkbenchLayoutMetrics.workspaceTrailingInset)
             }
@@ -112,7 +108,6 @@ struct WorkbenchView: View {
                 rightHoverRegion
             }
 
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
             statusBar
         }
         .background {
@@ -303,17 +298,53 @@ struct WorkbenchView: View {
                 }
             }
         }
-        .overlay(alignment: .bottom) {
-            if let message = model.notificationMessage {
-                Text(LocalizedStringKey(message))
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(LitheTheme.primaryText)
-                    .padding(.horizontal, 14)
-                    .frame(height: 34)
-                    .background(LitheTheme.raised)
-                    .clipShape(RoundedRectangle(cornerRadius: 7))
-                    .shadow(color: .black.opacity(0.35), radius: 12, y: 4)
-                    .padding(.bottom, 38)
+        .overlay(alignment: .bottomTrailing) {
+            if !model.activeNotifications.isEmpty {
+                VStack(alignment: .trailing, spacing: 8) {
+                    ForEach(model.activeNotifications) { notification in
+                        HStack(alignment: .center, spacing: 10) {
+                            Image(systemName: "info.circle.fill")
+                                .font(.system(size: 14))
+                                .foregroundStyle(LitheTheme.accent)
+
+                            Text(LocalizedStringKey(notification.message))
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(LitheTheme.primaryText)
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            Spacer(minLength: 4)
+
+                            Button {
+                                model.dismissNotification(notification.id)
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(LitheTheme.tertiaryText)
+                            }
+                            .buttonStyle(.plain)
+                            .frame(width: 16, height: 16)
+                            .contentShape(Rectangle())
+                            .litheRowHover(cornerRadius: LitheTheme.Metrics.cornerRadius, animation: nil)
+                            .accessibilityLabel("Dismiss notification")
+                        }
+                        .padding(.leading, 12)
+                        .padding(.trailing, 6)
+                        .padding(.vertical, 10)
+                        .frame(minWidth: 280, maxWidth: 360, alignment: .topLeading)
+                        .background(LitheTheme.notificationBackground)
+                        .clipShape(RoundedRectangle(cornerRadius: 7))
+                        .contentShape(RoundedRectangle(cornerRadius: 7))
+                        .onContinuousHover(coordinateSpace: .local) { phase in
+                            if case .active = phase {
+                                NSCursor.arrow.set()
+                            }
+                        }
+                    }
+                }
+                .contentShape(Rectangle())
+                .onHover { model.setNotificationStackHovered($0) }
+                .padding(.trailing, WorkbenchLayoutMetrics.rightActivityBarWidth + 12)
+                .padding(.bottom, 38)
             }
         }
         .overlay {
@@ -486,11 +517,6 @@ struct WorkbenchView: View {
                 key: ProjectSwitcherButtonBoundsPreferenceKey.self,
                 value: .bounds
             ) { $0 }
-
-            Rectangle()
-                .fill(LitheTheme.divider)
-                .frame(width: 1, height: 20)
-                .padding(.horizontal, 5)
 
             Button {
                 updateSwitcherPresentation(
@@ -1108,9 +1134,6 @@ struct WorkbenchView: View {
                     }
                 }
             }
-            Rectangle()
-                .fill(LitheTheme.divider)
-                .frame(width: 1)
             pluginActivityBar
         }
         .fixedSize(horizontal: true, vertical: false)
@@ -1216,6 +1239,12 @@ struct WorkbenchView: View {
         WorkbenchWorkspaceSplitView(
             sidebarWidth: sidebarWidth,
             topPaneHeight: topPaneHeight,
+            sidebarPaneBackground: model.selectedSidebar == .changes
+                ? LitheTheme.toolHeader
+                : LitheTheme.editor,
+            minimumTopPaneHeight: model.selectedSidebar == .changes
+                ? WorkbenchWorkspaceMetrics.changesMinimumTopPaneHeight
+                : WorkbenchWorkspaceMetrics.minimumTopPaneHeight,
             isBottomToolVisible: isBottomToolVisible,
             onSidebarWidthCommitted: { width in
                 sidebarWidth = width
@@ -1495,10 +1524,6 @@ private struct WorkbenchNotificationCenterView: View {
             .padding(.horizontal, 14)
             .frame(height: 38)
 
-            Rectangle()
-                .fill(LitheTheme.divider)
-                .frame(height: 1)
-
             if model.notifications.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "bell")
@@ -1558,6 +1583,8 @@ private struct WorkbenchNotificationCenterView: View {
 private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTool: View>: View {
     let sidebarWidth: CGFloat
     let topPaneHeight: CGFloat?
+    let sidebarPaneBackground: Color
+    let minimumTopPaneHeight: CGFloat
     let isBottomToolVisible: Bool
     let onSidebarWidthCommitted: (CGFloat) -> Void
     let onTopPaneHeightCommitted: (CGFloat) -> Void
@@ -1576,6 +1603,8 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
     init(
         sidebarWidth: CGFloat,
         topPaneHeight: CGFloat?,
+        sidebarPaneBackground: Color,
+        minimumTopPaneHeight: CGFloat,
         isBottomToolVisible: Bool,
         onSidebarWidthCommitted: @escaping (CGFloat) -> Void,
         onTopPaneHeightCommitted: @escaping (CGFloat) -> Void,
@@ -1588,6 +1617,8 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
     ) {
         self.sidebarWidth = sidebarWidth
         self.topPaneHeight = topPaneHeight
+        self.sidebarPaneBackground = sidebarPaneBackground
+        self.minimumTopPaneHeight = minimumTopPaneHeight
         self.isBottomToolVisible = isBottomToolVisible
         self.onSidebarWidthCommitted = onSidebarWidthCommitted
         self.onTopPaneHeightCommitted = onTopPaneHeightCommitted
@@ -1604,10 +1635,11 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
 
     var body: some View {
         GeometryReader { geometry in
+            let horizontalPaneInset = WorkbenchWorkspaceMetrics.paneInset + 1
             let availableTopWidth = max(
                 0,
                 geometry.size.width
-                    - (WorkbenchWorkspaceMetrics.paneInset * 2)
+                    - (horizontalPaneInset * 2)
                     - WorkbenchWorkspaceMetrics.paneSpacing
             )
             let minimumSidebarWidth: CGFloat = 220
@@ -1622,7 +1654,6 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                 maximum: maximumSidebarWidth
             )
 
-            let minimumTopPaneHeight: CGFloat = 220
             let minimumGitPaneHeight: CGFloat = 260
             let maximumTopPaneHeight = max(
                 minimumTopPaneHeight,
@@ -1643,7 +1674,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                             .frame(width: resolvedSidebarWidth)
                             .frame(maxHeight: .infinity)
                             .workbenchPaneChrome(
-                                background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
+                                background: hasWorkbenchBackground ? Color.clear : sidebarPaneBackground,
                                 surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
                                 roundsCorners: !hasWorkbenchBackground
                             )
@@ -1655,7 +1686,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                                 roundsCorners: !hasWorkbenchBackground
                             )
                     }
-                    .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
+                    .padding(.horizontal, horizontalPaneInset)
                     .padding(.top, WorkbenchWorkspaceMetrics.paneInset)
                     .padding(
                         .bottom,
@@ -1685,13 +1716,16 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                                 onSidebarWidthCommitted(finalWidth)
                             }
                         )
+                        .frame(maxHeight: .infinity)
                         .padding(.top, WorkbenchWorkspaceMetrics.paneInset)
                         .padding(
                             .bottom,
                             isBottomToolVisible ? 0 : WorkbenchWorkspaceMetrics.paneInset
                         )
+                        .contentShape(Rectangle())
+                        .zIndex(1)
                         .offset(
-                            x: WorkbenchWorkspaceMetrics.paneInset
+                            x: horizontalPaneInset
                                 + resolvedSidebarWidth
                                 + WorkbenchWorkspaceMetrics.paneSpacing / 2
                                 - SplitHandleView.thickness / 2
@@ -1707,7 +1741,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                                 surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
                                 roundsCorners: !hasWorkbenchBackground
                             )
-                            .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
+                            .padding(.horizontal, horizontalPaneInset)
                             .padding(.bottom, WorkbenchWorkspaceMetrics.paneInset)
                             .frame(maxHeight: .infinity)
                     }
@@ -1737,7 +1771,10 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                             onTopPaneHeightCommitted(finalHeight)
                         }
                     )
-                    .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, horizontalPaneInset)
+                    .contentShape(Rectangle())
+                    .zIndex(1)
                     .offset(
                         y: resolvedTopPaneHeight
                             + WorkbenchWorkspaceMetrics.paneSpacing / 2
