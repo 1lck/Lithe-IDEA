@@ -128,6 +128,20 @@ brew install --cask 1lck/lithe/lithe
 brew upgrade --cask lithe
 ```
 
+### If macOS says it cannot open `Lithe.app`
+
+If macOS says that Apple cannot verify whether `Lithe.app` contains malware, the manually downloaded package may not yet be notarized by Apple. First confirm that the app came from the trusted [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest), then use one of these methods:
+
+1. In **Applications**, Control-click `Lithe.app`, choose **Open**, and choose **Open** again in the confirmation dialog.
+2. If macOS still blocks it, open **System Settings > Privacy & Security**, click **Open Anyway** next to the security warning, and launch the app again.
+3. You can also remove the quarantine attribute in Terminal:
+
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/Lithe.app
+   ```
+
+Only use these steps for an app whose source you trust. Homebrew installations usually do not require manual quarantine removal.
+
 Java features require JDK 17 or newer. Release packages include Eclipse JDT Language Server, so JDTLS does not need to be installed separately.
 
 ## Architecture Overview

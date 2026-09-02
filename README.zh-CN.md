@@ -128,6 +128,20 @@ brew install --cask 1lck/lithe/lithe
 brew upgrade --cask lithe
 ```
 
+### macOS 提示“无法打开 Lithe.app”
+
+如果 macOS 提示“Apple 无法验证 Lithe.app 是否包含可能危害 Mac 安全或泄漏隐私的恶意软件”，通常是因为手动下载的安装包尚未经过 Apple 公证。请先确认应用来自可信的 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest)，然后选择以下任一方式：
+
+1. 在“应用程序”中按住 Control 键点按 `Lithe.app`，选择“打开”，再在确认对话框中选择“打开”。
+2. 如果仍被阻止，打开“系统设置 > 隐私与安全性”，在安全性提示旁点按“仍要打开”，然后再次启动应用。
+3. 也可以在终端中移除下载文件的隔离标记：
+
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/Lithe.app
+   ```
+
+上述命令只应对你确认来源可靠的应用使用；通过 Homebrew 安装通常不需要手动执行这些步骤。
+
 Java 功能需要 JDK 17 或更高版本。正式安装包已包含 Eclipse JDT Language Server，无需单独安装 JDTLS。
 
 ## 架构概览
