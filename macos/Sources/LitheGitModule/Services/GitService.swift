@@ -129,10 +129,34 @@ package protocol GitOperations: Sendable {
 
 package typealias GitWatchContextProviding = LitheCoreContracts.GitWatchContextProviding
 
+private actor GitHistoryCache {
+    private struct Key: Hashable {
+        let rootPath: String
+        let reference: String?
+        let limit: Int
+    }
+
+    private var values: [Key: GitHistorySnapshot] = [:]
+
+    func value(rootURL: URL, reference: GitReference?, limit: Int) -> GitHistorySnapshot? {
+        values[Key(rootPath: rootURL.standardizedFileURL.path, reference: reference?.fullName, limit: limit)]
+    }
+
+    func insert(_ snapshot: GitHistorySnapshot, rootURL: URL, reference: GitReference?, limit: Int) {
+        let key = Key(rootPath: rootURL.standardizedFileURL.path, reference: reference?.fullName, limit: limit)
+        values[key] = snapshot
+        // Keep this process-local cache bounded while retaining the most useful recent queries.
+        if values.count > 24, let oldestKey = values.keys.first {
+            values.removeValue(forKey: oldestKey)
+        }
+    }
+}
+
 /// UI-facing Git service. Git command construction, validation, parsing, and
 /// process execution live behind the shared Rust operations port.
 package struct GitService: Sendable {
     private let operations: any GitOperations
+    private let historyCache = GitHistoryCache()
 
     package init(operations: any GitOperations) {
         self.operations = operations
@@ -191,7 +215,9 @@ package struct GitService: Sendable {
         _ worktree: GitWorktree,
         reference: GitReference?
     ) async -> GitWorktreeInspection? {
-        async let history = history(at: worktree.url, reference: reference, limit: 300)
+        // The detail pane should become useful quickly; the feature model can
+        // request a larger window after this first paint.
+        async let history = history(at: worktree.url, reference: reference, limit: 30)
         async let snapshot = snapshot(for: worktree.url)
         let resolvedHistory = await history
         // A linked worktree can occasionally have a transiently unreadable
@@ -379,9 +405,17 @@ package struct GitService: Sendable {
         reference: GitReference? = nil,
         limit: Int = 300
     ) async -> GitHistorySnapshot {
-        await read(priority: .utility) {
+        if let cached = await historyCache.value(rootURL: repositoryRoot, reference: reference, limit: limit) {
+            return cached
+        }
+        let snapshot = await read(priority: .utility) {
             $0.history(at: repositoryRoot, reference: reference, limit: limit)
-        } ?? GitHistorySnapshot(references: [], commits: [], hasMore: false)
+        }
+        if let snapshot {
+            await historyCache.insert(snapshot, rootURL: repositoryRoot, reference: reference, limit: limit)
+            return snapshot
+        }
+        return GitHistorySnapshot(references: [], commits: [], hasMore: false)
     }
 
     func files(in commit: GitCommit, at repositoryRoot: URL) async -> [GitCommitFile]? {

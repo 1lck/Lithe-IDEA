@@ -1678,6 +1678,27 @@ package final class GitFeatureModel: ObservableObject {
         if let inspection {
             gitWorktreeInspection = inspection
             gitWorktreeInspectionLoadState = .ready
+
+            // Do not make the first detail render wait for the full history.
+            // The larger window is fetched after the lightweight inspection
+            // has already populated the pane, and stale selections are ignored.
+            guard inspection.commits.count >= 30 else { return }
+            Task { [weak self] in
+                guard let self else { return }
+                let fullHistory = await self.service.history(
+                    at: worktree.url,
+                    reference: reference,
+                    limit: 300
+                )
+                guard generation == self.worktreeInspectionRequestGeneration,
+                      self.gitWorktreeInspection?.worktreeID == worktree.id,
+                      !Task.isCancelled else { return }
+                self.gitWorktreeInspection = GitWorktreeInspection(
+                    worktreeID: worktree.id,
+                    changes: inspection.changes,
+                    commits: fullHistory.commits
+                )
+            }
         } else {
             gitWorktreeInspection = nil
             gitWorktreeInspectionLoadState = .failed("Could not inspect this worktree")
