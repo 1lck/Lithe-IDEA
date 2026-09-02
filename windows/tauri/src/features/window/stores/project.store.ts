@@ -6,7 +6,6 @@ import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { getFolderName } from "@/utils/path-helpers";
 import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.store";
-import { useProjectStore } from "@/features/window/stores/project.store";
 import { createTranslator } from "@/i18n/locale";
 import { getProjectDisplayLabel } from "../utils/project-display-label";
 
