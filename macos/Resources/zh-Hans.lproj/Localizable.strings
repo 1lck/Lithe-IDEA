@@ -1364,6 +1364,7 @@
 "Checkout path" = "检出路径";
 "Worktree destination" = "工作树目标路径";
 "Choose Parent…" = "选择父目录…";
+"Use AI worktree directory (/private/tmp)" = "使用 AI 工作树目录（/private/tmp）";
 "Recommended: keep worktrees in a persistent folder next to the repository. You can choose /private/tmp manually for disposable checkouts." = "建议将工作树放在仓库旁的持久目录中。临时检出时可以手动选择 /private/tmp。";
 "Created worktree for %@" = "已为 %@ 创建工作树";
 "Removed %@" = "已删除 %@";

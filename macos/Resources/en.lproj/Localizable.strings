@@ -202,6 +202,7 @@
 "Checkout path" = "Checkout path";
 "Worktree destination" = "Worktree destination";
 "Choose Parent…" = "Choose Parent…";
+"Use AI worktree directory (/private/tmp)" = "Use AI worktree directory (/private/tmp)";
 "Recommended: keep worktrees in a persistent folder next to the repository. You can choose /private/tmp manually for disposable checkouts." = "Recommended: keep worktrees in a persistent folder next to the repository. You can choose /private/tmp manually for disposable checkouts.";
 "Create" = "Create";
 "Enter a branch name" = "Enter a branch name";

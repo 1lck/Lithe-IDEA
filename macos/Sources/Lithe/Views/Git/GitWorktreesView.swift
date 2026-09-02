@@ -933,6 +933,7 @@ private struct GitWorktreeCreateView: View {
     @State private var destinationPath = ""
     @State private var destinationWasEdited = false
     @State private var revision = ""
+    @State private var useAIWorktreeDirectory = false
     @FocusState private var branchFieldFocused: Bool
 
     var body: some View {
@@ -982,6 +983,12 @@ private struct GitWorktreeCreateView: View {
                     }
                     .lithePointer()
                 }
+                Toggle("Use AI worktree directory (/private/tmp)", isOn: $useAIWorktreeDirectory)
+                    .toggleStyle(.checkbox)
+                    .onChange(of: useAIWorktreeDirectory) { _ in
+                        destinationWasEdited = false
+                        updateSuggestedDestination(force: true)
+                    }
                 Text("Recommended: keep worktrees in a persistent folder next to the repository. You can choose /private/tmp manually for disposable checkouts.")
                     .font(.system(size: 10.5))
                     .foregroundStyle(LitheTheme.tertiaryText)
@@ -1059,8 +1066,10 @@ private struct GitWorktreeCreateView: View {
 
     private func updateSuggestedDestination(force: Bool = false) {
         guard force || !destinationWasEdited else { return }
-        destinationPath = repositoryRoot
-            .deletingLastPathComponent()
+        let parent = useAIWorktreeDirectory
+            ? URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+            : repositoryRoot.deletingLastPathComponent()
+        destinationPath = parent
             .appendingPathComponent(suggestedDirectoryName)
             .path
         destinationWasEdited = false
