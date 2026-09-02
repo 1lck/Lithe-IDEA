@@ -12,6 +12,8 @@ const appendOutput = mock(() => undefined);
 const finishProcess = mock(() => undefined);
 const releaseRunSessionWorkspace = mock(() => undefined);
 
+const actualRunStore = await import("../stores/run.store");
+
 mock.module("@tauri-apps/api/webviewWindow", () => ({
   getCurrentWebviewWindow: () => ({
     label: "project-window",
@@ -20,6 +22,7 @@ mock.module("@tauri-apps/api/webviewWindow", () => ({
 }));
 mock.module("@tauri-apps/api/event", () => ({ listen: globalListen }));
 mock.module("../stores/run.store", () => ({
+  ...actualRunStore,
   runStoreForSession: () => ({
     getState: () => ({
       actions: { appendOutput, finishProcess },
