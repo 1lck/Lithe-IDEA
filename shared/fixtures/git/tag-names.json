@@ -1,0 +1,35 @@
+{
+  "protocolVersion": 1,
+  "valid": [
+    "v1",
+    "v1.0.0",
+    "release-2026.08",
+    "feature/x",
+    "a/b/c",
+    "v1_rc1"
+  ],
+  "invalid": [
+    "",
+    "   ",
+    "a..b",
+    "-v1",
+    "a b",
+    "v~1",
+    "a:b",
+    "a?b",
+    "a*b",
+    "a[b",
+    "a\\b",
+    "@{x",
+    "a//b",
+    "a.lock",
+    ".hidden",
+    "@",
+    "head/",
+    "x/../y",
+    "foo/.bar",
+    "foo/bar.lock",
+    "a/.b/c",
+    "x/./y"
+  ]
+}

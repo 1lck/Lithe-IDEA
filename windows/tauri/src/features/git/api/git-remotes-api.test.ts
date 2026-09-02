@@ -112,6 +112,7 @@ describe("Git remote Pull API", () => {
       fullName: "refs/remotes/team/origin/feature/orders",
       shortName: "team/origin/feature/orders",
       kind: "remote",
+      peelsToCommit: true,
       isCurrent: false,
     };
     await deleteRemoteBranch("C:/repo", reference);

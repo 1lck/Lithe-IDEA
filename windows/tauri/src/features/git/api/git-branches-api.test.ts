@@ -31,6 +31,7 @@ describe("Git branch reference mutations", () => {
     fullName: "refs/remotes/origin/feature/orders",
     shortName: "origin/feature/orders",
     kind: "remote" as const,
+    peelsToCommit: true,
     isCurrent: false,
   };
 
@@ -109,6 +110,7 @@ describe("Git branch reference mutations", () => {
       fullName: "refs/remotes/origin/main",
       shortName: "origin/main",
       kind: "remote" as const,
+      peelsToCommit: true,
       isCurrent: false,
     };
     await setBranchUpstream("C:/repo", "main", upstream);

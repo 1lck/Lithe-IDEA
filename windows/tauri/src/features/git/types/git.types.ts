@@ -34,6 +34,7 @@ export interface GitReference {
   fullName: string;
   shortName: string;
   kind: GitReferenceKind;
+  peelsToCommit: boolean;
   isCurrent: boolean;
   upstreamShortName?: string;
   ahead?: number;

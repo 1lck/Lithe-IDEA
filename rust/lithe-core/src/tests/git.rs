@@ -1513,6 +1513,479 @@ fn git_write_executes_checkout_preflight_clone_and_validation() {
 }
 
 #[test]
+fn git_write_creates_deletes_and_records_tags() {
+    let root = temporary_root("git-tags");
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q"]).status.success());
+    assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    fs::write(root.join("example.txt"), "initial\n").expect("file should be writable");
+    assert!(run(&["add", "example.txt"]).status.success());
+    assert!(run(&["commit", "-qm", "initial"]).status.success());
+    let head = String::from_utf8_lossy(&run(&["rev-parse", "HEAD"]).stdout)
+        .trim()
+        .to_string();
+
+    let request = |operation: &str, payload: Value| -> Value {
+        let request = serde_json::json!({
+            "id": operation,
+            "command": "git.write",
+            "payload": {
+                "root": root,
+                "operation": operation,
+                "paths": [],
+                "reference": null,
+                "referenceKind": null,
+                "revision": null,
+                "name": null,
+                "message": null,
+                "remote": null,
+                "destination": null,
+                "mode": null,
+                "includeUntracked": false,
+                "checkout": false,
+                "amend": false
+            }
+        });
+        let mut request = request;
+        if let Value::Object(overrides) = payload {
+            for (key, value) in overrides {
+                request["payload"][key.as_str()] = value;
+            }
+        }
+        serde_json::from_str(&execute_json(
+            &serde_json::to_string(&request).expect("write request should encode"),
+        ))
+        .expect("write response should be JSON")
+    };
+
+    // A lightweight tag points straight at the target commit and never
+    // carries the structured deletion record.
+    let lightweight = request(
+        "createTag",
+        serde_json::json!({"name": "v1.0", "revision": "HEAD"}),
+    );
+    assert_eq!(lightweight["ok"], true, "{lightweight:?}");
+    assert!(lightweight["data"].get("tagDeletion").is_none());
+    assert_eq!(
+        String::from_utf8_lossy(&run(&["rev-parse", "refs/tags/v1.0"]).stdout).trim(),
+        head
+    );
+
+    // An annotation creates a tag object whose CRLF and trailing blank lines
+    // must survive the later delete/restore round trip byte for byte.
+    let annotated = request(
+        "createTag",
+        serde_json::json!({
+            "name": "v2.0",
+            "revision": "HEAD",
+            "message": "release\r\n\r\nsecond paragraph\r\n\r\n"
+        }),
+    );
+    assert_eq!(annotated["ok"], true, "{annotated:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&run(&["cat-file", "-t", "refs/tags/v2.0"]).stdout).trim(),
+        "tag"
+    );
+    let annotated_tag_object =
+        String::from_utf8_lossy(&run(&["rev-parse", "refs/tags/v2.0"]).stdout)
+            .trim()
+            .to_string();
+
+    // An empty name is a missing required field. The format matrix below is
+    // shared with the macOS dialog through `tag-names.json`, so both sides
+    // reject exactly the same names: `git check-ref-format` refname rules,
+    // per-component checks such as `foo/.bar`, and the command-line guards.
+    // Each rejection must happen before any subprocess so the error stays a
+    // plain invalid_request envelope.
+    let tag_names: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../shared/fixtures/git/tag-names.json"
+    )))
+    .expect("tag name fixture should be valid JSON");
+    let empty = request(
+        "createTag",
+        serde_json::json!({"name": "", "revision": "HEAD"}),
+    );
+    assert_eq!(empty["ok"], false, "{empty:?}");
+    assert_eq!(empty["error"]["code"], "invalid_request");
+    assert_eq!(empty["error"]["message"], "Missing or invalid Git tag name");
+    for name in tag_names["invalid"].as_array().expect("invalid list") {
+        let name = name.as_str().expect("invalid name should be a string");
+        let response = request(
+            "createTag",
+            serde_json::json!({"name": name, "revision": "HEAD"}),
+        );
+        assert_eq!(response["ok"], false, "name {name:?}: {response:?}");
+        assert_eq!(
+            response["error"]["code"], "invalid_request",
+            "name {name:?}"
+        );
+    }
+    for name in tag_names["valid"].as_array().expect("valid list") {
+        let name = name.as_str().expect("valid name should be a string");
+        let response = request(
+            "createTag",
+            serde_json::json!({"name": name, "revision": "HEAD"}),
+        );
+        assert_eq!(response["ok"], true, "name {name:?}: {response:?}");
+    }
+
+    // A duplicate name is a structured operation error so callers can show it
+    // in place instead of parsing Git's stderr.
+    let duplicate = request(
+        "createTag",
+        serde_json::json!({"name": "v1.0", "revision": "HEAD"}),
+    );
+    assert_eq!(duplicate["ok"], true, "{duplicate:?}");
+    assert_eq!(
+        duplicate["data"]["operationError"]["code"],
+        "invalid_request"
+    );
+    assert_eq!(
+        duplicate["data"]["operationError"]["message"],
+        "A tag named 'v1.0' already exists"
+    );
+
+    let unresolvable = request(
+        "createTag",
+        serde_json::json!({"name": "v3.0", "revision": "no-such-revision"}),
+    );
+    assert_eq!(unresolvable["ok"], true, "{unresolvable:?}");
+    assert_eq!(
+        unresolvable["data"]["operationError"]["code"],
+        "invalid_request"
+    );
+    assert_eq!(
+        unresolvable["data"]["operationError"]["message"],
+        "Could not resolve tag target 'no-such-revision'"
+    );
+
+    // Tree and blob revisions are valid Git objects but not valid targets for
+    // this commit-only contract. Neither rejection may leave a tag behind.
+    let tree = String::from_utf8_lossy(&run(&["rev-parse", "HEAD^{tree}"]).stdout)
+        .trim()
+        .to_string();
+    let blob = String::from_utf8_lossy(&run(&["hash-object", "example.txt"]).stdout)
+        .trim()
+        .to_string();
+    for (name, revision) in [("tree-target", tree), ("blob-target", blob)] {
+        let response = request(
+            "createTag",
+            serde_json::json!({"name": name, "revision": revision}),
+        );
+        assert_eq!(response["ok"], true, "{response:?}");
+        assert_eq!(
+            response["data"]["operationError"]["message"],
+            format!("Could not resolve tag target '{revision}'")
+        );
+        assert_ne!(
+            run(&[
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                &format!("refs/tags/{name}")
+            ])
+            .status
+            .code(),
+            Some(0)
+        );
+    }
+
+    // Deleting a lightweight tag reports the commit it pointed at.
+    let delete_lightweight = request("deleteTag", serde_json::json!({"name": "v1.0"}));
+    assert_eq!(delete_lightweight["ok"], true, "{delete_lightweight:?}");
+    assert_eq!(delete_lightweight["data"]["exitCode"], 0);
+    assert_eq!(delete_lightweight["data"]["tagDeletion"]["name"], "v1.0");
+    assert_eq!(
+        delete_lightweight["data"]["tagDeletion"]["kind"],
+        "lightweight"
+    );
+    assert_eq!(
+        delete_lightweight["data"]["tagDeletion"]["deletedTarget"],
+        head
+    );
+    assert!(delete_lightweight["data"]["invocations"]
+        .as_array()
+        .expect("tag deletion invocations should be an array")
+        .iter()
+        .any(|invocation| {
+            invocation["arguments"]
+                == serde_json::json!(["update-ref", "-d", "refs/tags/v1.0", head])
+        }));
+    assert!(delete_lightweight["data"]["tagDeletion"]
+        .get("message")
+        .is_none());
+    assert!(
+        run(&["rev-parse", "--verify", "--quiet", "refs/tags/v1.0"])
+            .status
+            .code()
+            != Some(0)
+    );
+
+    // Deleting an annotated tag carries the peeled commit and the original
+    // annotation so a restore can rebuild the message byte for byte.
+    let delete_annotated = request("deleteTag", serde_json::json!({"name": "v2.0"}));
+    assert_eq!(delete_annotated["ok"], true, "{delete_annotated:?}");
+    let deletion = &delete_annotated["data"]["tagDeletion"];
+    assert_eq!(deletion["name"], "v2.0");
+    assert_eq!(deletion["kind"], "annotated");
+    assert_eq!(
+        deletion["message"],
+        "release\r\n\r\nsecond paragraph\r\n\r\n"
+    );
+    assert_eq!(deletion["deletedTarget"], head);
+    assert!(delete_annotated["data"]["invocations"]
+        .as_array()
+        .expect("annotated tag deletion invocations should be an array")
+        .iter()
+        .any(|invocation| {
+            invocation["arguments"]
+                == serde_json::json!(["update-ref", "-d", "refs/tags/v2.0", annotated_tag_object])
+        }));
+
+    // Deleting a missing tag fails with the stable not-exist message.
+    let missing = request("deleteTag", serde_json::json!({"name": "v1.0"}));
+    assert_eq!(missing["ok"], true, "{missing:?}");
+    assert_eq!(missing["data"]["operationError"]["code"], "invalid_request");
+    assert_eq!(
+        missing["data"]["operationError"]["message"],
+        "The tag 'v1.0' does not exist"
+    );
+
+    // Restoring reuses createTag with the recorded target and message, so the
+    // rebuilt annotation must match the original message exactly.
+    let restore = request(
+        "createTag",
+        serde_json::json!({
+            "name": deletion["name"],
+            "revision": deletion["deletedTarget"],
+            "message": deletion["message"]
+        }),
+    );
+    assert_eq!(restore["ok"], true, "{restore:?}");
+    let restored_object = run(&["cat-file", "tag", "refs/tags/v2.0"]);
+    assert!(restored_object
+        .stdout
+        .ends_with(b"\n\nrelease\r\n\r\nsecond paragraph\r\n\r\n"));
+
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
+fn git_write_records_the_deleted_branch_target() {
+    let root = temporary_root("git-branch-delete");
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q", "-b", "main"]).status.success());
+    assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    fs::write(root.join("example.txt"), "initial\n").expect("file should be writable");
+    assert!(run(&["add", "example.txt"]).status.success());
+    assert!(run(&["commit", "-qm", "initial"]).status.success());
+    assert!(run(&["branch", "feature/short-lived"]).status.success());
+    assert!(run(&[
+        "config",
+        "branch.feature/short-lived.description",
+        "temporary"
+    ])
+    .status
+    .success());
+    let head = String::from_utf8_lossy(&run(&["rev-parse", "HEAD"]).stdout)
+        .trim()
+        .to_string();
+
+    let request = |operation: &str, payload: Value| -> Value {
+        let request = serde_json::json!({
+            "id": operation,
+            "command": "git.write",
+            "payload": {
+                "root": root,
+                "operation": operation,
+                "paths": [],
+                "reference": null,
+                "referenceKind": null,
+                "revision": null,
+                "name": null,
+                "message": null,
+                "remote": null,
+                "destination": null,
+                "mode": null,
+                "includeUntracked": false,
+                "checkout": false,
+                "amend": false
+            }
+        });
+        let mut request = request;
+        if let Value::Object(overrides) = payload {
+            for (key, value) in overrides {
+                request["payload"][key.as_str()] = value;
+            }
+        }
+        serde_json::from_str(&execute_json(
+            &serde_json::to_string(&request).expect("write request should encode"),
+        ))
+        .expect("write response should be JSON")
+    };
+
+    // A successful branch deletion carries the commit the branch pointed at so
+    // the host can offer a restore, exactly like the tag deletion record.
+    let deletion = request(
+        "deleteBranch",
+        serde_json::json!({"reference": "refs/heads/feature/short-lived"}),
+    );
+    assert_eq!(deletion["ok"], true, "{deletion:?}");
+    assert_eq!(deletion["data"]["exitCode"], 0);
+    assert_eq!(
+        deletion["data"]["branchDeletion"]["name"], "feature/short-lived",
+        "{deletion:?}"
+    );
+    assert_eq!(deletion["data"]["branchDeletion"]["deletedTarget"], head);
+    assert!(deletion["data"]["invocations"]
+        .as_array()
+        .expect("branch deletion invocations should be an array")
+        .iter()
+        .any(|invocation| {
+            invocation["arguments"]
+                == serde_json::json!(["update-ref", "-d", "refs/heads/feature/short-lived", head])
+        }));
+    assert!(deletion["data"].get("tagDeletion").is_none());
+    assert_ne!(
+        run(&["config", "--get", "branch.feature/short-lived.description"])
+            .status
+            .code(),
+        Some(0),
+        "branch-local configuration should be removed with the ref"
+    );
+
+    // Deleting a missing branch fails with the stable not-exist message.
+    let missing = request(
+        "deleteBranch",
+        serde_json::json!({"reference": "refs/heads/feature/short-lived"}),
+    );
+    assert_eq!(missing["ok"], true, "{missing:?}");
+    assert_eq!(missing["data"]["operationError"]["code"], "invalid_request");
+    assert_eq!(
+        missing["data"]["operationError"]["message"],
+        "The branch 'feature/short-lived' does not exist"
+    );
+
+    // Restoring replays createBranch against the recorded commit.
+    let restore = request(
+        "createBranch",
+        serde_json::json!({
+            "reference": deletion["data"]["branchDeletion"]["deletedTarget"],
+            "name": "feature/short-lived",
+            "checkout": false
+        }),
+    );
+    assert_eq!(restore["ok"], true, "{restore:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&run(&["rev-parse", "refs/heads/feature/short-lived"]).stdout)
+            .trim(),
+        head
+    );
+
+    // A config lock can make metadata cleanup fail after the expected-OID ref
+    // deletion has already succeeded. The response must still carry recovery
+    // data so hosts can offer Restore alongside the cleanup warning.
+    assert!(run(&["branch", "feature/config-locked"]).status.success());
+    assert!(run(&[
+        "config",
+        "branch.feature/config-locked.description",
+        "temporary"
+    ])
+    .status
+    .success());
+    let config_lock = root.join(".git/config.lock");
+    fs::write(&config_lock, "locked\n").expect("config lock should be creatable");
+    let cleanup_warning = request(
+        "deleteBranch",
+        serde_json::json!({"reference": "refs/heads/feature/config-locked"}),
+    );
+    fs::remove_file(config_lock).expect("config lock should be removable");
+    assert_eq!(cleanup_warning["ok"], true, "{cleanup_warning:?}");
+    assert!(cleanup_warning["data"].get("operationError").is_none());
+    assert_eq!(
+        cleanup_warning["data"]["warnings"][0]["code"],
+        "branch_config_cleanup_failed"
+    );
+    assert_eq!(
+        cleanup_warning["data"]["branchDeletion"]["name"], "feature/config-locked",
+        "{cleanup_warning:?}"
+    );
+    assert_eq!(
+        cleanup_warning["data"]["branchDeletion"]["deletedTarget"],
+        head
+    );
+    assert_ne!(
+        run(&[
+            "show-ref",
+            "--verify",
+            "--quiet",
+            "refs/heads/feature/config-locked"
+        ])
+        .status
+        .code(),
+        Some(0)
+    );
+
+    // Atomic deletion must retain the safety contract of `git branch -d` and
+    // refuse a branch whose tip is not merged into its upstream or HEAD.
+    assert!(run(&["switch", "-q", "feature/short-lived"])
+        .status
+        .success());
+    fs::write(root.join("feature.txt"), "unmerged\n").expect("file should be writable");
+    assert!(run(&["add", "feature.txt"]).status.success());
+    assert!(run(&["commit", "-qm", "unmerged branch work"])
+        .status
+        .success());
+    assert!(run(&["switch", "-q", "main"]).status.success());
+    let unmerged = request(
+        "deleteBranch",
+        serde_json::json!({"reference": "refs/heads/feature/short-lived"}),
+    );
+    assert_eq!(unmerged["ok"], true, "{unmerged:?}");
+    assert_eq!(
+        unmerged["data"]["operationError"]["code"],
+        "invalid_request"
+    );
+    assert_eq!(
+        unmerged["data"]["operationError"]["message"],
+        "The branch 'feature/short-lived' is not fully merged"
+    );
+    assert!(run(&[
+        "show-ref",
+        "--verify",
+        "--quiet",
+        "refs/heads/feature/short-lived"
+    ])
+    .status
+    .success());
+
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
 fn git_write_rolls_back_large_selected_path_set_without_command_line_overflow() {
     let root = temporary_root("git-write-large-rollback");
     fs::create_dir_all(root.join("bulk")).expect("temporary repository should be creatable");
@@ -2317,6 +2790,16 @@ fn git_history_returns_references_and_commit_graph_fields() {
     assert!(run(&["add", "example.txt"]).status.success());
     assert!(run(&["commit", "-qm", "initial"]).status.success());
 
+    assert!(run(&["tag", "commit-tag", "HEAD"]).status.success());
+    let tree = String::from_utf8_lossy(&run(&["rev-parse", "HEAD^{tree}"]).stdout)
+        .trim()
+        .to_string();
+    assert!(run(&["tag", "tree-tag", &tree]).status.success());
+    let blob = String::from_utf8_lossy(&run(&["hash-object", "example.txt"]).stdout)
+        .trim()
+        .to_string();
+    assert!(run(&["tag", "blob-tag", &blob]).status.success());
+
     let commit_hash = String::from_utf8_lossy(&run(&["rev-parse", "HEAD"]).stdout)
         .trim()
         .to_string();
@@ -2415,6 +2898,19 @@ fn git_history_returns_references_and_commit_graph_fields() {
         .expect("references should be an array")
         .iter()
         .any(|reference| reference["kind"] == "local"));
+    for (name, expected) in [
+        ("commit-tag", true),
+        ("tree-tag", false),
+        ("blob-tag", false),
+    ] {
+        let reference = response["data"]["references"]
+            .as_array()
+            .expect("references should be an array")
+            .iter()
+            .find(|reference| reference["shortName"] == name)
+            .expect("tag reference should be present");
+        assert_eq!(reference["peelsToCommit"], expected, "tag {name}");
+    }
 
     fs::remove_dir_all(root).expect("temporary workspace should be removable");
 }
