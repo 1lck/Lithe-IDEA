@@ -224,6 +224,9 @@ extension AppModel {
     var gitReferences: [GitReference] { gitFeatureIfActive?.gitReferences ?? [] }
     var recentGitReferences: [GitReference] { gitFeatureIfActive?.recentGitReferences ?? [] }
     var gitCommits: [GitCommit] { gitFeatureIfActive?.gitCommits ?? [] }
+    /// Cheap stand-in for `gitCommits` as a change key. Comparing the array
+    /// itself made every `.task(id:)` evaluation walk the whole commit list.
+    var gitCommitsVersion: Int { gitFeatureIfActive?.gitCommitsVersion ?? 0 }
     var gitLogMatchedCommitHashes: Set<String>? {
         gitFeatureIfActive?.gitLogMatchedCommitHashes
     }
