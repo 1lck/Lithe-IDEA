@@ -219,23 +219,36 @@ function handleOperationFailed(event: Record<string, unknown>) {
 }
 
 async function requestThreads(sessionId: string) {
-  const result = await sendDebugAdapterRequest(sessionId, "threads");
-  registerContext(result.operationId, { command: "threads" });
+  const operationId = createOperationId();
+  registerContext(operationId, { command: "threads" });
+  await sendDebugAdapterRequest(sessionId, "threads", undefined, operationId);
 }
 
 async function requestStackTrace(sessionId: string, threadId: number) {
-  const result = await sendDebugAdapterRequest(sessionId, "stackTrace", { threadId });
-  registerContext(result.operationId, { command: "stackTrace", threadId });
+  const operationId = createOperationId();
+  registerContext(operationId, { command: "stackTrace", threadId });
+  await sendDebugAdapterRequest(sessionId, "stackTrace", { threadId }, operationId);
 }
 
 async function requestScopes(sessionId: string, frameId: number) {
-  const result = await sendDebugAdapterRequest(sessionId, "scopes", { frameId });
-  registerContext(result.operationId, { command: "scopes", frameId });
+  const operationId = createOperationId();
+  registerContext(operationId, { command: "scopes", frameId });
+  await sendDebugAdapterRequest(sessionId, "scopes", { frameId }, operationId);
 }
 
 async function requestVariables(sessionId: string, variablesReference: number) {
-  const result = await sendDebugAdapterRequest(sessionId, "variables", { variablesReference });
-  registerContext(result.operationId, { command: "variables", variablesReference });
+  const operationId = createOperationId();
+  registerContext(operationId, { command: "variables", variablesReference });
+  await sendDebugAdapterRequest(sessionId, "variables", { variablesReference }, operationId);
+}
+
+let operationCounter = 0;
+function createOperationId(): string {
+  if (Object.keys(useDebuggerStore.getState().pendingRequests).length === 0) {
+    operationCounter = 0;
+  }
+  operationCounter += 1;
+  return `debug-op-${operationCounter}`;
 }
 
 function registerContext(operationId: string, context: DebugRequestContext) {

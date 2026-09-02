@@ -27,12 +27,20 @@ export async function sendDebugAdapterRequest(
   sessionId: string,
   command: string,
   argumentsPayload?: unknown,
+  operationId?: string,
 ): Promise<DebugCommandResult> {
   return await invoke<DebugCommandResult>("debug_send_request", {
     sessionId,
     command,
     arguments: argumentsPayload,
+    operationId,
   });
+}
+
+let operationCounter = 0;
+export function createDebugOperationId(): string {
+  operationCounter += 1;
+  return `ui-debug-op-${operationCounter}`;
 }
 
 export async function stopDebugAdapterSession(sessionId: string): Promise<void> {
@@ -48,10 +56,11 @@ export async function startDebugLaunchSession(
     throw new Error("Debug configuration is missing adapterCommand");
   }
 
+  const effectiveCwd = config.cwd ?? workspacePath;
   const session = await startDebugAdapterSession({
     command: config.adapterCommand,
     args: config.adapterArgs ?? [],
-    cwd: config.cwd,
+    cwd: effectiveCwd,
     env: config.env,
     workspacePath,
   });
@@ -63,7 +72,7 @@ export async function startDebugLaunchSession(
     type: config.type ?? config.runtime,
     request: config.request ?? "launch",
     program: config.program,
-    cwd: config.cwd,
+    cwd: effectiveCwd,
     args: config.args ?? [],
     env: config.env ?? {},
   });

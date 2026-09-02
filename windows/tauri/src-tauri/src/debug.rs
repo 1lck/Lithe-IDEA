@@ -89,6 +89,8 @@ pub struct DebugSendRequest {
     pub command: String,
     #[serde(default)]
     pub arguments: Value,
+    #[serde(default)]
+    pub operation_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -250,10 +252,12 @@ pub async fn debug_send_request(
             .ok_or_else(|| "The debug session is no longer active.".to_string())?;
         (session.pid, session.stdin.clone())
     };
-    let operation_id = format!(
-        "debug-op-{}",
-        OPERATION_COUNTER.fetch_add(1, Ordering::Relaxed)
-    );
+    let operation_id = request.operation_id.unwrap_or_else(|| {
+        format!(
+            "debug-op-{}",
+            OPERATION_COUNTER.fetch_add(1, Ordering::Relaxed)
+        )
+    });
     let (core_command, payload) = translate_request(
         &request.session_id,
         &request.command,
@@ -300,8 +304,14 @@ pub async fn debug_stop_workspace_sessions(
     app: AppHandle,
     workspace_path: String,
 ) -> Result<(), String> {
+    let mut failures = Vec::new();
     for session_id in matching_workspace_sessions(&workspace_path) {
-        stop_session(&app, &session_id).await?;
+        if let Err(error) = stop_session(&app, &session_id).await {
+            failures.push(error);
+        }
+    }
+    if let Some(error) = failures.into_iter().next() {
+        return Err(error);
     }
     Ok(())
 }
@@ -665,15 +675,12 @@ fn spawn_stdout_reader<T: Read + Send + 'static>(
         loop {
             match stream.read(&mut buffer) {
                 Ok(0) => {
+                    // EOF is not itself a failure: a normally exiting adapter
+                    // closes stdout before the exit waiter can publish its
+                    // exit code. Terminate a still-live process so a broken
+                    // adapter cannot leave the session registered forever.
                     if is_current_session(&session_id, pid) {
-                        fail_session(
-                            &app,
-                            &session_id,
-                            pid,
-                            &format!(
-                                "Debug adapter {pid} (session {session_id}) closed its output stream unexpectedly."
-                            ),
-                        );
+                        kill_adapter_process(pid);
                     }
                     break;
                 }
@@ -691,6 +698,11 @@ fn spawn_stdout_reader<T: Read + Send + 'static>(
                     ) {
                         Ok(update) => {
                             if !is_current_session(&session_id, pid) {
+                                break;
+                            }
+                            if update_state_failed(&update) {
+                                let message = session_failure_message(&update);
+                                fail_session(&app, &session_id, pid, &message);
                                 break;
                             }
                             if let Err(error) = write_outbound_frames(&stdin, &update) {

@@ -79,7 +79,7 @@ test("stopped events pause the session and cascade into stack trace requests", a
   });
   expect(sendDebugAdapterRequest).toHaveBeenCalledWith("session-1", "stackTrace", {
     threadId: 3,
-  });
+  }, "debug-op-1");
   expect(state.pendingRequests["debug-op-1"]).toEqual({
     command: "stackTrace",
     threadId: 3,
@@ -104,7 +104,7 @@ test("normalized thread results fill the thread list and cascade further", async
   expect(state.pendingRequests["threads-op"]).toBeUndefined();
   expect(sendDebugAdapterRequest).toHaveBeenCalledWith("session-1", "stackTrace", {
     threadId: 1,
-  });
+  }, "debug-op-1");
   expect(state.pendingRequests["debug-op-1"]).toEqual({
     command: "stackTrace",
     threadId: 1,

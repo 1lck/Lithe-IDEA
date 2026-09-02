@@ -22,6 +22,7 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
 import { joinPath } from "@/utils/path-helpers";
 import {
+  createDebugOperationId,
   sendDebugAdapterRequest,
   startDebugLaunchSession,
   stopDebugAdapterSession,
@@ -302,8 +303,9 @@ export default function DebuggerView() {
 
     if (activeSession?.id) {
       try {
-        const result = await sendDebugAdapterRequest(activeSession.id, "scopes", { frameId });
-        debuggerActions.registerAdapterRequest(result.operationId, { command: "scopes", frameId });
+        const operationId = createDebugOperationId();
+        debuggerActions.registerAdapterRequest(operationId, { command: "scopes", frameId });
+        await sendDebugAdapterRequest(activeSession.id, "scopes", { frameId }, operationId);
       } catch {
         // Some adapters may not allow scope requests after the session moves on.
       }
