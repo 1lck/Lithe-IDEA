@@ -54,18 +54,43 @@ struct GitWorktreesView: View {
     @State private var searchText = ""
     @State private var selectedWorktreeID: String?
     @State private var activeSection = WorktreeSection.overview
+    @State private var worktreeListWidth = Visual.listWidth
+    @State private var quickInfoPaneWidth = Visual.quickInfoWidth
+    @State private var leftDividerDragStart: CGFloat?
+    @State private var rightDividerDragStart: CGFloat?
 
     var body: some View {
         GeometryReader { geometry in
             HStack(spacing: 0) {
                 worktreeListPane
-                    .frame(width: min(Visual.listWidth, max(286, geometry.size.width * 0.29)))
-                Divider()
+                    .frame(width: worktreeListWidth)
+                resizableDivider(
+                    gesture: DragGesture(minimumDistance: 1)
+                        .onChanged { value in
+                            let start = leftDividerDragStart ?? worktreeListWidth
+                            leftDividerDragStart = start
+                            worktreeListWidth = min(
+                                max(286, start + value.translation.width),
+                                max(420, geometry.size.width - quickInfoPaneWidth - 500)
+                            )
+                        }
+                        .onEnded { _ in leftDividerDragStart = nil }
+                )
                 worktreeDetailPane
                 if geometry.size.width >= Visual.quickInfoThreshold {
-                    Divider()
-                    quickInfoPane
-                        .frame(width: Visual.quickInfoWidth)
+                    resizableDivider(
+                        gesture: DragGesture(minimumDistance: 1)
+                            .onChanged { value in
+                                let start = rightDividerDragStart ?? quickInfoPaneWidth
+                                rightDividerDragStart = start
+                                quickInfoPaneWidth = min(
+                                    max(220, start - value.translation.width),
+                                    max(360, geometry.size.width - worktreeListWidth - 500)
+                                )
+                            }
+                            .onEnded { _ in rightDividerDragStart = nil }
+                    )
+                    quickInfoPane.frame(width: quickInfoPaneWidth)
                 }
             }
         }
@@ -149,6 +174,16 @@ struct GitWorktreesView: View {
         } message: {
             Text("This removes Git registrations whose checkout directories no longer exist. It does not delete branches.")
         }
+    }
+
+    private func resizableDivider<G: Gesture>(gesture: G) -> some View {
+        ZStack {
+            Divider()
+            Color.clear
+        }
+        .frame(width: 7)
+        .contentShape(Rectangle())
+        .gesture(gesture)
     }
 
     private var worktreeListPane: some View {
