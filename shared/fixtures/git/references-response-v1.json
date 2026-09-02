@@ -1,0 +1,44 @@
+{
+  "references": [
+    {
+      "fullName": "refs/heads/feature/recent",
+      "shortName": "feature/recent",
+      "kind": "local",
+      "isCurrent": true,
+      "upstreamShortName": null,
+      "ahead": 0,
+      "behind": 0
+    },
+    {
+      "fullName": "refs/heads/main",
+      "shortName": "main",
+      "kind": "local",
+      "isCurrent": false,
+      "upstreamShortName": "origin/main",
+      "ahead": 2,
+      "behind": 1
+    }
+  ],
+  "recentReferences": [
+    {
+      "fullName": "refs/heads/feature/recent",
+      "shortName": "feature/recent",
+      "kind": "local",
+      "isCurrent": true,
+      "upstreamShortName": null,
+      "ahead": 0,
+      "behind": 0
+    },
+    {
+      "fullName": "refs/heads/main",
+      "shortName": "main",
+      "kind": "local",
+      "isCurrent": false,
+      "upstreamShortName": "origin/main",
+      "ahead": 2,
+      "behind": 1
+    }
+  ],
+  "userName": "Lithe Test",
+  "userEmail": "test@example.invalid"
+}

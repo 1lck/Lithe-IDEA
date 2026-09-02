@@ -288,6 +288,13 @@ without leaking an unusable absolute path or macOS security-scoped bookmark.
 Search and Git examples are kept in `shared/fixtures/`. New behavior should
 add a fixture before adding a second platform implementation.
 
+Git history clients load reference metadata independently from bounded commit
+pages. The first page may load concurrently with references, but later pages
+append through Core's opaque `nextCursor` while continuing the same bounded Git
+log stream. Changing repositories or references and closing the history view
+cancels the owning `operationID` and closes any retained cursor; a late result
+cannot replace the active selection and its returned cursor is also closed.
+
 Run configuration behavior is exposed through the `runConfig.*` commands.
 Platform clients coordinate inspection, generation, resolution, typed document
 edits, and launch planning, but must not implement a second JSON merger,

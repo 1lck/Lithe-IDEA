@@ -2590,6 +2590,129 @@ fn git_history_returns_bounded_recent_checkout_order_and_stable_fallback() {
 }
 
 #[test]
+fn git_history_page_returns_disjoint_incremental_pages() {
+    struct RemoveOnDrop(std::path::PathBuf);
+
+    impl Drop for RemoveOnDrop {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    let root = temporary_root("git-history-pages");
+    let _cleanup = RemoveOnDrop(root.clone());
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q"]).status.success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    for index in 0..4 {
+        fs::write(root.join("example.txt"), format!("{index}\n"))
+            .expect("test file should be writable");
+        assert!(run(&["add", "example.txt"]).status.success());
+        assert!(run(&["commit", "-qm", &format!("commit-{index}")])
+            .status
+            .success());
+    }
+
+    let execute_page = |id: &str, cursor: Option<&str>| {
+        let request = serde_json::json!({
+            "id": id,
+            "command": "git.historyPage",
+            "payload": {
+                "root": root,
+                "reference": "HEAD",
+                "cursor": cursor,
+                "limit": 2
+            }
+        });
+        serde_json::from_str::<Value>(&execute_json(
+            &serde_json::to_string(&request).expect("history page request should encode"),
+        ))
+        .expect("history page response should be JSON")
+    };
+
+    let first = execute_page("history-page-1", None);
+    let cursor = first["data"]["nextCursor"]
+        .as_str()
+        .expect("first page should return a cursor")
+        .to_string();
+    let second = execute_page("history-page-2", Some(&cursor));
+    let subjects = |response: &Value| {
+        response["data"]["commits"]
+            .as_array()
+            .expect("commits should be an array")
+            .iter()
+            .map(|commit| {
+                commit["subject"]
+                    .as_str()
+                    .expect("commit subject should be text")
+                    .to_string()
+            })
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(subjects(&first), ["commit-3", "commit-2"]);
+    assert_eq!(first["data"]["nextCursor"], cursor);
+    assert_eq!(first["data"]["hasMore"], true);
+    assert_eq!(subjects(&second), ["commit-1", "commit-0"]);
+    assert_eq!(second["data"]["nextCursor"], Value::Null);
+    assert_eq!(second["data"]["hasMore"], false);
+
+    let abandoned = execute_page("history-page-abandoned", None);
+    let abandoned_cursor = abandoned["data"]["nextCursor"]
+        .as_str()
+        .expect("unfinished page should return a cursor");
+    let close_request = serde_json::json!({
+        "id": "history-cursor-close",
+        "command": "git.historyCursorClose",
+        "payload": {"root": root, "cursor": abandoned_cursor}
+    });
+    let close: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&close_request).expect("cursor close request should encode"),
+    ))
+    .expect("cursor close response should be JSON");
+    assert_eq!(close["data"]["closed"], true);
+
+    let legacy_request = serde_json::json!({
+        "id": "history-page-legacy",
+        "command": "git.historyPage",
+        "payload": {"root": root, "reference": "HEAD", "offset": 0, "limit": 2}
+    });
+    let legacy: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&legacy_request).expect("legacy page request should encode"),
+    ))
+    .expect("legacy page response should be JSON");
+    assert_eq!(legacy["data"]["nextOffset"], 2);
+    assert_eq!(legacy["data"].get("nextCursor"), None);
+
+    let references_request = serde_json::json!({
+        "id": "references",
+        "command": "git.references",
+        "payload": {"root": root}
+    });
+    let references: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&references_request).expect("references request should encode"),
+    ))
+    .expect("references response should be JSON");
+    assert_eq!(references["data"]["userName"], "Lithe Test");
+    assert_eq!(references["data"]["userEmail"], "test@example.com");
+    assert!(references["data"]["references"]
+        .as_array()
+        .expect("references should be an array")
+        .iter()
+        .any(|reference| reference["kind"] == "local"));
+}
+
+#[test]
 fn git_conflict_markers_ignore_markdown_headings() {
     let root = temporary_root("git-markers");
     fs::create_dir_all(&root).expect("temporary workspace should be creatable");

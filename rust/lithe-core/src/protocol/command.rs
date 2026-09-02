@@ -207,6 +207,12 @@ pub enum CoreCommand {
     GitApply,
     /// Lists references and bounded commit history (`git.history`).
     GitHistory,
+    /// Lists Git references without repeating commit history (`git.references`).
+    GitReferences,
+    /// Returns one cursor-based commit page (`git.historyPage`).
+    GitHistoryPage,
+    /// Releases an incremental history cursor (`git.historyCursorClose`).
+    GitHistoryCursorClose,
     /// Resolves the destination and commits for a branch push (`git.pushPreview`).
     GitPushPreview,
     /// Resolves metadata for one commit (`git.commit`).
@@ -331,6 +337,9 @@ impl CoreCommand {
             "git.diff" => Some(Self::GitDiff),
             "git.apply" => Some(Self::GitApply),
             "git.history" => Some(Self::GitHistory),
+            "git.references" => Some(Self::GitReferences),
+            "git.historyPage" => Some(Self::GitHistoryPage),
+            "git.historyCursorClose" => Some(Self::GitHistoryCursorClose),
             "git.pushPreview" => Some(Self::GitPushPreview),
             "git.commit" => Some(Self::GitCommit),
             "git.commitFiles" => Some(Self::GitCommitFiles),
