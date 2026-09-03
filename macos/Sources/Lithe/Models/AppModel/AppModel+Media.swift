@@ -13,7 +13,11 @@ extension AppModel {
                     BinaryFileMagicSignature(bytes: Data("GIF89a".utf8))
                 ],
                 open: { [weak self] request in
-                    self?.openMediaFile(request.url, kind: .image)
+                    self?.openMediaFile(
+                        request.url,
+                        kind: .image,
+                        activateWhenReady: request.activateWhenReady
+                    )
                 }
             )
         )
@@ -22,20 +26,34 @@ extension AppModel {
                 identifier: "mac.video",
                 fileExtensions: ["mp4", "mov", "m4v"],
                 open: { [weak self] request in
-                    self?.openMediaFile(request.url, kind: .video)
+                    self?.openMediaFile(
+                        request.url,
+                        kind: .video,
+                        activateWhenReady: request.activateWhenReady
+                    )
                 }
             )
         )
     }
 
-    func openMediaFile(_ url: URL, kind: MediaDocumentKind) {
+    func openMediaFile(
+        _ url: URL,
+        kind: MediaDocumentKind,
+        activateWhenReady: Bool = true
+    ) {
         let normalizedURL = url.standardizedFileURL
-        selectedChange = nil
-        closeBranchComparison()
-        editorNavigationTarget = nil
-        terminalPlacementFeature.activateDocument()
-        activeDocumentID = nil
-        let media = mediaFeature.open(url: normalizedURL, kind: kind)
+        if activateWhenReady {
+            selectedChange = nil
+            closeBranchComparison()
+            editorNavigationTarget = nil
+            terminalPlacementFeature.activateDocument()
+            activeDocumentID = nil
+        }
+        let media = mediaFeature.open(
+            url: normalizedURL,
+            kind: kind,
+            activateWhenReady: activateWhenReady
+        )
         editorTabOrderFeature.moveToEnd(.media(media.id))
     }
 
@@ -47,6 +65,10 @@ extension AppModel {
     }
 
     func closeMediaDocument(_ media: MediaDocument) {
+        if standaloneFileURL?.standardizedFileURL == media.url.standardizedFileURL {
+            closeStandaloneFile()
+            return
+        }
         let mediaItem = EditorTabItem.media(media.id)
         let tabItemsBeforeClose = editorTabItems
         let fallbackItem: EditorTabItem? = {

@@ -31,6 +31,20 @@ struct MediaDocumentFeatureModelTests {
     }
 
     @Test
+    func backgroundMediaOpenPreservesTheCurrentSelection() {
+        let feature = MediaDocumentFeatureModel()
+        let active = feature.open(url: URL(fileURLWithPath: "/tmp/active.png"), kind: .image)
+        let background = feature.open(
+            url: URL(fileURLWithPath: "/tmp/background.png"),
+            kind: .image,
+            activateWhenReady: false
+        )
+
+        #expect(feature.openMediaDocuments.map(\.id) == [active.id, background.id])
+        #expect(feature.activeMediaDocumentID == active.id)
+    }
+
+    @Test
     func closingTheActiveMediaSelectsTheNextDocumentOrLastRemainingDocument() {
         let feature = MediaDocumentFeatureModel()
         let first = feature.open(url: URL(fileURLWithPath: "/tmp/first.png"), kind: .image)
@@ -75,4 +89,54 @@ struct MediaDocumentFeatureModelTests {
         #expect(feature.openMediaDocuments.isEmpty)
         #expect(feature.activeMediaDocumentID == nil)
     }
+
+    @Test
+    func selectingATextDocumentClearsTheActiveMediaDocument() throws {
+        let appModel = makeAppModel()
+        appModel.openMediaFile(URL(fileURLWithPath: "/tmp/image.png"), kind: .image)
+        let documentURL = try #require(URL(string: "lithe-test://documents/Example.swift"))
+
+        appModel.documentFeature.openVirtualDocument(
+            documentURL,
+            text: "let value = 1",
+            displayPath: nil
+        )
+
+        #expect(appModel.activeDocument?.url == documentURL)
+        #expect(appModel.activeMediaDocument == nil)
+    }
+
+    @Test
+    func closingAStandaloneMediaDocumentClosesTheStandaloneFile() throws {
+        let appModel = makeAppModel()
+        let mediaURL = URL(fileURLWithPath: "/tmp/preview.png")
+        appModel.openStandaloneFile(mediaURL)
+        let media = try #require(appModel.activeMediaDocument)
+
+        appModel.closeMediaDocument(media)
+
+        #expect(appModel.standaloneFileURL == nil)
+        #expect(appModel.openMediaDocuments.isEmpty)
+    }
+
+    private func makeAppModel() -> AppModel {
+        let store = MediaDocumentTestStore()
+        let settings = AppSettings(store: store)
+        let services = MacServiceContainer(
+            store: store,
+            settings: settings,
+            moduleLaunchMode: .safeMode
+        ).services
+        return AppModel(settings: settings, services: services)
+    }
+}
+
+private final class MediaDocumentTestStore: KeyValueStore, @unchecked Sendable {
+    private var values: [String: Any] = [:]
+
+    func data(forKey key: String) -> Data? { values[key] as? Data }
+    func object(forKey key: String) -> Any? { values[key] }
+    func string(forKey key: String) -> String? { values[key] as? String }
+    func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
+    func set(_ value: Any?, forKey key: String) { values[key] = value }
 }

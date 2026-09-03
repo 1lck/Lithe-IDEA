@@ -285,7 +285,6 @@ extension AppModel {
 
     func selectEditorDocument(_ document: EditorDocument) {
         terminalPlacementFeature.activateDocument()
-        mediaFeature.deactivate()
         activeDocumentID = document.id
     }
 

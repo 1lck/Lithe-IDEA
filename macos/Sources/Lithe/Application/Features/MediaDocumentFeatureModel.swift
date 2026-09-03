@@ -13,22 +13,31 @@ final class MediaDocumentFeatureModel: ObservableObject {
     }
 
     @discardableResult
-    func open(url: URL, kind: MediaDocumentKind) -> MediaDocument {
+    func open(
+        url: URL,
+        kind: MediaDocumentKind,
+        activateWhenReady: Bool = true
+    ) -> MediaDocument {
         let normalizedURL = url.standardizedFileURL
         if let existing = openMediaDocuments.first(where: {
             $0.url.standardizedFileURL.path == normalizedURL.path
         }) {
-            activeMediaDocumentID = existing.id
+            if activateWhenReady {
+                activeMediaDocumentID = existing.id
+            }
             return existing
         }
 
         let document = MediaDocument(url: normalizedURL, kind: kind)
         openMediaDocuments.append(document)
-        activeMediaDocumentID = document.id
+        if activateWhenReady {
+            activeMediaDocumentID = document.id
+        }
         return document
     }
 
     func deactivate() {
+        guard activeMediaDocumentID != nil else { return }
         activeMediaDocumentID = nil
     }
 

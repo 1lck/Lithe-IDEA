@@ -393,8 +393,9 @@ final class AppModel: ObservableObject, Identifiable {
         activeDocumentSelectionObservation = documentFeature.$activeDocumentID
             .dropFirst()
             .sink { [weak self] documentID in
-                guard documentID != nil else { return }
-                self?.terminalPlacementFeature.activateDocument()
+                guard let self, documentID != nil else { return }
+                terminalPlacementFeature.activateDocument()
+                mediaFeature.deactivate()
             }
         if LitheFeatureAvailability.githubPullRequests {
             Task { [weak self] in
