@@ -80,6 +80,10 @@ package final class GitFeatureModel: ObservableObject {
     @Published package private(set) var gitLogMatchedCommitHashes: Set<String>?
     @Published package private(set) var isFilteringGitLog = false
     @Published package var selectedGitReference: GitReference?
+    /// `nil` is the current checkout when this is false, and all references
+    /// when this is true. Keeping the mode separate prevents the UI from
+    /// highlighting HEAD while the core is actually queried with `--all`.
+    @Published package private(set) var isShowingAllGitReferences = false
     @Published package var selectedGitCommit: GitCommit?
     @Published package private(set) var selectedGitCommitFiles: [GitCommitFile] = []
     @Published package private(set) var selectedGitCommitFilesLoadState =
@@ -261,6 +265,7 @@ package final class GitFeatureModel: ObservableObject {
         hasLoadedInitialGitConsoleEntry = false
         gitConsoleRepositoryGeneration &+= 1
         selectedGitReference = nil
+        isShowingAllGitReferences = false
         selectedGitCommit = nil
         selectedGitCommitFiles = []
         selectedGitCommitFilesLoadState = .idle
@@ -1299,8 +1304,23 @@ package final class GitFeatureModel: ObservableObject {
 
     package func selectGitReference(_ reference: GitReference?) async {
         selectedGitReference = reference
+        isShowingAllGitReferences = reference == nil
         canLoadMoreGitHistory = false
         await refreshGitHistory()
+    }
+
+    package func showAllGitReferences() async {
+        await selectGitReference(nil)
+    }
+
+    private var currentCheckoutHistoryReference: GitReference {
+        GitReference(
+            fullName: "HEAD",
+            shortName: "HEAD",
+            kind: .local,
+            isCurrent: true,
+            upstreamShortName: nil
+        )
     }
 
     package func refreshGitHistory() async {
@@ -1308,6 +1328,10 @@ package final class GitFeatureModel: ObservableObject {
         cancelGitHistoryLoading()
         let generation = gitHistoryGeneration
         let selectedReference = selectedGitReference
+        let showsAllReferences = isShowingAllGitReferences
+        let historyReference = showsAllReferences
+            ? nil
+            : (selectedReference ?? currentCheckoutHistoryReference)
         let referencesOperationID = gitHistoryOperationID(kind: "references", generation: generation)
         let pageOperationID = gitHistoryOperationID(kind: "page", generation: generation)
         activeGitHistoryOperationIDs.formUnion([referencesOperationID, pageOperationID])
@@ -1319,7 +1343,7 @@ package final class GitFeatureModel: ObservableObject {
         )
         async let page = service.historyPage(
             at: gitRepositoryRoot,
-            reference: selectedReference,
+            reference: historyReference,
             cursor: nil,
             limit: Self.gitHistoryPageSize,
             operationID: pageOperationID
@@ -1328,7 +1352,8 @@ package final class GitFeatureModel: ObservableObject {
         activeGitHistoryOperationIDs.subtract([referencesOperationID, pageOperationID])
         guard gitHistoryGeneration == generation,
               self.gitRepositoryRoot == gitRepositoryRoot,
-              selectedGitReference == selectedReference else {
+              selectedGitReference == selectedReference,
+              isShowingAllGitReferences == showsAllReferences else {
             if let cursor = historyPage?.nextCursor {
                 service.closeHistoryCursor(at: gitRepositoryRoot, cursor: cursor)
             }
@@ -1440,13 +1465,17 @@ package final class GitFeatureModel: ObservableObject {
               !isLoadingMoreGitHistory else { return }
         let generation = gitHistoryGeneration
         let selectedReference = selectedGitReference
+        let showsAllReferences = isShowingAllGitReferences
+        let historyReference = showsAllReferences
+            ? nil
+            : (selectedReference ?? currentCheckoutHistoryReference)
         let operationID = gitHistoryOperationID(kind: "page-more", generation: generation)
         activeGitHistoryOperationIDs.insert(operationID)
         isLoadingMoreGitHistory = true
         gitHistoryCursor = nil
         let page = await service.historyPage(
             at: gitRepositoryRoot,
-            reference: selectedReference,
+            reference: historyReference,
             cursor: cursor,
             limit: Self.gitHistoryPageSize,
             operationID: operationID
@@ -1454,7 +1483,8 @@ package final class GitFeatureModel: ObservableObject {
         activeGitHistoryOperationIDs.remove(operationID)
         guard gitHistoryGeneration == generation,
               self.gitRepositoryRoot == gitRepositoryRoot,
-              selectedGitReference == selectedReference else {
+              selectedGitReference == selectedReference,
+              isShowingAllGitReferences == showsAllReferences else {
             if let cursor = page?.nextCursor {
                 service.closeHistoryCursor(at: gitRepositoryRoot, cursor: cursor)
             }
@@ -1741,6 +1771,29 @@ package final class GitFeatureModel: ObservableObject {
         }
     }
 
+    private func worktreeHistoryReference(for worktree: GitWorktree) -> GitReference? {
+        if let branch = worktree.branch {
+            return gitReferences.first { $0.fullName == branch }
+                ?? GitReference(
+                    fullName: branch,
+                    shortName: worktree.branchName ?? branch,
+                    kind: .local,
+                    isCurrent: worktree.isCurrent,
+                    upstreamShortName: nil
+                )
+        }
+        // A detached worktree must follow its own checkout. Passing nil would
+        // make Core use `--all`, which silently replaces this worktree's HEAD
+        // history with the repository-wide reference graph.
+        return GitReference(
+            fullName: "HEAD",
+            shortName: "HEAD",
+            kind: .local,
+            isCurrent: worktree.isCurrent,
+            upstreamShortName: nil
+        )
+    }
+
     package func inspectWorktree(_ worktree: GitWorktree) async {
         worktreeInspectionRequestGeneration &+= 1
         let generation = worktreeInspectionRequestGeneration
@@ -1770,7 +1823,7 @@ package final class GitFeatureModel: ObservableObject {
         }
 
         gitWorktreeInspectionLoadState = .loading
-        let reference = gitReferences.first { $0.fullName == worktree.branch }
+        let reference = worktreeHistoryReference(for: worktree)
         // History is the primary content of this pane. Start it independently
         // from the worktree status scan so a slow or unreadable index cannot
         // keep the commit list behind the loading state.
@@ -1848,7 +1901,7 @@ package final class GitFeatureModel: ObservableObject {
               inspection.hasMoreCommits,
               !Task.isCancelled else { return }
         let generation = worktreeInspectionRequestGeneration
-        let reference = gitReferences.first { $0.fullName == worktree.branch }
+        let reference = worktreeHistoryReference(for: worktree)
         let nextLimit = inspection.commits.count + 50
         let history = await service.history(at: worktree.url, reference: reference, limit: nextLimit)
         guard generation == worktreeInspectionRequestGeneration,
@@ -1910,13 +1963,25 @@ package final class GitFeatureModel: ObservableObject {
                 worktree.displayName
             )
             : trimmedMessage(result))
-        if result.succeeded, gitWorktreeInspection?.worktreeID == worktree.id {
-            // Clear deleted checkout details before the registry refresh so
-            // the UI cannot keep rendering a removed path.
-            gitWorktreeInspection = nil
-            gitWorktreeInspectionLoadState = .idle
+        if result.succeeded {
+            if gitWorktreeInspection?.worktreeID == worktree.id {
+                // Clear deleted checkout details before the registry refresh so
+                // the UI cannot keep rendering a removed path.
+                gitWorktreeInspection = nil
+                gitWorktreeInspectionLoadState = .idle
+            }
+            if let removedBranch = worktree.branch,
+               selectedGitReference?.fullName == removedBranch {
+                // Removing a checkout keeps its branch, but the log should no
+                // longer remain scoped to the checkout the user just removed.
+                selectedGitReference = nil
+                isShowingAllGitReferences = false
+            }
         }
         await refreshWorktrees()
+        if result.succeeded {
+            await refreshGitHistory()
+        }
     }
 
     package func setWorktreeLocked(_ worktree: GitWorktree, locked: Bool) async {
@@ -1982,6 +2047,7 @@ package final class GitFeatureModel: ObservableObject {
         isPerformingBranchOperation = false
         if result.succeeded {
             selectedGitReference = nil
+            isShowingAllGitReferences = false
             notify?(checkout ? "Created and checked out \(name)" : "Created branch \(name)")
             await refreshGit()
         } else {
@@ -2003,6 +2069,7 @@ package final class GitFeatureModel: ObservableObject {
         isPerformingBranchOperation = false
         if result.succeeded {
             selectedGitReference = nil
+            isShowingAllGitReferences = false
             closeBranchComparison()
             notify?("Renamed branch to \(name)")
             await refreshGit()
@@ -2662,6 +2729,7 @@ package final class GitFeatureModel: ObservableObject {
         isPerformingBranchOperation = false
         if result.succeeded {
             selectedGitReference = nil
+            isShowingAllGitReferences = false
             closeBranchComparison()
             if autoStash {
                 notify?("Checked out \(reference.shortName) and restored local changes")
@@ -2681,6 +2749,7 @@ package final class GitFeatureModel: ObservableObject {
                 // A smart checkout can switch branches and still fail to restore the stash,
                 // so re-read Git rather than assuming the working tree is unchanged.
                 selectedGitReference = nil
+                isShowingAllGitReferences = false
                 closeBranchComparison()
                 await refreshGit()
             }
@@ -2721,6 +2790,7 @@ package final class GitFeatureModel: ObservableObject {
         }
 
         selectedGitReference = nil
+        isShowingAllGitReferences = false
         closeBranchComparison()
         await refreshGit()
         isPerformingShelfOperation = true
@@ -2741,6 +2811,7 @@ package final class GitFeatureModel: ObservableObject {
         isPerformingBranchOperation = false
         if result.succeeded {
             selectedGitReference = nil
+            isShowingAllGitReferences = false
             closeBranchComparison()
             notify?("Checked out \(rawRevision) in detached HEAD")
             await refreshGit()

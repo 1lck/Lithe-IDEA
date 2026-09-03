@@ -1768,6 +1768,82 @@ struct GitModuleTests {
     }
 
     @Test
+    func successfulWorktreeRemovalResetsItsLogScopeAndRefreshesGitState() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let removedWorktree = makeTestWorktree(path: "/workspace-maim", branch: "maim")
+        let remainingWorktree = GitWorktree(
+            path: root.path,
+            head: "2222222222222222222222222222222222222222",
+            branch: "refs/heads/preview",
+            isCurrent: true,
+            isPrimary: true,
+            isBare: false,
+            isDetached: false,
+            isLocked: false,
+            lockReason: nil,
+            isPrunable: false,
+            pruneReason: nil
+        )
+        let preview = GitReference(
+            fullName: "refs/heads/preview",
+            shortName: "preview",
+            kind: .local,
+            isCurrent: true,
+            upstreamShortName: nil
+        )
+        let maim = GitReference(
+            fullName: "refs/heads/maim",
+            shortName: "maim",
+            kind: .local,
+            isCurrent: false,
+            upstreamShortName: nil
+        )
+        let currentCommit = makeTestCommit(
+            hash: "2222222222222222",
+            subject: "Current checkout history"
+        )
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "preview", changes: []),
+            referencesValue: GitReferenceSnapshot(
+                references: [preview, maim],
+                recentReferences: [preview, maim]
+            ),
+            historyPageValues: [
+                "": GitHistoryPage(
+                    commits: [currentCommit],
+                    nextCursor: nil,
+                    hasMore: false
+                )
+            ],
+            removeWorktreeResult: GitProcessResult(
+                arguments: ["worktree", "remove", "--", removedWorktree.path],
+                output: "",
+                exitCode: 0
+            )
+        ))
+        let feature = GitFeatureModel(
+            service: service,
+            worktreesProvider: { _ in [remainingWorktree] }
+        )
+        feature.configure(
+            workspaceURLProvider: { root },
+            isGitLogVisibleProvider: { false },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+        await feature.refreshGit()
+        feature.selectedGitReference = maim
+
+        await feature.removeWorktree(removedWorktree, force: false)
+
+        #expect(feature.selectedGitReference == nil)
+        #expect(!feature.isShowingAllGitReferences)
+        #expect(feature.gitWorktrees == [remainingWorktree])
+        #expect(feature.gitReferences == [preview, maim])
+        #expect(feature.gitCommits == [currentCommit])
+    }
+
+    @Test
     func gitConsolePreservesStandardErrorColorForSuccessfulCommands() {
         let entry = GitConsoleEntry(
             workingDirectory: URL(fileURLWithPath: "/workspace"),
@@ -2560,6 +2636,7 @@ private struct TestGitOperations: GitOperations {
     private let deleteBranchResult: GitProcessResult?
     private let deleteBranchResults: GitProcessResultQueue?
     private let branchCallRecorder: BranchCallRecorder?
+    private let removeWorktreeResult: GitProcessResult?
 
     init(
         snapshotValue: GitSnapshot? = nil,
@@ -2585,7 +2662,8 @@ private struct TestGitOperations: GitOperations {
         createBranchResult: GitProcessResult? = nil,
         deleteBranchResult: GitProcessResult? = nil,
         deleteBranchResults: GitProcessResultQueue? = nil,
-        branchCallRecorder: BranchCallRecorder? = nil
+        branchCallRecorder: BranchCallRecorder? = nil,
+        removeWorktreeResult: GitProcessResult? = nil
     ) {
         self.snapshotValue = snapshotValue
         self.comparisonValue = comparisonValue
@@ -2611,6 +2689,7 @@ private struct TestGitOperations: GitOperations {
         self.deleteBranchResult = deleteBranchResult
         self.deleteBranchResults = deleteBranchResults
         self.branchCallRecorder = branchCallRecorder
+        self.removeWorktreeResult = removeWorktreeResult
     }
 
     func run(arguments: [String], workingDirectory: String, input: String?) -> GitProcessResult {
@@ -2697,7 +2776,9 @@ private struct TestGitOperations: GitOperations {
         return createBranchResult
     }
     func createWorktree(named name: String, from reference: GitReference, revision: String?, at destination: URL, repositoryRoot: URL) -> GitProcessResult? { nil }
-    func removeWorktree(_ worktree: GitWorktree, force: Bool, at rootURL: URL) -> GitProcessResult? { nil }
+    func removeWorktree(_ worktree: GitWorktree, force: Bool, at rootURL: URL) -> GitProcessResult? {
+        removeWorktreeResult
+    }
     func lockWorktree(_ worktree: GitWorktree, at rootURL: URL) -> GitProcessResult? { nil }
     func unlockWorktree(_ worktree: GitWorktree, at rootURL: URL) -> GitProcessResult? { nil }
     func repairWorktrees(at rootURL: URL) -> GitProcessResult? { nil }
