@@ -159,6 +159,52 @@ struct RustGitOperations: GitOperations, Sendable {
         )
     }
 
+    func createWorktree(
+        named name: String,
+        from reference: GitReference,
+        revision: String? = nil,
+        at destination: URL,
+        repositoryRoot: URL
+    ) -> GitProcessResult? {
+        write(
+            at: repositoryRoot,
+            operation: "createWorktree",
+            gitReference: reference,
+            revision: revision,
+            name: name,
+            destination: destination
+        )
+    }
+
+    func removeWorktree(
+        _ worktree: GitWorktree,
+        force: Bool,
+        at rootURL: URL
+    ) -> GitProcessResult? {
+        write(
+            at: rootURL,
+            operation: "removeWorktree",
+            destination: worktree.url,
+            force: force
+        )
+    }
+
+    func lockWorktree(_ worktree: GitWorktree, at rootURL: URL) -> GitProcessResult? {
+        write(at: rootURL, operation: "lockWorktree", destination: worktree.url)
+    }
+
+    func unlockWorktree(_ worktree: GitWorktree, at rootURL: URL) -> GitProcessResult? {
+        write(at: rootURL, operation: "unlockWorktree", destination: worktree.url)
+    }
+
+    func repairWorktrees(at rootURL: URL) -> GitProcessResult? {
+        write(at: rootURL, operation: "repairWorktrees")
+    }
+
+    func pruneWorktrees(at rootURL: URL) -> GitProcessResult? {
+        write(at: rootURL, operation: "pruneWorktrees")
+    }
+
     func renameBranch(_ reference: GitReference, to name: String, at rootURL: URL) -> GitProcessResult? {
         write(at: rootURL, operation: "renameBranch", gitReference: reference, name: name)
     }
@@ -358,6 +404,10 @@ struct RustGitOperations: GitOperations, Sendable {
 
     func watchContext(at rootURL: URL) -> GitWatchContext? {
         core.gitWatchContext(at: rootURL)?.makeContext()
+    }
+
+    func worktrees(at rootURL: URL) -> [GitWorktree]? {
+        core.gitWorktrees(at: rootURL)?.worktrees.map { $0.makeModel() }
     }
 
     func diffPatch(

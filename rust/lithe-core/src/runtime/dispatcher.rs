@@ -10,7 +10,8 @@ use crate::git::{
     GitCommitFilesRequest, GitCommitRequest, GitComparisonRequest, GitConflictMarkerRequest,
     GitDiffRequest, GitHistoryRequest, GitIntegrationPreflightRequest, GitOperationStateRequest,
     GitPullPreflightRequest, GitPullRequestContextRequest, GitPushPreviewRequest,
-    GitStashesRequest, GitStatusRequest, GitWatchContextRequest, GitWriteRequest,
+    GitStashesRequest, GitStatusRequest, GitWatchContextRequest, GitWorktreesRequest,
+    GitWriteRequest,
 };
 use crate::github::{NormalizeResponseRequest, ParseRemoteRequest, RequestPlanRequest};
 use crate::languages::{
@@ -1424,6 +1425,22 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Git watch context should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+
+        CoreCommand::GitWorktrees => {
+            match serde_json::from_value::<GitWorktreesRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid Git worktrees request")
+                        .with_details(error.to_string())
+                })
+                .and_then(git::worktrees)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git worktrees should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

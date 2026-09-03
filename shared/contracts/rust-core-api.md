@@ -139,6 +139,7 @@ stable error code and a user-facing message:
 | `runConfig.createLaunchPlan` | Project one effective configuration into a platform-neutral Run or Debug plan |
 | `git.status` | Resolve the repository, current branch, and working-tree changes |
 | `git.watchContext` | Resolve the repository and absolute Git metadata roots needed by native file watchers |
+| `git.worktrees` | Return deterministic registered-worktree metadata without scanning each checkout |
 | `git.pullRequestContext` | Resolve worktree-aware PR branch defaults, publication state, and uncommitted-change state |
 | `git.command` | Execute one argument-based Git operation and return its arguments, streams, exit code, and ordered subprocess invocations |
 | `git.write` | Validate and execute shared Git mutations such as stage, commit, branch, checkout, remote sync, clone, and stash |
@@ -165,6 +166,14 @@ are one-based. `git.status.repositoryRoot` may be an absolute path when the
 opened workspace is a subdirectory of the repository; all Git change paths are
 relative to that repository root. `git.status.ahead` and `behind` report the
 current branch's tracking counts and are zero when no upstream is configured.
+`git.worktrees.worktrees` is ordered with the primary worktree first and then
+by path. Each entry contains `path`, `head`, nullable `branch`, `isCurrent`,
+`isPrimary`, `isBare`, `isDetached`, `isLocked`, nullable `lockReason`,
+`isPrunable`, and nullable `pruneReason`. The path is absolute because linked
+worktrees may live outside the opened workspace; clients must treat it as an
+opaque native boundary value and must not persist it as a portable identifier.
+Core reads the list with one porcelain operation and does not run status in
+each checkout.
 For a rename or copy, each change uses the destination as `path` and preserves
 the source as `originalPath`; platform mutations that act on the Git entry pass
 both paths back to Core.
@@ -248,6 +257,7 @@ response retains the invocation trace and includes the failure as
 `stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `ignore`, `exclude`, `cherryPick`, `revert`,
 `reset`, `editCommitMessage`, `deleteCommit`, `squashCommits`, `createBranch`, `publishBranch`,
 `renameBranch`, `setUpstream`, `unsetUpstream`, `deleteBranch`, `merge`, `rebase`, `createWorktree`,
+`removeWorktree`, `lockWorktree`, `unlockWorktree`, `repairWorktrees`, `pruneWorktrees`,
 `fetch`, `pull`, `push`, `checkout`, `checkoutAndRebase`, `checkoutRevision`, `clone`, `stashPush`,
 `stashApply`, `stashPop`, `stashDrop`, `deleteRemoteBranch`, `operationContinue`,
 `operationAbort`, `operationSkip`, `createTag`, and `deleteTag`. Optional fields are `paths`, `reference`, `referenceKind`,
@@ -261,7 +271,12 @@ stash references, and operation-specific required fields before invoking Git.
 upstream ambiguous. `createWorktree` likewise requires a typed reference; for a
 remote reference Core executes one `git worktree add --track -b` mutation using
 the complete remote ref, so branch creation, checkout, and tracking setup do not
-form separate platform-visible success states.
+form separate platform-visible success states. Worktree mutations re-read Git's
+registered list and reject arbitrary paths. Removal rejects the current,
+primary, or locked worktree; dirty worktrees require an explicit `force` value.
+`repairWorktrees` refreshes administrative links after a repository or worktree
+has moved. `pruneWorktrees` removes registrations whose checkout is already missing and
+does not recursively delete an arbitrary directory.
 Successful process launch returns `{ "arguments": string[], "output": string,
 "stdout": string, "stderr": string, "exitCode": number, "invocations":
 GitCommandInvocation[], "operationError": CoreError?, "stashRestore":
