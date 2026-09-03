@@ -48,6 +48,7 @@ beforeEach(() => {
     variablesByReference: {},
     watchResults: {},
     adapterOutput: [],
+    endedSessions: [],
     stoppedState: null,
     activeSession: null,
   });
@@ -172,6 +173,7 @@ test("terminated events end only the matching session", async () => {
   await emitMessage("session-1", { type: "terminated", exitCode: 0 });
 
   expect(useDebuggerStore.getState().activeSession?.status).toBe("idle");
+  expect(useDebuggerStore.getState().endedSessions).toEqual([]);
 });
 
 test("stale events from a previous session cannot modify a restarted session", async () => {
@@ -209,5 +211,6 @@ test("failed states end the session and request native teardown", async () => {
   expect(state.adapterOutput).toEqual([
     { sessionId: "session-1", stream: "stderr", data: "The debug session failed.\n" },
   ]);
+  expect(state.endedSessions).toEqual([]);
   expect(stopDebugAdapterSession).toHaveBeenCalledWith("session-1");
 });

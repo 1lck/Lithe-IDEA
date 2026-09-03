@@ -47,6 +47,10 @@ export async function stopDebugAdapterSession(sessionId: string): Promise<void> 
   await invoke("debug_stop_session", { sessionId });
 }
 
+export async function markDebugSessionReady(sessionId: string): Promise<void> {
+  await invoke("debug_session_ready", { sessionId });
+}
+
 export async function startDebugLaunchSession(
   config: DebugLaunchConfig,
   breakpoints: DebugBreakpoint[],
@@ -67,19 +71,24 @@ export async function startDebugLaunchSession(
   });
   onSessionStarted?.(session);
 
-  // Rust Core owns DAP initialization and the configurationDone handshake;
-  // the host facade only queues the launch and breakpoint sets.
-  await sendDebugAdapterRequest(session.id, config.request ?? "launch", {
-    name: config.name,
-    type: config.type ?? config.runtime,
-    request: config.request ?? "launch",
-    program: config.program,
-    cwd: effectiveCwd,
-    args: config.args ?? [],
-    env: config.env ?? {},
-  });
-
-  await syncDebugBreakpoints(session.id, breakpoints);
+  try {
+    // Rust Core owns DAP initialization and the configurationDone handshake;
+    // the host facade only queues the launch and breakpoint sets.
+    await sendDebugAdapterRequest(session.id, config.request ?? "launch", {
+      name: config.name,
+      type: config.type ?? config.runtime,
+      request: config.request ?? "launch",
+      program: config.program,
+      cwd: effectiveCwd,
+      args: config.args ?? [],
+      env: config.env ?? {},
+    });
+    await markDebugSessionReady(session.id);
+    await syncDebugBreakpoints(session.id, breakpoints);
+  } catch (error) {
+    await stopDebugAdapterSession(session.id).catch(() => {});
+    throw error;
+  }
 
   return session;
 }

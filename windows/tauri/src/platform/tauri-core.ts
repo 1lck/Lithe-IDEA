@@ -28,6 +28,7 @@ const nativeCommands = new Set([
   "create_terminal",
   "debug_send_request",
   "debug_start_session",
+  "debug_session_ready",
   "debug_stop_session",
   "debug_stop_workspace_sessions",
   "get_secure_secret",

@@ -62,10 +62,8 @@ async function handleDebugProtocolMessage(payload: DebugProtocolMessage) {
       handleContinued();
       return;
     case "terminated":
-      useDebuggerStore.getState().actions.recordSessionEnded({
-        sessionId: payload.sessionId,
-        reason: "terminated",
-      });
+      useDebuggerStore.getState().actions.setSessionStatus("idle");
+      useDebuggerStore.getState().actions.setStoppedState(null);
       return;
     case "output":
       handleOutput(payload.sessionId, event);
@@ -95,10 +93,7 @@ function handleStateChanged(sessionId: string, event: Record<string, unknown>) {
       stream: "stderr",
       data: `${message}\n`,
     });
-    useDebuggerStore.getState().actions.recordSessionEnded({
-      sessionId,
-      reason: "failed",
-    });
+    useDebuggerStore.getState().actions.setSessionStatus("idle");
     void stopDebugAdapterSession(sessionId).catch((error) => {
       console.error("Failed to stop the debug session after a failure:", error);
     });

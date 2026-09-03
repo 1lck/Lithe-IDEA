@@ -75,6 +75,7 @@ fn main() {
             core::core_execute,
             core::core_cancel,
             debug::debug_start_session,
+            debug::debug_session_ready,
             debug::debug_send_request,
             debug::debug_stop_session,
             debug::debug_stop_workspace_sessions,

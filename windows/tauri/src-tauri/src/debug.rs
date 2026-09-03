@@ -29,6 +29,17 @@ use crate::run::{apply_creation_flags, decode_process_bytes, incomplete_suffix_l
 
 const CORE_TIMEOUT_MILLISECONDS: u64 = 30_000;
 const MAX_FRAME_BYTES: usize = 64 * 1024 * 1024;
+const MAX_BUFFERED_STARTUP_EVENTS: usize = 128;
+
+trait DebugEventSink: Clone + Send + Sync + 'static {
+    fn emit_event(&self, name: &str, payload: Value);
+}
+
+impl DebugEventSink for AppHandle {
+    fn emit_event(&self, name: &str, payload: Value) {
+        let _ = self.emit(name, payload);
+    }
+}
 
 static SESSION_COUNTER: AtomicU64 = AtomicU64::new(1);
 static OPERATION_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -52,6 +63,14 @@ struct AdapterSession {
     /// Shared so adapter stdout readers can write Core-produced frames while
     /// Tauri commands write request frames; the mutex prevents interleaving.
     stdin: Arc<Mutex<ChildStdin>>,
+    startup_gate: Arc<Mutex<StartupGate>>,
+}
+
+struct StartupGate {
+    /// Whether the frontend has installed this session as active.
+    ready: bool,
+    /// Normalized protocol events received before `ready` in wire order.
+    buffered_events: Vec<Value>,
 }
 
 fn sessions() -> &'static Mutex<HashMap<String, AdapterSession>> {
@@ -106,6 +125,13 @@ pub async fn debug_start_session(
     app: AppHandle,
     launch: DebugAdapterLaunch,
 ) -> Result<DebugSessionInfo, String> {
+    start_debug_adapter_session(app, launch).await
+}
+
+async fn start_debug_adapter_session<S: DebugEventSink>(
+    app: S,
+    launch: DebugAdapterLaunch,
+) -> Result<DebugSessionInfo, String> {
     let command = launch.command.trim().to_string();
     if command.is_empty() {
         return Err("The debug adapter command cannot be empty.".to_string());
@@ -154,6 +180,10 @@ pub async fn debug_start_session(
         .filter(|workspace| !workspace.is_empty())
         .unwrap_or("")
         .to_string();
+    let startup_gate = Arc::new(Mutex::new(StartupGate {
+        ready: false,
+        buffered_events: Vec::new(),
+    }));
 
     let update = execute_core_async(
         "debug.createSession".to_string(),
@@ -179,20 +209,20 @@ pub async fn debug_start_session(
         .await;
         return Err(error);
     }
-    emit_update_events(&app, &session_id, &update);
     if update_state_failed(&update) {
         let message = session_failure_message(&update);
+        emit_update_events(&app, &session_id, &update);
         let _ = child.kill();
         let _ = execute_core_async(
             "debug.destroySession".to_string(),
             json!({ "sessionId": session_id }),
         )
         .await;
-        let _ = app.emit(
+        app.emit_event(
             "debugger_output",
             json!({ "sessionId": session_id, "stream": "stderr", "data": format!("{message}\n") }),
         );
-        let _ = app.emit(
+        app.emit_event(
             "debugger_session_ended",
             json!({ "sessionId": session_id, "reason": "failed" }),
         );
@@ -211,11 +241,23 @@ pub async fn debug_start_session(
                 pid,
                 workspace,
                 stdin: stdin.clone(),
+                startup_gate: startup_gate.clone(),
             },
         );
     }
 
-    let stdout_reader = spawn_stdout_reader(app.clone(), session_id.clone(), pid, stdin, stdout);
+    if let Err(error) = emit_or_buffer_update_events(&app, &session_id, &startup_gate, &update) {
+        fail_session(&app, &session_id, pid, &error);
+        return Err(error);
+    }
+    let stdout_reader = spawn_stdout_reader(
+        app.clone(),
+        session_id.clone(),
+        pid,
+        stdin,
+        startup_gate,
+        stdout,
+    );
     let stderr_reader = spawn_stderr_reader(app.clone(), session_id.clone(), stderr);
     spawn_exit_waiter(
         app,
@@ -234,6 +276,35 @@ pub async fn debug_start_session(
     })
 }
 
+/// Releases normalized startup events after the frontend registers the session.
+#[tauri::command]
+pub fn debug_session_ready(app: AppHandle, session_id: String) -> Result<(), String> {
+    mark_session_ready(&app, &session_id)
+}
+
+fn mark_session_ready<S: DebugEventSink>(app: &S, session_id: &str) -> Result<(), String> {
+    let gate = sessions()
+        .lock()
+        .map_err(|_| "Debug session state is unavailable.".to_string())?
+        .get(session_id)
+        .map(|session| session.startup_gate.clone())
+        .ok_or_else(|| "The debug session is no longer active.".to_string())?;
+    let buffered_events = {
+        let mut gate = gate
+            .lock()
+            .map_err(|_| "Debug session startup state is unavailable.".to_string())?;
+        if gate.ready {
+            return Ok(());
+        }
+        gate.ready = true;
+        std::mem::take(&mut gate.buffered_events)
+    };
+    for payload in buffered_events {
+        app.emit_event("debugger_message", payload);
+    }
+    Ok(())
+}
+
 /// Temporary compatibility facade for the existing React request surface.
 ///
 /// Every request is translated onto the shared `debug.*` contract and reduced
@@ -241,6 +312,13 @@ pub async fn debug_start_session(
 #[tauri::command]
 pub async fn debug_send_request(
     app: AppHandle,
+    request: DebugSendRequest,
+) -> Result<DebugCommandResult, String> {
+    send_debug_request(app, request).await
+}
+
+async fn send_debug_request<S: DebugEventSink>(
+    app: S,
     request: DebugSendRequest,
 ) -> Result<DebugCommandResult, String> {
     let (pid, stdin) = {
@@ -318,7 +396,7 @@ pub async fn debug_stop_workspace_sessions(
     Ok(())
 }
 
-async fn stop_session(app: &AppHandle, session_id: &str) -> Result<(), String> {
+async fn stop_session<S: DebugEventSink>(app: &S, session_id: &str) -> Result<(), String> {
     let removed = {
         let mut current = sessions()
             .lock()
@@ -346,7 +424,7 @@ async fn stop_session(app: &AppHandle, session_id: &str) -> Result<(), String> {
                     json!({ "sessionId": session_id }),
                 )
                 .await;
-                let _ = app.emit(
+                app.emit_event(
                     "debugger_session_ended",
                     json!({ "sessionId": session_id, "reason": "failed" }),
                 );
@@ -366,7 +444,7 @@ async fn stop_session(app: &AppHandle, session_id: &str) -> Result<(), String> {
         json!({ "sessionId": session_id }),
     )
     .await;
-    let _ = app.emit(
+    app.emit_event(
         "debugger_session_ended",
         json!({ "sessionId": session_id, "reason": "stopped" }),
     );
@@ -653,24 +731,57 @@ fn write_outbound_frames<W: Write>(stdin: &Mutex<W>, update: &Value) -> Result<(
 }
 
 /// Projects Core's normalized events onto the existing React event surface.
-fn emit_update_events(app: &AppHandle, session_id: &str, update: &Value) {
+fn emit_update_events<S: DebugEventSink>(app: &S, session_id: &str, update: &Value) {
     let Some(events) = update.get("events").and_then(Value::as_array) else {
         return;
     };
     for event in events {
-        let _ = app.emit(
+        app.emit_event(
             "debugger_message",
             json!({ "sessionId": session_id, "message": event }),
         );
     }
 }
 
+fn emit_or_buffer_update_events<S: DebugEventSink>(
+    app: &S,
+    session_id: &str,
+    startup_gate: &Arc<Mutex<StartupGate>>,
+    update: &Value,
+) -> Result<(), String> {
+    let Some(events) = update.get("events").and_then(Value::as_array) else {
+        return Ok(());
+    };
+    let payloads = events
+        .iter()
+        .map(|event| json!({ "sessionId": session_id, "message": event }))
+        .collect::<Vec<_>>();
+    let payloads = {
+        let mut gate = startup_gate
+            .lock()
+            .map_err(|_| "Debug session startup state is unavailable.".to_string())?;
+        if !gate.ready {
+            if gate.buffered_events.len() + payloads.len() > MAX_BUFFERED_STARTUP_EVENTS {
+                return Err("Debug adapter produced too many startup events.".to_string());
+            }
+            gate.buffered_events.extend(payloads);
+            return Ok(());
+        }
+        payloads
+    };
+    for payload in payloads {
+        app.emit_event("debugger_message", payload);
+    }
+    Ok(())
+}
+
 /// Feeds adapter stdout bytes to `debug.receive` and writes resulting frames.
-fn spawn_stdout_reader<T: Read + Send + 'static>(
-    app: AppHandle,
+fn spawn_stdout_reader<S: DebugEventSink, T: Read + Send + 'static>(
+    app: S,
     session_id: String,
     pid: u32,
     stdin: Arc<Mutex<ChildStdin>>,
+    startup_gate: Arc<Mutex<StartupGate>>,
     stdout: Option<T>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
@@ -716,7 +827,15 @@ fn spawn_stdout_reader<T: Read + Send + 'static>(
                                 fail_session(&app, &session_id, pid, &error);
                                 break;
                             }
-                            emit_update_events(&app, &session_id, &update);
+                            if let Err(error) = emit_or_buffer_update_events(
+                                &app,
+                                &session_id,
+                                &startup_gate,
+                                &update,
+                            ) {
+                                fail_session(&app, &session_id, pid, &error);
+                                break;
+                            }
                         }
                         Err(error) => {
                             if is_current_session(&session_id, pid) {
@@ -750,8 +869,8 @@ fn spawn_stdout_reader<T: Read + Send + 'static>(
 }
 
 /// Projects adapter stderr onto the debug console output event.
-fn spawn_stderr_reader<T: Read + Send + 'static>(
-    app: AppHandle,
+fn spawn_stderr_reader<S: DebugEventSink, T: Read + Send + 'static>(
+    app: S,
     session_id: String,
     stderr: Option<T>,
 ) -> thread::JoinHandle<()> {
@@ -785,12 +904,12 @@ fn spawn_stderr_reader<T: Read + Send + 'static>(
     })
 }
 
-fn emit_stderr_chunk(app: &AppHandle, session_id: &str, bytes: &[u8]) {
+fn emit_stderr_chunk<S: DebugEventSink>(app: &S, session_id: &str, bytes: &[u8]) {
     let text = decode_process_bytes(bytes);
     if text.is_empty() {
         return;
     }
-    let _ = app.emit(
+    app.emit_event(
         "debugger_output",
         json!({ "sessionId": session_id, "stream": "stderr", "data": text }),
     );
@@ -798,8 +917,8 @@ fn emit_stderr_chunk(app: &AppHandle, session_id: &str, bytes: &[u8]) {
 
 /// Reaps an exited adapter, destroys its shared session, and emits the ended
 /// event only when this process generation is still the registered one.
-fn spawn_exit_waiter(
-    app: AppHandle,
+fn spawn_exit_waiter<S: DebugEventSink>(
+    app: S,
     session_id: String,
     mut child: Child,
     pid: u32,
@@ -818,7 +937,7 @@ fn spawn_exit_waiter(
             return;
         }
         let _ = execute_core_sync("debug.destroySession", json!({ "sessionId": session_id }));
-        let _ = app.emit(
+        app.emit_event(
             "debugger_session_ended",
             json!({
                 "sessionId": session_id,
@@ -854,17 +973,17 @@ fn is_current_session(session_id: &str, pid: u32) -> bool {
 
 /// Tears down a failed session: process tree kill, shared-session destroy,
 /// console error, and a single `failed` end event.
-fn fail_session(app: &AppHandle, session_id: &str, pid: u32, message: &str) {
+fn fail_session<S: DebugEventSink>(app: &S, session_id: &str, pid: u32, message: &str) {
     if !remove_session(session_id, pid) {
         return;
     }
     kill_adapter_process(pid);
     let _ = execute_core_sync("debug.destroySession", json!({ "sessionId": session_id }));
-    let _ = app.emit(
+    app.emit_event(
         "debugger_output",
         json!({ "sessionId": session_id, "stream": "stderr", "data": format!("{message}\n") }),
     );
-    let _ = app.emit(
+    app.emit_event(
         "debugger_session_ended",
         json!({ "sessionId": session_id, "reason": "failed" }),
     );
@@ -892,6 +1011,65 @@ fn adapter_identifier(command: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Stdio;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    #[cfg(feature = "test-support")]
+    #[derive(Clone)]
+    struct RecordingSink {
+        events: mpsc::Sender<(String, Value)>,
+    }
+
+    #[cfg(feature = "test-support")]
+    impl DebugEventSink for RecordingSink {
+        fn emit_event(&self, name: &str, payload: Value) {
+            self.events
+                .send((name.to_string(), payload))
+                .expect("recording sink receiver should remain active");
+        }
+    }
+
+    #[cfg(feature = "test-support")]
+    fn fake_adapter_path() -> std::path::PathBuf {
+        let test_binary = std::env::current_exe().expect("test binary path");
+        test_binary
+            .parent()
+            .and_then(Path::parent)
+            .expect("target directory")
+            .join("fake-dap-adapter.exe")
+    }
+
+    #[cfg(all(windows, feature = "test-support"))]
+    fn start_launched_fake_session(
+        sink: &RecordingSink,
+        mode: &str,
+        operation_id: &str,
+    ) -> DebugSessionInfo {
+        let session = tauri::async_runtime::block_on(start_debug_adapter_session(
+            sink.clone(),
+            DebugAdapterLaunch {
+                command: fake_adapter_path().to_string_lossy().into_owned(),
+                args: vec![mode.to_string()],
+                cwd: None,
+                env: HashMap::new(),
+                workspace_path: None,
+            },
+        ))
+        .expect("host should start the fake adapter");
+        tauri::async_runtime::block_on(send_debug_request(
+            sink.clone(),
+            DebugSendRequest {
+                session_id: session.id.clone(),
+                command: "launch".to_string(),
+                arguments: json!({ "request": "launch", "name": "Demo" }),
+                operation_id: Some(operation_id.to_string()),
+            },
+        ))
+        .expect("host should queue launch");
+        mark_session_ready(sink, &session.id).expect("startup gate should open");
+        session
+    }
 
     #[test]
     fn translates_launch_into_shared_launch_configuration() {
@@ -990,6 +1168,43 @@ mod tests {
         );
     }
 
+    #[cfg(all(windows, feature = "test-support"))]
+    #[test]
+    fn startup_events_are_buffered_until_session_ready() {
+        let gate = Arc::new(Mutex::new(StartupGate {
+            ready: false,
+            buffered_events: Vec::new(),
+        }));
+        let (events, received) = mpsc::channel();
+        let sink = RecordingSink { events };
+        let update = json!({
+            "events": [
+                { "type": "stateChanged", "state": "paused" },
+                { "type": "stopped", "reason": "entry" }
+            ]
+        });
+
+        emit_or_buffer_update_events(&sink, "session-1", &gate, &update).unwrap();
+        assert!(received.try_recv().is_err());
+        assert_eq!(gate.lock().unwrap().buffered_events.len(), 2);
+
+        gate.lock().unwrap().ready = true;
+        emit_or_buffer_update_events(
+            &sink,
+            "session-1",
+            &gate,
+            &json!({ "events": [{ "type": "initialized" }] }),
+        )
+        .unwrap();
+        assert_eq!(
+            received
+                .recv_timeout(Duration::from_secs(1))
+                .unwrap()
+                .1["message"]["type"],
+            "initialized"
+        );
+    }
+
     #[test]
     fn translates_set_breakpoints_into_the_core_contract() {
         let (command, payload) = translate_request(
@@ -1077,11 +1292,292 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn fake_adapter_process_round_trips_stdio_with_bounded_cleanup() {
+        let mut child = Command::new("cmd.exe")
+            .args(["/D", "/Q", "/C", "more"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("fake adapter process should start");
+        let mut stdin = child.stdin.take().expect("fake adapter stdin");
+        let stdout = child.stdout.take().expect("fake adapter stdout");
+        let stderr = child.stderr.take().expect("fake adapter stderr");
+        let (output_tx, output_rx) = mpsc::channel();
+        thread::spawn(move || {
+            let mut stdout = stdout;
+            let mut bytes = Vec::new();
+            let _ = stdout.read_to_end(&mut bytes);
+            let _ = output_tx.send(bytes);
+        });
+        thread::spawn(move || {
+            let mut stderr = stderr;
+            let mut bytes = Vec::new();
+            let _ = stderr.read_to_end(&mut bytes);
+        });
+
+        let frame = b"Content-Length: 4\r\n\r\nTEST";
+        stdin.write_all(frame).expect("fake adapter stdin write");
+        drop(stdin);
+        let (wait_tx, wait_rx) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = wait_tx.send(child.wait());
+        });
+        let status = wait_rx
+            .recv_timeout(Duration::from_secs(3))
+            .expect("fake adapter must exit within watchdog deadline")
+            .expect("fake adapter wait should succeed");
+        let echoed = output_rx
+            .recv_timeout(Duration::from_secs(3))
+            .expect("stdout reader must finish within watchdog deadline");
+        assert!(status.success());
+        assert_eq!(echoed, [frame.as_slice(), b"\r\n"].concat());
+    }
+
+    #[cfg(all(windows, feature = "test-support"))]
+    #[test]
+    fn fake_dap_adapter_emits_fragmented_protocol_and_stderr() {
+        let adapter = fake_adapter_path();
+        let output = Command::new(adapter)
+            .arg("fragmented")
+            .output()
+            .expect("fake DAP adapter should start");
+        assert!(output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("fake-dap-adapter:fragmented"));
+        assert!(String::from_utf8_lossy(&output.stdout).contains("Content-Length:"));
+        assert!(String::from_utf8_lossy(&output.stdout).contains("terminated"));
+    }
+
+    #[cfg(all(windows, feature = "test-support"))]
+    #[test]
+    fn fake_dap_adapter_rejection_and_eof_modes_are_deterministic() {
+        let adapter = fake_adapter_path();
+        for (mode, expected) in [("reject-initialize", "initialize")] {
+            let output = Command::new(&adapter)
+                .arg(mode)
+                .output()
+                .expect("fake DAP adapter should start");
+            assert!(output.status.success());
+            assert!(String::from_utf8_lossy(&output.stdout).contains(r#""success":false"#));
+            assert!(String::from_utf8_lossy(&output.stdout).contains(expected));
+        }
+        let output = Command::new(adapter)
+            .arg("eof-live")
+            .output()
+            .expect("fake DAP adapter should start");
+        assert!(output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("eof-live"));
+    }
+
+    #[cfg(all(windows, feature = "test-support"))]
+    #[test]
+    fn fake_dap_adapter_runs_through_stdout_reader_and_exit_waiter() {
+        let adapter = fake_adapter_path();
+        let mut child = Command::new(adapter)
+            .arg("eof-live")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("fake DAP adapter should start");
+        let pid = child.id();
+        let stdin = Arc::new(Mutex::new(child.stdin.take().expect("adapter stdin")));
+        let session_id = format!("fake-host-session-{}", pid);
+        execute_core_sync(
+            "debug.createSession",
+            json!({
+                "sessionId": session_id,
+                "adapterId": "fake-dap-adapter",
+                "rootPath": ".",
+                "supportsRunInTerminalRequest": false,
+            }),
+        )
+        .expect("Core session should be created");
+        sessions().lock().unwrap().insert(
+            session_id.clone(),
+            AdapterSession {
+                pid,
+                workspace: String::new(),
+                stdin: stdin.clone(),
+                startup_gate: Arc::new(Mutex::new(StartupGate {
+                    ready: true,
+                    buffered_events: Vec::new(),
+                })),
+            },
+        );
+        let (events, received) = mpsc::channel();
+        let sink = RecordingSink { events };
+        let stdout_reader = spawn_stdout_reader(
+            sink.clone(),
+            session_id.clone(),
+            pid,
+            stdin,
+            Arc::new(Mutex::new(StartupGate {
+                ready: true,
+                buffered_events: Vec::new(),
+            })),
+            child.stdout.take(),
+        );
+        let stderr_reader =
+            spawn_stderr_reader(sink.clone(), session_id.clone(), child.stderr.take());
+        spawn_exit_waiter(
+            sink,
+            session_id.clone(),
+            child,
+            pid,
+            stdout_reader,
+            stderr_reader,
+        );
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let mut saw_stderr = false;
+        let ended = loop {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            let event = received
+                .recv_timeout(remaining)
+                .expect("exit waiter should publish a bounded completion event");
+            if event.0 == "debugger_output" {
+                saw_stderr = true;
+                continue;
+            }
+            break event;
+        };
+        assert!(saw_stderr);
+        assert_eq!(ended.0, "debugger_session_ended");
+        assert_eq!(ended.1["sessionId"], session_id);
+        assert_eq!(ended.1["reason"], "exited");
+        assert!(!is_current_session(&session_id, pid));
+    }
+
+    #[cfg(all(windows, feature = "test-support"))]
+    #[test]
+    fn fake_dap_adapter_initialize_rejection_triggers_host_teardown() {
+        let adapter = fake_adapter_path();
+        let (events, received) = mpsc::channel();
+        let sink = RecordingSink { events };
+        let launch = DebugAdapterLaunch {
+            command: adapter.to_string_lossy().into_owned(),
+            args: vec!["reject-initialize".to_string()],
+            cwd: None,
+            env: HashMap::new(),
+            workspace_path: None,
+        };
+        let session = tauri::async_runtime::block_on(start_debug_adapter_session(sink, launch))
+            .expect("host should return session before reader receives rejection");
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let mut observed = Vec::new();
+        while std::time::Instant::now() < deadline {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            let Ok((name, payload)) = received.recv_timeout(remaining) else {
+                break;
+            };
+            observed.push(format!("{name}:{}", payload));
+            if name == "debugger_session_ended" {
+                assert_eq!(payload["sessionId"], session.id);
+                assert_eq!(payload["reason"], "failed");
+                assert!(!sessions().lock().unwrap().contains_key(&session.id));
+                return;
+            }
+        }
+        panic!("host rejection teardown was not observed; events={observed:?}");
+    }
+
+    #[cfg(all(windows, feature = "test-support"))]
+    #[test]
+    fn repeated_stop_only_ends_the_selected_session() {
+        let (events, _received) = mpsc::channel();
+        let sink = RecordingSink { events };
+        let first = start_launched_fake_session(&sink, "hold", "hold-launch-1");
+        let second = start_launched_fake_session(&sink, "hold", "hold-launch-2");
+
+        tauri::async_runtime::block_on(stop_session(&sink, &first.id))
+            .expect("first session should stop");
+        tauri::async_runtime::block_on(stop_session(&sink, &first.id))
+            .expect("repeated stop should be idempotent");
+        assert!(!sessions().lock().unwrap().contains_key(&first.id));
+        let second_pid = sessions().lock().unwrap()[&second.id].pid;
+        assert!(is_current_session(&second.id, second_pid));
+
+        tauri::async_runtime::block_on(stop_session(&sink, &second.id))
+            .expect("second session should stop");
+        assert!(!sessions().lock().unwrap().contains_key(&second.id));
+    }
+
+    #[cfg(all(windows, feature = "test-support"))]
+    #[test]
+    fn normal_adapter_exit_reaches_host_exit_waiter_once() {
+        let adapter = fake_adapter_path();
+        let (events, received) = mpsc::channel();
+        let sink = RecordingSink { events };
+        let session = tauri::async_runtime::block_on(start_debug_adapter_session(
+            sink.clone(),
+            DebugAdapterLaunch {
+                command: adapter.to_string_lossy().into_owned(),
+                args: Vec::new(),
+                cwd: None,
+                env: HashMap::new(),
+                workspace_path: None,
+            },
+        ))
+        .expect("host should start the fake adapter");
+        tauri::async_runtime::block_on(send_debug_request(
+            sink.clone(),
+            DebugSendRequest {
+                session_id: session.id.clone(),
+                command: "launch".to_string(),
+                arguments: json!({ "request": "launch", "name": "Demo" }),
+                operation_id: Some("normal-launch".to_string()),
+            },
+        ))
+        .expect("host should queue launch");
+        mark_session_ready(&sink, &session.id).expect("startup gate should open");
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let mut ended = Vec::new();
+        while std::time::Instant::now() < deadline {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            let Ok((name, payload)) = received.recv_timeout(remaining) else {
+                break;
+            };
+            if name == "debugger_session_ended" {
+                ended.push(payload);
+                break;
+            }
+        }
+        assert_eq!(ended.len(), 1);
+        assert_eq!(ended[0]["reason"], "exited");
+        assert!(received.recv_timeout(Duration::from_millis(100)).is_err());
+        assert!(!sessions().lock().unwrap().contains_key(&session.id));
+    }
+
     #[test]
     fn rejects_updates_without_outbound_frames() {
         let sink = Mutex::new(Vec::new());
         let error = write_outbound_frames(&sink, &json!({ "sessionId": "session-1" })).unwrap_err();
         assert!(error.contains("invalid session update"));
+    }
+
+    #[test]
+    fn reports_adapter_stdin_write_failure() {
+        struct FailingWriter;
+        impl Write for FailingWriter {
+            fn write(&mut self, _buffer: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "closed"))
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let stdin = Mutex::new(FailingWriter);
+        let update = json!({
+            "outboundFrames": [BASE64.encode(b"Content-Length: 0\r\n\r\n")]
+        });
+        let error = write_outbound_frames(&stdin, &update).unwrap_err();
+        assert!(error.contains("Could not write to debug adapter input"));
     }
 
     #[test]
