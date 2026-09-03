@@ -1,9 +1,6 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
-mock.module("@/platform/tauri-core", () => ({
-  invoke: mock(async () => undefined),
-}));
-
+// Window scoping is mocked in run-host-api.test.ts for the full `bun test src/features/run` suite.
 const { createRunStore } = await import("./run.store");
 const { PRIMARY_SESSION_ID } = await import("../types/run.types");
 

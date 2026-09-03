@@ -6,6 +6,7 @@ const reference = (shortName: string): GitReference => ({
   fullName: `refs/remotes/${shortName}`,
   shortName,
   kind: "remote",
+  peelsToCommit: true,
   isCurrent: false,
 });
 
@@ -30,6 +31,7 @@ describe("Git reference tree", () => {
         fullName: "refs/heads/main",
         shortName: "main",
         kind: "local" as const,
+        peelsToCommit: true,
         isCurrent: true,
       },
     ];

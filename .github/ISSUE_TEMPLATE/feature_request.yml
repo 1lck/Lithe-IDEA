@@ -42,6 +42,45 @@ body:
     validations:
       required: true
 
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area / 模块
+      options:
+        - Editor / 编辑器
+        - Language support / 语言服务
+        - Maven
+        - Run / 运行
+        - Debug / 调试
+        - Test / 测试
+        - Terminal / 终端
+        - Git
+        - GitHub
+        - Project and workspace / 项目与工作区
+        - Search / 搜索
+        - Extensions / 扩展
+        - Settings / 设置
+        - Database / 数据库
+        - Docker
+        - Remote and WSL / 远程与 WSL
+        - AI
+        - UI and layout / 界面与布局
+        - Other / 其他
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority / 优先级
+      description: Choose the urgency that best matches the user impact. / 请选择最符合当前使用影响的紧急程度。
+      options:
+        - "P0 / 立即处理：已严重影响使用体验，核心流程受阻或无法正常使用"
+        - "P1 / 尽快处理：使用体验大幅下降，但通常仍可继续使用"
+        - "P2 / 后续考虑：目前不着急，可安排到后续版本"
+    validations:
+      required: true
+
   - type: textarea
     id: alternatives
     attributes:

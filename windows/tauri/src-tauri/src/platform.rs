@@ -115,6 +115,9 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
             "git.blame"
         }
         "git_log" | "git_branches" => "git.history",
+        "git_references" => "git.references",
+        "git_history_page" => "git.historyPage",
+        "git_history_cursor_close" => "git.historyCursorClose",
         "git_get_stashes" => "git.stashes",
         "git_commit_diff" => {
             move_field(&mut payload, "commitHash", "commit");
@@ -672,6 +675,54 @@ mod tests {
 
         assert_eq!(command, "git.status");
         assert_eq!(payload, json!({ "root": "C:/work" }));
+    }
+
+    #[test]
+    fn translates_incremental_git_history_commands() {
+        let (references_command, references_payload) = translate(
+            "git_references",
+            json!({ "repoPath": "C:/work", "operationId": "refs-1" }),
+        )
+        .unwrap();
+        assert_eq!(references_command, "git.references");
+        assert_eq!(
+            references_payload,
+            json!({ "root": "C:/work", "operationId": "refs-1" })
+        );
+
+        let (page_command, page_payload) = translate(
+            "git_history_page",
+            json!({
+                "repoPath": "C:/work",
+                "reference": "refs/heads/main",
+                "cursor": "cursor-50",
+                "limit": 50,
+                "operationId": "page-2"
+            }),
+        )
+        .unwrap();
+        assert_eq!(page_command, "git.historyPage");
+        assert_eq!(
+            page_payload,
+            json!({
+                "root": "C:/work",
+                "reference": "refs/heads/main",
+                "cursor": "cursor-50",
+                "limit": 50,
+                "operationId": "page-2"
+            })
+        );
+
+        let (close_command, close_payload) = translate(
+            "git_history_cursor_close",
+            json!({ "repoPath": "C:/work", "cursor": "cursor-50" }),
+        )
+        .unwrap();
+        assert_eq!(close_command, "git.historyCursorClose");
+        assert_eq!(
+            close_payload,
+            json!({ "root": "C:/work", "cursor": "cursor-50" })
+        );
     }
 
     #[test]
