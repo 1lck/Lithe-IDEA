@@ -16,7 +16,7 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { ScrollArea } from "@/ui/scroll-area";
 import { cn } from "@/utils/cn";
 import { getBaseName } from "@/utils/path-helpers";
-import type { DebugBreakpoint, DebugStackFrame } from "../types/debugger.types";
+import type { DebugBreakpoint, DebugStackFrame, DebugThread } from "../types/debugger.types";
 
 const debugSectionVariants = cva(
   "flex min-h-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-surface/30",
@@ -136,6 +136,41 @@ export function DebugStackFrames({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+export function DebugThreads({
+  threads,
+  selectedThreadId,
+  onSelect,
+}: {
+  threads: DebugThread[];
+  selectedThreadId?: number;
+  onSelect: (threadId: number) => void;
+}) {
+  const { t } = useTranslation();
+  if (threads.length === 0) {
+    return <DebugEmptyState>{t("debugger.threadsEmpty")}</DebugEmptyState>;
+  }
+
+  return (
+    <div className="py-1">
+      {threads.map((thread) => (
+        <button
+          key={thread.id}
+          type="button"
+          className={cn(
+            "font-sans flex w-full items-center gap-2 px-3 py-1.5 text-left ui-text-sm hover:bg-accent/70",
+            thread.id === selectedThreadId && "bg-selected/70",
+          )}
+          onClick={() => onSelect(thread.id)}
+        >
+          <Stack size={13} className="shrink-0 text-subtle-foreground" />
+          <span className="min-w-0 flex-1 truncate text-foreground">{thread.name}</span>
+          <span className="font-mono ui-text-sm text-subtle-foreground">#{thread.id}</span>
+        </button>
+      ))}
     </div>
   );
 }

@@ -41,6 +41,7 @@ import {
   DebugSection,
   DebugSessionStatusIcon,
   DebugStackFrames,
+  DebugThreads,
 } from "./debugger-panels";
 import { DebugWatchPanel } from "./debugger-watch-panel";
 import { DebugVariablesPanel } from "./debugger-variables-panel";
@@ -480,6 +481,18 @@ export default function DebuggerView() {
               frames={stackFrames}
               selectedFrameId={selectedFrameId}
               onSelect={selectStackFrame}
+            />
+          </DebugSection>
+
+          <DebugSection title={t("debugger.threads")} count={threads.length}>
+            <DebugThreads
+              threads={threads}
+              selectedThreadId={activeThreadId}
+              onSelect={(threadId) => {
+                if (activeSession?.id) {
+                  debuggerActions.setStoppedState({ reason: stoppedState?.reason ?? "pause", threadId });
+                }
+              }}
             />
           </DebugSection>
 
