@@ -767,22 +767,25 @@ private func dependencyState(
     modulePath: String,
     matching: @escaping @Sendable (MavenDependencyLoadState) -> Bool
 ) async -> MavenDependencyLoadState? {
-    await withTaskGroup(of: MavenDependencyLoadState?.self) { group in
-        group.addTask { @MainActor in
-            let initial = service.dependencyState(for: modulePath)
-            if matching(initial) { return initial }
-            for await states in service.$dependencyStates.values {
-                let state = states[modulePath] ?? .idle
-                if matching(state) { return state }
-            }
-            return nil
+    let stateTask = Task { @MainActor in
+        let initial = service.dependencyState(for: modulePath)
+        if matching(initial) { return initial }
+        for await states in service.$dependencyStates.values {
+            let state = states[modulePath] ?? .idle
+            if matching(state) { return state }
         }
+        return nil
+    }
+    return await withTaskGroup(of: MavenDependencyLoadState?.self) { group in
+        group.addTask { await stateTask.value }
         group.addTask {
+            // test-stability: allow(swift-real-sleep) reason: this task is the bounded failure deadline for event-driven dependency-state observation.
             try? await ContinuousClock().sleep(for: .seconds(1))
             return nil
         }
         let result = await group.next() ?? nil
         group.cancelAll()
+        stateTask.cancel()
         return result
     }
 }
