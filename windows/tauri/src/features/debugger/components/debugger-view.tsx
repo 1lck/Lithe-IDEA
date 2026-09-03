@@ -100,6 +100,7 @@ export default function DebuggerView() {
   const pendingRequests = useDebuggerStore.use.pendingRequests();
   const debuggerActions = useDebuggerStore.use.actions();
   const [customCommand, setCustomCommand] = useState("");
+  const [activeDebugTab, setActiveDebugTab] = useState<"threads" | "console">("threads");
   const [launchLoadError, setLaunchLoadError] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const syncedBreakpointFilesRef = useRef<Set<string>>(new Set());
@@ -541,8 +542,35 @@ export default function DebuggerView() {
           </div>
         </aside>
 
-        <div className="grid min-h-0 grid-cols-2 gap-2 p-2">
-          <DebugSection title={t("debugger.stack")} count={stackFrames.length}>
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex h-9 shrink-0 items-end gap-1 border-border/70 border-b px-2">
+            <button
+              type="button"
+              className={cn(
+                "h-8 border-b-2 px-2 font-medium ui-text-sm",
+                activeDebugTab === "threads"
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-subtle-foreground hover:text-foreground",
+              )}
+              onClick={() => setActiveDebugTab("threads")}
+            >
+              {t("debugger.threadsAndVariables")}
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "h-8 border-b-2 px-2 font-medium ui-text-sm",
+                activeDebugTab === "console"
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-subtle-foreground hover:text-foreground",
+              )}
+              onClick={() => setActiveDebugTab("console")}
+            >
+              {t("debugger.console")}
+            </button>
+          </div>
+          <div className="grid min-h-0 flex-1 grid-cols-2 gap-2 p-2">
+          <DebugSection className={activeDebugTab === "console" ? "hidden" : undefined} title={t("debugger.stack")} count={stackFrames.length}>
             <DebugStackFrames
               frames={stackFrames}
               selectedFrameId={selectedFrameId}
@@ -550,7 +578,7 @@ export default function DebuggerView() {
             />
           </DebugSection>
 
-          <DebugSection title={t("debugger.threads")} count={threads.length}>
+          <DebugSection className={activeDebugTab === "console" ? "hidden" : undefined} title={t("debugger.threads")} count={threads.length}>
             <DebugThreads
               threads={threads}
               selectedThreadId={activeThreadId}
@@ -562,7 +590,7 @@ export default function DebuggerView() {
             />
           </DebugSection>
 
-          <DebugSection title={t("debugger.variables")} count={scopes.length}>
+          <DebugSection className={activeDebugTab === "console" ? "hidden" : undefined} title={t("debugger.variables")} count={scopes.length}>
             <DebugVariablesPanel
               activeSessionId={activeSession?.id}
               selectedFrameId={selectedFrameId}
@@ -572,7 +600,7 @@ export default function DebuggerView() {
             />
           </DebugSection>
 
-          <DebugSection title={t("debugger.watch")} count={watchExpressions.length}>
+          <DebugSection className={activeDebugTab === "console" ? "hidden" : undefined} title={t("debugger.watch")} count={watchExpressions.length}>
             <DebugWatchPanel
               activeSessionId={activeSession?.id}
               selectedFrameId={selectedFrameId}
@@ -582,6 +610,7 @@ export default function DebuggerView() {
           </DebugSection>
 
           <DebugSection
+            className={cn("col-span-2", activeDebugTab === "threads" && "hidden")}
             title={t("debugger.console")}
             count={activeAdapterOutput.length}
             defaultOpen
@@ -618,9 +647,9 @@ export default function DebuggerView() {
           </DebugSection>
 
           <DebugSection
+            className={activeDebugTab === "threads" ? "hidden" : undefined}
             title={t("debugger.breakpoints")}
             count={sortedBreakpoints.length}
-            className="col-span-2"
             action={
               sortedBreakpoints.length > 0 ? (
                 <Button
@@ -650,6 +679,7 @@ export default function DebuggerView() {
               onRemove={(breakpoint) => debuggerActions.removeBreakpoint(breakpoint.id)}
             />
           </DebugSection>
+          </div>
         </div>
       </div>
     </div>
