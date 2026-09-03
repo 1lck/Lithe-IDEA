@@ -767,7 +767,7 @@ private func dependencyState(
     modulePath: String,
     matching: @escaping @Sendable (MavenDependencyLoadState) -> Bool
 ) async -> MavenDependencyLoadState? {
-    let stateTask = Task { @MainActor in
+    let stateTask: Task<MavenDependencyLoadState?, Never> = Task { @MainActor in
         let initial = service.dependencyState(for: modulePath)
         if matching(initial) { return initial }
         for await states in service.$dependencyStates.values {
