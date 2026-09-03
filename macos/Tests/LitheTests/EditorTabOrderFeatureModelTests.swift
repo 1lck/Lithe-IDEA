@@ -41,6 +41,45 @@ struct EditorTabOrderFeatureModelTests {
     }
 
     @Test
+    func documentReconciliationPreservesMediaSlots() {
+        let model = EditorTabOrderFeatureModel()
+        let firstDocument = UUID()
+        let secondDocument = UUID()
+        let media = UUID()
+        model.reconcileDocuments(orderedIDs: [firstDocument, secondDocument])
+        model.move(.media(media), before: .document(secondDocument))
+
+        model.reconcileDocuments(orderedIDs: [secondDocument, firstDocument])
+
+        #expect(model.items == [
+            .document(secondDocument),
+            .media(media),
+            .document(firstDocument)
+        ])
+    }
+
+    @Test
+    func mediaReconciliationPreservesDocumentAndTerminalSlots() {
+        let model = EditorTabOrderFeatureModel()
+        let document = UUID()
+        let firstMedia = UUID()
+        let secondMedia = UUID()
+        let terminal = UUID()
+        model.reconcileDocuments(orderedIDs: [document])
+        model.reconcileMedia(orderedIDs: [firstMedia, secondMedia])
+        model.move(.terminal(terminal), before: .media(secondMedia))
+
+        model.reconcileMedia(orderedIDs: [secondMedia, firstMedia])
+
+        #expect(model.items == [
+            .document(document),
+            .media(secondMedia),
+            .terminal(terminal),
+            .media(firstMedia)
+        ])
+    }
+
+    @Test
     func removingTerminalsLeavesDocumentOrderUntouched() {
         let model = EditorTabOrderFeatureModel()
         let firstDocument = UUID()

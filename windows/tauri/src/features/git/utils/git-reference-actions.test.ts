@@ -18,6 +18,7 @@ const reference = (
         : `refs/tags/${shortName}`,
   shortName,
   kind,
+  peelsToCommit: true,
   isCurrent,
 });
 

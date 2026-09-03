@@ -214,7 +214,6 @@ struct PluginManagementView: View {
                 hoveredPluginID = nil
             }
         }
-        .animation(.easeOut(duration: 0.12), value: isHovered)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .lithePointer()

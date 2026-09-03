@@ -253,7 +253,10 @@ jobs:
         run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope WindowsRust -SuiteTimeoutSeconds 1080
 
       - name: Generate combined Windows test report
-        if: always()
+        if: >-
+          always() &&
+          (needs.changes.outputs.rust_core == 'true' ||
+          needs.changes.outputs.windows_rust == 'true')
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/generate-test-report.mjs
 

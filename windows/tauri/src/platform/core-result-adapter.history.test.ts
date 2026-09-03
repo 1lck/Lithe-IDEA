@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { GitHistorySnapshot } from "@/features/git/types/git.types";
+import type {
+  GitHistoryPage,
+  GitHistorySnapshot,
+  GitReferenceSnapshot,
+} from "@/features/git/types/git.types";
 import { adaptCoreResult } from "./core-result-adapter";
 
 describe("git history result adaptation", () => {
@@ -13,10 +17,18 @@ describe("git history result adaptation", () => {
             fullName: "refs/heads/main",
             shortName: "main",
             kind: "local",
+            peelsToCommit: true,
             isCurrent: true,
             upstreamShortName: "origin/main",
             ahead: 12,
             behind: 3,
+          },
+          {
+            fullName: "refs/tags/tree-tag",
+            shortName: "tree-tag",
+            kind: "tag",
+            peelsToCommit: false,
+            isCurrent: false,
           },
         ],
         recentReferences: [
@@ -24,6 +36,7 @@ describe("git history result adaptation", () => {
             fullName: "refs/heads/main",
             shortName: "main",
             kind: "local",
+            peelsToCommit: true,
             isCurrent: true,
             upstreamShortName: "origin/main",
             ahead: 12,
@@ -52,10 +65,19 @@ describe("git history result adaptation", () => {
           fullName: "refs/heads/main",
           shortName: "main",
           kind: "local",
+          peelsToCommit: true,
           isCurrent: true,
           upstreamShortName: "origin/main",
           ahead: 12,
           behind: 3,
+        },
+        {
+          fullName: "refs/tags/tree-tag",
+          shortName: "tree-tag",
+          kind: "tag",
+          peelsToCommit: false,
+          isCurrent: false,
+          upstreamShortName: undefined,
         },
       ],
       recentReferences: [
@@ -63,6 +85,7 @@ describe("git history result adaptation", () => {
           fullName: "refs/heads/main",
           shortName: "main",
           kind: "local",
+          peelsToCommit: true,
           isCurrent: true,
           upstreamShortName: "origin/main",
           ahead: 12,
@@ -91,6 +114,75 @@ describe("git history result adaptation", () => {
       recentReferences: [],
       commits: [],
       hasMore: false,
+    });
+  });
+
+  test("adapts references independently from commit history", () => {
+    expect(
+      adaptCoreResult<GitReferenceSnapshot>("git_references", undefined, {
+        references: [
+          {
+            fullName: "refs/heads/main",
+            shortName: "main",
+            kind: "local",
+            peelsToCommit: true,
+            isCurrent: true,
+            upstreamShortName: "origin/main",
+            ahead: 4,
+            behind: 2,
+          },
+        ],
+        recentReferences: [],
+      }),
+    ).toEqual({
+      references: [
+        {
+          fullName: "refs/heads/main",
+          shortName: "main",
+          kind: "local",
+          peelsToCommit: true,
+          isCurrent: true,
+          upstreamShortName: "origin/main",
+          ahead: 4,
+          behind: 2,
+        },
+      ],
+      recentReferences: [],
+    });
+  });
+
+  test("preserves the next cursor for an incremental history page", () => {
+    expect(
+      adaptCoreResult<GitHistoryPage>("git_history_page", undefined, {
+        commits: [
+          {
+            hash: "abc1234",
+            parentHashes: [],
+            subject: "Page commit",
+            authorName: "Developer",
+            authorEmail: "developer@example.invalid",
+            date: "2026/08/16 10:00",
+            decorations: "",
+          },
+        ],
+        nextCursor: "cursor-50",
+        hasMore: true,
+      }),
+    ).toEqual({
+      commits: [
+        {
+          hash: "abc1234",
+          shortHash: "abc1234",
+          parentHashes: [],
+          message: "Page commit",
+          author: "Developer",
+          email: "developer@example.invalid",
+          date: "2026/08/16 10:00",
+          decorations: "",
+        },
+      ],
+      nextCursor: "cursor-50",
+      hasMore: true,
     });
   });
 });

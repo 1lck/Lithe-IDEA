@@ -104,7 +104,7 @@ struct JavaTestDebugLaunchServiceTests {
 
         model.debugTest(providerID: "java", scope: .workspace)
 
-        #expect(model.notificationMessage == "Select a Java test file or test case to debug")
+        #expect(model.activeNotifications.last?.message == "Select a Java test file or test case to debug")
         #expect(model.javaTestWorkflowState.debugLaunchTask == nil)
         #expect(model.javaTestWorkflowState.debugLaunchOperationID == nil)
     }

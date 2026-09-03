@@ -11,30 +11,6 @@ import LitheSearchModule
 import LitheWorkspaceModule
 import LitheCoreContracts
 
-enum SettingsCategory: String, CaseIterable, Identifiable {
-    case general = "General"
-    case editor = "Editor"
-    case keymap = "Keymap"
-    case terminal = "Terminal"
-    case lsp = "LSP"
-    case ai = "AI & Commit"
-    case updates = "Updates"
-
-    var id: String { rawValue }
-
-    var icon: String {
-        switch self {
-        case .general: "gearshape"
-        case .editor: "textformat"
-        case .keymap: "keyboard"
-        case .terminal: "terminal"
-        case .lsp: "server.rack"
-        case .ai: "wand.and.stars"
-        case .updates: "arrow.down.circle"
-        }
-    }
-}
-
 @MainActor
 final class AppModel: ObservableObject, Identifiable {
     let id = UUID()
@@ -97,7 +73,6 @@ final class AppModel: ObservableObject, Identifiable {
     var isPerformingProjectItemOperation: Bool {
         workspaceFeature.isPerformingProjectItemOperation
     }
-    @Published var notificationMessage: String?
     @Published var activeNotifications: [WorkbenchNotification] = []
     @Published var notifications: [WorkbenchNotification] = []
     var notificationDismissalTasks: [UUID: Task<Void, Never>] = [:]
@@ -163,6 +138,7 @@ final class AppModel: ObservableObject, Identifiable {
     let githubFeature: GitHubFeatureModel
     let discourseCommunityFeature: DiscourseCommunityFeatureModel
     let editorTabOrderFeature = EditorTabOrderFeatureModel()
+    let mediaFeature = MediaDocumentFeatureModel()
     let terminalPlacementFeature: TerminalPlacementFeatureModel
     var debugTerminalSessionIDs: Set<UUID> = []
     var activeDebugTerminalSessionID: UUID?
@@ -260,6 +236,7 @@ final class AppModel: ObservableObject, Identifiable {
     private var runtimeFeatureObservation: AnyCancellable?
     private var editorTabOrderFeatureObservation: AnyCancellable?
     private var terminalPlacementObservation: AnyCancellable?
+    private var mediaFeatureObservation: AnyCancellable?, mediaTabCollectionObservation: AnyCancellable?
     private var documentTabCollectionObservation: AnyCancellable?
     private var activeDocumentSelectionObservation: AnyCancellable?
     private var moduleRuntimeObservationID: UUID?
@@ -415,8 +392,9 @@ final class AppModel: ObservableObject, Identifiable {
         activeDocumentSelectionObservation = documentFeature.$activeDocumentID
             .dropFirst()
             .sink { [weak self] documentID in
-                guard documentID != nil else { return }
-                self?.terminalPlacementFeature.activateDocument()
+                guard let self, documentID != nil else { return }
+                terminalPlacementFeature.activateDocument()
+                mediaFeature.deactivate()
             }
         if LitheFeatureAvailability.githubPullRequests {
             Task { [weak self] in
@@ -581,6 +559,12 @@ final class AppModel: ObservableObject, Identifiable {
         documentTabCollectionObservation = documentFeature.$openDocuments
             .map { $0.map(\.id) }.removeDuplicates()
             .sink { [weak self] ids in self?.editorTabOrderFeature.reconcileDocuments(orderedIDs: ids) }
+        mediaFeatureObservation = mediaFeature.objectWillChange.sink { [weak self] _ in
+            self?.scheduleObjectWillChangeRelay()
+        }
+        mediaTabCollectionObservation = mediaFeature.$openMediaDocuments
+            .map { $0.map(\.id) }.removeDuplicates()
+            .sink { [weak self] ids in self?.editorTabOrderFeature.reconcileMedia(orderedIDs: ids) }
         javaFeature.configure(
             documentProvider: { [weak self] in self?.activeDocument },
             loadBlame: { [weak self] fileURL in
@@ -644,6 +628,7 @@ final class AppModel: ObservableObject, Identifiable {
             .sink { [weak self] commandID in
                 self?.shortcutDetector?.setSuspended(commandID != nil)
             }
+        configureMediaViewerRegistry()
         shortcutDetector?.start()
     }
 
@@ -953,6 +938,7 @@ final class AppModel: ObservableObject, Identifiable {
         blameVisibleURL = nil
         gitFeatureIfActive?.reset()
         documentFeature.reset()
+        mediaFeature.reset()
         gitLogSearchQuery = ""
         projectHistoryFeatureIfActive?.reset()
         workspaceURL = normalizedURL
@@ -1016,6 +1002,7 @@ final class AppModel: ObservableObject, Identifiable {
         selectedSidebar = .project
         workspaceFeature.reset()
         documentFeature.reset()
+        mediaFeature.reset()
         searchFeatureIfActive?.reset()
         searchQuery = ""
         isSearchEverywhereVisible = false
@@ -1066,6 +1053,7 @@ final class AppModel: ObservableObject, Identifiable {
     private func performCloseStandaloneFile() {
         standaloneFileURL = nil
         documentFeature.reset()
+        mediaFeature.reset()
         editorChrome.resetFindBar()
         editorChrome.setGoToLineVisible(false)
         didCloseProject?()
@@ -1113,9 +1101,14 @@ final class AppModel: ObservableObject, Identifiable {
         workspaceURL = nil
         standaloneFileURL = normalizedURL
         documentFeature.reset()
+        mediaFeature.reset()
         isFindBarVisible = false
         findBarQuery = ""
-        documentFeature.openStandaloneFile(normalizedURL)
+        if let mediaKind = MediaDocumentKind.from(url: normalizedURL) {
+            openMediaFile(normalizedURL, kind: mediaKind)
+        } else {
+            documentFeature.openStandaloneFile(normalizedURL)
+        }
     }
 
     func javaIconKind(for url: URL) async -> LitheIconKind? {
@@ -1542,16 +1535,24 @@ final class AppModel: ObservableObject, Identifiable {
         }
         if isGitLogVisible && gitCommits.isEmpty {
             await refreshGitHistory()
+        } else if !isGitLogVisible {
+            gitFeatureIfActive?.cancelGitHistoryLoading()
         }
     }
 
     func closeGitLog() {
         isGitLogVisible = false
+        gitFeatureIfActive?.cancelGitHistoryLoading()
     }
 
     func selectGitReference(_ reference: GitReference?) async {
         guard let gitFeature = await activateGitModule() else { return }
         await gitFeature.selectGitReference(reference)
+    }
+
+    func showAllGitReferences() async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.showAllGitReferences()
     }
 
     func refreshGitHistory() async {
@@ -1643,6 +1644,37 @@ final class AppModel: ObservableObject, Identifiable {
     func deleteBranch(_ reference: GitReference) async {
         guard let gitFeature = await activateGitModule() else { return }
         await gitFeature.deleteBranch(reference)
+    }
+
+    func restoreRecentlyDeletedBranch() async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.restoreRecentlyDeletedBranch()
+    }
+
+    func dismissDeletedBranchBanner() {
+        gitFeatureIfActive?.dismissDeletedBranchBanner()
+    }
+
+    /// Returns nil on success, otherwise the error message a tag dialog
+    /// should show where the user typed.
+    @discardableResult
+    func createTag(at commit: GitCommit, name: String, message: String) async -> String? {
+        guard let gitFeature = await activateGitModule() else { return "No Git repository is open" }
+        return await gitFeature.createTag(at: commit, name: name, message: message)
+    }
+
+    func deleteTag(_ reference: GitReference) async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.deleteTag(reference)
+    }
+
+    func restoreRecentlyDeletedTag() async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.restoreRecentlyDeletedTag()
+    }
+
+    func dismissDeletedTagBanner() {
+        gitFeatureIfActive?.dismissDeletedTagBanner()
     }
 
     func mergeBranch(_ reference: GitReference) async {

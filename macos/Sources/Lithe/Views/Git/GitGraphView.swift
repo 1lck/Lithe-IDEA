@@ -11,6 +11,7 @@ struct GitGraphRowActions {
     let onCherryPick: (GitCommit) -> Void
     let onRevert: (GitCommit) -> Void
     let onReset: (GitCommit) -> Void
+    let onCreateTag: (GitCommit) -> Void
 }
 
 struct GitGraphView: View {
@@ -136,6 +137,7 @@ private struct GitGraphRowView: View, Equatable {
                 NSPasteboard.general.setString(row.commit.shortHash, forType: .string)
             }
             Divider()
+            Button("New Tag…") { actions.onCreateTag(row.commit) }
             Button("Cherry-pick Commit…") { actions.onCherryPick(row.commit) }
             Button("Revert Commit…") { actions.onRevert(row.commit) }
             Button("Reset Current Branch to Here…") { actions.onReset(row.commit) }
