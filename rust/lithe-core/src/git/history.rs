@@ -114,7 +114,7 @@ pub fn references(request: GitReferencesRequest) -> Result<GitReferencesResponse
     let reference_arguments = vec![
         "for-each-ref".to_string(),
         "--sort=refname".to_string(),
-        "--format=%(refname)\t%(refname:short)\t%(HEAD)\t%(upstream:short)\t%(upstream)\t%(upstream:track,nobracket)"
+        "--format=%(refname)\t%(refname:short)\t%(HEAD)\t%(upstream:short)\t%(upstream)\t%(upstream:track,nobracket)\t%(objecttype)\t%(*objecttype)"
             .to_string(),
         "refs/heads".to_string(),
     ];
@@ -144,7 +144,7 @@ pub fn references(request: GitReferencesRequest) -> Result<GitReferencesResponse
         arguments: vec![
             "for-each-ref".to_string(),
             "--sort=refname".to_string(),
-            "--format=%(refname)\t%(refname:short)\t%(HEAD)\t%(upstream:short)\t%(upstream)"
+            "--format=%(refname)\t%(refname:short)\t%(HEAD)\t%(upstream:short)\t%(upstream)\t%(upstream:track,nobracket)\t%(objecttype)\t%(*objecttype)"
                 .to_string(),
             "refs/remotes".to_string(),
             "refs/tags".to_string(),

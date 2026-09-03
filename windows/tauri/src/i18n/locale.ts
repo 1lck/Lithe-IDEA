@@ -1527,6 +1527,9 @@ const catalogs = {
     "titleProject.openInNewWindow": "Open in New Window",
     "titleProject.closeAllProjects": "Close All Projects",
     "titleProject.selectIcon": "Select Icon",
+    "titleProject.setDisplayAlias": "Set Display Alias",
+    "titleProject.displayAliasPrompt":
+      "Enter a display alias shown after the folder name to distinguish projects with the same name.",
     "titleProject.removeProject": "Remove Project",
     "titleProject.currentProject": "Current project {project}",
     "titleProject.switchToProject": "Switch to {project}",
@@ -5491,6 +5494,8 @@ const catalogs = {
     "titleProject.openInNewWindow": "在新窗口中打开",
     "titleProject.closeAllProjects": "关闭所有项目",
     "titleProject.selectIcon": "选择图标",
+    "titleProject.setDisplayAlias": "设置显示别名",
+    "titleProject.displayAliasPrompt": "输入显示别名，将显示在文件夹名之后，用于区分同名项目。",
     "titleProject.removeProject": "移除项目",
     "titleProject.currentProject": "当前项目 {project}",
     "titleProject.switchToProject": "切换到 {project}",

@@ -46,6 +46,7 @@ describe("Git push API", () => {
       fullName: "refs/heads/feature/push",
       shortName: "feature/push",
       kind: "local",
+      peelsToCommit: true,
       isCurrent: true,
     });
 

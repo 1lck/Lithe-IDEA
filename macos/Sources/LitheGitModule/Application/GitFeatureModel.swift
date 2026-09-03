@@ -33,6 +33,14 @@ package final class GitFeatureModel: ObservableObject {
     @Published package var pendingConflictRollback: GitConflictRollbackRequest?
     @Published package private(set) var pendingStashRestoreConflict: GitStashRestoreConflictRequest?
     @Published package private(set) var isStashRestoreConflictNoticeVisible = false
+    /// The most recently deleted tag, kept in session state so the Git log can
+    /// offer a restore. A later tag deletion replaces it on success or clears
+    /// it on failure; branch recovery is independent, so both banners may be
+    /// visible. Closing the banner or `reset()` clears this session-only state.
+    @Published package private(set) var recentlyDeletedTag: GitTagDeletion?
+    /// The most recently deleted local branch. Later branch attempts follow the
+    /// same replace-or-clear rule without changing tag recovery state.
+    @Published package private(set) var recentlyDeletedBranch: GitBranchDeletion?
     @Published package private(set) var gitConflictFilterPaths: Set<String> = []
     @Published package private(set) var requestedStashReference: String?
     /// Set whenever Git is mid-merge, mid-rebase, mid-cherry-pick, or mid-revert.
@@ -194,6 +202,8 @@ package final class GitFeatureModel: ObservableObject {
         pendingConflictRollback = nil
         pendingStashRestoreConflict = nil
         isStashRestoreConflictNoticeVisible = false
+        recentlyDeletedTag = nil
+        recentlyDeletedBranch = nil
         gitConflictFilterPaths = []
         requestedStashReference = nil
         deferredSavedChanges = nil
@@ -1734,8 +1744,127 @@ package final class GitFeatureModel: ObservableObject {
         isPerformingBranchOperation = true
         let result = await withGitOperation { await service.deleteBranch(reference, at: gitRepositoryRoot) }
         isPerformingBranchOperation = false
-        notify?(result.succeeded ? "Deleted \(reference.shortName)" : trimmedMessage(result))
+        if result.succeeded, let deletion = result.branchDeletion {
+            recentlyDeletedBranch = deletion
+            notify?(successfulMessage(result, fallback: "Deleted branch \(deletion.name)"))
+        } else {
+            notify?(result.succeeded ? "Deleted \(reference.shortName)" : trimmedMessage(result))
+        }
         await refreshGit()
+    }
+
+    /// Rebuilds the deleted branch at its recorded commit. A failure (for
+    /// example the name was re-created elsewhere) keeps the record so the user
+    /// can retry or close the banner themselves.
+    package func restoreRecentlyDeletedBranch() async {
+        guard let deletion = recentlyDeletedBranch, let gitRepositoryRoot else { return }
+        isPerformingBranchOperation = true
+        let result = await withGitOperation {
+            await service.createBranch(
+                named: deletion.name,
+                from: GitReference(
+                    fullName: deletion.deletedTarget,
+                    shortName: deletion.deletedTarget,
+                    kind: .local,
+                    isCurrent: false,
+                    upstreamShortName: nil
+                ),
+                checkout: false,
+                at: gitRepositoryRoot
+            )
+        }
+        isPerformingBranchOperation = false
+        if result.succeeded {
+            recentlyDeletedBranch = nil
+            notify?("Restored branch \(deletion.name)")
+            await refreshGit()
+        } else {
+            notify?(trimmedMessage(result))
+        }
+    }
+
+    package func dismissDeletedBranchBanner() {
+        recentlyDeletedBranch = nil
+    }
+
+    /// Creates a lightweight or annotated tag. Returns `nil` on success so a
+    /// dialog can stay open and show the failure where the user typed; the
+    /// caller decides whether to surface the returned message itself.
+    @discardableResult
+    package func createTag(
+        at commit: GitCommit,
+        name rawName: String,
+        message: String
+    ) async -> String? {
+        guard let gitRepositoryRoot else { return "No Git repository is open" }
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return "Enter a tag name" }
+        let annotation = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        isPerformingBranchOperation = true
+        let result = await withGitOperation {
+            await service.createTag(
+                named: name,
+                at: commit.hash,
+                message: annotation.isEmpty ? nil : annotation,
+                at: gitRepositoryRoot
+            )
+        }
+        isPerformingBranchOperation = false
+        if result.succeeded {
+            notify?("Created tag \(name)")
+            await refreshGit()
+            return nil
+        }
+        return trimmedMessage(result)
+    }
+
+    package func deleteTag(_ reference: GitReference) async {
+        guard let gitRepositoryRoot else { return }
+        isPerformingBranchOperation = true
+        let result = await withGitOperation {
+            await service.deleteTag(named: reference.shortName, at: gitRepositoryRoot)
+        }
+        isPerformingBranchOperation = false
+        if result.succeeded, let deletion = result.tagDeletion {
+            recentlyDeletedTag = deletion
+            notify?("Deleted tag \(deletion.name)")
+        } else {
+            notify?(trimmedMessage(result))
+        }
+        await refreshGit()
+    }
+
+    /// Rebuilds the deleted tag at its recorded commit. A failure (for example
+    /// the name was re-created elsewhere) keeps the record so the user can
+    /// retry or close the banner themselves.
+    package func restoreRecentlyDeletedTag() async {
+        guard let deletion = recentlyDeletedTag, let gitRepositoryRoot else { return }
+        guard deletion.hasConsistentKindAndMessage else {
+            recentlyDeletedTag = nil
+            notify?("The deleted tag recovery record is invalid")
+            return
+        }
+        isPerformingBranchOperation = true
+        let result = await withGitOperation {
+            await service.createTag(
+                named: deletion.name,
+                at: deletion.deletedTarget,
+                message: deletion.message,
+                at: gitRepositoryRoot
+            )
+        }
+        isPerformingBranchOperation = false
+        if result.succeeded {
+            recentlyDeletedTag = nil
+            notify?("Restored tag \(deletion.name)")
+            await refreshGit()
+        } else {
+            notify?(trimmedMessage(result))
+        }
+    }
+
+    package func dismissDeletedTagBanner() {
+        recentlyDeletedTag = nil
     }
 
     /// Records the merge or rebase commit Git is waiting on once its conflicts are
