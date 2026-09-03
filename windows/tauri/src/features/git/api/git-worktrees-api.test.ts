@@ -23,6 +23,7 @@ describe("Git reference worktrees", () => {
     fullName: "refs/remotes/origin/feature/orders",
     shortName: "origin/feature/orders",
     kind: "remote" as const,
+    peelsToCommit: true,
     isCurrent: false,
   };
 

@@ -213,11 +213,20 @@ extension AppModel {
     var requestedStashReference: String? {
         gitFeatureIfActive?.requestedStashReference
     }
+    var recentlyDeletedTag: GitTagDeletion? {
+        gitFeatureIfActive?.recentlyDeletedTag
+    }
+    var recentlyDeletedBranch: GitBranchDeletion? {
+        gitFeatureIfActive?.recentlyDeletedBranch
+    }
     var isCommitting: Bool { gitFeatureIfActive?.isCommitting ?? false }
     var gitBlameLines: [URL: [GitBlameLine]] { gitFeatureIfActive?.gitBlameLines ?? [:] }
     var gitReferences: [GitReference] { gitFeatureIfActive?.gitReferences ?? [] }
     var recentGitReferences: [GitReference] { gitFeatureIfActive?.recentGitReferences ?? [] }
     var gitCommits: [GitCommit] { gitFeatureIfActive?.gitCommits ?? [] }
+    /// Cheap stand-in for `gitCommits` as a change key. Comparing the array
+    /// itself made every `.task(id:)` evaluation walk the whole commit list.
+    var gitCommitsVersion: Int { gitFeatureIfActive?.gitCommitsVersion ?? 0 }
     var gitLogMatchedCommitHashes: Set<String>? {
         gitFeatureIfActive?.gitLogMatchedCommitHashes
     }
