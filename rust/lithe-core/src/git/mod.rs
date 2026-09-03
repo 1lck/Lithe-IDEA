@@ -13,10 +13,10 @@ use crate::protocol::{
     GitBlameLineResponse, GitBlameResponse, GitChange, GitCheckoutPreflightResponse,
     GitCommitLookupResponse, GitCommitResponse, GitComparisonResponse, GitConflictMarkerResponse,
     GitDiffHunkResponse, GitDiffResponse, GitDiffRowResponse, GitFileResponse, GitFilesResponse,
-    GitIntegrationPreflightResponse, GitOperationStateResponse,
-    GitPullPreflightResponse, GitPushPreviewResponse, GitPushTagResponse, GitReferenceResponse,
-    GitStashResponse, GitStashesResponse, GitStatusResponse, GitWatchContextResponse,
-    GitWorktreeResponse, GitWorktreesResponse,
+    GitIntegrationPreflightResponse, GitOperationStateResponse, GitPullPreflightResponse,
+    GitPushPreviewResponse, GitPushTagResponse, GitReferenceResponse, GitStashResponse,
+    GitStashesResponse, GitStatusResponse, GitWatchContextResponse, GitWorktreeResponse,
+    GitWorktreesResponse,
 };
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;

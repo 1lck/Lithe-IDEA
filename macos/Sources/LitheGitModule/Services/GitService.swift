@@ -961,6 +961,22 @@ package struct GitService: Sendable {
             + (Double(components.attoseconds) / 1_000_000_000_000_000)
         return max(0, Int(milliseconds.rounded()))
     }
+
+    private func cancellableRead<T: Sendable>(
+        priority: TaskPriority = .utility,
+        operationID: String,
+        _ operation: @escaping @Sendable (any GitOperations) -> T?
+    ) async -> T? {
+        let operations = self.operations
+        let task = Task.detached(priority: priority) {
+            operation(operations)
+        }
+        return await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            _ = operations.cancel(operationID: operationID)
+        }
+    }
 }
 
 private enum GitPerformanceLogFormatter {
@@ -994,19 +1010,4 @@ private enum GitPerformanceLogFormatter {
             .replacingOccurrences(of: "\n", with: "\\n")
     }
 
-    private func cancellableRead<T: Sendable>(
-        priority: TaskPriority = .utility,
-        operationID: String,
-        _ operation: @escaping @Sendable (any GitOperations) -> T?
-    ) async -> T? {
-        let operations = self.operations
-        let task = Task.detached(priority: priority) {
-            operation(operations)
-        }
-        return await withTaskCancellationHandler {
-            await task.value
-        } onCancel: {
-            _ = operations.cancel(operationID: operationID)
-        }
-    }
 }
