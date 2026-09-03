@@ -43,7 +43,7 @@ struct MediaViewerView: View {
             imageViewer
         case .video:
             if let player {
-                VideoPlayer(player: player)
+                MediaVideoPlayerView(player: player)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding(12)
             } else {
@@ -217,6 +217,23 @@ struct MediaViewerView: View {
         .padding(.horizontal, 12)
         .frame(height: 34)
         .background(LitheTheme.toolHeader)
+    }
+}
+
+/// Uses the AppKit player surface because the standalone Swift toolchain used
+/// by CI does not expose SwiftUI's `VideoPlayer` overlay on every supported SDK.
+private struct MediaVideoPlayerView: NSViewRepresentable {
+    let player: AVPlayer
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let playerView = AVPlayerView()
+        playerView.player = player
+        return playerView
+    }
+
+    func updateNSView(_ playerView: AVPlayerView, context: Context) {
+        guard playerView.player !== player else { return }
+        playerView.player = player
     }
 }
 
