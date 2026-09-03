@@ -64,7 +64,8 @@ body:
         - Docker
         - Remote and WSL / 远程与 WSL
         - AI
-        - UI and layout / 界面与布局
+        - UI / 界面
+        - UX / 用户体验
         - Other / 其他
     validations:
       required: true
