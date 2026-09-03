@@ -100,7 +100,7 @@ struct GitWorktreesView: View {
             await model.refreshGitWorktrees()
             selectAvailableWorktree()
         }
-        .task(id: selectedWorktreeID) {
+        .task(id: selectedWorktree?.id) {
             guard let worktree = selectedWorktree, !worktree.isPrunable else { return }
             await model.inspectGitWorktree(worktree)
         }
@@ -850,7 +850,10 @@ struct GitWorktreesView: View {
     }
 
     private func selectAvailableWorktree() {
-        guard selectedWorktree == nil else { return }
+        if let selectedWorktreeID,
+           model.gitWorktrees.contains(where: { $0.id == selectedWorktreeID }) {
+            return
+        }
         selectedWorktreeID = model.gitWorktrees.first(where: \.isCurrent)?.id
             ?? model.gitWorktrees.first?.id
     }
