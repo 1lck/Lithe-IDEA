@@ -1,9 +1,9 @@
 cask "lithe" do
   arch arm: "arm64", intel: "x86_64"
 
-  version "0.4.0"
-  sha256 arm:   "4e5d880fc87e86cf65400ba046767e060c44235a18440c838ffcb5b7fe048bb9",
-         intel: "0c82b0052f7b92d73f84b14054ab8b97d677d9ea949f7025f6b0b461e9d58346"
+  version "0.4.1"
+  sha256 arm:   "890e6e1e466a25a7beb0ffdc243fe5ecfe7ef877a0d9cb9384c47f551d635e44",
+         intel: "c254051f21d280773d8495e37f9a6a44f90cee9605cc843eb38a0ea4dd45a42c"
 
   url "https://github.com/1lck/Lithe-IDEA/releases/download/v#{version}/Lithe-#{version}-#{arch}.dmg"
   name "Lithe"
