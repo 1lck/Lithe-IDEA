@@ -14,8 +14,13 @@ package final class GitFeatureModel: ObservableObject {
     @Published private var pendingStagingStates: [GitChange.ID: Bool] = [:]
     @Published package private(set) var gitStashes: [GitStash] = []
     @Published package private(set) var gitShelves: [GitShelfEntry] = []
+    @Published package private(set) var gitWorktrees: [GitWorktree] = []
+    @Published package private(set) var gitWorktreeLoadState = GitWorktreeLoadState.idle
+    @Published package private(set) var gitWorktreeInspection: GitWorktreeInspection?
+    @Published package private(set) var gitWorktreeInspectionLoadState = GitWorktreeInspectionLoadState.idle
     @Published package private(set) var isPerformingStashOperation = false
     @Published package private(set) var isPerformingShelfOperation = false
+    @Published package private(set) var isPerformingWorktreeOperation = false
     @Published package private(set) var gitRepositoryRoot: URL?
     @Published package private(set) var currentBranch = "No Git"
     @Published package var selectedChange: GitChange?
@@ -102,6 +107,7 @@ package final class GitFeatureModel: ObservableObject {
     private let snapshotProvider: @Sendable (URL) async -> GitSnapshot?
     private let stashesProvider: @Sendable (URL) async -> [GitStash]
     private let operationStateProvider: @Sendable (URL) async -> GitOperationState?
+    private let worktreesProvider: @Sendable (URL) async -> [GitWorktree]?
     private let diffDocumentProvider: @Sendable (GitChange, GitDiffWhitespaceMode) async -> DiffDocument
     private var workspaceURLProvider: (@MainActor () -> URL?)?
     private var isGitLogVisibleProvider: (@MainActor () -> Bool)?
@@ -111,7 +117,10 @@ package final class GitFeatureModel: ObservableObject {
     private var onGitOperationBegan: (@MainActor () -> Void)?
     private var onGitOperationEnded: (@MainActor () async -> Void)?
     private var acquireModuleLease: (@MainActor (String) -> ModuleLease)?
-    private var gitHistoryLimit = 300
+    private static let gitHistoryPageSize = 100
+    private var gitHistoryCursor: String?
+    private var gitHistoryGeneration = UUID()
+    private var activeGitHistoryOperationIDs: Set<String> = []
     private var deferredSavedChanges: GitDeferredSavedChanges?
     private var nextRefreshRequestID: UInt64 = 0
     private var activeRefreshRequestIDs: Set<UInt64> = []
@@ -122,6 +131,8 @@ package final class GitFeatureModel: ObservableObject {
     private var gitConsoleRepositoryGeneration: UInt64 = 0
     private var loadingLineChangeURLs: Set<URL> = []
     private var lineChangeHunks: [URL: [String: DiffHunk]] = [:]
+    private var worktreeRequestGeneration: UInt64 = 0
+    private var worktreeInspectionRequestGeneration: UInt64 = 0
 
     private static let commitFilesPrefetchRadius = 4
 
@@ -131,6 +142,7 @@ package final class GitFeatureModel: ObservableObject {
         snapshotProvider: (@Sendable (URL) async -> GitSnapshot?)? = nil,
         stashesProvider: (@Sendable (URL) async -> [GitStash])? = nil,
         operationStateProvider: (@Sendable (URL) async -> GitOperationState?)? = nil,
+        worktreesProvider: (@Sendable (URL) async -> [GitWorktree]?)? = nil,
         diffDocumentProvider: (@Sendable (GitChange, GitDiffWhitespaceMode) async -> DiffDocument)? = nil
     ) {
         self.service = service
@@ -139,6 +151,7 @@ package final class GitFeatureModel: ObservableObject {
         self.snapshotProvider = snapshotProvider ?? { await service.snapshot(for: $0) }
         self.stashesProvider = stashesProvider ?? { await service.stashes(at: $0) }
         self.operationStateProvider = operationStateProvider ?? { await service.operationState(at: $0) }
+        self.worktreesProvider = worktreesProvider ?? { await service.worktrees(at: $0) }
         self.diffDocumentProvider = diffDocumentProvider ?? {
             await service.diffDocument(for: $0, whitespace: $1)
         }
@@ -175,6 +188,7 @@ package final class GitFeatureModel: ObservableObject {
     package var hasActiveModuleWork: Bool {
         isPerformingStashOperation
             || isPerformingShelfOperation
+            || isPerformingWorktreeOperation
             || isLoadingDiff
             || isRefreshingGit
             || isCommitting
@@ -188,10 +202,17 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func reset() {
+        cancelGitHistoryLoading()
         gitChanges = []
         pendingStagingStates = [:]
         gitStashes = []
         gitShelves = []
+        gitWorktrees = []
+        gitWorktreeLoadState = .idle
+        worktreeRequestGeneration &+= 1
+        gitWorktreeInspection = nil
+        gitWorktreeInspectionLoadState = .idle
+        worktreeInspectionRequestGeneration &+= 1
         gitOperationState = nil
         pendingPullStrategy = nil
         pendingIntegrationConflict = nil
@@ -205,6 +226,7 @@ package final class GitFeatureModel: ObservableObject {
         deferredSavedChanges = nil
         isPerformingStashOperation = false
         isPerformingShelfOperation = false
+        isPerformingWorktreeOperation = false
         gitRepositoryRoot = nil
         currentBranch = "No Git"
         selectedChange = nil
@@ -230,7 +252,7 @@ package final class GitFeatureModel: ObservableObject {
         commitPathsByHash = [:]
         clearGitCommitFilesCache()
         gitLogFilterGeneration = UUID()
-        gitHistoryLimit = 300
+        gitHistoryCursor = nil
         isLoadingGitHistory = false
         isLoadingMoreGitHistory = false
         canLoadMoreGitHistory = false
@@ -332,6 +354,9 @@ package final class GitFeatureModel: ObservableObject {
             if gitRepositoryRoot != snapshot.repositoryRoot {
                 clearGitCommitFilesCache()
                 gitRepositoryRoot = snapshot.repositoryRoot
+                gitWorktrees = []
+                gitWorktreeLoadState = .idle
+                worktreeRequestGeneration &+= 1
                 gitConsoleRepositoryGeneration &+= 1
                 isLoadingInitialGitConsoleEntry = false
                 hasLoadedInitialGitConsoleEntry = false
@@ -609,6 +634,13 @@ package final class GitFeatureModel: ObservableObject {
         hasLoadedInitialGitConsoleEntry = true
         guard gitConsoleEntries.isEmpty else { return }
         recordGitConsoleEntry(result)
+    }
+
+    private func elapsedMilliseconds(since startedAt: ContinuousClock.Instant) -> Int {
+        let components = startedAt.duration(to: .now).components
+        let milliseconds = (Double(components.seconds) * 1_000)
+            + (Double(components.attoseconds) / 1_000_000_000_000_000)
+        return max(0, Int(milliseconds.rounded()))
     }
 
     private func recordGitConsoleEntry(_ result: GitService.CommandResult) {
@@ -1267,29 +1299,55 @@ package final class GitFeatureModel: ObservableObject {
 
     package func selectGitReference(_ reference: GitReference?) async {
         selectedGitReference = reference
-        gitHistoryLimit = 300
         canLoadMoreGitHistory = false
         await refreshGitHistory()
     }
 
     package func refreshGitHistory() async {
-        guard let gitRepositoryRoot, !isLoadingGitHistory else { return }
+        guard let gitRepositoryRoot else { return }
+        cancelGitHistoryLoading()
+        let generation = gitHistoryGeneration
+        let selectedReference = selectedGitReference
+        let referencesOperationID = gitHistoryOperationID(kind: "references", generation: generation)
+        let pageOperationID = gitHistoryOperationID(kind: "page", generation: generation)
+        activeGitHistoryOperationIDs.formUnion([referencesOperationID, pageOperationID])
         isLoadingGitHistory = true
         let previousCommitHash = selectedGitCommit?.hash
-        let snapshot = await service.history(
+        async let references = service.references(
             at: gitRepositoryRoot,
-            reference: selectedGitReference,
-            limit: gitHistoryLimit
+            operationID: referencesOperationID
         )
-        gitReferences = snapshot.references
-        recentGitReferences = snapshot.recentReferences
-        gitCommits = snapshot.commits
-        gitIdentity = snapshot.identity
-        canLoadMoreGitHistory = snapshot.hasMore
-
-        let nextCommit = snapshot.commits.first(where: { $0.hash == previousCommitHash })
-            ?? snapshot.commits.first
+        async let page = service.historyPage(
+            at: gitRepositoryRoot,
+            reference: selectedReference,
+            cursor: nil,
+            limit: Self.gitHistoryPageSize,
+            operationID: pageOperationID
+        )
+        let (referenceSnapshot, historyPage) = await (references, page)
+        activeGitHistoryOperationIDs.subtract([referencesOperationID, pageOperationID])
+        guard gitHistoryGeneration == generation,
+              self.gitRepositoryRoot == gitRepositoryRoot,
+              selectedGitReference == selectedReference else {
+            if let cursor = historyPage?.nextCursor {
+                service.closeHistoryCursor(at: gitRepositoryRoot, cursor: cursor)
+            }
+            return
+        }
         isLoadingGitHistory = false
+        guard let historyPage else { return }
+
+        if let referenceSnapshot {
+            gitReferences = referenceSnapshot.references
+            recentGitReferences = referenceSnapshot.recentReferences
+            gitIdentity = referenceSnapshot.identity
+        }
+        gitCommits = historyPage.commits
+        gitHistoryCursor = historyPage.nextCursor
+        canLoadMoreGitHistory = historyPage.hasMore
+
+        let nextCommit = historyPage.commits.first(where: { $0.hash == previousCommitHash })
+            ?? historyPage.commits.first
         if let nextCommit {
             if previousCommitHash == nextCommit.hash {
                 selectedGitCommit = nextCommit
@@ -1375,11 +1433,61 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func loadMoreGitHistory() async {
-        guard canLoadMoreGitHistory, !isLoadingGitHistory else { return }
+        guard let gitRepositoryRoot,
+              let cursor = gitHistoryCursor,
+              canLoadMoreGitHistory,
+              !isLoadingGitHistory,
+              !isLoadingMoreGitHistory else { return }
+        let generation = gitHistoryGeneration
+        let selectedReference = selectedGitReference
+        let operationID = gitHistoryOperationID(kind: "page-more", generation: generation)
+        activeGitHistoryOperationIDs.insert(operationID)
         isLoadingMoreGitHistory = true
-        defer { isLoadingMoreGitHistory = false }
-        gitHistoryLimit += 300
-        await refreshGitHistory()
+        gitHistoryCursor = nil
+        let page = await service.historyPage(
+            at: gitRepositoryRoot,
+            reference: selectedReference,
+            cursor: cursor,
+            limit: Self.gitHistoryPageSize,
+            operationID: operationID
+        )
+        activeGitHistoryOperationIDs.remove(operationID)
+        guard gitHistoryGeneration == generation,
+              self.gitRepositoryRoot == gitRepositoryRoot,
+              selectedGitReference == selectedReference else {
+            if let cursor = page?.nextCursor {
+                service.closeHistoryCursor(at: gitRepositoryRoot, cursor: cursor)
+            }
+            return
+        }
+        isLoadingMoreGitHistory = false
+        guard let page else {
+            canLoadMoreGitHistory = false
+            return
+        }
+
+        let loadedHashes = Set(gitCommits.map(\.hash))
+        gitCommits.append(contentsOf: page.commits.filter { !loadedHashes.contains($0.hash) })
+        gitHistoryCursor = page.nextCursor
+        canLoadMoreGitHistory = page.hasMore
+    }
+
+    package func cancelGitHistoryLoading() {
+        gitHistoryGeneration = UUID()
+        if let gitRepositoryRoot, let cursor = gitHistoryCursor {
+            service.closeHistoryCursor(at: gitRepositoryRoot, cursor: cursor)
+        }
+        gitHistoryCursor = nil
+        for operationID in activeGitHistoryOperationIDs {
+            service.cancel(operationID: operationID)
+        }
+        activeGitHistoryOperationIDs.removeAll()
+        isLoadingGitHistory = false
+        isLoadingMoreGitHistory = false
+    }
+
+    private func gitHistoryOperationID(kind: String, generation: UUID) -> String {
+        "git-history-\(kind)-\(generation.uuidString)"
     }
 
     package func selectGitCommit(_ commit: GitCommit) async {
@@ -1609,6 +1717,250 @@ package final class GitFeatureModel: ObservableObject {
         selectedBranchComparisonFile = nil
         branchComparisonRows = []
         isLoadingBranchComparison = false
+    }
+
+    package func refreshWorktrees() async {
+        worktreeRequestGeneration &+= 1
+        let generation = worktreeRequestGeneration
+        guard let repositoryRoot = gitRepositoryRoot else {
+            gitWorktrees = []
+            gitWorktreeLoadState = .idle
+            return
+        }
+        gitWorktreeLoadState = .loading
+        let worktrees = await worktreesProvider(repositoryRoot)
+        guard generation == worktreeRequestGeneration,
+              gitRepositoryRoot?.standardizedFileURL == repositoryRoot.standardizedFileURL,
+              !Task.isCancelled else { return }
+        if let worktrees {
+            gitWorktrees = worktrees
+            gitWorktreeLoadState = .ready
+        } else {
+            gitWorktrees = []
+            gitWorktreeLoadState = .failed("Could not load Git worktrees")
+        }
+    }
+
+    package func inspectWorktree(_ worktree: GitWorktree) async {
+        worktreeInspectionRequestGeneration &+= 1
+        let generation = worktreeInspectionRequestGeneration
+        let inspectionStartedAt = ContinuousClock.now
+        guard !worktree.isPrunable else {
+            gitWorktreeInspection = nil
+            gitWorktreeInspectionLoadState = .failed("The checkout path does not exist")
+            return
+        }
+
+        // The primary checkout is already observed by the Git feature model.
+        // Reuse its settled state without starting another Git scan.
+        if worktree.isCurrent, !isLoadingGitHistory {
+            gitWorktreeInspection = GitWorktreeInspection(
+                worktreeID: worktree.id,
+                changes: gitChanges,
+                commits: Array(gitCommits.prefix(80)),
+                hasMoreCommits: gitCommits.count > 80 || canLoadMoreGitHistory
+            )
+            gitWorktreeInspectionLoadState = .ready
+            service.recordWorktreeInspection(
+                worktreeID: worktree.id,
+                phase: "reused-state",
+                durationMilliseconds: elapsedMilliseconds(since: inspectionStartedAt)
+            )
+            return
+        }
+
+        gitWorktreeInspectionLoadState = .loading
+        let reference = gitReferences.first { $0.fullName == worktree.branch }
+        // History is the primary content of this pane. Start it independently
+        // from the worktree status scan so a slow or unreadable index cannot
+        // keep the commit list behind the loading state.
+        async let history = service.history(at: worktree.url, reference: reference, limit: 30)
+        async let snapshot = service.snapshot(for: worktree.url)
+
+        let resolvedHistory = await history
+        guard generation == worktreeInspectionRequestGeneration, !Task.isCancelled else {
+            return
+        }
+
+        let initialChanges = worktree.isCurrent ? gitChanges : []
+        let initialInspection = GitWorktreeInspection(
+            worktreeID: worktree.id,
+            changes: initialChanges,
+            commits: resolvedHistory.commits,
+            hasMoreCommits: resolvedHistory.hasMore,
+            hasLoadedChanges: worktree.isCurrent
+        )
+        gitWorktreeInspection = initialInspection
+        gitWorktreeInspectionLoadState = .ready
+        service.recordWorktreeInspection(
+            worktreeID: worktree.id,
+            phase: "history-published",
+            durationMilliseconds: elapsedMilliseconds(since: inspectionStartedAt)
+        )
+
+        // Do not make the first detail render wait for the full status scan.
+        // The larger history window and the status result are both applied only
+        // if this worktree is still selected.
+        let resolvedChanges = (await snapshot)?.changes ?? []
+        guard generation == worktreeInspectionRequestGeneration,
+              gitWorktreeInspection?.worktreeID == worktree.id,
+              !Task.isCancelled else { return }
+        let inspection = GitWorktreeInspection(
+            worktreeID: worktree.id,
+            changes: resolvedChanges,
+            commits: gitWorktreeInspection?.commits ?? resolvedHistory.commits,
+            hasMoreCommits: gitWorktreeInspection?.hasMoreCommits ?? resolvedHistory.hasMore,
+            hasLoadedChanges: true
+        )
+        gitWorktreeInspection = inspection
+        service.recordWorktreeInspection(
+            worktreeID: worktree.id,
+            phase: "changes-published",
+            durationMilliseconds: elapsedMilliseconds(since: inspectionStartedAt)
+        )
+
+        guard inspection.commits.count >= 30 else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            let fullHistory = await self.service.history(
+                at: worktree.url,
+                reference: reference,
+                // Keep the warm cache bounded; older commits can be
+                // requested later by pagination or an explicit search.
+                limit: 80
+            )
+            guard generation == self.worktreeInspectionRequestGeneration,
+                  self.gitWorktreeInspection?.worktreeID == worktree.id,
+                  !Task.isCancelled else { return }
+            self.gitWorktreeInspection = GitWorktreeInspection(
+                worktreeID: worktree.id,
+                changes: self.gitWorktreeInspection?.changes ?? resolvedChanges,
+                commits: fullHistory.commits,
+                hasMoreCommits: fullHistory.hasMore,
+                hasLoadedChanges: self.gitWorktreeInspection?.hasLoadedChanges ?? true
+            )
+        }
+    }
+
+    package func loadMoreWorktreeHistory(for worktree: GitWorktree) async {
+        guard let inspection = gitWorktreeInspection,
+              inspection.worktreeID == worktree.id,
+              inspection.hasMoreCommits,
+              !Task.isCancelled else { return }
+        let generation = worktreeInspectionRequestGeneration
+        let reference = gitReferences.first { $0.fullName == worktree.branch }
+        let nextLimit = inspection.commits.count + 50
+        let history = await service.history(at: worktree.url, reference: reference, limit: nextLimit)
+        guard generation == worktreeInspectionRequestGeneration,
+              gitWorktreeInspection?.worktreeID == worktree.id,
+              !Task.isCancelled else { return }
+        gitWorktreeInspection = GitWorktreeInspection(
+            worktreeID: worktree.id,
+            changes: inspection.changes,
+            commits: history.commits,
+            hasMoreCommits: history.hasMore
+        )
+    }
+
+    package func createWorktree(
+        named rawName: String,
+        from reference: GitReference,
+        revision: String? = nil,
+        at destination: URL
+    ) async {
+        guard let gitRepositoryRoot, !isPerformingWorktreeOperation else { return }
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            notify?(String(localized: "Enter a branch name", bundle: .main))
+            return
+        }
+        isPerformingWorktreeOperation = true
+        let result = await withGitOperation {
+            await service.createWorktree(
+                named: name,
+                from: reference,
+                revision: revision?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true ? nil : revision,
+                at: destination.standardizedFileURL,
+                repositoryRoot: gitRepositoryRoot
+            )
+        }
+        isPerformingWorktreeOperation = false
+        if result.succeeded {
+            notify?(String(
+                format: String(localized: "Created worktree for %@", bundle: .main),
+                name
+            ))
+            await refreshWorktrees()
+            await refreshGitHistory()
+        } else {
+            notify?(trimmedMessage(result))
+        }
+    }
+
+    package func removeWorktree(_ worktree: GitWorktree, force: Bool) async {
+        guard let gitRepositoryRoot, !isPerformingWorktreeOperation else { return }
+        isPerformingWorktreeOperation = true
+        let result = await withGitOperation {
+            await service.removeWorktree(worktree, force: force, at: gitRepositoryRoot)
+        }
+        isPerformingWorktreeOperation = false
+        notify?(result.succeeded
+            ? String(
+                format: String(localized: "Removed %@", bundle: .main),
+                worktree.displayName
+            )
+            : trimmedMessage(result))
+        if result.succeeded, gitWorktreeInspection?.worktreeID == worktree.id {
+            // Clear deleted checkout details before the registry refresh so
+            // the UI cannot keep rendering a removed path.
+            gitWorktreeInspection = nil
+            gitWorktreeInspectionLoadState = .idle
+        }
+        await refreshWorktrees()
+    }
+
+    package func setWorktreeLocked(_ worktree: GitWorktree, locked: Bool) async {
+        guard let gitRepositoryRoot, !isPerformingWorktreeOperation else { return }
+        isPerformingWorktreeOperation = true
+        let result = await withGitOperation {
+            if locked {
+                await service.lockWorktree(worktree, at: gitRepositoryRoot)
+            } else {
+                await service.unlockWorktree(worktree, at: gitRepositoryRoot)
+            }
+        }
+        isPerformingWorktreeOperation = false
+        let success = String(
+            format: String(
+                localized: locked ? "Locked %@" : "Unlocked %@",
+                bundle: .main
+            ),
+            worktree.displayName
+        )
+        notify?(result.succeeded ? success : trimmedMessage(result))
+        await refreshWorktrees()
+    }
+
+    package func pruneWorktrees() async {
+        guard let gitRepositoryRoot, !isPerformingWorktreeOperation else { return }
+        isPerformingWorktreeOperation = true
+        let result = await withGitOperation { await service.pruneWorktrees(at: gitRepositoryRoot) }
+        isPerformingWorktreeOperation = false
+        notify?(result.succeeded
+            ? String(localized: "Pruned stale worktree records", bundle: .main)
+            : trimmedMessage(result))
+        await refreshWorktrees()
+    }
+
+    package func repairWorktrees() async {
+        guard let gitRepositoryRoot, !isPerformingWorktreeOperation else { return }
+        isPerformingWorktreeOperation = true
+        let result = await withGitOperation { await service.repairWorktrees(at: gitRepositoryRoot) }
+        isPerformingWorktreeOperation = false
+        notify?(result.succeeded
+            ? String(localized: "Repaired worktree records", bundle: .main)
+            : trimmedMessage(result))
+        await refreshWorktrees()
     }
 
     package func createBranch(named rawName: String, from reference: GitReference, checkout: Bool) async {

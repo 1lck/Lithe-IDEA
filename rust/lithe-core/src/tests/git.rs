@@ -1364,6 +1364,217 @@ fn git_write_creates_a_tracked_worktree_from_an_unambiguous_complete_remote_refe
 }
 
 #[test]
+fn git_worktrees_lists_primary_linked_and_locked_metadata() {
+    struct RemovePathsOnDrop(Vec<std::path::PathBuf>);
+
+    impl Drop for RemovePathsOnDrop {
+        fn drop(&mut self) {
+            for path in self.0.iter().rev() {
+                let _ = fs::remove_dir_all(path);
+            }
+        }
+    }
+
+    let root = git_write_repository("git-worktrees-list");
+    let destination = root.with_extension("linked worktree-测试");
+    let _cleanup = RemovePathsOnDrop(vec![root.clone(), destination.clone()]);
+    commit_history_file(&root, "base.txt", "base\n", "initial");
+    assert!(history_git(
+        &root,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "feature/linked",
+            destination.to_str().expect("test path should be UTF-8"),
+        ],
+    )
+    .status
+    .success());
+    assert!(history_git(
+        &root,
+        &[
+            "worktree",
+            "lock",
+            "--reason",
+            "Codex task",
+            destination.to_str().expect("test path should be UTF-8"),
+        ],
+    )
+    .status
+    .success());
+
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&serde_json::json!({
+            "id": "git-worktrees-list",
+            "command": "git.worktrees",
+            "payload": { "root": root }
+        }))
+        .expect("worktrees request should encode"),
+    ))
+    .expect("worktrees response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response:?}");
+    let worktrees = response["data"]["worktrees"]
+        .as_array()
+        .expect("worktrees should be an array");
+    assert_eq!(worktrees.len(), 2, "{response:?}");
+    assert_eq!(worktrees[0]["isPrimary"], true);
+    assert_eq!(worktrees[0]["isCurrent"], true);
+    assert_eq!(
+        worktrees[1]["path"],
+        destination
+            .canonicalize()
+            .expect("linked worktree should canonicalize")
+            .to_string_lossy()
+            .as_ref()
+    );
+    assert_eq!(worktrees[1]["branch"], "refs/heads/feature/linked");
+    assert_eq!(worktrees[1]["isLocked"], true);
+    assert_eq!(worktrees[1]["lockReason"], "Codex task");
+}
+
+#[test]
+fn git_write_manages_only_registered_non_primary_worktrees() {
+    struct RemovePathsOnDrop(Vec<std::path::PathBuf>);
+
+    impl Drop for RemovePathsOnDrop {
+        fn drop(&mut self) {
+            for path in self.0.iter().rev() {
+                let _ = fs::remove_dir_all(path);
+            }
+        }
+    }
+
+    let root = git_write_repository("git-worktree-mutations");
+    let destination = root.with_extension("managed-worktree");
+    let stale_destination = root.with_extension("stale-worktree");
+    let _cleanup = RemovePathsOnDrop(vec![
+        root.clone(),
+        destination.clone(),
+        stale_destination.clone(),
+    ]);
+    commit_history_file(&root, "base.txt", "base\n", "initial");
+    for (path, branch) in [
+        (&destination, "feature/managed"),
+        (&stale_destination, "feature/stale"),
+    ] {
+        assert!(history_git(
+            &root,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                branch,
+                path.to_str().expect("test path should be UTF-8"),
+            ],
+        )
+        .status
+        .success());
+    }
+    let registered_destination = destination
+        .canonicalize()
+        .expect("managed worktree should canonicalize");
+    let registered_root = root.canonicalize().expect("repository should canonicalize");
+
+    let locked = git_write_request(
+        &root,
+        "lockWorktree",
+        serde_json::json!({ "destination": registered_destination }),
+    );
+    assert_eq!(locked["ok"], true, "{locked:?}");
+    assert_eq!(locked["data"]["exitCode"], 0, "{locked:?}");
+    let rejected_locked_remove = git_write_request(
+        &root,
+        "removeWorktree",
+        serde_json::json!({ "destination": registered_destination }),
+    );
+    assert_eq!(
+        rejected_locked_remove["ok"], true,
+        "{rejected_locked_remove:?}"
+    );
+    assert_eq!(
+        rejected_locked_remove["data"]["operationError"]["code"], "invalid_request",
+        "{rejected_locked_remove:?}"
+    );
+    let unlocked = git_write_request(
+        &root,
+        "unlockWorktree",
+        serde_json::json!({ "destination": registered_destination }),
+    );
+    assert_eq!(unlocked["data"]["exitCode"], 0, "{unlocked:?}");
+
+    fs::write(destination.join("dirty.txt"), "dirty\n").expect("worktree should be writable");
+    let dirty_remove = git_write_request(
+        &root,
+        "removeWorktree",
+        serde_json::json!({ "destination": registered_destination }),
+    );
+    assert_eq!(dirty_remove["ok"], true, "{dirty_remove:?}");
+    assert_ne!(dirty_remove["data"]["exitCode"], 0, "{dirty_remove:?}");
+    let forced_remove = git_write_request(
+        &root,
+        "removeWorktree",
+        serde_json::json!({ "destination": registered_destination, "force": true }),
+    );
+    assert_eq!(forced_remove["data"]["exitCode"], 0, "{forced_remove:?}");
+    assert!(!destination.exists());
+
+    let primary_remove = git_write_request(
+        &root,
+        "removeWorktree",
+        serde_json::json!({ "destination": registered_root }),
+    );
+    assert_eq!(
+        primary_remove["data"]["operationError"]["code"], "invalid_request",
+        "{primary_remove:?}"
+    );
+    let unrelated_remove = git_write_request(
+        &root,
+        "removeWorktree",
+        serde_json::json!({ "destination": root.with_extension("unregistered") }),
+    );
+    assert_eq!(
+        unrelated_remove["data"]["operationError"]["code"], "invalid_request",
+        "{unrelated_remove:?}"
+    );
+
+    let repair = git_write_request(&root, "repairWorktrees", serde_json::json!({}));
+    assert_eq!(repair["data"]["exitCode"], 0, "{repair:?}");
+
+    fs::remove_dir_all(&stale_destination).expect("stale worktree should be removable");
+    let unrelated_missing_remove = git_write_request(
+        &root,
+        "removeWorktree",
+        serde_json::json!({
+            "destination": root.with_extension("another-missing-worktree")
+        }),
+    );
+    assert_eq!(
+        unrelated_missing_remove["data"]["operationError"]["code"], "invalid_request",
+        "{unrelated_missing_remove:?}"
+    );
+    let prune = git_write_request(&root, "pruneWorktrees", serde_json::json!({}));
+    assert_eq!(prune["data"]["exitCode"], 0, "{prune:?}");
+    let listed: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&serde_json::json!({
+            "id": "git-worktrees-after-prune",
+            "command": "git.worktrees",
+            "payload": { "root": root }
+        }))
+        .expect("worktrees request should encode"),
+    ))
+    .expect("worktrees response should be JSON");
+    assert_eq!(
+        listed["data"]["worktrees"].as_array().map(Vec::len),
+        Some(1),
+        "{listed:?}"
+    );
+}
+
+#[test]
 fn git_write_executes_checkout_preflight_clone_and_validation() {
     let root = git_write_repository("git-write-checkout-workflows");
     let run = |arguments: &[&str]| history_git(&root, arguments);
@@ -3087,6 +3298,129 @@ fn git_history_returns_bounded_recent_checkout_order_and_stable_fallback() {
         recent_names(&switched),
         ["gamma", "zeta", "epsilon", "delta", "alpha"]
     );
+}
+
+#[test]
+fn git_history_page_returns_disjoint_incremental_pages() {
+    struct RemoveOnDrop(std::path::PathBuf);
+
+    impl Drop for RemoveOnDrop {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    let root = temporary_root("git-history-pages");
+    let _cleanup = RemoveOnDrop(root.clone());
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q"]).status.success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    for index in 0..4 {
+        fs::write(root.join("example.txt"), format!("{index}\n"))
+            .expect("test file should be writable");
+        assert!(run(&["add", "example.txt"]).status.success());
+        assert!(run(&["commit", "-qm", &format!("commit-{index}")])
+            .status
+            .success());
+    }
+
+    let execute_page = |id: &str, cursor: Option<&str>| {
+        let request = serde_json::json!({
+            "id": id,
+            "command": "git.historyPage",
+            "payload": {
+                "root": root,
+                "reference": "HEAD",
+                "cursor": cursor,
+                "limit": 2
+            }
+        });
+        serde_json::from_str::<Value>(&execute_json(
+            &serde_json::to_string(&request).expect("history page request should encode"),
+        ))
+        .expect("history page response should be JSON")
+    };
+
+    let first = execute_page("history-page-1", None);
+    let cursor = first["data"]["nextCursor"]
+        .as_str()
+        .expect("first page should return a cursor")
+        .to_string();
+    let second = execute_page("history-page-2", Some(&cursor));
+    let subjects = |response: &Value| {
+        response["data"]["commits"]
+            .as_array()
+            .expect("commits should be an array")
+            .iter()
+            .map(|commit| {
+                commit["subject"]
+                    .as_str()
+                    .expect("commit subject should be text")
+                    .to_string()
+            })
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(subjects(&first), ["commit-3", "commit-2"]);
+    assert_eq!(first["data"]["nextCursor"], cursor);
+    assert_eq!(first["data"]["hasMore"], true);
+    assert_eq!(subjects(&second), ["commit-1", "commit-0"]);
+    assert_eq!(second["data"]["nextCursor"], Value::Null);
+    assert_eq!(second["data"]["hasMore"], false);
+
+    let abandoned = execute_page("history-page-abandoned", None);
+    let abandoned_cursor = abandoned["data"]["nextCursor"]
+        .as_str()
+        .expect("unfinished page should return a cursor");
+    let close_request = serde_json::json!({
+        "id": "history-cursor-close",
+        "command": "git.historyCursorClose",
+        "payload": {"root": root, "cursor": abandoned_cursor}
+    });
+    let close: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&close_request).expect("cursor close request should encode"),
+    ))
+    .expect("cursor close response should be JSON");
+    assert_eq!(close["data"]["closed"], true);
+
+    let legacy_request = serde_json::json!({
+        "id": "history-page-legacy",
+        "command": "git.historyPage",
+        "payload": {"root": root, "reference": "HEAD", "offset": 0, "limit": 2}
+    });
+    let legacy: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&legacy_request).expect("legacy page request should encode"),
+    ))
+    .expect("legacy page response should be JSON");
+    assert_eq!(legacy["data"]["nextOffset"], 2);
+    assert_eq!(legacy["data"].get("nextCursor"), None);
+
+    let references_request = serde_json::json!({
+        "id": "references",
+        "command": "git.references",
+        "payload": {"root": root}
+    });
+    let references: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&references_request).expect("references request should encode"),
+    ))
+    .expect("references response should be JSON");
+    assert_eq!(references["data"]["userName"], "Lithe Test");
+    assert_eq!(references["data"]["userEmail"], "test@example.com");
+    assert!(references["data"]["references"]
+        .as_array()
+        .expect("references should be an array")
+        .iter()
+        .any(|reference| reference["kind"] == "local"));
 }
 
 #[test]

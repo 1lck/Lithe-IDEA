@@ -1,15 +1,22 @@
 //! Deterministic Git inspection and mutation behind the shared command contract.
 
+mod history;
 mod mutations;
+
+pub use history::{
+    close_history_cursor, history, history_page, references, GitHistoryCursorCloseRequest,
+    GitHistoryPageRequest, GitHistoryRequest, GitReferencesRequest,
+};
 
 use crate::protocol::{CoreError, ErrorCode};
 use crate::protocol::{
     GitBlameLineResponse, GitBlameResponse, GitChange, GitCheckoutPreflightResponse,
     GitCommitLookupResponse, GitCommitResponse, GitComparisonResponse, GitConflictMarkerResponse,
     GitDiffHunkResponse, GitDiffResponse, GitDiffRowResponse, GitFileResponse, GitFilesResponse,
-    GitHistoryResponse, GitIntegrationPreflightResponse, GitOperationStateResponse,
-    GitPullPreflightResponse, GitPushPreviewResponse, GitPushTagResponse, GitReferenceResponse,
-    GitStashResponse, GitStashesResponse, GitStatusResponse, GitWatchContextResponse,
+    GitIntegrationPreflightResponse, GitOperationStateResponse, GitPullPreflightResponse,
+    GitPushPreviewResponse, GitPushTagResponse, GitReferenceResponse, GitStashResponse,
+    GitStashesResponse, GitStatusResponse, GitWatchContextResponse, GitWorktreeResponse,
+    GitWorktreesResponse,
 };
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
@@ -24,9 +31,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::Duration;
 
-const RECENT_BRANCH_LIMIT: usize = 5;
-const RECENT_BRANCH_REFLOG_LIMIT: &str = "100";
-const DEFAULT_BRANCH_FALLBACKS: [&str; 2] = ["main", "master"];
 const DEFAULT_PUSH_PREVIEW_LIMIT: usize = 500;
 static TEMPORARY_INDEX_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static AUTO_STASH_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -42,6 +46,13 @@ pub struct GitStatusRequest {
 #[serde(rename_all = "camelCase")]
 /// Request for the directories and files a host watcher should observe.
 pub struct GitWatchContextRequest {
+    pub root: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Request for all worktrees registered in the current repository.
+pub struct GitWorktreesRequest {
     pub root: String,
 }
 
@@ -548,17 +559,6 @@ pub struct GitApplyRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-/// Request for bounded commit history from an optional reference.
-pub struct GitHistoryRequest {
-    pub root: String,
-    #[serde(default)]
-    pub reference: Option<String>,
-    #[serde(default = "default_history_limit")]
-    pub limit: usize,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 /// Request for metadata and parent information about one commit.
 pub struct GitCommitRequest {
     pub root: String,
@@ -649,10 +649,6 @@ pub struct GitBlameRequest {
 
 fn default_review_context_lines() -> usize {
     80
-}
-
-fn default_history_limit() -> usize {
-    300
 }
 
 fn default_push_preview_limit() -> usize {
@@ -887,6 +883,18 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
         }
         "checkoutAndRebase" => return mutations::checkout_and_rebase(&root, request),
         "createWorktree" => return create_worktree(&root, &request),
+        "removeWorktree" | "lockWorktree" | "unlockWorktree" => {
+            return mutate_worktree(&root, &request)
+        }
+        "pruneWorktrees" => {
+            arguments = vec![
+                "worktree".into(),
+                "prune".into(),
+                "--verbose".into(),
+                "--expire=now".into(),
+            ]
+        }
+        "repairWorktrees" => arguments = vec!["worktree".into(), "repair".into()],
         "fetch" => arguments = vec!["fetch".into(), "--all".into(), "--prune".into()],
         // Strategy comes from the caller because only the user can decide whether a
         // divergent history should be merged or replayed. Absent a choice we stay on
@@ -1201,7 +1209,7 @@ fn capture_git_with_environment(
     })
 }
 
-fn git_process() -> Command {
+pub(super) fn git_process() -> Command {
     #[cfg(target_os = "windows")]
     {
         let mut process = Command::new("git");
@@ -1550,88 +1558,6 @@ pub fn apply(request: GitApplyRequest) -> Result<GitCommandResponse, CoreError> 
     })
 }
 
-/// Returns bounded commit history without relying on localized display output.
-pub fn history(request: GitHistoryRequest) -> Result<GitHistoryResponse, CoreError> {
-    let limit = request.limit.clamp(1, 5_000);
-    let root = validate_root(&request.root)?;
-    let user_name = git_config_value(&root, "user.name");
-    let user_email = git_config_value(&root, "user.email");
-    let reference_arguments = vec![
-        "for-each-ref".to_string(),
-        "--sort=refname".to_string(),
-        "--format=%(refname)\t%(refname:short)\t%(HEAD)\t%(upstream:short)\t%(upstream)\t%(upstream:track,nobracket)\t%(objecttype)\t%(*objecttype)"
-            .to_string(),
-        "refs/heads".to_string(),
-    ];
-    // `upstream:track` is evaluated independently for each enumerated branch.
-    // A fixed C locale keeps its machine-parsed labels deterministic.
-    let reference_output = execute_git_with_environment(
-        &root,
-        &reference_arguments,
-        None,
-        true,
-        &[("LC_ALL".to_string(), "C".to_string())],
-    )?;
-    if reference_output.exit_code != 0 {
-        return Err(
-            CoreError::new(ErrorCode::ProcessFailed, "Git references failed")
-                .with_details(reference_output.output),
-        );
-    }
-
-    let mut references = reference_output
-        .output
-        .lines()
-        .filter_map(parse_reference)
-        .collect::<Vec<_>>();
-    let nonlocal_reference_output = readonly_command(GitCommandRequest {
-        root: root.clone(),
-        arguments: vec![
-            "for-each-ref".to_string(),
-            "--sort=refname".to_string(),
-            "--format=%(refname)\t%(refname:short)\t%(HEAD)\t%(upstream:short)\t%(upstream)\t%(upstream:track,nobracket)\t%(objecttype)\t%(*objecttype)"
-                .to_string(),
-            "refs/remotes".to_string(),
-            "refs/tags".to_string(),
-        ],
-        input: None,
-    })?;
-    if nonlocal_reference_output.exit_code != 0 {
-        return Err(
-            CoreError::new(ErrorCode::ProcessFailed, "Git references failed")
-                .with_details(nonlocal_reference_output.output),
-        );
-    }
-    references.extend(
-        nonlocal_reference_output
-            .output
-            .lines()
-            .filter_map(parse_reference),
-    );
-    let recent_references = recent_local_references(&root, &references, RECENT_BRANCH_LIMIT);
-
-    let selectors = if let Some(reference) = request.reference {
-        if reference.starts_with('-') || reference.contains('\0') {
-            return Err(CoreError::new(
-                ErrorCode::InvalidRequest,
-                "Invalid Git reference",
-            ));
-        }
-        vec![reference]
-    } else {
-        vec!["--all".to_string()]
-    };
-    let (commits, has_more) = read_commit_log(&root, selectors, limit, "Git history failed")?;
-    Ok(GitHistoryResponse {
-        references,
-        recent_references,
-        commits,
-        has_more,
-        user_name,
-        user_email,
-    })
-}
-
 fn read_commit_log(
     root: &str,
     selectors: Vec<String>,
@@ -1665,129 +1591,6 @@ fn read_commit_log(
         .collect::<Vec<_>>();
     let has_more = all_commits.len() > limit;
     Ok((all_commits.into_iter().take(limit).collect(), has_more))
-}
-
-/// Builds a bounded MRU list from Git's own checkout history.
-///
-/// HEAD's reflog survives application restarts and also observes branch switches
-/// made outside Lithe. Missing history is filled deterministically so a newly
-/// opened repository still offers useful branch shortcuts.
-fn recent_local_references(
-    root: &str,
-    references: &[GitReferenceResponse],
-    limit: usize,
-) -> Vec<GitReferenceResponse> {
-    let local_references = references
-        .iter()
-        .filter(|reference| reference.kind == "local")
-        .collect::<Vec<_>>();
-    let mut recent = Vec::with_capacity(limit.min(local_references.len()));
-
-    if let Some(current) = local_references
-        .iter()
-        .find(|reference| reference.is_current)
-    {
-        append_recent_reference(&mut recent, &local_references, &current.short_name, limit);
-    }
-
-    if let Some(reflog) = command_value(
-        root,
-        &[
-            "reflog",
-            "show",
-            "-n",
-            RECENT_BRANCH_REFLOG_LIMIT,
-            "--format=%gs",
-            "HEAD",
-        ],
-    ) {
-        for line in reflog.lines() {
-            let Some(checkout) = line.strip_prefix("checkout: moving from ") else {
-                continue;
-            };
-            let Some((source, destination)) = checkout.split_once(" to ") else {
-                continue;
-            };
-            append_recent_reference(&mut recent, &local_references, destination, limit);
-            append_recent_reference(&mut recent, &local_references, source, limit);
-            if recent.len() >= limit {
-                break;
-            }
-        }
-    }
-
-    if recent.len() < limit {
-        if let Some(remote_head) = command_value(
-            root,
-            &[
-                "symbolic-ref",
-                "--quiet",
-                "--short",
-                "refs/remotes/origin/HEAD",
-            ],
-        ) {
-            append_recent_reference(
-                &mut recent,
-                &local_references,
-                remote_head
-                    .split_once('/')
-                    .map_or(remote_head.as_str(), |(_, branch)| branch),
-                limit,
-            );
-        }
-    }
-    for branch in DEFAULT_BRANCH_FALLBACKS {
-        append_recent_reference(&mut recent, &local_references, branch, limit);
-    }
-
-    for reference in &local_references {
-        append_recent_reference(&mut recent, &local_references, &reference.short_name, limit);
-        if recent.len() >= limit {
-            break;
-        }
-    }
-
-    recent.into_iter().cloned().collect()
-}
-
-fn append_recent_reference<'a>(
-    recent: &mut Vec<&'a GitReferenceResponse>,
-    references: &[&'a GitReferenceResponse],
-    raw_name: &str,
-    limit: usize,
-) {
-    if recent.len() >= limit {
-        return;
-    }
-    let name = raw_name.trim().trim_start_matches("refs/heads/");
-    let Some(reference) = references
-        .iter()
-        .find(|reference| reference.short_name == name)
-    else {
-        return;
-    };
-    if !recent
-        .iter()
-        .any(|existing| existing.full_name == reference.full_name)
-    {
-        recent.push(*reference);
-    }
-}
-
-/// Reads one effective repository configuration value without making a missing
-/// optional value fail the surrounding history request.
-fn git_config_value(root: &str, key: &str) -> Option<String> {
-    let response = readonly_command(GitCommandRequest {
-        root: root.to_string(),
-        arguments: vec!["config".to_string(), "--get".to_string(), key.to_string()],
-        input: None,
-    })
-    .ok()?;
-    if response.exit_code != 0 {
-        return None;
-    }
-    let value = response.output.trim();
-    (!value.is_empty()).then(|| value.to_string())
 }
 
 /// Resolves one commit and its parent metadata.
@@ -4708,6 +4511,133 @@ fn push_with_upstream_warning(
     pushed
 }
 
+/// Returns one metadata-only snapshot for every registered worktree.
+pub fn worktrees(request: GitWorktreesRequest) -> Result<GitWorktreesResponse, CoreError> {
+    let root = validate_root(&request.root)?;
+    Ok(GitWorktreesResponse {
+        worktrees: list_worktrees(&root)?,
+    })
+}
+
+fn list_worktrees(root: &str) -> Result<Vec<GitWorktreeResponse>, CoreError> {
+    let arguments = vec![
+        "worktree".to_string(),
+        "list".to_string(),
+        "--porcelain".to_string(),
+        "-z".to_string(),
+    ];
+    let response = execute_git_readonly(root, &arguments, None)?;
+    if response.exit_code != 0 {
+        return Err(
+            CoreError::new(ErrorCode::ProcessFailed, "Git worktree listing failed")
+                .with_details(response.output),
+        );
+    }
+    let current_root = repository_root(root)?
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(root));
+    let mut records = Vec::new();
+    let mut fields = Vec::new();
+    for field in response.stdout.split('\0') {
+        if field.is_empty() {
+            if !fields.is_empty() {
+                records.push(parse_worktree_record(
+                    &fields,
+                    records.is_empty(),
+                    &current_root,
+                )?);
+                fields.clear();
+            }
+        } else {
+            fields.push(field);
+        }
+    }
+    if !fields.is_empty() {
+        records.push(parse_worktree_record(
+            &fields,
+            records.is_empty(),
+            &current_root,
+        )?);
+    }
+    // Git currently emits the primary worktree first, but sorting here makes
+    // that display contract explicit and stable across Git versions.
+    records.sort_by(|left, right| {
+        right
+            .is_primary
+            .cmp(&left.is_primary)
+            .then_with(|| left.path.cmp(&right.path))
+    });
+    Ok(records)
+}
+
+fn worktree_paths_match(left: &str, right: &str) -> bool {
+    let left_path = PathBuf::from(left);
+    let right_path = PathBuf::from(right);
+    if left_path == right_path {
+        return true;
+    }
+    match (left_path.canonicalize(), right_path.canonicalize()) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
+}
+
+fn parse_worktree_record(
+    fields: &[&str],
+    is_primary: bool,
+    current_root: &Path,
+) -> Result<GitWorktreeResponse, CoreError> {
+    let path = fields
+        .iter()
+        .find_map(|field| field.strip_prefix("worktree "))
+        .filter(|path| !path.is_empty())
+        .ok_or_else(|| {
+            CoreError::new(
+                ErrorCode::ProcessFailed,
+                "Git returned an invalid worktree record",
+            )
+        })?;
+    let head = fields
+        .iter()
+        .find_map(|field| field.strip_prefix("HEAD "))
+        .unwrap_or_default()
+        .to_string();
+    let branch = fields
+        .iter()
+        .find_map(|field| field.strip_prefix("branch "))
+        .map(str::to_string);
+    let value_after_marker = |marker: &str| {
+        fields.iter().find_map(|field| {
+            if *field == marker {
+                Some(None)
+            } else {
+                field
+                    .strip_prefix(&format!("{marker} "))
+                    .map(|value| Some(value.to_string()))
+            }
+        })
+    };
+    let lock = value_after_marker("locked");
+    let prunable = value_after_marker("prunable");
+    let reported_path = PathBuf::from(path);
+    let normalized_path = reported_path
+        .canonicalize()
+        .unwrap_or_else(|_| reported_path.clone());
+    Ok(GitWorktreeResponse {
+        path: normalized_path.to_string_lossy().to_string(),
+        head,
+        branch,
+        is_current: normalized_path == current_root,
+        is_primary,
+        is_bare: fields.contains(&"bare"),
+        is_detached: fields.contains(&"detached"),
+        is_locked: lock.is_some(),
+        lock_reason: lock.flatten(),
+        is_prunable: prunable.is_some(),
+        prune_reason: prunable.flatten(),
+    })
+}
+
 fn create_worktree(root: &str, request: &GitWriteRequest) -> Result<GitCommandResponse, CoreError> {
     let branch = validated_branch_name(root, request.name.as_deref())?;
     let destination = required_text(request.destination.as_deref(), "worktree destination")?;
@@ -4729,13 +4659,59 @@ fn create_worktree(root: &str, request: &GitWriteRequest) -> Result<GitCommandRe
         // making the selected remote-tracking branch ambiguous.
         arguments.push("--track".into());
     }
-    arguments.extend([
-        "-b".into(),
-        branch,
-        "--".into(),
-        destination,
-        reference.full_name,
-    ]);
+    let source = if let Some(revision) = request.revision.as_deref() {
+        validated_revision(Some(revision))?
+    } else {
+        reference.full_name.clone()
+    };
+    arguments.extend(["-b".into(), branch, "--".into(), destination, source]);
+    execute_git(root, &arguments, None)
+}
+
+fn mutate_worktree(root: &str, request: &GitWriteRequest) -> Result<GitCommandResponse, CoreError> {
+    let destination = required_text(request.destination.as_deref(), "worktree destination")?;
+    if destination.starts_with('-') || destination.contains(['\0', '\n', '\r']) {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Invalid Git worktree destination",
+        ));
+    }
+    let entries = list_worktrees(root)?;
+    let target = entries
+        .iter()
+        .find(|entry| worktree_paths_match(&entry.path, &destination))
+        .ok_or_else(|| {
+            CoreError::new(
+                ErrorCode::InvalidRequest,
+                "The selected path is not a registered Git worktree",
+            )
+        })?;
+    if request.operation == "removeWorktree" && (target.is_current || target.is_primary) {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "The current or primary Git worktree cannot be removed",
+        ));
+    }
+    if request.operation == "removeWorktree" && target.is_locked {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Unlock the Git worktree before removing it",
+        ));
+    }
+
+    let mut arguments = vec!["worktree".to_string()];
+    match request.operation.as_str() {
+        "removeWorktree" => {
+            arguments.push("remove".into());
+            if request.force {
+                arguments.push("--force".into());
+            }
+        }
+        "lockWorktree" => arguments.push("lock".into()),
+        "unlockWorktree" => arguments.push("unlock".into()),
+        _ => unreachable!("caller restricts worktree mutations"),
+    }
+    arguments.extend(["--".into(), destination]);
     execute_git(root, &arguments, None)
 }
 
@@ -6060,8 +6036,8 @@ mod tests {
         GitProcessOutput, MAX_ALIGNMENT_CELLS,
     };
     use crate::protocol::{
-        CoreError, ErrorCode, GitCommitResponse, GitHistoryResponse, GitPushPreviewResponse,
-        GitPushTagResponse, GitReferenceResponse,
+        CoreError, ErrorCode, GitCommitResponse, GitHistoryPageResponse, GitHistoryResponse,
+        GitPushPreviewResponse, GitPushTagResponse, GitReferenceResponse, GitReferencesResponse,
     };
     use serde_json::Value;
 
@@ -6396,6 +6372,75 @@ mod tests {
 
         assert_eq!(
             serde_json::to_value(response).expect("Git history response should serialize"),
+            fixture
+        );
+    }
+
+    #[test]
+    fn references_response_matches_shared_fixture() {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/fixtures/git/references-response-v1.json"
+        )))
+        .expect("Git references response fixture should be valid JSON");
+        let feature = GitReferenceResponse {
+            full_name: "refs/heads/feature/recent".into(),
+            short_name: "feature/recent".into(),
+            kind: "local".into(),
+            peels_to_commit: true,
+            is_current: true,
+            upstream_short_name: None,
+            ahead: 0,
+            behind: 0,
+        };
+        let main = GitReferenceResponse {
+            full_name: "refs/heads/main".into(),
+            short_name: "main".into(),
+            kind: "local".into(),
+            peels_to_commit: true,
+            is_current: false,
+            upstream_short_name: Some("origin/main".into()),
+            ahead: 2,
+            behind: 1,
+        };
+        let response = GitReferencesResponse {
+            references: vec![feature.clone(), main.clone()],
+            recent_references: vec![feature, main],
+            user_name: Some("Lithe Test".into()),
+            user_email: Some("test@example.invalid".into()),
+        };
+
+        assert_eq!(
+            serde_json::to_value(response).expect("Git references response should serialize"),
+            fixture
+        );
+    }
+
+    #[test]
+    fn history_page_response_matches_shared_fixture() {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/fixtures/git/history-page-response-v1.json"
+        )))
+        .expect("Git history page response fixture should be valid JSON");
+        let response = GitHistoryPageResponse {
+            commits: vec![GitCommitResponse {
+                hash: "0123456789abcdef0123456789abcdef01234567".into(),
+                short_hash: "0123456".into(),
+                parent_hashes: Vec::new(),
+                author_name: "Lithe Test".into(),
+                author_email: "test@example.invalid".into(),
+                date: "2026/08/30 12:00".into(),
+                subject: "Initial commit".into(),
+                decorations: "HEAD -> feature/recent".into(),
+            }],
+            next_cursor: Some("git-history-cursor-fixture".into()),
+            next_offset: None,
+            has_more: true,
+        };
+
+        assert_eq!(
+            serde_json::to_value(response).expect("Git history page response should serialize"),
             fixture
         );
     }

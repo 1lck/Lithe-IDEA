@@ -401,6 +401,37 @@ pub struct GitWatchContextResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// One checkout registered in a repository's shared worktree metadata.
+pub struct GitWorktreeResponse {
+    /// Absolute checkout path reported by Git. Linked worktrees may live outside the opened workspace.
+    pub path: String,
+    /// Commit currently checked out by this worktree.
+    pub head: String,
+    /// Fully qualified local branch reference, absent for detached or bare worktrees.
+    pub branch: Option<String>,
+    /// Whether this is the worktree from which the request was made.
+    pub is_current: bool,
+    /// Whether this is the repository's primary worktree.
+    pub is_primary: bool,
+    pub is_bare: bool,
+    pub is_detached: bool,
+    pub is_locked: bool,
+    /// Human-readable lock reason supplied to Git, when present.
+    pub lock_reason: Option<String>,
+    pub is_prunable: bool,
+    /// Git's explanation for why the registration can be pruned.
+    pub prune_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Deterministically ordered worktrees registered for one repository.
+pub struct GitWorktreesResponse {
+    pub worktrees: Vec<GitWorktreeResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 /// Local or remote Git reference in display-ready form.
 pub struct GitReferenceResponse {
     pub full_name: String,
@@ -443,6 +474,39 @@ pub struct GitHistoryResponse {
     pub has_more: bool,
     pub user_name: Option<String>,
     pub user_email: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Repository references and identity metadata loaded independently from commit pages.
+pub struct GitReferencesResponse {
+    pub references: Vec<GitReferenceResponse>,
+    /// Up to five local branches ordered from most to least recently checked out.
+    pub recent_references: Vec<GitReferenceResponse>,
+    pub user_name: Option<String>,
+    pub user_email: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// One bounded page of commit history.
+pub struct GitHistoryPageResponse {
+    pub commits: Vec<GitCommitResponse>,
+    /// Opaque cursor for the next page, or `None` when this page reaches the end.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+    /// Deprecated offset emitted only for compatibility with offset-based requests.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_offset: Option<usize>,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Result of explicitly releasing an incremental Git history cursor.
+pub struct GitHistoryCursorCloseResponse {
+    /// Whether an active cursor was found and released.
+    pub closed: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

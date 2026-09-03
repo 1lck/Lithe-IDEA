@@ -46,6 +46,94 @@ package struct GitSnapshot: Sendable {
     package init(repositoryRoot: URL, branch: String, changes: [GitChange]) { self.repositoryRoot = repositoryRoot; self.branch = branch; self.changes = changes }
 }
 
+package enum GitWorktreeLoadState: Equatable, Sendable {
+    case idle
+    case loading
+    case ready
+    case failed(String)
+}
+
+package enum GitWorktreeInspectionLoadState: Equatable, Sendable {
+    case idle
+    case loading
+    case ready
+    case failed(String)
+}
+
+package struct GitWorktreeInspection: Sendable {
+    package let worktreeID: String
+    package let changes: [GitChange]
+    package let commits: [GitCommit]
+    package let hasMoreCommits: Bool
+    package let hasLoadedChanges: Bool
+
+    package init(
+        worktreeID: String,
+        changes: [GitChange],
+        commits: [GitCommit],
+        hasMoreCommits: Bool = false,
+        hasLoadedChanges: Bool = true
+    ) {
+        self.worktreeID = worktreeID
+        self.changes = changes
+        self.commits = commits
+        self.hasMoreCommits = hasMoreCommits
+        self.hasLoadedChanges = hasLoadedChanges
+    }
+}
+
+package struct GitWorktree: Identifiable, Hashable, Sendable {
+    package let path: String
+    package let head: String
+    package let branch: String?
+    package let isCurrent: Bool
+    package let isPrimary: Bool
+    package let isBare: Bool
+    package let isDetached: Bool
+    package let isLocked: Bool
+    package let lockReason: String?
+    package let isPrunable: Bool
+    package let pruneReason: String?
+
+    package init(
+        path: String,
+        head: String,
+        branch: String?,
+        isCurrent: Bool,
+        isPrimary: Bool,
+        isBare: Bool,
+        isDetached: Bool,
+        isLocked: Bool,
+        lockReason: String?,
+        isPrunable: Bool,
+        pruneReason: String?
+    ) {
+        self.path = path
+        self.head = head
+        self.branch = branch
+        self.isCurrent = isCurrent
+        self.isPrimary = isPrimary
+        self.isBare = isBare
+        self.isDetached = isDetached
+        self.isLocked = isLocked
+        self.lockReason = lockReason
+        self.isPrunable = isPrunable
+        self.pruneReason = pruneReason
+    }
+
+    package var id: String { path }
+    package var url: URL { URL(fileURLWithPath: path) }
+    package var shortHead: String { String(head.prefix(8)) }
+    package var branchName: String? {
+        guard let branch else { return nil }
+        let prefix = "refs/heads/"
+        return branch.hasPrefix(prefix) ? String(branch.dropFirst(prefix.count)) : branch
+    }
+    package var displayName: String {
+        branchName ?? (isBare ? "Bare repository" : "Detached HEAD")
+    }
+}
+
 package enum GitReferenceKind: String, Sendable {
     case local
     case remote
@@ -284,6 +372,34 @@ package struct GitHistorySnapshot: Sendable {
         self.commits = commits
         self.hasMore = hasMore
         self.identity = identity
+    }
+}
+
+package struct GitReferenceSnapshot: Sendable {
+    package let references: [GitReference]
+    package let recentReferences: [GitReference]
+    package let identity: GitIdentity?
+
+    package init(
+        references: [GitReference],
+        recentReferences: [GitReference] = [],
+        identity: GitIdentity? = nil
+    ) {
+        self.references = references
+        self.recentReferences = recentReferences
+        self.identity = identity
+    }
+}
+
+package struct GitHistoryPage: Sendable {
+    package let commits: [GitCommit]
+    package let nextCursor: String?
+    package let hasMore: Bool
+
+    package init(commits: [GitCommit], nextCursor: String?, hasMore: Bool) {
+        self.commits = commits
+        self.nextCursor = nextCursor
+        self.hasMore = hasMore
     }
 }
 

@@ -987,6 +987,59 @@ struct RustCoreBridge: Sendable {
         }
     }
 
+    struct GitReferencesPayload: Decodable, Sendable {
+        let references: [GitHistoryPayload.Reference]
+        let recentReferences: [GitHistoryPayload.Reference]
+        let userName: String?
+        let userEmail: String?
+
+        func makeSnapshot() -> GitReferenceSnapshot {
+            GitReferenceSnapshot(
+                references: references.compactMap(makeReference),
+                recentReferences: recentReferences.compactMap(makeReference),
+                identity: (userName == nil && userEmail == nil)
+                    ? nil
+                    : GitIdentity(name: userName, email: userEmail)
+            )
+        }
+
+        private func makeReference(_ reference: GitHistoryPayload.Reference) -> GitReference? {
+            guard let kind = GitReferenceKind(rawValue: reference.kind) else { return nil }
+            return GitReference(
+                fullName: reference.fullName,
+                shortName: reference.shortName,
+                kind: kind,
+                isCurrent: reference.isCurrent,
+                upstreamShortName: reference.upstreamShortName
+            )
+        }
+    }
+
+    struct GitHistoryPagePayload: Decodable, Sendable {
+        let commits: [GitHistoryPayload.Commit]
+        let nextCursor: String?
+        let hasMore: Bool
+
+        func makePage() -> GitHistoryPage {
+            GitHistoryPage(
+                commits: commits.map { commit in
+                    GitCommit(
+                        hash: commit.hash,
+                        shortHash: commit.shortHash,
+                        parentHashes: commit.parentHashes,
+                        authorName: commit.authorName,
+                        authorEmail: commit.authorEmail,
+                        date: commit.date,
+                        subject: commit.subject,
+                        decorations: commit.decorations
+                    )
+                },
+                nextCursor: nextCursor,
+                hasMore: hasMore
+            )
+        }
+    }
+
     struct GitCommitPayload: Decodable, Sendable {
         let commit: GitHistoryPayload.Commit
 
@@ -1131,6 +1184,40 @@ struct RustCoreBridge: Sendable {
                 gitCommonDirectory: URL(fileURLWithPath: gitCommonDirectory).standardizedFileURL
             )
         }
+    }
+
+    struct GitWorktreesPayload: Decodable, Sendable {
+        struct Worktree: Decodable, Sendable {
+            let path: String
+            let head: String
+            let branch: String?
+            let isCurrent: Bool
+            let isPrimary: Bool
+            let isBare: Bool
+            let isDetached: Bool
+            let isLocked: Bool
+            let lockReason: String?
+            let isPrunable: Bool
+            let pruneReason: String?
+
+            func makeModel() -> GitWorktree {
+                GitWorktree(
+                    path: path,
+                    head: head,
+                    branch: branch,
+                    isCurrent: isCurrent,
+                    isPrimary: isPrimary,
+                    isBare: isBare,
+                    isDetached: isDetached,
+                    isLocked: isLocked,
+                    lockReason: lockReason,
+                    isPrunable: isPrunable,
+                    pruneReason: pruneReason
+                )
+            }
+        }
+
+        let worktrees: [Worktree]
     }
 
     struct GitPullRequestContextPayload: Decodable, Sendable {
@@ -1799,6 +1886,26 @@ struct RustCoreBridge: Sendable {
         let root: String
         let reference: String?
         let limit: Int
+    }
+
+    private struct GitReferencesRequest: Encodable {
+        let root: String
+    }
+
+    private struct GitHistoryPageRequest: Encodable {
+        let root: String
+        let reference: String?
+        let cursor: String?
+        let limit: Int
+    }
+
+    private struct GitHistoryCursorCloseRequest: Encodable {
+        let root: String
+        let cursor: String
+    }
+
+    private struct GitHistoryCursorClosePayload: Decodable {
+        let closed: Bool
     }
 
     private struct GitCommitRequest: Encodable {
@@ -2610,6 +2717,13 @@ struct RustCoreBridge: Sendable {
         return try? result.get()
     }
 
+    func gitWorktrees(at rootURL: URL) -> GitWorktreesPayload? {
+        execute(
+            command: "git.worktrees",
+            payload: GitStatusRequest(root: rootURL.standardizedFileURL.path)
+        )
+    }
+
     func gitPullRequestContext(
         at rootURL: URL
     ) -> Result<GitPullRequestContextPayload, CoreCallError> {
@@ -2862,6 +2976,47 @@ struct RustCoreBridge: Sendable {
                 limit: limit
             )
         )
+    }
+
+    func gitReferences(
+        at rootURL: URL,
+        operationID: String
+    ) -> GitReferencesPayload? {
+        execute(
+            command: "git.references",
+            payload: GitReferencesRequest(root: rootURL.standardizedFileURL.path),
+            operationID: operationID
+        )
+    }
+
+    func gitHistoryPage(
+        at rootURL: URL,
+        reference: String?,
+        cursor: String?,
+        limit: Int,
+        operationID: String
+    ) -> GitHistoryPagePayload? {
+        execute(
+            command: "git.historyPage",
+            payload: GitHistoryPageRequest(
+                root: rootURL.standardizedFileURL.path,
+                reference: reference,
+                cursor: cursor,
+                limit: limit
+            ),
+            operationID: operationID
+        )
+    }
+
+    func closeGitHistoryCursor(at rootURL: URL, cursor: String) -> Bool {
+        let payload: GitHistoryCursorClosePayload? = execute(
+            command: "git.historyCursorClose",
+            payload: GitHistoryCursorCloseRequest(
+                root: rootURL.standardizedFileURL.path,
+                cursor: cursor
+            )
+        )
+        return payload?.closed ?? false
     }
 
     func gitCommit(at rootURL: URL, commit: String) -> GitCommitPayload? {
@@ -3386,9 +3541,14 @@ struct RustCoreBridge: Sendable {
 
     private func execute<Payload: Encodable, Data: Decodable>(
         command: String,
-        payload: Payload
+        payload: Payload,
+        operationID: String? = nil
     ) -> Data? {
-        try? executeResult(command: command, payload: payload).get()
+        try? executeResult(
+            command: command,
+            payload: payload,
+            operationID: operationID
+        ).get()
     }
 
     /// Runs a command whose success carries no data. The core encodes those as a

@@ -139,12 +139,16 @@ stable error code and a user-facing message:
 | `runConfig.createLaunchPlan` | Project one effective configuration into a platform-neutral Run or Debug plan |
 | `git.status` | Resolve the repository, current branch, and working-tree changes |
 | `git.watchContext` | Resolve the repository and absolute Git metadata roots needed by native file watchers |
+| `git.worktrees` | Return deterministic registered-worktree metadata without scanning each checkout |
 | `git.pullRequestContext` | Resolve worktree-aware PR branch defaults, publication state, and uncommitted-change state |
 | `git.command` | Execute one argument-based Git operation and return its arguments, streams, exit code, and ordered subprocess invocations |
 | `git.write` | Validate and execute shared Git mutations such as stage, commit, branch, checkout, remote sync, clone, and stash |
 | `git.diff` | Produce a structured working-tree, index, reference, or commit patch |
 | `git.apply` | Apply or check a patch in `stage`, `unstage`, `discard`, or Shelf restore mode |
-| `git.history` | Return deterministic refs, recent local branches, commits, parent hashes, decorations, and pagination state |
+| `git.history` | Return the legacy combined reference snapshot and first bounded commit page |
+| `git.references` | Return deterministic refs, recent local branches, ahead/behind state, and effective Git identity without scanning commit history |
+| `git.historyPage` | Return one bounded commit page, parent hashes, decorations, and an opaque continuation cursor |
+| `git.historyCursorClose` | Release an unfinished incremental history cursor and its Git process |
 | `git.pushPreview` | Resolve a local branch push destination and the bounded commits not present on that remote base |
 | `git.commit` | Return one structured commit by revision |
 | `git.commitFiles` | Return files changed by one commit |
@@ -165,6 +169,14 @@ are one-based. `git.status.repositoryRoot` may be an absolute path when the
 opened workspace is a subdirectory of the repository; all Git change paths are
 relative to that repository root. `git.status.ahead` and `behind` report the
 current branch's tracking counts and are zero when no upstream is configured.
+`git.worktrees.worktrees` is ordered with the primary worktree first and then
+by path. Each entry contains `path`, `head`, nullable `branch`, `isCurrent`,
+`isPrimary`, `isBare`, `isDetached`, `isLocked`, nullable `lockReason`,
+`isPrunable`, and nullable `pruneReason`. The path is absolute because linked
+worktrees may live outside the opened workspace; clients must treat it as an
+opaque native boundary value and must not persist it as a portable identifier.
+Core reads the list with one porcelain operation and does not run status in
+each checkout.
 For a rename or copy, each change uses the destination as `path` and preserves
 the source as `originalPath`; platform mutations that act on the Git entry pass
 both paths back to Core.
@@ -248,6 +260,7 @@ response retains the invocation trace and includes the failure as
 `stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `ignore`, `exclude`, `cherryPick`, `revert`,
 `reset`, `editCommitMessage`, `deleteCommit`, `squashCommits`, `createBranch`, `publishBranch`,
 `renameBranch`, `setUpstream`, `unsetUpstream`, `deleteBranch`, `merge`, `rebase`, `createWorktree`,
+`removeWorktree`, `lockWorktree`, `unlockWorktree`, `repairWorktrees`, `pruneWorktrees`,
 `fetch`, `pull`, `push`, `checkout`, `checkoutAndRebase`, `checkoutRevision`, `clone`, `stashPush`,
 `stashApply`, `stashPop`, `stashDrop`, `deleteRemoteBranch`, `operationContinue`,
 `operationAbort`, `operationSkip`, `createTag`, and `deleteTag`. Optional fields are `paths`, `reference`, `referenceKind`,
@@ -261,7 +274,12 @@ stash references, and operation-specific required fields before invoking Git.
 upstream ambiguous. `createWorktree` likewise requires a typed reference; for a
 remote reference Core executes one `git worktree add --track -b` mutation using
 the complete remote ref, so branch creation, checkout, and tracking setup do not
-form separate platform-visible success states.
+form separate platform-visible success states. Worktree mutations re-read Git's
+registered list and reject arbitrary paths. Removal rejects the current,
+primary, or locked worktree; dirty worktrees require an explicit `force` value.
+`repairWorktrees` refreshes administrative links after a repository or worktree
+has moved. `pruneWorktrees` removes registrations whose checkout is already missing and
+does not recursively delete an arbitrary directory.
 Successful process launch returns `{ "arguments": string[], "output": string,
 "stdout": string, "stderr": string, "exitCode": number, "invocations":
 GitCommandInvocation[], "operationError": CoreError?, "stashRestore":
@@ -469,16 +487,35 @@ worktree. Pathspecs must be workspace-relative and must not contain absolute
 paths or `..` components.
 
 `git.history` accepts `root`, an optional full `reference`, and `limit` (the
-core clamps it to `1...5000`). It returns `references`, `commits`, `hasMore`,
-and the optional effective `userName` and `userEmail` from repository Git
-configuration. Commit parents are explicit so clients can render merge
-topology without re-parsing Git output. The identity fields let clients
-implement a stable `me` filter without guessing from recent commits.
-Each reference includes `peelsToCommit`; hosts use it to disable commit-only
+core clamps it to `1...5000`). It remains the compatibility command that
+combines `git.references` with the first `git.historyPage`. New clients use
+`git.references` with `{ "root": string }` and request commits separately with
+`git.historyPage` using `root`, optional full `reference`, nullable opaque
+`cursor`, and `limit`. The first request omits `cursor`; each later request
+returns the prior page's `nextCursor`. Core keeps one bounded, backpressured
+`git log` stream behind that cursor and clamps the stream to the first 5,000
+commits, so later pages continue traversal instead of replaying earlier commits.
+A history page returns `commits`, nullable `nextCursor`, and `hasMore`. Clients
+call `git.historyCursorClose` with `root` and `cursor` when abandoning an
+unfinished stream, and discard and close a late page when its repository,
+selected reference, or owning `operationId` is stale. Core also expires idle
+cursors and caps the number of live streams. Commit parents are explicit so
+clients can render merge topology without re-parsing Git output. The optional
+effective `userName` and `userEmail` returned by `git.references` let clients
+implement a stable `me` filter without guessing from recent commits. Each
+reference includes `peelsToCommit`; hosts use it to disable commit-only
 actions for legal tree/blob tags before the user reaches a failing mutation.
-Each local reference with an upstream also returns numeric `ahead` and `behind`
-counts against that fetched remote-tracking reference. References without an
-upstream, remote references, and tags return zero for both fields.
+Each local
+reference with an upstream also returns numeric `ahead` and `behind` counts
+against that fetched remote-tracking reference. References without an upstream,
+remote references, and tags return zero for both fields. Portable examples are
+`shared/fixtures/git/references-response-v1.json` and
+`shared/fixtures/git/history-page-response-v1.json`.
+
+For compatibility, a request that explicitly contains the deprecated numeric
+`offset` field still uses the bounded offset implementation and returns
+`nextOffset`. New clients must omit `offset`; repository size does not select
+between the two protocols.
 
 `git.commit` accepts `root` and a revision, returning one `commit` object.
 `git.blame` accepts `root` and a workspace-relative `path`; its line numbers
