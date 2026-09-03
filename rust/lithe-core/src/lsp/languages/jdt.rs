@@ -98,6 +98,8 @@ pub(crate) struct JdtMavenConfiguration {
     pub profiles: Vec<String>,
     /// Deterministically ordered reactor and recursive-module directory URIs.
     pub project_uris: Vec<String>,
+    /// Workspace-relative Java source directories discovered from Maven POMs.
+    pub source_paths: Vec<String>,
 }
 
 /// Platform-resolved files required to launch JDT LS without a shell wrapper.
@@ -741,6 +743,9 @@ fn java_settings(maven_configuration: Option<&JdtMavenConfiguration>) -> Value {
             "userSettings": settings_path
         });
     }
+    if let Some(configuration) = maven_configuration {
+        settings["java"]["project"]["sourcePaths"] = json!(configuration.source_paths);
+    }
     settings
 }
 
@@ -772,6 +777,12 @@ fn java_configuration_for_section(
         Some("java.configuration.maven.userSettings") => maven_configuration
             .and_then(|value| value.settings_path.as_ref())
             .map_or(Value::Null, |path| json!(path)),
+        Some("java.project") => maven_configuration
+            .map(|value| json!({ "sourcePaths": value.source_paths }))
+            .unwrap_or(Value::Null),
+        Some("java.project.sourcePaths") => maven_configuration
+            .map(|value| json!(value.source_paths))
+            .unwrap_or(Value::Null),
         Some("java.implementationsCodeLens") => json!({ "enabled": true }),
         Some("java.implementationsCodeLens.enabled") => json!(true),
         Some("java.referencesCodeLens") => json!({ "enabled": true }),
@@ -1297,6 +1308,10 @@ mod tests {
                 "file:///workspace/reactor/module-a/".to_string(),
                 "file:///workspace/reactor/module-a/nested/".to_string(),
             ],
+            source_paths: vec![
+                "src/main/java".to_string(),
+                "module-a/src/main/java".to_string(),
+            ],
         };
         let items = [
             "java",
@@ -1317,11 +1332,41 @@ mod tests {
         assert_eq!(values[1]["maven"]["userSettings"], "/local/settings.xml");
         assert_eq!(values[2]["userSettings"], "/local/settings.xml");
         assert_eq!(values[3], "/local/settings.xml");
+        assert_eq!(
+            values[0]["project"]["sourcePaths"],
+            json!(["src/main/java", "module-a/src/main/java"])
+        );
+        let source_values = workspace_configuration(
+            "java",
+            &[
+                WorkspaceConfigurationItem {
+                    scope_uri: None,
+                    section: Some("java.project".to_string()),
+                },
+                WorkspaceConfigurationItem {
+                    scope_uri: None,
+                    section: Some("java.project.sourcePaths".to_string()),
+                },
+            ],
+            Some(&configuration),
+        )
+        .unwrap();
+        assert_eq!(
+            source_values,
+            vec![
+                json!({ "sourcePaths": ["src/main/java", "module-a/src/main/java"] }),
+                json!(["src/main/java", "module-a/src/main/java"]),
+            ]
+        );
 
         let notification = initialized_notification("java", Some(&configuration)).unwrap();
         assert_eq!(
             notification.params["settings"]["java"]["configuration"]["maven"]["userSettings"],
             "/local/settings.xml"
+        );
+        assert_eq!(
+            notification.params["settings"]["java"]["project"]["sourcePaths"],
+            json!(["src/main/java", "module-a/src/main/java"])
         );
         assert_eq!(
             maven_profile_update_requests(Some(&configuration)),

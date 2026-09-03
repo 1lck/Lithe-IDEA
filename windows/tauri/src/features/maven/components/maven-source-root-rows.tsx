@@ -1,14 +1,15 @@
 import { FolderIcon } from "@/ui/icons";
+import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
 import type { MavenSourceRoot, MavenSourceRootKind } from "../types/maven.types";
 
-const SOURCE_ROOT_KIND_LABELS: Record<MavenSourceRootKind, string> = {
-  mainJava: "main Java",
-  mainResources: "main resources",
-  testJava: "test Java",
-  testResources: "test resources",
-  generatedMain: "generated main",
-  generatedTest: "generated test",
+const SOURCE_ROOT_KIND_LABEL_KEYS: Record<MavenSourceRootKind, string> = {
+  mainJava: "maven.sourceRoot.mainJava",
+  mainResources: "maven.sourceRoot.mainResources",
+  testJava: "maven.sourceRoot.testJava",
+  testResources: "maven.sourceRoot.testResources",
+  generatedMain: "maven.sourceRoot.generatedMain",
+  generatedTest: "maven.sourceRoot.generatedTest",
 };
 
 function sourceRootIconClass(kind: MavenSourceRootKind): string {
@@ -18,6 +19,7 @@ function sourceRootIconClass(kind: MavenSourceRootKind): string {
 }
 
 export function MavenSourceRootRows({ sourceRoots }: { sourceRoots: MavenSourceRoot[] }) {
+  const { t } = useTranslation();
   return sourceRoots.map((sourceRoot) => (
     <div
       key={`${sourceRoot.kind}:${sourceRoot.path}`}
@@ -27,7 +29,7 @@ export function MavenSourceRootRows({ sourceRoots }: { sourceRoots: MavenSourceR
       <FolderIcon className={cn("size-3.5 shrink-0", sourceRootIconClass(sourceRoot.kind))} />
       <span className="min-w-0 flex-1 truncate">{sourceRoot.path}</span>
       <span className="shrink-0 font-mono text-subtle-foreground ui-text-xs">
-        {SOURCE_ROOT_KIND_LABELS[sourceRoot.kind]}
+        {t(SOURCE_ROOT_KIND_LABEL_KEYS[sourceRoot.kind])}
       </span>
     </div>
   ));
