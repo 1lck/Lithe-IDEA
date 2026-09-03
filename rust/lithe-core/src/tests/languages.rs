@@ -123,6 +123,10 @@ fn jdt_cache_retention_matches_the_shared_compatibility_fixture() {
 
 #[test]
 fn maven_scan_returns_recursive_shared_project_model() {
+    let source_roots_fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/maven/source-roots-v1.json"
+    ))
+    .expect("Maven source-roots fixture should be valid JSON");
     let root = temporary_root("maven");
     fs::create_dir_all(root.join("module-a/module-b")).expect("modules should be creatable");
     fs::write(
@@ -157,7 +161,12 @@ fn maven_scan_returns_recursive_shared_project_model() {
     assert_eq!(response["data"]["packaging"], "pom");
     assert_eq!(response["data"]["profiles"][0]["id"], "dev");
     assert_eq!(response["data"]["hasWrapper"], true);
+    assert_eq!(response["data"]["sourceRoots"].as_array().unwrap().len(), 0);
     assert_eq!(response["data"]["modules"][0]["relativePath"], "module-a");
+    assert_eq!(
+        response["data"]["modules"][0]["sourceRoots"],
+        source_roots_fixture["cases"][0]["sourceRoots"]
+    );
     assert_eq!(
         response["data"]["modules"][0]["modules"][0]["relativePath"],
         "module-a/module-b"
@@ -185,6 +194,41 @@ fn maven_scan_returns_recursive_shared_project_model() {
     assert_eq!(
         diagnostics_response["data"]["issues"][0]["severity"],
         "error"
+    );
+    fs::remove_dir_all(root).expect("Maven fixture should be removable");
+}
+
+#[test]
+fn maven_scan_recognizes_configured_and_generated_source_roots_per_module() {
+    let source_roots_fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/maven/source-roots-v1.json"
+    ))
+    .expect("Maven source-roots fixture should be valid JSON");
+    let root = temporary_root("maven-source-roots");
+    fs::create_dir_all(root.join("module")).expect("module should be creatable");
+    fs::write(
+        root.join("pom.xml"),
+        r#"<project><artifactId>demo</artifactId><packaging>pom</packaging><modules><module>module</module></modules></project>"#,
+    )
+    .expect("reactor pom should be writable");
+    fs::write(
+        root.join("module/pom.xml"),
+        r#"<project><artifactId>configured</artifactId><build><sourceDirectory>${project.basedir}/custom/java</sourceDirectory><resources><resource><directory>custom/resources</directory></resource><resource><directory>custom/resources</directory></resource><resource><directory>../outside</directory></resource></resources><testSourceDirectory>custom\test-java</testSourceDirectory><testResources><testResource><directory>custom/test-resources</directory></testResource></testResources><plugins><plugin><artifactId>maven-compiler-plugin</artifactId><configuration><generatedSourcesDirectory>${project.build.directory}/generated-sources/annotations</generatedSourcesDirectory><generatedTestSourcesDirectory>target/generated-test-sources</generatedTestSourcesDirectory></configuration></plugin></plugins></build></project>"#,
+    )
+    .expect("configured pom should be writable");
+
+    let request = serde_json::json!({
+        "id": "maven-source-roots",
+        "command": "maven.scan",
+        "payload": {"root": root, "paths": ["module/pom.xml"]}
+    });
+    let response: Value = serde_json::from_str(&execute_json(&request.to_string()))
+        .expect("Maven response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["data"]["modules"][0]["sourceRoots"],
+        source_roots_fixture["cases"][1]["sourceRoots"]
     );
     fs::remove_dir_all(root).expect("Maven fixture should be removable");
 }
