@@ -155,6 +155,10 @@ struct MediaViewerView: View {
         imageScale ?? imageFitScale
     }
 
+    private var imageZoomPercentage: Int {
+        max(1, Int((currentImageScale * 100).rounded()))
+    }
+
     private var toolbar: some View {
         HStack(spacing: 8) {
             LitheIcon(kind: LitheIcons.kind(for: media.url, isDirectory: false), size: 14)
@@ -174,10 +178,15 @@ struct MediaViewerView: View {
                 Button {
                     imageScale = 1
                 } label: {
-                    Image(systemName: "1.magnifyingglass")
+                    Text("\(imageZoomPercentage)%")
+                        .font(.system(size: 11, weight: .medium))
+                        .monospacedDigit()
                 }
-                .litheIconButton()
-                .help("Actual size")
+                .buttonStyle(MediaZoomPercentageButtonStyle())
+                .help("Reset to actual size (100%)")
+                .accessibilityLabel("Image zoom")
+                .accessibilityValue("\(imageZoomPercentage) percent")
+                .accessibilityHint("Reset to actual size")
                 Button {
                     imageScale = clampedImageScale(currentImageScale + 0.25)
                 } label: {
@@ -454,5 +463,26 @@ private final class ImageDocumentView: NSView {
         dragStartLocation = nil
         dragStartOrigin = nil
         NSCursor.openHand.set()
+    }
+}
+
+private struct MediaZoomPercentageButtonStyle: ButtonStyle {
+    @State private var isHovering = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(LitheTheme.toolWindowText)
+            .frame(width: 44, height: 28)
+            .background(
+                RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius)
+                    .fill(
+                        configuration.isPressed
+                            ? LitheTheme.pressedBackground
+                            : (isHovering ? LitheTheme.hoverBackground : .clear)
+                    )
+            )
+            .contentShape(Rectangle())
+            .onHover { isHovering = $0 }
+            .lithePointer()
     }
 }
