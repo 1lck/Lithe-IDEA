@@ -94,9 +94,11 @@ export function useGitLogController(repoPath: string | null) {
         ]);
         if (requestId !== requestIdRef.current) {
           if (page?.nextCursor) void closeGitHistoryCursor(repoPath, page.nextCursor);
+          else if (cursor) void closeGitHistoryCursor(repoPath, cursor);
           return;
         }
         if (!page) {
+          if (cursor) void closeGitHistoryCursor(repoPath, cursor);
           setLoadState("failed");
           setError(t("git.historyLoadRepositoryFailed"));
           return;
@@ -122,7 +124,11 @@ export function useGitLogController(repoPath: string | null) {
         activeCursorRef.current = page.nextCursor ?? null;
         setLoadState("ready");
       } catch (loadError) {
-        if (requestId !== requestIdRef.current) return;
+        if (requestId !== requestIdRef.current) {
+          if (cursor) void closeGitHistoryCursor(repoPath, cursor);
+          return;
+        }
+        if (cursor) void closeGitHistoryCursor(repoPath, cursor);
         setLoadState("failed");
         setError(loadError instanceof Error ? loadError.message : t("git.historyLoadFailed"));
       } finally {

@@ -1364,6 +1364,217 @@ fn git_write_creates_a_tracked_worktree_from_an_unambiguous_complete_remote_refe
 }
 
 #[test]
+fn git_worktrees_lists_primary_linked_and_locked_metadata() {
+    struct RemovePathsOnDrop(Vec<std::path::PathBuf>);
+
+    impl Drop for RemovePathsOnDrop {
+        fn drop(&mut self) {
+            for path in self.0.iter().rev() {
+                let _ = fs::remove_dir_all(path);
+            }
+        }
+    }
+
+    let root = git_write_repository("git-worktrees-list");
+    let destination = root.with_extension("linked worktree-测试");
+    let _cleanup = RemovePathsOnDrop(vec![root.clone(), destination.clone()]);
+    commit_history_file(&root, "base.txt", "base\n", "initial");
+    assert!(history_git(
+        &root,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "feature/linked",
+            destination.to_str().expect("test path should be UTF-8"),
+        ],
+    )
+    .status
+    .success());
+    assert!(history_git(
+        &root,
+        &[
+            "worktree",
+            "lock",
+            "--reason",
+            "Codex task",
+            destination.to_str().expect("test path should be UTF-8"),
+        ],
+    )
+    .status
+    .success());
+
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&serde_json::json!({
+            "id": "git-worktrees-list",
+            "command": "git.worktrees",
+            "payload": { "root": root }
+        }))
+        .expect("worktrees request should encode"),
+    ))
+    .expect("worktrees response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response:?}");
+    let worktrees = response["data"]["worktrees"]
+        .as_array()
+        .expect("worktrees should be an array");
+    assert_eq!(worktrees.len(), 2, "{response:?}");
+    assert_eq!(worktrees[0]["isPrimary"], true);
+    assert_eq!(worktrees[0]["isCurrent"], true);
+    assert_eq!(
+        worktrees[1]["path"],
+        destination
+            .canonicalize()
+            .expect("linked worktree should canonicalize")
+            .to_string_lossy()
+            .as_ref()
+    );
+    assert_eq!(worktrees[1]["branch"], "refs/heads/feature/linked");
+    assert_eq!(worktrees[1]["isLocked"], true);
+    assert_eq!(worktrees[1]["lockReason"], "Codex task");
+}
+
+#[test]
+fn git_write_manages_only_registered_non_primary_worktrees() {
+    struct RemovePathsOnDrop(Vec<std::path::PathBuf>);
+
+    impl Drop for RemovePathsOnDrop {
+        fn drop(&mut self) {
+            for path in self.0.iter().rev() {
+                let _ = fs::remove_dir_all(path);
+            }
+        }
+    }
+
+    let root = git_write_repository("git-worktree-mutations");
+    let destination = root.with_extension("managed-worktree");
+    let stale_destination = root.with_extension("stale-worktree");
+    let _cleanup = RemovePathsOnDrop(vec![
+        root.clone(),
+        destination.clone(),
+        stale_destination.clone(),
+    ]);
+    commit_history_file(&root, "base.txt", "base\n", "initial");
+    for (path, branch) in [
+        (&destination, "feature/managed"),
+        (&stale_destination, "feature/stale"),
+    ] {
+        assert!(history_git(
+            &root,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                branch,
+                path.to_str().expect("test path should be UTF-8"),
+            ],
+        )
+        .status
+        .success());
+    }
+    let registered_destination = destination
+        .canonicalize()
+        .expect("managed worktree should canonicalize");
+    let registered_root = root.canonicalize().expect("repository should canonicalize");
+
+    let locked = git_write_request(
+        &root,
+        "lockWorktree",
+        serde_json::json!({ "destination": registered_destination }),
+    );
+    assert_eq!(locked["ok"], true, "{locked:?}");
+    assert_eq!(locked["data"]["exitCode"], 0, "{locked:?}");
+    let rejected_locked_remove = git_write_request(
+        &root,
+        "removeWorktree",
+        serde_json::json!({ "destination": registered_destination }),
+    );
+    assert_eq!(
+        rejected_locked_remove["ok"], true,
+        "{rejected_locked_remove:?}"
+    );
+    assert_eq!(
+        rejected_locked_remove["data"]["operationError"]["code"], "invalid_request",
+        "{rejected_locked_remove:?}"
+    );
+    let unlocked = git_write_request(
+        &root,
+        "unlockWorktree",
+        serde_json::json!({ "destination": registered_destination }),
+    );
+    assert_eq!(unlocked["data"]["exitCode"], 0, "{unlocked:?}");
+
+    fs::write(destination.join("dirty.txt"), "dirty\n").expect("worktree should be writable");
+    let dirty_remove = git_write_request(
+        &root,
+        "removeWorktree",
+        serde_json::json!({ "destination": registered_destination }),
+    );
+    assert_eq!(dirty_remove["ok"], true, "{dirty_remove:?}");
+    assert_ne!(dirty_remove["data"]["exitCode"], 0, "{dirty_remove:?}");
+    let forced_remove = git_write_request(
+        &root,
+        "removeWorktree",
+        serde_json::json!({ "destination": registered_destination, "force": true }),
+    );
+    assert_eq!(forced_remove["data"]["exitCode"], 0, "{forced_remove:?}");
+    assert!(!destination.exists());
+
+    let primary_remove = git_write_request(
+        &root,
+        "removeWorktree",
+        serde_json::json!({ "destination": registered_root }),
+    );
+    assert_eq!(
+        primary_remove["data"]["operationError"]["code"], "invalid_request",
+        "{primary_remove:?}"
+    );
+    let unrelated_remove = git_write_request(
+        &root,
+        "removeWorktree",
+        serde_json::json!({ "destination": root.with_extension("unregistered") }),
+    );
+    assert_eq!(
+        unrelated_remove["data"]["operationError"]["code"], "invalid_request",
+        "{unrelated_remove:?}"
+    );
+
+    let repair = git_write_request(&root, "repairWorktrees", serde_json::json!({}));
+    assert_eq!(repair["data"]["exitCode"], 0, "{repair:?}");
+
+    fs::remove_dir_all(&stale_destination).expect("stale worktree should be removable");
+    let unrelated_missing_remove = git_write_request(
+        &root,
+        "removeWorktree",
+        serde_json::json!({
+            "destination": root.with_extension("another-missing-worktree")
+        }),
+    );
+    assert_eq!(
+        unrelated_missing_remove["data"]["operationError"]["code"], "invalid_request",
+        "{unrelated_missing_remove:?}"
+    );
+    let prune = git_write_request(&root, "pruneWorktrees", serde_json::json!({}));
+    assert_eq!(prune["data"]["exitCode"], 0, "{prune:?}");
+    let listed: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&serde_json::json!({
+            "id": "git-worktrees-after-prune",
+            "command": "git.worktrees",
+            "payload": { "root": root }
+        }))
+        .expect("worktrees request should encode"),
+    ))
+    .expect("worktrees response should be JSON");
+    assert_eq!(
+        listed["data"]["worktrees"].as_array().map(Vec::len),
+        Some(1),
+        "{listed:?}"
+    );
+}
+
+#[test]
 fn git_write_executes_checkout_preflight_clone_and_validation() {
     let root = git_write_repository("git-write-checkout-workflows");
     let run = |arguments: &[&str]| history_git(&root, arguments);

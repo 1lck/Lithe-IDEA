@@ -1186,6 +1186,40 @@ struct RustCoreBridge: Sendable {
         }
     }
 
+    struct GitWorktreesPayload: Decodable, Sendable {
+        struct Worktree: Decodable, Sendable {
+            let path: String
+            let head: String
+            let branch: String?
+            let isCurrent: Bool
+            let isPrimary: Bool
+            let isBare: Bool
+            let isDetached: Bool
+            let isLocked: Bool
+            let lockReason: String?
+            let isPrunable: Bool
+            let pruneReason: String?
+
+            func makeModel() -> GitWorktree {
+                GitWorktree(
+                    path: path,
+                    head: head,
+                    branch: branch,
+                    isCurrent: isCurrent,
+                    isPrimary: isPrimary,
+                    isBare: isBare,
+                    isDetached: isDetached,
+                    isLocked: isLocked,
+                    lockReason: lockReason,
+                    isPrunable: isPrunable,
+                    pruneReason: pruneReason
+                )
+            }
+        }
+
+        let worktrees: [Worktree]
+    }
+
     struct GitPullRequestContextPayload: Decodable, Sendable {
         let currentBranch: String?
         let suggestedBaseBranch: String?
@@ -2681,6 +2715,13 @@ struct RustCoreBridge: Sendable {
             payload: GitWatchContextRequest(root: rootURL.standardizedFileURL.path)
         )
         return try? result.get()
+    }
+
+    func gitWorktrees(at rootURL: URL) -> GitWorktreesPayload? {
+        execute(
+            command: "git.worktrees",
+            payload: GitStatusRequest(root: rootURL.standardizedFileURL.path)
+        )
     }
 
     func gitPullRequestContext(

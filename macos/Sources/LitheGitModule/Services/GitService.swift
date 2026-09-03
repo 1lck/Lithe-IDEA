@@ -1,6 +1,16 @@
 import Foundation
 import LitheCoreContracts
 
+package protocol GitPerformanceLogger: Sendable {
+    func record(_ message: String)
+}
+
+package struct NullGitPerformanceLogger: GitPerformanceLogger {
+    package init() {}
+
+    package func record(_ message: String) {}
+}
+
 package protocol GitOperations: Sendable {
     func run(
         arguments: [String],
@@ -10,7 +20,7 @@ package protocol GitOperations: Sendable {
 
     func snapshot(at rootURL: URL) -> GitSnapshot?
     func watchContext(at rootURL: URL) -> GitWatchContext?
-
+    func worktrees(at rootURL: URL) -> [GitWorktree]?
 
     func diffDocument(
         at rootURL: URL,
@@ -91,6 +101,12 @@ package protocol GitOperations: Sendable {
     func revert(_ hash: String, at rootURL: URL) -> GitProcessResult?
     func resetCurrentBranch(to hash: String, mode: String, at rootURL: URL) -> GitProcessResult?
     func createBranch(named name: String, from reference: GitReference, checkout: Bool, at rootURL: URL) -> GitProcessResult?
+    func createWorktree(named name: String, from reference: GitReference, revision: String?, at destination: URL, repositoryRoot: URL) -> GitProcessResult?
+    func removeWorktree(_ worktree: GitWorktree, force: Bool, at rootURL: URL) -> GitProcessResult?
+    func lockWorktree(_ worktree: GitWorktree, at rootURL: URL) -> GitProcessResult?
+    func unlockWorktree(_ worktree: GitWorktree, at rootURL: URL) -> GitProcessResult?
+    func repairWorktrees(at rootURL: URL) -> GitProcessResult?
+    func pruneWorktrees(at rootURL: URL) -> GitProcessResult?
     func renameBranch(_ reference: GitReference, to name: String, at rootURL: URL) -> GitProcessResult?
     func deleteBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult?
     func mergeBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult?
@@ -171,13 +187,55 @@ package extension GitOperations {
 
 package typealias GitWatchContextProviding = LitheCoreContracts.GitWatchContextProviding
 
+private actor GitHistoryCache {
+    private struct Key: Hashable {
+        let rootPath: String
+        let reference: String?
+        let limit: Int
+    }
+
+    private struct Entry {
+        let snapshot: GitHistorySnapshot
+        let insertedAt: Date
+    }
+
+    private var values: [Key: Entry] = [:]
+
+    func value(rootURL: URL, reference: GitReference?, limit: Int) -> GitHistorySnapshot? {
+        let key = Key(rootPath: rootURL.standardizedFileURL.path, reference: reference?.fullName, limit: limit)
+        guard let entry = values[key] else { return nil }
+        // Short-lived reuse smooths repeated pane opens without allowing a
+        // commit made in the meantime to leave the UI stale indefinitely.
+        guard Date().timeIntervalSince(entry.insertedAt) < 5 else {
+            values.removeValue(forKey: key)
+            return nil
+        }
+        return entry.snapshot
+    }
+
+    func insert(_ snapshot: GitHistorySnapshot, rootURL: URL, reference: GitReference?, limit: Int) {
+        let key = Key(rootPath: rootURL.standardizedFileURL.path, reference: reference?.fullName, limit: limit)
+        values[key] = Entry(snapshot: snapshot, insertedAt: Date())
+        // Keep this process-local cache bounded while retaining the most useful recent queries.
+        if values.count > 24, let oldestKey = values.keys.first {
+            values.removeValue(forKey: oldestKey)
+        }
+    }
+}
+
 /// UI-facing Git service. Git command construction, validation, parsing, and
 /// process execution live behind the shared Rust operations port.
 package struct GitService: Sendable {
     private let operations: any GitOperations
+    private let historyCache = GitHistoryCache()
+    private let performanceLogger: any GitPerformanceLogger
 
-    package init(operations: any GitOperations) {
+    package init(
+        operations: any GitOperations,
+        performanceLogger: any GitPerformanceLogger = NullGitPerformanceLogger()
+    ) {
         self.operations = operations
+        self.performanceLogger = performanceLogger
     }
 
     package struct CommandResult: Sendable {
@@ -229,6 +287,31 @@ package struct GitService: Sendable {
 
     func snapshot(for workspace: URL) async -> GitSnapshot? {
         await read(priority: .utility) { $0.snapshot(at: workspace) }
+    }
+
+    func worktrees(at repositoryRoot: URL) async -> [GitWorktree]? {
+        await read(priority: .utility) { $0.worktrees(at: repositoryRoot) }
+    }
+
+    func inspectWorktree(
+        _ worktree: GitWorktree,
+        reference: GitReference?
+    ) async -> GitWorktreeInspection? {
+        // The detail pane should become useful quickly; the feature model can
+        // request a larger window after this first paint.
+        async let history = history(at: worktree.url, reference: reference, limit: 30)
+        async let snapshot = snapshot(for: worktree.url)
+        let resolvedHistory = await history
+        // A linked worktree can occasionally have a transiently unreadable
+        // index while Git is refreshing it. Keep the independent commit
+        // history visible instead of dropping the entire inspection result.
+        let resolvedChanges = (await snapshot)?.changes ?? []
+        return GitWorktreeInspection(
+            worktreeID: worktree.id,
+            changes: resolvedChanges,
+            commits: resolvedHistory.commits,
+            hasMoreCommits: resolvedHistory.hasMore
+        )
     }
 
     func consoleVersion(at repositoryRoot: URL) async -> CommandResult {
@@ -405,9 +488,24 @@ package struct GitService: Sendable {
         reference: GitReference? = nil,
         limit: Int = 300
     ) async -> GitHistorySnapshot {
-        await read(priority: .utility) {
+        let historyLookupStartedAt = ContinuousClock.now
+        if let cached = await historyCache.value(rootURL: repositoryRoot, reference: reference, limit: limit) {
+            performanceLogger.record(
+                GitPerformanceLogFormatter.cacheHit(
+                    operation: #function,
+                    durationMilliseconds: elapsedMilliseconds(since: historyLookupStartedAt)
+                )
+            )
+            return cached
+        }
+        let snapshot = await read(priority: .utility) {
             $0.history(at: repositoryRoot, reference: reference, limit: limit)
-        } ?? GitHistorySnapshot(references: [], commits: [], hasMore: false)
+        }
+        if let snapshot {
+            await historyCache.insert(snapshot, rootURL: repositoryRoot, reference: reference, limit: limit)
+            return snapshot
+        }
+        return GitHistorySnapshot(references: [], commits: [], hasMore: false)
     }
 
     func references(
@@ -585,6 +683,50 @@ package struct GitService: Sendable {
         }
     }
 
+    func createWorktree(
+        named name: String,
+        from reference: GitReference,
+        revision: String? = nil,
+        at destination: URL,
+        repositoryRoot: URL
+    ) async -> CommandResult {
+        await command(at: repositoryRoot) {
+            $0.createWorktree(
+                named: name,
+                from: reference,
+                revision: revision,
+                at: destination,
+                repositoryRoot: repositoryRoot
+            )
+        }
+    }
+
+    func removeWorktree(
+        _ worktree: GitWorktree,
+        force: Bool,
+        at repositoryRoot: URL
+    ) async -> CommandResult {
+        await command(at: repositoryRoot) {
+            $0.removeWorktree(worktree, force: force, at: repositoryRoot)
+        }
+    }
+
+    func lockWorktree(_ worktree: GitWorktree, at repositoryRoot: URL) async -> CommandResult {
+        await command(at: repositoryRoot) { $0.lockWorktree(worktree, at: repositoryRoot) }
+    }
+
+    func unlockWorktree(_ worktree: GitWorktree, at repositoryRoot: URL) async -> CommandResult {
+        await command(at: repositoryRoot) { $0.unlockWorktree(worktree, at: repositoryRoot) }
+    }
+
+    func repairWorktrees(at repositoryRoot: URL) async -> CommandResult {
+        await command(at: repositoryRoot) { $0.repairWorktrees(at: repositoryRoot) }
+    }
+
+    func pruneWorktrees(at repositoryRoot: URL) async -> CommandResult {
+        await command(at: repositoryRoot) { $0.pruneWorktrees(at: repositoryRoot) }
+    }
+
     func renameBranch(
         _ reference: GitReference,
         to newName: String,
@@ -747,38 +889,109 @@ package struct GitService: Sendable {
     private func command(
         at workingDirectory: URL? = nil,
         fallbackArguments: [String] = [],
+        operationName: String = #function,
         _ operation: @escaping @Sendable (any GitOperations) -> GitProcessResult?
     ) async -> CommandResult {
         let operations = self.operations
-        return await Task.detached(priority: .userInitiated) {
-            let result = operation(operations)
-            return CommandResult(
-                workingDirectory: workingDirectory,
-                arguments: result?.arguments.isEmpty == false
-                    ? result?.arguments ?? fallbackArguments
-                    : fallbackArguments,
-                output: result?.output ?? "Rust Core Git operation failed",
-                standardOutput: result?.standardOutput,
-                standardError: result?.standardError,
-                exitCode: result?.exitCode ?? 1,
-                invocations: result?.invocations ?? [],
-                operationErrorMessage: result?.operationErrorMessage,
-                stashRestoreConflict: result?.stashRestoreConflict,
-                tagDeletion: result?.tagDeletion,
-                branchDeletion: result?.branchDeletion,
-                warnings: result?.warnings ?? []
-            )
+        let startedAt = ContinuousClock.now
+        let result = await Task.detached(priority: .userInitiated) {
+            operation(operations)
         }.value
+        let commandResult = CommandResult(
+            workingDirectory: workingDirectory,
+            arguments: result?.arguments.isEmpty == false
+                ? result?.arguments ?? fallbackArguments
+                : fallbackArguments,
+            output: result?.output ?? "Rust Core Git operation failed",
+            standardOutput: result?.standardOutput,
+            standardError: result?.standardError,
+            exitCode: result?.exitCode ?? 1,
+            invocations: result?.invocations ?? [],
+            operationErrorMessage: result?.operationErrorMessage,
+            stashRestoreConflict: result?.stashRestoreConflict,
+            tagDeletion: result?.tagDeletion,
+            branchDeletion: result?.branchDeletion,
+            warnings: result?.warnings ?? []
+        )
+        performanceLogger.record(
+            GitPerformanceLogFormatter.command(
+                operation: operationName,
+                workingDirectory: workingDirectory,
+                arguments: commandResult.arguments,
+                durationMilliseconds: elapsedMilliseconds(since: startedAt),
+                succeeded: commandResult.succeeded
+            )
+        )
+        return commandResult
     }
 
     private func read<T: Sendable>(
         priority: TaskPriority = .userInitiated,
+        operationName: String = #function,
         _ operation: @escaping @Sendable (any GitOperations) -> T?
     ) async -> T? {
         let operations = self.operations
-        return await Task.detached(priority: priority) {
+        let startedAt = ContinuousClock.now
+        let result = await Task.detached(priority: priority) {
             operation(operations)
         }.value
+        performanceLogger.record(
+            GitPerformanceLogFormatter.read(
+                operation: operationName,
+                durationMilliseconds: elapsedMilliseconds(since: startedAt),
+                succeeded: result != nil
+            )
+        )
+        return result
+    }
+
+    package func recordWorktreeInspection(
+        worktreeID: String,
+        phase: String,
+        durationMilliseconds: Int
+    ) {
+        performanceLogger.record(
+            "[git-performance] operation=worktree-inspection phase=\(phase) worktree=\(GitPerformanceLogFormatter.redact(worktreeID)) duration_ms=\(durationMilliseconds)"
+        )
+    }
+
+    private func elapsedMilliseconds(since startedAt: ContinuousClock.Instant) -> Int {
+        let components = startedAt.duration(to: .now).components
+        let milliseconds = (Double(components.seconds) * 1_000)
+            + (Double(components.attoseconds) / 1_000_000_000_000_000)
+        return max(0, Int(milliseconds.rounded()))
+    }
+}
+
+private enum GitPerformanceLogFormatter {
+    static func command(
+        operation: String,
+        workingDirectory: URL?,
+        arguments: [String],
+        durationMilliseconds: Int,
+        succeeded: Bool
+    ) -> String {
+        let command = GitConsoleCommandFormatter.commandLine(arguments: arguments)
+        let directory = workingDirectory?.path ?? "-"
+        return "[git-performance] operation=\(redact(operation)) duration_ms=\(durationMilliseconds) status=\(succeeded ? "success" : "failure") cwd=\(redact(directory)) command=\(redact(command))"
+    }
+
+    static func read(
+        operation: String,
+        durationMilliseconds: Int,
+        succeeded: Bool
+    ) -> String {
+        "[git-performance] operation=\(redact(operation)) duration_ms=\(durationMilliseconds) status=\(succeeded ? "success" : "failure") cache=miss"
+    }
+
+    static func cacheHit(operation: String, durationMilliseconds: Int) -> String {
+        "[git-performance] operation=\(redact(operation)) duration_ms=\(durationMilliseconds) status=success cache=hit"
+    }
+
+    static func redact(_ value: String) -> String {
+        GitConsoleRedactor.redact(value)
+            .replacingOccurrences(of: "\r", with: "\\r")
+            .replacingOccurrences(of: "\n", with: "\\n")
     }
 
     private func cancellableRead<T: Sendable>(

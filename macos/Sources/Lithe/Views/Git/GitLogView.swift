@@ -63,6 +63,7 @@ struct GitLogView: View {
 
     private enum GitToolTab {
         case log
+        case worktrees
         case console
     }
 
@@ -70,6 +71,7 @@ struct GitLogView: View {
         let _ = LitheSignpost.bodyEvaluated("GitLogView")
         VStack(spacing: 0) {
             toolWindowHeader
+            primaryContent
             primaryContent
         }
         .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.sidebar)
@@ -338,16 +340,23 @@ struct GitLogView: View {
                 .log,
                 title: "Log: \(model.selectedGitReference?.shortName ?? model.currentBranch)"
             )
+            gitToolTabButton(
+                .worktrees,
+                title: "Worktrees",
+                detail: model.gitRepositoryRoot?.path
+            )
             gitToolTabButton(.console, title: "Console")
 
-            Button {
-                selectedGitToolTab = .log
-                Task { await model.selectGitReference(nil) }
-            } label: {
-                Image(systemName: "plus")
+            if selectedGitToolTab == .log {
+                Button {
+                    selectedGitToolTab = .log
+                    Task { await model.selectGitReference(nil) }
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .litheIconButton()
+                .help("Show all references")
             }
-            .litheIconButton()
-            .help("Show all references")
 
             Menu {
                 Button("Fetch All Remotes") {
@@ -394,7 +403,11 @@ struct GitLogView: View {
         }
     }
 
-    private func gitToolTabButton(_ tab: GitToolTab, title: LocalizedStringKey) -> some View {
+    private func gitToolTabButton(
+        _ tab: GitToolTab,
+        title: LocalizedStringKey,
+        detail: String? = nil
+    ) -> some View {
         let isSelected = selectedGitToolTab == tab
         let showsCloseButton = isSelected && tab == .console
         return HStack(spacing: 0) {
@@ -404,14 +417,23 @@ struct GitLogView: View {
                     Task { await model.loadGitConsoleIfNeeded() }
                 }
             } label: {
-                Text(title)
-                    .font(GitVisual.toolbar)
-                    .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
-                    .lineLimit(1)
-                    .padding(.leading, 9)
-                    .padding(.trailing, showsCloseButton ? 4 : 9)
-                    .frame(height: 27)
-                    .contentShape(Rectangle())
+                HStack(spacing: 5) {
+                    Text(title)
+                    if let detail, !detail.isEmpty {
+                        Text("·")
+                            .foregroundStyle(LitheTheme.tertiaryText)
+                        Text(detail)
+                            .foregroundStyle(LitheTheme.secondaryText)
+                            .truncationMode(.middle)
+                    }
+                }
+                .font(GitVisual.toolbar)
+                .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
+                .lineLimit(1)
+                .padding(.leading, 9)
+                .padding(.trailing, showsCloseButton ? 4 : 9)
+                .frame(height: 27)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .lithePointer()
