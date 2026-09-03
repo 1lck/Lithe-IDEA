@@ -29,6 +29,8 @@ extension AppModel {
     }
 
     var openDocuments: [EditorDocument] { documentFeature.openDocuments }
+    var openMediaDocuments: [MediaDocument] { mediaFeature.openMediaDocuments }
+    var activeMediaDocument: MediaDocument? { mediaFeature.activeMediaDocument }
     var standaloneFileLoadState: StandaloneFileLoadState {
         documentFeature.standaloneFileLoadState
     }
@@ -61,6 +63,8 @@ extension AppModel {
     func consumeProjectTreeRevealRequest(id: UUID) {
         documentFeature.consumeProjectTreeRevealRequest(id: id)
     }
+
+    var activeMediaDocumentID: UUID? { mediaFeature.activeMediaDocumentID }
 
     var activeDocumentID: UUID? {
         get { documentFeature.activeDocumentID }
@@ -122,6 +126,12 @@ extension AppModel {
                 orderedIDs: editorTabOrderFeature.terminalIDs
             )
             selectEditorTerminalSession(session)
+        case .media(let mediaID):
+            guard let media = openMediaDocuments.first(where: { $0.id == mediaID }) else {
+                editorTabOrderFeature.remove(item)
+                return
+            }
+            selectMediaDocument(media)
         }
     }
     var pendingCloseDocument: EditorDocument? { documentFeature.pendingCloseDocument }
@@ -247,6 +257,9 @@ extension AppModel {
     var selectedGitReference: GitReference? {
         get { gitFeatureIfActive?.selectedGitReference }
         set { gitFeatureIfActive?.selectedGitReference = newValue }
+    }
+    var isShowingAllGitReferences: Bool {
+        gitFeatureIfActive?.isShowingAllGitReferences ?? false
     }
     var selectedGitCommit: GitCommit? {
         get { gitFeatureIfActive?.selectedGitCommit }

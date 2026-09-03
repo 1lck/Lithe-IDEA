@@ -4,6 +4,7 @@ import Foundation
 enum EditorTabItem: Hashable, Identifiable {
     case document(UUID)
     case terminal(UUID)
+    case media(UUID)
 
     var id: Self { self }
 }

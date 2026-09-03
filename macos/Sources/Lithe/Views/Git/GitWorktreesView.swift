@@ -23,20 +23,16 @@ struct GitWorktreesView: View {
         static let quickInfoThreshold: CGFloat = 1_080
     }
 
-    private enum RemovalConfirmation: Identifiable {
-        case regular(GitWorktree)
-        case force(GitWorktree)
+    private enum WorktreeConfirmation: Identifiable {
+        case removal(GitWorktree, force: Bool)
+        case prune
 
         var id: String {
             switch self {
-            case .regular(let worktree): "regular:\(worktree.id)"
-            case .force(let worktree): "force:\(worktree.id)"
-            }
-        }
-
-        var worktree: GitWorktree {
-            switch self {
-            case .regular(let worktree), .force(let worktree): worktree
+            case .removal(let worktree, let force):
+                "\(force ? "force" : "regular")-removal:\(worktree.id)"
+            case .prune:
+                "prune"
             }
         }
     }
@@ -48,9 +44,8 @@ struct GitWorktreesView: View {
 
     @EnvironmentObject private var model: AppModel
     @State private var showsCreateSheet = false
-    @State private var removalConfirmation: RemovalConfirmation?
+    @State private var worktreeConfirmation: WorktreeConfirmation?
     @State private var worktreeActionNotice: WorktreeActionNotice?
-    @State private var showsPruneConfirmation = false
     @State private var searchText = ""
     @State private var historySearchText = ""
     @State private var isLoadingMoreHistory = false
@@ -105,7 +100,7 @@ struct GitWorktreesView: View {
             await model.refreshGitWorktrees()
             selectAvailableWorktree()
         }
-        .task(id: selectedWorktreeID) {
+        .task(id: selectedWorktree?.id) {
             guard let worktree = selectedWorktree, !worktree.isPrunable else { return }
             await model.inspectGitWorktree(worktree)
         }
@@ -131,34 +126,58 @@ struct GitWorktreesView: View {
                 .environmentObject(model)
             }
         }
-        .alert(item: $removalConfirmation) { confirmation in
-            switch confirmation {
-            case .regular(let worktree):
-                Alert(
-                    title: Text("Remove worktree?"),
-                    message: Text(String(
-                        format: String(localized: "Remove '%@' and its checkout directory? The branch is kept. If Git refuses because files have changed, you can review a separate force-removal warning."),
-                        worktree.displayName
-                    )),
-                    primaryButton: .destructive(Text("Remove")) {
-                        Task { await model.removeGitWorktree(worktree, force: false) }
-                    },
-                    secondaryButton: .default(Text("Review Force Remove…")) {
-                        removalConfirmation = .force(worktree)
+        .confirmationDialog(
+            worktreeConfirmationTitle,
+            isPresented: Binding(
+                get: { worktreeConfirmation != nil },
+                set: { if !$0 { worktreeConfirmation = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let confirmation = worktreeConfirmation {
+                switch confirmation {
+                case .removal(let worktree, force: true):
+                    Button("Force Remove", role: .destructive) {
+                        worktreeConfirmation = nil
+                        Task { await model.removeGitWorktree(worktree, force: true) }
                     }
-                )
-            case .force(let worktree):
-                Alert(
-                    title: Text("Force remove worktree?"),
-                    message: Text(String(
+                case .removal(let worktree, force: false):
+                    Button("Remove", role: .destructive) {
+                        worktreeConfirmation = nil
+                        Task { await model.removeGitWorktree(worktree, force: false) }
+                    }
+                    Button("Review Force Remove…") {
+                        // Let the current confirmation finish dismissing before
+                        // presenting the force-removal warning.
+                        worktreeConfirmation = nil
+                        DispatchQueue.main.async {
+                            worktreeConfirmation = .removal(worktree, force: true)
+                        }
+                    }
+                case .prune:
+                    Button("Prune Stale Records", role: .destructive) {
+                        worktreeConfirmation = nil
+                        Task { await model.pruneGitWorktrees() }
+                    }
+                }
+                Button("Cancel", role: .cancel) { worktreeConfirmation = nil }
+            }
+        } message: {
+            if let confirmation = worktreeConfirmation {
+                switch confirmation {
+                case .removal(let worktree, force: true):
+                    Text(String(
                         format: String(localized: "This permanently deletes uncommitted and untracked files in '%@'. The branch itself is kept."),
                         worktree.displayName
-                    )),
-                    primaryButton: .destructive(Text("Force Remove")) {
-                        Task { await model.removeGitWorktree(worktree, force: true) }
-                    },
-                    secondaryButton: .cancel()
-                )
+                    ))
+                case .removal(let worktree, force: false):
+                    Text(String(
+                        format: String(localized: "Remove '%@' and its checkout directory? The branch is kept. If Git refuses because files have changed, review the force-removal warning."),
+                        worktree.displayName
+                    ))
+                case .prune:
+                    Text("This removes Git registrations whose checkout directories no longer exist. It does not delete branches.")
+                }
             }
         }
         .alert(item: $worktreeActionNotice) { notice in
@@ -167,18 +186,6 @@ struct GitWorktreesView: View {
                 message: Text(notice.message),
                 dismissButton: .default(Text("OK"))
             )
-        }
-        .confirmationDialog(
-            "Prune stale worktree records?",
-            isPresented: $showsPruneConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("Prune Stale Records", role: .destructive) {
-                Task { await model.pruneGitWorktrees() }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This removes Git registrations whose checkout directories no longer exist. It does not delete branches.")
         }
     }
 
@@ -494,7 +501,7 @@ struct GitWorktreesView: View {
                     }
                 }
                 worktreeAction("Prune Stale Records", icon: "trash.slash", destructive: worktree.isPrunable) {
-                    showsPruneConfirmation = true
+                    worktreeConfirmation = .prune
                 }
                 .disabled(!model.gitWorktrees.contains(where: \.isPrunable))
             }
@@ -636,7 +643,7 @@ struct GitWorktreesView: View {
                     }
                 }
                 worktreeAction("Prune Stale Records", icon: "trash.slash") {
-                    showsPruneConfirmation = true
+                    worktreeConfirmation = .prune
                 }
                 .disabled(!model.gitWorktrees.contains(where: \.isPrunable))
             }
@@ -732,7 +739,7 @@ struct GitWorktreesView: View {
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             Spacer()
-            Button("Prune Stale Records") { showsPruneConfirmation = true }
+            Button("Prune Stale Records") { worktreeConfirmation = .prune }
                 .buttonStyle(.bordered)
                 .lithePointer()
         }
@@ -843,7 +850,10 @@ struct GitWorktreesView: View {
     }
 
     private func selectAvailableWorktree() {
-        guard selectedWorktree == nil else { return }
+        if let selectedWorktreeID,
+           model.gitWorktrees.contains(where: { $0.id == selectedWorktreeID }) {
+            return
+        }
         selectedWorktreeID = model.gitWorktrees.first(where: \.isCurrent)?.id
             ?? model.gitWorktrees.first?.id
     }
@@ -909,7 +919,7 @@ struct GitWorktreesView: View {
                     Task { await model.repairGitWorktrees() }
                 }
                 worktreeAction("Prune Stale Records", icon: "trash.slash", destructive: true) {
-                    showsPruneConfirmation = true
+                    worktreeConfirmation = .prune
                 }
             }
         }
@@ -944,7 +954,20 @@ struct GitWorktreesView: View {
         if !reason.isEmpty {
             worktreeActionNotice = WorktreeActionNotice(message: reason)
         } else {
-            removalConfirmation = .regular(worktree)
+            worktreeConfirmation = .removal(worktree, force: false)
+        }
+    }
+
+    private var worktreeConfirmationTitle: String {
+        switch worktreeConfirmation {
+        case .removal(_, force: true):
+            String(localized: "Force remove worktree?")
+        case .removal(_, force: false):
+            String(localized: "Remove worktree?")
+        case .prune:
+            String(localized: "Prune stale worktree records?")
+        case nil:
+            String(localized: "Worktree action")
         }
     }
 

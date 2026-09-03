@@ -35,6 +35,15 @@ struct StandaloneEditorView: View {
 
     @ViewBuilder
     private var content: some View {
+        if let media = model.activeMediaDocument {
+            MediaViewerView(media: media)
+        } else {
+            textContent
+        }
+    }
+
+    @ViewBuilder
+    private var textContent: some View {
         switch model.standaloneFileLoadState {
         case .idle, .loading:
             ProgressView("Opening file…")
