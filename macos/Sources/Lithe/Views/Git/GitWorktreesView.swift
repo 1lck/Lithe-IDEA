@@ -23,24 +23,29 @@ struct GitWorktreesView: View {
         static let quickInfoThreshold: CGFloat = 1_080
     }
 
-    private enum WorktreeAlert: Identifiable {
-        case regularRemoval(GitWorktree)
-        case forceRemoval(GitWorktree)
-        case actionUnavailable(String)
+    private enum WorktreeConfirmation: Identifiable {
+        case removal(GitWorktree, force: Bool)
+        case prune
 
         var id: String {
             switch self {
-            case .regularRemoval(let worktree): "regular-removal:\(worktree.id)"
-            case .forceRemoval(let worktree): "force-removal:\(worktree.id)"
-            case .actionUnavailable(let message): "action-unavailable:\(message)"
+            case .removal(let worktree, let force):
+                "\(force ? "force" : "regular")-removal:\(worktree.id)"
+            case .prune:
+                "prune"
             }
         }
     }
 
+    private struct WorktreeActionNotice: Identifiable {
+        let id = UUID()
+        let message: String
+    }
+
     @EnvironmentObject private var model: AppModel
     @State private var showsCreateSheet = false
-    @State private var worktreeAlert: WorktreeAlert?
-    @State private var showsPruneConfirmation = false
+    @State private var worktreeConfirmation: WorktreeConfirmation?
+    @State private var worktreeActionNotice: WorktreeActionNotice?
     @State private var searchText = ""
     @State private var historySearchText = ""
     @State private var isLoadingMoreHistory = false
@@ -121,53 +126,66 @@ struct GitWorktreesView: View {
                 .environmentObject(model)
             }
         }
-        .alert(item: $worktreeAlert) { alert in
-            switch alert {
-            case .regularRemoval(let worktree):
-                Alert(
-                    title: Text("Remove worktree?"),
-                    message: Text(String(
-                        format: String(localized: "Remove '%@' and its checkout directory? The branch is kept. If Git refuses because files have changed, you can review a separate force-removal warning."),
-                        worktree.displayName
-                    )),
-                    primaryButton: .destructive(Text("Remove")) {
-                        Task { await model.removeGitWorktree(worktree, force: false) }
-                    },
-                    secondaryButton: .default(Text("Review Force Remove…")) {
-                        presentForceRemovalWarning(for: worktree)
-                    }
-                )
-            case .forceRemoval(let worktree):
-                Alert(
-                    title: Text("Force remove worktree?"),
-                    message: Text(String(
-                        format: String(localized: "This permanently deletes uncommitted and untracked files in '%@'. The branch itself is kept."),
-                        worktree.displayName
-                    )),
-                    primaryButton: .destructive(Text("Force Remove")) {
-                        Task { await model.removeGitWorktree(worktree, force: true) }
-                    },
-                    secondaryButton: .cancel()
-                )
-            case .actionUnavailable(let message):
-                Alert(
-                    title: Text("Worktree action unavailable"),
-                    message: Text(message),
-                    dismissButton: .default(Text("OK"))
-                )
-            }
-        }
         .confirmationDialog(
-            "Prune stale worktree records?",
-            isPresented: $showsPruneConfirmation,
+            worktreeConfirmationTitle,
+            isPresented: Binding(
+                get: { worktreeConfirmation != nil },
+                set: { if !$0 { worktreeConfirmation = nil } }
+            ),
             titleVisibility: .visible
         ) {
-            Button("Prune Stale Records", role: .destructive) {
-                Task { await model.pruneGitWorktrees() }
+            if let confirmation = worktreeConfirmation {
+                switch confirmation {
+                case .removal(let worktree, force: true):
+                    Button("Force Remove", role: .destructive) {
+                        worktreeConfirmation = nil
+                        Task { await model.removeGitWorktree(worktree, force: true) }
+                    }
+                case .removal(let worktree, force: false):
+                    Button("Remove", role: .destructive) {
+                        worktreeConfirmation = nil
+                        Task { await model.removeGitWorktree(worktree, force: false) }
+                    }
+                    Button("Review Force Remove…") {
+                        // Let the current confirmation finish dismissing before
+                        // presenting the force-removal warning.
+                        worktreeConfirmation = nil
+                        DispatchQueue.main.async {
+                            worktreeConfirmation = .removal(worktree, force: true)
+                        }
+                    }
+                case .prune:
+                    Button("Prune Stale Records", role: .destructive) {
+                        worktreeConfirmation = nil
+                        Task { await model.pruneGitWorktrees() }
+                    }
+                }
+                Button("Cancel", role: .cancel) { worktreeConfirmation = nil }
             }
-            Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes Git registrations whose checkout directories no longer exist. It does not delete branches.")
+            if let confirmation = worktreeConfirmation {
+                switch confirmation {
+                case .removal(let worktree, force: true):
+                    Text(String(
+                        format: String(localized: "This permanently deletes uncommitted and untracked files in '%@'. The branch itself is kept."),
+                        worktree.displayName
+                    ))
+                case .removal(let worktree, force: false):
+                    Text(String(
+                        format: String(localized: "Remove '%@' and its checkout directory? The branch is kept. If Git refuses because files have changed, review the force-removal warning."),
+                        worktree.displayName
+                    ))
+                case .prune:
+                    Text("This removes Git registrations whose checkout directories no longer exist. It does not delete branches.")
+                }
+            }
+        }
+        .alert(item: $worktreeActionNotice) { notice in
+            Alert(
+                title: Text("Worktree action unavailable"),
+                message: Text(notice.message),
+                dismissButton: .default(Text("OK"))
+            )
         }
     }
 
@@ -483,7 +501,7 @@ struct GitWorktreesView: View {
                     }
                 }
                 worktreeAction("Prune Stale Records", icon: "trash.slash", destructive: worktree.isPrunable) {
-                    showsPruneConfirmation = true
+                    worktreeConfirmation = .prune
                 }
                 .disabled(!model.gitWorktrees.contains(where: \.isPrunable))
             }
@@ -625,7 +643,7 @@ struct GitWorktreesView: View {
                     }
                 }
                 worktreeAction("Prune Stale Records", icon: "trash.slash") {
-                    showsPruneConfirmation = true
+                    worktreeConfirmation = .prune
                 }
                 .disabled(!model.gitWorktrees.contains(where: \.isPrunable))
             }
@@ -721,7 +739,7 @@ struct GitWorktreesView: View {
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             Spacer()
-            Button("Prune Stale Records") { showsPruneConfirmation = true }
+            Button("Prune Stale Records") { worktreeConfirmation = .prune }
                 .buttonStyle(.bordered)
                 .lithePointer()
         }
@@ -898,7 +916,7 @@ struct GitWorktreesView: View {
                     Task { await model.repairGitWorktrees() }
                 }
                 worktreeAction("Prune Stale Records", icon: "trash.slash", destructive: true) {
-                    showsPruneConfirmation = true
+                    worktreeConfirmation = .prune
                 }
             }
         }
@@ -920,9 +938,9 @@ struct GitWorktreesView: View {
 
     private func toggleLock(for worktree: GitWorktree) {
         if worktree.isPrimary {
-            worktreeAlert = .actionUnavailable(String(localized: "The primary worktree cannot be locked."))
+            worktreeActionNotice = WorktreeActionNotice(message: String(localized: "The primary worktree cannot be locked."))
         } else if worktree.isPrunable {
-            worktreeAlert = .actionUnavailable(String(localized: "Repair or prune the missing checkout before changing its lock."))
+            worktreeActionNotice = WorktreeActionNotice(message: String(localized: "Repair or prune the missing checkout before changing its lock."))
         } else {
             Task { await model.setGitWorktreeLocked(worktree, locked: !worktree.isLocked) }
         }
@@ -931,17 +949,22 @@ struct GitWorktreesView: View {
     private func requestRemoval(for worktree: GitWorktree) {
         let reason = removalHelp(for: worktree)
         if !reason.isEmpty {
-            worktreeAlert = .actionUnavailable(reason)
+            worktreeActionNotice = WorktreeActionNotice(message: reason)
         } else {
-            worktreeAlert = .regularRemoval(worktree)
+            worktreeConfirmation = .removal(worktree, force: false)
         }
     }
 
-    private func presentForceRemovalWarning(for worktree: GitWorktree) {
-        // Present the second warning after AppKit has dismissed the regular
-        // confirmation; replacing an active alert synchronously is ignored.
-        DispatchQueue.main.async {
-            worktreeAlert = .forceRemoval(worktree)
+    private var worktreeConfirmationTitle: String {
+        switch worktreeConfirmation {
+        case .removal(_, force: true):
+            String(localized: "Force remove worktree?")
+        case .removal(_, force: false):
+            String(localized: "Remove worktree?")
+        case .prune:
+            String(localized: "Prune stale worktree records?")
+        case nil:
+            String(localized: "Worktree action")
         }
     }
 
