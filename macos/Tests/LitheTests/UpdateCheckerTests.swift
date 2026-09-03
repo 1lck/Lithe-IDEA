@@ -256,6 +256,54 @@ struct UpdateCheckerTests {
         #expect(!FileManager.default.fileExists(atPath: downloadedFile.path))
     }
 
+    @Test
+    func cancelledInstallPreparationDoesNotStartDownload() async {
+        let downloadStarted = TestGate()
+        let transport = StubUpdateNetworkTransport(
+            fetch: { _ in
+                UpdateHTTPResponse(statusCode: 200, headers: [:], body: manifestData())
+            },
+            download: { _, _ in
+                downloadStarted.open()
+                throw UpdateCheckError.downloadFailed
+            }
+        )
+        let preferences = makePreferences()
+        defer { clear(preferences) }
+        let checker = UpdateChecker(
+            currentVersion: "0.3.0",
+            transport: transport,
+            preferences: preferences,
+            architecture: .arm64
+        )
+        checker.prepareForInstall = { false }
+
+        await checker.checkForUpdates(manual: true)
+        await checker.installAvailableUpdate()
+
+        #expect(checker.status == .available(
+            version: "0.3.1",
+            url: URL(string: "https://github.com/1lck/Lithe-IDEA/releases/tag/v0.3.1")!
+        ))
+        #expect(!downloadStarted.isOpen)
+        #expect(!checker.isBusy)
+    }
+
+    @Test
+    func replacementHelperSurvivesParentExitAndBoundsWait() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/Lithe/Platform/MacOS/Updates/UpdateChecker.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        #expect(source.contains("/usr/bin/nohup"))
+        #expect(source.contains("requestTerminationForInstall"))
+        #expect(source.contains("attempts\" -ge 150"))
+        #expect(source.contains("/bin/kill -KILL"))
+    }
+
     private func makePreferences() -> UserDefaults {
         let suiteName = "lithe.update-tests.\(UUID().uuidString)"
         return UserDefaults(suiteName: suiteName)!
