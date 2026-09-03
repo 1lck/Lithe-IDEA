@@ -14,6 +14,44 @@ function processGroupIsRunning(processID) {
   }
 }
 
+function processIsRunning(processID) {
+  try {
+    process.kill(processID, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+function addDescendantProcessIDs(rootProcessID, processIDs) {
+  let rows;
+  try {
+    const listing = spawnSync("ps", ["-axo", "pid=,ppid="], {
+      encoding: "utf8",
+      timeout: 5000,
+    });
+    if (listing.status !== 0) return;
+    rows = listing.stdout
+      .split("\n")
+      .map((line) => line.trim().split(/\s+/).map(Number))
+      .filter(([pid, ppid]) => Number.isInteger(pid) && Number.isInteger(ppid));
+  } catch {
+    // The direct process group remains the portable fallback when ps is unavailable.
+    return;
+  }
+
+  processIDs.add(rootProcessID);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [pid, ppid] of rows) {
+      if (!processIDs.has(ppid) || processIDs.has(pid)) continue;
+      processIDs.add(pid);
+      changed = true;
+    }
+  }
+}
+
 function signalProcessGroup(child, signal) {
   try {
     process.kill(-child.pid, signal);
@@ -27,12 +65,30 @@ function signalProcessGroup(child, signal) {
   }
 }
 
-async function waitForProcessGroupExit(processID, timeoutMs, pollIntervalMs) {
+function signalDescendantProcesses(rootProcessID, processIDs, signal) {
+  // The process-group signal handles ordinary descendants. Signal every known
+  // non-root PID as well because swift-testing may create a new process group.
+  for (const processID of processIDs) {
+    if (processID === rootProcessID) continue;
+    try {
+      process.kill(processID, signal);
+    } catch {
+      // It either exited between the snapshot and signal or is already gone.
+    }
+  }
+}
+
+function processTreeIsRunning(processID, processIDs) {
+  return processGroupIsRunning(processID)
+    || [...processIDs].some((candidate) => processIsRunning(candidate));
+}
+
+async function waitForProcessTreeExit(processID, processIDs, timeoutMs, pollIntervalMs) {
   const deadline = performance.now() + timeoutMs;
-  while (processGroupIsRunning(processID) && performance.now() < deadline) {
+  while (processTreeIsRunning(processID, processIDs) && performance.now() < deadline) {
     await delay(pollIntervalMs);
   }
-  return !processGroupIsRunning(processID);
+  return !processTreeIsRunning(processID, processIDs);
 }
 
 export async function terminateProcessTree(
@@ -52,10 +108,23 @@ export async function terminateProcessTree(
     return true;
   }
 
+  const processIDs = new Set();
+  addDescendantProcessIDs(child.pid, processIDs);
   signalProcessGroup(child, "SIGTERM");
-  if (await waitForProcessGroupExit(child.pid, gracePeriodMs, pollIntervalMs)) return true;
+  signalDescendantProcesses(child.pid, processIDs, "SIGTERM");
+  if (await waitForProcessTreeExit(child.pid, processIDs, gracePeriodMs, pollIntervalMs)) return true;
+
+  // Refresh before forcing termination so descendants created during graceful
+  // shutdown cannot escape the cleanup pass.
+  addDescendantProcessIDs(child.pid, processIDs);
   signalProcessGroup(child, "SIGKILL");
-  return waitForProcessGroupExit(child.pid, forcedTerminationTimeoutMs, pollIntervalMs);
+  signalDescendantProcesses(child.pid, processIDs, "SIGKILL");
+  return waitForProcessTreeExit(
+    child.pid,
+    processIDs,
+    forcedTerminationTimeoutMs,
+    pollIntervalMs,
+  );
 }
 
 function lineCollector(callback) {

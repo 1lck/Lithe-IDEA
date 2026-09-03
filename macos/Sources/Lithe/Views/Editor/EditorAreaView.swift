@@ -46,7 +46,7 @@ struct EditorAreaView: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @State private var hoveredTabID: UUID?
     @State private var tabDragState = EditorTabDragState.idle
-    @State private var editorTabFrames: [EditorTabItem: CGRect] = [:]
+    @State private var tabFrameStore = EditorTabFrameStore()
     @State private var tabDragStartFrames: [EditorTabItem: CGRect] = [:]
     @State private var tabDragOffsetX: CGFloat = 0
     @State private var tabReorderTarget: EditorTabReorderTarget?
@@ -59,6 +59,7 @@ struct EditorAreaView: View {
     @State private var resolvedJavaDocumentIconKinds: [String: LitheIconKind] = [:]
 
     var body: some View {
+        let _ = LitheSignpost.bodyEvaluated("EditorAreaView")
         ZStack(alignment: .top) {
             Group {
                 if model.selectedSidebar == .database {
@@ -214,7 +215,7 @@ struct EditorAreaView: View {
         .coordinateSpace(name: editorTabCoordinateSpaceName)
         .onPreferenceChange(EditorTabFramePreferenceKey.self) { frames in
             guard tabDragState.draggedItem == nil else { return }
-            editorTabFrames = frames
+            tabFrameStore.update(frames)
         }
         .clipped()
         .animation(tabAnimation, value: model.editorTabItems)
@@ -231,14 +232,25 @@ struct EditorAreaView: View {
 
     @ViewBuilder
     private var editorTabItems: some View {
+        // Index once per pass. Scanning `openDocuments` and `terminalSessions`
+        // per tab made this quadratic, and it re-runs on every layout pass.
+        let documentIndices = Dictionary(
+            model.openDocuments.enumerated().map { ($0.element.id, $0.offset) },
+            // First match wins, matching the `firstIndex(where:)` this replaces.
+            uniquingKeysWith: { first, _ in first }
+        )
+        let sessionsByID = Dictionary(
+            model.terminalSessions.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         ForEach(model.editorTabItems) { item in
             switch item {
             case .document(let documentID):
-                if let index = model.openDocuments.firstIndex(where: { $0.id == documentID }) {
+                if let index = documentIndices[documentID] {
                     editorTab(model.openDocuments[index], at: index)
                 }
             case .terminal(let sessionID):
-                if let session = model.terminalSessions.first(where: { $0.id == sessionID }) {
+                if let session = sessionsByID[sessionID] {
                     editorTerminalTab(session)
                 }
             }
@@ -695,7 +707,7 @@ struct EditorAreaView: View {
     }
 
     private func beginTabDrag(_ item: EditorTabItem) {
-        tabDragStartFrames = editorTabFrames
+        tabDragStartFrames = tabFrameStore.frames
         tabDragOffsetX = 0
         tabReorderTarget = nil
         withAnimation(tabAnimation) {
@@ -798,11 +810,11 @@ struct EditorAreaView: View {
             EditorTabItem.terminal($0)
         }
         if let activeTerminalItem,
-           let sourceFrame = editorTabFrames[activeTerminalItem],
+           let sourceFrame = tabFrameStore[activeTerminalItem],
            sourceFrame.contains(location) {
             return nil
         }
-        let candidates = editorTabFrames.filter { item, _ in
+        let candidates = tabFrameStore.frames.filter { item, _ in
             item != tabDragState.draggedItem && item != activeTerminalItem
         }
         guard let nearest = candidates.min(by: { lhs, rhs in
