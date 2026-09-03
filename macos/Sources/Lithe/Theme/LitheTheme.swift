@@ -441,7 +441,7 @@ extension View {
         cornerRadius: CGFloat = LitheTheme.Metrics.cornerRadius,
         activeBackground: Color = LitheTheme.selection,
         hoverBackground: Color = LitheTheme.hoverBackground,
-        animation: Animation? = .easeOut(duration: 0.12)
+        animation: Animation? = nil
     ) -> some View {
         modifier(
             LitheRowHoverModifier(
