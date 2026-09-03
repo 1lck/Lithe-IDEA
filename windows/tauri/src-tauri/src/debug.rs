@@ -346,6 +346,10 @@ async fn stop_session(app: &AppHandle, session_id: &str) -> Result<(), String> {
                     json!({ "sessionId": session_id }),
                 )
                 .await;
+                let _ = app.emit(
+                    "debugger_session_ended",
+                    json!({ "sessionId": session_id, "reason": "failed" }),
+                );
                 return Err(error);
             }
             emit_update_events(app, session_id, &update);
@@ -704,6 +708,7 @@ fn spawn_stdout_reader<T: Read + Send + 'static>(
                             }
                             if update_state_failed(&update) {
                                 let message = session_failure_message(&update);
+                                emit_update_events(&app, &session_id, &update);
                                 fail_session(&app, &session_id, pid, &message);
                                 break;
                             }

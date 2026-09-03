@@ -224,20 +224,22 @@ export default function DebuggerView() {
     setStartError(null);
     if (resolvedSelectedConfig.adapterCommand) {
       try {
-        const adapterSession = await startDebugLaunchSession(
+        await startDebugLaunchSession(
           resolvedSelectedConfig,
           breakpoints,
           rootFolderPath,
+          (session) => {
+            debuggerActions.startSession({
+              id: session.id,
+              name: resolvedSelectedConfig.name,
+              configId: resolvedSelectedConfig.id,
+              command: [session.command, ...session.args].join(" "),
+              cwd: session.cwd,
+              startedAt: Date.now(),
+              status: "running",
+            });
+          },
         );
-        debuggerActions.startSession({
-          id: adapterSession.id,
-          name: resolvedSelectedConfig.name,
-          configId: resolvedSelectedConfig.id,
-          command: [adapterSession.command, ...adapterSession.args].join(" "),
-          cwd: adapterSession.cwd,
-          startedAt: Date.now(),
-          status: "running",
-        });
       } catch (error) {
         setStartError(error instanceof Error ? error.message : String(error));
       }

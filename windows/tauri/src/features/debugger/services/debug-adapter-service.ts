@@ -51,6 +51,7 @@ export async function startDebugLaunchSession(
   config: DebugLaunchConfig,
   breakpoints: DebugBreakpoint[],
   workspacePath?: string,
+  onSessionStarted?: (session: DebugAdapterSessionInfo) => void,
 ): Promise<DebugAdapterSessionInfo> {
   if (!config.adapterCommand) {
     throw new Error("Debug configuration is missing adapterCommand");
@@ -64,6 +65,7 @@ export async function startDebugLaunchSession(
     env: config.env,
     workspacePath,
   });
+  onSessionStarted?.(session);
 
   // Rust Core owns DAP initialization and the configurationDone handshake;
   // the host facade only queues the launch and breakpoint sets.
