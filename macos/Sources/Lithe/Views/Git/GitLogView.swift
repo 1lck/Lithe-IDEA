@@ -11,16 +11,16 @@ struct GitLogView: View {
     @State private var tagsExpanded = true
     @State private var collapsedReferenceGroups: Set<String> = []
     @State private var collapsedFileGroups: Set<String> = []
-    @State private var referencePaneWidth: CGFloat = 260
-    @State private var referencePaneDragStart: CGFloat = 260
-    @State private var detailPaneWidth: CGFloat = 350
-    @State private var detailPaneDragStart: CGFloat = 350
-    @State private var filesPaneHeight: CGFloat?
-    @State private var filesPaneDragStart: CGFloat = 0
+    @State private var localReferenceRows: [GitReferenceRow] = []
+    @State private var remoteReferenceRows: [GitReferenceRow] = []
+    @State private var tagReferenceRows: [GitReferenceRow] = []
+    @State private var currentReferenceCache = GitCurrentReferenceCache()
     @State private var branchDialogRequest: GitBranchDialogRequest?
+    @State private var tagDialogRequest: GitTagDialogRequest?
     @State private var pendingPushReference: GitReference?
     @State private var pendingCommitOperation: GitCommitOperationRequest?
     @State private var pendingBranchOperation: GitBranchOperationRequest?
+    @State private var pendingTagDeletion: GitReference?
     @State private var comparisonSourceReference: GitReference?
     @State private var showCommitDecorations = false
     @State private var selectedGitToolTab = GitToolTab.log
@@ -63,101 +63,19 @@ struct GitLogView: View {
 
     private enum GitToolTab {
         case log
+        case worktrees
         case console
     }
 
     var body: some View {
+        let _ = LitheSignpost.bodyEvaluated("GitLogView")
         VStack(spacing: 0) {
             toolWindowHeader
-            if selectedGitToolTab == .log {
-                primaryActionBar
-
-                GeometryReader { geometry in
-                    let minimumReferencePaneWidth: CGFloat = 220
-                    let minimumCommitPaneWidth: CGFloat = 340
-                    let minimumDetailPaneWidth: CGFloat = 280
-                    let availablePaneWidth = max(
-                        0,
-                        geometry.size.width - (SplitHandleView.thickness * 2)
-                    )
-                    let maximumDetailPaneWidth = max(
-                        minimumDetailPaneWidth,
-                        min(520, availablePaneWidth - minimumReferencePaneWidth - minimumCommitPaneWidth)
-                    )
-                    let resolvedDetailPaneWidth = constrained(
-                        detailPaneWidth,
-                        minimum: minimumDetailPaneWidth,
-                        maximum: maximumDetailPaneWidth
-                    )
-                    let maximumReferencePaneWidth = max(
-                        minimumReferencePaneWidth,
-                        min(480, availablePaneWidth - resolvedDetailPaneWidth - minimumCommitPaneWidth)
-                    )
-                    let resolvedReferencePaneWidth = constrained(
-                        referencePaneWidth,
-                        minimum: minimumReferencePaneWidth,
-                        maximum: maximumReferencePaneWidth
-                    )
-
-                    HStack(spacing: 0) {
-                        referencePane
-                            .frame(width: resolvedReferencePaneWidth)
-
-                        SplitHandleView(
-                            axis: .horizontal,
-                            onDragStarted: {
-                                referencePaneDragStart = resolvedReferencePaneWidth
-                            },
-                            onDragChanged: { translation in
-                                referencePaneWidth = constrained(
-                                    referencePaneDragStart + translation,
-                                    minimum: minimumReferencePaneWidth,
-                                    maximum: maximumReferencePaneWidth
-                                )
-                            },
-                            onDragEnded: { translation in
-                                referencePaneWidth = constrained(
-                                    referencePaneDragStart + translation,
-                                    minimum: minimumReferencePaneWidth,
-                                    maximum: maximumReferencePaneWidth
-                                )
-                            }
-                        )
-
-                        commitPane
-                            .frame(minWidth: minimumCommitPaneWidth, maxWidth: .infinity)
-
-                        SplitHandleView(
-                            axis: .horizontal,
-                            onDragStarted: {
-                                detailPaneDragStart = resolvedDetailPaneWidth
-                            },
-                            onDragChanged: { translation in
-                                detailPaneWidth = constrained(
-                                    detailPaneDragStart - translation,
-                                    minimum: minimumDetailPaneWidth,
-                                    maximum: maximumDetailPaneWidth
-                                )
-                            },
-                            onDragEnded: { translation in
-                                detailPaneWidth = constrained(
-                                    detailPaneDragStart - translation,
-                                    minimum: minimumDetailPaneWidth,
-                                    maximum: maximumDetailPaneWidth
-                                )
-                            }
-                        )
-
-                        detailPane
-                            .frame(width: resolvedDetailPaneWidth)
-                    }
-                }
-            } else {
-                gitConsolePane
-            }
+            primaryContent
+            primaryContent
         }
         .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.sidebar)
-        .task(id: model.gitCommits) {
+        .task(id: model.gitCommitsVersion) {
             let commits = model.gitCommits
             let updatedLayout = await Task.detached(priority: .userInitiated) {
                 GitGraphLayoutService.layout(commits: commits)
@@ -165,13 +83,21 @@ struct GitLogView: View {
             guard model.gitCommits == commits else { return }
             graphLayout = updatedLayout
         }
+        // The three section arrays are derived, not user state. Rebuilding them
+        // here rather than in `body` keeps the flattening off the render path
+        // while still reacting to both inputs it depends on.
+        .task(id: referenceRowsTaskIdentity) {
+            rebuildReferenceRows()
+        }
         .task(id: gitLogFilterTaskIdentity) {
             do {
                 try await Task.sleep(for: .milliseconds(180))
             } catch {
                 return
             }
-            await model.applyGitLogFilter(gitLogQuery)
+            // `Date()` is captured here — once, at the moment the debounced
+            // task fires — so date-range boundaries are stable for this query.
+            await model.applyGitLogFilter(gitLogQuery(now: Date()))
         }
         .onChange(of: model.gitRepositoryRoot) { _ in
             selectedGitLogAuthor = nil
@@ -302,6 +228,98 @@ struct GitLogView: View {
                 Text(operation.kind.message(for: operation.reference))
             }
         }
+        .modifier(GitTagDialogsModifier(
+            tagDialogRequest: $tagDialogRequest,
+            pendingTagDeletion: $pendingTagDeletion
+        ))
+    }
+
+    /// The tab split lives outside `body` because the main expression is
+    /// already close to the type-checker limit.
+    @ViewBuilder
+    private var primaryContent: some View {
+        if selectedGitToolTab == .log {
+            logTabContent
+        } else {
+            gitConsolePane
+        }
+    }
+
+    private var logTabContent: some View {
+        Group {
+            primaryActionBar
+            if let deletedBranch = model.recentlyDeletedBranch {
+                deletedReferenceBanner(
+                    icon: "arrow.triangle.branch",
+                    message: "Deleted branch '\(deletedBranch.name)'",
+                    onRestore: { await model.restoreRecentlyDeletedBranch() },
+                    onDismiss: { model.dismissDeletedBranchBanner() }
+                )
+            }
+            if let deletedTag = model.recentlyDeletedTag {
+                deletedReferenceBanner(
+                    icon: "tag",
+                    message: "Deleted tag '\(deletedTag.name)'",
+                    onRestore: { await model.restoreRecentlyDeletedTag() },
+                    onDismiss: { model.dismissDeletedTagBanner() }
+                )
+            }
+            logPanes
+        }
+    }
+
+    private var logPanes: some View {
+        GeometryReader { geometry in
+            GitLogThreePaneLayout(
+                availableWidth: geometry.size.width,
+                referencePane: { referencePane },
+                commitPane: { commitPane },
+                detailPane: { detailPane }
+            )
+        }
+    }
+
+    /// The New Tag sheet and its delete confirmation live in a modifier
+    /// because the main `body` expression is already close to the type-checker
+    /// limit; an explicit `ViewModifier` keeps both type-checkable.
+    private struct GitTagDialogsModifier: ViewModifier {
+        @Binding var tagDialogRequest: GitTagDialogRequest?
+        @Binding var pendingTagDeletion: GitReference?
+        @EnvironmentObject private var model: AppModel
+
+        func body(content: Content) -> some View {
+            content
+                .sheet(item: $tagDialogRequest) { request in
+                    GitTagNameDialog(request: request) { name, message in
+                        // Returning the failure keeps the dialog open so the
+                        // error appears where the user typed, like IntelliJ's
+                        // New Tag dialog.
+                        await model.createTag(at: request.commit, name: name, message: message)
+                    }
+                }
+                .confirmationDialog(
+                    "Delete tag '\(pendingTagDeletion?.shortName ?? "")'?",
+                    isPresented: Binding(
+                        get: { pendingTagDeletion != nil },
+                        set: { if !$0 { pendingTagDeletion = nil } }
+                    ),
+                    titleVisibility: .visible
+                ) {
+                    Button("Delete", role: .destructive) {
+                        guard let reference = pendingTagDeletion else { return }
+                        pendingTagDeletion = nil
+                        Task { await model.deleteTag(reference) }
+                    }
+                    .disabled(model.isPerformingBranchOperation)
+                    .lithePointer()
+                    Button("Cancel", role: .cancel) {
+                        pendingTagDeletion = nil
+                    }
+                    .lithePointer()
+                } message: {
+                    Text("This removes the tag from the repository and affects collaborators who reference it. You can restore it from the banner afterwards.")
+                }
+        }
     }
 
     private var toolWindowHeader: some View {
@@ -322,16 +340,23 @@ struct GitLogView: View {
                 .log,
                 title: "Log: \(model.selectedGitReference?.shortName ?? model.currentBranch)"
             )
+            gitToolTabButton(
+                .worktrees,
+                title: "Worktrees",
+                detail: model.gitRepositoryRoot?.path
+            )
             gitToolTabButton(.console, title: "Console")
 
-            Button {
-                selectedGitToolTab = .log
-                Task { await model.selectGitReference(nil) }
-            } label: {
-                Image(systemName: "plus")
+            if selectedGitToolTab == .log {
+                Button {
+                    selectedGitToolTab = .log
+                    Task { await model.selectGitReference(nil) }
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .litheIconButton()
+                .help("Show all references")
             }
-            .litheIconButton()
-            .help("Show all references")
 
             Menu {
                 Button("Fetch All Remotes") {
@@ -378,7 +403,11 @@ struct GitLogView: View {
         }
     }
 
-    private func gitToolTabButton(_ tab: GitToolTab, title: LocalizedStringKey) -> some View {
+    private func gitToolTabButton(
+        _ tab: GitToolTab,
+        title: LocalizedStringKey,
+        detail: String? = nil
+    ) -> some View {
         let isSelected = selectedGitToolTab == tab
         let showsCloseButton = isSelected && tab == .console
         return HStack(spacing: 0) {
@@ -388,14 +417,23 @@ struct GitLogView: View {
                     Task { await model.loadGitConsoleIfNeeded() }
                 }
             } label: {
-                Text(title)
-                    .font(GitVisual.toolbar)
-                    .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
-                    .lineLimit(1)
-                    .padding(.leading, 9)
-                    .padding(.trailing, showsCloseButton ? 4 : 9)
-                    .frame(height: 27)
-                    .contentShape(Rectangle())
+                HStack(spacing: 5) {
+                    Text(title)
+                    if let detail, !detail.isEmpty {
+                        Text("·")
+                            .foregroundStyle(LitheTheme.tertiaryText)
+                        Text(detail)
+                            .foregroundStyle(LitheTheme.secondaryText)
+                            .truncationMode(.middle)
+                    }
+                }
+                .font(GitVisual.toolbar)
+                .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
+                .lineLimit(1)
+                .padding(.leading, 9)
+                .padding(.trailing, showsCloseButton ? 4 : 9)
+                .frame(height: 27)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .lithePointer()
@@ -575,11 +613,17 @@ struct GitLogView: View {
     }
 
     private func gitConsoleTimestamp(_ date: Date) -> String {
+        Self.gitConsoleTimestampFormatter.string(from: date)
+    }
+
+    // A DateFormatter is expensive to construct, so build it once instead of on
+    // every console row of every body pass.
+    private static let gitConsoleTimestampFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "HH:mm:ss.SSS"
-        return formatter.string(from: date)
-    }
+        return formatter
+    }()
 
     private var primaryActionBar: some View {
         HStack(spacing: 7) {
@@ -638,6 +682,48 @@ struct GitLogView: View {
         .padding(.horizontal, 10)
         .frame(height: GitVisual.toolbarHeight)
         .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.toolHeader)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+        }
+    }
+
+    /// IntelliJ-style "deleted ref [Restore]" notice. The restore record lives
+    /// in session state, so closing the banner ends the restore opportunity.
+    private func deletedReferenceBanner(
+        icon: String,
+        message: String,
+        onRestore: @escaping () async -> Void,
+        onDismiss: @escaping () -> Void
+    ) -> some View {
+        HStack(spacing: 7) {
+            LitheSystemIcon(systemImage: icon, size: 13)
+                .foregroundStyle(LitheTheme.warning)
+            Text(message)
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(LitheTheme.primaryText)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            Button("Restore") {
+                Task { await onRestore() }
+            }
+            .controlSize(.small)
+            .buttonStyle(.borderedProminent)
+            .tint(LitheTheme.accent)
+            .disabled(model.isPerformingBranchOperation)
+            .lithePointer()
+            Button {
+                onDismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+            .litheIconButton()
+            .help("Dismiss")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(LitheTheme.raised)
         .overlay(alignment: .bottom) {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
         }
@@ -716,8 +802,7 @@ struct GitLogView: View {
         kind: GitReferenceKind,
         expanded: Binding<Bool>
     ) -> some View {
-        let references = model.gitReferences.filter { $0.kind == kind }
-        return VStack(alignment: .leading, spacing: 1) {
+        VStack(alignment: .leading, spacing: 1) {
             Button {
                 expanded.wrappedValue.toggle()
             } label: {
@@ -738,60 +823,86 @@ struct GitLogView: View {
             .lithePointer()
 
             if expanded.wrappedValue {
-                ForEach(GitReferenceTreeNode.build(from: references)) { node in
-                    referenceTreeNode(node, kind: kind, depth: 0)
+                LazyVStack(alignment: .leading, spacing: 1) {
+                    ForEach(referenceRows(for: kind)) { row in
+                        GitReferenceRowView(
+                            row: row,
+                            isSelected: isReferenceRowSelected(row),
+                            isPerformingBranchOperation: model.isPerformingBranchOperation,
+                            currentReferenceID: currentReference?.id,
+                            comparisonSourceID: comparisonSourceReference?.id,
+                            actions: referenceRowActions
+                        )
+                        .equatable()
+                        .id(row.id)
+                    }
                 }
             }
         }
     }
 
-    private func referenceTreeNode(
-        _ node: GitReferenceTreeNode,
-        kind: GitReferenceKind,
-        depth: Int
-    ) -> AnyView {
-        AnyView(
-            VStack(alignment: .leading, spacing: 1) {
-                if let reference = node.reference {
-                    referenceButton(reference, title: node.name, icon: referenceIcon(reference))
-                        .padding(.leading, CGFloat(18 + depth * 18))
-                }
+    private func referenceRows(for kind: GitReferenceKind) -> [GitReferenceRow] {
+        switch kind {
+        case .local: localReferenceRows
+        case .remote: remoteReferenceRows
+        case .tag: tagReferenceRows
+        }
+    }
 
-                if !node.children.isEmpty {
-                    Button {
-                        let key = "\(kind.rawValue):\(node.path)"
-                        if collapsedReferenceGroups.contains(key) {
-                            collapsedReferenceGroups.remove(key)
-                        } else {
-                            collapsedReferenceGroups.insert(key)
-                        }
-                    } label: {
-                        HStack(spacing: 7) {
-                            Image(systemName: collapsedReferenceGroups.contains("\(kind.rawValue):\(node.path)") ? "chevron.right" : "chevron.down")
-                                .font(.system(size: 8, weight: .bold))
-                                .frame(width: 10)
-                            LitheSystemIcon(systemImage: "folder", size: 14)
-                            Text(node.name)
-                                .font(GitVisual.body)
-                                .foregroundStyle(LitheTheme.primaryText)
-                                .lineLimit(1)
-                            Spacer(minLength: 8)
-                        }
-                        .padding(.leading, CGFloat(18 + depth * 18))
-                        .padding(.trailing, 8)
-                        .frame(maxWidth: .infinity, minHeight: GitVisual.treeRowHeight, alignment: .leading)
-                        .contentShape(Rectangle())
-                        .litheRowHover(cornerRadius: 4)
-                    }
-                    .buttonStyle(.plain)
-                    .lithePointer()
+    private func isReferenceRowSelected(_ row: GitReferenceRow) -> Bool {
+        guard case .reference(let reference) = row.content else { return false }
+        return model.selectedGitReference?.id == reference.id
+            || (model.selectedGitReference == nil && reference.isCurrent)
+    }
 
-                    if !collapsedReferenceGroups.contains("\(kind.rawValue):\(node.path)") {
-                        ForEach(node.children) { child in
-                            referenceTreeNode(child, kind: kind, depth: depth + 1)
-                        }
-                    }
+    /// Rebuilt on each body pass, but every closure is stable in behavior, and
+    /// `GitReferenceRowView.==` ignores this struct so it cannot by itself cause
+    /// a row to re-render.
+    private var referenceRowActions: GitReferenceRowActions {
+        GitReferenceRowActions(
+            select: { reference in
+                Task { await model.selectGitReference(reference) }
+            },
+            toggleGroup: { key in
+                if collapsedReferenceGroups.contains(key) {
+                    collapsedReferenceGroups.remove(key)
+                } else {
+                    collapsedReferenceGroups.insert(key)
                 }
+            },
+            newBranch: { reference in
+                branchDialogRequest = GitBranchDialogRequest(kind: .create, reference: reference)
+            },
+            renameBranch: { reference in
+                branchDialogRequest = GitBranchDialogRequest(kind: .rename, reference: reference)
+            },
+            showDiffWithWorkingTree: { reference in
+                Task { await model.showComparisonWithWorkingTree(for: reference) }
+            },
+            compareWithCurrent: { reference in
+                guard let currentReference else { return }
+                Task { await model.showComparison(from: reference, to: currentReference) }
+            },
+            compareWithSelectedSource: { reference in
+                guard let source = comparisonSourceReference else { return }
+                comparisonSourceReference = nil
+                Task { await model.showComparison(from: source, to: reference) }
+            },
+            selectForCompare: { reference in
+                comparisonSourceReference = reference
+            },
+            comparisonSourceName: comparisonSourceReference?.shortName,
+            checkout: { reference in
+                Task { await model.checkoutReference(reference) }
+            },
+            updateCurrentBranch: { reference in
+                Task { await model.updateCurrentBranch(reference) }
+            },
+            push: { reference in
+                pendingPushReference = reference
+            },
+            branchOperation: { kind, reference in
+                pendingBranchOperation = GitBranchOperationRequest(kind: kind, reference: reference)
             }
         )
     }
@@ -932,6 +1043,20 @@ struct GitLogView: View {
                 }
                 .disabled(model.isPerformingBranchOperation)
             }
+
+            if reference.kind == .tag {
+                Divider()
+
+                if reference.supportsTagDeletion {
+                    Button("Delete Tag…", role: .destructive) {
+                        pendingTagDeletion = reference
+                    }
+                    .disabled(model.isPerformingBranchOperation)
+                } else {
+                    Button("Delete Tag… (target is not a commit)") {}
+                        .disabled(true)
+                }
+            }
         }
     }
 
@@ -1070,40 +1195,18 @@ struct GitLogView: View {
                 minimumFilesPaneHeight,
                 geometry.size.height - SplitHandleView.thickness - minimumCommitDetailHeight
             )
-            let resolvedFilesPaneHeight = constrained(
-                filesPaneHeight ?? (geometry.size.height - SplitHandleView.thickness - 156),
+
+            LitheSplitPaneView(
+                axis: .vertical,
+                placement: .leading,
+                // Until the user drags, the files pane keeps tracking the
+                // container so the detail area stays at its designed height.
+                defaultSize: geometry.size.height - SplitHandleView.thickness - 156,
                 minimum: minimumFilesPaneHeight,
-                maximum: maximumFilesPaneHeight
+                maximum: maximumFilesPaneHeight,
+                sized: { commitFilesPane },
+                flexible: { commitDetail }
             )
-
-            VStack(spacing: 0) {
-                commitFilesPane
-                    .frame(height: resolvedFilesPaneHeight)
-
-                SplitHandleView(
-                    axis: .vertical,
-                    onDragStarted: {
-                        filesPaneDragStart = resolvedFilesPaneHeight
-                    },
-                    onDragChanged: { translation in
-                        filesPaneHeight = constrained(
-                            filesPaneDragStart + translation,
-                            minimum: minimumFilesPaneHeight,
-                            maximum: maximumFilesPaneHeight
-                        )
-                    },
-                    onDragEnded: { translation in
-                        filesPaneHeight = constrained(
-                            filesPaneDragStart + translation,
-                            minimum: minimumFilesPaneHeight,
-                            maximum: maximumFilesPaneHeight
-                        )
-                    }
-                )
-
-                commitDetail
-                    .frame(maxHeight: .infinity)
-            }
         }
         .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.sidebar)
     }
@@ -1282,13 +1385,25 @@ struct GitLogView: View {
             },
             onReset: { commit in
                 pendingOperation.wrappedValue = GitCommitOperationRequest(kind: .reset, commit: commit)
+            },
+            onCreateTag: { commit in
+                tagDialogRequest = GitTagDialogRequest(commit: commit)
             }
         )
     }
 
     private var visibleCommitHashes: Set<String>? {
-        guard !gitLogQuery.isEmpty else { return nil }
+        guard hasActiveGitLogFilter else { return nil }
         return model.gitLogMatchedCommitHashes
+    }
+
+    /// True when any filter is active, without calling `Date()`. Used to decide
+    /// whether to show the filtered commit subset or the full log.
+    private var hasActiveGitLogFilter: Bool {
+        !model.gitLogSearchQuery.isEmpty
+            || selectedGitLogAuthor != nil
+            || selectedGitLogDatePreset != .anyTime
+            || !gitLogPathFilter.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var gitLogFilterTaskIdentity: GitLogFilterTaskIdentity {
@@ -1301,14 +1416,16 @@ struct GitLogView: View {
         )
     }
 
-    private var gitLogQuery: GitLogQuery {
+    /// Builds the filter query with a caller-supplied `now`, so `Date()` is
+    /// only called once at the task execution site rather than on every body pass.
+    private func gitLogQuery(now: Date) -> GitLogQuery {
         let path = gitLogPathFilter.trimmingCharacters(in: .whitespacesAndNewlines)
         let query = GitLogQuery.parse(model.gitLogSearchQuery).addingStructuredFilters(
             currentUserOnly: selectedGitLogAuthor == .currentUser,
             exactAuthor: selectedGitLogAuthor?.exactAuthor,
             paths: path.isEmpty ? [] : [path]
         )
-        return selectedGitLogDatePreset.applying(to: query, now: Date())
+        return selectedGitLogDatePreset.applying(to: query, now: now)
     }
 
     private var gitLogAuthorOptions: [GitLogAuthorOption] {
@@ -1625,8 +1742,39 @@ struct GitLogView: View {
         return components.suffix(2).joined(separator: "/")
     }
 
+    /// Asked for from many places in one body pass, so the linear scan is
+    /// memoized against the reference list it came from.
     private var currentReference: GitReference? {
-        model.gitReferences.first(where: \.isCurrent)
+        currentReferenceCache.reference(in: model.gitReferences)
+    }
+
+    /// Both inputs the flattened rows depend on. `gitReferences` is compared by
+    /// value because it is small and changes rarely; the collapse set changes
+    /// only on an explicit disclosure toggle.
+    private var referenceRowsTaskIdentity: GitReferenceRowsIdentity {
+        GitReferenceRowsIdentity(
+            references: model.gitReferences,
+            collapsedGroups: collapsedReferenceGroups
+        )
+    }
+
+    private func rebuildReferenceRows() {
+        let references = model.gitReferences
+        localReferenceRows = GitReferenceRowsBuilder.rows(
+            from: references.filter { $0.kind == .local },
+            kind: .local,
+            collapsedGroups: collapsedReferenceGroups
+        )
+        remoteReferenceRows = GitReferenceRowsBuilder.rows(
+            from: references.filter { $0.kind == .remote },
+            kind: .remote,
+            collapsedGroups: collapsedReferenceGroups
+        )
+        tagReferenceRows = GitReferenceRowsBuilder.rows(
+            from: references.filter { $0.kind == .tag },
+            kind: .tag,
+            collapsedGroups: collapsedReferenceGroups
+        )
     }
 
     private func referenceIcon(_ reference: GitReference) -> String {
@@ -1781,72 +1929,6 @@ enum GitLogDatePreset: String, CaseIterable, Identifiable, Hashable {
                   let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) else { return query }
             return query.addingStructuredFilters(afterDate: firstDay, beforeDate: tomorrow)
         }
-    }
-}
-
-private struct GitReferenceTreeNode: Identifiable {
-    let path: String
-    let name: String
-    let reference: GitReference?
-    let children: [GitReferenceTreeNode]
-
-    var id: String { path }
-
-    static func build(from references: [GitReference]) -> [GitReferenceTreeNode] {
-        let root = MutableGitReferenceTreeNode(name: "", path: "")
-
-        for reference in references {
-            let components = reference.shortName
-                .split(separator: "/")
-                .map(String.init)
-            guard !components.isEmpty else { continue }
-
-            var node = root
-            var pathComponents: [String] = []
-            for component in components {
-                pathComponents.append(component)
-                if node.children[component] == nil {
-                    node.children[component] = MutableGitReferenceTreeNode(
-                        name: component,
-                        path: pathComponents.joined(separator: "/")
-                    )
-                }
-                node = node.children[component]!
-            }
-            node.reference = reference
-        }
-
-        return makeNodes(from: root)
-    }
-
-    private static func makeNodes(from node: MutableGitReferenceTreeNode) -> [GitReferenceTreeNode] {
-        node.children.values
-            .map { child in
-                GitReferenceTreeNode(
-                    path: child.path,
-                    name: child.name,
-                    reference: child.reference,
-                    children: makeNodes(from: child)
-                )
-            }
-            .sorted { lhs, rhs in
-                if (lhs.reference != nil) != (rhs.reference != nil) {
-                    return lhs.reference != nil
-                }
-                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
-            }
-    }
-}
-
-private final class MutableGitReferenceTreeNode {
-    let name: String
-    let path: String
-    var reference: GitReference?
-    var children: [String: MutableGitReferenceTreeNode] = [:]
-
-    init(name: String, path: String) {
-        self.name = name
-        self.path = path
     }
 }
 
@@ -2052,6 +2134,105 @@ private struct GitBranchNameDialog: View {
         guard !trimmedName.isEmpty else { return }
         onSubmit(trimmedName, checkout)
         dismiss()
+    }
+}
+
+private struct GitTagDialogRequest: Identifiable {
+    let id = UUID()
+    let commit: GitCommit
+}
+
+/// New Tag dialog mirroring IntelliJ's: a required name plus an optional
+/// message (annotated tag when non-empty). Local validation shows inline and
+/// keeps the dialog open; a server-side failure returned by `onSubmit` (for
+/// example a duplicate name) is shown here as well instead of a notification.
+private struct GitTagNameDialog: View {
+    @Environment(\.dismiss) private var dismiss
+    let request: GitTagDialogRequest
+    let onSubmit: (String, String) async -> String?
+
+    @State private var name = ""
+    @State private var message = ""
+    @State private var submitError: String?
+    @State private var isSubmitting = false
+    @FocusState private var nameFieldFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("New Tag")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(LitheTheme.primaryText)
+                Text("Create on commit \(request.commit.shortHash). Leave the message empty for a lightweight tag.")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+
+            TextField("Tag name", text: $name)
+                .textFieldStyle(.roundedBorder)
+                .focused($nameFieldFocused)
+                .onSubmit(submit)
+
+            VStack(alignment: .leading, spacing: 3) {
+                TextField("Message (optional)", text: $message, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(1...4)
+                Text("A message creates an annotated tag.")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+
+            if let error = validationError ?? submitError {
+                Text(error)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(LitheTheme.error)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                    .lithePointer()
+                Button("Create", action: submit)
+                    .buttonStyle(.borderedProminent)
+                    .lithePointer()
+                    .tint(LitheTheme.accent)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(trimmedName.isEmpty || validationError != nil || isSubmitting)
+            }
+        }
+        .padding(20)
+        .frame(width: 420)
+        .background(LitheTheme.raised)
+        .onAppear { nameFieldFocused = true }
+    }
+
+    private var trimmedName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Mirrors the refname rules the Rust core enforces so illegal names are
+    /// rejected before a request is sent.
+    private var validationError: String? {
+        let name = trimmedName
+        guard !name.isEmpty else { return nil }
+        return GitTagNameValidator.validationError(for: name)
+    }
+
+    private func submit() {
+        guard !trimmedName.isEmpty, validationError == nil, !isSubmitting else { return }
+        isSubmitting = true
+        submitError = nil
+        Task {
+            let error = await onSubmit(trimmedName, message)
+            isSubmitting = false
+            if let error {
+                submitError = error
+            } else {
+                dismiss()
+            }
+        }
     }
 }
 
@@ -2483,5 +2664,295 @@ struct GitCheckoutConflictDialog: View {
     private func resolve(_ strategy: GitCheckoutConflictStrategy) {
         onResolve(strategy)
         dismiss()
+    }
+}
+
+// MARK: - Git Reference Row Actions & View
+
+/// Combined `.task(id:)` key for the flattened reference rows, so the rows are
+/// rebuilt when either the references or the collapse state changes.
+private struct GitReferenceRowsIdentity: Equatable {
+    let references: [GitReference]
+    let collapsedGroups: Set<String>
+}
+
+private struct GitReferenceRowActions {
+    let select: (GitReference) -> Void
+    let toggleGroup: (String) -> Void
+    let newBranch: (GitReference) -> Void
+    let renameBranch: (GitReference) -> Void
+    let showDiffWithWorkingTree: (GitReference) -> Void
+    let compareWithCurrent: (GitReference) -> Void
+    let compareWithSelectedSource: (GitReference) -> Void
+    let selectForCompare: (GitReference) -> Void
+    let comparisonSourceName: String?
+    let checkout: (GitReference) -> Void
+    let updateCurrentBranch: (GitReference) -> Void
+    let push: (GitReference) -> Void
+    let branchOperation: (GitBranchOperationKind, GitReference) -> Void
+}
+
+private struct GitReferenceRowView: View, Equatable {
+    let row: GitReferenceRow
+    let isSelected: Bool
+    let isPerformingBranchOperation: Bool
+    let currentReferenceID: String?
+    let comparisonSourceID: String?
+    let actions: GitReferenceRowActions
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.row == rhs.row
+            && lhs.isSelected == rhs.isSelected
+            && lhs.isPerformingBranchOperation == rhs.isPerformingBranchOperation
+            && lhs.currentReferenceID == rhs.currentReferenceID
+            && lhs.comparisonSourceID == rhs.comparisonSourceID
+    }
+
+    var body: some View {
+        switch row.content {
+        case .group(let key, let isCollapsed):
+            groupRow(key: key, isCollapsed: isCollapsed)
+        case .reference(let reference):
+            referenceRow(reference)
+        }
+    }
+
+    private func groupRow(key: String, isCollapsed: Bool) -> some View {
+        Button {
+            actions.toggleGroup(key)
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+                    .frame(width: 10)
+                Image(systemName: "folder")
+                    .font(.system(size: 12))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                Text(row.name)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(LitheTheme.primaryText)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+            }
+            .padding(.leading, CGFloat(row.depth * 16))
+            .padding(.trailing, 8)
+            .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+            .contentShape(Rectangle())
+            .litheRowHover(cornerRadius: 4)
+        }
+        .buttonStyle(.plain)
+        .lithePointer()
+    }
+
+    private func referenceRow(_ reference: GitReference) -> some View {
+        Button {
+            actions.select(reference)
+        } label: {
+            HStack(spacing: 7) {
+                LitheSystemIcon(systemImage: referenceIcon(reference), size: 14)
+                    .foregroundStyle(reference.kind == .tag ? LitheTheme.warning : LitheTheme.secondaryText)
+                    .frame(width: 16)
+                Text(row.name)
+                    .font(.system(size: 13))
+                    .foregroundStyle(LitheTheme.primaryText)
+                    .lineLimit(1)
+                if reference.isCurrent {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(LitheTheme.accent)
+                }
+                Spacer(minLength: 8)
+            }
+            .padding(.leading, CGFloat(row.depth * 16))
+            .padding(.trailing, 8)
+            .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .contentShape(Rectangle())
+            .litheRowHover(
+                isActive: isSelected,
+                cornerRadius: 4,
+                activeBackground: LitheTheme.subtleSelection
+            )
+        }
+        .buttonStyle(.plain)
+        .lithePointer()
+        .contextMenu {
+            Button("New Branch from '\(reference.shortName)'…") {
+                actions.newBranch(reference)
+            }
+
+            Button("Show Diff with Working Tree") {
+                actions.showDiffWithWorkingTree(reference)
+            }
+
+            if let currentReferenceID, currentReferenceID != reference.id {
+                Button("Compare with Current Branch") {
+                    actions.compareWithCurrent(reference)
+                }
+            }
+
+            if let comparisonSourceID, comparisonSourceID != reference.id,
+               let sourceName = actions.comparisonSourceName {
+                Button("Compare '\(sourceName)' with '\(reference.shortName)'") {
+                    actions.compareWithSelectedSource(reference)
+                }
+            } else {
+                Button("Select for Compare") {
+                    actions.selectForCompare(reference)
+                }
+            }
+
+            if !reference.isCurrent {
+                Divider()
+
+                Button("Checkout") {
+                    actions.checkout(reference)
+                }
+                .disabled(isPerformingBranchOperation)
+
+                if reference.kind != .tag {
+                    Button("Checkout and Rebase onto Current Branch") {
+                        actions.branchOperation(.checkoutAndRebase, reference)
+                    }
+                    .disabled(isPerformingBranchOperation)
+
+                    Button("Merge into Current Branch") {
+                        actions.branchOperation(.merge, reference)
+                    }
+                    .disabled(isPerformingBranchOperation)
+
+                    Button("Rebase Current Branch onto…") {
+                        actions.branchOperation(.rebase, reference)
+                    }
+                    .disabled(isPerformingBranchOperation)
+                }
+            }
+
+            if reference.kind == .remote {
+                Divider()
+
+                Button("Pull with Rebase") {
+                    actions.branchOperation(.pullRebase, reference)
+                }
+                .disabled(isPerformingBranchOperation)
+
+                Button("Pull with Merge") {
+                    actions.branchOperation(.pullMerge, reference)
+                }
+                .disabled(isPerformingBranchOperation)
+            }
+
+            if reference.kind == .local {
+                Divider()
+
+                Button("Update") {
+                    actions.updateCurrentBranch(reference)
+                }
+                .disabled(!reference.isCurrent || isPerformingBranchOperation)
+
+                Button("Push…") {
+                    actions.push(reference)
+                }
+                .disabled(isPerformingBranchOperation)
+
+                if !reference.isCurrent {
+                    Button("Delete Branch", role: .destructive) {
+                        actions.branchOperation(.delete, reference)
+                    }
+                    .disabled(isPerformingBranchOperation)
+                }
+
+                Divider()
+
+                Button("Rename…") {
+                    actions.renameBranch(reference)
+                }
+                .disabled(isPerformingBranchOperation)
+            }
+        }
+    }
+
+    private func referenceIcon(_ reference: GitReference) -> String {
+        switch reference.kind {
+        case .local: "point.3.connected.trianglepath.dotted"
+        case .remote: "cloud"
+        case .tag: "tag"
+        }
+    }
+}
+
+// MARK: - Git Log Three-Pane Layout
+
+private enum GitLogThreePaneMetrics {
+    static let minimumReferencePaneWidth: CGFloat = 180
+    static let minimumCommitPaneWidth: CGFloat = 340
+    static let minimumDetailPaneWidth: CGFloat = 250
+}
+
+private struct GitLogThreePaneLayout<ReferencePane: View, CommitPane: View, DetailPane: View>: View {
+    let availableWidth: CGFloat
+    private let referencePane: ReferencePane
+    private let commitPane: CommitPane
+    private let detailPane: DetailPane
+
+    init(
+        availableWidth: CGFloat,
+        @ViewBuilder referencePane: () -> ReferencePane,
+        @ViewBuilder commitPane: () -> CommitPane,
+        @ViewBuilder detailPane: () -> DetailPane
+    ) {
+        self.availableWidth = availableWidth
+        self.referencePane = referencePane()
+        self.commitPane = commitPane()
+        self.detailPane = detailPane()
+    }
+
+    private var referencePaneMaximum: CGFloat {
+        max(
+            GitLogThreePaneMetrics.minimumReferencePaneWidth,
+            min(
+                availableWidth * 0.35,
+                availableWidth
+                    - (SplitHandleView.thickness * 2)
+                    - GitLogThreePaneMetrics.minimumCommitPaneWidth
+                    - GitLogThreePaneMetrics.minimumDetailPaneWidth
+            )
+        )
+    }
+
+    private var detailPaneMaximum: CGFloat {
+        max(
+            GitLogThreePaneMetrics.minimumDetailPaneWidth,
+            min(
+                availableWidth * 0.5,
+                availableWidth
+                    - (SplitHandleView.thickness * 2)
+                    - GitLogThreePaneMetrics.minimumCommitPaneWidth
+                    - referencePaneMaximum
+            )
+        )
+    }
+
+    var body: some View {
+        LitheSplitPaneView(
+            axis: .horizontal,
+            placement: .leading,
+            defaultSize: 220,
+            minimum: GitLogThreePaneMetrics.minimumReferencePaneWidth,
+            maximum: referencePaneMaximum,
+            flexibleMinimum: GitLogThreePaneMetrics.minimumCommitPaneWidth,
+            sized: { referencePane },
+            flexible: {
+                LitheSplitPaneView(
+                    axis: .horizontal,
+                    placement: .trailing,
+                    defaultSize: 350,
+                    minimum: GitLogThreePaneMetrics.minimumDetailPaneWidth,
+                    maximum: detailPaneMaximum,
+                    sized: { detailPane },
+                    flexible: { commitPane }
+                )
+            }
+        )
     }
 }

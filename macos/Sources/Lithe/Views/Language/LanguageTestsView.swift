@@ -30,42 +30,27 @@ struct LanguageTestsView: View {
                         minimumListWidth,
                         geometry.size.width - SplitHandleView.thickness - minimumContentWidth
                     )
-                    let resolvedListWidth = min(
-                        max(liveItemListWidth ?? CGFloat(itemListWidth), minimumListWidth),
-                        maximumListWidth
-                    )
 
-                    HStack(spacing: 0) {
-                        if isItemListCollapsed {
+                    if isItemListCollapsed {
+                        HStack(spacing: 0) {
                             collapsedItemListBar
                                 .frame(width: 32)
                             Rectangle()
                                 .fill(LitheTheme.divider)
                                 .frame(width: 1)
-                        } else {
-                            testItemList
-                                .frame(width: resolvedListWidth)
-                            SplitHandleView(
-                                axis: .horizontal,
-                                onDragStarted: { itemListDragStart = resolvedListWidth },
-                                onDragChanged: { translation in
-                                    liveItemListWidth = min(
-                                        max(itemListDragStart + translation, minimumListWidth),
-                                        maximumListWidth
-                                    )
-                                },
-                                onDragEnded: { translation in
-                                    let finalWidth = min(
-                                        max(itemListDragStart + translation, minimumListWidth),
-                                        maximumListWidth
-                                    )
-                                    itemListWidth = Double(finalWidth)
-                                    liveItemListWidth = nil
-                                }
-                            )
+                            selectedTestContent
                         }
-
-                        selectedTestContent
+                    } else {
+                        LitheSplitPaneView(
+                            axis: .horizontal,
+                            placement: .leading,
+                            defaultSize: CGFloat(itemListWidth),
+                            minimum: minimumListWidth,
+                            maximum: maximumListWidth,
+                            onCommit: { itemListWidth = Double($0) },
+                            sized: { testItemList },
+                            flexible: { selectedTestContent }
+                        )
                     }
                 }
             }

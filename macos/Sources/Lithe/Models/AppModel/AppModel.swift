@@ -1542,11 +1542,14 @@ final class AppModel: ObservableObject, Identifiable {
         }
         if isGitLogVisible && gitCommits.isEmpty {
             await refreshGitHistory()
+        } else if !isGitLogVisible {
+            gitFeatureIfActive?.cancelGitHistoryLoading()
         }
     }
 
     func closeGitLog() {
         isGitLogVisible = false
+        gitFeatureIfActive?.cancelGitHistoryLoading()
     }
 
     func selectGitReference(_ reference: GitReference?) async {
@@ -1643,6 +1646,37 @@ final class AppModel: ObservableObject, Identifiable {
     func deleteBranch(_ reference: GitReference) async {
         guard let gitFeature = await activateGitModule() else { return }
         await gitFeature.deleteBranch(reference)
+    }
+
+    func restoreRecentlyDeletedBranch() async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.restoreRecentlyDeletedBranch()
+    }
+
+    func dismissDeletedBranchBanner() {
+        gitFeatureIfActive?.dismissDeletedBranchBanner()
+    }
+
+    /// Returns nil on success, otherwise the error message a tag dialog
+    /// should show where the user typed.
+    @discardableResult
+    func createTag(at commit: GitCommit, name: String, message: String) async -> String? {
+        guard let gitFeature = await activateGitModule() else { return "No Git repository is open" }
+        return await gitFeature.createTag(at: commit, name: name, message: message)
+    }
+
+    func deleteTag(_ reference: GitReference) async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.deleteTag(reference)
+    }
+
+    func restoreRecentlyDeletedTag() async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.restoreRecentlyDeletedTag()
+    }
+
+    func dismissDeletedTagBanner() {
+        gitFeatureIfActive?.dismissDeletedTagBanner()
     }
 
     func mergeBranch(_ reference: GitReference) async {

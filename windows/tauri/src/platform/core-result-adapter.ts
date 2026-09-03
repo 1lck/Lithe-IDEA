@@ -167,6 +167,7 @@ export function adaptCoreResult<T>(
               fullName: reference.fullName,
               shortName: reference.shortName,
               kind: reference.kind,
+              peelsToCommit: Boolean(reference.peelsToCommit),
               isCurrent: Boolean(reference.isCurrent),
               upstreamShortName: reference.upstreamShortName ?? undefined,
               ahead: typeof reference.ahead === "number" ? reference.ahead : 0,
@@ -178,6 +179,7 @@ export function adaptCoreResult<T>(
               fullName: reference.fullName,
               shortName: reference.shortName,
               kind: reference.kind,
+              peelsToCommit: Boolean(reference.peelsToCommit),
               isCurrent: Boolean(reference.isCurrent),
               upstreamShortName: reference.upstreamShortName ?? undefined,
               ahead: typeof reference.ahead === "number" ? reference.ahead : 0,
@@ -196,6 +198,50 @@ export function adaptCoreResult<T>(
               decorations: commit.decorations ?? "",
             }))
           : [],
+        hasMore: Boolean(data.hasMore),
+      } as T;
+    case "git_references":
+      return {
+        references: Array.isArray(data.references)
+          ? data.references.map((reference: JsonRecord) => ({
+              fullName: reference.fullName,
+              shortName: reference.shortName,
+              kind: reference.kind,
+              peelsToCommit: Boolean(reference.peelsToCommit),
+              isCurrent: Boolean(reference.isCurrent),
+              upstreamShortName: reference.upstreamShortName ?? undefined,
+              ahead: typeof reference.ahead === "number" ? reference.ahead : 0,
+              behind: typeof reference.behind === "number" ? reference.behind : 0,
+            }))
+          : [],
+        recentReferences: Array.isArray(data.recentReferences)
+          ? data.recentReferences.map((reference: JsonRecord) => ({
+              fullName: reference.fullName,
+              shortName: reference.shortName,
+              kind: reference.kind,
+              peelsToCommit: Boolean(reference.peelsToCommit),
+              isCurrent: Boolean(reference.isCurrent),
+              upstreamShortName: reference.upstreamShortName ?? undefined,
+              ahead: typeof reference.ahead === "number" ? reference.ahead : 0,
+              behind: typeof reference.behind === "number" ? reference.behind : 0,
+            }))
+          : [],
+      } as T;
+    case "git_history_page":
+      return {
+        commits: Array.isArray(data.commits)
+          ? data.commits.map((commit: JsonRecord) => ({
+              hash: commit.hash,
+              shortHash: commit.shortHash ?? String(commit.hash ?? "").slice(0, 7),
+              parentHashes: Array.isArray(commit.parentHashes) ? commit.parentHashes : [],
+              message: commit.subject,
+              author: commit.authorName,
+              email: commit.authorEmail,
+              date: commit.date,
+              decorations: commit.decorations ?? "",
+            }))
+          : [],
+        nextCursor: typeof data.nextCursor === "string" ? data.nextCursor : undefined,
         hasMore: Boolean(data.hasMore),
       } as T;
     case "git_branches":
