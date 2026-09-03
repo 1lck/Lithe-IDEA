@@ -1541,11 +1541,14 @@ final class AppModel: ObservableObject, Identifiable {
         }
         if isGitLogVisible && gitCommits.isEmpty {
             await refreshGitHistory()
+        } else if !isGitLogVisible {
+            gitFeatureIfActive?.cancelGitHistoryLoading()
         }
     }
 
     func closeGitLog() {
         isGitLogVisible = false
+        gitFeatureIfActive?.cancelGitHistoryLoading()
     }
 
     func selectGitReference(_ reference: GitReference?) async {

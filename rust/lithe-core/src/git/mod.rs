@@ -1,16 +1,22 @@
 //! Deterministic Git inspection and mutation behind the shared command contract.
 
+mod history;
 mod mutations;
+
+pub use history::{
+    close_history_cursor, history, history_page, references, GitHistoryCursorCloseRequest,
+    GitHistoryPageRequest, GitHistoryRequest, GitReferencesRequest,
+};
 
 use crate::protocol::{CoreError, ErrorCode};
 use crate::protocol::{
     GitBlameLineResponse, GitBlameResponse, GitChange, GitCheckoutPreflightResponse,
     GitCommitLookupResponse, GitCommitResponse, GitComparisonResponse, GitConflictMarkerResponse,
     GitDiffHunkResponse, GitDiffResponse, GitDiffRowResponse, GitFileResponse, GitFilesResponse,
-    GitHistoryResponse, GitIntegrationPreflightResponse, GitOperationStateResponse,
-    GitPullPreflightResponse, GitPushPreviewResponse, GitPushTagResponse, GitReferenceResponse,
-    GitStashResponse, GitStashesResponse, GitStatusResponse, GitWatchContextResponse,
-    GitWorktreeResponse, GitWorktreesResponse,
+    GitIntegrationPreflightResponse, GitOperationStateResponse, GitPullPreflightResponse,
+    GitPushPreviewResponse, GitPushTagResponse, GitReferenceResponse, GitStashResponse,
+    GitStashesResponse, GitStatusResponse, GitWatchContextResponse, GitWorktreeResponse,
+    GitWorktreesResponse,
 };
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
@@ -25,9 +31,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::Duration;
 
-const RECENT_BRANCH_LIMIT: usize = 5;
-const RECENT_BRANCH_REFLOG_LIMIT: &str = "100";
-const DEFAULT_BRANCH_FALLBACKS: [&str; 2] = ["main", "master"];
 const DEFAULT_PUSH_PREVIEW_LIMIT: usize = 500;
 static TEMPORARY_INDEX_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static AUTO_STASH_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -556,17 +559,6 @@ pub struct GitApplyRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-/// Request for bounded commit history from an optional reference.
-pub struct GitHistoryRequest {
-    pub root: String,
-    #[serde(default)]
-    pub reference: Option<String>,
-    #[serde(default = "default_history_limit")]
-    pub limit: usize,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 /// Request for metadata and parent information about one commit.
 pub struct GitCommitRequest {
     pub root: String,
@@ -657,10 +649,6 @@ pub struct GitBlameRequest {
 
 fn default_review_context_lines() -> usize {
     80
-}
-
-fn default_history_limit() -> usize {
-    300
 }
 
 fn default_push_preview_limit() -> usize {
@@ -1221,7 +1209,7 @@ fn capture_git_with_environment(
     })
 }
 
-fn git_process() -> Command {
+pub(super) fn git_process() -> Command {
     #[cfg(target_os = "windows")]
     {
         let mut process = Command::new("git");
@@ -1570,88 +1558,6 @@ pub fn apply(request: GitApplyRequest) -> Result<GitCommandResponse, CoreError> 
     })
 }
 
-/// Returns bounded commit history without relying on localized display output.
-pub fn history(request: GitHistoryRequest) -> Result<GitHistoryResponse, CoreError> {
-    let limit = request.limit.clamp(1, 5_000);
-    let root = validate_root(&request.root)?;
-    let user_name = git_config_value(&root, "user.name");
-    let user_email = git_config_value(&root, "user.email");
-    let reference_arguments = vec![
-        "for-each-ref".to_string(),
-        "--sort=refname".to_string(),
-        "--format=%(refname)\t%(refname:short)\t%(HEAD)\t%(upstream:short)\t%(upstream)\t%(upstream:track,nobracket)\t%(objecttype)\t%(*objecttype)"
-            .to_string(),
-        "refs/heads".to_string(),
-    ];
-    // `upstream:track` is evaluated independently for each enumerated branch.
-    // A fixed C locale keeps its machine-parsed labels deterministic.
-    let reference_output = execute_git_with_environment(
-        &root,
-        &reference_arguments,
-        None,
-        true,
-        &[("LC_ALL".to_string(), "C".to_string())],
-    )?;
-    if reference_output.exit_code != 0 {
-        return Err(
-            CoreError::new(ErrorCode::ProcessFailed, "Git references failed")
-                .with_details(reference_output.output),
-        );
-    }
-
-    let mut references = reference_output
-        .output
-        .lines()
-        .filter_map(parse_reference)
-        .collect::<Vec<_>>();
-    let nonlocal_reference_output = readonly_command(GitCommandRequest {
-        root: root.clone(),
-        arguments: vec![
-            "for-each-ref".to_string(),
-            "--sort=refname".to_string(),
-            "--format=%(refname)\t%(refname:short)\t%(HEAD)\t%(upstream:short)\t%(upstream)\t%(upstream:track,nobracket)\t%(objecttype)\t%(*objecttype)"
-                .to_string(),
-            "refs/remotes".to_string(),
-            "refs/tags".to_string(),
-        ],
-        input: None,
-    })?;
-    if nonlocal_reference_output.exit_code != 0 {
-        return Err(
-            CoreError::new(ErrorCode::ProcessFailed, "Git references failed")
-                .with_details(nonlocal_reference_output.output),
-        );
-    }
-    references.extend(
-        nonlocal_reference_output
-            .output
-            .lines()
-            .filter_map(parse_reference),
-    );
-    let recent_references = recent_local_references(&root, &references, RECENT_BRANCH_LIMIT);
-
-    let selectors = if let Some(reference) = request.reference {
-        if reference.starts_with('-') || reference.contains('\0') {
-            return Err(CoreError::new(
-                ErrorCode::InvalidRequest,
-                "Invalid Git reference",
-            ));
-        }
-        vec![reference]
-    } else {
-        vec!["--all".to_string()]
-    };
-    let (commits, has_more) = read_commit_log(&root, selectors, limit, "Git history failed")?;
-    Ok(GitHistoryResponse {
-        references,
-        recent_references,
-        commits,
-        has_more,
-        user_name,
-        user_email,
-    })
-}
-
 fn read_commit_log(
     root: &str,
     selectors: Vec<String>,
@@ -1685,129 +1591,6 @@ fn read_commit_log(
         .collect::<Vec<_>>();
     let has_more = all_commits.len() > limit;
     Ok((all_commits.into_iter().take(limit).collect(), has_more))
-}
-
-/// Builds a bounded MRU list from Git's own checkout history.
-///
-/// HEAD's reflog survives application restarts and also observes branch switches
-/// made outside Lithe. Missing history is filled deterministically so a newly
-/// opened repository still offers useful branch shortcuts.
-fn recent_local_references(
-    root: &str,
-    references: &[GitReferenceResponse],
-    limit: usize,
-) -> Vec<GitReferenceResponse> {
-    let local_references = references
-        .iter()
-        .filter(|reference| reference.kind == "local")
-        .collect::<Vec<_>>();
-    let mut recent = Vec::with_capacity(limit.min(local_references.len()));
-
-    if let Some(current) = local_references
-        .iter()
-        .find(|reference| reference.is_current)
-    {
-        append_recent_reference(&mut recent, &local_references, &current.short_name, limit);
-    }
-
-    if let Some(reflog) = command_value(
-        root,
-        &[
-            "reflog",
-            "show",
-            "-n",
-            RECENT_BRANCH_REFLOG_LIMIT,
-            "--format=%gs",
-            "HEAD",
-        ],
-    ) {
-        for line in reflog.lines() {
-            let Some(checkout) = line.strip_prefix("checkout: moving from ") else {
-                continue;
-            };
-            let Some((source, destination)) = checkout.split_once(" to ") else {
-                continue;
-            };
-            append_recent_reference(&mut recent, &local_references, destination, limit);
-            append_recent_reference(&mut recent, &local_references, source, limit);
-            if recent.len() >= limit {
-                break;
-            }
-        }
-    }
-
-    if recent.len() < limit {
-        if let Some(remote_head) = command_value(
-            root,
-            &[
-                "symbolic-ref",
-                "--quiet",
-                "--short",
-                "refs/remotes/origin/HEAD",
-            ],
-        ) {
-            append_recent_reference(
-                &mut recent,
-                &local_references,
-                remote_head
-                    .split_once('/')
-                    .map_or(remote_head.as_str(), |(_, branch)| branch),
-                limit,
-            );
-        }
-    }
-    for branch in DEFAULT_BRANCH_FALLBACKS {
-        append_recent_reference(&mut recent, &local_references, branch, limit);
-    }
-
-    for reference in &local_references {
-        append_recent_reference(&mut recent, &local_references, &reference.short_name, limit);
-        if recent.len() >= limit {
-            break;
-        }
-    }
-
-    recent.into_iter().cloned().collect()
-}
-
-fn append_recent_reference<'a>(
-    recent: &mut Vec<&'a GitReferenceResponse>,
-    references: &[&'a GitReferenceResponse],
-    raw_name: &str,
-    limit: usize,
-) {
-    if recent.len() >= limit {
-        return;
-    }
-    let name = raw_name.trim().trim_start_matches("refs/heads/");
-    let Some(reference) = references
-        .iter()
-        .find(|reference| reference.short_name == name)
-    else {
-        return;
-    };
-    if !recent
-        .iter()
-        .any(|existing| existing.full_name == reference.full_name)
-    {
-        recent.push(*reference);
-    }
-}
-
-/// Reads one effective repository configuration value without making a missing
-/// optional value fail the surrounding history request.
-fn git_config_value(root: &str, key: &str) -> Option<String> {
-    let response = readonly_command(GitCommandRequest {
-        root: root.to_string(),
-        arguments: vec!["config".to_string(), "--get".to_string(), key.to_string()],
-        input: None,
-    })
-    .ok()?;
-    if response.exit_code != 0 {
-        return None;
-    }
-    let value = response.output.trim();
-    (!value.is_empty()).then(|| value.to_string())
 }
 
 /// Resolves one commit and its parent metadata.
@@ -6253,8 +6036,8 @@ mod tests {
         GitProcessOutput, MAX_ALIGNMENT_CELLS,
     };
     use crate::protocol::{
-        CoreError, ErrorCode, GitCommitResponse, GitHistoryResponse, GitPushPreviewResponse,
-        GitPushTagResponse, GitReferenceResponse,
+        CoreError, ErrorCode, GitCommitResponse, GitHistoryPageResponse, GitHistoryResponse,
+        GitPushPreviewResponse, GitPushTagResponse, GitReferenceResponse, GitReferencesResponse,
     };
     use serde_json::Value;
 
@@ -6589,6 +6372,75 @@ mod tests {
 
         assert_eq!(
             serde_json::to_value(response).expect("Git history response should serialize"),
+            fixture
+        );
+    }
+
+    #[test]
+    fn references_response_matches_shared_fixture() {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/fixtures/git/references-response-v1.json"
+        )))
+        .expect("Git references response fixture should be valid JSON");
+        let feature = GitReferenceResponse {
+            full_name: "refs/heads/feature/recent".into(),
+            short_name: "feature/recent".into(),
+            kind: "local".into(),
+            peels_to_commit: true,
+            is_current: true,
+            upstream_short_name: None,
+            ahead: 0,
+            behind: 0,
+        };
+        let main = GitReferenceResponse {
+            full_name: "refs/heads/main".into(),
+            short_name: "main".into(),
+            kind: "local".into(),
+            peels_to_commit: true,
+            is_current: false,
+            upstream_short_name: Some("origin/main".into()),
+            ahead: 2,
+            behind: 1,
+        };
+        let response = GitReferencesResponse {
+            references: vec![feature.clone(), main.clone()],
+            recent_references: vec![feature, main],
+            user_name: Some("Lithe Test".into()),
+            user_email: Some("test@example.invalid".into()),
+        };
+
+        assert_eq!(
+            serde_json::to_value(response).expect("Git references response should serialize"),
+            fixture
+        );
+    }
+
+    #[test]
+    fn history_page_response_matches_shared_fixture() {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/fixtures/git/history-page-response-v1.json"
+        )))
+        .expect("Git history page response fixture should be valid JSON");
+        let response = GitHistoryPageResponse {
+            commits: vec![GitCommitResponse {
+                hash: "0123456789abcdef0123456789abcdef01234567".into(),
+                short_hash: "0123456".into(),
+                parent_hashes: Vec::new(),
+                author_name: "Lithe Test".into(),
+                author_email: "test@example.invalid".into(),
+                date: "2026/08/30 12:00".into(),
+                subject: "Initial commit".into(),
+                decorations: "HEAD -> feature/recent".into(),
+            }],
+            next_cursor: Some("git-history-cursor-fixture".into()),
+            next_offset: None,
+            has_more: true,
+        };
+
+        assert_eq!(
+            serde_json::to_value(response).expect("Git history page response should serialize"),
             fixture
         );
     }

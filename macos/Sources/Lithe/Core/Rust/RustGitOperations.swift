@@ -517,6 +517,34 @@ struct RustGitOperations: GitOperations, Sendable {
         )?.makeSnapshot()
     }
 
+    func references(at rootURL: URL, operationID: String) -> GitReferenceSnapshot? {
+        core.gitReferences(at: rootURL, operationID: operationID)?.makeSnapshot()
+    }
+
+    func historyPage(
+        at rootURL: URL,
+        reference: GitReference?,
+        cursor: String?,
+        limit: Int,
+        operationID: String
+    ) -> GitHistoryPage? {
+        core.gitHistoryPage(
+            at: rootURL,
+            reference: reference?.fullName,
+            cursor: cursor,
+            limit: limit,
+            operationID: operationID
+        )?.makePage()
+    }
+
+    func closeHistoryCursor(at rootURL: URL, cursor: String) -> Bool {
+        core.closeGitHistoryCursor(at: rootURL, cursor: cursor)
+    }
+
+    func cancel(operationID: String) -> Bool {
+        core.cancel(operationID: operationID)
+    }
+
     func files(in commit: GitCommit, at rootURL: URL) -> [GitCommitFile]? {
         core.gitCommitFiles(at: rootURL, commit: commit.hash)?.files.map { file in
             GitCommitFile(status: file.status, path: file.path)
