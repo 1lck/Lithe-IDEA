@@ -1574,6 +1574,11 @@ final class AppModel: ObservableObject, Identifiable {
         await gitFeature.selectGitReference(reference)
     }
 
+    func showAllGitReferences() async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.showAllGitReferences()
+    }
+
     func refreshGitHistory() async {
         guard let gitFeature = await activateGitModule() else { return }
         await gitFeature.refreshGitHistory()

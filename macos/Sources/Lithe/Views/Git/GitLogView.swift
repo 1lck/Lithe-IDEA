@@ -72,7 +72,6 @@ struct GitLogView: View {
         VStack(spacing: 0) {
             toolWindowHeader
             primaryContent
-            primaryContent
         }
         .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.sidebar)
         .task(id: model.gitCommitsVersion) {
@@ -238,9 +237,12 @@ struct GitLogView: View {
     /// already close to the type-checker limit.
     @ViewBuilder
     private var primaryContent: some View {
-        if selectedGitToolTab == .log {
+        switch selectedGitToolTab {
+        case .log:
             logTabContent
-        } else {
+        case .worktrees:
+            GitWorktreesView()
+        case .console:
             gitConsolePane
         }
     }
@@ -338,7 +340,7 @@ struct GitLogView: View {
 
             gitToolTabButton(
                 .log,
-                title: "Log: \(model.selectedGitReference?.shortName ?? model.currentBranch)"
+                title: "Log: \(model.isShowingAllGitReferences ? "All References" : (model.selectedGitReference?.shortName ?? model.currentBranch))"
             )
             gitToolTabButton(
                 .worktrees,
@@ -347,10 +349,10 @@ struct GitLogView: View {
             )
             gitToolTabButton(.console, title: "Console")
 
-            if selectedGitToolTab == .log {
+            if selectedGitToolTab == .log, !model.isShowingAllGitReferences {
                 Button {
                     selectedGitToolTab = .log
-                    Task { await model.selectGitReference(nil) }
+                    Task { await model.showAllGitReferences() }
                 } label: {
                     Image(systemName: "plus")
                 }
@@ -733,7 +735,7 @@ struct GitLogView: View {
         VStack(spacing: 0) {
             HStack(spacing: 4) {
                 Button {
-                    Task { await model.selectGitReference(nil) }
+                    Task { await model.showAllGitReferences() }
                 } label: {
                     Image(systemName: "chevron.left")
                 }
@@ -851,8 +853,10 @@ struct GitLogView: View {
 
     private func isReferenceRowSelected(_ row: GitReferenceRow) -> Bool {
         guard case .reference(let reference) = row.content else { return false }
-        return model.selectedGitReference?.id == reference.id
-            || (model.selectedGitReference == nil && reference.isCurrent)
+        return !model.isShowingAllGitReferences && (
+            model.selectedGitReference?.id == reference.id
+                || (model.selectedGitReference == nil && reference.isCurrent)
+        )
     }
 
     /// Rebuilt on each body pass, but every closure is stable in behavior, and
@@ -926,8 +930,10 @@ struct GitLogView: View {
             .clipShape(RoundedRectangle(cornerRadius: 4))
             .contentShape(Rectangle())
             .litheRowHover(
-                isActive: model.selectedGitReference?.id == reference.id
-                    || (model.selectedGitReference == nil && reference.isCurrent),
+                isActive: !model.isShowingAllGitReferences && (
+                    model.selectedGitReference?.id == reference.id
+                        || (model.selectedGitReference == nil && reference.isCurrent)
+                ),
                 cornerRadius: 4,
                 activeBackground: LitheTheme.subtleSelection
             )
@@ -1475,9 +1481,9 @@ struct GitLogView: View {
                     )
                 }
 
-                if model.selectedGitReference != nil {
+                if model.selectedGitReference != nil || model.isShowingAllGitReferences {
                     gitLogFilterClearButton(help: "Clear branch filter") {
-                        Task { await model.selectGitReference(nil) }
+                        Task { await model.showAllGitReferences() }
                     }
                 }
             }

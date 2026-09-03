@@ -258,6 +258,9 @@ extension AppModel {
         get { gitFeatureIfActive?.selectedGitReference }
         set { gitFeatureIfActive?.selectedGitReference = newValue }
     }
+    var isShowingAllGitReferences: Bool {
+        gitFeatureIfActive?.isShowingAllGitReferences ?? false
+    }
     var selectedGitCommit: GitCommit? {
         get { gitFeatureIfActive?.selectedGitCommit }
         set { gitFeatureIfActive?.selectedGitCommit = newValue }
