@@ -610,7 +610,7 @@ struct ExecutionModuleTests {
 
         #expect(request.arguments == plan.arguments)
         #expect(request.timeoutMilliseconds == 60_000)
-        #expect(buildProcess.startRequests.isEmpty)
+        #expect(!buildProcess.isRunning)
         #expect(operations.lastDependencyModule == "service")
         dependencyProcess.onOutput?("[INFO] dependency tree\n")
         dependencyProcess.onTermination?(0)
