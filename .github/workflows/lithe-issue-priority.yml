@@ -1,0 +1,40 @@
+name: Lithe issue priority
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+
+concurrency:
+  group: lithe-issue-priority-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.event.issue.pull_request == null
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const issue = (await github.rest.issues.get({ owner, repo, issue_number })).data;
+            const priorityLabels = ['P0', 'P1', 'P2'];
+            const body = issue.body || '';
+            const heading = body.match(/###\s+Priority \/ 优先级\s*\r?\n+([^\r\n]+)/i);
+            const selected = heading?.[1]?.trim() || '';
+            const priority = selected.match(/^(P[012])\b/i)?.[1]?.toUpperCase() || null;
+            const currentLabels = issue.labels
+              .map((label) => typeof label === 'string' ? label : label.name)
+              .filter(Boolean);
+            const nextLabels = currentLabels.filter((label) => !priorityLabels.includes(label));
+            if (priority) nextLabels.push(priority);
+            const unchanged = currentLabels.length === nextLabels.length &&
+              currentLabels.every((label, index) => label === nextLabels[index]);
+            if (unchanged) return;
+            await github.rest.issues.setLabels({ owner, repo, issue_number, labels: nextLabels });

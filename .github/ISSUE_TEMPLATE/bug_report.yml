@@ -30,14 +30,24 @@ body:
     validations:
       required: true
 
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority / 优先级
+      description: Choose the urgency that best matches the user impact. / 请选择最符合当前使用影响的紧急程度。
+      options:
+        - "P0 / 立即处理：已严重影响使用体验，核心流程受阻或无法正常使用"
+        - "P1 / 尽快处理：使用体验大幅下降，但通常仍可继续使用"
+        - "P2 / 后续考虑：目前不着急，可安排到后续版本"
+    validations:
+      required: true
+
   - type: input
     id: system
     attributes:
       label: OS and architecture / 操作系统与架构
       description: Include the OS version and CPU architecture. / 请填写操作系统版本和 CPU 架构。
       placeholder: "For example: macOS 15.6, Apple Silicon"
-    validations:
-      required: true
 
   - type: textarea
     id: environment
@@ -59,24 +69,18 @@ body:
         1. Open ...
         2. Click ...
         3. See ...
-    validations:
-      required: true
 
   - type: textarea
     id: expected
     attributes:
       label: Expected behavior / 预期行为
       placeholder: Describe what should have happened. / 请描述预期结果。
-    validations:
-      required: true
 
   - type: textarea
     id: actual
     attributes:
       label: Actual behavior / 实际行为
       placeholder: Describe what happened instead. Include error messages if available. / 请描述实际结果，并附上错误信息。
-    validations:
-      required: true
 
   - type: textarea
     id: logs
