@@ -165,7 +165,7 @@ struct EditorAreaView: View {
         .background(
             isTerminalTabBarDropTargeted
                 ? LitheTheme.accent.opacity(0.08)
-                : (model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.sidebar)
+                : (model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.editor)
         )
         .onDrop(
             of: [TerminalTabDragPayload.type],
@@ -1018,7 +1018,6 @@ struct EditorAreaView: View {
         }
         .frame(width: 104, height: 26)
         .padding(.horizontal, 7)
-        .animation(.easeOut(duration: 0.12), value: hoveredMarkdownMode)
     }
 
     private var selectedMarkdownMode: MarkdownViewMode {
