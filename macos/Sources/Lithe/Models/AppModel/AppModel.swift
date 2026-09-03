@@ -163,6 +163,7 @@ final class AppModel: ObservableObject, Identifiable {
     let githubFeature: GitHubFeatureModel
     let discourseCommunityFeature: DiscourseCommunityFeatureModel
     let editorTabOrderFeature = EditorTabOrderFeatureModel()
+    let mediaFeature = MediaDocumentFeatureModel()
     let terminalPlacementFeature: TerminalPlacementFeatureModel
     var debugTerminalSessionIDs: Set<UUID> = []
     var activeDebugTerminalSessionID: UUID?
@@ -260,6 +261,7 @@ final class AppModel: ObservableObject, Identifiable {
     private var runtimeFeatureObservation: AnyCancellable?
     private var editorTabOrderFeatureObservation: AnyCancellable?
     private var terminalPlacementObservation: AnyCancellable?
+    private var mediaFeatureObservation: AnyCancellable?, mediaTabCollectionObservation: AnyCancellable?
     private var documentTabCollectionObservation: AnyCancellable?
     private var activeDocumentSelectionObservation: AnyCancellable?
     private var moduleRuntimeObservationID: UUID?
@@ -581,6 +583,12 @@ final class AppModel: ObservableObject, Identifiable {
         documentTabCollectionObservation = documentFeature.$openDocuments
             .map { $0.map(\.id) }.removeDuplicates()
             .sink { [weak self] ids in self?.editorTabOrderFeature.reconcileDocuments(orderedIDs: ids) }
+        mediaFeatureObservation = mediaFeature.objectWillChange.sink { [weak self] _ in
+            self?.scheduleObjectWillChangeRelay()
+        }
+        mediaTabCollectionObservation = mediaFeature.$openMediaDocuments
+            .map { $0.map(\.id) }.removeDuplicates()
+            .sink { [weak self] ids in self?.editorTabOrderFeature.reconcileMedia(orderedIDs: ids) }
         javaFeature.configure(
             documentProvider: { [weak self] in self?.activeDocument },
             loadBlame: { [weak self] fileURL in
@@ -644,6 +652,7 @@ final class AppModel: ObservableObject, Identifiable {
             .sink { [weak self] commandID in
                 self?.shortcutDetector?.setSuspended(commandID != nil)
             }
+        configureMediaViewerRegistry()
         shortcutDetector?.start()
     }
 
@@ -953,6 +962,7 @@ final class AppModel: ObservableObject, Identifiable {
         blameVisibleURL = nil
         gitFeatureIfActive?.reset()
         documentFeature.reset()
+        mediaFeature.reset()
         gitLogSearchQuery = ""
         projectHistoryFeatureIfActive?.reset()
         workspaceURL = normalizedURL
@@ -1016,6 +1026,7 @@ final class AppModel: ObservableObject, Identifiable {
         selectedSidebar = .project
         workspaceFeature.reset()
         documentFeature.reset()
+        mediaFeature.reset()
         searchFeatureIfActive?.reset()
         searchQuery = ""
         isSearchEverywhereVisible = false
@@ -1066,6 +1077,7 @@ final class AppModel: ObservableObject, Identifiable {
     private func performCloseStandaloneFile() {
         standaloneFileURL = nil
         documentFeature.reset()
+        mediaFeature.reset()
         editorChrome.resetFindBar()
         editorChrome.setGoToLineVisible(false)
         didCloseProject?()
@@ -1113,9 +1125,14 @@ final class AppModel: ObservableObject, Identifiable {
         workspaceURL = nil
         standaloneFileURL = normalizedURL
         documentFeature.reset()
+        mediaFeature.reset()
         isFindBarVisible = false
         findBarQuery = ""
-        documentFeature.openStandaloneFile(normalizedURL)
+        if let mediaKind = MediaDocumentKind.from(url: normalizedURL) {
+            openMediaFile(normalizedURL, kind: mediaKind)
+        } else {
+            documentFeature.openStandaloneFile(normalizedURL)
+        }
     }
 
     func javaIconKind(for url: URL) async -> LitheIconKind? {

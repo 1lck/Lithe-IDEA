@@ -279,11 +279,13 @@ extension AppModel {
     func selectEditorTerminalSession(_ session: TerminalSession) {
         guard terminalPlacementFeature.editorSessionIDs.contains(session.id),
               terminalFeature?.selectSession(session) == true else { return }
+        mediaFeature.deactivate()
         terminalPlacementFeature.activateEditorSession(session.id)
     }
 
     func selectEditorDocument(_ document: EditorDocument) {
         terminalPlacementFeature.activateDocument()
+        mediaFeature.deactivate()
         activeDocumentID = document.id
     }
 
