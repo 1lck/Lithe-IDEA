@@ -1,0 +1,16 @@
+{
+  "commits": [
+    {
+      "hash": "0123456789abcdef0123456789abcdef01234567",
+      "shortHash": "0123456",
+      "parentHashes": [],
+      "authorName": "Lithe Test",
+      "authorEmail": "test@example.invalid",
+      "date": "2026/08/30 12:00",
+      "subject": "Initial commit",
+      "decorations": "HEAD -> feature/recent"
+    }
+  ],
+  "nextCursor": "git-history-cursor-fixture",
+  "hasMore": true
+}
