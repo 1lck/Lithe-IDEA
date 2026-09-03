@@ -19,6 +19,7 @@ package final class MavenService: ObservableObject {
     @Published package private(set) var javaHomePath: String?
     @Published package private(set) var configurationSaveError: String?
     @Published package private(set) var isReloadRequired = false
+    @Published package private(set) var dependencyStates: [String: MavenDependencyLoadState] = [:]
 
     package var isLoadingProject: Bool {
         if case .loading = projectState { return true }
@@ -29,6 +30,13 @@ package final class MavenService: ObservableObject {
         switch taskState {
         case .running, .stopping: true
         case .idle, .cancelled, .failed: false
+        }
+    }
+
+    package var isResolvingDependencies: Bool {
+        dependencyStates.values.contains { state in
+            if case .loading = state { return true }
+            return false
         }
     }
 
@@ -55,6 +63,7 @@ package final class MavenService: ObservableObject {
     }
 
     private let process: any StreamingProcess
+    private let dependencyProcess: any StreamingProcess
     private let mavenOperations: any MavenProjectOperations
     private let runtimeService: any MavenRuntimePort
     private let configurationWriter: MavenConfigurationWriter
@@ -63,19 +72,28 @@ package final class MavenService: ObservableObject {
     private var projectLoadID = UUID()
     private var launchPlanID = UUID()
     private var activeOperationID: String?
+    private var dependencyLoadID = UUID()
+    private var activeDependencyOperationID: String?
+    private var activeDependencyModulePath: String?
+    private var dependencyOutput = ""
+    private var dependencyTimedOut = false
     private var configurationRevision = 0
     private var configurationFingerprint: String?
     private var fingerprintRevision = 0
     private let maximumOutputCharacters = 500_000
+    private let maximumDependencyOutputCharacters = 500_000
+    private let dependencyTimeoutMilliseconds = 60_000
 
     package init(
         runtimeService: any MavenRuntimePort,
         process: any StreamingProcess,
+        dependencyProcess: any StreamingProcess,
         mavenOperations: any MavenProjectOperations,
         configurationStore: (any MavenConfigurationStoring)? = nil
     ) {
         self.runtimeService = runtimeService
         self.process = process
+        self.dependencyProcess = dependencyProcess
         self.mavenOperations = mavenOperations
         configurationWriter = MavenConfigurationWriter(store: configurationStore)
         process.onOutput = { [weak self] chunk in
@@ -95,9 +113,27 @@ package final class MavenService: ObservableObject {
                 self?.consumeLifecycle(event)
             }
         }
+        dependencyProcess.onOutput = { [weak self] chunk in
+            Task { @MainActor [weak self] in
+                guard self?.activeDependencyOperationID != nil else { return }
+                self?.appendDependencyOutput(chunk)
+            }
+        }
+        dependencyProcess.onTermination = { [weak self] exitCode in
+            Task { @MainActor [weak self] in
+                guard self?.activeDependencyOperationID != nil else { return }
+                self?.finishDependencyProcess(exitCode: exitCode)
+            }
+        }
+        dependencyProcess.onStateChange = { [weak self] event in
+            Task { @MainActor [weak self] in
+                self?.consumeDependencyLifecycle(event)
+            }
+        }
     }
 
     package func loadProject(at workspaceURL: URL, files: [URL]) async {
+        invalidateDependencies()
         let loadID = UUID()
         projectLoadID = loadID
         projectState = .loading
@@ -229,6 +265,72 @@ package final class MavenService: ObservableObject {
         refreshConfigurationFingerprint(establishBaseline: true)
     }
 
+    package func dependencyState(for modulePath: String) -> MavenDependencyLoadState {
+        dependencyStates[modulePath] ?? .idle
+    }
+
+    package func loadDependencies(for modulePath: String) {
+        if case .ready = dependencyState(for: modulePath) { return }
+        if activeDependencyModulePath == modulePath,
+           case .loading = dependencyState(for: modulePath) { return }
+        guard let project, let workspaceURL, let context = launchContext else { return }
+
+        cancelActiveDependency(markCancelled: true)
+        let loadID = UUID()
+        dependencyLoadID = loadID
+        activeDependencyModulePath = modulePath
+        activeDependencyOperationID = nil
+        dependencyOutput = ""
+        dependencyTimedOut = false
+        dependencyStates[modulePath] = .loading
+        let operations = mavenOperations
+        Task { [weak self] in
+            let result = await Task.detached(priority: .utility) {
+                do {
+                    return MavenPlanResult(
+                        plan: try operations.mavenDependencyPlan(
+                            at: workspaceURL,
+                            context: context,
+                            module: modulePath == "." ? nil : modulePath
+                        ),
+                        errorMessage: nil
+                    )
+                } catch {
+                    return MavenPlanResult(plan: nil, errorMessage: error.localizedDescription)
+                }
+            }.value
+            guard let self,
+                  self.dependencyLoadID == loadID,
+                  self.activeDependencyModulePath == modulePath else { return }
+            guard let plan = result.plan else {
+                self.failDependency(
+                    modulePath: modulePath,
+                    message: result.errorMessage ?? "Unable to create the Maven dependency plan."
+                )
+                return
+            }
+            self.startDependencyProcess(
+                plan: plan,
+                project: project,
+                context: context,
+                modulePath: modulePath
+            )
+        }
+    }
+
+    package func cancelDependencies(for modulePath: String) {
+        guard case .loading = dependencyState(for: modulePath) else { return }
+        guard activeDependencyModulePath == modulePath else {
+            dependencyStates[modulePath] = .cancelled
+            return
+        }
+        cancelActiveDependency(markCancelled: true)
+    }
+
+    package func cancelAllDependencies() {
+        cancelActiveDependency(markCancelled: true)
+    }
+
     package func stop() {
         launchPlanID = UUID()
         guard isRunning else { return }
@@ -248,6 +350,7 @@ package final class MavenService: ObservableObject {
 
     package func reset() {
         stop()
+        invalidateDependencies()
         projectLoadID = UUID()
         launchPlanID = UUID()
         project = nil
@@ -269,6 +372,7 @@ package final class MavenService: ObservableObject {
         fingerprintRevision += 1
         configurationSaveError = nil
         isReloadRequired = false
+        dependencyStates = [:]
     }
 
     package func clearOutput() {
@@ -367,6 +471,161 @@ package final class MavenService: ObservableObject {
         }
     }
 
+    private func startDependencyProcess(
+        plan: MavenLaunchPlan,
+        project: MavenProject,
+        context: MavenLaunchContext,
+        modulePath: String
+    ) {
+        guard let workspaceURL else { return }
+        guard let executable = runtimeService.mavenExecutable(
+            for: project,
+            overridePath: context.mavenExecutablePath
+        ) else {
+            failDependency(
+                modulePath: modulePath,
+                message: "No Maven executable was found. Choose Maven Home or an executable in Maven Settings."
+            )
+            return
+        }
+        let operationID = UUID().uuidString
+        activeDependencyOperationID = operationID
+        let workingDirectory = plan.workingDirectory == "."
+            ? workspaceURL
+            : workspaceURL.appendingPathComponent(plan.workingDirectory, isDirectory: true)
+        do {
+            try dependencyProcess.start(ProcessRequest(
+                operationID: operationID,
+                executablePath: executable.path,
+                arguments: plan.arguments,
+                workingDirectory: workingDirectory.standardizedFileURL.path,
+                environment: runtimeService.mavenProcessEnvironment(javaHomePath: context.javaHomePath),
+                timeoutMilliseconds: dependencyTimeoutMilliseconds
+            ))
+        } catch {
+            guard activeDependencyOperationID == operationID else { return }
+            failDependency(
+                modulePath: modulePath,
+                message: "Unable to start Maven dependency resolution: " + error.localizedDescription
+            )
+        }
+    }
+
+    private func finishDependencyProcess(exitCode: Int32) {
+        guard let modulePath = activeDependencyModulePath else { return }
+        let loadID = dependencyLoadID
+        let output = dependencyOutput
+        let timedOut = dependencyTimedOut
+        activeDependencyOperationID = nil
+        dependencyTimedOut = false
+        if timedOut {
+            failDependency(
+                modulePath: modulePath,
+                message: "Maven dependency resolution timed out after 60 seconds."
+            )
+            return
+        }
+        guard exitCode == 0 else {
+            failDependency(
+                modulePath: modulePath,
+                message: "Maven dependency resolution exited with code \(exitCode)."
+            )
+            return
+        }
+        let operations = mavenOperations
+        Task { [weak self] in
+            let result = await Task.detached(priority: .utility) {
+                do {
+                    return MavenDependencyParseResult(
+                        tree: try operations.mavenDependencies(modulePath: modulePath, output: output),
+                        errorMessage: nil
+                    )
+                } catch {
+                    return MavenDependencyParseResult(
+                        tree: nil,
+                        errorMessage: error.localizedDescription
+                    )
+                }
+            }.value
+            guard let self,
+                  self.dependencyLoadID == loadID,
+                  self.activeDependencyModulePath == modulePath,
+                  case .loading = self.dependencyState(for: modulePath) else { return }
+            self.activeDependencyModulePath = nil
+            self.dependencyOutput = ""
+            if let tree = result.tree {
+                self.dependencyStates[modulePath] = .ready(tree.dependencies)
+            } else {
+                self.dependencyStates[modulePath] = .failed(
+                    result.errorMessage ?? "Unable to parse Maven dependencies for this module."
+                )
+            }
+        }
+    }
+
+    private func consumeDependencyLifecycle(_ event: ProcessLifecycleEvent) {
+        guard event.operationID == activeDependencyOperationID else { return }
+        switch event.state {
+        case .starting, .running:
+            break
+        case .stopping:
+            if event.message == "Process timed out" {
+                dependencyTimedOut = true
+            }
+        case .failed:
+            guard let modulePath = activeDependencyModulePath else { return }
+            failDependency(
+                modulePath: modulePath,
+                message: event.message ?? "Unable to resolve Maven dependencies."
+            )
+        case .finished:
+            if let exitCode = event.exitCode {
+                finishDependencyProcess(exitCode: exitCode)
+            }
+        }
+    }
+
+    private func appendDependencyOutput(_ value: String) {
+        guard let modulePath = activeDependencyModulePath else { return }
+        dependencyOutput.append(value.replacingOccurrences(of: "\r", with: ""))
+        guard dependencyOutput.count <= maximumDependencyOutputCharacters else {
+            dependencyProcess.stop()
+            failDependency(
+                modulePath: modulePath,
+                message: "Maven dependency output exceeded the supported limit."
+            )
+            return
+        }
+    }
+
+    private func failDependency(modulePath: String, message: String) {
+        dependencyStates[modulePath] = .failed(message)
+        activeDependencyOperationID = nil
+        activeDependencyModulePath = nil
+        dependencyOutput = ""
+        dependencyTimedOut = false
+    }
+
+    private func cancelActiveDependency(markCancelled: Bool) {
+        dependencyLoadID = UUID()
+        let modulePath = activeDependencyModulePath
+        if activeDependencyOperationID != nil {
+            dependencyProcess.stop()
+        }
+        activeDependencyOperationID = nil
+        activeDependencyModulePath = nil
+        dependencyOutput = ""
+        dependencyTimedOut = false
+        if markCancelled, let modulePath {
+            dependencyStates[modulePath] = .cancelled
+        }
+    }
+
+    private func invalidateDependencies() {
+        cancelActiveDependency(markCancelled: false)
+        dependencyStates = [:]
+    }
+
     private func finishProcess(exitCode: Int32) {
         guard let project else { return }
         if taskState == .stopping {
@@ -431,6 +690,7 @@ package final class MavenService: ObservableObject {
     }
 
     private func configurationDidChange() {
+        invalidateDependencies()
         isReloadRequired = configurationFingerprint != nil
         configurationSaveError = nil
         persistConfiguration()
@@ -554,6 +814,11 @@ private struct MavenProjectLoadResult: Sendable {
 
 private struct MavenPlanResult: Sendable {
     let plan: MavenLaunchPlan?
+    let errorMessage: String?
+}
+
+private struct MavenDependencyParseResult: Sendable {
+    let tree: MavenDependencyTree?
     let errorMessage: String?
 }
 

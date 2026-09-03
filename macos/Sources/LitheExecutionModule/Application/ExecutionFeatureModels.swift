@@ -34,6 +34,8 @@ package final class MavenFeatureModel: ObservableObject {
     package var javaHomePath: String? { service.javaHomePath }
     package var configurationSaveError: String? { service.configurationSaveError }
     package var isReloadRequired: Bool { service.isReloadRequired }
+    package var dependencyStates: [String: MavenDependencyLoadState] { service.dependencyStates }
+    package var isResolvingDependencies: Bool { service.isResolvingDependencies }
     package var launchContext: MavenLaunchContext? { service.launchContext }
 
     package func loadProject(at workspaceURL: URL, files: [URL], snapshotID: UUID? = nil) async {
@@ -79,6 +81,18 @@ package final class MavenFeatureModel: ObservableObject {
 
     package func acknowledgeReload() {
         service.acknowledgeReload()
+    }
+
+    package func dependencyState(for modulePath: String) -> MavenDependencyLoadState {
+        service.dependencyState(for: modulePath)
+    }
+
+    package func loadDependencies(for modulePath: String) {
+        service.loadDependencies(for: modulePath)
+    }
+
+    package func cancelDependencies(for modulePath: String) {
+        service.cancelDependencies(for: modulePath)
     }
 
     package func reset() { service.reset() }

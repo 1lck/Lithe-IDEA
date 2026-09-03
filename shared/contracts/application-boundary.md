@@ -29,7 +29,7 @@ verification scripts are the executable source of boundary checks.
 | GitHub | remote parsing, trusted request plans, normalized branch comparisons and pull requests/reviews/comments, deterministic ordering, and stable errors | OAuth configuration, HTTPS, browser opening, and operating-system credential storage |
 | Runtime | Java/Maven requirements, normalized candidates, and effective toolchain references | JDK/Maven probing and executable paths |
 | Language tooling | provider catalog, local fallback results, complete LSP process/session runtime, capabilities, diagnostics, UTF-16 edits, and normalized feature results | executable/environment discovery and UI provider routing |
-| Java/Maven/Spring | deterministic Maven-root selection, project structure, modules and profiles; compiler diagnostic parsing; Java source structure, symbols, code vision, run-configuration detection, Spring configuration/bean/endpoint indexing, and JDTLS/Java Debug adapter policy | JDK/Maven discovery, local dependency-repository selection, Java/Maven child processes, and sockets |
+| Java/Maven/Spring | deterministic Maven-root selection, project structure, modules and profiles, bounded dependency-tree normalization; compiler diagnostic parsing; Java source structure, symbols, code vision, run-configuration detection, Spring configuration/bean/endpoint indexing, and JDTLS/Java Debug adapter policy | JDK/Maven discovery, local dependency-repository selection, Java/Maven child processes, and sockets |
 | Run/Debug | versioned configuration documents, three-layer resolution, diagnostics, platform-neutral launch plans, DAP framing/state, reverse terminal requests, breakpoint relocation, stepping filters, threads, stacks, variables, and events | project and preference persistence, native edit reporting, adapter discovery, PTY/ConPTY debuggee launch, child processes, sockets, native termination, and UI |
 | Terminal | input bytes, output bytes, lifecycle | PTY/ConPTY, shell and environment |
 | Workbench background | versioned source (`none`, bundled slot `01`–`10`, or `custom`) and opacity | UI, image rendering, bundled-resource packaging, local-image access permission and persistence |
@@ -323,6 +323,16 @@ External `settings.xml`, Maven executable, and Maven JDK paths remain in a
 machine-local store. They may be supplied transiently to Core for planning and
 fingerprinting, but Core never opens `settings.xml` or serializes those paths
 into the portable project context.
+
+Expanding a module's Dependencies node starts an on-demand query using
+`maven.dependencyPlan`; Core owns the fixed plugin arguments and normalizes the
+captured text through `maven.dependencies`. Each platform owns a separate,
+bounded Maven process for this query so dependency loading cannot replace build
+output or stop an ordinary Maven task. Results are cached by module until the
+project or Maven configuration changes. The UI exposes loading, ready, failed,
+and cancelled states, rejects stale results, and links every dependency to the
+owning module's `pom.xml`. Dependency failure never blocks project loading or
+Java editing.
 
 The Java language-server startup consumes that same context. Core exposes the
 selected `settings.xml` to JDT LS as

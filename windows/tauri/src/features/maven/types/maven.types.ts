@@ -1,5 +1,6 @@
 export type MavenProjectStatus = "idle" | "loading" | "ready" | "failed";
 export type MavenTaskStatus = "idle" | "running" | "stopping" | "failed" | "cancelled";
+export type MavenDependencyStatus = "idle" | "loading" | "ready" | "failed" | "cancelled";
 
 export interface MavenProfile {
   id: string;
@@ -42,6 +43,32 @@ export interface MavenLaunchPlan {
   arguments: string[];
   workingDirectory: string;
   configurationFingerprint: string;
+}
+
+export type MavenDependencyResolution = "resolved" | "omittedDuplicate" | "omittedConflict";
+
+export interface MavenDependency {
+  modulePath: string;
+  groupId: string;
+  artifactId: string;
+  version: string;
+  type: string;
+  classifier?: string | null;
+  scope: string;
+  resolution: MavenDependencyResolution;
+  selectedVersion?: string | null;
+  children: MavenDependency[];
+}
+
+export interface MavenDependenciesResponse {
+  modulePath: string;
+  dependencies: MavenDependency[];
+}
+
+export interface MavenDependencyLoad {
+  status: MavenDependencyStatus;
+  dependencies: MavenDependency[];
+  error: string | null;
 }
 
 export interface MavenDiagnostic {

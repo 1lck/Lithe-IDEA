@@ -211,6 +211,47 @@ pub struct MavenLaunchPlanResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Resolution outcome reported by Maven for one dependency coordinate.
+pub enum MavenDependencyResolutionResponse {
+    /// Maven selected this dependency in the effective tree.
+    Resolved,
+    /// Maven omitted this occurrence because the same dependency was already selected.
+    OmittedDuplicate,
+    /// Maven omitted this occurrence in favor of another version.
+    OmittedConflict,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// One bounded Maven dependency node with recursively nested transitive children.
+pub struct MavenDependencyResponse {
+    /// Reactor-relative module whose POM produced this dependency tree.
+    pub module_path: String,
+    pub group_id: String,
+    pub artifact_id: String,
+    pub version: String,
+    /// Maven artifact type such as `jar`, `war`, or `test-jar`.
+    pub r#type: String,
+    /// Optional Maven classifier such as `tests`.
+    pub classifier: Option<String>,
+    pub scope: String,
+    pub resolution: MavenDependencyResolutionResponse,
+    /// Version Maven selected when this occurrence was omitted for conflict.
+    pub selected_version: Option<String>,
+    pub children: Vec<MavenDependencyResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Deterministically ordered dependency tree for one Maven reactor module.
+pub struct MavenDependenciesResponse {
+    /// Reactor-relative module path, using `.` for the reactor root.
+    pub module_path: String,
+    pub dependencies: Vec<MavenDependencyResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 /// One normalized issue parsed from Maven process output.
 pub struct MavenDiagnosticResponse {
     pub path: String,
