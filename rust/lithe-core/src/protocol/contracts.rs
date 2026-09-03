@@ -478,6 +478,39 @@ pub struct GitHistoryResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Repository references and identity metadata loaded independently from commit pages.
+pub struct GitReferencesResponse {
+    pub references: Vec<GitReferenceResponse>,
+    /// Up to five local branches ordered from most to least recently checked out.
+    pub recent_references: Vec<GitReferenceResponse>,
+    pub user_name: Option<String>,
+    pub user_email: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// One bounded page of commit history.
+pub struct GitHistoryPageResponse {
+    pub commits: Vec<GitCommitResponse>,
+    /// Opaque cursor for the next page, or `None` when this page reaches the end.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+    /// Deprecated offset emitted only for compatibility with offset-based requests.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_offset: Option<usize>,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Result of explicitly releasing an incremental Git history cursor.
+pub struct GitHistoryCursorCloseResponse {
+    /// Whether an active cursor was found and released.
+    pub closed: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 /// Resolved destination and bounded commits for one branch push.
 pub struct GitPushPreviewResponse {
     /// Local branch that will be sent to the remote.
