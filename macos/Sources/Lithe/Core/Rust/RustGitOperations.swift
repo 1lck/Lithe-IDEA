@@ -31,6 +31,20 @@ struct RustGitOperations: GitOperations, Sendable {
                     conflictedPaths: $0.conflictedPaths
                 )
             },
+            tagDeletion: response.tagDeletion.map {
+                GitTagDeletion(
+                    name: $0.name,
+                    deletedTarget: $0.deletedTarget,
+                    kind: $0.kind,
+                    message: $0.message
+                )
+            },
+            branchDeletion: response.branchDeletion.map {
+                GitBranchDeletion(
+                    name: $0.name,
+                    deletedTarget: $0.deletedTarget
+                )
+            },
             warnings: response.warnings?.map {
                 GitOperationWarning(code: $0.code, message: $0.message, details: $0.details)
             } ?? []
@@ -143,6 +157,52 @@ struct RustGitOperations: GitOperations, Sendable {
             name: name,
             checkout: checkout
         )
+    }
+
+    func createWorktree(
+        named name: String,
+        from reference: GitReference,
+        revision: String? = nil,
+        at destination: URL,
+        repositoryRoot: URL
+    ) -> GitProcessResult? {
+        write(
+            at: repositoryRoot,
+            operation: "createWorktree",
+            gitReference: reference,
+            revision: revision,
+            name: name,
+            destination: destination
+        )
+    }
+
+    func removeWorktree(
+        _ worktree: GitWorktree,
+        force: Bool,
+        at rootURL: URL
+    ) -> GitProcessResult? {
+        write(
+            at: rootURL,
+            operation: "removeWorktree",
+            destination: worktree.url,
+            force: force
+        )
+    }
+
+    func lockWorktree(_ worktree: GitWorktree, at rootURL: URL) -> GitProcessResult? {
+        write(at: rootURL, operation: "lockWorktree", destination: worktree.url)
+    }
+
+    func unlockWorktree(_ worktree: GitWorktree, at rootURL: URL) -> GitProcessResult? {
+        write(at: rootURL, operation: "unlockWorktree", destination: worktree.url)
+    }
+
+    func repairWorktrees(at rootURL: URL) -> GitProcessResult? {
+        write(at: rootURL, operation: "repairWorktrees")
+    }
+
+    func pruneWorktrees(at rootURL: URL) -> GitProcessResult? {
+        write(at: rootURL, operation: "pruneWorktrees")
     }
 
     func renameBranch(_ reference: GitReference, to name: String, at rootURL: URL) -> GitProcessResult? {
@@ -319,12 +379,35 @@ struct RustGitOperations: GitOperations, Sendable {
         write(at: rootURL, operation: "stageAll")
     }
 
+    func createTag(
+        named name: String,
+        at revision: String,
+        message: String?,
+        rootURL: URL
+    ) -> GitProcessResult? {
+        write(
+            at: rootURL,
+            operation: "createTag",
+            revision: revision,
+            name: name,
+            message: message
+        )
+    }
+
+    func deleteTag(named name: String, rootURL: URL) -> GitProcessResult? {
+        write(at: rootURL, operation: "deleteTag", name: name)
+    }
+
     func snapshot(at rootURL: URL) -> GitSnapshot? {
         core.gitStatus(at: rootURL)?.makeSnapshot(at: rootURL)
     }
 
     func watchContext(at rootURL: URL) -> GitWatchContext? {
         core.gitWatchContext(at: rootURL)?.makeContext()
+    }
+
+    func worktrees(at rootURL: URL) -> [GitWorktree]? {
+        core.gitWorktrees(at: rootURL)?.worktrees.map { $0.makeModel() }
     }
 
     func diffPatch(

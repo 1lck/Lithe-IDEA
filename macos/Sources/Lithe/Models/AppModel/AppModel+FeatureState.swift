@@ -153,6 +153,19 @@ extension AppModel {
     }
     var gitStashes: [GitStash] { gitFeatureIfActive?.gitStashes ?? [] }
     var gitShelves: [GitShelfEntry] { gitFeatureIfActive?.gitShelves ?? [] }
+    var gitWorktrees: [GitWorktree] { gitFeatureIfActive?.gitWorktrees ?? [] }
+    var gitWorktreeLoadState: GitWorktreeLoadState {
+        gitFeatureIfActive?.gitWorktreeLoadState ?? .idle
+    }
+    var gitWorktreeInspection: GitWorktreeInspection? {
+        gitFeatureIfActive?.gitWorktreeInspection
+    }
+    var gitWorktreeInspectionLoadState: GitWorktreeInspectionLoadState {
+        gitFeatureIfActive?.gitWorktreeInspectionLoadState ?? .idle
+    }
+    var isPerformingWorktreeOperation: Bool {
+        gitFeatureIfActive?.isPerformingWorktreeOperation ?? false
+    }
     var gitSaveChangesPolicy: GitSaveChangesPolicy { settings.gitSaveChangesPolicy }
     var isPerformingStashOperation: Bool { gitFeatureIfActive?.isPerformingStashOperation ?? false }
     var isPerformingShelfOperation: Bool { gitFeatureIfActive?.isPerformingShelfOperation ?? false }
@@ -212,6 +225,12 @@ extension AppModel {
     }
     var requestedStashReference: String? {
         gitFeatureIfActive?.requestedStashReference
+    }
+    var recentlyDeletedTag: GitTagDeletion? {
+        gitFeatureIfActive?.recentlyDeletedTag
+    }
+    var recentlyDeletedBranch: GitBranchDeletion? {
+        gitFeatureIfActive?.recentlyDeletedBranch
     }
     var isCommitting: Bool { gitFeatureIfActive?.isCommitting ?? false }
     var gitBlameLines: [URL: [GitBlameLine]] { gitFeatureIfActive?.gitBlameLines ?? [:] }

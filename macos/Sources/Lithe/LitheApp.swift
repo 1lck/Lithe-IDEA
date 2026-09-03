@@ -217,6 +217,7 @@ struct LitheApp: App {
             settings?.setCustomLogDirectory(nil)
         }
         self.applicationLogWriter = applicationLogWriter
+        let gitPerformanceLogger = MacGitPerformanceLogger(writer: applicationLogWriter)
         MacBundledFontRegistry.registerFonts { message in
             Self.appendApplicationLog(applicationLogWriter, message: message)
         }
@@ -240,7 +241,8 @@ struct LitheApp: App {
                             : .normal,
                         moduleStore: moduleStore,
                         pluginRuntimeRecovery: pluginRuntimeRecovery,
-                        authorizationCallbackRouter: authorizationCallbackRouter
+                        authorizationCallbackRouter: authorizationCallbackRouter,
+                        gitPerformanceLogger: gitPerformanceLogger
                     ).services
                 )
             },

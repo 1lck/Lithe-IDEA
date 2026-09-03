@@ -3,11 +3,135 @@ import LitheCoreContracts
 
 package typealias GitWatchContext = LitheCoreContracts.GitWatchContext
 
+/// Mirrors the shared Rust refname checks used by tag mutations so the macOS
+/// dialog can reject the same invalid names before crossing the Core boundary.
+public enum GitTagNameValidator {
+    public static func isValid(_ value: String) -> Bool {
+        !isInvalid(value)
+    }
+
+    public static func validationError(for value: String) -> String? {
+        isInvalid(value) ? "Invalid Git tag name." : nil
+    }
+
+    private static func isInvalid(_ value: String) -> Bool {
+        if value.isEmpty
+            || value.hasPrefix("-")
+            || value == "@"
+            || value.hasPrefix("/")
+            || value.hasSuffix("/")
+            || value.hasSuffix(".")
+            || value.contains("..")
+            || value.contains("@{")
+            || value.contains("//")
+        {
+            return true
+        }
+        if value.unicodeScalars.contains(where: { scalar in
+            CharacterSet.controlCharacters.contains(scalar)
+                || " ~^:?*[\\".unicodeScalars.contains(scalar)
+        }) {
+            return true
+        }
+        return value.split(separator: "/", omittingEmptySubsequences: false).contains { component in
+            component.hasPrefix(".") || component.hasSuffix(".lock")
+        }
+    }
+}
+
 package struct GitSnapshot: Sendable {
     package let repositoryRoot: URL
     package let branch: String
     package let changes: [GitChange]
     package init(repositoryRoot: URL, branch: String, changes: [GitChange]) { self.repositoryRoot = repositoryRoot; self.branch = branch; self.changes = changes }
+}
+
+package enum GitWorktreeLoadState: Equatable, Sendable {
+    case idle
+    case loading
+    case ready
+    case failed(String)
+}
+
+package enum GitWorktreeInspectionLoadState: Equatable, Sendable {
+    case idle
+    case loading
+    case ready
+    case failed(String)
+}
+
+package struct GitWorktreeInspection: Sendable {
+    package let worktreeID: String
+    package let changes: [GitChange]
+    package let commits: [GitCommit]
+    package let hasMoreCommits: Bool
+    package let hasLoadedChanges: Bool
+
+    package init(
+        worktreeID: String,
+        changes: [GitChange],
+        commits: [GitCommit],
+        hasMoreCommits: Bool = false,
+        hasLoadedChanges: Bool = true
+    ) {
+        self.worktreeID = worktreeID
+        self.changes = changes
+        self.commits = commits
+        self.hasMoreCommits = hasMoreCommits
+        self.hasLoadedChanges = hasLoadedChanges
+    }
+}
+
+package struct GitWorktree: Identifiable, Hashable, Sendable {
+    package let path: String
+    package let head: String
+    package let branch: String?
+    package let isCurrent: Bool
+    package let isPrimary: Bool
+    package let isBare: Bool
+    package let isDetached: Bool
+    package let isLocked: Bool
+    package let lockReason: String?
+    package let isPrunable: Bool
+    package let pruneReason: String?
+
+    package init(
+        path: String,
+        head: String,
+        branch: String?,
+        isCurrent: Bool,
+        isPrimary: Bool,
+        isBare: Bool,
+        isDetached: Bool,
+        isLocked: Bool,
+        lockReason: String?,
+        isPrunable: Bool,
+        pruneReason: String?
+    ) {
+        self.path = path
+        self.head = head
+        self.branch = branch
+        self.isCurrent = isCurrent
+        self.isPrimary = isPrimary
+        self.isBare = isBare
+        self.isDetached = isDetached
+        self.isLocked = isLocked
+        self.lockReason = lockReason
+        self.isPrunable = isPrunable
+        self.pruneReason = pruneReason
+    }
+
+    package var id: String { path }
+    package var url: URL { URL(fileURLWithPath: path) }
+    package var shortHead: String { String(head.prefix(8)) }
+    package var branchName: String? {
+        guard let branch else { return nil }
+        let prefix = "refs/heads/"
+        return branch.hasPrefix(prefix) ? String(branch.dropFirst(prefix.count)) : branch
+    }
+    package var displayName: String {
+        branchName ?? (isBare ? "Bare repository" : "Detached HEAD")
+    }
 }
 
 package enum GitReferenceKind: String, Sendable {
@@ -20,11 +144,27 @@ package struct GitReference: Identifiable, Hashable, Sendable {
     package let fullName: String
     package let shortName: String
     package let kind: GitReferenceKind
+    package let peelsToCommit: Bool
     package let isCurrent: Bool
     package let upstreamShortName: String?
-    package init(fullName: String, shortName: String, kind: GitReferenceKind, isCurrent: Bool, upstreamShortName: String?) { self.fullName = fullName; self.shortName = shortName; self.kind = kind; self.isCurrent = isCurrent; self.upstreamShortName = upstreamShortName }
+    package init(
+        fullName: String,
+        shortName: String,
+        kind: GitReferenceKind,
+        peelsToCommit: Bool = true,
+        isCurrent: Bool,
+        upstreamShortName: String?
+    ) {
+        self.fullName = fullName
+        self.shortName = shortName
+        self.kind = kind
+        self.peelsToCommit = peelsToCommit
+        self.isCurrent = isCurrent
+        self.upstreamShortName = upstreamShortName
+    }
 
     package var id: String { fullName }
+    package var supportsTagDeletion: Bool { kind == .tag && peelsToCommit }
 }
 
 package struct GitStash: Identifiable, Hashable, Sendable {

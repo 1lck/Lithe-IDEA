@@ -195,6 +195,8 @@ pub enum CoreCommand {
     GitStatus,
     /// Resolves paths a Git-aware watcher must observe (`git.watchContext`).
     GitWatchContext,
+    /// Lists worktrees registered for the repository (`git.worktrees`).
+    GitWorktrees,
     /// Describes the checked-out branch or detached worktree for PR creation (`git.pullRequestContext`).
     GitPullRequestContext,
     /// Executes a caller-supplied argument vector without a shell (`git.command`).
@@ -325,6 +327,7 @@ impl CoreCommand {
             "spring.index" => Some(Self::SpringIndex),
             "git.status" => Some(Self::GitStatus),
             "git.watchContext" => Some(Self::GitWatchContext),
+            "git.worktrees" => Some(Self::GitWorktrees),
             "git.pullRequestContext" => Some(Self::GitPullRequestContext),
             "git.command" => Some(Self::GitCommand),
             "git.write" => Some(Self::GitWrite),
