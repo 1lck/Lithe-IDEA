@@ -165,7 +165,7 @@ struct EditorAreaView: View {
         .background(
             isTerminalTabBarDropTargeted
                 ? LitheTheme.accent.opacity(0.08)
-                : (model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.sidebar)
+                : (model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.editor)
         )
         .onDrop(
             of: [TerminalTabDragPayload.type],
@@ -252,6 +252,10 @@ struct EditorAreaView: View {
             case .terminal(let sessionID):
                 if let session = sessionsByID[sessionID] {
                     editorTerminalTab(session)
+                }
+            case .media(let mediaID):
+                if let media = model.openMediaDocuments.first(where: { $0.id == mediaID }) {
+                    editorMediaTab(media)
                 }
             }
         }
@@ -367,6 +371,81 @@ struct EditorAreaView: View {
         .background {
             editorTabFrameReader(for: tabItem)
         }
+        .opacity(isDragged ? 0.92 : 1)
+        .scaleEffect(isDragged ? 0.99 : 1)
+        .offset(x: isDragged ? tabDragOffsetX : 0)
+        .zIndex(isDragged ? 1 : 0)
+        .animation(tabAnimation, value: isDragged)
+    }
+
+    private func editorMediaTab(_ media: MediaDocument) -> some View {
+        let isActive = model.activeEditorTerminalSession == nil
+            && model.activeMediaDocumentID == media.id
+        let tabItem = EditorTabItem.media(media.id)
+        let isDragged = tabDragState.draggedItem == tabItem
+        let dropSide = tabReorderTarget?.item == tabItem ? tabReorderTarget?.side : nil
+
+        return HStack(spacing: 0) {
+            HStack(spacing: 7) {
+                Image(systemName: media.kind == .image ? "photo" : "film")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(isActive ? LitheTheme.accent : LitheTheme.secondaryText)
+                Text(media.displayName)
+                    .font(.system(size: 12))
+                    .foregroundStyle(isActive ? LitheTheme.primaryText : LitheTheme.secondaryText)
+                    .lineLimit(1)
+            }
+            .padding(.leading, 11)
+            .frame(height: LitheTheme.Metrics.tabHeight)
+            .contentShape(Rectangle())
+            .onTapGesture { model.selectMediaDocument(media) }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(media.displayName)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { model.selectMediaDocument(media) }
+            .gesture(horizontalTabDragGesture(for: tabItem))
+            .lithePointer()
+
+            Button {
+                model.closeMediaDocument(media)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+                    .litheRowHover(cornerRadius: 10)
+            }
+            .buttonStyle(LitheTreeRowButtonStyle())
+            .lithePointer()
+            .foregroundStyle(LitheTheme.secondaryText)
+            .opacity(isActive || hoveredTabID == media.id ? 1 : 0)
+            .allowsHitTesting(isActive || hoveredTabID == media.id)
+            .padding(.trailing, 4)
+        }
+        .onHover { isHovering in
+            hoveredTabID = isHovering ? media.id : nil
+        }
+        .background(
+            isActive
+                ? LitheTheme.activeTabBackground
+                : (dropSide == nil
+                    ? LitheTheme.inactiveTabBackground
+                    : LitheTheme.accent.opacity(0.13))
+        )
+        .overlay(alignment: .bottom) {
+            if isActive { Rectangle().fill(LitheTheme.accent).frame(height: 2) }
+        }
+        .overlay(alignment: .leading) {
+            if dropSide == .some(.before) {
+                tabDropInsertionIndicator.padding(.vertical, 5)
+            }
+        }
+        .overlay(alignment: .trailing) {
+            if dropSide == .some(.after) {
+                tabDropInsertionIndicator.padding(.vertical, 5)
+            }
+        }
+        .background { editorTabFrameReader(for: tabItem) }
         .opacity(isDragged ? 0.92 : 1)
         .scaleEffect(isDragged ? 0.99 : 1)
         .offset(x: isDragged ? tabDragOffsetX : 0)
@@ -939,7 +1018,6 @@ struct EditorAreaView: View {
         }
         .frame(width: 104, height: 26)
         .padding(.horizontal, 7)
-        .animation(.easeOut(duration: 0.12), value: hoveredMarkdownMode)
     }
 
     private var selectedMarkdownMode: MarkdownViewMode {
@@ -961,6 +1039,7 @@ struct EditorAreaView: View {
             editorTabs
 
             if model.activeEditorTerminalSession == nil,
+               model.activeMediaDocument == nil,
                let splitDocumentID,
                let splitDocument = model.openDocuments.first(where: { $0.id == splitDocumentID }) {
                 HStack(spacing: 0) {
@@ -1122,6 +1201,9 @@ struct EditorAreaView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(8)
                 .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.editor)
+        } else if let media = model.activeMediaDocument {
+            MediaViewerView(media: media)
+                .id(media.id)
         } else if let document = model.activeDocument {
             if isMarkdownFile(document) {
                 switch markdownViewModes[document.id] ?? .editor {

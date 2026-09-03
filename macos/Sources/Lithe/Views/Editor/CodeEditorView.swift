@@ -680,6 +680,7 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.requestInitialFocusIfNeeded()
 
         if let codeTextView = textView as? CodeTextView {
+            codeTextView.refreshLanguageHoverAppearance()
             let debugFeature = model.genericDebugFeatureIfActive
             codeTextView.isRunToCursorEnabled = debugFeature?.state == .paused
                 && debugFeature?.capabilities.supportsGotoTargetsRequest == true
@@ -1868,6 +1869,8 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     private var lastCaretBackgroundRanges: [NSRange] = []
     private var completionItemsByID: [String: LanguageServerCompletionItem] = [:]
     private var languageHoverPopover: NSPopover?
+    private weak var languageHoverTextView: NSTextView?
+    private weak var languageHoverScrollView: NSScrollView?
     private var debugHoverPopover: NSPopover?
     private var debugHoverWorkItem: DispatchWorkItem?
     private var pendingDebugHover: (expression: String, range: NSRange)?
@@ -1895,6 +1898,11 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     nonisolated(unsafe) private var windowResignObserver: NSObjectProtocol?
     private var caretVisible = true
     private var caretPresentationGeneration = 0
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshLanguageHoverAppearance()
+    }
 
     override func setFrameSize(_ newSize: NSSize) {
         let previousWidth = frame.width
@@ -3583,14 +3591,15 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         textView.isEditable = false
         textView.isSelectable = true
         textView.drawsBackground = false
-        textView.textColor = NSColor(white: 0.88, alpha: 1)
         textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
         textView.textContainerInset = NSSize(width: 10, height: 9)
         let scrollView = NSScrollView(frame: textView.frame)
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = true
-        scrollView.backgroundColor = NSColor(red: 0.105, green: 0.11, blue: 0.12, alpha: 1)
+        languageHoverTextView = textView
+        languageHoverScrollView = scrollView
+        refreshLanguageHoverAppearance()
         let controller = NSViewController()
         controller.view = scrollView
         controller.preferredContentSize = NSSize(width: 480, height: 220)
@@ -3600,6 +3609,16 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         popover.contentViewController = controller
         popover.show(relativeTo: caretAnchorRect(), of: self, preferredEdge: .maxY)
         languageHoverPopover = popover
+    }
+
+    fileprivate func refreshLanguageHoverAppearance() {
+        guard let textView = languageHoverTextView,
+              let scrollView = languageHoverScrollView else { return }
+        let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        textView.textColor = LitheTheme.nsColor(.primaryText, isDark: isDark)
+        scrollView.backgroundColor = LitheTheme.nsColor(.editor, isDark: isDark)
+        textView.needsDisplay = true
+        scrollView.needsDisplay = true
     }
 
     @objc private func insertLanguageCompletion(_ sender: NSMenuItem) {

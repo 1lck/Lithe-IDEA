@@ -1703,6 +1703,66 @@ struct LitheCoreLogicTests {
         #expect(opened.count == 2)
     }
 
+    @Test @MainActor
+    func staleBinaryFileOpenDoesNotCrossWorkspaceBoundaries() async throws {
+        let firstWorkspace = URL(fileURLWithPath: "/workspace-a", isDirectory: true)
+        let secondWorkspace = URL(fileURLWithPath: "/workspace-b", isDirectory: true)
+        let imageURL = firstWorkspace.appendingPathComponent("preview.png")
+        let storage = InMemoryFileStorage()
+        storage.seed(Data([0x89, 0x50, 0x4E, 0x47]), at: imageURL)
+        let operations = BlockingBinaryWorkspaceOperations()
+        let registry = BinaryFileViewerRegistry()
+        var openedURLs: [URL] = []
+        registry.register(BinaryFileViewerRegistration(
+            identifier: "test.image-viewer",
+            fileExtensions: ["png"],
+            open: { openedURLs.append($0.url) }
+        ))
+        var workspaceURL: URL? = firstWorkspace
+        let feature = DocumentFeatureModel(
+            operations: operations,
+            documentLifecycleDecider: RustDocumentLifecycleDecider(core: RustCoreBridge()),
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: storage,
+            binaryFileViewerRegistry: registry
+        )
+        feature.configure(
+            workspaceURLProvider: { workspaceURL },
+            autoSaveEnabledProvider: { false },
+            autoSaveDelayProvider: { 0 },
+            notify: { _ in },
+            onDocumentOpened: { _ in },
+            onDocumentChanged: { _ in },
+            onDocumentClosed: { _ in },
+            onRecordSave: { _, _ in },
+            onRecordDiscard: { _ in },
+            onRecordExternalChanges: { _ in },
+            onDocumentCollectionChanged: {},
+            onProjectCloseReady: {}
+        )
+
+        let openTask = Task {
+            await feature.openFileAsync(
+                imageURL,
+                isReadOnly: false,
+                displayPath: nil,
+                activateWhenReady: true
+            )
+        }
+        defer {
+            openTask.cancel()
+            operations.releaseRead()
+        }
+        try #require(await operations.waitUntilReadingStarts())
+        workspaceURL = secondWorkspace
+        feature.reset()
+        operations.releaseRead()
+        await openTask.value
+
+        #expect(!operations.didTimeOut)
+        #expect(openedURLs.isEmpty)
+    }
+
     @Test
     func languageServerTextEditsUseUTF16AndApplyFromTheEnd() throws {
         let result = try LanguageServerTextEditApplicator.apply([
@@ -4807,6 +4867,65 @@ private final class BlockingWorkspaceOperations: WorkspaceOperations, @unchecked
             return "A"
         }
         return "B"
+    }
+
+    func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }
+}
+
+private final class BlockingBinaryWorkspaceOperations: WorkspaceOperations, @unchecked Sendable {
+    private let lock = NSLock()
+    private let readStarted = TestGate()
+    private let releaseReadGate = TestGate()
+    private var timedOut = false
+
+    var didTimeOut: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return timedOut
+    }
+
+    func waitUntilReadingStarts() async -> Bool {
+        await readStarted.waitUntilOpen()
+    }
+
+    func releaseRead() {
+        releaseReadGate.open()
+    }
+
+    func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? { nil }
+
+    func search(
+        at rootURL: URL,
+        query: String,
+        options: ProjectSearchOptions,
+        visibilityRules: FileVisibilityRules
+    ) -> [FileSearchResult]? { nil }
+
+    func searchEverywhere(
+        at rootURL: URL,
+        query: String,
+        options: ProjectSearchOptions,
+        visibilityRules: FileVisibilityRules
+    ) -> SearchEverywhereResults? { nil }
+
+    func previewReplacement(
+        at rootURL: URL,
+        query: String,
+        replacement: String,
+        options: ProjectSearchOptions,
+        paths: [String],
+        textOverrides: [String: String],
+        visibilityRules: FileVisibilityRules
+    ) -> [ProjectReplacementFile]? { nil }
+
+    func readFile(at rootURL: URL, relativePath: String) -> String? {
+        readStarted.open()
+        if !releaseReadGate.waitSynchronously() {
+            lock.lock()
+            timedOut = true
+            lock.unlock()
+        }
+        return nil
     }
 
     func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }

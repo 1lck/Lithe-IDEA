@@ -2,6 +2,30 @@ import Foundation
 import LitheCoreContracts
 import LitheDebugModule
 
+enum SettingsCategory: String, CaseIterable, Identifiable {
+    case general = "General"
+    case editor = "Editor"
+    case keymap = "Keymap"
+    case terminal = "Terminal"
+    case lsp = "LSP"
+    case ai = "AI & Commit"
+    case updates = "Updates"
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .general: "gearshape"
+        case .editor: "textformat"
+        case .keymap: "keyboard"
+        case .terminal: "terminal"
+        case .lsp: "server.rack"
+        case .ai: "wand.and.stars"
+        case .updates: "arrow.down.circle"
+        }
+    }
+}
+
 /// Product-level availability switches for integrations that require external
 /// credentials or services. Keeping these switches in one place lets the UI
 /// and application model disable an integration consistently without removing
