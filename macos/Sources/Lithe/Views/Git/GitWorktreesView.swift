@@ -23,33 +23,23 @@ struct GitWorktreesView: View {
         static let quickInfoThreshold: CGFloat = 1_080
     }
 
-    private enum RemovalConfirmation: Identifiable {
-        case regular(GitWorktree)
-        case force(GitWorktree)
+    private enum WorktreeAlert: Identifiable {
+        case regularRemoval(GitWorktree)
+        case forceRemoval(GitWorktree)
+        case actionUnavailable(String)
 
         var id: String {
             switch self {
-            case .regular(let worktree): "regular:\(worktree.id)"
-            case .force(let worktree): "force:\(worktree.id)"
+            case .regularRemoval(let worktree): "regular-removal:\(worktree.id)"
+            case .forceRemoval(let worktree): "force-removal:\(worktree.id)"
+            case .actionUnavailable(let message): "action-unavailable:\(message)"
             }
         }
-
-        var worktree: GitWorktree {
-            switch self {
-            case .regular(let worktree), .force(let worktree): worktree
-            }
-        }
-    }
-
-    private struct WorktreeActionNotice: Identifiable {
-        let id = UUID()
-        let message: String
     }
 
     @EnvironmentObject private var model: AppModel
     @State private var showsCreateSheet = false
-    @State private var removalConfirmation: RemovalConfirmation?
-    @State private var worktreeActionNotice: WorktreeActionNotice?
+    @State private var worktreeAlert: WorktreeAlert?
     @State private var showsPruneConfirmation = false
     @State private var searchText = ""
     @State private var historySearchText = ""
@@ -131,9 +121,9 @@ struct GitWorktreesView: View {
                 .environmentObject(model)
             }
         }
-        .alert(item: $removalConfirmation) { confirmation in
-            switch confirmation {
-            case .regular(let worktree):
+        .alert(item: $worktreeAlert) { alert in
+            switch alert {
+            case .regularRemoval(let worktree):
                 Alert(
                     title: Text("Remove worktree?"),
                     message: Text(String(
@@ -144,10 +134,10 @@ struct GitWorktreesView: View {
                         Task { await model.removeGitWorktree(worktree, force: false) }
                     },
                     secondaryButton: .default(Text("Review Force Remove…")) {
-                        removalConfirmation = .force(worktree)
+                        presentForceRemovalWarning(for: worktree)
                     }
                 )
-            case .force(let worktree):
+            case .forceRemoval(let worktree):
                 Alert(
                     title: Text("Force remove worktree?"),
                     message: Text(String(
@@ -159,14 +149,13 @@ struct GitWorktreesView: View {
                     },
                     secondaryButton: .cancel()
                 )
+            case .actionUnavailable(let message):
+                Alert(
+                    title: Text("Worktree action unavailable"),
+                    message: Text(message),
+                    dismissButton: .default(Text("OK"))
+                )
             }
-        }
-        .alert(item: $worktreeActionNotice) { notice in
-            Alert(
-                title: Text("Worktree action unavailable"),
-                message: Text(notice.message),
-                dismissButton: .default(Text("OK"))
-            )
         }
         .confirmationDialog(
             "Prune stale worktree records?",
@@ -931,9 +920,9 @@ struct GitWorktreesView: View {
 
     private func toggleLock(for worktree: GitWorktree) {
         if worktree.isPrimary {
-            worktreeActionNotice = WorktreeActionNotice(message: String(localized: "The primary worktree cannot be locked."))
+            worktreeAlert = .actionUnavailable(String(localized: "The primary worktree cannot be locked."))
         } else if worktree.isPrunable {
-            worktreeActionNotice = WorktreeActionNotice(message: String(localized: "Repair or prune the missing checkout before changing its lock."))
+            worktreeAlert = .actionUnavailable(String(localized: "Repair or prune the missing checkout before changing its lock."))
         } else {
             Task { await model.setGitWorktreeLocked(worktree, locked: !worktree.isLocked) }
         }
@@ -942,9 +931,17 @@ struct GitWorktreesView: View {
     private func requestRemoval(for worktree: GitWorktree) {
         let reason = removalHelp(for: worktree)
         if !reason.isEmpty {
-            worktreeActionNotice = WorktreeActionNotice(message: reason)
+            worktreeAlert = .actionUnavailable(reason)
         } else {
-            removalConfirmation = .regular(worktree)
+            worktreeAlert = .regularRemoval(worktree)
+        }
+    }
+
+    private func presentForceRemovalWarning(for worktree: GitWorktree) {
+        // Present the second warning after AppKit has dismissed the regular
+        // confirmation; replacing an active alert synchronously is ignored.
+        DispatchQueue.main.async {
+            worktreeAlert = .forceRemoval(worktree)
         }
     }
 
