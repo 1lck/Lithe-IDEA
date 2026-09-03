@@ -1963,13 +1963,25 @@ package final class GitFeatureModel: ObservableObject {
                 worktree.displayName
             )
             : trimmedMessage(result))
-        if result.succeeded, gitWorktreeInspection?.worktreeID == worktree.id {
-            // Clear deleted checkout details before the registry refresh so
-            // the UI cannot keep rendering a removed path.
-            gitWorktreeInspection = nil
-            gitWorktreeInspectionLoadState = .idle
+        if result.succeeded {
+            if gitWorktreeInspection?.worktreeID == worktree.id {
+                // Clear deleted checkout details before the registry refresh so
+                // the UI cannot keep rendering a removed path.
+                gitWorktreeInspection = nil
+                gitWorktreeInspectionLoadState = .idle
+            }
+            if let removedBranch = worktree.branch,
+               selectedGitReference?.fullName == removedBranch {
+                // Removing a checkout keeps its branch, but the log should no
+                // longer remain scoped to the checkout the user just removed.
+                selectedGitReference = nil
+                isShowingAllGitReferences = false
+            }
         }
         await refreshWorktrees()
+        if result.succeeded {
+            await refreshGitHistory()
+        }
     }
 
     package func setWorktreeLocked(_ worktree: GitWorktree, locked: Bool) async {
