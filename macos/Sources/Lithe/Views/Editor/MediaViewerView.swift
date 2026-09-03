@@ -58,24 +58,20 @@ struct MediaViewerView: View {
             if let image = NSImage(contentsOf: media.url) {
                 GeometryReader { geometry in
                     let fitScale = imageFitScale(for: image, in: geometry.size)
-                    let renderedScale = imageScale ?? fitScale
+                    let renderedScale = clampedImageScale(
+                        imageScale ?? fitScale,
+                        fitScale: fitScale
+                    )
 
-                    ScrollView([.horizontal, .vertical]) {
-                        Image(nsImage: image)
-                            .resizable()
-                            .interpolation(.high)
-                            .frame(
-                                width: image.size.width * renderedScale,
-                                height: image.size.height * renderedScale
-                            )
-                            .padding(imageContentPadding)
-                            .frame(
-                                minWidth: geometry.size.width,
-                                minHeight: geometry.size.height,
-                                alignment: .center
-                            )
-                    }
-                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    MediaImageScrollView(
+                        image: image,
+                        imageID: media.id,
+                        scale: $imageScale,
+                        targetScale: renderedScale,
+                        minimumScale: min(0.25, fitScale),
+                        maximumScale: 4,
+                        contentPadding: imageContentPadding
+                    )
                     .background(checkerboard)
                     .onAppear {
                         updateImageFitScale(fitScale)
@@ -117,6 +113,14 @@ struct MediaViewerView: View {
         guard fitScale.isFinite, fitScale > 0 else { return }
         guard abs(imageFitScale - fitScale) > 0.001 else { return }
         imageFitScale = fitScale
+    }
+
+    private func clampedImageScale(
+        _ scale: CGFloat,
+        fitScale: CGFloat? = nil
+    ) -> CGFloat {
+        let minimumScale = min(0.25, fitScale ?? imageFitScale)
+        return min(max(scale, minimumScale), 4)
     }
 
     private var checkerboard: some View {
@@ -161,7 +165,7 @@ struct MediaViewerView: View {
             Spacer()
             if media.kind == .image {
                 Button {
-                    imageScale = max(0.25, currentImageScale - 0.25)
+                    imageScale = clampedImageScale(currentImageScale - 0.25)
                 } label: {
                     Image(systemName: "minus.magnifyingglass")
                 }
@@ -175,7 +179,7 @@ struct MediaViewerView: View {
                 .litheIconButton()
                 .help("Actual size")
                 Button {
-                    imageScale = min(4, currentImageScale + 0.25)
+                    imageScale = clampedImageScale(currentImageScale + 0.25)
                 } label: {
                     Image(systemName: "plus.magnifyingglass")
                 }
@@ -204,5 +208,251 @@ struct MediaViewerView: View {
         .padding(.horizontal, 12)
         .frame(height: 34)
         .background(LitheTheme.toolHeader)
+    }
+}
+
+/// Uses AppKit's image scrolling surface so trackpad panning and pinch zooming
+/// remain native and do not rebuild the surrounding editor during live gestures.
+private struct MediaImageScrollView: NSViewRepresentable {
+    let image: NSImage
+    let imageID: UUID
+    @Binding var scale: CGFloat?
+    let targetScale: CGFloat
+    let minimumScale: CGFloat
+    let maximumScale: CGFloat
+    let contentPadding: CGFloat
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(scale: $scale)
+    }
+
+    func makeNSView(context: Context) -> NativeImageScrollView {
+        let scrollView = NativeImageScrollView()
+        scrollView.onMagnificationEnded = context.coordinator.commitMagnification
+        scrollView.configure(
+            image: image,
+            imageID: imageID,
+            contentPadding: contentPadding
+        )
+        scrollView.updateMagnificationRange(
+            minimum: minimumScale,
+            maximum: maximumScale
+        )
+        scrollView.applyMagnification(targetScale, centerOnImage: true)
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NativeImageScrollView, context: Context) {
+        context.coordinator.scale = $scale
+        scrollView.onMagnificationEnded = context.coordinator.commitMagnification
+
+        let imageChanged = scrollView.configure(
+            image: image,
+            imageID: imageID,
+            contentPadding: contentPadding
+        )
+        scrollView.updateMagnificationRange(
+            minimum: minimumScale,
+            maximum: maximumScale
+        )
+        scrollView.applyMagnification(
+            targetScale,
+            centerOnImage: imageChanged
+        )
+    }
+
+    final class Coordinator {
+        var scale: Binding<CGFloat?>
+
+        init(scale: Binding<CGFloat?>) {
+            self.scale = scale
+        }
+
+        func commitMagnification(_ magnification: CGFloat) {
+            if let currentScale = scale.wrappedValue,
+               abs(currentScale - magnification) <= 0.001 {
+                return
+            }
+            scale.wrappedValue = magnification
+        }
+    }
+}
+
+private final class NativeImageScrollView: NSScrollView {
+    private let imageDocumentView = ImageDocumentView()
+    private var representedImageID: UUID?
+    private var isLiveMagnifying = false
+    private var magnificationObservers: [NSObjectProtocol] = []
+    var onMagnificationEnded: ((CGFloat) -> Void)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        drawsBackground = false
+        hasHorizontalScroller = true
+        hasVerticalScroller = true
+        autohidesScrollers = true
+        scrollerStyle = .overlay
+        allowsMagnification = true
+        contentView = CenteringClipView()
+        documentView = imageDocumentView
+        imageDocumentView.wantsLayer = true
+        imageDocumentView.layer?.backgroundColor = NSColor.clear.cgColor
+        installMagnificationObservers()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        for observer in magnificationObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
+    @discardableResult
+    func configure(
+        image: NSImage,
+        imageID: UUID,
+        contentPadding: CGFloat
+    ) -> Bool {
+        guard representedImageID != imageID else { return false }
+        representedImageID = imageID
+        imageDocumentView.configure(image: image, contentPadding: contentPadding)
+        contentView.scroll(to: imageDocumentView.bounds.origin)
+        reflectScrolledClipView(contentView)
+        return true
+    }
+
+    func updateMagnificationRange(minimum: CGFloat, maximum: CGFloat) {
+        let validMinimum = max(0.001, minimum)
+        let validMaximum = max(validMinimum, maximum)
+        if abs(minMagnification - validMinimum) > 0.001 {
+            minMagnification = validMinimum
+        }
+        if abs(maxMagnification - validMaximum) > 0.001 {
+            maxMagnification = validMaximum
+        }
+    }
+
+    func applyMagnification(_ value: CGFloat, centerOnImage: Bool) {
+        guard !isLiveMagnifying else { return }
+        let clamped = min(max(value, minMagnification), maxMagnification)
+        guard abs(magnification - clamped) > 0.001 else { return }
+        let center = centerOnImage
+            ? NSPoint(x: imageDocumentView.bounds.midX, y: imageDocumentView.bounds.midY)
+            : NSPoint(x: contentView.bounds.midX, y: contentView.bounds.midY)
+        setMagnification(clamped, centeredAt: center)
+    }
+
+    private func installMagnificationObservers() {
+        let center = NotificationCenter.default
+        magnificationObservers = [
+            center.addObserver(
+                forName: NSScrollView.willStartLiveMagnifyNotification,
+                object: self,
+                queue: .main
+            ) { [weak self] _ in
+                self?.isLiveMagnifying = true
+            },
+            center.addObserver(
+                forName: NSScrollView.didEndLiveMagnifyNotification,
+                object: self,
+                queue: .main
+            ) { [weak self] _ in
+                guard let self else { return }
+                isLiveMagnifying = false
+                onMagnificationEnded?(magnification)
+            }
+        ]
+    }
+}
+
+private final class CenteringClipView: NSClipView {
+    override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
+        var constrainedBounds = super.constrainBoundsRect(proposedBounds)
+        guard let documentView else { return constrainedBounds }
+
+        if proposedBounds.width > documentView.frame.width {
+            constrainedBounds.origin.x = (documentView.frame.width - proposedBounds.width) / 2
+        }
+        if proposedBounds.height > documentView.frame.height {
+            constrainedBounds.origin.y = (documentView.frame.height - proposedBounds.height) / 2
+        }
+        return constrainedBounds
+    }
+}
+
+private final class ImageDocumentView: NSView {
+    private let imageView = NSImageView()
+    private var dragStartLocation: NSPoint?
+    private var dragStartOrigin: NSPoint?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        imageView.imageScaling = .scaleNone
+        imageView.imageAlignment = .alignCenter
+        imageView.wantsLayer = true
+        imageView.layer?.backgroundColor = NSColor.clear.cgColor
+        addSubview(imageView)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(image: NSImage, contentPadding: CGFloat) {
+        imageView.image = image
+        imageView.frame = NSRect(
+            x: contentPadding,
+            y: contentPadding,
+            width: image.size.width,
+            height: image.size.height
+        )
+        frame.size = NSSize(
+            width: image.size.width + contentPadding * 2,
+            height: image.size.height + contentPadding * 2
+        )
+        needsDisplay = true
+        window?.invalidateCursorRects(for: self)
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: .openHand)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let scrollView = enclosingScrollView else {
+            super.mouseDown(with: event)
+            return
+        }
+        dragStartLocation = event.locationInWindow
+        dragStartOrigin = scrollView.contentView.bounds.origin
+        NSCursor.closedHand.set()
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let scrollView = enclosingScrollView,
+              let dragStartLocation,
+              let dragStartOrigin else { return }
+        let location = event.locationInWindow
+        let magnification = max(scrollView.magnification, 0.001)
+        let proposedOrigin = NSPoint(
+            x: dragStartOrigin.x - (location.x - dragStartLocation.x) / magnification,
+            y: dragStartOrigin.y - (location.y - dragStartLocation.y) / magnification
+        )
+        let proposedBounds = NSRect(origin: proposedOrigin, size: scrollView.contentView.bounds.size)
+        let constrainedBounds = scrollView.contentView.constrainBoundsRect(proposedBounds)
+        scrollView.contentView.scroll(to: constrainedBounds.origin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        dragStartLocation = nil
+        dragStartOrigin = nil
+        NSCursor.openHand.set()
     }
 }
