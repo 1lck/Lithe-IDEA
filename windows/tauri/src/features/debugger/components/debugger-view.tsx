@@ -1,5 +1,8 @@
 import {
+  ArrowDownIcon as StepIntoIcon,
+  ArrowUpIcon as StepOutIcon,
   BugIcon as Bug,
+  ArrowBendDownLeftIcon as StepOverIcon,
   FolderOpenIcon as FolderOpen,
   ListBulletsIcon as ListBullets,
   PauseIcon as Pause,
@@ -330,6 +333,69 @@ export default function DebuggerView() {
         <Bug size={16} className="text-subtle-foreground" weight="duotone" />
         <div className="min-w-0 flex-1">
           <div className="truncate font-medium ui-text-sm">{t("debugger.runAndDebug")}</div>
+        </div>
+        <div className="flex shrink-0 items-center gap-0.5 border-border/60 border-l pl-2">
+          <Button
+            variant="ghost"
+            tooltip={t("debugger.start")}
+            onClick={startDebugging}
+            disabled={!canStartDebugging || isActiveSession}
+            aria-label={t("debugger.start")}
+            size="icon-xs"
+          >
+            <Play />
+          </Button>
+          <Button
+            variant="ghost"
+            tooltip={isPaused ? t("debugger.continue") : t("debugger.pause")}
+            disabled={!canSendAdapterThreadRequest}
+            onClick={() => void sendAdapterThreadRequest(isPaused ? "continue" : "pause")}
+            aria-label={isPaused ? t("debugger.continueDebugging") : t("debugger.pauseDebugging")}
+            size="icon-xs"
+          >
+            {isPaused ? <Play /> : <Pause />}
+          </Button>
+          <Button
+            variant="ghost"
+            tooltip={t("debugger.stop")}
+            disabled={!isActiveSession}
+            onClick={stopDebugging}
+            aria-label={t("debugger.stop")}
+            size="icon-xs"
+          >
+            <Square />
+          </Button>
+          <span className="mx-1 h-4 w-px bg-border/60" />
+          <Button
+            variant="ghost"
+            tooltip={t("debugger.stepOver")}
+            disabled={!canStep}
+            onClick={() => void sendAdapterThreadRequest("next")}
+            aria-label={t("debugger.stepOver")}
+            size="icon-xs"
+          >
+            <StepOverIcon />
+          </Button>
+          <Button
+            variant="ghost"
+            tooltip={t("debugger.stepInto")}
+            disabled={!canStep}
+            onClick={() => void sendAdapterThreadRequest("stepIn")}
+            aria-label={t("debugger.stepInto")}
+            size="icon-xs"
+          >
+            <StepIntoIcon />
+          </Button>
+          <Button
+            variant="ghost"
+            tooltip={t("debugger.stepOut")}
+            disabled={!canStep}
+            onClick={() => void sendAdapterThreadRequest("stepOut")}
+            aria-label={t("debugger.stepOut")}
+            size="icon-xs"
+          >
+            <StepOutIcon />
+          </Button>
         </div>
         {activeSession ? <DebugStatusBadge status={activeSession.status} /> : null}
         <Button
