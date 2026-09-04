@@ -74,6 +74,36 @@ export function getGitReferenceActions(reference: GitReference): GitReferenceAct
   return TAG_ACTIONS;
 }
 
+export interface GitReferenceToolbarState {
+  canCreateBranch: boolean;
+  canUpdateSelected: boolean;
+  canDeleteBranch: boolean;
+  canCompareWithCurrent: boolean;
+  canFetch: boolean;
+  canToggleMark: boolean;
+}
+
+export function getGitReferenceToolbarState(
+  selectedReference: GitReference | null,
+  currentReference: GitReference | null,
+  isMutating: boolean,
+): GitReferenceToolbarState {
+  const selectedLocalBranch = selectedReference?.kind === "local" ? selectedReference : null;
+  const canUpdateSelected = Boolean(
+    selectedLocalBranch &&
+      (selectedLocalBranch.isCurrent ||
+        (selectedLocalBranch.upstreamShortName && (selectedLocalBranch.behind ?? 0) > 0)),
+  );
+  return {
+    canCreateBranch: !isMutating && Boolean(selectedReference ?? currentReference),
+    canUpdateSelected: !isMutating && canUpdateSelected,
+    canDeleteBranch: !isMutating && Boolean(selectedLocalBranch && !selectedLocalBranch.isCurrent),
+    canCompareWithCurrent: !isMutating && Boolean(selectedReference && !selectedReference.isCurrent),
+    canFetch: !isMutating,
+    canToggleMark: Boolean(selectedLocalBranch),
+  };
+}
+
 export function suggestWorktreeBranchName(reference: GitReference): string {
   const sourceParts = reference.shortName.split("/").filter(Boolean);
   const sourceName = sourceParts[sourceParts.length - 1] ?? "worktree";

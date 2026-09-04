@@ -895,6 +895,7 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
             ]
         }
         "repairWorktrees" => arguments = vec!["worktree".into(), "repair".into()],
+        "updateBranch" => return update_local_branch(&root, &request),
         "fetch" => arguments = vec!["fetch".into(), "--all".into(), "--prune".into()],
         // Strategy comes from the caller because only the user can decide whether a
         // divergent history should be merged or replayed. Absent a choice we stay on
@@ -4713,6 +4714,71 @@ fn mutate_worktree(root: &str, request: &GitWriteRequest) -> Result<GitCommandRe
     }
     arguments.extend(["--".into(), destination]);
     execute_git(root, &arguments, None)
+}
+
+fn update_local_branch(
+    root: &str,
+    request: &GitWriteRequest,
+) -> Result<GitCommandResponse, CoreError> {
+    let reference = request
+        .git_reference
+        .as_ref()
+        .ok_or_else(invalid_git_reference)
+        .and_then(|reference| validated_git_reference(root, reference))?;
+    if reference.kind != "local" {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Branch update requires a local Git reference",
+        ));
+    }
+    if is_current_reference(root, &reference.full_name)? {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "The current branch must be updated through pull",
+        ));
+    }
+
+    let upstream = execute_git_readonly(
+        root,
+        &[
+            "for-each-ref".into(),
+            "--format=%(upstream)".into(),
+            reference.full_name.clone(),
+        ],
+        None,
+    )?;
+    if upstream.exit_code != 0 {
+        return Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Could not inspect the branch upstream",
+        )
+        .with_details(upstream.output));
+    }
+    let upstream_reference = upstream.stdout.trim();
+    if upstream_reference.is_empty() {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "The selected branch has no upstream",
+        ));
+    }
+    let (remote, remote_branch) = mutations::remote_branch_components(root, upstream_reference)?;
+
+    // One atomic fetch refreshes the tracking ref and fast-forwards the selected
+    // local branch without changing HEAD. Git rejects non-fast-forward updates
+    // and branches checked out by any worktree.
+    execute_git(
+        root,
+        &[
+            "fetch".into(),
+            "--atomic".into(),
+            "--no-tags".into(),
+            "--".into(),
+            remote,
+            format!("+refs/heads/{remote_branch}:{upstream_reference}"),
+            format!("refs/heads/{remote_branch}:{}", reference.full_name),
+        ],
+        None,
+    )
 }
 
 fn configure_branch_upstream(

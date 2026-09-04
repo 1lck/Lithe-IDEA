@@ -8,7 +8,10 @@ import {
 } from "../api/git-commits-api";
 import { subscribeToGitChanges } from "../events/git-events";
 import type { GitHistorySnapshot, GitReference } from "../types/git.types";
-import { shouldRefreshGitLogForChange } from "../utils/git-log-refresh";
+import {
+  selectedReferenceAfterRemoval,
+  shouldRefreshGitLogForChange,
+} from "../utils/git-log-refresh";
 
 type GitLogLoadState = "idle" | "loading" | "ready" | "failed";
 
@@ -80,7 +83,7 @@ export function useGitLogController(repoPath: string | null) {
       else setLoadState("loading");
 
       try {
-        const [references, page] = await Promise.all([
+        const [references, initialPage] = await Promise.all([
           refreshReferences
             ? getGitReferences(repoPath, referencesOperationId)
             : Promise.resolve(null),
@@ -92,6 +95,23 @@ export function useGitLogController(repoPath: string | null) {
             reference?.fullName,
           ),
         ]);
+        let page = initialPage;
+        let resolvedReference = reference;
+        if (!page && !cursor && reference) {
+          const fallbackOperationId = `${operationPrefix}-fallback-page`;
+          activeOperationIdsRef.current.add(fallbackOperationId);
+          try {
+            page = await getGitHistoryPage(
+              repoPath,
+              undefined,
+              COMMITS_PER_PAGE,
+              fallbackOperationId,
+            );
+            if (page) resolvedReference = null;
+          } finally {
+            activeOperationIdsRef.current.delete(fallbackOperationId);
+          }
+        }
         if (requestId !== requestIdRef.current) {
           if (page?.nextCursor) void closeGitHistoryCursor(repoPath, page.nextCursor);
           else if (cursor) void closeGitHistoryCursor(repoPath, cursor);
@@ -102,6 +122,11 @@ export function useGitLogController(repoPath: string | null) {
           setLoadState("failed");
           setError(t("git.historyLoadRepositoryFailed"));
           return;
+        }
+
+        if (resolvedReference !== reference) {
+          selectedReferenceRef.current = resolvedReference;
+          setSelectedReferenceState(resolvedReference);
         }
 
         setHistory((current) => {
@@ -172,6 +197,14 @@ export function useGitLogController(repoPath: string | null) {
     [closeActiveCursor, load],
   );
 
+  const forgetReference = useCallback((reference: Pick<GitReference, "fullName">) => {
+    const currentReference = selectedReferenceRef.current;
+    const nextReference = selectedReferenceAfterRemoval(currentReference, reference.fullName);
+    if (nextReference === currentReference) return;
+    selectedReferenceRef.current = nextReference;
+    setSelectedReferenceState(nextReference);
+  }, []);
+
   const refresh = useCallback(() => {
     closeActiveCursor();
     return load({ reference: selectedReferenceRef.current });
@@ -213,6 +246,7 @@ export function useGitLogController(repoPath: string | null) {
     selectedReference,
     isLoadingMore,
     selectReference,
+    forgetReference,
     refresh,
     loadMore,
   };

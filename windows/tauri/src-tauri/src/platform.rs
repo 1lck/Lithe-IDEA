@@ -827,6 +827,29 @@ mod tests {
     }
 
     #[test]
+    fn preserves_typed_update_branch_write() {
+        let reference = json!({
+            "fullName": "refs/heads/feature/demo",
+            "shortName": "feature/demo",
+            "kind": "local"
+        });
+        let (command, payload) = translate(
+            "git.write",
+            json!({
+                "repoPath": "C:/work",
+                "operation": "updateBranch",
+                "gitReference": reference
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(command, "git.write");
+        assert_eq!(payload["root"], "C:/work");
+        assert_eq!(payload["operation"], "updateBranch");
+        assert_eq!(payload["gitReference"], reference);
+    }
+
+    #[test]
     fn translates_checkout_preflight_reference() {
         let (command, payload) = translate(
             "git_checkout_preflight",

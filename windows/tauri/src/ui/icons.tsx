@@ -546,6 +546,7 @@ export const SlidersHorizontalIcon = createIconComponent(
 );
 export const SlidersIcon = createIconComponent(Nucleo.IconSlidersOutline18, "SlidersIcon");
 export const SparkleIcon = createIconComponent(Nucleo.IconSparkleOutline18, "SparkleIcon");
+export const StarIcon = createIconComponent(Nucleo.IconStarOutline18, "StarIcon");
 export const SquareIcon = createIconComponent(Nucleo.IconShapeSquareOutline18, "SquareIcon");
 export const SquaresFourIcon = createIconComponent(
   Nucleo.IconSquareGrid2Outline18,
