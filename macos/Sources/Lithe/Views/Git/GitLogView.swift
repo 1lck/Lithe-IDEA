@@ -1177,54 +1177,28 @@ struct GitLogView: View {
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            GitGraphView(
-                                presentation: graphPresentation,
-                                selectedHash: model.selectedGitCommit?.hash,
-                                showCommitDecorations: showCommitDecorations,
-                                actions: graphRowActions
-                            )
-
-                            if model.canLoadMoreGitHistory {
-                                Button {
-                                    Task { await model.loadMoreGitHistory() }
-                                } label: {
-                                    HStack(spacing: 6) {
-                                        if model.isLoadingMoreGitHistory {
-                                            ProgressView().controlSize(.small)
-                                        }
-                                        Text(model.isLoadingMoreGitHistory ? "Loading commits…" : "Load more commits")
-                                    }
-                                    .font(.system(size: 11.5, weight: .medium))
-                                    .foregroundStyle(LitheTheme.accent)
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 32)
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                                .lithePointer()
-                            }
-                        }
+                GitGraphScrollView(
+                    presentation: graphPresentation,
+                    selectedHash: model.selectedGitCommit?.hash,
+                    showCommitDecorations: showCommitDecorations,
+                    canLoadMore: model.canLoadMoreGitHistory,
+                    isLoadingMore: model.isLoadingMoreGitHistory,
+                    actions: graphRowActions,
+                    onLoadMore: {
+                        Task { await model.loadMoreGitHistory() }
                     }
-                    .litheScrollViewChrome(hideHorizontal: true)
-                    .focusable()
-                    .focused($gitLogCommitListFocused)
-                    .gitLogFocusEffectHidden()
-                    .onMoveCommand { direction in
-                        switch direction {
-                        case .up:
-                            moveGitLogCommitSelection(by: -1)
-                        case .down:
-                            moveGitLogCommitSelection(by: 1)
-                        default:
-                            break
-                        }
-                    }
-                    .onChange(of: model.selectedGitCommit?.hash) { _ in
-                        guard let hash = model.selectedGitCommit?.hash else { return }
-                        proxy.scrollTo(hash)
+                )
+                .focusable()
+                .focused($gitLogCommitListFocused)
+                .gitLogFocusEffectHidden()
+                .onMoveCommand { direction in
+                    switch direction {
+                    case .up:
+                        moveGitLogCommitSelection(by: -1)
+                    case .down:
+                        moveGitLogCommitSelection(by: 1)
+                    default:
+                        break
                     }
                 }
             }

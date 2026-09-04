@@ -255,6 +255,103 @@ struct GitGraphPerformanceBaselineTests {
         #expect(documentView.frame.height == CGFloat(rows.count) * GitWorktreeRowsView.rowHeight)
         #expect(documentView.frame.width == scrollView.contentView.bounds.width)
     }
+
+    @Test("The Git log commit list uses one native scrolling viewport")
+    @MainActor
+    func nativeGitLogScrollContainerBaseline() {
+        let commits = SyntheticGitGraphFixture.mergeHeavy(commitCount: 5_000)
+        let layout = GitGraphLayoutService.layout(commits: commits)
+        let presentation = GitGraphPresentation(
+            rows: layout.rows,
+            routingSnapshot: GitGraphLayoutService.routingSnapshot(for: layout),
+            hasMissingParents: layout.hasMissingParents
+        )
+        let actions = GitGraphRowActions(
+            onSelect: { _ in },
+            onCherryPick: { _ in },
+            onRevert: { _ in },
+            onReset: { _ in },
+            onCreateTag: { _ in }
+        )
+        let scrollView = GitGraphScrollView.makeScrollView(
+            presentation: presentation,
+            selectedHash: presentation.rows.first?.commit.hash,
+            showCommitDecorations: true,
+            canLoadMore: true,
+            isLoadingMore: false,
+            actions: actions,
+            onLoadMore: {}
+        )
+        scrollView.frame = CGRect(x: 0, y: 0, width: 820, height: 420)
+        scrollView.layoutSubtreeIfNeeded()
+
+        #expect(scrollView.hasVerticalScroller)
+        #expect(!scrollView.hasHorizontalScroller)
+        #expect(scrollView.documentView != nil)
+        #expect(scrollView.contentView.bounds.height == 420)
+    }
+
+    @Test("The native Git log commit rows draw only the visible viewport")
+    @MainActor
+    func nativeGitLogCommitRowsFrameBaseline() throws {
+        let commits = SyntheticGitGraphFixture.mergeHeavy(commitCount: 5_000)
+        let layout = GitGraphLayoutService.layout(commits: commits)
+        let rowsView = GitGraphCommitRowsNSView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 620,
+            height: CGFloat(layout.rows.count) * 30
+        ))
+        let actions = GitGraphRowActions(
+            onSelect: { _ in },
+            onCherryPick: { _ in },
+            onRevert: { _ in },
+            onReset: { _ in },
+            onCreateTag: { _ in }
+        )
+        rowsView.update(
+            rows: layout.rows,
+            selectedHash: layout.rows[2_500].commit.hash,
+            showDecorations: true,
+            graphWidth: 96,
+            rowHeight: 30,
+            actions: actions
+        )
+        let viewport = CGRect(x: 0, y: 2_500 * 30, width: 620, height: 420)
+        let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: 620,
+            pixelsHigh: 420,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bitmapFormat: [],
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        )!
+        let context = NSGraphicsContext(bitmapImageRep: bitmap)!
+        let clock = ContinuousClock()
+        var samples: [Double] = []
+        samples.reserveCapacity(10)
+        for _ in 0..<10 {
+            let start = clock.now
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = context
+            rowsView.draw(viewport)
+            NSGraphicsContext.restoreGraphicsState()
+            samples.append(milliseconds(clock.now - start))
+        }
+        let sorted = samples.sorted()
+        let median = sorted[sorted.count / 2]
+        let p95 = sorted[Int(ceil(Double(sorted.count) * 0.95)) - 1]
+        print(
+            "Git log native rows: total=\(layout.rows.count), visible=14, samples=\(samples.count), median=\(String(format: "%.3f", median))ms, p95=\(String(format: "%.3f", p95))ms"
+        )
+        #expect(median < 30)
+        #expect(p95 < 100)
+    }
 }
 
 @MainActor
