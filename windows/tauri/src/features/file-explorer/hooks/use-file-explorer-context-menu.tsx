@@ -23,6 +23,7 @@ import {
 } from "@/ui/icons";
 import { useCallback, useMemo, useState } from "react";
 import { writeClipboardText } from "@/utils/clipboard";
+import { isMarkdownPreviewableFile } from "@/features/editor/markdown/previewable";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { readFile as readTextFile, writeFile } from "@/features/file-system/controllers/platform";
 import {
@@ -289,7 +290,6 @@ export function useFileExplorerContextMenu({
       items.push({ id: "sep-dir", label: "", separator: true, onClick: () => {} });
     } else {
       const fileName = getBaseName(contextMenu.path, "");
-      const isMarkdownFile = /\.(md|markdown|rmd)$/i.test(fileName);
       const canCreateEnvTemplate =
         isEnvFileName(fileName) &&
         !contextMenu.path.startsWith("remote://") &&
@@ -302,7 +302,7 @@ export function useFileExplorerContextMenu({
           icon: <FolderOpen />,
           onClick: () => onFileSelect(contextMenu.path, false),
         },
-        ...(isMarkdownFile
+        ...(isMarkdownPreviewableFile(contextMenu.path)
           ? [
               {
                 id: "open-preview",
