@@ -1,5 +1,38 @@
 import Foundation
 
+package enum MavenSourceRootKind: String, CaseIterable, Identifiable, Hashable, Sendable {
+    case mainJava
+    case mainResources
+    case testJava
+    case testResources
+    case generatedMain
+    case generatedTest
+
+    package var id: String { rawValue }
+    package var title: String {
+        switch self {
+        case .mainJava: "main Java"
+        case .mainResources: "main resources"
+        case .testJava: "test Java"
+        case .testResources: "test resources"
+        case .generatedMain: "generated main"
+        case .generatedTest: "generated test"
+        }
+    }
+}
+
+package struct MavenSourceRoot: Identifiable, Hashable, Sendable {
+    package let path: String
+    package let kind: MavenSourceRootKind
+
+    package init(path: String, kind: MavenSourceRootKind) {
+        self.path = path
+        self.kind = kind
+    }
+
+    package var id: String { "\(kind.rawValue):\(path)" }
+}
+
 package struct MavenProject: Identifiable, Hashable, Sendable {
     package let rootURL: URL
     package let pomURL: URL
@@ -7,6 +40,7 @@ package struct MavenProject: Identifiable, Hashable, Sendable {
     package let artifactID: String
     package let version: String?
     package let packaging: String
+    package let sourceRoots: [MavenSourceRoot]
     package let modules: [MavenModule]
     package let profiles: [MavenProfile]
     package let hasWrapper: Bool
@@ -20,7 +54,8 @@ package struct MavenProject: Identifiable, Hashable, Sendable {
         packaging: String,
         modules: [MavenModule],
         profiles: [MavenProfile],
-        hasWrapper: Bool
+        hasWrapper: Bool,
+        sourceRoots: [MavenSourceRoot] = []
     ) {
         self.rootURL = rootURL
         self.pomURL = pomURL
@@ -28,6 +63,7 @@ package struct MavenProject: Identifiable, Hashable, Sendable {
         self.artifactID = artifactID
         self.version = version
         self.packaging = packaging
+        self.sourceRoots = sourceRoots
         self.modules = modules
         self.profiles = profiles
         self.hasWrapper = hasWrapper
@@ -46,6 +82,7 @@ package struct MavenModule: Identifiable, Hashable, Sendable {
     package let artifactID: String
     package let version: String?
     package let packaging: String
+    package let sourceRoots: [MavenSourceRoot]
     package let modules: [MavenModule]
 
     package init(
@@ -55,7 +92,8 @@ package struct MavenModule: Identifiable, Hashable, Sendable {
         artifactID: String,
         version: String?,
         packaging: String,
-        modules: [MavenModule]
+        modules: [MavenModule],
+        sourceRoots: [MavenSourceRoot] = []
     ) {
         self.relativePath = relativePath
         self.url = url
@@ -63,6 +101,7 @@ package struct MavenModule: Identifiable, Hashable, Sendable {
         self.artifactID = artifactID
         self.version = version
         self.packaging = packaging
+        self.sourceRoots = sourceRoots
         self.modules = modules
     }
 

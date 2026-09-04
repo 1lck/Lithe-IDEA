@@ -174,7 +174,36 @@ pub struct MavenModuleResponse {
     pub artifact_id: String,
     pub version: Option<String>,
     pub packaging: String,
+    pub source_roots: Vec<MavenSourceRootResponse>,
     pub modules: Vec<MavenModuleResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// One Maven source root relative to its owning module.
+pub struct MavenSourceRootResponse {
+    /// Module-relative path using `/` separators.
+    pub path: String,
+    /// Semantic source-set used by project and Java tooling views.
+    pub kind: MavenSourceRootKind,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Maven source-root categories kept distinct for main, test, and generated code.
+pub enum MavenSourceRootKind {
+    /// Production Java sources.
+    MainJava,
+    /// Production resource files.
+    MainResources,
+    /// Test Java sources.
+    TestJava,
+    /// Test resource files.
+    TestResources,
+    /// Generated production sources.
+    GeneratedMain,
+    /// Generated test sources.
+    GeneratedTest,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -186,6 +215,7 @@ pub struct MavenScanResponse {
     pub artifact_id: String,
     pub version: Option<String>,
     pub packaging: String,
+    pub source_roots: Vec<MavenSourceRootResponse>,
     pub modules: Vec<MavenModuleResponse>,
     pub profiles: Vec<MavenProfileResponse>,
     pub has_wrapper: bool,
