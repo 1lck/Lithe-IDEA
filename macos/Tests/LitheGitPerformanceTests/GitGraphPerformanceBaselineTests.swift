@@ -228,6 +228,33 @@ struct GitGraphPerformanceBaselineTests {
         #expect(median < 30)
         #expect(p95 < 100)
     }
+
+    @Test("The Worktree rows container owns one native scrolling viewport")
+    @MainActor
+    func nativeWorktreeRowsScrollContainerBaseline() throws {
+        let rows = (0..<5_000).map { index in
+            GitWorktreeRowsSnapshot.Row.commit(
+                subject: "Synthetic worktree commit \(index)",
+                author: "Lithe Performance Fixture",
+                date: "2026/09/05 00:00"
+            )
+        }
+        let snapshot = GitWorktreeRowsSnapshot(
+            identity: .history(inspectionVersion: 1, query: ""),
+            rows: rows
+        )
+        let scrollView = GitWorktreeRowsScrollView.makeScrollView(snapshot: snapshot)
+        scrollView.frame = CGRect(x: 0, y: 0, width: 900, height: 420)
+        scrollView.layoutSubtreeIfNeeded()
+        let documentView = try #require(scrollView.documentView as? GitWorktreeRowsNSView)
+        documentView.updateLayout(width: scrollView.contentView.bounds.width)
+
+        #expect(scrollView.documentView === documentView)
+        #expect(scrollView.hasVerticalScroller)
+        #expect(!scrollView.hasHorizontalScroller)
+        #expect(documentView.frame.height == CGFloat(rows.count) * GitWorktreeRowsView.rowHeight)
+        #expect(documentView.frame.width == scrollView.contentView.bounds.width)
+    }
 }
 
 @MainActor

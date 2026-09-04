@@ -36,6 +36,41 @@ struct GitWorktreeRowsView: NSViewRepresentable {
     }
 }
 
+/// Owns the scrolling viewport for Worktree rows. Keeping NSScrollView as the
+/// only scroll container means wheel events update the clip view bounds without
+/// rebuilding the surrounding SwiftUI detail hierarchy.
+struct GitWorktreeRowsScrollView: NSViewRepresentable {
+    let snapshot: GitWorktreeRowsSnapshot
+
+    func makeNSView(context: Context) -> NSScrollView {
+        Self.makeScrollView(snapshot: snapshot)
+    }
+
+    static func makeScrollView(snapshot: GitWorktreeRowsSnapshot) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.hasHorizontalScroller = false
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.scrollerStyle = .overlay
+        scrollView.horizontalScrollElasticity = .none
+        scrollView.verticalScrollElasticity = .allowed
+
+        let documentView = GitWorktreeRowsNSView()
+        documentView.autoresizingMask = [.width]
+        scrollView.documentView = documentView
+        documentView.update(snapshot: snapshot, rowHeight: GitWorktreeRowsView.rowHeight)
+        return scrollView
+    }
+
+    func updateNSView(_ nsView: NSScrollView, context: Context) {
+        guard let documentView = nsView.documentView as? GitWorktreeRowsNSView else { return }
+        documentView.update(snapshot: snapshot, rowHeight: GitWorktreeRowsView.rowHeight)
+        documentView.updateLayout(width: nsView.contentView.bounds.width)
+    }
+}
+
 /// A single native drawing surface replaces one SwiftUI subtree per row. Its
 /// dirty-rect range is the scrolling contract: moving the viewport visits only
 /// the visible rows rather than rebuilding the entire Worktree section.
@@ -59,8 +94,7 @@ final class GitWorktreeRowsNSView: NSView {
     required init?(coder: NSCoder) { nil }
 
     func update(snapshot: GitWorktreeRowsSnapshot, rowHeight: CGFloat) {
-        guard self.snapshot.identity != snapshot.identity
-                || self.rowHeight != rowHeight else { return }
+        guard self.snapshot != snapshot || self.rowHeight != rowHeight else { return }
         self.snapshot = snapshot
         self.rowHeight = rowHeight
         setAccessibilityLabel(snapshot.accessibilityLabel)
@@ -68,6 +102,17 @@ final class GitWorktreeRowsNSView: NSView {
             format: String(localized: "%lld rows"),
             snapshot.rows.count
         ))
+        needsDisplay = true
+    }
+
+    func updateLayout(width: CGFloat) {
+        guard width.isFinite, width > 0 else { return }
+        let documentSize = CGSize(
+            width: width,
+            height: CGFloat(snapshot.rows.count) * rowHeight
+        )
+        guard frame.size != documentSize else { return }
+        setFrameSize(documentSize)
         needsDisplay = true
     }
 

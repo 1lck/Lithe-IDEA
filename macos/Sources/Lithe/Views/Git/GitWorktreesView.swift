@@ -507,9 +507,9 @@ struct GitWorktreesView: View {
 
     @ViewBuilder
     private func sectionContent(_ worktree: GitWorktree) -> some View {
-        ScrollView {
-            switch activeSection {
-            case .overview:
+        switch activeSection {
+        case .overview:
+            ScrollView {
                 VStack(spacing: 12) {
                     HStack(alignment: .top, spacing: 12) {
                         basicInformationCard(worktree)
@@ -517,16 +517,22 @@ struct GitWorktreesView: View {
                     }
                     actionCard(worktree)
                 }
-            case .changes:
-                changesSection(worktree)
-            case .history:
-                historySection(worktree)
-            case .settings:
+            }
+            .padding(14)
+            .litheScrollViewChrome()
+        case .changes:
+            changesSection(worktree)
+                .padding(14)
+        case .history:
+            historySection(worktree)
+                .padding(14)
+        case .settings:
+            ScrollView {
                 settingsSection(worktree)
             }
+            .padding(14)
+            .litheScrollViewChrome()
         }
-        .padding(14)
-        .litheScrollViewChrome()
     }
 
     private func basicInformationCard(_ worktree: GitWorktree) -> some View {
@@ -614,9 +620,8 @@ struct GitWorktreesView: View {
             } else if inspection.changes.isEmpty {
                 worktreeMessage(icon: "checkmark.circle", title: "No local changes", detail: "This worktree has no uncommitted changes.")
             } else {
-                worktreeCard(title: "Changes") {
-                    GitWorktreeRowsView(snapshot: projectedChangesSnapshot)
-                        .frame(height: CGFloat(projectedChangesSnapshot.rows.count) * GitWorktreeRowsView.rowHeight)
+                worktreeScrollableCard(title: "Changes") {
+                    GitWorktreeRowsScrollView(snapshot: projectedChangesSnapshot)
                 }
             }
         } else {
@@ -632,7 +637,7 @@ struct GitWorktreesView: View {
             if inspection.commits.isEmpty {
                 worktreeMessage(icon: "clock.arrow.circlepath", title: "No commits", detail: "No commits were found for this branch.")
             } else {
-                worktreeCard(title: "Commit History") {
+                worktreeScrollableCard(title: "Commit History") {
                     let query = historySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
                     let snapshot = projectedHistorySnapshot
                     VStack(alignment: .leading, spacing: 10) {
@@ -644,9 +649,10 @@ struct GitWorktreesView: View {
                                 .font(Visual.metadata)
                                 .foregroundStyle(LitheTheme.secondaryText)
                                 .padding(.vertical, 8)
+                        } else {
+                            GitWorktreeRowsScrollView(snapshot: snapshot)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
-                        GitWorktreeRowsView(snapshot: snapshot)
-                            .frame(height: CGFloat(snapshot.rows.count) * GitWorktreeRowsView.rowHeight)
                         if query.isEmpty && inspection.hasMoreCommits {
                             Button {
                                 guard !isLoadingMoreHistory else { return }
@@ -719,6 +725,26 @@ struct GitWorktreesView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(LitheTheme.raised)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay {
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(LitheTheme.panelBorder, lineWidth: 1)
+        }
+    }
+
+    private func worktreeScrollableCard<Content: View>(
+        title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 11) {
+            Text(LocalizedStringKey(title))
+                .font(Visual.section)
+                .foregroundStyle(LitheTheme.primaryText)
+            content()
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(LitheTheme.raised)
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .overlay {
