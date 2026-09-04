@@ -11,12 +11,29 @@
     "relativePath": ".",
     "artifactId": "demo",
     "packaging": "pom",
+    "sourceRoots": [],
     "modules": [
       {
         "relativePath": "module-a",
+        "sourceRoots": [
+          { "path": "src/main/java", "kind": "mainJava" },
+          { "path": "src/main/resources", "kind": "mainResources" },
+          { "path": "src/test/java", "kind": "testJava" },
+          { "path": "src/test/resources", "kind": "testResources" },
+          { "path": "target/generated-sources", "kind": "generatedMain" },
+          { "path": "target/generated-test-sources", "kind": "generatedTest" }
+        ],
         "modules": [
           {
-            "relativePath": "module-a/module-b"
+            "relativePath": "module-a/module-b",
+            "sourceRoots": [
+              { "path": "src/main/java", "kind": "mainJava" },
+              { "path": "src/main/resources", "kind": "mainResources" },
+              { "path": "src/test/java", "kind": "testJava" },
+              { "path": "src/test/resources", "kind": "testResources" },
+              { "path": "target/generated-sources", "kind": "generatedMain" },
+              { "path": "target/generated-test-sources", "kind": "generatedTest" }
+            ]
           }
         ]
       }
