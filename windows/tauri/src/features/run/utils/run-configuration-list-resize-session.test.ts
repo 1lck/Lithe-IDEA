@@ -83,7 +83,7 @@ describe("run configuration list resize session", () => {
 
     target.dispatch("pointerup", new Event("pointerup"));
     expect(committed).toEqual([270]);
-    expect(active.at(-1)).toBe(false);
+    expect(active[active.length - 1]).toBe(false);
     expect(bodyStyle.cursor).toBe("");
     expect(bodyStyle.userSelect).toBe("");
     expect(target.listeners.get("pointermove")?.size ?? 0).toBe(0);
