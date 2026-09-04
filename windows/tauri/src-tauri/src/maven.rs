@@ -31,6 +31,8 @@ pub struct MavenLocalConfiguration {
     #[serde(default)]
     pub settings_path: Option<String>,
     #[serde(default)]
+    pub local_repository_path: Option<String>,
+    #[serde(default)]
     pub maven_executable_path: Option<String>,
     #[serde(default)]
     pub java_home_path: Option<String>,

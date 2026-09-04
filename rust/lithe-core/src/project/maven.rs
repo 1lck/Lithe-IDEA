@@ -45,6 +45,8 @@ pub struct MavenLaunchContextRequest {
     #[serde(default)]
     pub settings_path: Option<String>,
     #[serde(default)]
+    pub local_repository_path: Option<String>,
+    #[serde(default)]
     pub skip_tests: bool,
     #[serde(default)]
     pub maven_executable_path: Option<String>,
@@ -82,6 +84,7 @@ struct ValidatedMavenContext {
     canonical_reactor: PathBuf,
     profiles: Vec<String>,
     settings_path: Option<String>,
+    local_repository_path: Option<String>,
     skip_tests: bool,
     maven_executable_path: Option<String>,
     java_home_path: Option<String>,
@@ -134,6 +137,7 @@ pub(crate) fn launch_plan_with_arguments(
     let arguments = maven_arguments(
         &validated.profiles,
         validated.settings_path.as_deref(),
+        validated.local_repository_path.as_deref(),
         module.as_deref(),
         also_make,
         validated.skip_tests,
@@ -143,6 +147,7 @@ pub(crate) fn launch_plan_with_arguments(
         &validated.reactor_path,
         &validated.profiles,
         validated.settings_path.as_deref(),
+        validated.local_repository_path.as_deref(),
         validated.skip_tests,
         validated.maven_executable_path.as_deref(),
         validated.java_home_path.as_deref(),
@@ -240,6 +245,10 @@ fn validated_maven_context(
         canonical_reactor,
         profiles: normalized_profiles(context.profiles)?,
         settings_path: normalized_local_path(context.settings_path, "Maven settings")?,
+        local_repository_path: normalized_local_path(
+            context.local_repository_path,
+            "Maven local repository",
+        )?,
         skip_tests: context.skip_tests,
         maven_executable_path: normalized_local_path(
             context.maven_executable_path,
@@ -253,6 +262,7 @@ fn validated_maven_context(
 pub(crate) fn maven_arguments(
     profiles: &[String],
     settings_path: Option<&str>,
+    local_repository_path: Option<&str>,
     module: Option<&str>,
     also_make: bool,
     skip_tests: bool,
@@ -264,6 +274,9 @@ pub(crate) fn maven_arguments(
     }
     if let Some(settings_path) = settings_path {
         arguments.extend(["-s".to_string(), settings_path.to_string()]);
+    }
+    if let Some(local_repository_path) = local_repository_path {
+        arguments.push(format!("-Dmaven.repo.local={local_repository_path}"));
     }
     if let Some(module) = module.filter(|value| *value != ".") {
         arguments.extend(["-pl".to_string(), module.to_string()]);
@@ -359,6 +372,7 @@ fn maven_context_fingerprint(
     reactor_path: &str,
     profiles: &[String],
     settings_path: Option<&str>,
+    local_repository_path: Option<&str>,
     skip_tests: bool,
     maven_executable_path: Option<&str>,
     java_home_path: Option<&str>,
@@ -369,6 +383,7 @@ fn maven_context_fingerprint(
         reactor_path.to_string(),
         profiles.join(","),
         settings_path.unwrap_or_default().to_string(),
+        local_repository_path.unwrap_or_default().to_string(),
         skip_tests.to_string(),
         maven_executable_path.unwrap_or_default().to_string(),
         java_home_path.unwrap_or_default().to_string(),
